@@ -14,6 +14,9 @@ describe("resolvePlatformRuntimePlan", () => {
     });
 
     expect(resolved.runtime.selectedRecipeId).toBe("doc_ingest");
+    expect(resolved.runtime.selectedProfileId).toBe("builder");
+    expect(resolved.runtime.taskOverlayId).toBe("document_first");
+    expect(resolved.runtime.plannerReasoning).toContain("doc_ingest");
     expect(resolved.runtime.timeoutSeconds).toBe(180);
     expect(resolved.runtime.prependSystemContext).toContain("Execution recipe: doc_ingest.");
     expect(resolved.runtime.prependContext).toContain("Planner reasoning:");

@@ -6,6 +6,8 @@ import { planExecutionRecipe, type ExecutionPlan } from "./planner.js";
 export type RecipeRuntimePlan = {
   selectedRecipeId: string;
   selectedProfileId: string;
+  taskOverlayId?: string;
+  plannerReasoning?: string;
   providerOverride?: string;
   modelOverride?: string;
   fallbackModels?: string[];
@@ -49,6 +51,10 @@ export function adaptExecutionPlanToRuntime(plan: ExecutionPlan): RecipeRuntimeP
   return {
     selectedRecipeId: plan.recipe.id,
     selectedProfileId: plan.profile.selectedProfile.id,
+    ...(plan.profile.activeProfile.taskOverlay
+      ? { taskOverlayId: plan.profile.activeProfile.taskOverlay }
+      : {}),
+    ...(plan.plannerOutput.reasoning ? { plannerReasoning: plan.plannerOutput.reasoning } : {}),
     ...(parsedModel?.provider ? { providerOverride: parsedModel.provider } : {}),
     ...(parsedModel?.model ? { modelOverride: parsedModel.model } : {}),
     ...(plan.recipe.fallbackModels?.length ? { fallbackModels: plan.recipe.fallbackModels } : {}),
