@@ -37,21 +37,17 @@ describe("ExecutionRecipeSchema", () => {
   });
 
   it("rejects empty acceptedInputs", () => {
-    expect(
-      ExecutionRecipeSchema.safeParse({ ...minimal, acceptedInputs: [] }).success,
-    ).toBe(false);
+    expect(ExecutionRecipeSchema.safeParse({ ...minimal, acceptedInputs: [] }).success).toBe(false);
   });
 
   it("rejects unknown riskLevel", () => {
-    expect(
-      ExecutionRecipeSchema.safeParse({ ...minimal, riskLevel: "extreme" }).success,
-    ).toBe(false);
+    expect(ExecutionRecipeSchema.safeParse({ ...minimal, riskLevel: "extreme" }).success).toBe(
+      false,
+    );
   });
 
   it("rejects extra fields (strict)", () => {
-    expect(
-      ExecutionRecipeSchema.safeParse({ ...minimal, bonus: true }).success,
-    ).toBe(false);
+    expect(ExecutionRecipeSchema.safeParse({ ...minimal, bonus: true }).success).toBe(false);
   });
 });
 

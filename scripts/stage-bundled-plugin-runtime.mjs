@@ -60,7 +60,10 @@ function linkOrCopyFile(sourcePath, targetPath) {
       throw error;
     }
     try {
-      if (fs.lstatSync(targetPath).isSymbolicLink() && fs.readlinkSync(targetPath) === targetValue) {
+      if (
+        fs.lstatSync(targetPath).isSymbolicLink() &&
+        fs.readlinkSync(targetPath) === targetValue
+      ) {
         return;
       }
     } catch {

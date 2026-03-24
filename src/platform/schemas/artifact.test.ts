@@ -34,39 +34,44 @@ describe("ArtifactDescriptorSchema", () => {
   });
 
   it("rejects unknown kind", () => {
-    expect(
-      ArtifactDescriptorSchema.safeParse({ ...minimal, kind: "spreadsheet" }).success,
-    ).toBe(false);
+    expect(ArtifactDescriptorSchema.safeParse({ ...minimal, kind: "spreadsheet" }).success).toBe(
+      false,
+    );
   });
 
   it("rejects invalid lifecycle", () => {
-    expect(
-      ArtifactDescriptorSchema.safeParse({ ...minimal, lifecycle: "pending" }).success,
-    ).toBe(false);
+    expect(ArtifactDescriptorSchema.safeParse({ ...minimal, lifecycle: "pending" }).success).toBe(
+      false,
+    );
   });
 
   it("rejects invalid url", () => {
-    expect(
-      ArtifactDescriptorSchema.safeParse({ ...minimal, url: "not-a-url" }).success,
-    ).toBe(false);
+    expect(ArtifactDescriptorSchema.safeParse({ ...minimal, url: "not-a-url" }).success).toBe(
+      false,
+    );
   });
 
   it("rejects negative sizeBytes", () => {
-    expect(
-      ArtifactDescriptorSchema.safeParse({ ...minimal, sizeBytes: -1 }).success,
-    ).toBe(false);
+    expect(ArtifactDescriptorSchema.safeParse({ ...minimal, sizeBytes: -1 }).success).toBe(false);
   });
 
   it("rejects extra fields (strict)", () => {
-    expect(
-      ArtifactDescriptorSchema.safeParse({ ...minimal, bonus: true }).success,
-    ).toBe(false);
+    expect(ArtifactDescriptorSchema.safeParse({ ...minimal, bonus: true }).success).toBe(false);
   });
 });
 
 describe("ArtifactOperationSchema", () => {
   it("accepts all valid operations", () => {
-    for (const op of ["create", "update", "version", "preview", "publish", "approve", "retain", "delete"]) {
+    for (const op of [
+      "create",
+      "update",
+      "version",
+      "preview",
+      "publish",
+      "approve",
+      "retain",
+      "delete",
+    ]) {
       expect(ArtifactOperationSchema.safeParse(op).success).toBe(true);
     }
   });

@@ -4,13 +4,13 @@ overview: Спроектировать автоматическое опреде
 todos:
   - id: design-profile-model
     content: Описать модель base/session/task profile.
-    status: pending
+    status: completed
   - id: define-scoring-signals
     content: Зафиксировать сигналы и правила automatic profile scoring.
-    status: pending
+    status: completed
   - id: define-policy-foundation
     content: Определить базовые policy decisions и safety boundaries.
-    status: pending
+    status: completed
 isProject: false
 ---
 

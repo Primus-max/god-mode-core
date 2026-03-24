@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { Profile } from "./profile.js";
-import type { ExecutionRecipe } from "./recipe.js";
-import type { CapabilityDescriptor } from "./capability.js";
 import type { ArtifactDescriptor } from "./artifact.js";
+import type { CapabilityDescriptor } from "./capability.js";
 import {
   ProfileSchema,
   ExecutionRecipeSchema,
   CapabilityDescriptorSchema,
   ArtifactDescriptorSchema,
 } from "./index.js";
+import type { Profile } from "./profile.js";
+import type { ExecutionRecipe } from "./recipe.js";
 
 const BASELINE_PROFILES: Profile[] = [
   {
@@ -93,12 +93,24 @@ const BASELINE_RECIPES: ExecutionRecipe[] = [
 const BASELINE_CAPABILITIES: CapabilityDescriptor[] = [
   { id: "node", label: "Node.js", status: "available", trusted: true },
   { id: "git", label: "Git", status: "available", trusted: true },
-  { id: "pdf-parser", label: "PDF Parser", status: "missing", trusted: true, installMethod: "node" },
+  {
+    id: "pdf-parser",
+    label: "PDF Parser",
+    status: "missing",
+    trusted: true,
+    installMethod: "node",
+  },
 ];
 
 const BASELINE_ARTIFACTS: ArtifactDescriptor[] = [
   { id: "example-doc", kind: "document", label: "Example Document", lifecycle: "draft" },
-  { id: "example-release", kind: "release", label: "Example Release", lifecycle: "published", version: 1 },
+  {
+    id: "example-release",
+    kind: "release",
+    label: "Example Release",
+    lifecycle: "published",
+    version: 1,
+  },
 ];
 
 describe("baseline profile descriptors", () => {

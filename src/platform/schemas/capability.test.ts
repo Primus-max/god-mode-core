@@ -33,21 +33,19 @@ describe("CapabilityDescriptorSchema", () => {
   });
 
   it("rejects unknown status", () => {
-    expect(
-      CapabilityDescriptorSchema.safeParse({ ...minimal, status: "broken" }).success,
-    ).toBe(false);
+    expect(CapabilityDescriptorSchema.safeParse({ ...minimal, status: "broken" }).success).toBe(
+      false,
+    );
   });
 
   it("rejects unknown os value", () => {
-    expect(
-      CapabilityDescriptorSchema.safeParse({ ...minimal, os: ["freebsd"] }).success,
-    ).toBe(false);
+    expect(CapabilityDescriptorSchema.safeParse({ ...minimal, os: ["freebsd"] }).success).toBe(
+      false,
+    );
   });
 
   it("rejects extra fields (strict)", () => {
-    expect(
-      CapabilityDescriptorSchema.safeParse({ ...minimal, extra: 1 }).success,
-    ).toBe(false);
+    expect(CapabilityDescriptorSchema.safeParse({ ...minimal, extra: 1 }).success).toBe(false);
   });
 });
 

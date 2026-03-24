@@ -1,7 +1,7 @@
+import type { ArtifactDescriptor, ArtifactOperation } from "../schemas/artifact.js";
+import type { CapabilityDescriptor } from "../schemas/capability.js";
 import type { Profile, ProfileId } from "../schemas/profile.js";
 import type { ExecutionRecipe } from "../schemas/recipe.js";
-import type { CapabilityDescriptor } from "../schemas/capability.js";
-import type { ArtifactDescriptor, ArtifactOperation } from "../schemas/artifact.js";
 
 export interface ProfileRegistry {
   get(id: ProfileId): Profile | undefined;

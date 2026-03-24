@@ -11,6 +11,7 @@ without modifying upstream code.
 `runAgentAttempt` which dispatches to CLI or embedded runner.
 
 **Platform hook:** Wrap `prepareAgentCommandExecution` to inject:
+
 - Active profile state (`ActiveProfileState`) from profile resolver
 - Task overlay resolution before model selection
 - Recipe selection via planner output
@@ -27,11 +28,13 @@ with profile + recipe context. No core patch needed.
 around `runEmbeddedAttempt`.
 
 **Platform hooks (existing):**
+
 - `before_model_resolve` — inject model override based on profile/recipe
 - `before_prompt_build` — inject profile-specific system prompt sections
 - `llm_input` / `llm_output` — audit, policy enforcement, artifact extraction
 
 **Platform hooks (new, via plugin API):**
+
 - `before_recipe_execute` — validate recipe prerequisites
 - `after_recipe_execute` — artifact capture, publish triggers
 
@@ -56,6 +59,7 @@ provider in config (`models.providers`), not a code change.
 
 **Platform hook:** The platform layer IS a plugin (or set of plugins).
 It registers:
+
 - Profile resolver hook
 - Recipe planner hook
 - Capability bootstrap service
@@ -72,6 +76,7 @@ All via `OpenClawPluginApi` methods: `registerTool`, `registerService`,
 **What core does:** Serve OpenAI-compatible HTTP API, WS control protocol.
 
 **Platform hook:** `registerHttpRoute` and `registerGatewayMethod` for:
+
 - `/platform/profiles` — list/switch profiles
 - `/platform/artifacts` — artifact CRUD
 - `/platform/capabilities` — capability status
@@ -100,16 +105,16 @@ The registry already supports dynamic locale registration.
 
 ## Summary: What stays in core vs platform
 
-| Layer | In Core (upstream-safe) | In Platform (extensions) |
-|-------|------------------------|--------------------------|
-| Agent dispatch | `agent-command.ts` | Profile/recipe pre-processing hook |
-| Model selection | `model-selection.ts` | Profile-based model hints |
-| Runner loop | `pi-embedded-runner/run.ts` | Hooks for recipe/artifact/policy |
-| Plugin system | `plugins/types.ts` + loader | Platform plugin registration |
-| Gateway API | `openai-http.ts` | Platform HTTP routes |
-| Security | `audit.ts` | Policy engine rules |
-| UI | i18n registry | Russian locale + platform UI pages |
-| Config | Zod schemas | Platform schemas in `src/platform/` |
+| Layer           | In Core (upstream-safe)     | In Platform (extensions)            |
+| --------------- | --------------------------- | ----------------------------------- |
+| Agent dispatch  | `agent-command.ts`          | Profile/recipe pre-processing hook  |
+| Model selection | `model-selection.ts`        | Profile-based model hints           |
+| Runner loop     | `pi-embedded-runner/run.ts` | Hooks for recipe/artifact/policy    |
+| Plugin system   | `plugins/types.ts` + loader | Platform plugin registration        |
+| Gateway API     | `openai-http.ts`            | Platform HTTP routes                |
+| Security        | `audit.ts`                  | Policy engine rules                 |
+| UI              | i18n registry               | Russian locale + platform UI pages  |
+| Config          | Zod schemas                 | Platform schemas in `src/platform/` |
 
 ## Key principle
 

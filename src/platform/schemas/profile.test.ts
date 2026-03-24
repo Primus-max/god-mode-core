@@ -9,7 +9,14 @@ import {
 
 describe("ProfileIdSchema", () => {
   it("accepts valid profile ids", () => {
-    for (const id of ["builder", "developer", "integrator", "operator", "media_creator", "general"]) {
+    for (const id of [
+      "builder",
+      "developer",
+      "integrator",
+      "operator",
+      "media_creator",
+      "general",
+    ]) {
       expect(ProfileIdSchema.safeParse(id).success).toBe(true);
     }
   });

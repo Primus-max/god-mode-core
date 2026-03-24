@@ -1,4 +1,8 @@
-import type { ArtifactDescriptor, ArtifactLifecycle, ArtifactOperation } from "../schemas/artifact.js";
+import type {
+  ArtifactDescriptor,
+  ArtifactLifecycle,
+  ArtifactOperation,
+} from "../schemas/artifact.js";
 import { ArtifactDescriptorSchema } from "../schemas/artifact.js";
 import type { ArtifactStore } from "./types.js";
 

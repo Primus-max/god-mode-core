@@ -76,8 +76,6 @@ ArtifactRt --> Publish["Publish Release Delivery"]
 Publish --> User
 ```
 
-
-
 ## 8 платформенных модулей
 
 ### 1. Unified Product Facade
