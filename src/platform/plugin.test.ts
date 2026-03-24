@@ -42,6 +42,7 @@ describe("platform profile plugin", () => {
       messages: [],
     });
     expect(result?.prependSystemContext).toContain("Active specialist profile");
+    expect(result?.prependSystemContext).toContain("Execution recipe:");
     expect(result?.prependSystemContext).toContain("hidden permissions");
   });
 });

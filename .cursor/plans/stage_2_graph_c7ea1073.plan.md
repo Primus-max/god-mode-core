@@ -4,16 +4,16 @@ overview: Ввести execution graph как registry recipes, а не набо
 todos:
   - id: define-recipe-schema
     content: Зафиксировать schema execution recipe descriptor.
-    status: pending
+    status: completed
   - id: implement-recipe-registry-design
     content: Описать registry resolution flow и adapter boundaries.
-    status: pending
+    status: completed
   - id: wire-orchestration-runtime
     content: Подключить recipe/planner к agent/runner path и зарегистрировать platform plugin(s) в bundled metadata/loader (включая carryover Stage 1 `platform-profile-foundation`, если ещё не в metadata).
-    status: pending
+    status: completed
   - id: define-stage2-regression-tests
     content: Подготовить набор regression/protocol тестов для recipe routing.
-    status: pending
+    status: completed
 isProject: false
 ---
 

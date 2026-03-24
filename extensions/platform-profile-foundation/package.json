@@ -1,0 +1,12 @@
+{
+  "name": "@openclaw/platform-profile-foundation",
+  "version": "2026.3.22",
+  "private": true,
+  "description": "Platform profile and execution recipe foundation plugin.",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
