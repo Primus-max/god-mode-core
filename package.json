@@ -805,6 +805,7 @@
     "@types/ws": "^8.18.1",
     "@typescript/native-preview": "7.0.0-dev.20260322.1",
     "@vitest/coverage-v8": "^4.1.0",
+    "cross-env": "^7.0.3",
     "jscpd": "4.0.8",
     "jsdom": "^29.0.1",
     "lit": "^3.3.2",
@@ -815,8 +816,7 @@
     "tsdown": "0.21.4",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.0",
-    "cross-env": "^7.0.3"
+    "vitest": "^4.1.0"
   },
   "peerDependencies": {
     "@napi-rs/canvas": "^0.1.89",

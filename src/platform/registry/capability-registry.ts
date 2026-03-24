@@ -2,9 +2,7 @@ import type { CapabilityDescriptor } from "../schemas/capability.js";
 import { CapabilityDescriptorSchema } from "../schemas/capability.js";
 import type { CapabilityRegistry } from "./types.js";
 
-export function createCapabilityRegistry(
-  initial: CapabilityDescriptor[] = [],
-): CapabilityRegistry {
+export function createCapabilityRegistry(initial: CapabilityDescriptor[] = []): CapabilityRegistry {
   const store = new Map<string, CapabilityDescriptor>();
 
   for (const descriptor of initial) {

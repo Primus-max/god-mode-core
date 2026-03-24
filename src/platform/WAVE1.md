@@ -5,7 +5,6 @@ architecture baseline established in Stage 0.
 
 ## Stage 0 deliverables (done)
 
-
 | File                                           | Purpose                                              |
 | ---------------------------------------------- | ---------------------------------------------------- |
 | `src/platform/schemas/profile.ts`              | Profile, TaskOverlay, ActiveProfileState Zod schemas |
@@ -22,11 +21,9 @@ architecture baseline established in Stage 0.
 | `src/platform/SEAMS.md`                        | Extension seam map (core vs platform)                |
 | `src/platform/WAVE1.md`                        | This file                                            |
 
-
 ## Stage 1 implementation targets
 
 ### 1.1 Profile resolver
-
 
 | File (to create)                        | Purpose                                               |
 | --------------------------------------- | ----------------------------------------------------- |
@@ -36,18 +33,14 @@ architecture baseline established in Stage 0.
 | `src/platform/profile/resolver.test.ts` | Unit tests for resolver logic                         |
 | `src/platform/profile/signals.test.ts`  | Unit tests for signal extraction                      |
 
-
 ### 1.2 Task overlay engine
-
 
 | File (to create)                       | Purpose                                     |
 | -------------------------------------- | ------------------------------------------- |
 | `src/platform/profile/overlay.ts`      | Apply task overlay on top of active profile |
 | `src/platform/profile/overlay.test.ts` | Unit tests for overlay application          |
 
-
 ### 1.3 Policy engine (v1 — deterministic rules)
-
 
 | File (to create)                     | Purpose                                |
 | ------------------------------------ | -------------------------------------- |
@@ -56,20 +49,16 @@ architecture baseline established in Stage 0.
 | `src/platform/policy/types.ts`       | PolicyRule, PolicyDecision types       |
 | `src/platform/policy/engine.test.ts` | Unit tests for policy evaluation       |
 
-
 ### 1.4 Platform plugin (wiring into OpenClaw hooks)
-
 
 | File (to create)              | Purpose                                           |
 | ----------------------------- | ------------------------------------------------- |
 | `src/platform/plugin.ts`      | `register(api)` entry — wire profile/policy hooks |
 | `src/platform/plugin.test.ts` | Integration test for hook registration            |
 
-
 ### 1.5 Core hooks needed (upstream-safe additions)
 
 These hooks exist or can be added as generic, small upstream PRs:
-
 
 | Hook name              | Where it fires              | Platform use                |
 | ---------------------- | --------------------------- | --------------------------- |
@@ -78,14 +67,11 @@ These hooks exist or can be added as generic, small upstream PRs:
 | `before_prompt_build`  | embedded runner             | Add profile system prompt   |
 | `llm_output`           | embedded runner             | Extract artifact signals    |
 
-
 ### 1.6 Russian locale (Stage 7, but foundation here)
-
 
 | File (to create)            | Purpose                     |
 | --------------------------- | --------------------------- |
 | `ui/src/i18n/locales/ru.ts` | Russian translation strings |
-
 
 ## Dependencies
 
@@ -100,4 +86,3 @@ These hooks exist or can be added as generic, small upstream PRs:
 - Policy engine: deterministic rule evaluation, no LLM
 - Plugin wiring: mock `OpenClawPluginApi`, verify hook registration
 - Snapshot: baseline descriptor identity (done in Stage 0)
-

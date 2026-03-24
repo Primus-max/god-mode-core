@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createProfileRegistry } from "./profile-registry.js";
-import { createRecipeRegistry } from "./recipe-registry.js";
-import { createCapabilityRegistry } from "./capability-registry.js";
-import { createArtifactStore } from "./artifact-store.js";
+import type { ArtifactDescriptor } from "../schemas/artifact.js";
+import type { CapabilityDescriptor } from "../schemas/capability.js";
 import type { Profile } from "../schemas/profile.js";
 import type { ExecutionRecipe } from "../schemas/recipe.js";
-import type { CapabilityDescriptor } from "../schemas/capability.js";
-import type { ArtifactDescriptor } from "../schemas/artifact.js";
+import { createArtifactStore } from "./artifact-store.js";
+import { createCapabilityRegistry } from "./capability-registry.js";
+import { createProfileRegistry } from "./profile-registry.js";
+import { createRecipeRegistry } from "./recipe-registry.js";
 
 const builderProfile: Profile = {
   id: "builder",
@@ -88,7 +88,7 @@ describe("ProfileRegistry contract", () => {
 
   it("rejects invalid profiles at registration", () => {
     const reg = createProfileRegistry();
-    expect(() => reg.register({ id: "invalid" } as Profile)).toThrow();
+    expect(() => reg.register({ id: "invalid" } as unknown as Profile)).toThrow();
   });
 });
 

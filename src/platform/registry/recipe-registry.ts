@@ -23,8 +23,8 @@ export function createRecipeRegistry(initial: ExecutionRecipe[] = []): RecipeReg
       store.set(recipe.id, recipe);
     },
     findByCapability(capabilityId) {
-      return Array.from(store.values()).filter(
-        (r) => r.requiredCapabilities?.includes(capabilityId),
+      return Array.from(store.values()).filter((r) =>
+        r.requiredCapabilities?.includes(capabilityId),
       );
     },
     findByProfile(profileId: ProfileId) {
