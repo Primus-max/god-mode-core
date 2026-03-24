@@ -1,0 +1,39 @@
+{
+  "route": "ocr_extract",
+  "artifacts": [
+    {
+      "type": "extraction",
+      "sourceArtifactId": "permit-scan.png",
+      "plainText": "Permit No. 18-204-A\npermit number: 18-204-A\nApproved? yes\nEstimated Cost: $12,450",
+      "fields": [
+        {
+          "key": "Permit No.",
+          "label": "Permit No.",
+          "valueType": "string",
+          "value": "18-204-A",
+          "confidence": 0.81
+        },
+        {
+          "key": "permit number",
+          "label": "Permit Number",
+          "valueType": "string",
+          "value": "18-204-A",
+          "confidence": 0.96
+        },
+        {
+          "key": "Approved?",
+          "label": "Approved?",
+          "valueType": "boolean",
+          "value": "yes",
+          "confidence": 0.9
+        },
+        {
+          "key": "Estimated Cost",
+          "label": "Estimated Cost",
+          "valueType": "currency",
+          "value": "$12,450"
+        }
+      ]
+    }
+  ]
+}

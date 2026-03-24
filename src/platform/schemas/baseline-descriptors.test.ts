@@ -76,6 +76,35 @@ const BASELINE_RECIPES: ExecutionRecipe[] = [
     riskLevel: "low",
   },
   {
+    id: "ocr_extract",
+    purpose: "Extract structured text and fields from scans and image-heavy documents",
+    acceptedInputs: [
+      { type: "file", required: true, description: "Scan or image-heavy document to process" },
+      { type: "text", description: "OCR extraction instructions" },
+    ],
+    producedArtifacts: [{ type: "data", description: "OCR extraction output" }],
+    requiredCapabilities: ["ocr-engine"],
+    riskLevel: "low",
+  },
+  {
+    id: "table_extract",
+    purpose: "Extract tables and spreadsheet-like structures into structured rows",
+    acceptedInputs: [
+      {
+        type: "file",
+        required: true,
+        description: "Spreadsheet, table image, or table-heavy document",
+      },
+      { type: "text", description: "Table extraction instructions" },
+    ],
+    producedArtifacts: [
+      { type: "data", description: "Structured table rows" },
+      { type: "report", description: "Table extraction summary" },
+    ],
+    requiredCapabilities: ["table-parser"],
+    riskLevel: "low",
+  },
+  {
     id: "code_build_publish",
     purpose: "Build, test, and publish code artifacts",
     acceptedInputs: [{ type: "text", required: true }],
@@ -96,6 +125,20 @@ const BASELINE_CAPABILITIES: CapabilityDescriptor[] = [
   {
     id: "pdf-parser",
     label: "PDF Parser",
+    status: "missing",
+    trusted: true,
+    installMethod: "node",
+  },
+  {
+    id: "ocr-engine",
+    label: "OCR Engine",
+    status: "missing",
+    trusted: true,
+    installMethod: "download",
+  },
+  {
+    id: "table-parser",
+    label: "Table Parser",
     status: "missing",
     trusted: true,
     installMethod: "node",
@@ -142,6 +185,8 @@ describe("baseline recipe descriptors", () => {
       [
         "general_reasoning",
         "doc_ingest",
+        "ocr_extract",
+        "table_extract",
         "code_build_publish",
       ]
     `);
@@ -159,6 +204,8 @@ describe("baseline capability descriptors", () => {
         "node:available",
         "git:available",
         "pdf-parser:missing",
+        "ocr-engine:missing",
+        "table-parser:missing",
       ]
     `);
   });

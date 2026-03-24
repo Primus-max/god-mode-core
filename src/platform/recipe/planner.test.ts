@@ -30,6 +30,32 @@ describe("planExecutionRecipe", () => {
     expect(plan.recipe.id).toBe("code_build_publish");
   });
 
+  it("selects ocr_extract for scan-heavy document work", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Run OCR on this scanned invoice image and extract the totals",
+      fileNames: ["invoice-scan.png"],
+      artifactKinds: ["document"],
+      baseProfile: "general",
+      intent: "document",
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).toBe("ocr_extract");
+  });
+
+  it("selects table_extract for spreadsheet-heavy document work", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Extract the table rows from this spreadsheet and export them",
+      fileNames: ["estimate.xlsx"],
+      artifactKinds: ["document", "data"],
+      baseProfile: "general",
+      intent: "document",
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).toBe("table_extract");
+  });
+
   it("falls back to general_reasoning for lightweight chat", () => {
     const plan = planExecutionRecipe({
       prompt: "Tell me a joke about robots",

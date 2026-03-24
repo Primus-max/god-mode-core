@@ -1,0 +1,26 @@
+{
+  "route": "ocr_extract",
+  "artifacts": [
+    {
+      "type": "extraction",
+      "sourceArtifactId": "scan-01.png",
+      "plainText": "Permit No. 18-204-A\nInspector: J. Doe\nStatus: Approved",
+      "fields": [
+        {
+          "key": "permit_number",
+          "label": "Permit Number",
+          "valueType": "string",
+          "value": "18-204-A",
+          "confidence": 0.96
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "valueType": "string",
+          "value": "Approved",
+          "confidence": 0.91
+        }
+      ]
+    }
+  ]
+}

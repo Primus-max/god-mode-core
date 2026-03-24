@@ -29,6 +29,46 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
     timeoutSeconds: 180,
   },
   {
+    id: "ocr_extract",
+    purpose: "Extract structured text and fields from scans and image-heavy documents",
+    summary: "Use OCR-first flow when the source is a scan, screenshot, or image-dominant page.",
+    acceptedInputs: [
+      { type: "file", required: true, description: "Scan or image-heavy document to process" },
+      { type: "text", description: "OCR extraction instructions" },
+    ],
+    producedArtifacts: [{ type: "data", description: "OCR extraction output" }],
+    requiredCapabilities: ["ocr-engine"],
+    allowedProfiles: ["builder", "general"],
+    riskLevel: "low",
+    systemPrompt:
+      "Use OCR-first reasoning. Recover text faithfully, then normalize it into structured fields.",
+    timeoutSeconds: 240,
+  },
+  {
+    id: "table_extract",
+    purpose: "Extract tables and spreadsheet-like structures into structured rows",
+    summary:
+      "Use table-first flow when the task is dominated by rows, columns, or tabular exports.",
+    acceptedInputs: [
+      {
+        type: "file",
+        required: true,
+        description: "Spreadsheet, table image, or table-heavy document",
+      },
+      { type: "text", description: "Table extraction instructions" },
+    ],
+    producedArtifacts: [
+      { type: "data", description: "Structured table rows" },
+      { type: "report", description: "Table extraction summary" },
+    ],
+    requiredCapabilities: ["table-parser"],
+    allowedProfiles: ["builder", "general"],
+    riskLevel: "low",
+    systemPrompt:
+      "Use table-first reasoning. Preserve row and column structure before summarizing totals or trends.",
+    timeoutSeconds: 210,
+  },
+  {
     id: "code_build_publish",
     purpose: "Build, test, and publish code artifacts",
     summary: "Work repo-first and validate changes before publish when possible.",
