@@ -109,6 +109,8 @@ const BASELINE_RECIPES: ExecutionRecipe[] = [
     purpose: "Build, test, and publish code artifacts",
     acceptedInputs: [{ type: "text", required: true }],
     producedArtifacts: [
+      { type: "report", description: "Build/test execution summary" },
+      { type: "site", description: "Preview deployment or preview URL" },
       { type: "binary", description: "Built artifact" },
       { type: "release", description: "Published release" },
     ],

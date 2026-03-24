@@ -74,6 +74,8 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
     summary: "Work repo-first and validate changes before publish when possible.",
     acceptedInputs: [{ type: "text", required: true }],
     producedArtifacts: [
+      { type: "report", description: "Build/test execution summary" },
+      { type: "site", description: "Preview deployment or preview URL" },
       { type: "binary", description: "Built artifact" },
       { type: "release", description: "Published release" },
     ],

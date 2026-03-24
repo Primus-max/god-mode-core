@@ -1,0 +1,11 @@
+{
+  "route": "code_build_publish",
+  "artifacts": [
+    {
+      "type": "preview",
+      "target": "vercel",
+      "url": "https://preview.example.com/build-42",
+      "summary": "Preview deployment is ready for QA."
+    }
+  ]
+}

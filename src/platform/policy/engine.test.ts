@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveDeveloperCredentialGate } from "../developer/index.js";
 import { getInitialProfile } from "../profile/defaults.js";
 import { applyTaskOverlay } from "../profile/overlay.js";
 import { evaluatePolicy } from "./engine.js";
@@ -49,6 +50,31 @@ describe("evaluatePolicy", () => {
       ),
       publishTargets: ["github"],
       intent: "publish",
+      explicitApproval: false,
+    });
+    expect(decision.allowPublish).toBe(false);
+    expect(decision.requireExplicitApproval).toBe(true);
+  });
+
+  it("does not let credential bindings bypass publish approval", () => {
+    const profile = getInitialProfile("developer")!;
+    const gate = resolveDeveloperCredentialGate({
+      id: "github-release",
+      target: "github",
+      credentialKind: "oauth",
+      bindingScope: "persistent",
+      source: "auth_profile",
+      authProfileId: "github-release",
+    });
+    const decision = evaluatePolicy({
+      activeProfileId: profile.id,
+      activeProfile: profile,
+      effective: applyTaskOverlay(
+        profile,
+        profile.taskOverlays?.find((overlay) => overlay.id === "publish_release"),
+      ),
+      intent: gate.policyIntent,
+      publishTargets: gate.publishTargets,
       explicitApproval: false,
     });
     expect(decision.allowPublish).toBe(false);
