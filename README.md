@@ -107,6 +107,10 @@ pnpm openclaw onboard --install-daemon
 pnpm gateway:watch
 ```
 
+**Check Control UI from this clone:** after `pnpm build`, run `pnpm gateway:dev` (channels skipped for a quicker start). In the log line **`[gateway] listening on ws://127.0.0.1:<port>`** use that same **`<port>`** and open **`http://127.0.0.1:<port>/`** in a browser (dev configs often pick a port like **19001** so they do not fight a separate install on the default **18789**). You can also run `pnpm openclaw dashboard` from the repo. Dev scripts use `cross-env` so **`pnpm gateway:dev` works the same on Windows (PowerShell/cmd), macOS, and Linux** — WSL is **not** required for this.
+
+**Global `openclaw` vs this repo:** keeping `npm i -g openclaw` is fine. To verify **this fork’s code**, run gateway from the repo with `pnpm gateway:dev` or `pnpm openclaw …` so you use the local tree + build, not whatever version is installed globally.
+
 Note: `pnpm openclaw ...` runs TypeScript directly (via `tsx`). `pnpm build` produces `dist/` for running via Node / the packaged `openclaw` binary.
 
 ## Security defaults (DM access)

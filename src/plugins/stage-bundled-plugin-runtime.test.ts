@@ -229,7 +229,11 @@ describe("stageBundledPluginRuntime", () => {
     expect(fs.readFileSync(runtimePackagePath, "utf8")).toContain('"extensions": [');
     expect(fs.lstatSync(runtimeManifestPath).isSymbolicLink()).toBe(false);
     expect(fs.readFileSync(runtimeManifestPath, "utf8")).toBe("{}\n");
-    expect(fs.lstatSync(runtimeAssetPath).isSymbolicLink()).toBe(true);
+    const assetStat = fs.lstatSync(runtimeAssetPath);
+    // Windows may copy non-JS assets when symlinks are blocked (EPERM).
+    expect(assetStat.isSymbolicLink() || (process.platform === "win32" && assetStat.isFile())).toBe(
+      true,
+    );
     expect(fs.readFileSync(runtimeAssetPath, "utf8")).toBe("ok\n");
   });
 
@@ -360,8 +364,12 @@ describe("stageBundledPluginRuntime", () => {
       "feishu-doc",
       "SKILL.md",
     );
-    expect(fs.lstatSync(runtimeSkillPath).isSymbolicLink()).toBe(true);
+    const skillStat = fs.lstatSync(runtimeSkillPath);
     expect(fs.readFileSync(runtimeSkillPath, "utf8")).toBe("# Feishu Doc\n");
+    // Unix: symlink after EEXIST retry; Windows: symlink if allowed else copy fallback.
+    expect(skillStat.isSymbolicLink() || (process.platform === "win32" && skillStat.isFile())).toBe(
+      true,
+    );
 
     symlinkSpy.mockRestore();
   });
