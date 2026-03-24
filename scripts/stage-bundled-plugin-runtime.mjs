@@ -34,8 +34,56 @@ function ensureSymlink(targetValue, targetPath, type) {
   fs.symlinkSync(targetValue, targetPath, type);
 }
 
-function symlinkPath(sourcePath, targetPath, type) {
-  ensureSymlink(relativeSymlinkTarget(sourcePath, targetPath), targetPath, type);
+/** Windows often denies file symlinks without Developer Mode / admin — copy instead. */
+function symlinkDenied(error) {
+  return process.platform === "win32" && (error?.code === "EPERM" || error?.code === "EACCES");
+}
+
+/**
+ * Symlink a file into the runtime overlay; fall back to copying on Windows when symlinks are blocked.
+ * @param {string} sourcePath
+ * @param {string} targetPath
+ */
+function linkOrCopyFile(sourcePath, targetPath) {
+  const targetValue = relativeSymlinkTarget(sourcePath, targetPath);
+  const attemptLink = () => {
+    fs.symlinkSync(targetValue, targetPath);
+  };
+  try {
+    attemptLink();
+  } catch (error) {
+    if (symlinkDenied(error)) {
+      fs.copyFileSync(sourcePath, targetPath);
+      return;
+    }
+    if (error?.code !== "EEXIST") {
+      throw error;
+    }
+    try {
+      if (
+        fs.lstatSync(targetPath).isSymbolicLink() &&
+        fs.readlinkSync(targetPath) === targetValue
+      ) {
+        return;
+      }
+    } catch {
+      // Fall through and recreate the target when inspection fails.
+    }
+    removePathIfExists(targetPath);
+    try {
+      attemptLink();
+    } catch (err2) {
+      if (symlinkDenied(err2)) {
+        fs.copyFileSync(sourcePath, targetPath);
+        return;
+      }
+      throw err2;
+    }
+  }
+}
+
+function symlinkPath(sourcePath, targetPath) {
+  linkOrCopyFile(sourcePath, targetPath);
 }
 
 function shouldWrapRuntimeJsFile(sourcePath) {
@@ -85,7 +133,15 @@ function stagePluginRuntimeOverlay(sourceDir, targetDir) {
     }
 
     if (dirent.isSymbolicLink()) {
-      ensureSymlink(fs.readlinkSync(sourcePath), targetPath);
+      try {
+        ensureSymlink(fs.readlinkSync(sourcePath), targetPath);
+      } catch (error) {
+        if (symlinkDenied(error)) {
+          fs.copyFileSync(sourcePath, targetPath);
+        } else {
+          throw error;
+        }
+      }
       continue;
     }
 

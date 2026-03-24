@@ -45,6 +45,7 @@ import {
 } from "../infra/agent-events.js";
 import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
+import { resolvePlatformRuntimePlan } from "../platform/recipe/runtime-adapter.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { applyVerboseOverride } from "../sessions/level-overrides.js";
@@ -542,6 +543,10 @@ async function prepareAgentCommandExecution(
     throw new Error("Message (--message) is required");
   }
   const body = prependInternalEventContext(message, opts.internalEvents);
+  const platformRuntimePlan = resolvePlatformRuntimePlan({
+    prompt: body,
+    baseProfile: "general",
+  });
   if (!opts.to && !opts.sessionId && !opts.sessionKey && !opts.agentId) {
     throw new Error("Pass --to <E.164>, --session-id, or --agent to choose a session");
   }
@@ -621,7 +626,7 @@ async function prepareAgentCommandExecution(
       ? Number.parseInt(String(opts.timeout), 10)
       : isSubagentLane
         ? 0
-        : undefined;
+        : platformRuntimePlan.runtime.timeoutSeconds;
   if (
     timeoutSecondsRaw !== undefined &&
     (Number.isNaN(timeoutSecondsRaw) || timeoutSecondsRaw < 0)
@@ -682,6 +687,7 @@ async function prepareAgentCommandExecution(
 
   return {
     body,
+    platformRuntimePlan,
     cfg,
     normalizedSpawned,
     agentCfg,
@@ -715,6 +721,7 @@ async function agentCommandInternal(
   const prepared = await prepareAgentCommandExecution(opts, runtime);
   const {
     body,
+    platformRuntimePlan,
     cfg,
     normalizedSpawned,
     agentCfg,
@@ -963,8 +970,8 @@ async function agentCommandInternal(
       configuredDefaultRef.provider,
       configuredDefaultRef.model,
     );
-    let provider = defaultProvider;
-    let model = defaultModel;
+    let provider = platformRuntimePlan.runtime.providerOverride ?? defaultProvider;
+    let model = platformRuntimePlan.runtime.modelOverride ?? defaultModel;
     const hasAllowlist = agentCfg?.models && Object.keys(agentCfg.models).length > 0;
     const hasStoredOverride = Boolean(
       sessionEntry?.modelOverride || sessionEntry?.providerOverride,
@@ -1166,6 +1173,8 @@ async function agentCommandInternal(
         agentId: sessionAgentId,
         hasSessionModelOverride: Boolean(storedModelOverride),
       });
+      const fallbackOverride =
+        platformRuntimePlan.runtime.fallbackModels ?? effectiveFallbacksOverride;
 
       // Track model fallback attempts so retries on an existing session don't
       // re-inject the original prompt as a duplicate user message.
@@ -1176,7 +1185,7 @@ async function agentCommandInternal(
         model,
         runId,
         agentDir,
-        fallbacksOverride: effectiveFallbacksOverride,
+        fallbacksOverride: fallbackOverride,
         run: (providerOverride, modelOverride, runOptions) => {
           const isFallbackRetry = fallbackAttemptIndex > 0;
           fallbackAttemptIndex += 1;

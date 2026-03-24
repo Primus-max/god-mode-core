@@ -20,6 +20,7 @@
   "channel-runtime",
   "interactive-runtime",
   "outbound-runtime",
+  "platform-runtime",
   "infra-runtime",
   "ssrf-runtime",
   "media-runtime",

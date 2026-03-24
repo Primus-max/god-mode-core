@@ -1,0 +1,10 @@
+{
+  "id": "platform-profile-foundation",
+  "name": "Platform Profile Foundation",
+  "description": "Profile, policy, and execution recipe foundation hooks.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
