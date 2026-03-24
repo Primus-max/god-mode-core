@@ -1,0 +1,48 @@
+export {
+  ProfileIdSchema,
+  ProfileSchema,
+  TaskOverlaySchema,
+  ProfileScoringSignalSchema,
+  ActiveProfileStateSchema,
+  PROFILE_IDS,
+  type ProfileId,
+  type Profile,
+  type TaskOverlay,
+  type ProfileScoringSignal,
+  type ActiveProfileState,
+} from "./profile.js";
+
+export {
+  ExecutionRecipeSchema,
+  PlannerOutputSchema,
+  RecipeInputSchema,
+  RecipeOutputSchema,
+  RiskLevelSchema,
+  type ExecutionRecipe,
+  type PlannerOutput,
+  type RecipeInput,
+  type RecipeOutput,
+  type RiskLevel,
+} from "./recipe.js";
+
+export {
+  CapabilityDescriptorSchema,
+  CapabilityCatalogEntrySchema,
+  CapabilityStatusSchema,
+  CapabilityInstallMethodSchema,
+  type CapabilityDescriptor,
+  type CapabilityCatalogEntry,
+  type CapabilityStatus,
+  type CapabilityInstallMethod,
+} from "./capability.js";
+
+export {
+  ArtifactDescriptorSchema,
+  ArtifactKindSchema,
+  ArtifactLifecycleSchema,
+  ArtifactOperationSchema,
+  type ArtifactDescriptor,
+  type ArtifactKind,
+  type ArtifactLifecycle,
+  type ArtifactOperation,
+} from "./artifact.js";
