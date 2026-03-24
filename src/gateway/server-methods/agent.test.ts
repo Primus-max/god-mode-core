@@ -570,6 +570,30 @@ describe("gateway agent handler", () => {
     resetTimeConfig();
   });
 
+  it("preserves document-heavy ingress prompts for downstream recipe planning", async () => {
+    primeMainAgentRun();
+
+    await invokeAgent(
+      {
+        message: "Parse this PDF estimate into a report and summarize the tables",
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        idempotencyKey: "test-stage2-doc-routing",
+      },
+      { reqId: "stage2-doc-routing-1" },
+    );
+
+    await waitForAssertion(() => expect(mocks.agentCommand).toHaveBeenCalled());
+    const callArgs = mocks.agentCommand.mock.calls.at(-1)?.[0] as
+      | { message?: string; senderIsOwner?: boolean; allowModelOverride?: boolean }
+      | undefined;
+    expect(callArgs?.message).toContain(
+      "Parse this PDF estimate into a report and summarize the tables",
+    );
+    expect(callArgs?.senderIsOwner).toBe(false);
+    expect(callArgs?.allowModelOverride).toBe(false);
+  });
+
   it.each([
     {
       name: "passes senderIsOwner=false for write-scoped gateway callers",

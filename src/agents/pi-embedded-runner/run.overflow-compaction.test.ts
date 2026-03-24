@@ -98,6 +98,40 @@ describe("runEmbeddedPiAgent overflow compaction trigger routing", () => {
     );
   });
 
+  it("passes structured platform execution context into hook evaluation", async () => {
+    mockedGlobalHookRunner.hasHooks.mockImplementation(
+      (hookName) => hookName === "before_model_resolve",
+    );
+    mockedRunEmbeddedAttempt.mockResolvedValueOnce(makeAttemptResult({ promptError: null }));
+
+    await runEmbeddedPiAgent({
+      ...overflowBaseRunParams,
+      runId: "run-platform-context",
+      platformExecutionContext: {
+        selectedRecipeId: "doc_ingest",
+        selectedProfileId: "builder",
+        taskOverlayId: "document_first",
+        plannerReasoning: "doc_ingest matched the document-heavy prompt.",
+        timeoutSeconds: 180,
+        fallbackModels: ["anthropic/claude-sonnet-4.6"],
+      },
+    });
+
+    expect(mockedGlobalHookRunner.runBeforeModelResolve).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "hello" }),
+      expect.objectContaining({
+        platformExecution: {
+          profileId: "builder",
+          recipeId: "doc_ingest",
+          taskOverlayId: "document_first",
+          plannerReasoning: "doc_ingest matched the document-heavy prompt.",
+          timeoutSeconds: 180,
+          fallbackModels: ["anthropic/claude-sonnet-4.6"],
+        },
+      }),
+    );
+  });
+
   it("passes resolved auth profile into run attempts for context-engine afterTurn propagation", async () => {
     mockedRunEmbeddedAttempt.mockResolvedValueOnce(makeAttemptResult({ promptError: null }));
 
