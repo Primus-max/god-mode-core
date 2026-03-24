@@ -71,6 +71,13 @@ describe("document artifact projection", () => {
       label: "Document Ingest extraction 1",
       sourceRecipeId: "doc_ingest",
     });
+    expect(projected[0]?.metadata).toMatchObject({
+      route: "doc_ingest",
+      normalizedDocumentPayload: expect.objectContaining({
+        type: "extraction",
+        fieldCount: 2,
+      }),
+    });
     expect(projected[1]).toMatchObject({
       kind: "report",
       mimeType: "text/markdown",

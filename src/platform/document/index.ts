@@ -49,3 +49,26 @@ export {
   projectDocumentArtifacts,
   resetCapturedDocumentArtifacts,
 } from "./artifact-projection.js";
+
+export {
+  NormalizedDocumentArtifactSchema,
+  NormalizedDocumentExportSchema,
+  NormalizedDocumentExtractionSchema,
+  NormalizedDocumentFieldSchema,
+  NormalizedDocumentReportSchema,
+  NormalizedDocumentTableSchema,
+  normalizeDocumentArtifact,
+  normalizeDocumentArtifacts,
+  type NormalizedDocumentArtifact,
+  type NormalizedDocumentArtifactBundle,
+  type NormalizedDocumentExport,
+  type NormalizedDocumentExtraction,
+  type NormalizedDocumentField,
+  type NormalizedDocumentReport,
+  type NormalizedDocumentReportArtifact,
+  type NormalizedDocumentTable,
+} from "./normalize.js";
+
+export { canonicalizeFieldKey, normalizeExtractedFields } from "./normalize-fields.js";
+export { normalizePreviewRows, normalizeTables } from "./normalize-tables.js";
+export { normalizeReport } from "./normalize-report.js";

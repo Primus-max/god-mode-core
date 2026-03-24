@@ -4,6 +4,7 @@ import type { ArtifactDescriptor, ArtifactKind } from "../schemas/artifact.js";
 import { DocumentArtifactPayloadSchema, type DocumentArtifactPayload } from "./artifacts.js";
 import { DocumentRuntimeRouteSchema, type DocumentRuntimeRoute } from "./contracts.js";
 import { getDocumentTaskDescriptor } from "./defaults.js";
+import { normalizeDocumentArtifacts, type NormalizedDocumentArtifact } from "./normalize.js";
 
 const DOCUMENT_RECIPE_IDS = new Set<DocumentRuntimeRoute>([
   "doc_ingest",
@@ -25,7 +26,7 @@ function isDocumentRoute(route: string | undefined): route is DocumentRuntimeRou
   return Boolean(route && DOCUMENT_RECIPE_IDS.has(route as DocumentRuntimeRoute));
 }
 
-function resolveArtifactKind(payload: DocumentArtifactPayload): ArtifactKind {
+function resolveArtifactKind(payload: NormalizedDocumentArtifact): ArtifactKind {
   switch (payload.type) {
     case "report":
       return "report";
@@ -35,7 +36,7 @@ function resolveArtifactKind(payload: DocumentArtifactPayload): ArtifactKind {
   }
 }
 
-function resolveArtifactMimeType(payload: DocumentArtifactPayload): string | undefined {
+function resolveArtifactMimeType(payload: NormalizedDocumentArtifact): string | undefined {
   if (payload.type === "report") {
     switch (payload.format) {
       case "markdown":
@@ -61,42 +62,51 @@ function resolveArtifactMimeType(payload: DocumentArtifactPayload): string | und
   return undefined;
 }
 
-function buildArtifactMetadata(payload: DocumentArtifactPayload, route: DocumentRuntimeRoute) {
-  if (payload.type === "extraction") {
+function buildArtifactMetadata(params: {
+  route: DocumentRuntimeRoute;
+  rawPayload: DocumentArtifactPayload;
+  normalizedPayload: NormalizedDocumentArtifact;
+  runId: string;
+}) {
+  const { route, rawPayload, normalizedPayload, runId } = params;
+  const base = {
+    runId,
+    route,
+    documentArtifactType: normalizedPayload.type,
+    rawDocumentPayload: rawPayload,
+    normalizedDocumentPayload: normalizedPayload,
+  };
+
+  if (normalizedPayload.type === "extraction") {
     return {
-      route,
-      documentArtifactType: payload.type,
-      sourceArtifactId: payload.sourceArtifactId,
-      fieldCount: payload.fields?.length ?? 0,
-      tableCount: payload.tables?.length ?? 0,
-      hasPlainText: Boolean(payload.plainText),
-      noteCount: payload.notes?.length ?? 0,
-      documentPayload: payload,
+      ...base,
+      sourceArtifactId: normalizedPayload.sourceArtifactId,
+      fieldCount: normalizedPayload.fieldCount,
+      tableCount: normalizedPayload.tableCount,
+      hasPlainText: Boolean(normalizedPayload.plainText),
+      noteCount: normalizedPayload.notes?.length ?? 0,
     };
   }
-  if (payload.type === "report") {
+  if (normalizedPayload.type === "report") {
     return {
-      route,
-      documentArtifactType: payload.type,
-      format: payload.format,
-      sectionCount: payload.sections?.length ?? 0,
-      hasSummary: Boolean(payload.summary),
-      documentPayload: payload,
+      ...base,
+      format: normalizedPayload.format,
+      sectionCount: normalizedPayload.sections.length,
+      hasSummary: Boolean(normalizedPayload.summary),
     };
   }
   return {
-    route,
-    documentArtifactType: payload.type,
-    format: payload.format,
-    fileName: payload.fileName,
-    previewRowCount: payload.previewRows?.length ?? 0,
-    documentPayload: payload,
+    ...base,
+    format: normalizedPayload.format,
+    fileName: normalizedPayload.fileName,
+    previewRowCount: normalizedPayload.previewRows.length,
+    columnCount: normalizedPayload.columns.length,
   };
 }
 
 function buildArtifactLabel(params: {
   route: DocumentRuntimeRoute;
-  payload: DocumentArtifactPayload;
+  payload: NormalizedDocumentArtifact;
   index: number;
 }): string {
   const descriptor = getDocumentTaskDescriptor(params.route);
@@ -177,19 +187,22 @@ export function projectDocumentArtifacts(params: {
   route: DocumentRuntimeRoute;
   payloads: DocumentArtifactPayload[];
 }): ArtifactDescriptor[] {
-  return params.payloads.map((payload, index) => ({
+  const normalizedBundles = normalizeDocumentArtifacts(params.route, params.payloads);
+  return normalizedBundles.map(({ raw, normalized }, index) => ({
     id: `${params.sessionId}:${params.runId}:${index + 1}`,
-    kind: resolveArtifactKind(payload),
-    label: buildArtifactLabel({ route: params.route, payload, index: index + 1 }),
+    kind: resolveArtifactKind(normalized),
+    label: buildArtifactLabel({ route: params.route, payload: normalized, index: index + 1 }),
     lifecycle: "draft",
-    mimeType: resolveArtifactMimeType(payload),
+    mimeType: resolveArtifactMimeType(normalized),
     sourceRecipeId: params.route,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    metadata: {
+    metadata: buildArtifactMetadata({
+      route: params.route,
+      rawPayload: raw,
+      normalizedPayload: normalized,
       runId: params.runId,
-      ...buildArtifactMetadata(payload, params.route),
-    },
+    }),
   }));
 }
 
