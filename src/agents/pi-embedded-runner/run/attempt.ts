@@ -3186,6 +3186,26 @@ export async function runEmbeddedAttempt(
               messageProvider: params.messageProvider ?? undefined,
               trigger: params.trigger,
               channelId: params.messageChannel ?? params.messageProvider ?? undefined,
+              ...(params.platformExecutionContext
+                ? {
+                    platformExecution: {
+                      profileId: params.platformExecutionContext.selectedProfileId,
+                      recipeId: params.platformExecutionContext.selectedRecipeId,
+                      ...(params.platformExecutionContext.taskOverlayId
+                        ? { taskOverlayId: params.platformExecutionContext.taskOverlayId }
+                        : {}),
+                      ...(params.platformExecutionContext.plannerReasoning
+                        ? { plannerReasoning: params.platformExecutionContext.plannerReasoning }
+                        : {}),
+                      ...(params.platformExecutionContext.timeoutSeconds
+                        ? { timeoutSeconds: params.platformExecutionContext.timeoutSeconds }
+                        : {}),
+                      ...(params.platformExecutionContext.fallbackModels?.length
+                        ? { fallbackModels: params.platformExecutionContext.fallbackModels }
+                        : {}),
+                    },
+                  }
+                : {}),
             },
           )
           .catch((err) => {

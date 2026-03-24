@@ -5,6 +5,7 @@ import type {
   PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildResult,
 } from "../plugins/types.js";
+import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
 import { resolvePlatformRuntimePlan } from "./recipe/runtime-adapter.js";
 
 function buildProfilePromptSection(prompt: string): PluginHookBeforePromptBuildResult | void {
@@ -58,7 +59,19 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   api.on("before_prompt_build", (event) => buildProfilePromptSection(event.prompt), {
     priority: 20,
   });
-  api.on("llm_output", () => undefined, { priority: 20 });
+  api.on(
+    "llm_output",
+    (event, ctx) => {
+      captureDocumentArtifactsFromLlmOutput({
+        sessionId: event.sessionId,
+        runId: event.runId,
+        recipeId: ctx.platformExecution?.recipeId,
+        assistantTexts: event.assistantTexts,
+      });
+      return undefined;
+    },
+    { priority: 20 },
+  );
 }
 
 const platformProfilePlugin: OpenClawPluginDefinition = {

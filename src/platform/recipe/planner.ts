@@ -44,6 +44,22 @@ function hasCodeArtifact(artifactKinds: ArtifactKind[]): boolean {
   );
 }
 
+function hasOcrSignal(input: RecipePlannerInput, files: string[]): boolean {
+  const prompt = (input.prompt ?? "").toLowerCase();
+  return (
+    /\b(ocr|scan|scanned|screenshot|photo|image[- ]based)\b/iu.test(prompt) ||
+    files.some((file) => /\.(png|jpe?g|webp|tiff?)$/iu.test(file))
+  );
+}
+
+function hasTableSignal(input: RecipePlannerInput, files: string[]): boolean {
+  const prompt = (input.prompt ?? "").toLowerCase();
+  return (
+    /\b(table|spreadsheet|csv|xlsx|rows|columns|line items?)\b/iu.test(prompt) ||
+    files.some((file) => /\.(csv|xlsx|xls|ods)$/iu.test(file))
+  );
+}
+
 function buildRecipeScore(params: {
   recipe: ExecutionRecipe;
   profile: ProfileResolution;
@@ -91,6 +107,46 @@ function buildRecipeScore(params: {
       publishTargets.some((target) => target === "pdf" || target === "email" || target === "docs")
     ) {
       score += 0.4;
+    }
+    return score;
+  }
+
+  if (recipe.id === "ocr_extract") {
+    let score = 0;
+    if (profile.selectedProfile.id === "builder") {
+      score += 1;
+    }
+    if (overlayId === "document_first") {
+      score += 1.2;
+    }
+    if (input.intent === "document") {
+      score += 0.8;
+    }
+    if (hasOcrSignal(input, files)) {
+      score += 1.8;
+    }
+    if (hasDocumentArtifact(artifactKinds)) {
+      score += 0.5;
+    }
+    return score;
+  }
+
+  if (recipe.id === "table_extract") {
+    let score = 0;
+    if (profile.selectedProfile.id === "builder") {
+      score += 1;
+    }
+    if (overlayId === "document_first") {
+      score += 1.1;
+    }
+    if (input.intent === "document") {
+      score += 0.8;
+    }
+    if (hasTableSignal(input, files)) {
+      score += 2.2;
+    }
+    if (hasDocumentArtifact(artifactKinds)) {
+      score += 0.5;
     }
     return score;
   }
