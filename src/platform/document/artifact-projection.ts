@@ -4,6 +4,7 @@ import type { ArtifactDescriptor, ArtifactKind } from "../schemas/artifact.js";
 import { DocumentArtifactPayloadSchema, type DocumentArtifactPayload } from "./artifacts.js";
 import { DocumentRuntimeRouteSchema, type DocumentRuntimeRoute } from "./contracts.js";
 import { getDocumentTaskDescriptor } from "./defaults.js";
+import { materializeDocumentDescriptor } from "./materialize.js";
 import { normalizeDocumentArtifacts, type NormalizedDocumentArtifact } from "./normalize.js";
 
 const DOCUMENT_RECIPE_IDS = new Set<DocumentRuntimeRoute>([
@@ -186,24 +187,35 @@ export function projectDocumentArtifacts(params: {
   runId: string;
   route: DocumentRuntimeRoute;
   payloads: DocumentArtifactPayload[];
+  materialize?: boolean;
 }): ArtifactDescriptor[] {
   const normalizedBundles = normalizeDocumentArtifacts(params.route, params.payloads);
-  return normalizedBundles.map(({ raw, normalized }, index) => ({
-    id: `${params.sessionId}:${params.runId}:${index + 1}`,
-    kind: resolveArtifactKind(normalized),
-    label: buildArtifactLabel({ route: params.route, payload: normalized, index: index + 1 }),
-    lifecycle: "draft",
-    mimeType: resolveArtifactMimeType(normalized),
-    sourceRecipeId: params.route,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    metadata: buildArtifactMetadata({
+  return normalizedBundles.map(({ raw, normalized }, index) => {
+    const descriptor: ArtifactDescriptor = {
+      id: `${params.sessionId}:${params.runId}:${index + 1}`,
+      kind: resolveArtifactKind(normalized),
+      label: buildArtifactLabel({ route: params.route, payload: normalized, index: index + 1 }),
+      lifecycle: "draft",
+      mimeType: resolveArtifactMimeType(normalized),
+      sourceRecipeId: params.route,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      metadata: buildArtifactMetadata({
+        route: params.route,
+        rawPayload: raw,
+        normalizedPayload: normalized,
+        runId: params.runId,
+      }),
+    };
+    if (params.materialize === false) {
+      return descriptor;
+    }
+    return materializeDocumentDescriptor({
+      descriptor,
       route: params.route,
-      rawPayload: raw,
-      normalizedPayload: normalized,
-      runId: params.runId,
-    }),
-  }));
+      payload: normalized,
+    });
+  });
 }
 
 export function captureDocumentArtifactsFromLlmOutput(params: {
@@ -211,6 +223,7 @@ export function captureDocumentArtifactsFromLlmOutput(params: {
   runId: string;
   recipeId?: string;
   assistantTexts: string[];
+  materialize?: boolean;
 }): ArtifactDescriptor[] {
   if (!isDocumentRoute(params.recipeId)) {
     return [];
@@ -221,6 +234,7 @@ export function captureDocumentArtifactsFromLlmOutput(params: {
     runId: params.runId,
     route: params.recipeId,
     payloads: extractDocumentArtifactPayloads(params.assistantTexts, params.recipeId),
+    materialize: params.materialize,
   });
 
   for (const descriptor of created) {

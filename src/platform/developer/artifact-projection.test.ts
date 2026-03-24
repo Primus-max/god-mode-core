@@ -47,16 +47,39 @@ describe("developer artifact projection", () => {
       publishTarget: "vercel",
       url: "https://preview.example.com/build-42",
     });
+    expect(artifacts[0]?.path?.endsWith(".html")).toBe(true);
     expect(artifacts[1]).toMatchObject({
       kind: "release",
       lifecycle: "published",
       publishTarget: "github",
       url: "https://github.com/openclaw/openclaw/releases/tag/v1.4.2",
     });
+    expect(artifacts[1]?.path?.endsWith(".html")).toBe(true);
     expect(artifacts[1]?.metadata).toMatchObject({
       developerArtifactType: "release",
       stage: "publish",
+      materialization: {
+        primary: expect.objectContaining({
+          renderKind: "html",
+        }),
+      },
     });
+  });
+
+  it("preserves legacy projection when materialization is disabled", () => {
+    const artifacts = projectDeveloperArtifacts({
+      sessionId: "session-legacy",
+      runId: "run-legacy",
+      payloads: extractDeveloperArtifactPayloads([readFixture("release-envelope.json")]),
+      materialize: false,
+    });
+
+    expect(artifacts[0]).toMatchObject({
+      kind: "release",
+      path: undefined,
+      url: "https://github.com/openclaw/openclaw/releases/tag/v1.4.2",
+    });
+    expect(artifacts[0]?.metadata).not.toHaveProperty("materialization");
   });
 
   it("captures only publish recipe outputs into the developer artifact store", () => {

@@ -50,6 +50,8 @@ export {
   resetCapturedDocumentArtifacts,
 } from "./artifact-projection.js";
 
+export { materializeDocumentDescriptor } from "./materialize.js";
+
 export {
   NormalizedDocumentArtifactSchema,
   NormalizedDocumentExportSchema,
