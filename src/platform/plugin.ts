@@ -5,6 +5,7 @@ import type {
   PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildResult,
 } from "../plugins/types.js";
+import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
 import { resolvePlatformRuntimePlan } from "./recipe/runtime-adapter.js";
 
@@ -63,6 +64,12 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
     "llm_output",
     (event, ctx) => {
       captureDocumentArtifactsFromLlmOutput({
+        sessionId: event.sessionId,
+        runId: event.runId,
+        recipeId: ctx.platformExecution?.recipeId,
+        assistantTexts: event.assistantTexts,
+      });
+      captureDeveloperArtifactsFromLlmOutput({
         sessionId: event.sessionId,
         runId: event.runId,
         recipeId: ctx.platformExecution?.recipeId,
