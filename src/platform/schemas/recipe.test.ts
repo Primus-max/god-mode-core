@@ -17,6 +17,7 @@ describe("ExecutionRecipeSchema", () => {
     const full = {
       id: "code_build_publish",
       purpose: "Build, test, and publish code artifacts",
+      summary: "Repository-first execution flow",
       acceptedInputs: [
         { type: "text", required: true, description: "Task description" },
         { type: "file", required: false, description: "Source files" },
@@ -28,6 +29,9 @@ describe("ExecutionRecipeSchema", () => {
       requiredCapabilities: ["node", "git"],
       allowedProfiles: ["developer"],
       riskLevel: "high",
+      defaultModel: "openai/gpt-4o-mini",
+      fallbackModels: ["anthropic/claude-sonnet-4.6"],
+      systemPrompt: "Run the smallest safe set of checks before publishing.",
       testSuite: "test/recipes/code-build.test.ts",
       healthCheck: "node --version && git --version",
       publishTargets: ["github", "npm"],

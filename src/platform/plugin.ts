@@ -2,22 +2,23 @@ import type {
   OpenClawPluginApi,
   OpenClawPluginDefinition,
   PluginHookBeforeAgentStartResult,
+  PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildResult,
 } from "../plugins/types.js";
-import { getInitialProfile } from "./profile/defaults.js";
-import { resolveProfile } from "./profile/resolver.js";
+import { resolvePlatformRuntimePlan } from "./recipe/runtime-adapter.js";
 
 function buildProfilePromptSection(prompt: string): PluginHookBeforePromptBuildResult | void {
-  const resolved = resolveProfile({ prompt, baseProfile: "general" });
-  const overlayLabel = resolved.effective.taskOverlay?.label;
-  const profileLabel = resolved.selectedProfile.label;
+  const resolved = resolvePlatformRuntimePlan({ prompt, baseProfile: "general" });
   return {
     prependSystemContext: [
-      `Active specialist profile: ${profileLabel}.`,
-      overlayLabel ? `Task overlay: ${overlayLabel}.` : undefined,
-      resolved.effective.preferredTools.length > 0
-        ? `Preferred tools: ${resolved.effective.preferredTools.join(", ")}.`
+      `Active specialist profile: ${resolved.profile.selectedProfile.label}.`,
+      resolved.profile.effective.taskOverlay?.label
+        ? `Task overlay: ${resolved.profile.effective.taskOverlay.label}.`
         : undefined,
+      resolved.profile.effective.preferredTools.length > 0
+        ? `Preferred tools: ${resolved.profile.effective.preferredTools.join(", ")}.`
+        : undefined,
+      resolved.runtime.prependSystemContext,
       "Profile selection narrows preferences only; it does not grant hidden permissions.",
     ]
       .filter(Boolean)
@@ -26,19 +27,34 @@ function buildProfilePromptSection(prompt: string): PluginHookBeforePromptBuildR
 }
 
 function buildAgentStartResult(prompt: string): PluginHookBeforeAgentStartResult | void {
-  const resolved = resolveProfile({ prompt, baseProfile: "general" });
-  const profile = getInitialProfile(resolved.selectedProfile.id);
-  if (!profile) {
+  const resolved = resolvePlatformRuntimePlan({ prompt, baseProfile: "general" });
+  return {
+    prependContext: [
+      `Profile hint: ${resolved.profile.selectedProfile.label}. Confidence ${resolved.profile.activeProfile.confidence.toFixed(2)}.`,
+      `Recipe hint: ${resolved.recipe.id}.`,
+      resolved.runtime.prependContext,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
+function buildModelResolveResult(prompt: string): PluginHookBeforeModelResolveResult | void {
+  const resolved = resolvePlatformRuntimePlan({ prompt, baseProfile: "general" });
+  if (!resolved.runtime.modelOverride && !resolved.runtime.providerOverride) {
     return undefined;
   }
   return {
-    prependContext: `Profile hint: ${profile.label}. Confidence ${resolved.activeProfile.confidence.toFixed(2)}.`,
+    providerOverride: resolved.runtime.providerOverride,
+    modelOverride: resolved.runtime.modelOverride,
   };
 }
 
 export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   api.on("before_agent_start", (event) => buildAgentStartResult(event.prompt), { priority: 20 });
-  api.on("before_model_resolve", () => undefined, { priority: 20 });
+  api.on("before_model_resolve", (event) => buildModelResolveResult(event.prompt), {
+    priority: 20,
+  });
   api.on("before_prompt_build", (event) => buildProfilePromptSection(event.prompt), {
     priority: 20,
   });

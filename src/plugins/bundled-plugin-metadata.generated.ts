@@ -2570,6 +2570,30 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
     },
   },
   {
+    dirName: "platform-profile-foundation",
+    idHint: "platform-profile-foundation",
+    source: {
+      source: "./index.ts",
+      built: "index.js",
+    },
+    packageName: "@openclaw/platform-profile-foundation",
+    packageVersion: "2026.3.22",
+    packageDescription: "Platform profile and execution recipe foundation plugin.",
+    packageManifest: {
+      extensions: ["./index.ts"],
+    },
+    manifest: {
+      id: "platform-profile-foundation",
+      configSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
+      name: "Platform Profile Foundation",
+      description: "Profile, policy, and execution recipe foundation hooks.",
+    },
+  },
+  {
     dirName: "qianfan",
     idHint: "qianfan",
     source: {

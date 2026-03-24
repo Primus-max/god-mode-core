@@ -121,6 +121,10 @@
       "types": "./dist/plugin-sdk/outbound-runtime.d.ts",
       "default": "./dist/plugin-sdk/outbound-runtime.js"
     },
+    "./plugin-sdk/platform-runtime": {
+      "types": "./dist/plugin-sdk/platform-runtime.d.ts",
+      "default": "./dist/plugin-sdk/platform-runtime.js"
+    },
     "./plugin-sdk/infra-runtime": {
       "types": "./dist/plugin-sdk/infra-runtime.d.ts",
       "default": "./dist/plugin-sdk/infra-runtime.js"
