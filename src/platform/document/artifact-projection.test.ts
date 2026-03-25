@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { MaterializationResult } from "../materialization/index.js";
 import {
   captureDocumentArtifactsFromLlmOutput,
   extractDocumentArtifactPayloads,
@@ -83,6 +84,39 @@ describe("document artifact projection", () => {
       mimeType: "text/markdown",
       label: "Document Ingest report 2",
     });
+    expect(projected[1]?.path?.endsWith(".md")).toBe(true);
+    expect(projected[1]?.metadata).toMatchObject({
+      materialization: {
+        primary: expect.objectContaining({
+          renderKind: "markdown",
+        }),
+      },
+    });
+    const materialization = projected[1]?.metadata?.materialization as
+      | MaterializationResult
+      | undefined;
+    expect(materialization?.supporting?.some((output) => output.renderKind === "pdf")).toBe(true);
+  });
+
+  it("preserves pre-materialization descriptor shape when materialization is disabled", () => {
+    const payloads = extractDocumentArtifactPayloads(
+      [readFixture("doc-ingest-report.md")],
+      "doc_ingest",
+    );
+    const projected = projectDocumentArtifacts({
+      sessionId: "session-legacy",
+      runId: "run-legacy",
+      route: "doc_ingest",
+      payloads,
+      materialize: false,
+    });
+
+    expect(projected[1]).toMatchObject({
+      kind: "report",
+      mimeType: "text/markdown",
+    });
+    expect(projected[1]).not.toHaveProperty("path");
+    expect(projected[1]?.metadata).not.toHaveProperty("materialization");
   });
 
   it("captures document artifacts only for document recipes", () => {
@@ -100,6 +134,7 @@ describe("document artifact projection", () => {
       kind: "data",
       sourceRecipeId: "table_extract",
     });
+    expect(captured[0]?.path).toBeTruthy();
     expect(listCapturedDocumentArtifacts()).toHaveLength(1);
   });
 

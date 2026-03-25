@@ -4,19 +4,19 @@ overview: Добавить общий render/materialization layer поверх 
 todos:
   - id: design-materialization-contracts
     content: Спроектировать общий render/materialization contract для document и developer flows
-    status: pending
+    status: completed
   - id: build-shared-materializers
     content: Собрать минимальный shared materialization layer для markdown/html/pdf/preview outputs
-    status: pending
+    status: completed
   - id: wire-document-materialization
     content: Подключить materialization path к document artifact projection без ломки Stage 3B normalization
-    status: pending
+    status: completed
   - id: wire-developer-materialization
     content: Подключить materialization path к developer preview/release artifacts и lifecycle
-    status: pending
+    status: completed
   - id: define-materialization-tests
     content: Зафиксировать тесты на contracts, integration, regressions и degraded mode
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -155,8 +155,6 @@ flowchart TD
   previewOut --> store
   store --> lifecycle[ArtifactLifecycleTransition]
 ```
-
-
 
 ## Tests To Require Up Front
 

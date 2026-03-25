@@ -2,6 +2,7 @@ import { createArtifactStore } from "../registry/artifact-store.js";
 import type { ArtifactDescriptor, ArtifactKind, ArtifactLifecycle } from "../schemas/artifact.js";
 import { DeveloperArtifactPayloadSchema, type DeveloperArtifactPayload } from "./artifacts.js";
 import { DeveloperPublishTargetSchema } from "./contracts.js";
+import { materializeDeveloperDescriptor } from "./materialize.js";
 
 const DeveloperArtifactEnvelopeSchema = {
   parse(value: unknown): {
@@ -96,23 +97,33 @@ export function projectDeveloperArtifacts(params: {
   sessionId: string;
   runId: string;
   payloads: DeveloperArtifactPayload[];
+  materialize?: boolean;
 }): ArtifactDescriptor[] {
-  return params.payloads.map((payload, index) => ({
-    id: `${params.sessionId}:${params.runId}:developer:${index + 1}`,
-    kind: resolveArtifactKind(payload),
-    label: buildArtifactLabel(payload, index + 1),
-    lifecycle: resolveArtifactLifecycle(payload),
-    mimeType: payload.type === "binary" ? payload.mimeType : undefined,
-    sizeBytes: payload.type === "binary" ? payload.sizeBytes : undefined,
-    path: payload.type === "binary" ? payload.path : undefined,
-    url: payload.url,
-    sourceRecipeId: "code_build_publish",
-    publishTarget:
-      "target" in payload ? DeveloperPublishTargetSchema.parse(payload.target) : undefined,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    metadata: buildArtifactMetadata(payload, params.runId),
-  }));
+  return params.payloads.map((payload, index) => {
+    const descriptor: ArtifactDescriptor = {
+      id: `${params.sessionId}:${params.runId}:developer:${index + 1}`,
+      kind: resolveArtifactKind(payload),
+      label: buildArtifactLabel(payload, index + 1),
+      lifecycle: resolveArtifactLifecycle(payload),
+      mimeType: payload.type === "binary" ? payload.mimeType : undefined,
+      sizeBytes: payload.type === "binary" ? payload.sizeBytes : undefined,
+      path: payload.type === "binary" ? payload.path : undefined,
+      url: payload.url,
+      sourceRecipeId: "code_build_publish",
+      publishTarget:
+        "target" in payload ? DeveloperPublishTargetSchema.parse(payload.target) : undefined,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      metadata: buildArtifactMetadata(payload, params.runId),
+    };
+    if (params.materialize === false) {
+      return descriptor;
+    }
+    return materializeDeveloperDescriptor({
+      descriptor,
+      payload,
+    });
+  });
 }
 
 export function captureDeveloperArtifactsFromLlmOutput(params: {
@@ -120,6 +131,7 @@ export function captureDeveloperArtifactsFromLlmOutput(params: {
   sessionId: string;
   assistantTexts: string[];
   recipeId?: string;
+  materialize?: boolean;
 }): ArtifactDescriptor[] {
   if (params.recipeId && params.recipeId !== "code_build_publish") {
     return [];
@@ -129,6 +141,7 @@ export function captureDeveloperArtifactsFromLlmOutput(params: {
     sessionId: params.sessionId,
     runId: params.runId,
     payloads,
+    materialize: params.materialize,
   });
   for (const artifact of artifacts) {
     developerArtifactStore.create(artifact);

@@ -42,3 +42,5 @@ export {
   projectDeveloperArtifacts,
   resetCapturedDeveloperArtifacts,
 } from "./artifact-projection.js";
+
+export { materializeDeveloperDescriptor } from "./materialize.js";
