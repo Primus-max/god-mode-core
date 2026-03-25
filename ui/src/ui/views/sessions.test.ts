@@ -2,6 +2,7 @@
 
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
+import { i18n } from "../../i18n/index.ts";
 import type { SessionsListResult } from "../types.ts";
 import { renderSessions, type SessionsProps } from "./sessions.ts";
 
@@ -22,6 +23,15 @@ function buildMultiResult(sessions: SessionsListResult["sessions"]): SessionsLis
     count: sessions.length,
     defaults: { modelProvider: null, model: null, contextTokens: null },
     sessions,
+  };
+}
+
+function buildSession(overrides: Partial<SessionsListResult["sessions"][number]> = {}): SessionsListResult["sessions"][number] {
+  return {
+    key: "agent:main:main",
+    kind: "direct",
+    updatedAt: Date.now(),
+    ...overrides,
   };
 }
 
@@ -164,5 +174,17 @@ describe("sessions view", () => {
     expect(onDeselectPage).toHaveBeenCalledWith(["page-0"]);
     expect(onDeselectAll).not.toHaveBeenCalled();
     expect(onSelectPage).not.toHaveBeenCalled();
+  });
+
+  it("renders localized page title in Russian", async () => {
+    const container = document.createElement("div");
+    await i18n.setLocale("ru");
+
+    render(renderSessions(buildProps(buildResult(buildSession()))), container);
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Сессионные настройки");
+
+    await i18n.setLocale("en");
   });
 });

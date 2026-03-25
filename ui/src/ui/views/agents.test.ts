@@ -1,5 +1,8 @@
+/* @vitest-environment jsdom */
+
 import { render } from "lit";
 import { describe, expect, it } from "vitest";
+import { i18n } from "../../i18n/index.ts";
 import { renderAgents, type AgentsProps } from "./agents.ts";
 
 function createSkill() {
@@ -170,5 +173,37 @@ describe("renderAgents", () => {
     );
 
     expect(skillsTab?.textContent?.trim()).toContain("1");
+  });
+
+  it("renders localized Skills tab label in Russian", async () => {
+    const container = document.createElement("div");
+    await i18n.setLocale("ru");
+
+    render(
+      renderAgents(
+        createProps({
+          agentSkills: {
+            report: {
+              workspaceDir: "/tmp/workspace",
+              managedSkillsDir: "/tmp/skills",
+              skills: [createSkill()],
+            },
+            loading: false,
+            error: null,
+            agentId: "beta",
+            filter: "",
+          },
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const skillsTab = Array.from(container.querySelectorAll<HTMLButtonElement>(".agent-tab")).find(
+      (button) => button.textContent?.includes("Навыки"),
+    );
+    expect(skillsTab).toBeTruthy();
+
+    await i18n.setLocale("en");
   });
 });
