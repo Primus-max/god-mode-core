@@ -151,7 +151,7 @@ describe("platform profile plugin", () => {
         match: "prefix",
       }),
     );
-    expect(api.registerGatewayMethod).toHaveBeenCalledTimes(3);
+    expect(api.registerGatewayMethod).toHaveBeenCalledTimes(7);
   });
 
   it("exports an OpenClaw plugin definition", () => {

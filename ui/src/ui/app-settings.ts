@@ -1,7 +1,9 @@
 import { roleScopesAllow } from "../../../src/shared/operator-scope-compat.js";
 import { refreshChat } from "./app-chat.ts";
 import {
+  startBootstrapPolling,
   startArtifactsPolling,
+  stopBootstrapPolling,
   stopArtifactsPolling,
   startLogsPolling,
   stopLogsPolling,
@@ -14,6 +16,7 @@ import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-iden
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
 import { loadAgents } from "./controllers/agents.ts";
 import { loadArtifacts } from "./controllers/artifacts.ts";
+import { loadBootstrapRequests } from "./controllers/bootstrap.ts";
 import { loadChannels } from "./controllers/channels.ts";
 import { loadConfig, loadConfigSchema } from "./controllers/config.ts";
 import { loadCronJobs, loadCronRuns, loadCronStatus } from "./controllers/cron.ts";
@@ -56,6 +59,7 @@ type SettingsHost = {
   eventLogBuffer: unknown[];
   basePath: string;
   artifactsPollInterval?: number | null;
+  bootstrapPollInterval?: number | null;
   agentsList?: AgentsListResult | null;
   agentsSelectedId?: string | null;
   agentsPanel?: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
@@ -238,6 +242,9 @@ export async function refreshActiveTab(host: SettingsHost) {
   }
   if (host.tab === "artifacts") {
     await loadArtifacts(host as unknown as OpenClawApp);
+  }
+  if (host.tab === "bootstrap") {
+    await loadBootstrapRequests(host as unknown as OpenClawApp);
   }
   if (host.tab === "skills") {
     await loadSkills(host as unknown as OpenClawApp);
@@ -458,6 +465,11 @@ function applyTabSelection(
   } else {
     stopArtifactsPolling(host as unknown as Parameters<typeof stopArtifactsPolling>[0]);
   }
+  if (next === "bootstrap") {
+    startBootstrapPolling(host as unknown as Parameters<typeof startBootstrapPolling>[0]);
+  } else {
+    stopBootstrapPolling(host as unknown as Parameters<typeof stopBootstrapPolling>[0]);
+  }
 
   if (options.refreshPolicy === "always" || host.connected) {
     void refreshActiveTab(host);
@@ -517,6 +529,7 @@ export async function loadOverview(host: SettingsHost) {
     loadDebug(app),
     loadSkills(app),
     loadUsage(app),
+    loadBootstrapRequests(app),
     loadOverviewLogs(app),
   ]);
   buildAttentionItems(app);
@@ -616,6 +629,17 @@ function buildAttentionItems(host: OpenClawApp) {
       icon: "shield",
       title: `${blocked.length} skill${blocked.length > 1 ? "s" : ""} blocked`,
       description: blocked.map((s) => s.name).join(", "),
+    });
+  }
+
+  if (host.bootstrapPendingCount > 0) {
+    items.push({
+      severity: "warning",
+      icon: "shield",
+      title: `${host.bootstrapPendingCount} bootstrap request${host.bootstrapPendingCount > 1 ? "s" : ""} pending`,
+      description: "Capability installs are waiting for operator approval.",
+      href: "/bootstrap",
+      actionLabel: "Open",
     });
   }
 

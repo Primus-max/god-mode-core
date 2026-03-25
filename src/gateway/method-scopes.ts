@@ -34,6 +34,8 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "exec.approval.request",
     "exec.approval.waitDecision",
     "exec.approval.resolve",
+    "platform.bootstrap.resolve",
+    "platform.bootstrap.run",
   ],
   [PAIRING_SCOPE]: [
     "node.pair.request",
@@ -92,6 +94,8 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "agents.files.get",
     "platform.artifacts.list",
     "platform.artifacts.get",
+    "platform.bootstrap.list",
+    "platform.bootstrap.get",
   ],
   [WRITE_SCOPE]: [
     "send",

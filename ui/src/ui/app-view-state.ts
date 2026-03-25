@@ -16,6 +16,8 @@ import type {
   AgentIdentityResult,
   ArtifactRecordDetail,
   ArtifactRecordSummary,
+  BootstrapRequestRecordDetail,
+  BootstrapRequestRecordSummary,
   AttentionItem,
   ChannelsStatusSnapshot,
   ConfigSnapshot,
@@ -203,6 +205,16 @@ export type AppViewState = {
   artifactDetail: ArtifactRecordDetail | null;
   artifactDetailError: string | null;
   artifactTransitionBusy: boolean;
+  bootstrapLoading: boolean;
+  bootstrapError: string | null;
+  bootstrapList: BootstrapRequestRecordSummary[];
+  bootstrapPendingCount: number;
+  bootstrapFilterQuery: string;
+  bootstrapSelectedId: string | null;
+  bootstrapDetailLoading: boolean;
+  bootstrapDetail: BootstrapRequestRecordDetail | null;
+  bootstrapDetailError: string | null;
+  bootstrapActionBusy: boolean;
   usageLoading: boolean;
   usageResult: SessionsUsageResult | null;
   usageCostSummary: CostUsageSummary | null;

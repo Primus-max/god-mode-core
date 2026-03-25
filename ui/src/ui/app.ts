@@ -69,6 +69,8 @@ import type {
   AgentIdentityResult,
   ArtifactRecordDetail,
   ArtifactRecordSummary,
+  BootstrapRequestRecordDetail,
+  BootstrapRequestRecordSummary,
   ConfigSnapshot,
   ConfigUiHints,
   ChatModelOverride,
@@ -302,6 +304,16 @@ export class OpenClawApp extends LitElement {
   @state() artifactDetail: ArtifactRecordDetail | null = null;
   @state() artifactDetailError: string | null = null;
   @state() artifactTransitionBusy = false;
+  @state() bootstrapLoading = false;
+  @state() bootstrapError: string | null = null;
+  @state() bootstrapList: BootstrapRequestRecordSummary[] = [];
+  @state() bootstrapPendingCount = 0;
+  @state() bootstrapFilterQuery = "";
+  @state() bootstrapSelectedId: string | null = null;
+  @state() bootstrapDetailLoading = false;
+  @state() bootstrapDetail: BootstrapRequestRecordDetail | null = null;
+  @state() bootstrapDetailError: string | null = null;
+  @state() bootstrapActionBusy = false;
 
   @state() usageLoading = false;
   @state() usageResult: import("./types.js").SessionsUsageResult | null = null;
@@ -454,6 +466,7 @@ export class OpenClawApp extends LitElement {
   private logsPollInterval: number | null = null;
   private debugPollInterval: number | null = null;
   private artifactsPollInterval: number | null = null;
+  private bootstrapPollInterval: number | null = null;
   private logsScrollFrame: number | null = null;
   private toolStreamById = new Map<string, ToolStreamEntry>();
   private toolStreamOrder: string[] = [];

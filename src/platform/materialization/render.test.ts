@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { getPlatformBootstrapService, resetPlatformBootstrapService } from "../bootstrap/index.js";
 import { getInitialProfile } from "../profile/defaults.js";
 import { applyTaskOverlay } from "../profile/overlay.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
@@ -23,6 +24,10 @@ function makePolicyContext(explicitApproval: boolean) {
 }
 
 describe("materialization render layer", () => {
+  afterEach(() => {
+    resetPlatformBootstrapService();
+  });
+
   it("renders markdown to html with basic structure", () => {
     const html = renderMarkdownToHtml("# Title\n\n- one\n- two\n\n`code`");
     expect(html).toContain("<h1>Title</h1>");
@@ -97,6 +102,12 @@ describe("materialization render layer", () => {
       reason: "renderer_unavailable",
       sourceDomain: "document",
     });
+    expect(getPlatformBootstrapService().list()).toEqual([
+      expect.objectContaining({
+        capabilityId: "pdf-renderer",
+        state: "pending",
+      }),
+    ]);
   });
 
   it("runs bootstrap orchestration for degraded pdf materialization on explicit approval", async () => {

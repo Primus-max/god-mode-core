@@ -114,3 +114,53 @@ export const BootstrapOrchestrationResultSchema = z
   })
   .strict();
 export type BootstrapOrchestrationResult = z.infer<typeof BootstrapOrchestrationResultSchema>;
+
+export const BootstrapRequestDecisionSchema = z.enum(["approve", "deny"]);
+export type BootstrapRequestDecision = z.infer<typeof BootstrapRequestDecisionSchema>;
+
+export const BootstrapRequestRecordStateSchema = z.enum([
+  "pending",
+  "approved",
+  "denied",
+  "running",
+  "available",
+  "degraded",
+]);
+export type BootstrapRequestRecordState = z.infer<typeof BootstrapRequestRecordStateSchema>;
+
+export const BootstrapRequestRecordSchema = z
+  .object({
+    id: z.string().min(1),
+    state: BootstrapRequestRecordStateSchema,
+    request: BootstrapRequestSchema,
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    resolvedAt: z.string().datetime().optional(),
+    startedAt: z.string().datetime().optional(),
+    completedAt: z.string().datetime().optional(),
+    result: BootstrapOrchestrationResultSchema.optional(),
+    reasons: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
+export type BootstrapRequestRecord = z.infer<typeof BootstrapRequestRecordSchema>;
+
+export const BootstrapRequestRecordSummarySchema = z
+  .object({
+    id: z.string().min(1),
+    capabilityId: z.string().min(1),
+    installMethod: CapabilityInstallMethodSchema,
+    reason: BootstrapReasonSchema,
+    sourceDomain: BootstrapSourceDomainSchema,
+    sourceRecipeId: z.string().min(1).optional(),
+    state: BootstrapRequestRecordStateSchema,
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    lastResultStatus: BootstrapOrchestrationStatusSchema.optional(),
+    hasResult: z.boolean(),
+    lastError: z.string().min(1).optional(),
+  })
+  .strict();
+export type BootstrapRequestRecordSummary = z.infer<typeof BootstrapRequestRecordSummarySchema>;
+
+export const BootstrapRequestRecordDetailSchema = BootstrapRequestRecordSchema;
+export type BootstrapRequestRecordDetail = BootstrapRequestRecord;

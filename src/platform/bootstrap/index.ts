@@ -7,6 +7,11 @@ export {
   BootstrapPolicySummarySchema,
   BootstrapApprovalModeSchema,
   BootstrapReasonSchema,
+  BootstrapRequestDecisionSchema,
+  BootstrapRequestRecordDetailSchema,
+  BootstrapRequestRecordSchema,
+  BootstrapRequestRecordStateSchema,
+  BootstrapRequestRecordSummarySchema,
   BootstrapRollbackStatusSchema,
   BootstrapRequestSchema,
   BootstrapResolutionSchema,
@@ -19,6 +24,11 @@ export {
   type BootstrapOrchestrationStatus,
   type BootstrapPolicySummary,
   type BootstrapReason,
+  type BootstrapRequestDecision,
+  type BootstrapRequestRecord,
+  type BootstrapRequestRecordDetail,
+  type BootstrapRequestRecordState,
+  type BootstrapRequestRecordSummary,
   type BootstrapRollbackStatus,
   type BootstrapRequest,
   type BootstrapResolution,
@@ -34,3 +44,15 @@ export {
   runBootstrapLifecycle,
 } from "./runtime.js";
 export { orchestrateBootstrapRequest } from "./orchestrator.js";
+export {
+  createBootstrapGetGatewayMethod,
+  createBootstrapListGatewayMethod,
+  createBootstrapResolveGatewayMethod,
+  createBootstrapRunGatewayMethod,
+} from "./gateway.js";
+export {
+  createBootstrapRequestService,
+  getPlatformBootstrapService,
+  resetPlatformBootstrapService,
+  type BootstrapRequestService,
+} from "./service.js";

@@ -3,10 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import {
   TRUSTED_CAPABILITY_CATALOG,
+  getPlatformBootstrapService,
   orchestrateBootstrapRequest,
   resolveBootstrapRequest,
   type BootstrapInstaller,
   type BootstrapOrchestrationResult,
+  type BootstrapRequestService,
 } from "../bootstrap/index.js";
 import type { PolicyContext } from "../policy/types.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
@@ -74,6 +76,7 @@ export function materializeArtifact(
     capabilityRegistry?: CapabilityRegistry;
     capabilityCatalog?: CapabilityCatalogEntry[];
     sourceRecipeId?: string;
+    bootstrapService?: BootstrapRequestService;
   },
 ): MaterializationResult {
   const request = MaterializationRequestSchema.parse(requestInput);
@@ -133,6 +136,9 @@ export function materializeArtifact(
         outputTarget: request.outputTarget,
         renderKind: request.outputTarget === "preview" ? "site_preview" : "html",
       });
+      if (bootstrapResolution.request) {
+        (options?.bootstrapService ?? getPlatformBootstrapService()).create(bootstrapResolution.request);
+      }
       return MaterializationResultSchema.parse({
         primary,
         ...(bootstrapResolution.request ? { bootstrapRequest: bootstrapResolution.request } : {}),
