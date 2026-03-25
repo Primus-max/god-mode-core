@@ -73,4 +73,29 @@ describe("createMachineControlService", () => {
       }),
     );
   });
+
+  it("keeps only a bounded number of run snapshots", () => {
+    const service = createService();
+    for (let idx = 0; idx < 140; idx += 1) {
+      service.recordRunSnapshot({
+        runId: `run-${idx}`,
+        sessionId: "session-1",
+        prompt: `prompt ${idx}`,
+        recordedAtMs: idx,
+      });
+    }
+
+    expect(service.getRunSnapshot("run-0")).toBeUndefined();
+    expect(service.getRunSnapshot("run-11")).toBeUndefined();
+    expect(service.getRunSnapshot("run-12")).toEqual(
+      expect.objectContaining({
+        runId: "run-12",
+      }),
+    );
+    expect(service.getRunSnapshot("run-139")).toEqual(
+      expect.objectContaining({
+        runId: "run-139",
+      }),
+    );
+  });
 });

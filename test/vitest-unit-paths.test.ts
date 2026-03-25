@@ -7,8 +7,10 @@ describe("isUnitConfigTestFile", () => {
     expect(isUnitConfigTestFile("test/format-error.test.ts")).toBe(true);
     expect(isUnitConfigTestFile("ui/src/ui/views/chat.test.ts")).toBe(true);
     expect(isUnitConfigTestFile("ui/src/ui/views/bootstrap.test.ts")).toBe(true);
+    expect(isUnitConfigTestFile("ui/src/ui/views/exec-approval.test.ts")).toBe(true);
     expect(isUnitConfigTestFile("ui/src/ui/views/machine.test.ts")).toBe(true);
     expect(isUnitConfigTestFile("ui/src/ui/controllers/bootstrap.test.ts")).toBe(true);
+    expect(isUnitConfigTestFile("ui/src/ui/controllers/exec-approval.test.ts")).toBe(true);
     expect(isUnitConfigTestFile("ui/src/ui/controllers/machine.test.ts")).toBe(true);
   });
 

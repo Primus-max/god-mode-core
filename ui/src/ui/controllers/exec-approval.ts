@@ -1,6 +1,8 @@
 export type ExecApprovalRequestPayload = {
   command: string;
   cwd?: string | null;
+  nodeId?: string | null;
+  envKeys?: string[] | null;
   host?: string | null;
   security?: string | null;
   ask?: string | null;
@@ -55,6 +57,10 @@ export function parseExecApprovalRequested(payload: unknown): ExecApprovalReques
     request: {
       command,
       cwd: typeof request.cwd === "string" ? request.cwd : null,
+      nodeId: typeof request.nodeId === "string" ? request.nodeId : null,
+      envKeys: Array.isArray(request.envKeys)
+        ? request.envKeys.filter((entry): entry is string => typeof entry === "string")
+        : null,
       host: typeof request.host === "string" ? request.host : null,
       security: typeof request.security === "string" ? request.security : null,
       ask: typeof request.ask === "string" ? request.ask : null,

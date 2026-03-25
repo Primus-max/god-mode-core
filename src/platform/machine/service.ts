@@ -20,6 +20,8 @@ export type MachineRunSnapshot = {
   recordedAtMs: number;
 };
 
+const MAX_RUN_SNAPSHOTS = 128;
+
 export type MachineControlService = {
   getSnapshot: () => MachineControlSnapshot;
   getLink: (deviceId: string) => MachineControlLinkRecord | undefined;
@@ -222,6 +224,13 @@ export function createMachineControlService(params?: {
       });
     },
     recordRunSnapshot(snapshot) {
+      // Bound snapshot retention so long-lived gateways do not accumulate stale runs forever.
+      if (!runSnapshots.has(snapshot.runId) && runSnapshots.size >= MAX_RUN_SNAPSHOTS) {
+        const oldestRunId = runSnapshots.keys().next().value;
+        if (typeof oldestRunId === "string") {
+          runSnapshots.delete(oldestRunId);
+        }
+      }
       runSnapshots.set(snapshot.runId, snapshot);
     },
     getRunSnapshot(runId) {

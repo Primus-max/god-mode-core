@@ -780,6 +780,13 @@ describe("exec approval handlers", () => {
         env: { A_VAR: "a", Z_VAR: "z" },
       }).binding,
     );
+    expect(request["machineControl"]).toEqual(
+      expect.objectContaining({
+        required: true,
+        requestedByDeviceId: "dev-1",
+        linkedAtMs: expect.any(Number),
+      }),
+    );
   });
 
   it("stores sorted env keys for gateway approvals without node-only binding", async () => {
