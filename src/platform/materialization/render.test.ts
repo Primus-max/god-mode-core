@@ -2,7 +2,25 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { materializeArtifact, renderMarkdownToHtml } from "./index.js";
+import { getInitialProfile } from "../profile/defaults.js";
+import { applyTaskOverlay } from "../profile/overlay.js";
+import { createCapabilityRegistry } from "../registry/capability-registry.js";
+import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
+import { materializeArtifact, renderMarkdownToHtml, runMaterializationBootstrap } from "./index.js";
+
+function makePolicyContext(explicitApproval: boolean) {
+  const profile = getInitialProfile("developer")!;
+  return {
+    activeProfileId: profile.id,
+    activeProfile: profile,
+    effective: applyTaskOverlay(
+      profile,
+      profile.taskOverlays?.find((overlay) => overlay.id === "code_first"),
+    ),
+    intent: "code" as const,
+    explicitApproval,
+  };
+}
 
 describe("materialization render layer", () => {
   it("renders markdown to html with basic structure", () => {
@@ -75,8 +93,53 @@ describe("materialization render layer", () => {
     expect(result.warnings).toContain("pdf renderer unavailable; fell back to html output");
     expect(result.bootstrapRequest).toMatchObject({
       capabilityId: "pdf-renderer",
+      installMethod: "download",
       reason: "renderer_unavailable",
       sourceDomain: "document",
     });
+  });
+
+  it("runs bootstrap orchestration for degraded pdf materialization on explicit approval", async () => {
+    const outputDir = path.join(os.tmpdir(), "openclaw-materialization-tests", "bootstrap");
+    const registry = createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
+    const result = materializeArtifact(
+      {
+        artifactId: "pdf-2",
+        label: "PDF Report",
+        sourceDomain: "document",
+        renderKind: "pdf",
+        outputTarget: "file",
+        outputDir,
+        payload: {
+          title: "PDF Report",
+          markdown: "# Fallback",
+        },
+      },
+      { pdfRendererAvailable: false, capabilityRegistry: registry },
+    );
+
+    const bootstrap = await runMaterializationBootstrap({
+      materialization: result,
+      policyContext: makePolicyContext(true),
+      registry,
+      installers: {
+        download: async ({ request }) => ({
+          ok: true,
+          capability: {
+            ...request.catalogEntry.capability,
+            status: "available",
+            trusted: true,
+            installMethod: "download",
+            sandboxed: true,
+          },
+        }),
+      },
+      availableBins: ["playwright"],
+      runHealthCheckCommand: async () => true,
+    });
+
+    expect(bootstrap?.status).toBe("bootstrapped");
+    expect(bootstrap?.lifecycle?.status).toBe("available");
+    expect(registry.get("pdf-renderer")?.status).toBe("available");
   });
 });

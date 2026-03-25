@@ -1,11 +1,18 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { TRUSTED_CAPABILITY_CATALOG, resolveBootstrapRequest } from "../bootstrap/index.js";
+import {
+  TRUSTED_CAPABILITY_CATALOG,
+  orchestrateBootstrapRequest,
+  resolveBootstrapRequest,
+  type BootstrapInstaller,
+  type BootstrapOrchestrationResult,
+} from "../bootstrap/index.js";
+import type { PolicyContext } from "../policy/types.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { CapabilityRegistry } from "../registry/types.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
-import type { CapabilityCatalogEntry } from "../schemas/capability.js";
+import type { CapabilityCatalogEntry, CapabilityInstallMethod } from "../schemas/capability.js";
 import {
   MaterializationRequestSchema,
   MaterializationResultSchema,
@@ -180,4 +187,28 @@ export function applyMaterializationToDescriptor(params: {
       materialization,
     },
   };
+}
+
+export async function runMaterializationBootstrap(params: {
+  materialization: MaterializationResult;
+  policyContext: PolicyContext;
+  registry: CapabilityRegistry;
+  installers?: Partial<Record<CapabilityInstallMethod, BootstrapInstaller>>;
+  availableBins?: string[];
+  availableEnv?: string[];
+  runHealthCheckCommand?: (command: string) => Promise<boolean> | boolean;
+}): Promise<BootstrapOrchestrationResult | undefined> {
+  const request = params.materialization.bootstrapRequest;
+  if (!request) {
+    return undefined;
+  }
+  return orchestrateBootstrapRequest({
+    request,
+    policyContext: params.policyContext,
+    registry: params.registry,
+    installers: params.installers,
+    availableBins: params.availableBins,
+    availableEnv: params.availableEnv,
+    runHealthCheckCommand: params.runHealthCheckCommand,
+  });
 }

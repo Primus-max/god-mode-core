@@ -30,6 +30,17 @@ export const CapabilityRollbackStrategySchema = z.enum([
 ]);
 export type CapabilityRollbackStrategy = z.infer<typeof CapabilityRollbackStrategySchema>;
 
+export const CapabilityCatalogInstallSchema = z
+  .object({
+    method: CapabilityInstallMethodSchema,
+    packageRef: z.string().min(1).optional(),
+    integrity: z.string().min(1).optional(),
+    sandboxed: z.boolean().optional(),
+    rollbackStrategy: CapabilityRollbackStrategySchema.optional(),
+  })
+  .strict();
+export type CapabilityCatalogInstall = z.infer<typeof CapabilityCatalogInstallSchema>;
+
 export const CapabilityDescriptorSchema = z
   .object({
     id: z.string().min(1),
@@ -53,10 +64,8 @@ export type CapabilityDescriptor = z.infer<typeof CapabilityDescriptorSchema>;
 export const CapabilityCatalogEntrySchema = z
   .object({
     capability: CapabilityDescriptorSchema,
-    packageRef: z.string().optional(),
     source: CapabilityCatalogSourceSchema,
-    integrity: z.string().min(1).optional(),
-    rollbackStrategy: CapabilityRollbackStrategySchema.optional(),
+    install: CapabilityCatalogInstallSchema.optional(),
   })
   .strict();
 
