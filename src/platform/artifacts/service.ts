@@ -143,18 +143,30 @@ function rewriteMaterializationUrls(params: {
 }
 
 function buildRecordSummary(record: PersistedArtifactRecord): ArtifactRecordSummary {
+  const metadata = record.descriptor.metadata ?? {};
+  const artifactType =
+    typeof metadata.documentArtifactType === "string"
+      ? metadata.documentArtifactType
+      : typeof metadata.developerArtifactType === "string"
+        ? metadata.developerArtifactType
+        : undefined;
+  const runId = typeof metadata.runId === "string" ? metadata.runId : undefined;
   return ArtifactRecordSummarySchema.parse({
     id: record.descriptor.id,
     kind: record.descriptor.kind,
     label: record.descriptor.label,
     lifecycle: record.descriptor.lifecycle,
+    artifactType,
     mimeType: record.descriptor.mimeType,
     sizeBytes: record.descriptor.sizeBytes,
     url: record.descriptor.url,
     previewUrl: record.access.previewUrl,
     contentUrl: record.access.contentUrl,
+    previewAvailable: Boolean(record.access.previewUrl),
+    contentAvailable: Boolean(record.access.contentUrl),
     sourceRecipeId: record.descriptor.sourceRecipeId,
     publishTarget: record.descriptor.publishTarget,
+    runId,
     createdAt: record.descriptor.createdAt,
     updatedAt: record.descriptor.updatedAt,
     hasMaterialization: Boolean(record.materialization),
@@ -162,11 +174,24 @@ function buildRecordSummary(record: PersistedArtifactRecord): ArtifactRecordSumm
 }
 
 function buildRecordDetail(record: PersistedArtifactRecord): ArtifactRecordDetail {
+  const metadata = record.descriptor.metadata ?? {};
+  const artifactType =
+    typeof metadata.documentArtifactType === "string"
+      ? metadata.documentArtifactType
+      : typeof metadata.developerArtifactType === "string"
+        ? metadata.developerArtifactType
+        : undefined;
+  const runId = typeof metadata.runId === "string" ? metadata.runId : undefined;
   return ArtifactRecordDetailSchema.parse({
     descriptor: record.descriptor,
     materialization: record.materialization,
+    artifactType,
+    runId,
     previewUrl: record.access.previewUrl,
     contentUrl: record.access.contentUrl,
+    previewAvailable: Boolean(record.access.previewUrl),
+    contentAvailable: Boolean(record.access.contentUrl),
+    warnings: record.materialization?.warnings,
   });
 }
 

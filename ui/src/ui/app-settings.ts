@@ -1,6 +1,8 @@
 import { roleScopesAllow } from "../../../src/shared/operator-scope-compat.js";
 import { refreshChat } from "./app-chat.ts";
 import {
+  startArtifactsPolling,
+  stopArtifactsPolling,
   startLogsPolling,
   stopLogsPolling,
   startDebugPolling,
@@ -11,6 +13,7 @@ import type { OpenClawApp } from "./app.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
 import { loadAgents } from "./controllers/agents.ts";
+import { loadArtifacts } from "./controllers/artifacts.ts";
 import { loadChannels } from "./controllers/channels.ts";
 import { loadConfig, loadConfigSchema } from "./controllers/config.ts";
 import { loadCronJobs, loadCronRuns, loadCronStatus } from "./controllers/cron.ts";
@@ -52,6 +55,7 @@ type SettingsHost = {
   eventLog: unknown[];
   eventLogBuffer: unknown[];
   basePath: string;
+  artifactsPollInterval?: number | null;
   agentsList?: AgentsListResult | null;
   agentsSelectedId?: string | null;
   agentsPanel?: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
@@ -231,6 +235,9 @@ export async function refreshActiveTab(host: SettingsHost) {
   }
   if (host.tab === "cron") {
     await loadCron(host);
+  }
+  if (host.tab === "artifacts") {
+    await loadArtifacts(host as unknown as OpenClawApp);
   }
   if (host.tab === "skills") {
     await loadSkills(host as unknown as OpenClawApp);
@@ -445,6 +452,11 @@ function applyTabSelection(
     startDebugPolling(host as unknown as Parameters<typeof startDebugPolling>[0]);
   } else {
     stopDebugPolling(host as unknown as Parameters<typeof stopDebugPolling>[0]);
+  }
+  if (next === "artifacts") {
+    startArtifactsPolling(host as unknown as Parameters<typeof startArtifactsPolling>[0]);
+  } else {
+    stopArtifactsPolling(host as unknown as Parameters<typeof stopArtifactsPolling>[0]);
   }
 
   if (options.refreshPolicy === "always" || host.connected) {

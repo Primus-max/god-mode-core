@@ -21,6 +21,11 @@ import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controlle
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
 import { loadAgents, loadToolsCatalog, saveAgentsConfig } from "./controllers/agents.ts";
+import {
+  loadArtifactDetail,
+  loadArtifacts,
+  transitionArtifact,
+} from "./controllers/artifacts.ts";
 import { loadChannels } from "./controllers/channels.ts";
 import { loadChatHistory } from "./controllers/chat.ts";
 import {
@@ -122,6 +127,7 @@ function createLazy<T>(loader: () => Promise<T>): () => T | null {
 }
 
 const lazyAgents = createLazy(() => import("./views/agents.ts"));
+const lazyArtifacts = createLazy(() => import("./views/artifacts.ts"));
 const lazyChannels = createLazy(() => import("./views/channels.ts"));
 const lazyCron = createLazy(() => import("./views/cron.ts"));
 const lazyDebug = createLazy(() => import("./views/debug.ts"));
@@ -809,6 +815,30 @@ export function renderApp(state: AppViewState) {
         }
 
         ${renderUsageTab(state)}
+
+        ${
+          state.tab === "artifacts"
+            ? lazyRender(lazyArtifacts, (m) =>
+                m.renderArtifacts({
+                  loading: state.artifactsLoading,
+                  detailLoading: state.artifactDetailLoading,
+                  actionBusy: state.artifactTransitionBusy,
+                  error: state.artifactsError,
+                  detailError: state.artifactDetailError,
+                  artifacts: state.artifactsList,
+                  filterQuery: state.artifactsFilterQuery,
+                  selectedId: state.artifactsSelectedId,
+                  detail: state.artifactDetail,
+                  onRefresh: () => loadArtifacts(state),
+                  onSelect: (artifactId) => loadArtifactDetail(state, artifactId),
+                  onFilterChange: (value) => {
+                    state.artifactsFilterQuery = value;
+                  },
+                  onTransition: (artifactId, operation) => transitionArtifact(state, artifactId, operation),
+                }),
+              )
+            : nothing
+        }
 
         ${
           state.tab === "cron"

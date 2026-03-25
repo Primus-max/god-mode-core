@@ -1,7 +1,9 @@
 import { connectGateway } from "./app-gateway.ts";
 import {
+  startArtifactsPolling,
   startLogsPolling,
   startNodesPolling,
+  stopArtifactsPolling,
   stopLogsPolling,
   stopNodesPolling,
   startDebugPolling,
@@ -38,6 +40,7 @@ type LifecycleHost = {
   logsAutoFollow: boolean;
   logsAtBottom: boolean;
   logsEntries: unknown[];
+  artifactsPollInterval: number | null;
   popStateHandler: () => void;
   topbarObserver: ResizeObserver | null;
 };
@@ -64,6 +67,9 @@ export function handleConnected(host: LifecycleHost) {
   if (host.tab === "debug") {
     startDebugPolling(host as unknown as Parameters<typeof startDebugPolling>[0]);
   }
+  if (host.tab === "artifacts") {
+    startArtifactsPolling(host as unknown as Parameters<typeof startArtifactsPolling>[0]);
+  }
 }
 
 export function handleFirstUpdated(host: LifecycleHost) {
@@ -76,6 +82,7 @@ export function handleDisconnected(host: LifecycleHost) {
   stopNodesPolling(host as unknown as Parameters<typeof stopNodesPolling>[0]);
   stopLogsPolling(host as unknown as Parameters<typeof stopLogsPolling>[0]);
   stopDebugPolling(host as unknown as Parameters<typeof stopDebugPolling>[0]);
+  stopArtifactsPolling(host as unknown as Parameters<typeof stopArtifactsPolling>[0]);
   host.client?.stop();
   host.client = null;
   host.connected = false;

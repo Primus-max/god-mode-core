@@ -27,13 +27,17 @@ export const ArtifactRecordSummarySchema = z
     kind: z.string().min(1),
     label: z.string().min(1),
     lifecycle: z.string().min(1),
+    artifactType: z.string().min(1).optional(),
     mimeType: z.string().min(1).optional(),
     sizeBytes: z.number().nonnegative().optional(),
     url: z.string().url().optional(),
     previewUrl: z.string().url().optional(),
     contentUrl: z.string().url().optional(),
+    previewAvailable: z.boolean(),
+    contentAvailable: z.boolean(),
     sourceRecipeId: z.string().min(1).optional(),
     publishTarget: z.string().min(1).optional(),
+    runId: z.string().min(1).optional(),
     createdAt: z.string().datetime().optional(),
     updatedAt: z.string().datetime().optional(),
     hasMaterialization: z.boolean(),
@@ -45,8 +49,13 @@ export const ArtifactRecordDetailSchema = z
   .object({
     descriptor: ArtifactDescriptorSchema,
     materialization: MaterializationResultSchema.optional(),
+    artifactType: z.string().min(1).optional(),
+    runId: z.string().min(1).optional(),
     previewUrl: z.string().url().optional(),
     contentUrl: z.string().url().optional(),
+    previewAvailable: z.boolean(),
+    contentAvailable: z.boolean(),
+    warnings: z.array(z.string().min(1)).optional(),
   })
   .strict();
 export type ArtifactRecordDetail = z.infer<typeof ArtifactRecordDetailSchema>;

@@ -1,4 +1,5 @@
 import type { OpenClawApp } from "./app.ts";
+import { loadArtifacts } from "./controllers/artifacts.ts";
 import { loadDebug } from "./controllers/debug.ts";
 import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
@@ -7,6 +8,7 @@ type PollingHost = {
   nodesPollInterval: number | null;
   logsPollInterval: number | null;
   debugPollInterval: number | null;
+  artifactsPollInterval: number | null;
   tab: string;
 };
 
@@ -66,4 +68,24 @@ export function stopDebugPolling(host: PollingHost) {
   }
   clearInterval(host.debugPollInterval);
   host.debugPollInterval = null;
+}
+
+export function startArtifactsPolling(host: PollingHost) {
+  if (host.artifactsPollInterval != null) {
+    return;
+  }
+  host.artifactsPollInterval = window.setInterval(() => {
+    if (host.tab !== "artifacts") {
+      return;
+    }
+    void loadArtifacts(host as unknown as OpenClawApp);
+  }, 5000);
+}
+
+export function stopArtifactsPolling(host: PollingHost) {
+  if (host.artifactsPollInterval == null) {
+    return;
+  }
+  clearInterval(host.artifactsPollInterval);
+  host.artifactsPollInterval = null;
 }
