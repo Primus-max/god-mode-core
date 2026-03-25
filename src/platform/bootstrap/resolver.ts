@@ -45,11 +45,12 @@ export function resolveBootstrapRequest(params: {
 
   const request = BootstrapRequestSchema.parse({
     capabilityId: catalogEntry.capability.id,
-    installMethod: catalogEntry.capability.installMethod ?? "builtin",
+    installMethod: catalogEntry.install?.method ?? catalogEntry.capability.installMethod ?? "builtin",
+    rollbackStrategy: catalogEntry.install?.rollbackStrategy,
     reason: params.reason,
     sourceDomain: params.sourceDomain,
     ...(params.sourceRecipeId ? { sourceRecipeId: params.sourceRecipeId } : {}),
-    approvalRequired: true,
+    approvalMode: "explicit",
     catalogEntry,
   });
 

@@ -26,6 +26,12 @@ import {
   loadArtifacts,
   transitionArtifact,
 } from "./controllers/artifacts.ts";
+import {
+  loadBootstrapDetail,
+  loadBootstrapRequests,
+  resolveBootstrapRequest,
+  runBootstrapRequest,
+} from "./controllers/bootstrap.ts";
 import { loadChannels } from "./controllers/channels.ts";
 import { loadChatHistory } from "./controllers/chat.ts";
 import {
@@ -128,6 +134,7 @@ function createLazy<T>(loader: () => Promise<T>): () => T | null {
 
 const lazyAgents = createLazy(() => import("./views/agents.ts"));
 const lazyArtifacts = createLazy(() => import("./views/artifacts.ts"));
+const lazyBootstrap = createLazy(() => import("./views/bootstrap.ts"));
 const lazyChannels = createLazy(() => import("./views/channels.ts"));
 const lazyCron = createLazy(() => import("./views/cron.ts"));
 const lazyDebug = createLazy(() => import("./views/debug.ts"));
@@ -835,6 +842,32 @@ export function renderApp(state: AppViewState) {
                     state.artifactsFilterQuery = value;
                   },
                   onTransition: (artifactId, operation) => transitionArtifact(state, artifactId, operation),
+                }),
+              )
+            : nothing
+        }
+
+        ${
+          state.tab === "bootstrap"
+            ? lazyRender(lazyBootstrap, (m) =>
+                m.renderBootstrap({
+                  loading: state.bootstrapLoading,
+                  detailLoading: state.bootstrapDetailLoading,
+                  actionBusy: state.bootstrapActionBusy,
+                  error: state.bootstrapError,
+                  detailError: state.bootstrapDetailError,
+                  requests: state.bootstrapList,
+                  pendingCount: state.bootstrapPendingCount,
+                  filterQuery: state.bootstrapFilterQuery,
+                  selectedId: state.bootstrapSelectedId,
+                  detail: state.bootstrapDetail,
+                  onRefresh: () => loadBootstrapRequests(state),
+                  onSelect: (requestId) => loadBootstrapDetail(state, requestId),
+                  onFilterChange: (value) => {
+                    state.bootstrapFilterQuery = value;
+                  },
+                  onResolve: (requestId, decision) => resolveBootstrapRequest(state, requestId, decision),
+                  onRun: (requestId) => runBootstrapRequest(state, requestId),
                 }),
               )
             : nothing

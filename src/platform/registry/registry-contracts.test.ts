@@ -64,12 +64,15 @@ const pdfRendererCatalogEntry: CapabilityCatalogEntry = {
     label: "PDF Renderer",
     status: "missing",
     trusted: true,
-    installMethod: "download",
   },
-  packageRef: "playwright-pdf-renderer@1.0.0",
   source: "catalog",
-  integrity: "sha256:trusted-pdf-renderer",
-  rollbackStrategy: "restore_previous",
+  install: {
+    method: "download",
+    packageRef: "playwright-pdf-renderer@1.0.0",
+    integrity: "sha256:trusted-pdf-renderer",
+    rollbackStrategy: "restore_previous",
+    sandboxed: true,
+  },
 };
 
 const draftDoc: ArtifactDescriptor = {

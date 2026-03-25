@@ -58,6 +58,7 @@ describe("CapabilityCatalogEntrySchema", () => {
     const entry = {
       capability: { id: "git", label: "Git", status: "available", trusted: true },
       source: "builtin",
+      install: { method: "builtin" },
     };
     expect(CapabilityCatalogEntrySchema.parse(entry)).toEqual(entry);
   });
@@ -65,10 +66,14 @@ describe("CapabilityCatalogEntrySchema", () => {
   it("accepts a catalog entry with packageRef", () => {
     const entry = {
       capability: { id: "ollama-local", label: "Ollama Local", status: "missing", trusted: true },
-      packageRef: "ollama-local-tier@1.0.0",
       source: "catalog",
-      integrity: "sha256:trusted-ollama",
-      rollbackStrategy: "restore_previous",
+      install: {
+        method: "download",
+        packageRef: "ollama-local-tier@1.0.0",
+        integrity: "sha256:trusted-ollama",
+        rollbackStrategy: "restore_previous",
+        sandboxed: true,
+      },
     };
     expect(CapabilityCatalogEntrySchema.parse(entry)).toEqual(entry);
   });
@@ -81,12 +86,15 @@ describe("CapabilityCatalogEntrySchema", () => {
           label: "PDF Renderer",
           status: "missing",
           trusted: true,
-          installMethod: "download",
         },
-        packageRef: "playwright-pdf-renderer@1.0.0",
         source: "catalog",
-        integrity: "sha256:trusted-pdf-renderer",
-        rollbackStrategy: "restore_previous",
+        install: {
+          method: "download",
+          packageRef: "playwright-pdf-renderer@1.0.0",
+          integrity: "sha256:trusted-pdf-renderer",
+          rollbackStrategy: "restore_previous",
+          sandboxed: true,
+        },
       },
     ];
     expect(CapabilityCatalogSchema.parse(catalog)).toEqual(catalog);

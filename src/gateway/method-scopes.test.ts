@@ -13,10 +13,14 @@ describe("method scope resolution", () => {
     ["config.schema.lookup", ["operator.read"]],
     ["platform.artifacts.list", ["operator.read"]],
     ["platform.artifacts.get", ["operator.read"]],
+    ["platform.bootstrap.list", ["operator.read"]],
+    ["platform.bootstrap.get", ["operator.read"]],
     ["sessions.create", ["operator.write"]],
     ["sessions.send", ["operator.write"]],
     ["sessions.abort", ["operator.write"]],
     ["platform.artifacts.transition", ["operator.write"]],
+    ["platform.bootstrap.resolve", ["operator.approvals"]],
+    ["platform.bootstrap.run", ["operator.approvals"]],
     ["sessions.messages.subscribe", ["operator.read"]],
     ["sessions.messages.unsubscribe", ["operator.read"]],
     ["poll", ["operator.write"]],
@@ -43,6 +47,8 @@ describe("operator scope authorization", () => {
     ["config.schema.lookup", ["operator.read"], { allowed: true }],
     ["platform.artifacts.list", ["operator.read"], { allowed: true }],
     ["platform.artifacts.transition", ["operator.write"], { allowed: true }],
+    ["platform.bootstrap.list", ["operator.read"], { allowed: true }],
+    ["platform.bootstrap.resolve", ["operator.approvals"], { allowed: true }],
     ["config.patch", ["operator.admin"], { allowed: true }],
   ])("authorizes %s for scopes %j", (method, scopes, expected) => {
     expect(authorizeOperatorScopesForMethod(method, scopes)).toEqual(expected);

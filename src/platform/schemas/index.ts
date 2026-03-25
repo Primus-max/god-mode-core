@@ -27,6 +27,7 @@ export {
 
 export {
   CapabilityCatalogSchema,
+  CapabilityCatalogInstallSchema,
   CapabilityDescriptorSchema,
   CapabilityCatalogEntrySchema,
   CapabilityCatalogSourceSchema,
@@ -34,6 +35,7 @@ export {
   CapabilityStatusSchema,
   CapabilityInstallMethodSchema,
   type CapabilityCatalog,
+  type CapabilityCatalogInstall,
   type CapabilityDescriptor,
   type CapabilityCatalogEntry,
   type CapabilityCatalogSource,

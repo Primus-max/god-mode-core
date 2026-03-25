@@ -46,20 +46,60 @@ export function evaluateBootstrapRequestPolicy(params: {
   };
 }
 
+function resolveRollbackStatus(params: {
+  request: BootstrapRequest;
+  previous?: CapabilityDescriptor;
+}): "restore_previous" | "disable" | "keep_failed" {
+  if (params.request.rollbackStrategy === "restore_previous" && params.previous) {
+    return "restore_previous";
+  }
+  if (params.request.rollbackStrategy === "disable") {
+    return "disable";
+  }
+  return "keep_failed";
+}
+
+function buildRollbackCapability(params: {
+  request: BootstrapRequest;
+  previous?: CapabilityDescriptor;
+  failedCapability: CapabilityDescriptor;
+}): { capability: CapabilityDescriptor; rollbackStatus: "restore_previous" | "disable" | "keep_failed" } {
+  const rollbackStatus = resolveRollbackStatus({
+    request: params.request,
+    previous: params.previous,
+  });
+  if (rollbackStatus === "restore_previous" && params.previous) {
+    return { capability: params.previous, rollbackStatus };
+  }
+  if (rollbackStatus === "disable") {
+    return {
+      capability: {
+        ...params.failedCapability,
+        status: "disabled",
+      },
+      rollbackStatus,
+    };
+  }
+  return { capability: params.failedCapability, rollbackStatus };
+}
+
 export async function runBootstrapLifecycle(params: {
   request: BootstrapRequest;
   policyContext: PolicyContext;
   registry: CapabilityRegistry;
+  policyDecision?: PolicyDecision;
   installers?: Partial<Record<CapabilityInstallMethod, BootstrapInstaller>>;
   availableBins?: string[];
   availableEnv?: string[];
   runHealthCheckCommand?: (command: string) => Promise<boolean> | boolean;
 }): Promise<BootstrapLifecycleResult> {
   const transitions: BootstrapLifecycleResult["transitions"] = ["requested"];
-  const { decision } = evaluateBootstrapRequestPolicy({
-    context: params.policyContext,
-    request: params.request,
-  });
+  const decision =
+    params.policyDecision ??
+    evaluateBootstrapRequestPolicy({
+      context: params.policyContext,
+      request: params.request,
+    }).decision;
   const privilegedToolsNeeded = resolveRequestedToolNames(params.request.installMethod).length > 0;
 
   if (
@@ -69,6 +109,10 @@ export async function runBootstrapLifecycle(params: {
     transitions.push("denied", "degraded");
     return BootstrapLifecycleResultSchema.parse({
       capabilityId: params.request.capabilityId,
+      installMethod: params.request.installMethod,
+      rollbackStrategy: params.request.rollbackStrategy,
+      verificationStatus: "not_run",
+      rollbackStatus: "not_needed",
       status: "denied",
       transitions,
       reasons: decision.deniedReasons,
@@ -83,6 +127,31 @@ export async function runBootstrapLifecycle(params: {
     installers: params.installers,
   });
 
+  if (!installed.ok) {
+    const failedCapability: CapabilityDescriptor = {
+      ...installed.capability,
+      status: "failed",
+    };
+    const rollback = buildRollbackCapability({
+      request: params.request,
+      previous,
+      failedCapability,
+    });
+    params.registry.register(rollback.capability);
+    transitions.push("failed", "rolled_back", "degraded");
+    return BootstrapLifecycleResultSchema.parse({
+      capabilityId: params.request.capabilityId,
+      installMethod: params.request.installMethod,
+      rollbackStrategy: params.request.rollbackStrategy,
+      verificationStatus: "not_run",
+      rollbackStatus: rollback.rollbackStatus,
+      status: "degraded",
+      transitions,
+      capability: rollback.capability,
+      reasons: installed.reasons,
+    });
+  }
+
   transitions.push("verifying");
   const verification = await verifyCapabilityHealth({
     capability: installed.capability,
@@ -96,17 +165,22 @@ export async function runBootstrapLifecycle(params: {
       ...installed.capability,
       status: "failed",
     };
-    if (params.request.catalogEntry.rollbackStrategy === "restore_previous" && previous) {
-      params.registry.register(previous);
-    } else {
-      params.registry.register(failedCapability);
-    }
+    const rollback = buildRollbackCapability({
+      request: params.request,
+      previous,
+      failedCapability,
+    });
+    params.registry.register(rollback.capability);
     transitions.push("failed", "rolled_back", "degraded");
     return BootstrapLifecycleResultSchema.parse({
       capabilityId: params.request.capabilityId,
+      installMethod: params.request.installMethod,
+      rollbackStrategy: params.request.rollbackStrategy,
+      verificationStatus: "failed",
+      rollbackStatus: rollback.rollbackStatus,
       status: "degraded",
       transitions,
-      capability: previous ?? failedCapability,
+      capability: rollback.capability,
       reasons: [...installed.reasons, ...verification.reasons],
     });
   }
@@ -115,6 +189,10 @@ export async function runBootstrapLifecycle(params: {
   transitions.push("available");
   return BootstrapLifecycleResultSchema.parse({
     capabilityId: params.request.capabilityId,
+    installMethod: params.request.installMethod,
+    rollbackStrategy: params.request.rollbackStrategy,
+    verificationStatus: "passed",
+    rollbackStatus: "not_needed",
     status: "available",
     transitions,
     capability: installed.capability,

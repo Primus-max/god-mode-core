@@ -39,6 +39,8 @@ describe("bootstrap resolver", () => {
     expect(result.status).toBe("request");
     expect(result.request).toMatchObject({
       capabilityId: "pdf-renderer",
+      installMethod: "download",
+      approvalMode: "explicit",
       reason: "renderer_unavailable",
       sourceRecipeId: "doc_ingest",
     });

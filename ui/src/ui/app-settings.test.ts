@@ -18,6 +18,7 @@ type Tab =
   | "usage"
   | "cron"
   | "artifacts"
+  | "bootstrap"
   | "skills"
   | "nodes"
   | "chat"
@@ -64,6 +65,7 @@ type SettingsHost = {
   logsPollInterval: number | null;
   debugPollInterval: number | null;
   artifactsPollInterval: number | null;
+  bootstrapPollInterval: number | null;
   pendingGatewayUrl?: string | null;
   pendingGatewayToken?: string | null;
 };
@@ -169,6 +171,7 @@ const createHost = (tab: Tab): SettingsHost => ({
   logsPollInterval: null,
   debugPollInterval: null,
   artifactsPollInterval: null,
+  bootstrapPollInterval: null,
   pendingGatewayUrl: null,
   pendingGatewayToken: null,
 });
@@ -177,6 +180,7 @@ describe("setTabFromRoute", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", createStorageMock());
     vi.stubGlobal("navigator", { language: "en-US" } as Navigator);
+    setTestWindowUrl("https://control.example/ui/chat");
   });
 
   afterEach(() => {
@@ -215,6 +219,18 @@ describe("setTabFromRoute", () => {
 
     setTabFromRoute(host, "chat");
     expect(host.artifactsPollInterval).toBeNull();
+  });
+
+  it("starts and stops bootstrap polling based on the tab", () => {
+    const host = createHost("chat");
+
+    setTabFromRoute(host, "bootstrap");
+    expect(host.bootstrapPollInterval).not.toBeNull();
+    expect(host.logsPollInterval).toBeNull();
+    expect(host.debugPollInterval).toBeNull();
+
+    setTabFromRoute(host, "chat");
+    expect(host.bootstrapPollInterval).toBeNull();
   });
 
   it("re-resolves the active palette when only themeMode changes", () => {

@@ -3,6 +3,10 @@ import type {
   ArtifactRecordDetail as PlatformArtifactRecordDetail,
   ArtifactRecordSummary as PlatformArtifactRecordSummary,
 } from "../../../src/platform/artifacts/contracts.js";
+import type {
+  BootstrapRequestRecordDetail as PlatformBootstrapRequestRecordDetail,
+  BootstrapRequestRecordSummary as PlatformBootstrapRequestRecordSummary,
+} from "../../../src/platform/bootstrap/contracts.js";
 import type { CronJobBase } from "../../../src/cron/types-shared.js";
 import type { ConfigUiHints } from "../../../src/shared/config-ui-hints-types.js";
 import type {
@@ -410,6 +414,8 @@ export type SessionsListResult = SessionsListResultBase<GatewaySessionsDefaults,
 
 export type ArtifactRecordSummary = PlatformArtifactRecordSummary;
 export type ArtifactRecordDetail = PlatformArtifactRecordDetail;
+export type BootstrapRequestRecordSummary = PlatformBootstrapRequestRecordSummary;
+export type BootstrapRequestRecordDetail = PlatformBootstrapRequestRecordDetail;
 
 export type SessionsPatchResult = SessionsPatchResultBase<{
   sessionId: string;
@@ -686,4 +692,5 @@ export type AttentionItem = {
   description: string;
   href?: string;
   external?: boolean;
+  actionLabel?: string;
 };

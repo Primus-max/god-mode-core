@@ -1,5 +1,6 @@
 import type { OpenClawApp } from "./app.ts";
 import { loadArtifacts } from "./controllers/artifacts.ts";
+import { loadBootstrapRequests } from "./controllers/bootstrap.ts";
 import { loadDebug } from "./controllers/debug.ts";
 import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
@@ -9,6 +10,7 @@ type PollingHost = {
   logsPollInterval: number | null;
   debugPollInterval: number | null;
   artifactsPollInterval: number | null;
+  bootstrapPollInterval: number | null;
   tab: string;
 };
 
@@ -88,4 +90,24 @@ export function stopArtifactsPolling(host: PollingHost) {
   }
   clearInterval(host.artifactsPollInterval);
   host.artifactsPollInterval = null;
+}
+
+export function startBootstrapPolling(host: PollingHost) {
+  if (host.bootstrapPollInterval != null) {
+    return;
+  }
+  host.bootstrapPollInterval = window.setInterval(() => {
+    if (host.tab !== "bootstrap") {
+      return;
+    }
+    void loadBootstrapRequests(host as unknown as OpenClawApp);
+  }, 5000);
+}
+
+export function stopBootstrapPolling(host: PollingHost) {
+  if (host.bootstrapPollInterval == null) {
+    return;
+  }
+  clearInterval(host.bootstrapPollInterval);
+  host.bootstrapPollInterval = null;
 }

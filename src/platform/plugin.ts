@@ -12,6 +12,13 @@ import {
   createArtifactTransitionGatewayMethod,
   getPlatformArtifactService,
 } from "./artifacts/index.js";
+import {
+  createBootstrapGetGatewayMethod,
+  createBootstrapListGatewayMethod,
+  createBootstrapResolveGatewayMethod,
+  createBootstrapRunGatewayMethod,
+  getPlatformBootstrapService,
+} from "./bootstrap/index.js";
 import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
 import { resolvePlatformRuntimePlan } from "./recipe/runtime-adapter.js";
@@ -63,6 +70,7 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   const artifactService = getPlatformArtifactService({
     config: api.config,
   });
+  const bootstrapService = getPlatformBootstrapService();
   artifactService.rehydrate();
 
   api.registerHttpRoute({
@@ -85,6 +93,22 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   api.registerGatewayMethod(
     "platform.artifacts.transition",
     createArtifactTransitionGatewayMethod(artifactService),
+  );
+  api.registerGatewayMethod(
+    "platform.bootstrap.list",
+    createBootstrapListGatewayMethod(bootstrapService),
+  );
+  api.registerGatewayMethod(
+    "platform.bootstrap.get",
+    createBootstrapGetGatewayMethod(bootstrapService),
+  );
+  api.registerGatewayMethod(
+    "platform.bootstrap.resolve",
+    createBootstrapResolveGatewayMethod(bootstrapService),
+  );
+  api.registerGatewayMethod(
+    "platform.bootstrap.run",
+    createBootstrapRunGatewayMethod(bootstrapService),
   );
   api.on("before_agent_start", (event) => buildAgentStartResult(event.prompt), { priority: 20 });
   api.on("before_model_resolve", (event) => buildModelResolveResult(event.prompt), {

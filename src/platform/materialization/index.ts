@@ -22,4 +22,8 @@ export {
   writeHtmlMaterialization,
 } from "./html-preview-materializer.js";
 export { writePdfMaterialization } from "./pdf-materializer.js";
-export { applyMaterializationToDescriptor, materializeArtifact } from "./render.js";
+export {
+  applyMaterializationToDescriptor,
+  materializeArtifact,
+  runMaterializationBootstrap,
+} from "./render.js";
