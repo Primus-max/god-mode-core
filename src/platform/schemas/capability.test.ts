@@ -120,4 +120,18 @@ describe("CapabilityCatalogEntrySchema", () => {
     };
     expect(CapabilityCatalogEntrySchema.safeParse(entry).success).toBe(false);
   });
+
+  it("rejects node install entries without an exact npm version", () => {
+    const entry = {
+      capability: { id: "pdf-parser", label: "PDF Parser", status: "missing", trusted: true },
+      source: "catalog",
+      install: {
+        method: "node",
+        packageRef: "@openclaw/pdf-parser@latest",
+        integrity: "sha512-demo",
+        rollbackStrategy: "restore_previous",
+      },
+    };
+    expect(CapabilityCatalogEntrySchema.safeParse(entry).success).toBe(false);
+  });
 });

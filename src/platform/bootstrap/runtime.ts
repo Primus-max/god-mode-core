@@ -88,6 +88,7 @@ export async function runBootstrapLifecycle(params: {
   policyContext: PolicyContext;
   registry: CapabilityRegistry;
   policyDecision?: PolicyDecision;
+  stateDir?: string;
   installers?: Partial<Record<CapabilityInstallMethod, BootstrapInstaller>>;
   availableBins?: string[];
   availableEnv?: string[];
@@ -124,6 +125,7 @@ export async function runBootstrapLifecycle(params: {
   const installed = await installCapabilityRequest({
     request: params.request,
     previous,
+    stateDir: params.stateDir,
     installers: params.installers,
   });
 

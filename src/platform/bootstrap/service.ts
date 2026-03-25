@@ -242,6 +242,7 @@ export function createBootstrapRequestService(params?: {
         request: running.request,
         policyContext,
         registry,
+        stateDir,
         installers: runParams.installers,
         availableBins: runParams.availableBins,
         availableEnv: runParams.availableEnv,

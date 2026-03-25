@@ -1,4 +1,10 @@
+import { parseRegistryNpmSpec } from "../../infra/npm-registry-spec.js";
 import { z } from "zod";
+
+function isTrustedNodePackageRef(value: string): boolean {
+  const parsed = parseRegistryNpmSpec(value);
+  return parsed?.selectorKind === "exact-version";
+}
 
 export const CapabilityStatusSchema = z.enum([
   "available",
@@ -65,6 +71,14 @@ export const CapabilityCatalogInstallSchema = z
         code: z.ZodIssueCode.custom,
         message: "builtin install entries must not declare integrity",
         path: ["integrity"],
+      });
+    }
+    if (value.method === "node" && value.packageRef && !isTrustedNodePackageRef(value.packageRef)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "node install entries must use an exact npm registry packageRef (<name>@<exact-version>)",
+        path: ["packageRef"],
       });
     }
   })

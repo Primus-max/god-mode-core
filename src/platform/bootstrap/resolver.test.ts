@@ -87,6 +87,38 @@ describe("bootstrap resolver", () => {
     );
   });
 
+  it("returns untrusted for node entries without an exact npm packageRef", () => {
+    const registry = createCapabilityRegistry();
+    const result = resolveBootstrapRequest({
+      capabilityId: "pdf-parser",
+      registry,
+      catalog: [
+        {
+          capability: {
+            id: "pdf-parser",
+            label: "PDF Parser",
+            status: "missing",
+            trusted: true,
+          },
+          source: "catalog",
+          install: {
+            method: "node",
+            packageRef: "@openclaw/pdf-parser@latest",
+            integrity: "sha512-demo",
+            rollbackStrategy: "restore_previous",
+          },
+        },
+      ],
+      reason: "missing_capability",
+      sourceDomain: "platform",
+    });
+
+    expect(result.status).toBe("untrusted");
+    expect(result.reasons).toContain(
+      "capability pdf-parser must use an exact npm registry packageRef for node installs",
+    );
+  });
+
   it("resolves bulk recipe capability requirements", () => {
     const registry = createCapabilityRegistry();
     const results = resolveBootstrapRequests({

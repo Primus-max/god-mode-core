@@ -1,5 +1,6 @@
+import { parseRegistryNpmSpec } from "../../infra/npm-registry-spec.js";
 import type { CapabilityRegistry } from "../registry/types.js";
-import type { CapabilityCatalogEntry } from "../schemas/capability.js";
+import { CapabilityCatalogEntrySchema, type CapabilityCatalogEntry } from "../schemas/capability.js";
 import {
   BootstrapRequestSchema,
   BootstrapResolutionSchema,
@@ -25,6 +26,16 @@ function assessCatalogEntryTrust(entry: CapabilityCatalogEntry): string[] {
   }
   if (entry.install && installMethod !== "builtin" && !entry.install.packageRef) {
     reasons.push(`capability ${entry.capability.id} is missing install packageRef`);
+  }
+  if (
+    entry.install &&
+    installMethod === "node" &&
+    entry.install.packageRef &&
+    parseRegistryNpmSpec(entry.install.packageRef)?.selectorKind !== "exact-version"
+  ) {
+    reasons.push(
+      `capability ${entry.capability.id} must use an exact npm registry packageRef for node installs`,
+    );
   }
   return reasons;
 }
@@ -61,10 +72,11 @@ export function resolveBootstrapRequest(params: {
   }
   const trustReasons = assessCatalogEntryTrust(catalogEntry);
   if (trustReasons.length > 0) {
+    const catalogEntryResult = CapabilityCatalogEntrySchema.safeParse(catalogEntry);
     return BootstrapResolutionSchema.parse({
       status: "untrusted",
       capability: existing ?? catalogEntry.capability,
-      catalogEntry,
+      ...(catalogEntryResult.success ? { catalogEntry: catalogEntryResult.data } : {}),
       reasons: trustReasons,
     });
   }

@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
+import process from "node:process";
 import { promisify } from "node:util";
 import type { CapabilityDescriptor } from "../schemas/capability.js";
 
@@ -44,6 +46,41 @@ function buildExecutableCandidates(command: string): string[] {
     return [command];
   }
   return [command, `${command}.cmd`, `${command}.exe`, `${command}.bat`];
+}
+
+function isResolvableFile(command: string): boolean {
+  try {
+    return fs.statSync(command).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function canResolveCommandFromPath(command: string): boolean {
+  if (!command.trim()) {
+    return false;
+  }
+  if (path.isAbsolute(command)) {
+    return isResolvableFile(command);
+  }
+  if (command.includes("/") || command.includes("\\")) {
+    return isResolvableFile(path.resolve(command));
+  }
+  const pathValue =
+    process.env.PATH ??
+    (process.platform === "win32" ? process.env.Path : undefined) ??
+    "";
+  if (!pathValue) {
+    return false;
+  }
+  for (const dir of pathValue.split(path.delimiter).filter(Boolean)) {
+    for (const candidate of buildExecutableCandidates(command)) {
+      if (isResolvableFile(path.join(dir, candidate))) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function commandMatchesRequiredBins(command: string, capability: CapabilityDescriptor): boolean {
@@ -99,7 +136,7 @@ export async function verifyCapabilityHealth(params: {
   const env = new Set((params.availableEnv ?? []).map((value) => value.toUpperCase()));
 
   for (const bin of params.capability.requiredBins ?? []) {
-    if (!bins.has(bin.toLowerCase())) {
+    if (!bins.has(bin.toLowerCase()) && !canResolveCommandFromPath(bin)) {
       reasons.push(`required bin missing: ${bin}`);
     }
   }

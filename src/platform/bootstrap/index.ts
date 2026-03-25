@@ -44,7 +44,13 @@ export {
 export { resolveBootstrapRequest, resolveBootstrapRequests } from "./resolver.js";
 export { runDefaultBootstrapHealthCheckCommand, verifyCapabilityHealth } from "./health-check.js";
 export { installCapabilityRequest, type BootstrapInstaller } from "./installers.js";
-export { resolveBootstrapAuditPath, resolvePlatformBootstrapRoot } from "./paths.js";
+export {
+  resolveBootstrapAuditPath,
+  resolvePlatformBootstrapNodeCapabilityInstallDir,
+  resolvePlatformBootstrapNodeInstallRoot,
+  resolvePlatformBootstrapInstallRoot,
+  resolvePlatformBootstrapRoot,
+} from "./paths.js";
 export {
   buildBootstrapPolicyContext,
   evaluateBootstrapRequestPolicy,
