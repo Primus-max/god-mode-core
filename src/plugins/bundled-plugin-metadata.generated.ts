@@ -2589,6 +2589,8 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         additionalProperties: false,
         properties: {},
       },
+      enabledByDefault: true,
+      gatewayStartup: true,
       name: "Platform Profile Foundation",
       description: "Profile, policy, and execution recipe foundation hooks.",
     },

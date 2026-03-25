@@ -12,6 +12,8 @@ export type PluginManifest = {
   id: string;
   configSchema: Record<string, unknown>;
   enabledByDefault?: boolean;
+  /** Bundled no-channel plugins: load at gateway startup when effectively enabled (see channel-plugin-ids). */
+  gatewayStartup?: boolean;
   kind?: PluginKind;
   channels?: string[];
   providers?: string[];
@@ -198,6 +200,7 @@ export function loadPluginManifest(
 
   const kind = typeof raw.kind === "string" ? (raw.kind as PluginKind) : undefined;
   const enabledByDefault = raw.enabledByDefault === true;
+  const gatewayStartup = raw.gatewayStartup === true;
   const name = typeof raw.name === "string" ? raw.name.trim() : undefined;
   const description = typeof raw.description === "string" ? raw.description.trim() : undefined;
   const version = typeof raw.version === "string" ? raw.version.trim() : undefined;
@@ -218,6 +221,7 @@ export function loadPluginManifest(
       id,
       configSchema,
       ...(enabledByDefault ? { enabledByDefault } : {}),
+      ...(gatewayStartup ? { gatewayStartup } : {}),
       kind,
       channels,
       providers,
