@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getPlatformArtifactService, type ArtifactService } from "../artifacts/index.js";
 import { createArtifactStore } from "../registry/artifact-store.js";
 import type { ArtifactDescriptor, ArtifactKind } from "../schemas/artifact.js";
 import { DocumentArtifactPayloadSchema, type DocumentArtifactPayload } from "./artifacts.js";
@@ -188,8 +189,13 @@ export function projectDocumentArtifacts(params: {
   route: DocumentRuntimeRoute;
   payloads: DocumentArtifactPayload[];
   materialize?: boolean;
+  artifactService?: ArtifactService;
 }): ArtifactDescriptor[] {
   const normalizedBundles = normalizeDocumentArtifacts(params.route, params.payloads);
+  const artifactService =
+    params.materialize === false
+      ? undefined
+      : (params.artifactService ?? getPlatformArtifactService());
   return normalizedBundles.map(({ raw, normalized }, index) => {
     const descriptor: ArtifactDescriptor = {
       id: `${params.sessionId}:${params.runId}:${index + 1}`,
@@ -214,6 +220,7 @@ export function projectDocumentArtifacts(params: {
       descriptor,
       route: params.route,
       payload: normalized,
+      artifactService,
     });
   });
 }
@@ -224,6 +231,7 @@ export function captureDocumentArtifactsFromLlmOutput(params: {
   recipeId?: string;
   assistantTexts: string[];
   materialize?: boolean;
+  artifactService?: ArtifactService;
 }): ArtifactDescriptor[] {
   if (!isDocumentRoute(params.recipeId)) {
     return [];
@@ -235,6 +243,7 @@ export function captureDocumentArtifactsFromLlmOutput(params: {
     route: params.recipeId,
     payloads: extractDocumentArtifactPayloads(params.assistantTexts, params.recipeId),
     materialize: params.materialize,
+    artifactService: params.artifactService,
   });
 
   for (const descriptor of created) {

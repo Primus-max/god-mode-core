@@ -1,6 +1,8 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createArtifactService, resetPlatformArtifactService } from "../artifacts/index.js";
 import type { MaterializationResult } from "../materialization/index.js";
 import {
   captureDocumentArtifactsFromLlmOutput,
@@ -14,9 +16,19 @@ function readFixture(name: string): string {
   return fs.readFileSync(path.join(import.meta.dirname, "__fixtures__", name), "utf-8");
 }
 
+function createTempStateDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-doc-artifacts-"));
+}
+
 describe("document artifact projection", () => {
+  const tempDirs: string[] = [];
+
   afterEach(() => {
     resetCapturedDocumentArtifacts();
+    resetPlatformArtifactService();
+    for (const tempDir of tempDirs.splice(0)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("extracts structured payloads from JSON code blocks", () => {
@@ -55,6 +67,12 @@ describe("document artifact projection", () => {
   });
 
   it("projects structured document payloads into typed artifact descriptors", () => {
+    const stateDir = createTempStateDir();
+    tempDirs.push(stateDir);
+    const artifactService = createArtifactService({
+      stateDir,
+      gatewayBaseUrl: "http://127.0.0.1:18789",
+    });
     const payloads = extractDocumentArtifactPayloads(
       [readFixture("doc-ingest-report.md")],
       "doc_ingest",
@@ -64,6 +82,7 @@ describe("document artifact projection", () => {
       runId: "run-1",
       route: "doc_ingest",
       payloads,
+      artifactService,
     });
 
     expect(projected).toHaveLength(2);
@@ -85,6 +104,8 @@ describe("document artifact projection", () => {
       label: "Document Ingest report 2",
     });
     expect(projected[1]?.path?.endsWith(".md")).toBe(true);
+    expect(projected[1]?.path).toContain(path.join("platform", "artifacts"));
+    expect(artifactService.get("session-1:run-1:2")?.path).toBe(projected[1]?.path);
     expect(projected[1]?.metadata).toMatchObject({
       materialization: {
         primary: expect.objectContaining({
@@ -120,6 +141,12 @@ describe("document artifact projection", () => {
   });
 
   it("captures document artifacts only for document recipes", () => {
+    const stateDir = createTempStateDir();
+    tempDirs.push(stateDir);
+    const artifactService = createArtifactService({
+      stateDir,
+      gatewayBaseUrl: "http://127.0.0.1:18789",
+    });
     const captured = captureDocumentArtifactsFromLlmOutput({
       sessionId: "session-1",
       runId: "run-1",
@@ -127,6 +154,7 @@ describe("document artifact projection", () => {
       assistantTexts: [
         '{"type":"export","format":"json","fileName":"tables.json","previewRows":[{"item":"A"}]}',
       ],
+      artifactService,
     });
 
     expect(captured).toHaveLength(1);
@@ -135,6 +163,7 @@ describe("document artifact projection", () => {
       sourceRecipeId: "table_extract",
     });
     expect(captured[0]?.path).toBeTruthy();
+    expect(artifactService.list()).toHaveLength(1);
     expect(listCapturedDocumentArtifacts()).toHaveLength(1);
   });
 
@@ -151,11 +180,18 @@ describe("document artifact projection", () => {
   });
 
   it("captures fixture-based OCR outputs into the artifact store", () => {
+    const stateDir = createTempStateDir();
+    tempDirs.push(stateDir);
+    const artifactService = createArtifactService({
+      stateDir,
+      gatewayBaseUrl: "http://127.0.0.1:18789",
+    });
     const captured = captureDocumentArtifactsFromLlmOutput({
       sessionId: "session-ocr",
       runId: "run-ocr",
       recipeId: "ocr_extract",
       assistantTexts: [readFixture("ocr-extract.json")],
+      artifactService,
     });
 
     expect(captured).toHaveLength(1);
@@ -163,6 +199,9 @@ describe("document artifact projection", () => {
       route: "ocr_extract",
       fieldCount: 2,
       hasPlainText: true,
+    });
+    expect(artifactService.get("session-ocr:run-ocr:1")?.metadata).toMatchObject({
+      artifactContentUrl: expect.stringContaining("/platform/artifacts/content/"),
     });
   });
 });

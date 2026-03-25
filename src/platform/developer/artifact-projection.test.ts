@@ -1,6 +1,8 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { createArtifactService, resetPlatformArtifactService } from "../artifacts/index.js";
 import {
   captureDeveloperArtifactsFromLlmOutput,
   extractDeveloperArtifactPayloads,
@@ -13,7 +15,21 @@ function readFixture(name: string): string {
   return fs.readFileSync(path.join(import.meta.dirname, "__fixtures__", name), "utf8");
 }
 
+function createTempStateDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-dev-artifacts-"));
+}
+
 describe("developer artifact projection", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    resetCapturedDeveloperArtifacts();
+    resetPlatformArtifactService();
+    for (const tempDir of tempDirs.splice(0)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("extracts preview and release payloads from route-aware envelopes", () => {
     const previewPayloads = extractDeveloperArtifactPayloads([
       readFixture("preview-envelope.json"),
@@ -31,6 +47,12 @@ describe("developer artifact projection", () => {
   });
 
   it("projects preview and release payloads into common artifact descriptors", () => {
+    const stateDir = createTempStateDir();
+    tempDirs.push(stateDir);
+    const artifactService = createArtifactService({
+      stateDir,
+      gatewayBaseUrl: "http://127.0.0.1:18789",
+    });
     const artifacts = projectDeveloperArtifacts({
       sessionId: "session-1",
       runId: "run-1",
@@ -38,6 +60,7 @@ describe("developer artifact projection", () => {
         ...extractDeveloperArtifactPayloads([readFixture("preview-envelope.json")]),
         ...extractDeveloperArtifactPayloads([readFixture("release-envelope.json")]),
       ],
+      artifactService,
     });
 
     expect(artifacts).toHaveLength(2);
@@ -48,6 +71,13 @@ describe("developer artifact projection", () => {
       url: "https://preview.example.com/build-42",
     });
     expect(artifacts[0]?.path?.endsWith(".html")).toBe(true);
+    expect(artifactService.get("session-1:run-1:developer:1")?.metadata).toMatchObject({
+      materialization: {
+        primary: expect.objectContaining({
+          url: expect.stringContaining("/platform/artifacts/preview/"),
+        }),
+      },
+    });
     expect(artifacts[1]).toMatchObject({
       kind: "release",
       lifecycle: "published",
@@ -83,7 +113,12 @@ describe("developer artifact projection", () => {
   });
 
   it("captures only publish recipe outputs into the developer artifact store", () => {
-    resetCapturedDeveloperArtifacts();
+    const stateDir = createTempStateDir();
+    tempDirs.push(stateDir);
+    const artifactService = createArtifactService({
+      stateDir,
+      gatewayBaseUrl: "http://127.0.0.1:18789",
+    });
 
     expect(
       captureDeveloperArtifactsFromLlmOutput({
@@ -91,6 +126,7 @@ describe("developer artifact projection", () => {
         runId: "run-ignore",
         recipeId: "doc_ingest",
         assistantTexts: [readFixture("preview-envelope.json")],
+        artifactService,
       }),
     ).toEqual([]);
 
@@ -99,8 +135,10 @@ describe("developer artifact projection", () => {
       runId: "run-2",
       recipeId: "code_build_publish",
       assistantTexts: [readFixture("preview-envelope.json")],
+      artifactService,
     });
 
     expect(listCapturedDeveloperArtifacts()).toHaveLength(1);
+    expect(artifactService.list()).toHaveLength(1);
   });
 });

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { ArtifactService } from "../artifacts/index.js";
 import { applyMaterializationToDescriptor, materializeArtifact } from "../materialization/index.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import type { DeveloperArtifactPayload } from "./artifacts.js";
@@ -28,8 +29,9 @@ function buildReleaseMarkdown(params: {
 export function materializeDeveloperDescriptor(params: {
   descriptor: ArtifactDescriptor;
   payload: DeveloperArtifactPayload;
+  artifactService?: ArtifactService;
 }): ArtifactDescriptor {
-  const { descriptor, payload } = params;
+  const { descriptor, payload, artifactService } = params;
 
   if (payload.type === "preview") {
     const materialized = applyMaterializationToDescriptor({
@@ -40,6 +42,7 @@ export function materializeDeveloperDescriptor(params: {
         sourceDomain: "developer",
         renderKind: "site_preview",
         outputTarget: "preview",
+        ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
         payload: {
           title: descriptor.label,
           summary: payload.summary,
@@ -54,10 +57,11 @@ export function materializeDeveloperDescriptor(params: {
         },
       }),
     });
-    return {
+    const withExternalUrl = {
       ...materialized,
       url: payload.url,
     };
+    return artifactService ? artifactService.register(withExternalUrl) : withExternalUrl;
   }
 
   if (payload.type === "binary" && payload.path) {
@@ -77,7 +81,7 @@ export function materializeDeveloperDescriptor(params: {
   }
 
   if (payload.type === "binary") {
-    return applyMaterializationToDescriptor({
+    const materialized = applyMaterializationToDescriptor({
       descriptor,
       materialization: materializeArtifact({
         artifactId: descriptor.id,
@@ -85,6 +89,7 @@ export function materializeDeveloperDescriptor(params: {
         sourceDomain: "developer",
         renderKind: "html",
         outputTarget: "file",
+        ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
         payload: {
           title: descriptor.label,
           summary: payload.summary,
@@ -96,9 +101,10 @@ export function materializeDeveloperDescriptor(params: {
         },
       }),
     });
+    return artifactService ? artifactService.register(materialized) : materialized;
   }
 
-  return applyMaterializationToDescriptor({
+  const materialized = applyMaterializationToDescriptor({
     descriptor,
     materialization: materializeArtifact({
       artifactId: descriptor.id,
@@ -106,6 +112,7 @@ export function materializeDeveloperDescriptor(params: {
       sourceDomain: "developer",
       renderKind: "html",
       outputTarget: "file",
+      ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
       includePdf: true,
       payload: {
         title: descriptor.label,
@@ -121,4 +128,5 @@ export function materializeDeveloperDescriptor(params: {
       },
     }),
   });
+  return artifactService ? artifactService.register(materialized) : materialized;
 }

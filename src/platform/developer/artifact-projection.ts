@@ -1,3 +1,4 @@
+import { getPlatformArtifactService, type ArtifactService } from "../artifacts/index.js";
 import { createArtifactStore } from "../registry/artifact-store.js";
 import type { ArtifactDescriptor, ArtifactKind, ArtifactLifecycle } from "../schemas/artifact.js";
 import { DeveloperArtifactPayloadSchema, type DeveloperArtifactPayload } from "./artifacts.js";
@@ -98,7 +99,12 @@ export function projectDeveloperArtifacts(params: {
   runId: string;
   payloads: DeveloperArtifactPayload[];
   materialize?: boolean;
+  artifactService?: ArtifactService;
 }): ArtifactDescriptor[] {
+  const artifactService =
+    params.materialize === false
+      ? undefined
+      : (params.artifactService ?? getPlatformArtifactService());
   return params.payloads.map((payload, index) => {
     const descriptor: ArtifactDescriptor = {
       id: `${params.sessionId}:${params.runId}:developer:${index + 1}`,
@@ -122,6 +128,7 @@ export function projectDeveloperArtifacts(params: {
     return materializeDeveloperDescriptor({
       descriptor,
       payload,
+      artifactService,
     });
   });
 }
@@ -132,6 +139,7 @@ export function captureDeveloperArtifactsFromLlmOutput(params: {
   assistantTexts: string[];
   recipeId?: string;
   materialize?: boolean;
+  artifactService?: ArtifactService;
 }): ArtifactDescriptor[] {
   if (params.recipeId && params.recipeId !== "code_build_publish") {
     return [];
@@ -142,6 +150,7 @@ export function captureDeveloperArtifactsFromLlmOutput(params: {
     runId: params.runId,
     payloads,
     materialize: params.materialize,
+    artifactService: params.artifactService,
   });
   for (const artifact of artifacts) {
     developerArtifactStore.create(artifact);
