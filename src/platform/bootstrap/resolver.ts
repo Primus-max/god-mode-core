@@ -8,6 +8,31 @@ import {
   type BootstrapSourceDomain,
 } from "./contracts.js";
 
+function assessCatalogEntryTrust(entry: CapabilityCatalogEntry): string[] {
+  const reasons: string[] = [];
+  const installMethod = entry.install?.method ?? entry.capability.installMethod ?? "builtin";
+  if (entry.source === "user") {
+    reasons.push(`capability ${entry.capability.id} comes from a user catalog source`);
+  }
+  if (!entry.capability.trusted) {
+    reasons.push(`capability ${entry.capability.id} is not trusted for bootstrap`);
+  }
+  if (installMethod !== "builtin" && !entry.install) {
+    reasons.push(`capability ${entry.capability.id} is missing install metadata`);
+  }
+  if (entry.install && installMethod !== "builtin" && !entry.install.integrity) {
+    reasons.push(`capability ${entry.capability.id} is missing install integrity`);
+  }
+  if (entry.install && installMethod !== "builtin" && !entry.install.packageRef) {
+    reasons.push(`capability ${entry.capability.id} is missing install packageRef`);
+  }
+  return reasons;
+}
+
+function resolveInstallMethod(entry: CapabilityCatalogEntry) {
+  return entry.install?.method ?? entry.capability.installMethod ?? "builtin";
+}
+
 export function resolveBootstrapRequest(params: {
   capabilityId: string;
   registry: CapabilityRegistry;
@@ -34,18 +59,19 @@ export function resolveBootstrapRequest(params: {
       reasons: [`no trusted catalog entry found for capability ${params.capabilityId}`],
     });
   }
-  if (!catalogEntry.capability.trusted) {
+  const trustReasons = assessCatalogEntryTrust(catalogEntry);
+  if (trustReasons.length > 0) {
     return BootstrapResolutionSchema.parse({
       status: "untrusted",
       capability: existing ?? catalogEntry.capability,
       catalogEntry,
-      reasons: [`capability ${params.capabilityId} is not trusted for bootstrap`],
+      reasons: trustReasons,
     });
   }
 
   const request = BootstrapRequestSchema.parse({
     capabilityId: catalogEntry.capability.id,
-    installMethod: catalogEntry.install?.method ?? catalogEntry.capability.installMethod ?? "builtin",
+    installMethod: resolveInstallMethod(catalogEntry),
     rollbackStrategy: catalogEntry.install?.rollbackStrategy,
     reason: params.reason,
     sourceDomain: params.sourceDomain,

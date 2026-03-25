@@ -1,4 +1,92 @@
+import { execFile } from "node:child_process";
+import path from "node:path";
+import { promisify } from "node:util";
 import type { CapabilityDescriptor } from "../schemas/capability.js";
+
+const execFileAsync = promisify(execFile);
+const SIMPLE_HEALTH_CHECK_TOKEN_RE = /^[A-Za-z0-9_./:\\%+=,@-]+$/u;
+const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 10_000;
+
+function parseSimpleHealthCheckCommand(command: string):
+  | { ok: true; command: string; args: string[] }
+  | { ok: false; reason: string } {
+  const trimmed = command.trim();
+  if (!trimmed) {
+    return { ok: false, reason: "health check command is empty" };
+  }
+  const tokens = trimmed.split(/\s+/u).filter(Boolean);
+  if (tokens.length === 0) {
+    return { ok: false, reason: "health check command is empty" };
+  }
+  if (!tokens.every((token) => SIMPLE_HEALTH_CHECK_TOKEN_RE.test(token))) {
+    return {
+      ok: false,
+      reason: `health check command requires an injected runner: ${command}`,
+    };
+  }
+  return {
+    ok: true,
+    command: tokens[0]!,
+    args: tokens.slice(1),
+  };
+}
+
+function normalizeCommandCandidate(value: string): string {
+  return path.basename(value).toLowerCase().replace(/\.(cmd|exe|bat)$/iu, "");
+}
+
+function buildExecutableCandidates(command: string): string[] {
+  if (process.platform !== "win32") {
+    return [command];
+  }
+  const lower = command.toLowerCase();
+  if (/\.(cmd|exe|bat)$/iu.test(lower)) {
+    return [command];
+  }
+  return [command, `${command}.cmd`, `${command}.exe`, `${command}.bat`];
+}
+
+function commandMatchesRequiredBins(command: string, capability: CapabilityDescriptor): boolean {
+  const requiredBins = capability.requiredBins ?? [];
+  if (requiredBins.length === 0) {
+    return true;
+  }
+  const normalized = normalizeCommandCandidate(command);
+  return requiredBins.some((bin) => normalizeCommandCandidate(bin) === normalized);
+}
+
+export async function runDefaultBootstrapHealthCheckCommand(params: {
+  capability: CapabilityDescriptor;
+  command: string;
+}): Promise<{ ok: boolean; reasons: string[] }> {
+  const parsed = parseSimpleHealthCheckCommand(params.command);
+  if (!parsed.ok) {
+    return { ok: false, reasons: [parsed.reason] };
+  }
+  if (!commandMatchesRequiredBins(parsed.command, params.capability)) {
+    return {
+      ok: false,
+      reasons: [
+        `health check command must use a declared required bin: ${params.command}`,
+      ],
+    };
+  }
+  for (const candidate of buildExecutableCandidates(parsed.command)) {
+    try {
+      await execFileAsync(candidate, parsed.args, {
+        timeout: DEFAULT_HEALTH_CHECK_TIMEOUT_MS,
+        windowsHide: true,
+      });
+      return { ok: true, reasons: [] };
+    } catch {
+      // Try the next platform-specific executable candidate.
+    }
+  }
+  return {
+    ok: false,
+    reasons: [`health check failed: ${params.command}`],
+  };
+}
 
 export async function verifyCapabilityHealth(params: {
   capability: CapabilityDescriptor;
@@ -22,12 +110,18 @@ export async function verifyCapabilityHealth(params: {
   }
 
   if (params.capability.healthCheckCommand) {
-    if (!params.runHealthCheckCommand) {
-      reasons.push("health check runner unavailable");
-    } else {
+    if (params.runHealthCheckCommand) {
       const ok = await params.runHealthCheckCommand(params.capability.healthCheckCommand);
       if (!ok) {
         reasons.push(`health check failed: ${params.capability.healthCheckCommand}`);
+      }
+    } else {
+      const defaultResult = await runDefaultBootstrapHealthCheckCommand({
+        capability: params.capability,
+        command: params.capability.healthCheckCommand,
+      });
+      if (!defaultResult.ok) {
+        reasons.push(...defaultResult.reasons);
       }
     }
   }

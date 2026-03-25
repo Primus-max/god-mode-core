@@ -54,7 +54,7 @@ describe("bootstrap runtime", () => {
     });
 
     expect(result.status).toBe("denied");
-    expect(result.transitions).toEqual(["requested", "denied", "degraded"]);
+    expect(result.transitions).toEqual(["requested", "denied"]);
     expect(result.verificationStatus).toBe("not_run");
     expect(result.rollbackStatus).toBe("not_needed");
   });

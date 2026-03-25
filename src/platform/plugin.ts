@@ -5,6 +5,7 @@ import type {
   PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildResult,
 } from "../plugins/types.js";
+import { resolveStateDir } from "../config/paths.js";
 import {
   createArtifactGetGatewayMethod,
   createArtifactHttpHandler,
@@ -85,9 +86,12 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   const artifactService = getPlatformArtifactService({
     config: api.config,
   });
-  const bootstrapService = getPlatformBootstrapService();
+  const bootstrapService = getPlatformBootstrapService({
+    stateDir: resolveStateDir(process.env),
+  });
   const machineControlService = getPlatformMachineControlService();
   artifactService.rehydrate();
+  bootstrapService.rehydrate();
 
   api.registerHttpRoute({
     path: "/platform/artifacts",

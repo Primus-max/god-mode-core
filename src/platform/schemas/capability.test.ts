@@ -99,4 +99,25 @@ describe("CapabilityCatalogEntrySchema", () => {
     ];
     expect(CapabilityCatalogSchema.parse(catalog)).toEqual(catalog);
   });
+
+  it("rejects non-builtin install entries without integrity", () => {
+    const entry = {
+      capability: { id: "pdf-renderer", label: "PDF Renderer", status: "missing", trusted: true },
+      source: "catalog",
+      install: {
+        method: "download",
+        packageRef: "playwright-pdf-renderer@1.0.0",
+      },
+    };
+    expect(CapabilityCatalogEntrySchema.safeParse(entry).success).toBe(false);
+  });
+
+  it("rejects user entries marked trusted", () => {
+    const entry = {
+      capability: { id: "local-tool", label: "Local Tool", status: "missing", trusted: true },
+      source: "user",
+      install: { method: "builtin" },
+    };
+    expect(CapabilityCatalogEntrySchema.safeParse(entry).success).toBe(false);
+  });
 });

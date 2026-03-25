@@ -1,18 +1,26 @@
 import { randomUUID } from "node:crypto";
+import { resolveStateDir } from "../../config/paths.js";
 import { applyTaskOverlay } from "../profile/overlay.js";
 import { getInitialProfile } from "../profile/defaults.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { CapabilityRegistry } from "../registry/types.js";
 import type { PolicyContext } from "../policy/types.js";
 import type { CapabilityInstallMethod } from "../schemas/capability.js";
+import {
+  appendBootstrapAuditEvent,
+  rehydrateBootstrapRequestRecords,
+} from "./audit.js";
 import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
 import type { BootstrapInstaller } from "./installers.js";
 import { orchestrateBootstrapRequest } from "./orchestrator.js";
+import { resolveBootstrapAuditPath } from "./paths.js";
 import {
+  BootstrapAuditEventSchema,
   BootstrapRequestRecordDetailSchema,
   BootstrapRequestRecordSchema,
   BootstrapRequestRecordSummarySchema,
   type BootstrapOrchestrationResult,
+  type BootstrapAuditEventType,
   type BootstrapRequest,
   type BootstrapRequestDecision,
   type BootstrapRequestRecord,
@@ -21,6 +29,8 @@ import {
 } from "./contracts.js";
 
 export type BootstrapRequestService = {
+  configure: (params: { stateDir?: string }) => void;
+  getAuditPath: () => string | null;
   create: (request: BootstrapRequest) => BootstrapRequestRecord;
   list: () => BootstrapRequestRecordSummary[];
   get: (id: string) => BootstrapRequestRecordDetail | undefined;
@@ -32,6 +42,7 @@ export type BootstrapRequestService = {
     availableEnv?: string[];
     runHealthCheckCommand?: (command: string) => Promise<boolean> | boolean;
   }) => Promise<BootstrapRequestRecordDetail | undefined>;
+  rehydrate: () => number;
   pendingCount: () => number;
   reset: () => void;
 };
@@ -51,6 +62,23 @@ function toSummary(record: BootstrapRequestRecord): BootstrapRequestRecordSummar
     hasResult: Boolean(record.result),
     ...(record.reasons?.[0] ? { lastError: record.reasons[0] } : {}),
   });
+}
+
+function appendAuditRecord(
+  stateDir: string | undefined,
+  type: BootstrapAuditEventType,
+  record: BootstrapRequestRecord,
+): void {
+  appendBootstrapAuditEvent(
+    stateDir,
+    BootstrapAuditEventSchema.parse({
+      version: 1,
+      ts: record.updatedAt,
+      requestId: record.id,
+      type,
+      record,
+    }),
+  );
 }
 
 function buildRecordSignature(request: BootstrapRequest): string {
@@ -109,11 +137,21 @@ function buildBootstrapPolicyContext(request: BootstrapRequest, explicitApproval
 
 export function createBootstrapRequestService(params?: {
   registry?: CapabilityRegistry;
+  stateDir?: string;
 }): BootstrapRequestService {
   const records = new Map<string, BootstrapRequestRecord>();
   const registry = params?.registry ?? createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
+  let stateDir = params?.stateDir;
 
   return {
+    configure(config) {
+      if (config.stateDir) {
+        stateDir = config.stateDir;
+      }
+    },
+    getAuditPath() {
+      return stateDir ? resolveBootstrapAuditPath(stateDir) : null;
+    },
     create(request) {
       const now = new Date().toISOString();
       const normalizedRequest = request;
@@ -140,6 +178,7 @@ export function createBootstrapRequestService(params?: {
         updatedAt: now,
       });
       records.set(record.id, record);
+      appendAuditRecord(stateDir, "request.created", record);
       return record;
     },
     list() {
@@ -167,6 +206,11 @@ export function createBootstrapRequestService(params?: {
           : { reasons: existing.reasons }),
       });
       records.set(id, updated);
+      appendAuditRecord(
+        stateDir,
+        decision === "approve" ? "request.approved" : "request.denied",
+        updated,
+      );
       return BootstrapRequestRecordDetailSchema.parse(updated);
     },
     async run(runParams) {
@@ -181,6 +225,7 @@ export function createBootstrapRequestService(params?: {
           reasons: [`bootstrap request must be approved before run (current state: ${existing.state})`],
         });
         records.set(blocked.id, blocked);
+        appendAuditRecord(stateDir, "request.run_blocked", blocked);
         return BootstrapRequestRecordDetailSchema.parse(blocked);
       }
       const startedAt = new Date().toISOString();
@@ -191,6 +236,7 @@ export function createBootstrapRequestService(params?: {
         startedAt,
       });
       records.set(running.id, running);
+      appendAuditRecord(stateDir, "request.started", running);
       const policyContext = buildBootstrapPolicyContext(running.request, true);
       const result = await orchestrateBootstrapRequest({
         request: running.request,
@@ -212,7 +258,22 @@ export function createBootstrapRequestService(params?: {
         reasons: result.reasons,
       });
       records.set(updated.id, updated);
+      appendAuditRecord(
+        stateDir,
+        result.status === "bootstrapped" ? "request.available" : "request.degraded",
+        updated,
+      );
+      if (result.lifecycle?.rollbackStatus && result.lifecycle.rollbackStatus !== "not_needed") {
+        appendAuditRecord(stateDir, "request.rolled_back", updated);
+      }
       return BootstrapRequestRecordDetailSchema.parse(updated);
+    },
+    rehydrate() {
+      records.clear();
+      for (const record of rehydrateBootstrapRequestRecords(stateDir)) {
+        records.set(record.id, BootstrapRequestRecordSchema.parse(record));
+      }
+      return records.size;
     },
     pendingCount() {
       return Array.from(records.values()).filter((record) => record.state === "pending").length;
@@ -225,9 +286,13 @@ export function createBootstrapRequestService(params?: {
 
 let sharedBootstrapRequestService: BootstrapRequestService | null = null;
 
-export function getPlatformBootstrapService(): BootstrapRequestService {
+export function getPlatformBootstrapService(config?: { stateDir?: string }): BootstrapRequestService {
   if (!sharedBootstrapRequestService) {
-    sharedBootstrapRequestService = createBootstrapRequestService();
+    sharedBootstrapRequestService = createBootstrapRequestService({
+      stateDir: config?.stateDir ?? resolveStateDir(process.env),
+    });
+  } else if (config) {
+    sharedBootstrapRequestService.configure(config);
   }
   return sharedBootstrapRequestService;
 }

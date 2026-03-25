@@ -60,6 +60,33 @@ describe("bootstrap resolver", () => {
     expect(result.reasons?.[0]).toContain("no trusted catalog entry");
   });
 
+  it("returns untrusted for user-sourced catalog entries", () => {
+    const registry = createCapabilityRegistry();
+    const result = resolveBootstrapRequest({
+      capabilityId: "pdf-renderer",
+      registry,
+      catalog: [
+        {
+          capability: {
+            id: "pdf-renderer",
+            label: "PDF Renderer",
+            status: "missing",
+            trusted: false,
+          },
+          source: "user",
+          install: { method: "builtin" },
+        },
+      ],
+      reason: "renderer_unavailable",
+      sourceDomain: "document",
+    });
+
+    expect(result.status).toBe("untrusted");
+    expect(result.reasons).toContain(
+      "capability pdf-renderer comes from a user catalog source",
+    );
+  });
+
   it("resolves bulk recipe capability requirements", () => {
     const registry = createCapabilityRegistry();
     const results = resolveBootstrapRequests({

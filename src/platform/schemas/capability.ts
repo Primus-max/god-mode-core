@@ -38,6 +38,36 @@ export const CapabilityCatalogInstallSchema = z
     sandboxed: z.boolean().optional(),
     rollbackStrategy: CapabilityRollbackStrategySchema.optional(),
   })
+  .superRefine((value, ctx) => {
+    if (value.method !== "builtin" && !value.packageRef) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `packageRef is required for ${value.method} install entries`,
+        path: ["packageRef"],
+      });
+    }
+    if (value.method !== "builtin" && !value.integrity) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `integrity is required for ${value.method} install entries`,
+        path: ["integrity"],
+      });
+    }
+    if (value.method === "builtin" && value.packageRef) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "builtin install entries must not declare packageRef",
+        path: ["packageRef"],
+      });
+    }
+    if (value.method === "builtin" && value.integrity) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "builtin install entries must not declare integrity",
+        path: ["integrity"],
+      });
+    }
+  })
   .strict();
 export type CapabilityCatalogInstall = z.infer<typeof CapabilityCatalogInstallSchema>;
 
@@ -66,6 +96,30 @@ export const CapabilityCatalogEntrySchema = z
     capability: CapabilityDescriptorSchema,
     source: CapabilityCatalogSourceSchema,
     install: CapabilityCatalogInstallSchema.optional(),
+  })
+  .superRefine((entry, ctx) => {
+    const installMethod = entry.install?.method ?? entry.capability.installMethod ?? "builtin";
+    if (entry.source === "user" && entry.capability.trusted) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "user catalog entries must not be marked trusted",
+        path: ["capability", "trusted"],
+      });
+    }
+    if (installMethod === "builtin" && entry.install && entry.install.method !== "builtin") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "builtin bootstrap entries must use builtin install metadata",
+        path: ["install", "method"],
+      });
+    }
+    if (installMethod !== "builtin" && !entry.install) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `non-builtin capability ${entry.capability.id} requires explicit install metadata`,
+        path: ["install"],
+      });
+    }
   })
   .strict();
 

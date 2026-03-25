@@ -106,7 +106,7 @@ export async function runBootstrapLifecycle(params: {
     !decision.allowCapabilityBootstrap ||
     (privilegedToolsNeeded && !decision.allowPrivilegedTools)
   ) {
-    transitions.push("denied", "degraded");
+    transitions.push("denied");
     return BootstrapLifecycleResultSchema.parse({
       capabilityId: params.request.capabilityId,
       installMethod: params.request.installMethod,
