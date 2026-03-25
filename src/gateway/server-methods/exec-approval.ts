@@ -8,6 +8,7 @@ import {
   buildSystemRunApprovalBinding,
   buildSystemRunApprovalEnvBinding,
 } from "../../infra/system-run-approval-binding.js";
+import { getPlatformMachineControlService } from "../../platform/machine/index.js";
 import { resolveSystemRunApprovalRequestContext } from "../../infra/system-run-approval-context.js";
 import type { ExecApprovalManager } from "../exec-approval-manager.js";
 import {
@@ -110,6 +111,18 @@ export function createExecApprovalHandlers(
         );
         return;
       }
+      const machineControlAccess =
+        host === "node"
+          ? getPlatformMachineControlService().evaluateDeviceAccess(client?.connect?.device?.id)
+          : null;
+      if (machineControlAccess && !machineControlAccess.allowed) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, machineControlAccess.message),
+        );
+        return;
+      }
       const envBinding = buildSystemRunApprovalEnvBinding(p.env);
       const systemRunBinding =
         host === "node"
@@ -153,6 +166,14 @@ export function createExecApprovalHandlers(
         turnSourceAccountId:
           typeof p.turnSourceAccountId === "string" ? p.turnSourceAccountId.trim() || null : null,
         turnSourceThreadId: p.turnSourceThreadId ?? null,
+        machineControl:
+          host === "node"
+            ? {
+                required: true,
+                requestedByDeviceId: client?.connect?.device?.id ?? null,
+                linkedAtMs: machineControlAccess?.link?.linkedAtMs ?? null,
+              }
+            : null,
       };
       const record = manager.create(request, timeoutMs, explicitId);
       record.requestedByConnId = client?.connId ?? null;

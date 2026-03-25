@@ -1,13 +1,21 @@
-import { describe, expect, test } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   buildSystemRunApprovalBinding,
   buildSystemRunApprovalEnvBinding,
 } from "../infra/system-run-approval-binding.js";
+import {
+  getPlatformMachineControlService,
+  resetPlatformMachineControlService,
+} from "../platform/machine/index.js";
 import { ExecApprovalManager, type ExecApprovalRecord } from "./exec-approval-manager.js";
 import { sanitizeSystemRunParamsForForwarding } from "./node-invoke-system-run-approval.js";
 
 describe("sanitizeSystemRunParamsForForwarding", () => {
   const now = Date.now();
+  let stateDir = "";
   const client = {
     connId: "conn-1",
     connect: {
@@ -16,6 +24,34 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
       client: { id: "cli-1" },
     },
   };
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-machine-sanitize-"));
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+    const devicesDir = path.join(stateDir, "devices");
+    fs.mkdirSync(devicesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(devicesDir, "paired.json"),
+      JSON.stringify({
+        "dev-1": {
+          deviceId: "dev-1",
+          publicKey: "pk-dev-1",
+          approvedAtMs: Date.now(),
+          createdAtMs: Date.now(),
+        },
+      }),
+    );
+    resetPlatformMachineControlService();
+    getPlatformMachineControlService().linkDevice({ deviceId: "dev-1" });
+  });
+
+  afterEach(() => {
+    resetPlatformMachineControlService();
+    delete process.env.OPENCLAW_STATE_DIR;
+    if (stateDir) {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
 
   function makeRecord(
     command: string,
@@ -361,6 +397,40 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
       nowMs: now,
     });
     expectAllowOnceForwardingResult(result);
+  });
+
+  test("rejects linked-device approval when machine-control kill switch flips on", () => {
+    getPlatformMachineControlService().setKillSwitch({ enabled: true, reason: "operator stop" });
+    const result = sanitizeSystemRunParamsForForwarding({
+      rawParams: {
+        command: ["echo", "SAFE"],
+        runId: "approval-1",
+        approved: true,
+        approvalDecision: "allow-once",
+      },
+      nodeId: "node-1",
+      client,
+      execApprovalManager: manager(makeRecord("echo SAFE", ["echo", "SAFE"])),
+      nowMs: now,
+    });
+    expectRejectedForwardingResult(result, "APPROVAL_DEVICE_MISMATCH", "kill switch");
+  });
+
+  test("rejects previously approved run after machine-control unlink", () => {
+    getPlatformMachineControlService().unlinkDevice({ deviceId: "dev-1" });
+    const result = sanitizeSystemRunParamsForForwarding({
+      rawParams: {
+        command: ["echo", "SAFE"],
+        runId: "approval-1",
+        approved: true,
+        approvalDecision: "allow-once",
+      },
+      nodeId: "node-1",
+      client,
+      execApprovalManager: manager(makeRecord("echo SAFE", ["echo", "SAFE"])),
+      nowMs: now,
+    });
+    expectRejectedForwardingResult(result, "APPROVAL_DEVICE_MISMATCH", "not linked");
   });
 
   test("consumes allow-once approvals and blocks same runId replay", async () => {

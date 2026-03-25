@@ -1,5 +1,6 @@
 import { resolveSystemRunApprovalRuntimeContext } from "../infra/system-run-approval-context.js";
 import { resolveSystemRunCommandRequest } from "../infra/system-run-command.js";
+import { getPlatformMachineControlService } from "../platform/machine/index.js";
 import type { ExecApprovalRecord } from "./exec-approval-manager.js";
 import {
   systemRunApprovalGuardError,
@@ -187,6 +188,19 @@ export function sanitizeSystemRunParamsForForwarding(opts: {
       message: "approval id not valid for this node",
       details: { runId },
     });
+  }
+
+  if (snapshot.request.host === "node") {
+    const machineControlAccess = getPlatformMachineControlService().evaluateDeviceAccess(
+      snapshot.requestedByDeviceId ?? null,
+    );
+    if (!machineControlAccess.allowed) {
+      return systemRunApprovalGuardError({
+        code: "APPROVAL_DEVICE_MISMATCH",
+        message: machineControlAccess.message,
+        details: { runId },
+      });
+    }
   }
 
   // Prefer binding by device identity (stable across reconnects / per-call clients like callGateway()).
