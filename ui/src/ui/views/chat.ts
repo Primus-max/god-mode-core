@@ -26,6 +26,7 @@ import {
   type SlashCommandDef,
 } from "../chat/slash-commands.ts";
 import { isSttSupported, startStt, stopStt } from "../chat/speech.ts";
+import { t } from "../../i18n/index.ts";
 import { icons } from "../icons.ts";
 import { detectTextDirection } from "../text-direction.ts";
 import type { GatewaySessionRow, SessionsListResult } from "../types.ts";
@@ -442,11 +443,11 @@ function renderAttachmentPreview(props: ChatProps): TemplateResult | typeof noth
       ${attachments.map(
         (att) => html`
           <div class="chat-attachment-thumb">
-            <img src=${att.dataUrl} alt="Attachment preview" />
+            <img src=${att.dataUrl} alt=${t("chat.attachmentPreview")} />
             <button
               class="chat-attachment-remove"
               type="button"
-              aria-label="Remove attachment"
+              aria-label=${t("chat.removeAttachment")}
               @click=${() => {
                 const next = (props.attachments ?? []).filter((a) => a.id !== att.id);
                 props.onAttachmentsChange?.(next);
@@ -597,14 +598,14 @@ function exportMarkdown(props: ChatProps): void {
 }
 
 const WELCOME_SUGGESTIONS = [
-  "What can you do?",
-  "Summarize my recent sessions",
-  "Help me configure a channel",
-  "Check system health",
+  "chat.welcomeSuggestionWhatCanYouDo",
+  "chat.welcomeSuggestionSummarizeSessions",
+  "chat.welcomeSuggestionConfigureChannel",
+  "chat.welcomeSuggestionCheckHealth",
 ];
 
 function renderWelcomeState(props: ChatProps): TemplateResult {
-  const name = props.assistantName || "Assistant";
+  const name = props.assistantName || t("chat.assistant");
   const avatar = resolveAgentAvatarUrl({
     identity: {
       avatar: props.assistantAvatar ?? undefined,
@@ -623,22 +624,22 @@ function renderWelcomeState(props: ChatProps): TemplateResult {
       }
       <h2>${name}</h2>
       <div class="agent-chat__badges">
-        <span class="agent-chat__badge"><img src=${logoUrl} alt="" /> Ready to chat</span>
+        <span class="agent-chat__badge"><img src=${logoUrl} alt="" /> ${t("chat.welcomeTitleReady")}</span>
       </div>
       <p class="agent-chat__hint">
-        Type a message below &middot; <kbd>/</kbd> for commands
+        ${t("chat.welcomeCommandHint")}
       </p>
       <div class="agent-chat__suggestions">
         ${WELCOME_SUGGESTIONS.map(
-          (text) => html`
+          (key) => html`
             <button
               type="button"
               class="agent-chat__suggestion"
               @click=${() => {
-                props.onDraftChange(text);
+                props.onDraftChange(t(key));
                 props.onSend();
               }}
-            >${text}</button>
+            >${t(key)}</button>
           `,
         )}
       </div>
@@ -655,7 +656,7 @@ function renderSearchBar(requestUpdate: () => void): TemplateResult | typeof not
       ${icons.search}
       <input
         type="text"
-        placeholder="Search messages..."
+        placeholder=${t("chat.searchPlaceholder")}
         .value=${vs.searchQuery}
         @input=${(e: Event) => {
           vs.searchQuery = (e.target as HTMLInputElement).value;
@@ -699,7 +700,7 @@ function renderPinnedSection(
         requestUpdate();
       }}>
         ${icons.bookmark}
-        ${entries.length} pinned
+        ${t("chat.pinnedCount", { count: String(entries.length) })}
         <span class="collapse-chevron ${vs.pinnedExpanded ? "" : "collapse-chevron--collapsed"}">${icons.chevronDown}</span>
       </button>
       ${
@@ -709,12 +710,12 @@ function renderPinnedSection(
               ${entries.map(
                 ({ index, text, role }) => html`
                 <div class="agent-chat__pinned-item">
-                  <span class="agent-chat__pinned-role">${role === "user" ? "You" : "Assistant"}</span>
+                  <span class="agent-chat__pinned-role">${role === "user" ? t("chat.you") : t("chat.assistant")}</span>
                   <span class="agent-chat__pinned-text">${text.slice(0, 100)}${text.length > 100 ? "..." : ""}</span>
                   <button class="btn-ghost" @click=${() => {
                     pinned.unpin(index);
                     requestUpdate();
-                  }} title="Unpin">
+                  }} title=${t("chat.unpin")}>
                     ${icons.x}
                   </button>
                 </div>
@@ -862,9 +863,9 @@ export function renderChat(props: ChatProps) {
 
   const placeholder = props.connected
     ? hasAttachments
-      ? "Add a message or paste more images..."
-      : `Message ${props.assistantName || "agent"} (Enter to send)`
-    : "Connect to the gateway to start chatting...";
+      ? t("chat.composePlaceholderWithAttachments")
+      : t("chat.composePlaceholderConnected", { name: props.assistantName || "agent" })
+    : t("chat.composePlaceholderDisconnected");
 
   const requestUpdate = props.onRequestUpdate ?? (() => {});
   const getDraft = props.getDraft ?? (() => props.draft);
@@ -902,7 +903,7 @@ export function renderChat(props: ChatProps) {
       ${
         props.loading
           ? html`
-              <div class="chat-loading-skeleton" aria-label="Loading chat">
+              <div class="chat-loading-skeleton" aria-label=${t("chat.loadingAria")}>
                 <div class="chat-line assistant">
                   <div class="chat-msg">
                     <div class="chat-bubble">
@@ -935,7 +936,7 @@ export function renderChat(props: ChatProps) {
       ${
         isEmpty && vs.searchOpen
           ? html`
-              <div class="agent-chat__empty">No matching messages</div>
+              <div class="agent-chat__empty">${t("chat.emptySearch")}</div>
             `
           : nothing
       }
@@ -1124,8 +1125,8 @@ export function renderChat(props: ChatProps) {
               class="chat-focus-exit"
               type="button"
               @click=${props.onToggleFocusMode}
-              aria-label="Exit focus mode"
-              title="Exit focus mode"
+              aria-label=${t("chat.exitFocusMode")}
+              title=${t("chat.exitFocusMode")}
             >
               ${icons.x}
             </button>
@@ -1173,7 +1174,7 @@ export function renderChat(props: ChatProps) {
         props.queue.length
           ? html`
             <div class="chat-queue" role="status" aria-live="polite">
-              <div class="chat-queue__title">Queued (${props.queue.length})</div>
+              <div class="chat-queue__title">${t("chat.queuedTitle", { count: String(props.queue.length) })}</div>
               <div class="chat-queue__list">
                 ${props.queue.map(
                   (item) => html`
@@ -1181,13 +1182,15 @@ export function renderChat(props: ChatProps) {
                       <div class="chat-queue__text">
                         ${
                           item.text ||
-                          (item.attachments?.length ? `Image (${item.attachments.length})` : "")
+                          (item.attachments?.length
+                            ? t("chat.queuedImage", { count: String(item.attachments.length) })
+                            : "")
                         }
                       </div>
                       <button
                         class="btn chat-queue__remove"
                         type="button"
-                        aria-label="Remove queued message"
+                        aria-label=${t("chat.removeQueuedMessage")}
                         @click=${() => props.onQueueRemove(item.id)}
                       >
                         ${icons.x}
@@ -1213,7 +1216,7 @@ export function renderChat(props: ChatProps) {
               type="button"
               @click=${props.onScrollToBottom}
             >
-              ${icons.arrowDown} New messages
+              ${icons.arrowDown} ${t("chat.newMessages")}
             </button>
           `
           : nothing
@@ -1242,7 +1245,7 @@ export function renderChat(props: ChatProps) {
           @keydown=${handleKeyDown}
           @input=${handleInput}
           @paste=${(e: ClipboardEvent) => handlePaste(e, props)}
-          placeholder=${vs.sttRecording ? "Listening..." : placeholder}
+          placeholder=${vs.sttRecording ? t("chat.listening") : placeholder}
           rows="1"
         ></textarea>
 
@@ -1253,7 +1256,7 @@ export function renderChat(props: ChatProps) {
               @click=${() => {
                 document.querySelector<HTMLInputElement>(".agent-chat__file-input")?.click();
               }}
-              title="Attach file"
+              title=${t("chat.attachFile")}
               ?disabled=${!props.connected}
             >
               ${icons.paperclip}
@@ -1304,7 +1307,7 @@ export function renderChat(props: ChatProps) {
                         }
                       }
                     }}
-                    title=${vs.sttRecording ? "Stop recording" : "Voice input"}
+                    title=${vs.sttRecording ? t("chat.stopRecording") : t("chat.voiceInput")}
                     ?disabled=${!props.connected}
                   >
                     ${vs.sttRecording ? icons.micOff : icons.mic}
@@ -1325,21 +1328,21 @@ export function renderChat(props: ChatProps) {
                     <button
                       class="btn-ghost"
                       @click=${props.onNewSession}
-                      title="New session"
-                      aria-label="New session"
+                      title=${t("chat.newSession")}
+                      aria-label=${t("chat.newSession")}
                     >
                       ${icons.plus}
                     </button>
                   `
             }
-            <button class="btn-ghost" @click=${() => exportMarkdown(props)} title="Export" ?disabled=${props.messages.length === 0}>
+            <button class="btn-ghost" @click=${() => exportMarkdown(props)} title=${t("chat.export")} ?disabled=${props.messages.length === 0}>
               ${icons.download}
             </button>
 
             ${
               canAbort && (isBusy || props.sending)
                 ? html`
-                  <button class="chat-send-btn chat-send-btn--stop" @click=${props.onAbort} title="Stop">
+                  <button class="chat-send-btn chat-send-btn--stop" @click=${props.onAbort} title=${t("chat.stop")}>
                     ${icons.stop}
                   </button>
                 `
@@ -1353,7 +1356,7 @@ export function renderChat(props: ChatProps) {
                       props.onSend();
                     }}
                     ?disabled=${!props.connected || props.sending}
-                    title=${isBusy ? "Queue" : "Send"}
+                    title=${isBusy ? t("chat.queue") : t("chat.send")}
                   >
                     ${icons.send}
                   </button>
@@ -1443,7 +1446,7 @@ function buildChatItems(props: ChatProps): Array<ChatItem | MessageGroup> {
           typeof marker.id === "string"
             ? `divider:compaction:${marker.id}`
             : `divider:compaction:${normalized.timestamp}:${i}`,
-        label: "Compaction",
+        label: t("chat.compaction"),
         timestamp: normalized.timestamp ?? Date.now(),
       });
       continue;

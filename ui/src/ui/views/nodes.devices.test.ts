@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 import { render } from "lit";
 import { describe, expect, it } from "vitest";
+import { i18n } from "../../i18n/index.ts";
 import { renderNodes, type NodesProps } from "./nodes.ts";
 
 function baseProps(overrides: Partial<NodesProps> = {}): NodesProps {
@@ -100,5 +101,18 @@ describe("nodes devices pending rendering", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("role: node, operator");
     expect(text).toContain("scopes: operator.read");
+  });
+
+  it("renders Russian device and node headings", async () => {
+    const container = document.createElement("div");
+    await i18n.setLocale("ru");
+
+    render(renderNodes(baseProps()), container);
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Устройства и узлы");
+    expect(text).toContain("Сопряженных устройств нет.");
+
+    await i18n.setLocale("en");
   });
 });

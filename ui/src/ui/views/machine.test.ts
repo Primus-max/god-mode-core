@@ -2,6 +2,7 @@
 
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
+import { i18n } from "../../i18n/index.ts";
 import { renderMachine, type MachineProps } from "./machine.ts";
 
 function createProps(overrides: Partial<MachineProps> = {}): MachineProps {
@@ -37,7 +38,7 @@ describe("machine view", () => {
     render(renderMachine(createProps({ onUnlink })), container);
     await Promise.resolve();
 
-    expect(container.textContent).toContain("Machine Control");
+    expect(container.textContent).toContain("Machine Access");
     const button = Array.from(container.querySelectorAll("button")).find(
       (entry) => entry.textContent?.trim() === "Unlink current device",
     );
@@ -87,5 +88,18 @@ describe("machine view", () => {
     expect(killButton).toBeTruthy();
     killButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onSetKillSwitch).toHaveBeenCalledWith(true);
+  });
+
+  it("renders localized Russian machine controls", async () => {
+    const container = document.createElement("div");
+    await i18n.setLocale("ru");
+
+    render(renderMachine(createProps()), container);
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Доступ к машине");
+    expect(container.textContent).toContain("Отвязать текущее устройство");
+
+    await i18n.setLocale("en");
   });
 });

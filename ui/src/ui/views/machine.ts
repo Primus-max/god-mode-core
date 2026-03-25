@@ -27,11 +27,16 @@ function renderLinkItem(
       style="padding:12px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px;"
     >
       <div>
-        <div><strong>${link.deviceId}</strong>${isCurrent ? html` <span>(current)</span>` : nothing}</div>
-        <div style="opacity:0.75;">Linked ${formatRelativeTimestamp(link.updatedAtMs)}</div>
+        <div>
+          <strong>${link.deviceId}</strong>
+          ${isCurrent ? html` <span>(${t("machine.currentBadge")})</span>` : nothing}
+        </div>
+        <div style="opacity:0.75;">
+          ${t("machine.linkedSince", { time: formatRelativeTimestamp(link.updatedAtMs) })}
+        </div>
       </div>
       <button class="btn danger" type="button" ?disabled=${actionBusy} @click=${() => onUnlink(link.deviceId)}>
-        Unlink
+        ${t("machine.unlink")}
       </button>
     </div>
   `;
@@ -50,9 +55,7 @@ export function renderMachine(props: MachineProps) {
       <div class="row" style="justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
         <div>
           <h2 style="margin:0;">${t("tabs.machine")}</h2>
-          <div style="opacity:0.75;">
-            Explicit device binding and kill-switch controls for machine-scoped execution.
-          </div>
+          <div style="opacity:0.75;">${t("machine.subtitle")}</div>
         </div>
         <button class="btn" type="button" ?disabled=${props.loading} @click=${props.onRefresh}>
           ${t("common.refresh")}
@@ -67,15 +70,15 @@ export function renderMachine(props: MachineProps) {
         style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-top:16px;"
       >
         <div class="card" style="padding:16px;">
-          <h3 style="margin-top:0;">Current device</h3>
+          <h3 style="margin-top:0;">${t("machine.currentDeviceTitle")}</h3>
           ${currentDevice
             ? html`
                 <dl style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:0;">
-                  <dt>Device</dt>
+                  <dt>${t("machine.fields.device")}</dt>
                   <dd>${currentDevice.deviceId}</dd>
-                  <dt>Access</dt>
+                  <dt>${t("machine.fields.access")}</dt>
                   <dd>${currentDevice.access.code}</dd>
-                  <dt>Status</dt>
+                  <dt>${t("machine.fields.status")}</dt>
                   <dd>${currentDevice.access.message}</dd>
                 </dl>
                 <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:16px;">
@@ -87,7 +90,7 @@ export function renderMachine(props: MachineProps) {
                           ?disabled=${props.actionBusy}
                           @click=${() => props.onUnlink(currentDevice.deviceId)}
                         >
-                          Unlink current device
+                          ${t("machine.unlinkCurrentDevice")}
                         </button>
                       `
                     : html`
@@ -97,20 +100,20 @@ export function renderMachine(props: MachineProps) {
                           ?disabled=${props.actionBusy || killSwitchEnabled}
                           @click=${props.onLinkCurrentDevice}
                         >
-                          Link current device
+                          ${t("machine.linkCurrentDevice")}
                         </button>
                       `}
                 </div>
               `
-            : html`<div style="opacity:0.75;">No authenticated device identity is available in this browser.</div>`}
+            : html`<div style="opacity:0.75;">${t("machine.noCurrentDevice")}</div>`}
         </div>
 
         <div class="card" style="padding:16px;">
-          <h3 style="margin-top:0;">Kill switch</h3>
+          <h3 style="margin-top:0;">${t("machine.killSwitchTitle")}</h3>
           <div style="opacity:0.75;">
             ${killSwitchEnabled
-              ? "Machine control is currently disabled for all linked devices."
-              : "Machine control can run only for linked devices and still requires per-run approval."}
+              ? t("machine.killSwitchEnabled")
+              : t("machine.killSwitchDisabled")}
           </div>
           <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:16px;">
             <button
@@ -119,7 +122,7 @@ export function renderMachine(props: MachineProps) {
               ?disabled=${props.actionBusy || killSwitchEnabled}
               @click=${() => props.onSetKillSwitch(true)}
             >
-              Enable kill switch
+              ${t("machine.enableKillSwitch")}
             </button>
             <button
               class="btn ${killSwitchEnabled ? "primary" : ""}"
@@ -127,13 +130,15 @@ export function renderMachine(props: MachineProps) {
               ?disabled=${props.actionBusy || !killSwitchEnabled}
               @click=${() => props.onSetKillSwitch(false)}
             >
-              Clear kill switch
+              ${t("machine.clearKillSwitch")}
             </button>
           </div>
           ${status?.killSwitch.updatedAtMs
             ? html`
                 <div style="margin-top:12px; opacity:0.75;">
-                  Updated ${formatRelativeTimestamp(status.killSwitch.updatedAtMs)}
+                  ${t("machine.updated", {
+                    time: formatRelativeTimestamp(status.killSwitch.updatedAtMs),
+                  })}
                 </div>
               `
             : nothing}
@@ -141,9 +146,9 @@ export function renderMachine(props: MachineProps) {
       </div>
 
       <div class="card" style="padding:16px; margin-top:16px;">
-        <h3 style="margin-top:0;">Linked devices</h3>
+        <h3 style="margin-top:0;">${t("machine.linkedDevicesTitle")}</h3>
         ${props.loading
-          ? html`<div>Loading machine-control status…</div>`
+          ? html`<div>${t("machine.loading")}</div>`
           : status?.linkedDevices.length
             ? html`
                 <div style="display:flex; flex-direction:column; gap:8px;">
@@ -152,7 +157,7 @@ export function renderMachine(props: MachineProps) {
                   )}
                 </div>
               `
-            : html`<div style="opacity:0.75;">No devices are linked for machine control yet.</div>`}
+            : html`<div style="opacity:0.75;">${t("machine.empty")}</div>`}
       </div>
     </section>
   `;
