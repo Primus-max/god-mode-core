@@ -27,6 +27,7 @@ import {
   removeExecApproval,
 } from "./controllers/exec-approval.ts";
 import { loadHealthState } from "./controllers/health.ts";
+import { loadMachineControl } from "./controllers/machine.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadSessions, subscribeSessions } from "./controllers/sessions.ts";
 import {
@@ -82,6 +83,7 @@ type GatewayHost = {
   execApprovalQueue: ExecApprovalRequest[];
   execApprovalError: string | null;
   updateAvailable: UpdateAvailable | null;
+  machineStatus?: unknown;
 };
 
 type SessionDefaultsSnapshot = {
@@ -402,6 +404,14 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     const resolved = parseExecApprovalResolved(evt.payload);
     if (resolved) {
       host.execApprovalQueue = removeExecApproval(host.execApprovalQueue, resolved.id);
+    }
+    return;
+  }
+
+  if (evt.event === "platform.machine.changed") {
+    void loadMachineControl(host as unknown as OpenClawApp);
+    if (host.tab === "overview") {
+      void refreshActiveTab(host as unknown as Parameters<typeof refreshActiveTab>[0]);
     }
     return;
   }

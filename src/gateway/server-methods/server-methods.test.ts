@@ -632,6 +632,75 @@ describe("exec approval handlers", () => {
     );
   });
 
+  it("broadcasts machine-control change events for link, unlink, and kill switch", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-machine-control-events-"));
+    tempStateDirs.push(stateDir);
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+    const devicesDir = path.join(stateDir, "devices");
+    fs.mkdirSync(devicesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(devicesDir, "paired.json"),
+      JSON.stringify({
+        "dev-1": {
+          deviceId: "dev-1",
+          publicKey: "pk-dev-1",
+          approvedAtMs: Date.now(),
+          createdAtMs: Date.now(),
+        },
+      }),
+    );
+    resetPlatformMachineControlService();
+    const broadcasts: Array<{ event: string; payload: unknown }> = [];
+    const context = {
+      broadcast: (event: string, payload: unknown) => {
+        broadcasts.push({ event, payload });
+      },
+    } as unknown as ExecApprovalRequestArgs["context"];
+    const respond = vi.fn();
+    const service = getPlatformMachineControlService();
+    const { createMachineKillSwitchGatewayMethod, createMachineLinkGatewayMethod, createMachineUnlinkGatewayMethod } =
+      await import("../../platform/machine/gateway.js");
+    const client = {
+      connId: "conn-1",
+      connect: {
+        client: { id: "client-1" },
+        device: { id: "dev-1" },
+        scopes: ["operator.admin"],
+      },
+    } as ExecApprovalRequestArgs["client"];
+
+    createMachineLinkGatewayMethod(service)({
+      params: { deviceId: "dev-1" },
+      respond: respond as never,
+      context: context as never,
+      client,
+      req: { id: "req-machine-link", type: "req", method: "platform.machine.link" },
+      isWebchatConnect: execApprovalNoop,
+    });
+    createMachineKillSwitchGatewayMethod(service)({
+      params: { enabled: true, reason: "test" },
+      respond: respond as never,
+      context: context as never,
+      client,
+      req: { id: "req-machine-kill", type: "req", method: "platform.machine.setKillSwitch" },
+      isWebchatConnect: execApprovalNoop,
+    });
+    createMachineUnlinkGatewayMethod(service)({
+      params: { deviceId: "dev-1" },
+      respond: respond as never,
+      context: context as never,
+      client,
+      req: { id: "req-machine-unlink", type: "req", method: "platform.machine.unlink" },
+      isWebchatConnect: execApprovalNoop,
+    });
+
+    expect(broadcasts.map((entry) => entry.event)).toEqual([
+      "platform.machine.changed",
+      "platform.machine.changed",
+      "platform.machine.changed",
+    ]);
+  });
+
   it("broadcasts request + resolve", async () => {
     const { handlers, broadcasts, respond, context } = createExecApprovalFixture();
 

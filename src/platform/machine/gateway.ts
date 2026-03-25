@@ -41,7 +41,7 @@ export function createMachineStatusGatewayMethod(
 export function createMachineLinkGatewayMethod(
   service: MachineControlService,
 ): GatewayRequestHandler {
-  return ({ params, respond, client }) => {
+  return ({ params, respond, client, context }) => {
     const parsed = MachineLinkParamsSchema.safeParse(params);
     if (!parsed.success) {
       respond(false, { error: "invalid platform.machine.link params" });
@@ -53,6 +53,15 @@ export function createMachineLinkGatewayMethod(
         linkedByDeviceId: client?.connect?.device?.id,
         note: parsed.data.note,
       });
+      context.broadcast(
+        "platform.machine.changed",
+        {
+          kind: "link",
+          deviceId: link.deviceId,
+          ts: Date.now(),
+        },
+        { dropIfSlow: true },
+      );
       respond(true, { link });
     } catch (error) {
       respond(false, { error: String(error) });
@@ -63,32 +72,50 @@ export function createMachineLinkGatewayMethod(
 export function createMachineUnlinkGatewayMethod(
   service: MachineControlService,
 ): GatewayRequestHandler {
-  return ({ params, respond }) => {
+  return ({ params, respond, context }) => {
     const parsed = MachineUnlinkParamsSchema.safeParse(params);
     if (!parsed.success) {
       respond(false, { error: "invalid platform.machine.unlink params" });
       return;
     }
-    respond(true, service.unlinkDevice({ deviceId: parsed.data.deviceId }));
+    const payload = service.unlinkDevice({ deviceId: parsed.data.deviceId });
+    context.broadcast(
+      "platform.machine.changed",
+      {
+        kind: "unlink",
+        deviceId: parsed.data.deviceId,
+        removed: payload.removed,
+        ts: Date.now(),
+      },
+      { dropIfSlow: true },
+    );
+    respond(true, payload);
   };
 }
 
 export function createMachineKillSwitchGatewayMethod(
   service: MachineControlService,
 ): GatewayRequestHandler {
-  return ({ params, respond, client }) => {
+  return ({ params, respond, client, context }) => {
     const parsed = MachineKillSwitchParamsSchema.safeParse(params);
     if (!parsed.success) {
       respond(false, { error: "invalid platform.machine.setKillSwitch params" });
       return;
     }
-    respond(
-      true,
-      service.setKillSwitch({
+    const snapshot = service.setKillSwitch({
+      enabled: parsed.data.enabled,
+      updatedByDeviceId: client?.connect?.device?.id,
+      reason: parsed.data.reason,
+    });
+    context.broadcast(
+      "platform.machine.changed",
+      {
+        kind: "kill-switch",
         enabled: parsed.data.enabled,
-        updatedByDeviceId: client?.connect?.device?.id,
-        reason: parsed.data.reason,
-      }),
+        ts: Date.now(),
+      },
+      { dropIfSlow: true },
     );
+    respond(true, snapshot);
   };
 }

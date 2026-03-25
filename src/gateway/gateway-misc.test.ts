@@ -199,13 +199,14 @@ describe("gateway broadcaster", () => {
 
     broadcast("exec.approval.requested", { id: "1" });
     broadcast("device.pair.requested", { requestId: "r1" });
+    broadcast("platform.machine.changed", { kind: "link" });
 
     expect(approvalsSocket.send).toHaveBeenCalledTimes(1);
     expect(pairingSocket.send).toHaveBeenCalledTimes(1);
-    expect(readSocket.send).toHaveBeenCalledTimes(0);
+    expect(readSocket.send).toHaveBeenCalledTimes(1);
 
     broadcastToConnIds("tick", { ts: 1 }, new Set(["c-read"]));
-    expect(readSocket.send).toHaveBeenCalledTimes(1);
+    expect(readSocket.send).toHaveBeenCalledTimes(2);
     expect(approvalsSocket.send).toHaveBeenCalledTimes(1);
     expect(pairingSocket.send).toHaveBeenCalledTimes(1);
   });
