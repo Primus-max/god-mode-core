@@ -31,13 +31,16 @@ export function renderExecApprovalPrompt(state: AppViewState) {
   const remainingMs = active.expiresAtMs - Date.now();
   const remaining = remainingMs > 0 ? `expires in ${formatRemaining(remainingMs)}` : "expired";
   const queueCount = state.execApprovalQueue.length;
+  const machineControl = request.machineControl?.required === true;
   return html`
     <div class="exec-approval-overlay" role="dialog" aria-live="polite">
       <div class="exec-approval-card">
         <div class="exec-approval-header">
           <div>
             <div class="exec-approval-title">Exec approval needed</div>
-            <div class="exec-approval-sub">${remaining}</div>
+            <div class="exec-approval-sub">
+              ${remaining}${machineControl ? " · machine control" : ""}
+            </div>
           </div>
           ${
             queueCount > 1
@@ -47,6 +50,8 @@ export function renderExecApprovalPrompt(state: AppViewState) {
         </div>
         <div class="exec-approval-command mono">${request.command}</div>
         <div class="exec-approval-meta">
+          ${machineControl ? renderMetaRow("Machine", "linked device required") : nothing}
+          ${machineControl ? renderMetaRow("Device", request.machineControl?.requestedByDeviceId ?? null) : nothing}
           ${renderMetaRow("Host", request.host)}
           ${renderMetaRow("Agent", request.agentId)}
           ${renderMetaRow("Session", request.sessionKey)}

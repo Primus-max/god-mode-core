@@ -80,6 +80,7 @@ import type {
   HealthSummary,
   LogEntry,
   LogLevel,
+  MachineControlStatus,
   ModelCatalogEntry,
   PresenceEntry,
   ChannelsStatusSnapshot,
@@ -314,6 +315,10 @@ export class OpenClawApp extends LitElement {
   @state() bootstrapDetail: BootstrapRequestRecordDetail | null = null;
   @state() bootstrapDetailError: string | null = null;
   @state() bootstrapActionBusy = false;
+  @state() machineLoading = false;
+  @state() machineError: string | null = null;
+  @state() machineActionBusy = false;
+  @state() machineStatus: MachineControlStatus | null = null;
 
   @state() usageLoading = false;
   @state() usageResult: import("./types.js").SessionsUsageResult | null = null;
@@ -467,6 +472,7 @@ export class OpenClawApp extends LitElement {
   private debugPollInterval: number | null = null;
   private artifactsPollInterval: number | null = null;
   private bootstrapPollInterval: number | null = null;
+  private machinePollInterval: number | null = null;
   private logsScrollFrame: number | null = null;
   private toolStreamById = new Map<string, ToolStreamEntry>();
   private toolStreamOrder: string[] = [];

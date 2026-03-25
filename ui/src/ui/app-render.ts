@@ -79,6 +79,12 @@ import {
   updateExecApprovalsFormValue,
 } from "./controllers/exec-approvals.ts";
 import { loadLogs } from "./controllers/logs.ts";
+import {
+  linkMachineCurrentDevice,
+  loadMachineControl,
+  setMachineKillSwitch,
+  unlinkMachineDevice,
+} from "./controllers/machine.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionsAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
@@ -135,6 +141,7 @@ function createLazy<T>(loader: () => Promise<T>): () => T | null {
 const lazyAgents = createLazy(() => import("./views/agents.ts"));
 const lazyArtifacts = createLazy(() => import("./views/artifacts.ts"));
 const lazyBootstrap = createLazy(() => import("./views/bootstrap.ts"));
+const lazyMachine = createLazy(() => import("./views/machine.ts"));
 const lazyChannels = createLazy(() => import("./views/channels.ts"));
 const lazyCron = createLazy(() => import("./views/cron.ts"));
 const lazyDebug = createLazy(() => import("./views/debug.ts"));
@@ -868,6 +875,23 @@ export function renderApp(state: AppViewState) {
                   },
                   onResolve: (requestId, decision) => resolveBootstrapRequest(state, requestId, decision),
                   onRun: (requestId) => runBootstrapRequest(state, requestId),
+                }),
+              )
+            : nothing
+        }
+
+        ${
+          state.tab === "machine"
+            ? lazyRender(lazyMachine, (m) =>
+                m.renderMachine({
+                  loading: state.machineLoading,
+                  actionBusy: state.machineActionBusy,
+                  error: state.machineError,
+                  status: state.machineStatus,
+                  onRefresh: () => loadMachineControl(state),
+                  onLinkCurrentDevice: () => linkMachineCurrentDevice(state),
+                  onUnlink: (deviceId) => unlinkMachineDevice(state, deviceId),
+                  onSetKillSwitch: (enabled) => setMachineKillSwitch(state, enabled),
                 }),
               )
             : nothing

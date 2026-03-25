@@ -7,6 +7,11 @@ export type ExecApprovalRequestPayload = {
   agentId?: string | null;
   resolvedPath?: string | null;
   sessionKey?: string | null;
+  machineControl?: {
+    required: boolean;
+    requestedByDeviceId?: string | null;
+    linkedAtMs?: number | null;
+  } | null;
 };
 
 export type ExecApprovalRequest = {
@@ -56,6 +61,20 @@ export function parseExecApprovalRequested(payload: unknown): ExecApprovalReques
       agentId: typeof request.agentId === "string" ? request.agentId : null,
       resolvedPath: typeof request.resolvedPath === "string" ? request.resolvedPath : null,
       sessionKey: typeof request.sessionKey === "string" ? request.sessionKey : null,
+      machineControl:
+        isRecord(request.machineControl) && request.machineControl.required === true
+          ? {
+              required: true,
+              requestedByDeviceId:
+                typeof request.machineControl.requestedByDeviceId === "string"
+                  ? request.machineControl.requestedByDeviceId
+                  : null,
+              linkedAtMs:
+                typeof request.machineControl.linkedAtMs === "number"
+                  ? request.machineControl.linkedAtMs
+                  : null,
+            }
+          : null,
     },
     createdAtMs,
     expiresAtMs,
