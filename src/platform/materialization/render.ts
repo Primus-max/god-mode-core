@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { TRUSTED_CAPABILITY_CATALOG, resolveBootstrapRequest } from "../bootstrap/index.js";
+import { createCapabilityRegistry } from "../registry/capability-registry.js";
+import type { CapabilityRegistry } from "../registry/types.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
+import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 import {
   MaterializationRequestSchema,
   MaterializationResultSchema,
@@ -58,7 +62,12 @@ function writeTextFile(params: {
 
 export function materializeArtifact(
   requestInput: MaterializationRequest,
-  options?: { pdfRendererAvailable?: boolean },
+  options?: {
+    pdfRendererAvailable?: boolean;
+    capabilityRegistry?: CapabilityRegistry;
+    capabilityCatalog?: CapabilityCatalogEntry[];
+    sourceRecipeId?: string;
+  },
 ): MaterializationResult {
   const request = MaterializationRequestSchema.parse(requestInput);
   const outputDir = resolveOutputDir(request);
@@ -97,6 +106,17 @@ export function materializeArtifact(
 
   if (request.renderKind === "pdf") {
     if (options?.pdfRendererAvailable === false) {
+      const capabilityRegistry =
+        options.capabilityRegistry ??
+        createCapabilityRegistry([], options?.capabilityCatalog ?? TRUSTED_CAPABILITY_CATALOG);
+      const bootstrapResolution = resolveBootstrapRequest({
+        capabilityId: "pdf-renderer",
+        registry: capabilityRegistry,
+        catalog: options?.capabilityCatalog ?? TRUSTED_CAPABILITY_CATALOG,
+        reason: "renderer_unavailable",
+        sourceDomain: request.sourceDomain,
+        sourceRecipeId: options?.sourceRecipeId,
+      });
       const primary = writeHtmlMaterialization({
         outputDir,
         baseFileName,
@@ -108,6 +128,7 @@ export function materializeArtifact(
       });
       return MaterializationResultSchema.parse({
         primary,
+        ...(bootstrapResolution.request ? { bootstrapRequest: bootstrapResolution.request } : {}),
         degraded: true,
         warnings: ["pdf renderer unavailable; fell back to html output"],
       });
