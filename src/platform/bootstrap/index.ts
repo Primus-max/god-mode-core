@@ -46,6 +46,10 @@ export { runDefaultBootstrapHealthCheckCommand, verifyCapabilityHealth } from ".
 export { installCapabilityRequest, type BootstrapInstaller } from "./installers.js";
 export {
   resolveBootstrapAuditPath,
+  resolvePlatformBootstrapDownloadCapabilityInstallDir,
+  resolvePlatformBootstrapDownloadCapabilityStageDir,
+  resolvePlatformBootstrapDownloadInstallRoot,
+  resolvePlatformBootstrapDownloadStageRoot,
   resolvePlatformBootstrapNodeCapabilityInstallDir,
   resolvePlatformBootstrapNodeInstallRoot,
   resolvePlatformBootstrapInstallRoot,

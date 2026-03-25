@@ -119,6 +119,38 @@ describe("bootstrap resolver", () => {
     );
   });
 
+  it("returns untrusted for download entries without a full source contract", () => {
+    const registry = createCapabilityRegistry();
+    const result = resolveBootstrapRequest({
+      capabilityId: "pdf-renderer",
+      registry,
+      catalog: [
+        {
+          capability: {
+            id: "pdf-renderer",
+            label: "PDF Renderer",
+            status: "missing",
+            trusted: true,
+            requiredBins: ["playwright"],
+          },
+          source: "catalog",
+          install: {
+            method: "download",
+            packageRef: "playwright-pdf-renderer@1.0.0",
+            integrity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            rollbackStrategy: "restore_previous",
+          },
+        },
+      ],
+      reason: "renderer_unavailable",
+      sourceDomain: "document",
+    });
+
+    expect(result.status).toBe("untrusted");
+    expect(result.reasons).toContain("capability pdf-renderer is missing downloadUrl");
+    expect(result.reasons).toContain("capability pdf-renderer is missing archiveKind");
+  });
+
   it("resolves bulk recipe capability requirements", () => {
     const registry = createCapabilityRegistry();
     const results = resolveBootstrapRequests({

@@ -37,6 +37,18 @@ function assessCatalogEntryTrust(entry: CapabilityCatalogEntry): string[] {
       `capability ${entry.capability.id} must use an exact npm registry packageRef for node installs`,
     );
   }
+  if (entry.install && installMethod === "download" && !entry.install.downloadUrl) {
+    reasons.push(`capability ${entry.capability.id} is missing downloadUrl`);
+  }
+  if (entry.install && installMethod === "download" && !entry.install.archiveKind) {
+    reasons.push(`capability ${entry.capability.id} is missing archiveKind`);
+  }
+  if (
+    installMethod === "download" &&
+    (!entry.capability.requiredBins || entry.capability.requiredBins.length === 0)
+  ) {
+    reasons.push(`capability ${entry.capability.id} is missing requiredBins for download verify`);
+  }
   return reasons;
 }
 

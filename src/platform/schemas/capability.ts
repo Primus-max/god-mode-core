@@ -6,6 +6,18 @@ function isTrustedNodePackageRef(value: string): boolean {
   return parsed?.selectorKind === "exact-version";
 }
 
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isSha256Integrity(value: string): boolean {
+  return /^sha256:[a-f0-9]{64}$/iu.test(value.trim());
+}
+
 export const CapabilityStatusSchema = z.enum([
   "available",
   "missing",
@@ -36,11 +48,17 @@ export const CapabilityRollbackStrategySchema = z.enum([
 ]);
 export type CapabilityRollbackStrategy = z.infer<typeof CapabilityRollbackStrategySchema>;
 
+export const CapabilityArchiveKindSchema = z.enum(["tar", "zip"]);
+export type CapabilityArchiveKind = z.infer<typeof CapabilityArchiveKindSchema>;
+
 export const CapabilityCatalogInstallSchema = z
   .object({
     method: CapabilityInstallMethodSchema,
     packageRef: z.string().min(1).optional(),
     integrity: z.string().min(1).optional(),
+    downloadUrl: z.string().min(1).optional(),
+    archiveKind: CapabilityArchiveKindSchema.optional(),
+    rootMarkers: z.array(z.string().min(1)).optional(),
     sandboxed: z.boolean().optional(),
     rollbackStrategy: CapabilityRollbackStrategySchema.optional(),
   })
@@ -79,6 +97,55 @@ export const CapabilityCatalogInstallSchema = z
         message:
           "node install entries must use an exact npm registry packageRef (<name>@<exact-version>)",
         path: ["packageRef"],
+      });
+    }
+    if (value.method === "download" && !value.downloadUrl) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "download install entries must declare downloadUrl",
+        path: ["downloadUrl"],
+      });
+    }
+    if (value.method === "download" && value.downloadUrl && !isHttpsUrl(value.downloadUrl)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "download install entries must use an https downloadUrl",
+        path: ["downloadUrl"],
+      });
+    }
+    if (value.method === "download" && !value.archiveKind) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "download install entries must declare archiveKind",
+        path: ["archiveKind"],
+      });
+    }
+    if (value.method === "download" && value.integrity && !isSha256Integrity(value.integrity)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "download install entries must use sha256:<hex> integrity",
+        path: ["integrity"],
+      });
+    }
+    if (value.method !== "download" && value.downloadUrl) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${value.method} install entries must not declare downloadUrl`,
+        path: ["downloadUrl"],
+      });
+    }
+    if (value.method !== "download" && value.archiveKind) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${value.method} install entries must not declare archiveKind`,
+        path: ["archiveKind"],
+      });
+    }
+    if (value.method !== "download" && value.rootMarkers) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${value.method} install entries must not declare rootMarkers`,
+        path: ["rootMarkers"],
       });
     }
   })
@@ -132,6 +199,16 @@ export const CapabilityCatalogEntrySchema = z
         code: z.ZodIssueCode.custom,
         message: `non-builtin capability ${entry.capability.id} requires explicit install metadata`,
         path: ["install"],
+      });
+    }
+    if (
+      installMethod === "download" &&
+      (!entry.capability.requiredBins || entry.capability.requiredBins.length === 0)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `download capability ${entry.capability.id} must declare requiredBins`,
+        path: ["capability", "requiredBins"],
       });
     }
   })

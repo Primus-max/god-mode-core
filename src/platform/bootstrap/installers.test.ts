@@ -2,15 +2,24 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolvePlatformBootstrapNodeCapabilityInstallDir } from "./paths.js";
+import {
+  resolvePlatformBootstrapDownloadCapabilityInstallDir,
+  resolvePlatformBootstrapDownloadCapabilityStageDir,
+  resolvePlatformBootstrapNodeCapabilityInstallDir,
+} from "./paths.js";
 
 const installFromValidatedNpmSpecArchiveMock = vi.hoisted(() => vi.fn());
+const fetchBootstrapDownloadArtifactMock = vi.hoisted(() => vi.fn());
 const withExtractedArchiveRootMock = vi.hoisted(() => vi.fn());
 const installPackageDirWithManifestDepsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../infra/install-from-npm-spec.js", () => ({
   installFromValidatedNpmSpecArchive: (...args: unknown[]) =>
     installFromValidatedNpmSpecArchiveMock(...args),
+}));
+
+vi.mock("./download-fetch.js", () => ({
+  fetchBootstrapDownloadArtifact: (...args: unknown[]) => fetchBootstrapDownloadArtifactMock(...args),
 }));
 
 vi.mock("../../infra/install-flow.js", () => ({
@@ -46,6 +55,37 @@ function buildNodeRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapR
         method: "node",
         packageRef: "@openclaw/node-installer-smoke@1.2.3",
         integrity: "sha512-demo",
+        rollbackStrategy: "restore_previous",
+      },
+    },
+    ...overrides,
+  };
+}
+
+function buildDownloadRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapRequest {
+  return {
+    capabilityId: "download-installer-smoke",
+    installMethod: "download",
+    rollbackStrategy: "restore_previous",
+    reason: "renderer_unavailable",
+    sourceDomain: "document",
+    approvalMode: "explicit",
+    catalogEntry: {
+      capability: {
+        id: "download-installer-smoke",
+        label: "Download Installer Smoke",
+        status: "missing",
+        trusted: true,
+        requiredBins: ["bin/playwright"],
+      },
+      source: "catalog",
+      install: {
+        method: "download",
+        packageRef: "playwright-pdf-renderer@1.2.3",
+        integrity: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        downloadUrl: "https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.2.3.tgz",
+        archiveKind: "tar",
+        rootMarkers: ["bin"],
         rollbackStrategy: "restore_previous",
       },
     },
@@ -187,6 +227,88 @@ describe("bootstrap installers", () => {
       "node bootstrap installer requires an exact npm registry packageRef for node-installer-smoke",
     );
     expect(installFromValidatedNpmSpecArchiveMock).not.toHaveBeenCalled();
+    expect(withExtractedArchiveRootMock).not.toHaveBeenCalled();
+  });
+
+  it("installs download capabilities into bounded bootstrap directories", async () => {
+    tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-bootstrap-installers-"));
+    const sourceDir = path.join(tempRoot, "download-source");
+    await fs.mkdir(path.join(sourceDir, "bin"), { recursive: true });
+    await fs.writeFile(path.join(sourceDir, "bin", "playwright"), "#!/bin/sh\n", "utf-8");
+
+    fetchBootstrapDownloadArtifactMock.mockResolvedValue({
+      ok: true,
+      archivePath: path.join(tempRoot, "archive.tgz"),
+      bytes: 128,
+      sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    });
+    withExtractedArchiveRootMock.mockImplementation(async ({ onExtracted }) => await onExtracted(sourceDir));
+    installPackageDirWithManifestDepsMock.mockImplementation(async ({ targetDir }) => {
+      await fs.mkdir(path.join(targetDir, "bin"), { recursive: true });
+      await fs.copyFile(path.join(sourceDir, "bin", "playwright"), path.join(targetDir, "bin", "playwright"));
+      return { ok: true };
+    });
+
+    const request = buildDownloadRequest();
+    const result = await installCapabilityRequest({
+      request,
+      stateDir: tempRoot,
+    });
+
+    const stageDir = resolvePlatformBootstrapDownloadCapabilityStageDir({
+      capabilityId: request.capabilityId,
+      stateDir: tempRoot,
+    });
+    const targetDir = resolvePlatformBootstrapDownloadCapabilityInstallDir({
+      capabilityId: request.capabilityId,
+      stateDir: tempRoot,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(fetchBootstrapDownloadArtifactMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.2.3.tgz",
+        integrity:
+          "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        archiveKind: "tar",
+        targetDir: stageDir,
+      }),
+    );
+    expect(installPackageDirWithManifestDepsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceDir,
+        targetDir,
+        mode: "install",
+        manifestDependencies: {},
+      }),
+    );
+    expect(result.capability).toMatchObject({
+      id: "download-installer-smoke",
+      status: "available",
+      installMethod: "download",
+      trusted: true,
+      requiredBins: ["node", path.join(targetDir, "bin", "playwright")],
+      sandboxed: true,
+    });
+    expect(result.capability.healthCheckCommand).toBe(
+      `node ${path.join(targetDir, ".openclaw-bootstrap-healthcheck.cjs")}`,
+    );
+  });
+
+  it("fails download installs when trusted artifact fetch fails", async () => {
+    fetchBootstrapDownloadArtifactMock.mockResolvedValue({
+      ok: false,
+      error: "bootstrap download integrity mismatch for https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.2.3.tgz",
+    });
+
+    const result = await installCapabilityRequest({
+      request: buildDownloadRequest(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reasons).toContain(
+      "bootstrap download integrity mismatch for https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.2.3.tgz",
+    );
     expect(withExtractedArchiveRootMock).not.toHaveBeenCalled();
   });
 });

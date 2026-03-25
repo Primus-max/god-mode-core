@@ -6,7 +6,12 @@ import { installPackageDirWithManifestDeps } from "../../infra/install-package-d
 import { parseRegistryNpmSpec } from "../../infra/npm-registry-spec.js";
 import type { CapabilityDescriptor, CapabilityInstallMethod } from "../schemas/capability.js";
 import type { BootstrapRequest } from "./contracts.js";
-import { resolvePlatformBootstrapNodeCapabilityInstallDir } from "./paths.js";
+import { fetchBootstrapDownloadArtifact } from "./download-fetch.js";
+import {
+  resolvePlatformBootstrapDownloadCapabilityInstallDir,
+  resolvePlatformBootstrapDownloadCapabilityStageDir,
+  resolvePlatformBootstrapNodeCapabilityInstallDir,
+} from "./paths.js";
 
 export type BootstrapInstaller = (params: {
   request: BootstrapRequest;
@@ -17,6 +22,9 @@ export type BootstrapInstaller = (params: {
 const NODE_INSTALL_TIMEOUT_MS = 300_000;
 const NODE_HEALTH_CHECK_FILENAME = ".openclaw-bootstrap-healthcheck.cjs";
 type NodeInstallerFlowResult = { ok: true; capability: CapabilityDescriptor } | { ok: false; error: string };
+type DownloadInstallerFlowResult =
+  | { ok: true; capability: CapabilityDescriptor }
+  | { ok: false; error: string };
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -59,6 +67,28 @@ async function writeNodeHealthCheckScript(params: {
     '  throw new Error(`bootstrap package mismatch for ${expectedCapabilityId}: ${manifest.name}`);',
     "}",
     'process.stdout.write(`${manifest.name}@${manifest.version ?? "0.0.0"}\\n`);',
+  ].join("\n");
+  await fs.writeFile(scriptPath, `${script}\n`, "utf-8");
+  return `node ${scriptPath}`;
+}
+
+async function writeDownloadHealthCheckScript(params: {
+  targetDir: string;
+  expectedBins: string[];
+  capabilityId: string;
+}): Promise<string> {
+  const scriptPath = path.join(params.targetDir, NODE_HEALTH_CHECK_FILENAME);
+  const script = [
+    'const fs = require("node:fs");',
+    `const expectedBins = ${JSON.stringify(params.expectedBins)};`,
+    `const expectedCapabilityId = ${JSON.stringify(params.capabilityId)};`,
+    "for (const binPath of expectedBins) {",
+    "  const stat = fs.statSync(binPath);",
+    "  if (!stat.isFile()) {",
+    "    throw new Error(`bootstrap bin is not a file for ${expectedCapabilityId}: ${binPath}`);",
+    "  }",
+    "}",
+    'process.stdout.write(`${expectedCapabilityId}\\n`);',
   ].join("\n");
   await fs.writeFile(scriptPath, `${script}\n`, "utf-8");
   return `node ${scriptPath}`;
@@ -198,6 +228,98 @@ const NODE_INSTALLER: BootstrapInstaller = async ({ request, previous, stateDir 
   };
 };
 
+const DOWNLOAD_INSTALLER: BootstrapInstaller = async ({ request, previous, stateDir }) => {
+  const install = request.catalogEntry.install;
+  const downloadUrl = install?.downloadUrl?.trim();
+  const archiveKind = install?.archiveKind;
+  if (!install || !downloadUrl || !archiveKind) {
+    return {
+      ok: false,
+      capability: buildFailedCapability(request, previous),
+      reasons: [`download bootstrap installer requires full download metadata for ${request.capabilityId}`],
+    };
+  }
+  const relativeBins = request.catalogEntry.capability.requiredBins ?? [];
+  if (relativeBins.length === 0) {
+    return {
+      ok: false,
+      capability: buildFailedCapability(request, previous),
+      reasons: [`download bootstrap installer requires requiredBins for ${request.capabilityId}`],
+    };
+  }
+
+  const stageDir = resolvePlatformBootstrapDownloadCapabilityStageDir({
+    capabilityId: request.capabilityId,
+    stateDir,
+  });
+  const download = await fetchBootstrapDownloadArtifact({
+    url: downloadUrl,
+    integrity: install.integrity ?? "",
+    archiveKind,
+    targetDir: stageDir,
+  });
+  if (!download.ok) {
+    return {
+      ok: false,
+      capability: buildFailedCapability(request, previous),
+      reasons: [download.error],
+    };
+  }
+
+  const result = await withExtractedArchiveRoot<DownloadInstallerFlowResult>({
+    archivePath: download.archivePath,
+    tempDirPrefix: "openclaw-bootstrap-download-extract-",
+    timeoutMs: NODE_INSTALL_TIMEOUT_MS,
+    rootMarkers: install.rootMarkers,
+    onExtracted: async (rootDir) => {
+      const targetDir = resolvePlatformBootstrapDownloadCapabilityInstallDir({
+        capabilityId: request.capabilityId,
+        stateDir,
+      });
+      const installResult = await installPackageDirWithManifestDeps({
+        sourceDir: rootDir,
+        targetDir,
+        mode: previous ? "update" : "install",
+        timeoutMs: NODE_INSTALL_TIMEOUT_MS,
+        copyErrorPrefix: `failed to install capability ${request.capabilityId}`,
+        depsLogMessage: `Installing ${request.catalogEntry.capability.label} dependencies…`,
+        manifestDependencies: {},
+      });
+      if (!installResult.ok) {
+        return installResult;
+      }
+
+      const expectedBins = relativeBins.map((binPath) => path.join(targetDir, binPath));
+      const healthCheckCommand = await writeDownloadHealthCheckScript({
+        targetDir,
+        expectedBins,
+        capabilityId: request.capabilityId,
+      });
+      return {
+        ok: true as const,
+        capability: buildInstalledCapability(request, {
+          requiredBins: ["node", ...expectedBins],
+          healthCheckCommand,
+          sandboxed: true,
+        }),
+      };
+    },
+  });
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      capability: buildFailedCapability(request, previous),
+      reasons: [result.error],
+    };
+  }
+
+  return {
+    ok: true,
+    capability: result.capability,
+  };
+};
+
 const UNSUPPORTED_INSTALLER: BootstrapInstaller = async ({ request, previous }) => ({
   ok: false,
   capability: buildFailedCapability(request, previous),
@@ -209,7 +331,7 @@ const DEFAULT_INSTALLERS: Record<CapabilityInstallMethod, BootstrapInstaller> = 
   node: NODE_INSTALLER,
   go: UNSUPPORTED_INSTALLER,
   uv: UNSUPPORTED_INSTALLER,
-  download: UNSUPPORTED_INSTALLER,
+  download: DOWNLOAD_INSTALLER,
   docker: UNSUPPORTED_INSTALLER,
   builtin: BUILTIN_INSTALLER,
 };

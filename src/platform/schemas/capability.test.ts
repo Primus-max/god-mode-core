@@ -65,12 +65,20 @@ describe("CapabilityCatalogEntrySchema", () => {
 
   it("accepts a catalog entry with packageRef", () => {
     const entry = {
-      capability: { id: "ollama-local", label: "Ollama Local", status: "missing", trusted: true },
+      capability: {
+        id: "ollama-local",
+        label: "Ollama Local",
+        status: "missing",
+        trusted: true,
+        requiredBins: ["ollama-local"],
+      },
       source: "catalog",
       install: {
         method: "download",
         packageRef: "ollama-local-tier@1.0.0",
-        integrity: "sha256:trusted-ollama",
+        integrity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        downloadUrl: "https://openclaw.ai/bootstrap/ollama-local-tier-1.0.0.tgz",
+        archiveKind: "tar",
         rollbackStrategy: "restore_previous",
         sandboxed: true,
       },
@@ -86,12 +94,15 @@ describe("CapabilityCatalogEntrySchema", () => {
           label: "PDF Renderer",
           status: "missing",
           trusted: true,
+          requiredBins: ["playwright"],
         },
         source: "catalog",
         install: {
           method: "download",
           packageRef: "playwright-pdf-renderer@1.0.0",
-          integrity: "sha256:trusted-pdf-renderer",
+          integrity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          downloadUrl: "https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.0.0.tgz",
+          archiveKind: "tar",
           rollbackStrategy: "restore_previous",
           sandboxed: true,
         },
@@ -129,6 +140,27 @@ describe("CapabilityCatalogEntrySchema", () => {
         method: "node",
         packageRef: "@openclaw/pdf-parser@latest",
         integrity: "sha512-demo",
+        rollbackStrategy: "restore_previous",
+      },
+    };
+    expect(CapabilityCatalogEntrySchema.safeParse(entry).success).toBe(false);
+  });
+
+  it("rejects download install entries without a trusted https source contract", () => {
+    const entry = {
+      capability: {
+        id: "pdf-renderer",
+        label: "PDF Renderer",
+        status: "missing",
+        trusted: true,
+        requiredBins: ["playwright"],
+      },
+      source: "catalog",
+      install: {
+        method: "download",
+        packageRef: "playwright-pdf-renderer@1.0.0",
+        integrity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        downloadUrl: "http://example.test/renderer.tgz",
         rollbackStrategy: "restore_previous",
       },
     };
