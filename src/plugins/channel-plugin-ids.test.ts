@@ -43,6 +43,13 @@ describe("resolveGatewayStartupPluginIds", () => {
           origin: "global",
           enabledByDefault: undefined,
         },
+        {
+          id: "platform-profile-foundation",
+          channels: [],
+          origin: "bundled",
+          enabledByDefault: true,
+          gatewayStartup: true,
+        },
       ],
       diagnostics: [],
     });
@@ -63,7 +70,7 @@ describe("resolveGatewayStartupPluginIds", () => {
         workspaceDir: "/tmp",
         env: process.env,
       }),
-    ).toEqual(["discord", "diagnostics-otel", "custom-sidecar"]);
+    ).toEqual(["discord", "diagnostics-otel", "custom-sidecar", "platform-profile-foundation"]);
   });
 
   it("does not pull default-on bundled non-channel plugins into startup", () => {
@@ -75,6 +82,6 @@ describe("resolveGatewayStartupPluginIds", () => {
         workspaceDir: "/tmp",
         env: process.env,
       }),
-    ).toEqual(["discord", "custom-sidecar"]);
+    ).toEqual(["discord", "custom-sidecar", "platform-profile-foundation"]);
   });
 });

@@ -1,5 +1,7 @@
 {
   "id": "platform-profile-foundation",
+  "enabledByDefault": true,
+  "gatewayStartup": true,
   "name": "Platform Profile Foundation",
   "description": "Profile, policy, and execution recipe foundation hooks.",
   "configSchema": {

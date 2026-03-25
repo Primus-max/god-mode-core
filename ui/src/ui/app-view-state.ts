@@ -14,6 +14,8 @@ import type {
   AgentsListResult,
   AgentsFilesListResult,
   AgentIdentityResult,
+  ArtifactRecordDetail,
+  ArtifactRecordSummary,
   AttentionItem,
   ChannelsStatusSnapshot,
   ConfigSnapshot,
@@ -192,6 +194,15 @@ export type AppViewState = {
   sessionsPage: number;
   sessionsPageSize: number;
   sessionsSelectedKeys: Set<string>;
+  artifactsLoading: boolean;
+  artifactsError: string | null;
+  artifactsList: ArtifactRecordSummary[];
+  artifactsFilterQuery: string;
+  artifactsSelectedId: string | null;
+  artifactDetailLoading: boolean;
+  artifactDetail: ArtifactRecordDetail | null;
+  artifactDetailError: string | null;
+  artifactTransitionBusy: boolean;
   usageLoading: boolean;
   usageResult: SessionsUsageResult | null;
   usageCostSummary: CostUsageSummary | null;

@@ -1,4 +1,8 @@
 export type UpdateAvailable = import("../../../src/infra/update-startup.js").UpdateAvailable;
+import type {
+  ArtifactRecordDetail as PlatformArtifactRecordDetail,
+  ArtifactRecordSummary as PlatformArtifactRecordSummary,
+} from "../../../src/platform/artifacts/contracts.js";
 import type { CronJobBase } from "../../../src/cron/types-shared.js";
 import type { ConfigUiHints } from "../../../src/shared/config-ui-hints-types.js";
 import type {
@@ -403,6 +407,9 @@ export type GatewaySessionRow = {
 };
 
 export type SessionsListResult = SessionsListResultBase<GatewaySessionsDefaults, GatewaySessionRow>;
+
+export type ArtifactRecordSummary = PlatformArtifactRecordSummary;
+export type ArtifactRecordDetail = PlatformArtifactRecordDetail;
 
 export type SessionsPatchResult = SessionsPatchResultBase<{
   sessionId: string;

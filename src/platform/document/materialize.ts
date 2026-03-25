@@ -1,3 +1,4 @@
+import type { ArtifactService } from "../artifacts/index.js";
 import { applyMaterializationToDescriptor, materializeArtifact } from "../materialization/index.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import type { DocumentRuntimeRoute } from "./contracts.js";
@@ -58,8 +59,9 @@ function materializeNormalizedDocumentArtifact(params: {
   descriptor: ArtifactDescriptor;
   route: DocumentRuntimeRoute;
   payload: NormalizedDocumentArtifact;
+  artifactService?: ArtifactService;
 }): ArtifactDescriptor {
-  const { descriptor, route, payload } = params;
+  const { descriptor, route, payload, artifactService } = params;
   if (payload.type === "report") {
     let parsedJsonContent: unknown;
     if (payload.format === "json") {
@@ -69,7 +71,7 @@ function materializeNormalizedDocumentArtifact(params: {
         parsedJsonContent = payload.content;
       }
     }
-    return applyMaterializationToDescriptor({
+    const materialized = applyMaterializationToDescriptor({
       descriptor,
       materialization: materializeArtifact({
         artifactId: descriptor.id,
@@ -77,6 +79,7 @@ function materializeNormalizedDocumentArtifact(params: {
         sourceDomain: "document",
         renderKind: payload.format === "markdown" ? "markdown" : "html",
         outputTarget: "file",
+        ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
         includePdf: true,
         payload: {
           title: descriptor.label,
@@ -89,6 +92,7 @@ function materializeNormalizedDocumentArtifact(params: {
         },
       }),
     });
+    return artifactService ? artifactService.register(materialized) : materialized;
   }
 
   if (payload.type === "export") {
@@ -99,7 +103,7 @@ function materializeNormalizedDocumentArtifact(params: {
       "",
       buildMarkdownTable(payload.columns, payload.previewRows),
     ].join("\n");
-    return applyMaterializationToDescriptor({
+    const materialized = applyMaterializationToDescriptor({
       descriptor,
       materialization: materializeArtifact({
         artifactId: descriptor.id,
@@ -107,6 +111,7 @@ function materializeNormalizedDocumentArtifact(params: {
         sourceDomain: "document",
         renderKind: "html",
         outputTarget: "file",
+        ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
         payload: {
           title: descriptor.label,
           summary: `Export preview with ${String(payload.rowCount)} rows`,
@@ -114,9 +119,10 @@ function materializeNormalizedDocumentArtifact(params: {
         },
       }),
     });
+    return artifactService ? artifactService.register(materialized) : materialized;
   }
 
-  return applyMaterializationToDescriptor({
+  const materialized = applyMaterializationToDescriptor({
     descriptor,
     materialization: materializeArtifact({
       artifactId: descriptor.id,
@@ -124,6 +130,7 @@ function materializeNormalizedDocumentArtifact(params: {
       sourceDomain: "document",
       renderKind: "html",
       outputTarget: "file",
+      ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
       includePdf: true,
       payload: {
         title: descriptor.label,
@@ -132,12 +139,14 @@ function materializeNormalizedDocumentArtifact(params: {
       },
     }),
   });
+  return artifactService ? artifactService.register(materialized) : materialized;
 }
 
 export function materializeDocumentDescriptor(params: {
   descriptor: ArtifactDescriptor;
   route: DocumentRuntimeRoute;
   payload: NormalizedDocumentArtifact;
+  artifactService?: ArtifactService;
 }): ArtifactDescriptor {
   return materializeNormalizedDocumentArtifact(params);
 }

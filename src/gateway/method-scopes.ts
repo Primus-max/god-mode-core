@@ -90,6 +90,8 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "talk.config",
     "agents.files.list",
     "agents.files.get",
+    "platform.artifacts.list",
+    "platform.artifacts.get",
   ],
   [WRITE_SCOPE]: [
     "send",
@@ -111,6 +113,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "sessions.send",
     "sessions.steer",
     "sessions.abort",
+    "platform.artifacts.transition",
     "browser.request",
     "push.test",
     "node.pending.enqueue",

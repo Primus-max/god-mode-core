@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi, PluginHookName } from "../plugins/types.js";
+import { resetPlatformArtifactService } from "./artifacts/index.js";
 import {
   listCapturedDeveloperArtifacts,
   resetCapturedDeveloperArtifacts,
@@ -7,15 +11,63 @@ import {
 import { listCapturedDocumentArtifacts, resetCapturedDocumentArtifacts } from "./document/index.js";
 import platformProfilePlugin, { registerPlatformProfilePlugin } from "./plugin.js";
 
+function createApiMock(): OpenClawPluginApi {
+  return {
+    id: "platform-profile-foundation",
+    name: "Platform Profile Foundation",
+    source: "test",
+    registrationMode: "full",
+    config: {
+      plugins: {
+        enabled: true,
+        slots: { memory: "none" },
+      },
+    },
+    runtime: {} as never,
+    logger: {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+    on: vi.fn(),
+    registerHttpRoute: vi.fn(),
+    registerGatewayMethod: vi.fn(),
+  } as unknown as OpenClawPluginApi;
+}
+
 describe("platform profile plugin", () => {
-  it("captures structured document artifacts from llm_output for document recipes", () => {
+  const tempDirs: string[] = [];
+  const originalStateDir = process.env.OPENCLAW_STATE_DIR;
+
+  afterEach(() => {
     resetCapturedDocumentArtifacts();
-    const on = vi.fn();
-    const api = { on } as unknown as OpenClawPluginApi;
+    resetCapturedDeveloperArtifacts();
+    resetPlatformArtifactService();
+    if (originalStateDir === undefined) {
+      delete process.env.OPENCLAW_STATE_DIR;
+    } else {
+      process.env.OPENCLAW_STATE_DIR = originalStateDir;
+    }
+    for (const tempDir of tempDirs.splice(0)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("captures structured document artifacts from llm_output for document recipes", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-platform-plugin-doc-"));
+    tempDirs.push(stateDir);
+    const api = createApiMock();
+    api.config = {
+      ...api.config,
+      gateway: { port: 18789 },
+    };
+    process.env.OPENCLAW_STATE_DIR = stateDir;
 
     registerPlatformProfilePlugin(api);
 
-    const llmOutput = on.mock.calls.find((call) => call[0] === "llm_output")?.[1] as
+    const llmOutput = (api.on as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call) => call[0] === "llm_output",
+    )?.[1] as
       | ((
           event: { runId: string; sessionId: string; assistantTexts: string[] },
           ctx: unknown,
@@ -40,13 +92,20 @@ describe("platform profile plugin", () => {
   });
 
   it("captures structured developer artifacts from llm_output for publish recipes", () => {
-    resetCapturedDeveloperArtifacts();
-    const on = vi.fn();
-    const api = { on } as unknown as OpenClawPluginApi;
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-platform-plugin-dev-"));
+    tempDirs.push(stateDir);
+    const api = createApiMock();
+    api.config = {
+      ...api.config,
+      gateway: { port: 18789 },
+    };
+    process.env.OPENCLAW_STATE_DIR = stateDir;
 
     registerPlatformProfilePlugin(api);
 
-    const llmOutput = on.mock.calls.find((call) => call[0] === "llm_output")?.[1] as
+    const llmOutput = (api.on as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call) => call[0] === "llm_output",
+    )?.[1] as
       | ((
           event: { runId: string; sessionId: string; assistantTexts: string[] },
           ctx: unknown,
@@ -73,17 +132,26 @@ describe("platform profile plugin", () => {
   });
 
   it("registers the expected Stage 1 hooks", () => {
-    const on = vi.fn();
-    const api = { on } as unknown as OpenClawPluginApi;
+    const api = createApiMock();
 
     registerPlatformProfilePlugin(api);
 
-    expect(on.mock.calls.map((call) => call[0] as PluginHookName)).toEqual([
+    expect(
+      (api.on as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0] as PluginHookName),
+    ).toEqual([
       "before_agent_start",
       "before_model_resolve",
       "before_prompt_build",
+      "gateway_start",
       "llm_output",
     ]);
+    expect(api.registerHttpRoute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "/platform/artifacts",
+        match: "prefix",
+      }),
+    );
+    expect(api.registerGatewayMethod).toHaveBeenCalledTimes(3);
   });
 
   it("exports an OpenClaw plugin definition", () => {
@@ -92,12 +160,11 @@ describe("platform profile plugin", () => {
   });
 
   it("injects profile guidance into prompt-building hook", () => {
-    const on = vi.fn();
-    const api = { on } as unknown as OpenClawPluginApi;
+    const api = createApiMock();
 
     registerPlatformProfilePlugin(api);
 
-    const beforePromptBuild = on.mock.calls.find(
+    const beforePromptBuild = (api.on as ReturnType<typeof vi.fn>).mock.calls.find(
       (call) => call[0] === "before_prompt_build",
     )?.[1] as
       | ((event: {

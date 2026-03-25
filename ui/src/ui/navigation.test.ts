@@ -32,6 +32,7 @@ describe("iconForTab", () => {
     expect(iconForTab("instances")).toBe("radio");
     expect(iconForTab("sessions")).toBe("fileText");
     expect(iconForTab("cron")).toBe("loader");
+    expect(iconForTab("artifacts")).toBe("folder");
     expect(iconForTab("skills")).toBe("zap");
     expect(iconForTab("nodes")).toBe("monitor");
     expect(iconForTab("config")).toBe("settings");
@@ -59,6 +60,7 @@ describe("titleForTab", () => {
     expect(titleForTab("chat")).toBe("Chat");
     expect(titleForTab("overview")).toBe("Overview");
     expect(titleForTab("cron")).toBe("Cron Jobs");
+    expect(titleForTab("artifacts")).toBe("Artifacts");
   });
 });
 
@@ -117,6 +119,7 @@ describe("pathForTab", () => {
   it("returns correct path without base", () => {
     expect(pathForTab("chat")).toBe("/chat");
     expect(pathForTab("overview")).toBe("/overview");
+    expect(pathForTab("artifacts")).toBe("/artifacts");
   });
 
   it("prepends base path", () => {
@@ -130,6 +133,7 @@ describe("tabFromPath", () => {
     expect(tabFromPath("/chat")).toBe("chat");
     expect(tabFromPath("/overview")).toBe("overview");
     expect(tabFromPath("/sessions")).toBe("sessions");
+    expect(tabFromPath("/artifacts")).toBe("artifacts");
   });
 
   it("returns chat for root path", () => {

@@ -17,6 +17,7 @@ type Tab =
   | "sessions"
   | "usage"
   | "cron"
+  | "artifacts"
   | "skills"
   | "nodes"
   | "chat"
@@ -62,6 +63,7 @@ type SettingsHost = {
   themeMediaHandler: ((event: MediaQueryListEvent) => void) | null;
   logsPollInterval: number | null;
   debugPollInterval: number | null;
+  artifactsPollInterval: number | null;
   pendingGatewayUrl?: string | null;
   pendingGatewayToken?: string | null;
 };
@@ -166,6 +168,7 @@ const createHost = (tab: Tab): SettingsHost => ({
   themeMediaHandler: null,
   logsPollInterval: null,
   debugPollInterval: null,
+  artifactsPollInterval: null,
   pendingGatewayUrl: null,
   pendingGatewayToken: null,
 });
@@ -200,6 +203,18 @@ describe("setTabFromRoute", () => {
 
     setTabFromRoute(host, "chat");
     expect(host.debugPollInterval).toBeNull();
+  });
+
+  it("starts and stops artifact polling based on the tab", () => {
+    const host = createHost("chat");
+
+    setTabFromRoute(host, "artifacts");
+    expect(host.artifactsPollInterval).not.toBeNull();
+    expect(host.logsPollInterval).toBeNull();
+    expect(host.debugPollInterval).toBeNull();
+
+    setTabFromRoute(host, "chat");
+    expect(host.artifactsPollInterval).toBeNull();
   });
 
   it("re-resolves the active palette when only themeMode changes", () => {
