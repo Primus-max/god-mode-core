@@ -1305,8 +1305,16 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
             runCommand: vi.fn(async () => createLocalRunResult("inline-eval-ok")),
           });
 
-          expect(runCommand).toHaveBeenCalledTimes(1);
-          expectInvokeOk(sendInvokeResult, { payloadContains: "inline-eval-ok" });
+          if (process.platform === "win32") {
+            expect(runCommand).not.toHaveBeenCalled();
+            expectInvokeErrorMessage(sendInvokeResult, {
+              message: "SYSTEM_RUN_DENIED: approval requires a stable executable path",
+              exact: true,
+            });
+          } else {
+            expect(runCommand).toHaveBeenCalledTimes(1);
+            expectInvokeOk(sendInvokeResult, { payloadContains: "inline-eval-ok" });
+          }
           expect(loadExecApprovals().agents?.main?.allowlist ?? []).toEqual([]);
         },
       });

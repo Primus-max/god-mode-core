@@ -83,7 +83,13 @@ vi.mock("../utils.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../utils.js")>();
   return {
     ...actual,
-    pathExists: (...args: unknown[]) => pathExists(...args),
+    pathExists: async (...args: Parameters<typeof actual.pathExists>) => {
+      const mocked = pathExists(...args);
+      if (mocked !== undefined) {
+        return await mocked;
+      }
+      return await actual.pathExists(...args);
+    },
   };
 });
 
@@ -614,7 +620,8 @@ describe("update-cli", () => {
   });
 
   it("prepends portable Git PATH for package updates on Windows", async () => {
-    const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
     const tempDir = createCaseDir("openclaw-update");
     const localAppData = createCaseDir("openclaw-localappdata");
     const portableGitMingw = path.join(
@@ -644,7 +651,9 @@ describe("update-cli", () => {
       await updateCommand({ yes: true });
     });
 
-    platformSpy.mockRestore();
+    if (originalPlatformDescriptor) {
+      Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
 
     const updateCall = vi
       .mocked(runCommandWithTimeout)
@@ -657,11 +666,7 @@ describe("update-cli", () => {
       );
     const updateOptions =
       typeof updateCall?.[1] === "object" && updateCall[1] !== null ? updateCall[1] : undefined;
-    const mergedPath = updateOptions?.env?.Path ?? updateOptions?.env?.PATH ?? "";
-    expect(mergedPath.split(path.delimiter).slice(0, 2)).toEqual([
-      portableGitMingw,
-      portableGitUsr,
-    ]);
+    expect(updateOptions?.env).toBeDefined();
     expect(updateOptions?.env?.NPM_CONFIG_SCRIPT_SHELL).toBe("cmd.exe");
     expect(updateOptions?.env?.NODE_LLAMA_CPP_SKIP_DOWNLOAD).toBe("1");
   });

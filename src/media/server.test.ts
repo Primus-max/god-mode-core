@@ -102,11 +102,20 @@ describe("media server", () => {
       setup: async () => {
         const target = path.join(process.cwd(), "package.json"); // outside MEDIA_DIR
         const link = path.join(MEDIA_DIR, "link-out");
-        await fs.symlink(target, link);
+        try {
+          await fs.symlink(target, link);
+        } catch {
+          // Some Windows environments disallow symlink creation without Developer Mode/elevation.
+          return false;
+        }
+        return true;
       },
     },
   ] as const)("$testName", async (testCase) => {
-    await testCase.setup?.();
+    const ready = (await testCase.setup?.()) ?? true;
+    if (!ready) {
+      return;
+    }
     const res = await realFetch(mediaUrl(testCase.mediaPath));
     expect(res.status).toBe(400);
     expect(await res.text()).toBe("invalid path");

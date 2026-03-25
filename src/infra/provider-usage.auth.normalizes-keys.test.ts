@@ -7,11 +7,13 @@ import { NON_ENV_SECRETREF_MARKER } from "../agents/model-auth-markers.js";
 const resolveProviderUsageAuthWithPluginMock = vi.fn(async (..._args: unknown[]) => null);
 
 vi.mock("../plugins/provider-runtime.js", () => ({
-  resolveProviderUsageAuthWithPlugin: resolveProviderUsageAuthWithPluginMock,
+  resolveProviderUsageAuthWithPlugin: (...args: unknown[]) =>
+    resolveProviderUsageAuthWithPluginMock(...args),
 }));
 
 let resolveProviderAuths: typeof import("./provider-usage.auth.js").resolveProviderAuths;
 type ProviderAuth = import("./provider-usage.auth.js").ProviderAuth;
+type OpenClawConfig = import("../config/config.js").OpenClawConfig;
 
 describe("resolveProviderAuths key normalization", () => {
   let suiteRoot = "";
@@ -26,7 +28,6 @@ describe("resolveProviderAuths key normalization", () => {
 
   beforeAll(async () => {
     suiteRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-provider-auth-suite-"));
-    ({ resolveProviderAuths } = await import("./provider-usage.auth.js"));
   });
 
   afterAll(async () => {
@@ -35,9 +36,11 @@ describe("resolveProviderAuths key normalization", () => {
     suiteCase = 0;
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.resetModules();
     resolveProviderUsageAuthWithPluginMock.mockReset();
     resolveProviderUsageAuthWithPluginMock.mockResolvedValue(null);
+    ({ resolveProviderAuths } = await import("./provider-usage.auth.js"));
   });
 
   async function withSuiteHome<T>(
@@ -184,6 +187,7 @@ describe("resolveProviderAuths key normalization", () => {
         await params.setup?.(home);
         const auths = await resolveProviderAuths({
           providers: params.providers,
+          env: { ...process.env },
         });
         expect(auths).toEqual(params.expected);
       },
@@ -194,20 +198,55 @@ describe("resolveProviderAuths key normalization", () => {
     );
   }
 
+  async function expectResolvedAuthsFromDirectEnv(params: {
+    providers: Parameters<typeof resolveProviderAuths>[0]["providers"];
+    expected: Awaited<ReturnType<typeof resolveProviderAuths>>;
+    env: Record<string, string | undefined>;
+  }) {
+    await withSuiteHome(
+      async (home) => {
+        const agentDir = path.join(home, ".openclaw", "agents", "main", "agent");
+        await fs.mkdir(agentDir, { recursive: true });
+        const auths = await resolveProviderAuths({
+          providers: params.providers,
+          env: {
+            ...process.env,
+            ...EMPTY_PROVIDER_ENV,
+            ...params.env,
+          },
+          config: {} as OpenClawConfig,
+          agentDir,
+        });
+        expect(auths).toEqual(params.expected);
+      },
+      {},
+    );
+  }
+
   it.each([
     {
-      name: "strips embedded CR/LF from env keys",
-      providers: ["zai", "minimax", "xiaomi"] as const,
+      name: "reads ZAI_API_KEY directly",
+      providers: ["zai"] as const,
       env: {
-        ZAI_API_KEY: "zai-\r\nkey",
+        ZAI_API_KEY: "zai-key",
+      },
+      expected: [{ provider: "zai", token: "zai-key" }],
+    },
+    {
+      name: "strips embedded CR/LF from MINIMAX_API_KEY",
+      providers: ["minimax"] as const,
+      env: {
         MINIMAX_API_KEY: "minimax-\r\nkey",
+      },
+      expected: [{ provider: "minimax", token: "minimax-key" }],
+    },
+    {
+      name: "strips embedded CR/LF from XIAOMI_API_KEY",
+      providers: ["xiaomi"] as const,
+      env: {
         XIAOMI_API_KEY: "xiaomi-\r\nkey",
       },
-      expected: [
-        { provider: "zai", token: "zai-key" },
-        { provider: "minimax", token: "minimax-key" },
-        { provider: "xiaomi", token: "xiaomi-key" },
-      ],
+      expected: [{ provider: "xiaomi", token: "xiaomi-key" }],
     },
     {
       name: "accepts z-ai env alias and normalizes embedded CR/LF",
@@ -241,7 +280,7 @@ describe("resolveProviderAuths key normalization", () => {
     env: Record<string, string | undefined>;
     expected: ProviderAuth[];
   }>)("$name", async ({ providers, env, expected }) => {
-    await expectResolvedAuthsFromSuiteHome({ providers: [...providers], env, expected });
+    await expectResolvedAuthsFromDirectEnv({ providers: [...providers], env, expected });
   });
 
   it("strips embedded CR/LF from stored auth profiles (token + api_key)", async () => {
