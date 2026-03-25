@@ -1,0 +1,111 @@
+import { describe, expect, it } from "vitest";
+import { getInitialProfile } from "../profile/defaults.js";
+import { applyTaskOverlay } from "../profile/overlay.js";
+import { createCapabilityRegistry } from "../registry/capability-registry.js";
+import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
+import { resolveBootstrapRequest } from "./resolver.js";
+import { runBootstrapLifecycle } from "./runtime.js";
+
+function makePolicyContext(explicitApproval: boolean) {
+  const profile = getInitialProfile("developer")!;
+  return {
+    activeProfileId: profile.id,
+    activeProfile: profile,
+    effective: applyTaskOverlay(
+      profile,
+      profile.taskOverlays?.find((overlay) => overlay.id === "code_first"),
+    ),
+    intent: "code" as const,
+    explicitApproval,
+  };
+}
+
+describe("bootstrap runtime", () => {
+  it("blocks bootstrap without explicit approval", async () => {
+    const registry = createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
+    const resolution = resolveBootstrapRequest({
+      capabilityId: "pdf-renderer",
+      registry,
+      reason: "renderer_unavailable",
+      sourceDomain: "document",
+    });
+
+    if (!resolution.request) {
+      throw new Error("expected bootstrap request");
+    }
+
+    const result = await runBootstrapLifecycle({
+      request: resolution.request,
+      policyContext: makePolicyContext(false),
+      registry,
+    });
+
+    expect(result.status).toBe("denied");
+    expect(result.transitions).toEqual(["requested", "denied", "degraded"]);
+  });
+
+  it("installs, verifies, and registers approved capabilities", async () => {
+    const registry = createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
+    const resolution = resolveBootstrapRequest({
+      capabilityId: "pdf-renderer",
+      registry,
+      reason: "renderer_unavailable",
+      sourceDomain: "developer",
+    });
+
+    if (!resolution.request) {
+      throw new Error("expected bootstrap request");
+    }
+
+    const result = await runBootstrapLifecycle({
+      request: resolution.request,
+      policyContext: makePolicyContext(true),
+      registry,
+      availableBins: ["playwright"],
+      runHealthCheckCommand: async () => true,
+    });
+
+    expect(result.status).toBe("available");
+    expect(result.transitions).toEqual([
+      "requested",
+      "approved",
+      "installing",
+      "verifying",
+      "available",
+    ]);
+    expect(registry.get("pdf-renderer")?.status).toBe("available");
+  });
+
+  it("rolls back into degraded mode when verification fails", async () => {
+    const previous = {
+      id: "pdf-renderer",
+      label: "PDF Renderer",
+      status: "missing" as const,
+      trusted: true,
+      installMethod: "download" as const,
+    };
+    const registry = createCapabilityRegistry([previous], TRUSTED_CAPABILITY_CATALOG);
+    const resolution = resolveBootstrapRequest({
+      capabilityId: "pdf-renderer",
+      registry,
+      reason: "renderer_unavailable",
+      sourceDomain: "document",
+    });
+
+    if (!resolution.request) {
+      throw new Error("expected bootstrap request");
+    }
+
+    const result = await runBootstrapLifecycle({
+      request: resolution.request,
+      policyContext: makePolicyContext(true),
+      registry,
+      availableBins: [],
+      runHealthCheckCommand: async () => false,
+    });
+
+    expect(result.status).toBe("degraded");
+    expect(result.transitions).toContain("rolled_back");
+    expect(registry.get("pdf-renderer")?.status).toBe("missing");
+  });
+});

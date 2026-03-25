@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BootstrapRequestSchema } from "../bootstrap/contracts.js";
 import { ArtifactLifecycleSchema } from "../schemas/artifact.js";
 
 export const MaterializationRenderKindSchema = z.enum([
@@ -60,6 +61,7 @@ export const MaterializationResultSchema = z
   .object({
     primary: MaterializedArtifactOutputSchema,
     supporting: z.array(MaterializedArtifactOutputSchema).optional(),
+    bootstrapRequest: BootstrapRequestSchema.optional(),
     degraded: z.boolean().optional(),
     warnings: z.array(z.string().min(1)).optional(),
   })

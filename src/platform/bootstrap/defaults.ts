@@ -1,0 +1,66 @@
+import type { CapabilityCatalogEntry } from "../schemas/capability.js";
+
+export const TRUSTED_CAPABILITY_CATALOG: CapabilityCatalogEntry[] = [
+  {
+    capability: {
+      id: "pdf-renderer",
+      label: "PDF Renderer",
+      status: "missing",
+      trusted: true,
+      installMethod: "download",
+      sandboxed: true,
+      requiredBins: ["playwright"],
+      healthCheckCommand: "playwright --version",
+      tags: ["pdf", "render"],
+    },
+    packageRef: "playwright-pdf-renderer@1.0.0",
+    source: "catalog",
+    rollbackStrategy: "restore_previous",
+    integrity: "sha256:trusted-pdf-renderer",
+  },
+  {
+    capability: {
+      id: "pdf-parser",
+      label: "PDF Parser",
+      status: "missing",
+      trusted: true,
+      installMethod: "node",
+      requiredBins: ["node"],
+      tags: ["pdf", "parse"],
+    },
+    packageRef: "@openclaw/pdf-parser@1.0.0",
+    source: "catalog",
+    rollbackStrategy: "restore_previous",
+    integrity: "sha256:trusted-pdf-parser",
+  },
+  {
+    capability: {
+      id: "ocr-engine",
+      label: "OCR Engine",
+      status: "missing",
+      trusted: true,
+      installMethod: "download",
+      sandboxed: true,
+      tags: ["ocr"],
+    },
+    packageRef: "ocr-engine-bundle@1.0.0",
+    source: "catalog",
+    rollbackStrategy: "keep_failed",
+    integrity: "sha256:trusted-ocr-engine",
+  },
+  {
+    capability: {
+      id: "table-parser",
+      label: "Table Parser",
+      status: "missing",
+      trusted: true,
+      installMethod: "node",
+      requiredBins: ["node"],
+      tags: ["table", "parse"],
+    },
+    packageRef: "@openclaw/table-parser@1.0.0",
+    source: "catalog",
+    rollbackStrategy: "restore_previous",
+    integrity: "sha256:trusted-table-parser",
+  },
+];

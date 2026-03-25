@@ -73,5 +73,10 @@ describe("materialization render layer", () => {
     expect(result.degraded).toBe(true);
     expect(result.primary.renderKind).toBe("html");
     expect(result.warnings).toContain("pdf renderer unavailable; fell back to html output");
+    expect(result.bootstrapRequest).toMatchObject({
+      capabilityId: "pdf-renderer",
+      reason: "renderer_unavailable",
+      sourceDomain: "document",
+    });
   });
 });

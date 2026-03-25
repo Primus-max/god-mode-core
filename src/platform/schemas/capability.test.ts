@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { CapabilityCatalogEntrySchema, CapabilityDescriptorSchema } from "./capability.js";
+import {
+  CapabilityCatalogEntrySchema,
+  CapabilityCatalogSchema,
+  CapabilityDescriptorSchema,
+} from "./capability.js";
 
 describe("CapabilityDescriptorSchema", () => {
   const minimal = {
@@ -63,7 +67,28 @@ describe("CapabilityCatalogEntrySchema", () => {
       capability: { id: "ollama-local", label: "Ollama Local", status: "missing", trusted: true },
       packageRef: "ollama-local-tier@1.0.0",
       source: "catalog",
+      integrity: "sha256:trusted-ollama",
+      rollbackStrategy: "restore_previous",
     };
     expect(CapabilityCatalogEntrySchema.parse(entry)).toEqual(entry);
+  });
+
+  it("accepts a trusted catalog array", () => {
+    const catalog = [
+      {
+        capability: {
+          id: "pdf-renderer",
+          label: "PDF Renderer",
+          status: "missing",
+          trusted: true,
+          installMethod: "download",
+        },
+        packageRef: "playwright-pdf-renderer@1.0.0",
+        source: "catalog",
+        integrity: "sha256:trusted-pdf-renderer",
+        rollbackStrategy: "restore_previous",
+      },
+    ];
+    expect(CapabilityCatalogSchema.parse(catalog)).toEqual(catalog);
   });
 });

@@ -20,6 +20,16 @@ export const CapabilityInstallMethodSchema = z.enum([
 ]);
 export type CapabilityInstallMethod = z.infer<typeof CapabilityInstallMethodSchema>;
 
+export const CapabilityCatalogSourceSchema = z.enum(["builtin", "catalog", "user"]);
+export type CapabilityCatalogSource = z.infer<typeof CapabilityCatalogSourceSchema>;
+
+export const CapabilityRollbackStrategySchema = z.enum([
+  "disable",
+  "keep_failed",
+  "restore_previous",
+]);
+export type CapabilityRollbackStrategy = z.infer<typeof CapabilityRollbackStrategySchema>;
+
 export const CapabilityDescriptorSchema = z
   .object({
     id: z.string().min(1),
@@ -44,8 +54,13 @@ export const CapabilityCatalogEntrySchema = z
   .object({
     capability: CapabilityDescriptorSchema,
     packageRef: z.string().optional(),
-    source: z.enum(["builtin", "catalog", "user"]),
+    source: CapabilityCatalogSourceSchema,
+    integrity: z.string().min(1).optional(),
+    rollbackStrategy: CapabilityRollbackStrategySchema.optional(),
   })
   .strict();
 
 export type CapabilityCatalogEntry = z.infer<typeof CapabilityCatalogEntrySchema>;
+
+export const CapabilityCatalogSchema = z.array(CapabilityCatalogEntrySchema);
+export type CapabilityCatalog = z.infer<typeof CapabilityCatalogSchema>;

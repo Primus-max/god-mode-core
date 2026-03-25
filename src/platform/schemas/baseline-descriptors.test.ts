@@ -145,6 +145,13 @@ const BASELINE_CAPABILITIES: CapabilityDescriptor[] = [
     trusted: true,
     installMethod: "node",
   },
+  {
+    id: "pdf-renderer",
+    label: "PDF Renderer",
+    status: "missing",
+    trusted: true,
+    installMethod: "download",
+  },
 ];
 
 const BASELINE_ARTIFACTS: ArtifactDescriptor[] = [
@@ -208,6 +215,7 @@ describe("baseline capability descriptors", () => {
         "pdf-parser:missing",
         "ocr-engine:missing",
         "table-parser:missing",
+        "pdf-renderer:missing",
       ]
     `);
   });
