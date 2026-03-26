@@ -7,7 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 const scriptPath = path.join(process.cwd(), "scripts", "committer");
 const tempRepos: string[] = [];
 const bashCommand = process.platform === "win32" ? "bash" : "/bin/bash";
-const bashCheckArgs = process.platform === "win32" ? ["-lc", "true"] : ["--noprofile", "--norc", "-lc", "true"];
+const bashCheckArgs =
+  process.platform === "win32" ? ["-lc", "true"] : ["--noprofile", "--norc", "-lc", "true"];
 const hasBash = (() => {
   try {
     execFileSync(bashCommand, bashCheckArgs, {

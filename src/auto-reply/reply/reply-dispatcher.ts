@@ -19,7 +19,19 @@ type ReplyDispatchSkipHandler = (
 type ReplyDispatchDeliverer = (
   payload: ReplyPayload,
   info: { kind: ReplyDispatchKind },
-) => Promise<void>;
+) => Promise<ReplyDispatchDeliveryResult | void>;
+
+export type ReplyDispatchDeliveryResult = {
+  attemptedDeliveryCount?: number;
+  confirmedDeliveryCount?: number;
+  failedDeliveryCount?: number;
+};
+
+export type ReplyDispatchDeliveryStats = {
+  attemptedDeliveryCount: number;
+  confirmedDeliveryCount: number;
+  failedDeliveryCount: number;
+};
 
 const DEFAULT_HUMAN_DELAY_MIN_MS = 800;
 const DEFAULT_HUMAN_DELAY_MAX_MS = 2500;
@@ -80,6 +92,7 @@ export type ReplyDispatcher = {
   sendFinalReply: (payload: ReplyPayload) => boolean;
   waitForIdle: () => Promise<void>;
   getQueuedCounts: () => Record<ReplyDispatchKind, number>;
+  getDeliveryStats?: () => ReplyDispatchDeliveryStats;
   markComplete: () => void;
 };
 
@@ -125,6 +138,11 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
     block: 0,
     final: 0,
   };
+  const deliveryStats: ReplyDispatchDeliveryStats = {
+    attemptedDeliveryCount: 0,
+    confirmedDeliveryCount: 0,
+    failedDeliveryCount: 0,
+  };
 
   // Register this dispatcher globally for gateway restart coordination.
   const { unregister } = registerDispatcher({
@@ -164,9 +182,14 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
         }
         // Safe: deliver is called inside an async .then() callback, so even a synchronous
         // throw becomes a rejection that flows through .catch()/.finally(), ensuring cleanup.
-        await options.deliver(normalized, { kind });
+        const result = await options.deliver(normalized, { kind });
+        deliveryStats.attemptedDeliveryCount += result?.attemptedDeliveryCount ?? 1;
+        deliveryStats.confirmedDeliveryCount += result?.confirmedDeliveryCount ?? 1;
+        deliveryStats.failedDeliveryCount += result?.failedDeliveryCount ?? 0;
       })
       .catch((err) => {
+        deliveryStats.attemptedDeliveryCount += 1;
+        deliveryStats.failedDeliveryCount += 1;
         options.onError?.(err, { kind });
       })
       .finally(() => {
@@ -213,6 +236,7 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
     sendFinalReply: (payload) => enqueue("final", payload),
     waitForIdle: () => sendChain,
     getQueuedCounts: () => ({ ...queuedCounts }),
+    getDeliveryStats: () => ({ ...deliveryStats }),
     markComplete,
   };
 }

@@ -399,9 +399,11 @@ export function renderConfigForm(props: ConfigFormProps) {
       <div class="config-empty">
         <div class="config-empty__icon">${icons.search}</div>
         <div class="config-empty__text">
-          ${searchQuery
-            ? t("configForm.emptySearch", { query: searchQuery })
-            : t("configForm.emptySection")}
+          ${
+            searchQuery
+              ? t("configForm.emptySearch", { query: searchQuery })
+              : t("configForm.emptySection")
+          }
         </div>
       </div>
     `;

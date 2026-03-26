@@ -140,7 +140,9 @@ export function materializeArtifact(
         renderKind: request.outputTarget === "preview" ? "site_preview" : "html",
       });
       if (bootstrapResolution.request) {
-        (options?.bootstrapService ?? getPlatformBootstrapService()).create(bootstrapResolution.request);
+        (options?.bootstrapService ?? getPlatformBootstrapService()).create(
+          bootstrapResolution.request,
+        );
       }
       return MaterializationResultSchema.parse({
         primary,

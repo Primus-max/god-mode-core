@@ -124,7 +124,17 @@ const DEVELOPER_EXTENSIONS = [
   ".kt",
 ];
 const INTEGRATOR_EXTENSIONS = [".yaml", ".yml", ".toml", ".graphql", ".proto"];
-const MEDIA_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mp3", ".wav"];
+const MEDIA_EXTENSIONS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".mp4",
+  ".webm",
+  ".mp3",
+  ".wav",
+];
 const BUILDER_ARTIFACTS = new Set<ArtifactKind>(["document", "estimate", "report", "data"]);
 const DEVELOPER_ARTIFACTS = new Set<ArtifactKind>(["site", "release", "binary", "archive"]);
 const MEDIA_ARTIFACTS = new Set<ArtifactKind>(["image", "video", "audio"]);
@@ -254,7 +264,13 @@ export function extractProfileSignals(input: ProfileSignalInput): ProfileScoring
     pushSignal(signals, "config", "developer", 0.8, "developer-oriented publish target requested");
   }
   if (publishTargets.some((target) => INTEGRATOR_PUBLISH_TARGETS.has(target))) {
-    pushSignal(signals, "config", "integrator", 0.78, "integrator-oriented publish target requested");
+    pushSignal(
+      signals,
+      "config",
+      "integrator",
+      0.78,
+      "integrator-oriented publish target requested",
+    );
   }
   if (publishTargets.some((target) => MEDIA_PUBLISH_TARGETS.has(target))) {
     pushSignal(signals, "config", "media_creator", 0.76, "media-oriented publish target requested");

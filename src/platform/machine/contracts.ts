@@ -33,7 +33,12 @@ export type MachineControlState = z.infer<typeof MachineControlStateSchema>;
 export const MachineControlAccessResultSchema = z
   .object({
     allowed: z.boolean(),
-    code: z.enum(["allowed", "missing_device_identity", "kill_switch_enabled", "device_not_linked"]),
+    code: z.enum([
+      "allowed",
+      "missing_device_identity",
+      "kill_switch_enabled",
+      "device_not_linked",
+    ]),
     message: z.string().min(1),
     link: MachineControlLinkRecordSchema.optional(),
   })

@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadSessionStore, saveSessionStore, type SessionEntry } from "../../config/sessions.js";
-import type { FollowupRun } from "./queue.js";
+import {
+  clearSessionQueues,
+  getFollowupQueueDepth,
+  resetRecentQueuedMessageIdDedupe,
+  type FollowupRun,
+} from "./queue.js";
 import * as sessionRunAccounting from "./session-run-accounting.js";
 import { createMockFollowupRun, createMockTypingController } from "./test-helpers.js";
 
@@ -39,7 +44,12 @@ const ROUTABLE_TEST_CHANNELS = new Set([
 
 beforeEach(() => {
   routeReplyMock.mockReset();
-  routeReplyMock.mockResolvedValue({ ok: true });
+  routeReplyMock.mockResolvedValue({
+    ok: true,
+    attemptedDeliveryCount: 1,
+    confirmedDeliveryCount: 1,
+    failedDeliveryCount: 0,
+  });
   isRoutableChannelMock.mockReset();
   isRoutableChannelMock.mockImplementation((ch: string | undefined) =>
     Boolean(ch?.trim() && ROUTABLE_TEST_CHANNELS.has(ch.trim().toLowerCase())),
@@ -415,6 +425,57 @@ describe("createFollowupRunner semantic acceptance", () => {
         isError: true,
       }),
     );
+  });
+
+  it("queues a persisted semantic retry when delivery fails after followup completion", async () => {
+    resetRecentQueuedMessageIdDedupe();
+    routeReplyMock.mockResolvedValueOnce({
+      ok: false,
+      attemptedDeliveryCount: 1,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 1,
+      error: "send failed",
+    });
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "final" }],
+      meta: {
+        completionOutcome: {
+          runId: "followup-delivery-failed",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          boundaries: [],
+        },
+      },
+    });
+
+    const queueKey = "main";
+    const runner = createFollowupRunner({
+      typing: createMockTypingController(),
+      typingMode: "instant",
+      queueKey,
+      resolvedQueue: { mode: "followup", debounceMs: 0, cap: 20 },
+      defaultModel: "anthropic/claude-opus-4-5",
+    });
+
+    try {
+      await runner(
+        createQueuedRun({
+          originatingChannel: "telegram",
+          originatingTo: "chat:1",
+        }),
+      );
+
+      expect(getFollowupQueueDepth(queueKey)).toBe(1);
+    } finally {
+      clearSessionQueues([queueKey]);
+      resetRecentQueuedMessageIdDedupe();
+    }
   });
 });
 

@@ -5,14 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi, PluginHookName } from "../plugins/types.js";
 import { resetPlatformArtifactService } from "./artifacts/index.js";
 import {
-  getPlatformMachineControlService,
-  resetPlatformMachineControlService,
-} from "./machine/index.js";
-import {
   listCapturedDeveloperArtifacts,
   resetCapturedDeveloperArtifacts,
 } from "./developer/index.js";
 import { listCapturedDocumentArtifacts, resetCapturedDocumentArtifacts } from "./document/index.js";
+import {
+  getPlatformMachineControlService,
+  resetPlatformMachineControlService,
+} from "./machine/index.js";
 import platformProfilePlugin, { registerPlatformProfilePlugin } from "./plugin.js";
 
 function createApiMock(): OpenClawPluginApi {
@@ -168,6 +168,8 @@ describe("platform profile plugin", () => {
       "platform.bootstrap.get",
       "platform.bootstrap.resolve",
       "platform.bootstrap.run",
+      "platform.runtime.checkpoints.list",
+      "platform.runtime.checkpoints.get",
       "platform.machine.status",
       "platform.machine.link",
       "platform.machine.unlink",

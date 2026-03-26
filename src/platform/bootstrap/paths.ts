@@ -1,6 +1,6 @@
 import path from "node:path";
-import { safePathSegmentHashed } from "../../infra/install-safe-path.js";
 import { resolveStateDir } from "../../config/paths.js";
+import { safePathSegmentHashed } from "../../infra/install-safe-path.js";
 
 const PLATFORM_BOOTSTRAP_DIRNAME = "platform";
 const BOOTSTRAP_DIRNAME = "bootstrap";
@@ -23,10 +23,7 @@ export function resolvePlatformBootstrapInstallRoot(stateDir = resolveStateDir()
 }
 
 export function resolvePlatformBootstrapNodeInstallRoot(stateDir = resolveStateDir()): string {
-  return path.join(
-    resolvePlatformBootstrapInstallRoot(stateDir),
-    BOOTSTRAP_NODE_INSTALLS_DIRNAME,
-  );
+  return path.join(resolvePlatformBootstrapInstallRoot(stateDir), BOOTSTRAP_NODE_INSTALLS_DIRNAME);
 }
 
 export function resolvePlatformBootstrapDownloadStageRoot(stateDir = resolveStateDir()): string {

@@ -1,7 +1,11 @@
 import { resolveGlobalDedupeCache } from "../../../infra/dedupe.js";
 import { applyQueueDropPolicy, shouldSkipQueueItem } from "../../../utils/queue-helpers.js";
 import { kickFollowupDrainIfIdle } from "./drain.js";
-import { getExistingFollowupQueue, getFollowupQueue, syncPersistedFollowupQueues } from "./state.js";
+import {
+  getExistingFollowupQueue,
+  getFollowupQueue,
+  syncPersistedFollowupQueues,
+} from "./state.js";
 import type { FollowupRun, QueueDedupeMode, QueueSettings } from "./types.js";
 
 /**

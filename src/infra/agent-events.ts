@@ -57,7 +57,7 @@ export function registerAgentRunContext(runId: string, context: AgentRunContext)
   }
   if (context.platformExecution) {
     existing.platformExecution = {
-      ...(existing.platformExecution ?? {}),
+      ...existing.platformExecution,
       ...context.platformExecution,
     };
   }

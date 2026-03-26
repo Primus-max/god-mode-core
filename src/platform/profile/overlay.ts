@@ -63,7 +63,14 @@ export function resolveTaskOverlay(
   }
 
   if (
-    (promptIncludes(input.prompt, ["integration", "webhook", "connector", "sync", "oauth", "pipeline"]) ||
+    (promptIncludes(input.prompt, [
+      "integration",
+      "webhook",
+      "connector",
+      "sync",
+      "oauth",
+      "pipeline",
+    ]) ||
       (input.integrations?.length ?? 0) > 0) &&
     getTaskOverlay(profile, "integration_first")
   ) {
@@ -78,14 +85,28 @@ export function resolveTaskOverlay(
   }
 
   if (
-    promptIncludes(input.prompt, ["machine control", "linked machine", "kill switch", "run on node"]) &&
+    promptIncludes(input.prompt, [
+      "machine control",
+      "linked machine",
+      "kill switch",
+      "run on node",
+    ]) &&
     getTaskOverlay(profile, "machine_control")
   ) {
     return getTaskOverlay(profile, "machine_control");
   }
 
   if (
-    promptIncludes(input.prompt, ["infra", "infrastructure", "server", "ssh", "machine", "kubernetes", "logs", "restart"]) &&
+    promptIncludes(input.prompt, [
+      "infra",
+      "infrastructure",
+      "server",
+      "ssh",
+      "machine",
+      "kubernetes",
+      "logs",
+      "restart",
+    ]) &&
     getTaskOverlay(profile, "ops_first")
   ) {
     return getTaskOverlay(profile, "ops_first");

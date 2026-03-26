@@ -1,4 +1,5 @@
 export type UpdateAvailable = import("../../../src/infra/update-startup.js").UpdateAvailable;
+import type { CronJobBase } from "../../../src/cron/types-shared.js";
 import type {
   ArtifactRecordDetail as PlatformArtifactRecordDetail,
   ArtifactRecordSummary as PlatformArtifactRecordSummary,
@@ -13,7 +14,6 @@ import type {
   MachineControlLinkRecord as PlatformMachineControlLinkRecord,
 } from "../../../src/platform/machine/contracts.js";
 import type { SpecialistRuntimeSnapshot as PlatformSpecialistRuntimeSnapshot } from "../../../src/platform/profile/contracts.js";
-import type { CronJobBase } from "../../../src/cron/types-shared.js";
 import type { ConfigUiHints } from "../../../src/shared/config-ui-hints-types.js";
 import type {
   GatewayAgentRow as SharedGatewayAgentRow,

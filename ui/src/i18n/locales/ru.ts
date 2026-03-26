@@ -118,7 +118,8 @@ export const ru: TranslationMap = {
   },
   specialist: {
     loading: "Загрузка specialist-контекста…",
-    empty: "Specialist-контекст пока не определен. Начните сессию или введите черновик, чтобы его вычислить.",
+    empty:
+      "Specialist-контекст пока не определен. Начните сессию или введите черновик, чтобы его вычислить.",
     chatTitle: "Текущий specialist-контекст",
     overviewTitle: "Центр specialist-решений",
     overviewSubtitle:
@@ -249,16 +250,14 @@ export const ru: TranslationMap = {
         "На телефоне? Скопируйте полный URL (включая #token=...) из openclaw dashboard --no-open на вашем десктопе.",
     },
     insecure: {
-      hint:
-        "Страница открыта по HTTP, поэтому браузер блокирует identity устройства. Используйте HTTPS (Tailscale Serve) или откройте {url} на хосте gateway.",
+      hint: "Страница открыта по HTTP, поэтому браузер блокирует identity устройства. Используйте HTTPS (Tailscale Serve) или откройте {url} на хосте gateway.",
       stayHttp: "Если нужно остаться на HTTP, задайте {config} (только token auth).",
     },
     connection: {
       title: "Как подключиться",
       step1: "Запустите gateway на машине-хосте:",
       step2: "Получите dashboard URL с токеном:",
-      step3:
-        "Вставьте WebSocket URL и токен выше или откройте URL с токеном напрямую.",
+      step3: "Вставьте WebSocket URL и токен выше или откройте URL с токеном напрямую.",
       step4: "Или сгенерируйте переиспользуемый токен:",
       docsHint: "Для удаленного доступа рекомендуется Tailscale Serve. ",
       docsLink: "Открыть документацию →",
@@ -617,7 +616,8 @@ export const ru: TranslationMap = {
     },
   },
   bootstrap: {
-    subtitle: "Ожидающие одобрения установки возможностей и результаты их жизненного цикла. В ожидании: {count}.",
+    subtitle:
+      "Ожидающие одобрения установки возможностей и результаты их жизненного цикла. В ожидании: {count}.",
     filterPlaceholder: "Фильтр bootstrap-запросов",
     empty: "Bootstrap-запросов пока нет.",
     loadingDetail: "Загрузка деталей bootstrap-запроса...",
@@ -687,7 +687,8 @@ export const ru: TranslationMap = {
     tokenStatusActive: "активен",
     tokenStatusRevoked: "отозван",
     execBindingTitle: "Привязка exec-узла",
-    execBindingSubtitle: "Закрепляйте агентов за конкретным узлом при использовании exec host=node.",
+    execBindingSubtitle:
+      "Закрепляйте агентов за конкретным узлом при использовании exec host=node.",
     save: "Сохранить",
     saving: "Сохранение...",
     rawModeWarning: "Переключите вкладку Config в режим Form, чтобы редактировать привязки здесь.",
@@ -767,19 +768,31 @@ export const ru: TranslationMap = {
   configForm: {
     schemaUnavailable: "Схема недоступна.",
     unsupportedSchema: "Схема не поддерживается. Используйте Raw.",
-    emptySearch: "Нет настроек по запросу \"{query}\"",
+    emptySearch: 'Нет настроек по запросу "{query}"',
     emptySection: "В этом разделе нет настроек",
     sections: {
-      env: { label: "Переменные окружения", description: "Переменные окружения, передаваемые процессу gateway" },
+      env: {
+        label: "Переменные окружения",
+        description: "Переменные окружения, передаваемые процессу gateway",
+      },
       update: { label: "Обновления", description: "Автообновление и канал релизов" },
       agents: { label: "Агенты", description: "Конфигурации агентов, модели и идентичности" },
       auth: { label: "Аутентификация", description: "API-ключи и профили аутентификации" },
-      channels: { label: "Каналы", description: "Каналы сообщений (Telegram, Discord, Slack и т.д.)" },
-      messages: { label: "Сообщения", description: "Настройки обработки и маршрутизации сообщений" },
+      channels: {
+        label: "Каналы",
+        description: "Каналы сообщений (Telegram, Discord, Slack и т.д.)",
+      },
+      messages: {
+        label: "Сообщения",
+        description: "Настройки обработки и маршрутизации сообщений",
+      },
       commands: { label: "Команды", description: "Пользовательские slash-команды" },
       hooks: { label: "Хуки", description: "Вебхуки и event hooks" },
       skills: { label: "Навыки", description: "Пакеты навыков и capabilities" },
-      tools: { label: "Инструменты", description: "Настройки инструментов (browser, search и т.д.)" },
+      tools: {
+        label: "Инструменты",
+        description: "Настройки инструментов (browser, search и т.д.)",
+      },
       gateway: { label: "Gateway", description: "Настройки gateway server (порт, auth, binding)" },
       wizard: { label: "Мастер настройки", description: "Состояние и история setup wizard" },
       meta: { label: "Метаданные", description: "Метаданные gateway и информация о версии" },

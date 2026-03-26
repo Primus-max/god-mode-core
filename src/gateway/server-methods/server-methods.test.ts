@@ -3,7 +3,7 @@ import fsPromises from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emitAgentEvent } from "../../infra/agent-events.js";
 import { formatZonedTimestamp } from "../../infra/format-time/format-datetime.js";
 import {
@@ -589,9 +589,7 @@ describe("exec approval handlers", () => {
       },
     });
 
-    expect(
-      getPlatformRuntimeCheckpointService().get("checkpoint-runtime-checkpoint"),
-    ).toEqual(
+    expect(getPlatformRuntimeCheckpointService().get("checkpoint-runtime-checkpoint")).toEqual(
       expect.objectContaining({
         runId: "run-runtime-checkpoint",
         status: "blocked",
@@ -607,9 +605,7 @@ describe("exec approval handlers", () => {
     });
     await requestPromise;
 
-    expect(
-      getPlatformRuntimeCheckpointService().get("checkpoint-runtime-checkpoint"),
-    ).toEqual(
+    expect(getPlatformRuntimeCheckpointService().get("checkpoint-runtime-checkpoint")).toEqual(
       expect.objectContaining({
         status: "approved",
       }),
@@ -727,8 +723,11 @@ describe("exec approval handlers", () => {
     } as unknown as ExecApprovalRequestArgs["context"];
     const respond = vi.fn();
     const service = getPlatformMachineControlService();
-    const { createMachineKillSwitchGatewayMethod, createMachineLinkGatewayMethod, createMachineUnlinkGatewayMethod } =
-      await import("../../platform/machine/gateway.js");
+    const {
+      createMachineKillSwitchGatewayMethod,
+      createMachineLinkGatewayMethod,
+      createMachineUnlinkGatewayMethod,
+    } = await import("../../platform/machine/gateway.js");
     const client = {
       connId: "conn-1",
       connect: {
@@ -738,7 +737,7 @@ describe("exec approval handlers", () => {
       },
     } as unknown as ExecApprovalRequestArgs["client"];
 
-    createMachineLinkGatewayMethod(service)({
+    await createMachineLinkGatewayMethod(service)({
       params: { deviceId: "dev-1" },
       respond: respond as never,
       context: context as never,
@@ -746,7 +745,7 @@ describe("exec approval handlers", () => {
       req: { id: "req-machine-link", type: "req", method: "platform.machine.link" },
       isWebchatConnect: execApprovalNoop,
     });
-    createMachineKillSwitchGatewayMethod(service)({
+    await createMachineKillSwitchGatewayMethod(service)({
       params: { enabled: true, reason: "test" },
       respond: respond as never,
       context: context as never,
@@ -754,7 +753,7 @@ describe("exec approval handlers", () => {
       req: { id: "req-machine-kill", type: "req", method: "platform.machine.setKillSwitch" },
       isWebchatConnect: execApprovalNoop,
     });
-    createMachineUnlinkGatewayMethod(service)({
+    await createMachineUnlinkGatewayMethod(service)({
       params: { deviceId: "dev-1" },
       respond: respond as never,
       context: context as never,

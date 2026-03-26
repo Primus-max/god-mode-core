@@ -6,8 +6,8 @@ import {
   type BootstrapOrchestrationResult,
   type BootstrapRequest,
 } from "./contracts.js";
-import { evaluateBootstrapRequestPolicy, runBootstrapLifecycle } from "./runtime.js";
 import type { BootstrapInstaller } from "./installers.js";
+import { evaluateBootstrapRequestPolicy, runBootstrapLifecycle } from "./runtime.js";
 
 export async function orchestrateBootstrapRequest(params: {
   request: BootstrapRequest;

@@ -7,7 +7,10 @@ import {
   publicKeyRawBase64UrlFromPem,
   signDevicePayload,
 } from "../infra/device-identity.js";
-import { getPlatformMachineControlService, resetPlatformMachineControlService } from "../platform/machine/index.js";
+import {
+  getPlatformMachineControlService,
+  resetPlatformMachineControlService,
+} from "../platform/machine/index.js";
 import {
   getPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,

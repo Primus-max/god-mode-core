@@ -82,9 +82,7 @@ describe("bootstrap resolver", () => {
     });
 
     expect(result.status).toBe("untrusted");
-    expect(result.reasons).toContain(
-      "capability pdf-renderer comes from a user catalog source",
-    );
+    expect(result.reasons).toContain("capability pdf-renderer comes from a user catalog source");
   });
 
   it("returns untrusted for node entries without an exact npm packageRef", () => {

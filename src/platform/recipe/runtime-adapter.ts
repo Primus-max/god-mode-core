@@ -1,14 +1,14 @@
 import { DEFAULT_PROVIDER } from "../../agents/defaults.js";
 import { parseModelRef } from "../../agents/model-selection.js";
 import type { PluginHookPlatformExecutionContext } from "../../plugins/types.js";
+import type { BootstrapResolution } from "../bootstrap/contracts.js";
+import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
+import { resolveBootstrapRequests } from "../bootstrap/resolver.js";
 import type {
   PlatformExecutionContextSnapshot,
   PlatformExecutionContextReadinessStatus,
   PlatformExecutionContextUnattendedBoundary,
 } from "../decision/contracts.js";
-import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
-import type { BootstrapResolution } from "../bootstrap/contracts.js";
-import { resolveBootstrapRequests } from "../bootstrap/resolver.js";
 import { evaluatePolicy } from "../policy/engine.js";
 import type { PolicyContext, PolicyDecision } from "../policy/types.js";
 import { getInitialProfile, getTaskOverlay } from "../profile/defaults.js";
@@ -215,7 +215,8 @@ function buildCapabilitySummary(params: {
       "unknown-capability";
     return {
       capabilityId,
-      capabilityLabel: resolution.request?.catalogEntry.capability.label ?? resolution.capability?.label,
+      capabilityLabel:
+        resolution.request?.catalogEntry.capability.label ?? resolution.capability?.label,
       status: resolution.status,
       requiresBootstrap: resolution.status === "request",
       ...(resolution.reasons?.length ? { reasons: resolution.reasons } : {}),
@@ -280,7 +281,7 @@ export function buildPolicyContextFromRuntimePlan(
   }
   const overlay =
     runtimePlan.taskOverlayId && profile
-      ? getTaskOverlay(profile, runtimePlan.taskOverlayId) ?? undefined
+      ? (getTaskOverlay(profile, runtimePlan.taskOverlayId) ?? undefined)
       : undefined;
   return {
     activeProfileId: profile.id,
@@ -361,7 +362,9 @@ export function toPluginHookPlatformExecutionContext(
       : {}),
     ...(runtimePlan.policyAutonomy ? { policyAutonomy: runtimePlan.policyAutonomy } : {}),
     ...(runtimePlan.readinessStatus ? { readinessStatus: runtimePlan.readinessStatus } : {}),
-    ...(runtimePlan.readinessReasons?.length ? { readinessReasons: runtimePlan.readinessReasons } : {}),
+    ...(runtimePlan.readinessReasons?.length
+      ? { readinessReasons: runtimePlan.readinessReasons }
+      : {}),
     ...(runtimePlan.unattendedBoundary
       ? { unattendedBoundary: runtimePlan.unattendedBoundary }
       : {}),
@@ -400,8 +403,12 @@ export function adaptExecutionPlanToRuntime(
     ...(plan.plannerOutput.overrides?.timeoutSeconds
       ? { timeoutSeconds: plan.plannerOutput.overrides.timeoutSeconds }
       : {}),
-    ...(params?.input?.requestedTools?.length ? { requestedToolNames: params.input.requestedTools } : {}),
-    ...(params?.input?.publishTargets?.length ? { publishTargets: params.input.publishTargets } : {}),
+    ...(params?.input?.requestedTools?.length
+      ? { requestedToolNames: params.input.requestedTools }
+      : {}),
+    ...(params?.input?.publishTargets?.length
+      ? { publishTargets: params.input.publishTargets }
+      : {}),
     ...(params?.capabilitySummary?.requiredCapabilities.length
       ? { requiredCapabilities: params.capabilitySummary.requiredCapabilities }
       : {}),
@@ -417,7 +424,9 @@ export function adaptExecutionPlanToRuntime(
     ...(params?.readiness
       ? {
           readinessStatus: params.readiness.status,
-          ...(params.readiness.reasons.length ? { readinessReasons: params.readiness.reasons } : {}),
+          ...(params.readiness.reasons.length
+            ? { readinessReasons: params.readiness.reasons }
+            : {}),
           ...(params.readiness.unattendedBoundary
             ? { unattendedBoundary: params.readiness.unattendedBoundary }
             : {}),

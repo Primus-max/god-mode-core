@@ -166,8 +166,6 @@ flowchart TD
   actionAllowDeny --> scenarioHarness
 ```
 
-
-
 ## Sequencing
 
 1. Сначала убрать оставшиеся re-resolution gaps и закрепить frozen execution context.

@@ -21,7 +21,9 @@ export type BootstrapInstaller = (params: {
 
 const NODE_INSTALL_TIMEOUT_MS = 300_000;
 const NODE_HEALTH_CHECK_FILENAME = ".openclaw-bootstrap-healthcheck.cjs";
-type NodeInstallerFlowResult = { ok: true; capability: CapabilityDescriptor } | { ok: false; error: string };
+type NodeInstallerFlowResult =
+  | { ok: true; capability: CapabilityDescriptor }
+  | { ok: false; error: string };
 type DownloadInstallerFlowResult =
   | { ok: true; capability: CapabilityDescriptor }
   | { ok: false; error: string };
@@ -63,8 +65,8 @@ async function writeNodeHealthCheckScript(params: {
     `const expectedCapabilityId = ${JSON.stringify(params.capabilityId)};`,
     'const manifestPath = path.join(__dirname, "package.json");',
     'const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));',
-    'if (manifest.name !== expectedPackageName) {',
-    '  throw new Error(`bootstrap package mismatch for ${expectedCapabilityId}: ${manifest.name}`);',
+    "if (manifest.name !== expectedPackageName) {",
+    "  throw new Error(`bootstrap package mismatch for ${expectedCapabilityId}: ${manifest.name}`);",
     "}",
     'process.stdout.write(`${manifest.name}@${manifest.version ?? "0.0.0"}\\n`);',
   ].join("\n");
@@ -88,7 +90,7 @@ async function writeDownloadHealthCheckScript(params: {
     "    throw new Error(`bootstrap bin is not a file for ${expectedCapabilityId}: ${binPath}`);",
     "  }",
     "}",
-    'process.stdout.write(`${expectedCapabilityId}\\n`);',
+    "process.stdout.write(`${expectedCapabilityId}\\n`);",
   ].join("\n");
   await fs.writeFile(scriptPath, `${script}\n`, "utf-8");
   return `node ${scriptPath}`;
@@ -113,7 +115,10 @@ function buildInstalledCapability(
   };
 }
 
-function buildFailedCapability(request: BootstrapRequest, previous?: CapabilityDescriptor): CapabilityDescriptor {
+function buildFailedCapability(
+  request: BootstrapRequest,
+  previous?: CapabilityDescriptor,
+): CapabilityDescriptor {
   if (previous) {
     return previous;
   }
@@ -160,7 +165,10 @@ const NODE_INSTALLER: BootstrapInstaller = async ({ request, previous, stateDir 
     };
   }
 
-  const result = await installFromValidatedNpmSpecArchive<NodeInstallerFlowResult, { archivePath: string }>({
+  const result = await installFromValidatedNpmSpecArchive<
+    NodeInstallerFlowResult,
+    { archivePath: string }
+  >({
     spec: packageRef,
     timeoutMs: NODE_INSTALL_TIMEOUT_MS,
     tempDirPrefix: "openclaw-bootstrap-node-pack-",
@@ -236,7 +244,9 @@ const DOWNLOAD_INSTALLER: BootstrapInstaller = async ({ request, previous, state
     return {
       ok: false,
       capability: buildFailedCapability(request, previous),
-      reasons: [`download bootstrap installer requires full download metadata for ${request.capabilityId}`],
+      reasons: [
+        `download bootstrap installer requires full download metadata for ${request.capabilityId}`,
+      ],
     };
   }
   const relativeBins = request.catalogEntry.capability.requiredBins ?? [];

@@ -19,7 +19,9 @@ function formatConfidence(confidence: number): string {
   return `${Math.round(confidence * 100)}%`;
 }
 
-function renderSignalSource(source: SpecialistRuntimeSnapshot["signals"][number]["source"]): string {
+function renderSignalSource(
+  source: SpecialistRuntimeSnapshot["signals"][number]["source"],
+): string {
   return t(`specialist.signalSources.${source}`);
 }
 
@@ -108,7 +110,9 @@ function renderOperationalPosture(snapshot: SpecialistRuntimeSnapshot) {
 }
 
 function renderSignalList(snapshot: SpecialistRuntimeSnapshot) {
-  const signals = [...snapshot.signals].sort((left, right) => right.weight - left.weight).slice(0, 4);
+  const signals = [...snapshot.signals]
+    .toSorted((left, right) => right.weight - left.weight)
+    .slice(0, 4);
   if (signals.length === 0) {
     return html`<div class="muted">${t("specialist.noSignals")}</div>`;
   }
@@ -203,11 +207,7 @@ export function renderSpecialistOverviewPanel(props: SpecialistContextProps) {
           : nothing
       }
       ${props.loading && !props.snapshot ? renderSpecialistLoadingState() : nothing}
-      ${
-        !props.loading && !props.snapshot && !props.error
-          ? renderSpecialistEmptyState()
-          : nothing
-      }
+      ${!props.loading && !props.snapshot && !props.error ? renderSpecialistEmptyState() : nothing}
       ${
         props.snapshot
           ? html`
@@ -286,9 +286,11 @@ export function renderSpecialistOverviewPanel(props: SpecialistContextProps) {
                     ? html`
                         <label class="field" style="margin-top: 10px;">
                           <span>
-                            ${props.snapshot.override.mode === "base"
-                              ? t("specialist.override.baseProfile")
-                              : t("specialist.override.sessionProfile")}
+                            ${
+                              props.snapshot.override.mode === "base"
+                                ? t("specialist.override.baseProfile")
+                                : t("specialist.override.sessionProfile")
+                            }
                           </span>
                           <select
                             .value=${resolveOverrideProfileId(props.snapshot)}
@@ -314,9 +316,11 @@ export function renderSpecialistOverviewPanel(props: SpecialistContextProps) {
                     : nothing
                 }
                 <div class="muted" style="margin-top: 8px;">
-                  ${props.saving
-                    ? t("specialist.override.saving")
-                    : props.snapshot.override.note ?? t("specialist.override.ready")}
+                  ${
+                    props.saving
+                      ? t("specialist.override.saving")
+                      : (props.snapshot.override.note ?? t("specialist.override.ready"))
+                  }
                 </div>
               </div>
             `

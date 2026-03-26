@@ -361,9 +361,11 @@ function renderExecApprovalsPolicy(state: ExecApprovalsState) {
         <div class="list-main">
           <div class="list-title">${t("nodes.execApprovals.securityTitle")}</div>
           <div class="list-sub">
-            ${isDefaults
-              ? t("nodes.execApprovals.securityDefault")
-              : t("nodes.execApprovals.defaultValue", { value: defaults.security })}
+            ${
+              isDefaults
+                ? t("nodes.execApprovals.securityDefault")
+                : t("nodes.execApprovals.defaultValue", { value: defaults.security })
+            }
           </div>
         </div>
         <div class="list-meta">
@@ -406,9 +408,11 @@ function renderExecApprovalsPolicy(state: ExecApprovalsState) {
         <div class="list-main">
           <div class="list-title">${t("nodes.execApprovals.askTitle")}</div>
           <div class="list-sub">
-            ${isDefaults
-              ? t("nodes.execApprovals.askDefault")
-              : t("nodes.execApprovals.defaultValue", { value: defaults.ask })}
+            ${
+              isDefaults
+                ? t("nodes.execApprovals.askDefault")
+                : t("nodes.execApprovals.defaultValue", { value: defaults.ask })
+            }
           </div>
         </div>
         <div class="list-meta">
@@ -508,7 +512,9 @@ function renderExecApprovalsPolicy(state: ExecApprovalsState) {
                         : t("nodes.execApprovals.off"),
                     })
                   : t("nodes.execApprovals.autoAllowOverride", {
-                      value: autoEffective ? t("nodes.execApprovals.on") : t("nodes.execApprovals.off"),
+                      value: autoEffective
+                        ? t("nodes.execApprovals.on")
+                        : t("nodes.execApprovals.off"),
                     })
             }
           </div>

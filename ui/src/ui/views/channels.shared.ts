@@ -51,7 +51,9 @@ export function formatChannelRunDisplay(state: ChannelRunDisplay): string {
 
 export type ChannelConnectedDisplay = "yes" | "no" | "active" | "na";
 
-export function deriveChannelConnectedState(account: ChannelAccountSnapshot): ChannelConnectedDisplay {
+export function deriveChannelConnectedState(
+  account: ChannelAccountSnapshot,
+): ChannelConnectedDisplay {
   if (account.connected === true) {
     return "yes";
   }

@@ -1641,7 +1641,9 @@ describe("QmdMemoryManager", () => {
       isMcporterCommand(call[0], call[1]),
     );
     expect(mcporterCalls.length).toBeGreaterThan(0);
-    expect(mcporterCalls.some((call: unknown[]) => extractSpawnArgv(call[1])[0] === "daemon")).toBe(false);
+    expect(mcporterCalls.some((call: unknown[]) => extractSpawnArgv(call[1])[0] === "daemon")).toBe(
+      false,
+    );
     expect(logWarnMock).toHaveBeenCalledWith(expect.stringContaining("cold-start"));
 
     await manager.close();
@@ -1798,7 +1800,8 @@ describe("QmdMemoryManager", () => {
     await manager.search("hello", { sessionKey: "agent:main:slack:dm:u123" });
 
     const mcporterCall = spawnMock.mock.calls.find(
-      (call: unknown[]) => isMcporterCommand(call[0], call[1]) && extractSpawnArgv(call[1])[0] === "call",
+      (call: unknown[]) =>
+        isMcporterCommand(call[0], call[1]) && extractSpawnArgv(call[1])[0] === "call",
     );
     expect(mcporterCall).toBeDefined();
     const spawnOpts = mcporterCall?.[2] as { env?: NodeJS.ProcessEnv } | undefined;
@@ -1889,7 +1892,8 @@ describe("QmdMemoryManager", () => {
     await manager.search("two", { sessionKey: "agent:main:slack:dm:u123" });
 
     const daemonStarts = spawnMock.mock.calls.filter(
-      (call: unknown[]) => isMcporterCommand(call[0], call[1]) && extractSpawnArgv(call[1])[0] === "daemon",
+      (call: unknown[]) =>
+        isMcporterCommand(call[0], call[1]) && extractSpawnArgv(call[1])[0] === "daemon",
     );
     expect(daemonStarts).toHaveLength(1);
 

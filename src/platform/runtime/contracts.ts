@@ -33,9 +33,7 @@ export const PlatformRuntimeContinuationKindSchema = z.enum([
   "bootstrap_run",
   "artifact_transition",
 ]);
-export type PlatformRuntimeContinuationKind = z.infer<
-  typeof PlatformRuntimeContinuationKindSchema
->;
+export type PlatformRuntimeContinuationKind = z.infer<typeof PlatformRuntimeContinuationKindSchema>;
 
 export const PlatformRuntimeContinuationStateSchema = z.enum([
   "idle",
@@ -155,19 +153,17 @@ export const PlatformRuntimeAcceptanceStatusSchema = z.enum([
 ]);
 export type PlatformRuntimeAcceptanceStatus = z.infer<typeof PlatformRuntimeAcceptanceStatusSchema>;
 
-export const PlatformRuntimeAcceptanceActionSchema = z.enum([
-  "close",
-  "retry",
-  "escalate",
-  "stop",
-]);
+export const PlatformRuntimeAcceptanceActionSchema = z.enum(["close", "retry", "escalate", "stop"]);
 export type PlatformRuntimeAcceptanceAction = z.infer<typeof PlatformRuntimeAcceptanceActionSchema>;
 
 export const PlatformRuntimeAcceptanceReasonCodeSchema = z.enum([
   "completed_with_output",
   "completed_with_artifacts",
+  "completed_with_confirmed_delivery",
   "completed_with_warnings",
   "completed_without_evidence",
+  "delivery_failed",
+  "delivery_partial",
   "pending_approval",
   "runtime_blocked",
   "runtime_failed",
@@ -185,6 +181,13 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     hasOutput: z.boolean().optional(),
     hasStructuredReplyPayload: z.boolean().optional(),
     deliveredReplyCount: z.number().int().nonnegative().optional(),
+    stagedReplyCount: z.number().int().nonnegative().optional(),
+    attemptedDeliveryCount: z.number().int().nonnegative().optional(),
+    confirmedDeliveryCount: z.number().int().nonnegative().optional(),
+    failedDeliveryCount: z.number().int().nonnegative().optional(),
+    partialDelivery: z.boolean().optional(),
+    artifactReceiptCount: z.number().int().nonnegative().optional(),
+    bootstrapReceiptCount: z.number().int().nonnegative().optional(),
     successfulCronAdds: z.number().int().nonnegative().optional(),
   })
   .strict();
@@ -203,6 +206,4 @@ export const PlatformRuntimeAcceptanceResultSchema = z
     evidence: PlatformRuntimeAcceptanceEvidenceSchema,
   })
   .strict();
-export type PlatformRuntimeAcceptanceResult = z.infer<
-  typeof PlatformRuntimeAcceptanceResultSchema
->;
+export type PlatformRuntimeAcceptanceResult = z.infer<typeof PlatformRuntimeAcceptanceResultSchema>;

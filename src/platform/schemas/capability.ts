@@ -1,5 +1,5 @@
-import { parseRegistryNpmSpec } from "../../infra/npm-registry-spec.js";
 import { z } from "zod";
+import { parseRegistryNpmSpec } from "../../infra/npm-registry-spec.js";
 
 function isTrustedNodePackageRef(value: string): boolean {
   const parsed = parseRegistryNpmSpec(value);

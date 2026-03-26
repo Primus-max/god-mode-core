@@ -85,9 +85,7 @@ function normalizeSubagentControlScope(raw: string): "children" | "none" | undef
   return undefined;
 }
 
-function normalizeSpecialistOverrideMode(
-  raw: string,
-): "auto" | "base" | "session" | undefined {
+function normalizeSpecialistOverrideMode(raw: string): "auto" | "base" | "session" | undefined {
   const normalized = raw.trim().toLowerCase();
   if (normalized === "auto" || normalized === "base" || normalized === "session") {
     return normalized;
@@ -520,7 +518,7 @@ export async function applySessionsPatchToStore(params: {
 
   if (next.specialistOverrideMode === "base") {
     if (!next.specialistBaseProfileId) {
-      return invalid("specialistBaseProfileId is required when specialistOverrideMode is \"base\"");
+      return invalid('specialistBaseProfileId is required when specialistOverrideMode is "base"');
     }
     delete next.specialistSessionProfileId;
   }
@@ -528,7 +526,7 @@ export async function applySessionsPatchToStore(params: {
   if (next.specialistOverrideMode === "session") {
     if (!next.specialistSessionProfileId) {
       return invalid(
-        "specialistSessionProfileId is required when specialistOverrideMode is \"session\"",
+        'specialistSessionProfileId is required when specialistOverrideMode is "session"',
       );
     }
     delete next.specialistBaseProfileId;

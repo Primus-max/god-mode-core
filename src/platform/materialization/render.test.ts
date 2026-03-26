@@ -2,11 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import { getPlatformBootstrapService, resetPlatformBootstrapService } from "../bootstrap/index.js";
 import { getInitialProfile } from "../profile/defaults.js";
 import { applyTaskOverlay } from "../profile/overlay.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
-import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import { materializeArtifact, renderMarkdownToHtml, runMaterializationBootstrap } from "./index.js";
 
 function makePolicyContext(explicitApproval: boolean) {

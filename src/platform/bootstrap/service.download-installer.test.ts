@@ -2,13 +2,18 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../runtime/index.js";
 
 const fetchBootstrapDownloadArtifactMock = vi.hoisted(() => vi.fn());
 const withExtractedArchiveRootMock = vi.hoisted(() => vi.fn());
 const installPackageDirWithManifestDepsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./download-fetch.js", () => ({
-  fetchBootstrapDownloadArtifact: (...args: unknown[]) => fetchBootstrapDownloadArtifactMock(...args),
+  fetchBootstrapDownloadArtifact: (...args: unknown[]) =>
+    fetchBootstrapDownloadArtifactMock(...args),
 }));
 
 vi.mock("../../infra/install-flow.js", () => ({
@@ -20,8 +25,15 @@ vi.mock("../../infra/install-package-dir.js", () => ({
     installPackageDirWithManifestDepsMock(...args),
 }));
 
-import { createBootstrapRequestService } from "./service.js";
 import type { BootstrapRequest } from "./contracts.js";
+import { createBootstrapRequestService } from "./service.js";
+
+function installBootstrapContinuationNoop() {
+  getPlatformRuntimeCheckpointService().registerContinuationHandler(
+    "bootstrap_run",
+    async () => {},
+  );
+}
 
 function buildDownloadRequest(): BootstrapRequest {
   return {
@@ -58,6 +70,7 @@ describe("bootstrap request service download installer", () => {
 
   afterEach(async () => {
     vi.clearAllMocks();
+    resetPlatformRuntimeCheckpointService();
     if (tempRoot) {
       await fs.rm(tempRoot, { recursive: true, force: true });
       tempRoot = "";
@@ -76,17 +89,22 @@ describe("bootstrap request service download installer", () => {
       bytes: 128,
       sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     });
-    withExtractedArchiveRootMock.mockImplementation(async ({ onExtracted }) => await onExtracted(sourceDir));
-    installPackageDirWithManifestDepsMock.mockImplementation(async ({ sourceDir: extractedDir, targetDir }) => {
-      await fs.mkdir(path.join(targetDir, "bin"), { recursive: true });
-      await fs.copyFile(
-        path.join(extractedDir, "bin", "playwright"),
-        path.join(targetDir, "bin", "playwright"),
-      );
-      return { ok: true };
-    });
+    withExtractedArchiveRootMock.mockImplementation(
+      async ({ onExtracted }) => await onExtracted(sourceDir),
+    );
+    installPackageDirWithManifestDepsMock.mockImplementation(
+      async ({ sourceDir: extractedDir, targetDir }) => {
+        await fs.mkdir(path.join(targetDir, "bin"), { recursive: true });
+        await fs.copyFile(
+          path.join(extractedDir, "bin", "playwright"),
+          path.join(targetDir, "bin", "playwright"),
+        );
+        return { ok: true };
+      },
+    );
 
     const service = createBootstrapRequestService({ stateDir: tempRoot });
+    installBootstrapContinuationNoop();
     const created = service.create(buildDownloadRequest());
     service.resolve(created.id, "approve");
 

@@ -3,11 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { applyMaterializationToDescriptor, materializeArtifact } from "../materialization/index.js";
-import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import {
   getPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,
 } from "../runtime/index.js";
+import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import { createArtifactService } from "./service.js";
 
 function createTempStateDir(): string {

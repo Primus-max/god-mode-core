@@ -28,7 +28,9 @@ describe("platform runtime checkpoint service", () => {
       sessionKey: "session-1",
       boundary: "exec_approval",
       blockedReason: "approval required",
-      nextActions: [{ method: "exec.approval.resolve", label: "Resolve approval", phase: "approve" }],
+      nextActions: [
+        { method: "exec.approval.resolve", label: "Resolve approval", phase: "approve" },
+      ],
       target: { approvalId: "approval-1", operation: "system.run" },
     });
     expect(blocked.status).toBe("blocked");
@@ -143,6 +145,63 @@ describe("platform runtime checkpoint service", () => {
         status: "needs_human",
         action: "escalate",
         reasonCode: "pending_approval",
+      }),
+    );
+
+    const confirmedDelivery = service.evaluateAcceptance({
+      runId: "run-delivered",
+      outcome: {
+        runId: "run-delivered",
+        status: "completed",
+        checkpointIds: [],
+        blockedCheckpointIds: [],
+        completedCheckpointIds: [],
+        deniedCheckpointIds: [],
+        pendingApprovalIds: [],
+        artifactIds: [],
+        bootstrapRequestIds: [],
+        boundaries: [],
+      },
+      evidence: {
+        attemptedDeliveryCount: 1,
+        confirmedDeliveryCount: 1,
+        deliveredReplyCount: 1,
+      },
+    });
+    expect(confirmedDelivery).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+        reasonCode: "completed_with_confirmed_delivery",
+      }),
+    );
+
+    const failedDelivery = service.evaluateAcceptance({
+      runId: "run-delivery-failed",
+      outcome: {
+        runId: "run-delivery-failed",
+        status: "completed",
+        checkpointIds: [],
+        blockedCheckpointIds: [],
+        completedCheckpointIds: [],
+        deniedCheckpointIds: [],
+        pendingApprovalIds: [],
+        artifactIds: [],
+        bootstrapRequestIds: [],
+        boundaries: [],
+      },
+      evidence: {
+        stagedReplyCount: 1,
+        attemptedDeliveryCount: 1,
+        confirmedDeliveryCount: 0,
+        failedDeliveryCount: 1,
+      },
+    });
+    expect(failedDelivery).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        action: "retry",
+        reasonCode: "delivery_failed",
       }),
     );
   });

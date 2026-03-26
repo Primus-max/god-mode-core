@@ -8,11 +8,7 @@ export const PlatformExecutionContextIntentSchema = z.enum([
 ]);
 export type PlatformExecutionContextIntent = z.infer<typeof PlatformExecutionContextIntentSchema>;
 
-export const PlatformExecutionContextPolicyAutonomySchema = z.enum([
-  "chat",
-  "assist",
-  "guarded",
-]);
+export const PlatformExecutionContextPolicyAutonomySchema = z.enum(["chat", "assist", "guarded"]);
 export type PlatformExecutionContextPolicyAutonomy = z.infer<
   typeof PlatformExecutionContextPolicyAutonomySchema
 >;
@@ -56,4 +52,6 @@ export const PlatformExecutionContextSnapshotSchema = z
     unattendedBoundary: PlatformExecutionContextUnattendedBoundarySchema.optional(),
   })
   .strict();
-export type PlatformExecutionContextSnapshot = z.infer<typeof PlatformExecutionContextSnapshotSchema>;
+export type PlatformExecutionContextSnapshot = z.infer<
+  typeof PlatformExecutionContextSnapshotSchema
+>;

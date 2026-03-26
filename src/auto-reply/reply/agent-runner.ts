@@ -29,6 +29,7 @@ import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { runAgentTurnWithFallback } from "./agent-runner-execution.runtime.js";
 import {
   buildAcceptanceFallbackPayload,
+  captureMessagingDeliveryClosureCandidate,
   createShouldEmitToolOutput,
   createShouldEmitToolResult,
   enqueueSemanticRetryFollowup,
@@ -532,11 +533,21 @@ export async function runReplyAgent(params: {
         runResult,
         replyPayloads: [],
       });
-      const queuedSemanticRetry = enqueueSemanticRetryFollowup({
-        queueKey,
+      const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
+      const queuedSemanticRetry = deferDeliveryClosure
+        ? false
+        : enqueueSemanticRetryFollowup({
+            queueKey,
+            sourceRun: followupRun,
+            settings: resolvedQueue,
+            acceptance: acceptanceOutcome,
+          });
+      captureMessagingDeliveryClosureCandidate({
+        onCandidate: opts?.onDeliveryClosureCandidate,
+        runResult,
         sourceRun: followupRun,
+        queueKey,
         settings: resolvedQueue,
-        acceptance: acceptanceOutcome,
       });
       const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome);
       if (fallbackPayload && !queuedSemanticRetry) {
@@ -575,11 +586,21 @@ export async function runReplyAgent(params: {
         runResult,
         replyPayloads: [],
       });
-      const queuedSemanticRetry = enqueueSemanticRetryFollowup({
-        queueKey,
+      const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
+      const queuedSemanticRetry = deferDeliveryClosure
+        ? false
+        : enqueueSemanticRetryFollowup({
+            queueKey,
+            sourceRun: followupRun,
+            settings: resolvedQueue,
+            acceptance: acceptanceOutcome,
+          });
+      captureMessagingDeliveryClosureCandidate({
+        onCandidate: opts?.onDeliveryClosureCandidate,
+        runResult,
         sourceRun: followupRun,
+        queueKey,
         settings: resolvedQueue,
-        acceptance: acceptanceOutcome,
       });
       const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome);
       if (fallbackPayload && !queuedSemanticRetry) {
@@ -612,11 +633,21 @@ export async function runReplyAgent(params: {
       runResult,
       replyPayloads: guardedReplyPayloads,
     });
-    const queuedSemanticRetry = enqueueSemanticRetryFollowup({
-      queueKey,
+    const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
+    const queuedSemanticRetry = deferDeliveryClosure
+      ? false
+      : enqueueSemanticRetryFollowup({
+          queueKey,
+          sourceRun: followupRun,
+          settings: resolvedQueue,
+          acceptance: acceptanceOutcome,
+        });
+    captureMessagingDeliveryClosureCandidate({
+      onCandidate: opts?.onDeliveryClosureCandidate,
+      runResult,
       sourceRun: followupRun,
+      queueKey,
       settings: resolvedQueue,
-      acceptance: acceptanceOutcome,
     });
 
     await signalTypingIfNeeded(guardedReplyPayloads, typingSignals);

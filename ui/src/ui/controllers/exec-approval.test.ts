@@ -35,6 +35,10 @@ describe("exec approval controller", () => {
         agentId: null,
         resolvedPath: null,
         sessionKey: null,
+        runtimeRunId: null,
+        runtimeCheckpointId: null,
+        runtimeBoundary: null,
+        blockedReason: null,
         machineControl: {
           required: true,
           requestedByDeviceId: "dev-1",

@@ -100,7 +100,10 @@ function resolveArtifactPolicy(descriptor: ArtifactDescriptor, explicitApproval 
   }
   if ((executionContext.publishTargets?.length ?? 0) > 0 || descriptor.publishTarget) {
     policyContext.publishTargets = Array.from(
-      new Set([...(policyContext.publishTargets ?? []), ...(executionContext.publishTargets ?? [])]),
+      new Set([
+        ...(policyContext.publishTargets ?? []),
+        ...(executionContext.publishTargets ?? []),
+      ]),
     );
     if (descriptor.publishTarget) {
       policyContext.publishTargets.push(descriptor.publishTarget);
@@ -270,9 +273,9 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
   let gatewayPort = initial?.gatewayPort;
   let store: ArtifactStore = createArtifactStore();
   let records = new Map<string, PersistedArtifactRecord>();
-  const runtimeCheckpointService = getPlatformRuntimeCheckpointService({
-    ...(initial?.stateDir ? { stateDir: initial.stateDir } : {}),
-  });
+  const runtimeCheckpointService = getPlatformRuntimeCheckpointService(
+    initial?.stateDir ? { stateDir: initial.stateDir } : undefined,
+  );
 
   function ensureRootDir(): string {
     const rootDir = resolvePlatformArtifactsRoot(stateDir);
@@ -432,7 +435,8 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
           return {
             ok: false,
             code: "denied",
-            reason: "artifact publish transition requires publish intent in the frozen execution context",
+            reason:
+              "artifact publish transition requires publish intent in the frozen execution context",
           };
         }
       }
@@ -522,16 +526,19 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
       return nextRecords.length;
     },
   };
-  runtimeCheckpointService.registerContinuationHandler("artifact_transition", async (checkpoint) => {
-    const artifactId = checkpoint.target?.artifactId;
-    const operation = checkpoint.target?.operation;
-    if (!artifactId || !operation) {
-      return;
-    }
-    service.transition(artifactId, operation as ArtifactOperation, {
-      explicitApproval: true,
-    });
-  });
+  runtimeCheckpointService.registerContinuationHandler(
+    "artifact_transition",
+    async (checkpoint) => {
+      const artifactId = checkpoint.target?.artifactId;
+      const operation = checkpoint.target?.operation;
+      if (!artifactId || !operation) {
+        return;
+      }
+      service.transition(artifactId, operation as ArtifactOperation, {
+        explicitApproval: true,
+      });
+    },
+  );
   return service;
 }
 

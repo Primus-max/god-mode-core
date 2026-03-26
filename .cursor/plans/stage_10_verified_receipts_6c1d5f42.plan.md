@@ -1,22 +1,22 @@
 ---
 name: stage 10 verified receipts
-overview: "Замкнуть semantic orchestration не только на prepared payloads и proxy-evidence, а на machine-checkable post-send и post-side-effect receipts: backend должен уметь доказуемо различать staged output, attempted delivery, confirmed delivery, partial success и reconcile/retry/escalate без тяжёлого workflow engine."
+overview: ""
 todos:
   - id: delivery-receipt-contract
     content: Ввести явный contract для post-send delivery receipts и delivery-aware acceptance evidence вместо смешения staged payloads с подтверждённой доставкой
-    status: pending
+    status: completed
   - id: main-ingress-postsend-closure
     content: Замкнуть main reply path на post-dispatch outcome, чтобы acceptance и runtime truth учитывали реальный результат routeReply/delivery
-    status: pending
+    status: completed
   - id: followup-reconciliation
     content: Добавить bounded reconciliation для followup и persisted automation при partial/failed delivery без бесконечных retry loops
-    status: pending
+    status: completed
   - id: side-effect-attestations
-    content: Усилить machine-checkable receipts для немессенджинговых side effects: artifacts, bootstrap/materialization, tool-backed external effects
-    status: pending
+    content: "Усилить machine-checkable receipts для немессенджинговых side effects: artifacts, bootstrap/materialization, tool-backed external effects"
+    status: completed
   - id: verified-outcome-scenarios
     content: Закрепить stage deterministic scenarios с post-send success, partial failure, escalation и restart-safe reconciliation
-    status: pending
+    status: completed
 isProject: false
 ---
 

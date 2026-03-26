@@ -2,6 +2,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../runtime/index.js";
 
 const installFromValidatedNpmSpecArchiveMock = vi.hoisted(() => vi.fn());
 const withExtractedArchiveRootMock = vi.hoisted(() => vi.fn());
@@ -21,8 +25,15 @@ vi.mock("../../infra/install-package-dir.js", () => ({
     installPackageDirWithManifestDepsMock(...args),
 }));
 
-import { createBootstrapRequestService } from "./service.js";
 import type { BootstrapRequest } from "./contracts.js";
+import { createBootstrapRequestService } from "./service.js";
+
+function installBootstrapContinuationNoop() {
+  getPlatformRuntimeCheckpointService().registerContinuationHandler(
+    "bootstrap_run",
+    async () => {},
+  );
+}
 
 function buildNodeRequest(): BootstrapRequest {
   return {
@@ -56,6 +67,7 @@ describe("bootstrap request service node installer", () => {
 
   afterEach(async () => {
     vi.clearAllMocks();
+    resetPlatformRuntimeCheckpointService();
     if (tempRoot) {
       await fs.rm(tempRoot, { recursive: true, force: true });
       tempRoot = "";
@@ -75,17 +87,26 @@ describe("bootstrap request service node installer", () => {
       "utf-8",
     );
 
-    withExtractedArchiveRootMock.mockImplementation(async ({ onExtracted }) => await onExtracted(sourceDir));
-    installFromValidatedNpmSpecArchiveMock.mockImplementation(
-      async ({ installFromArchive }) => await installFromArchive({ archivePath: path.join(tempRoot, "pkg.tgz") }),
+    withExtractedArchiveRootMock.mockImplementation(
+      async ({ onExtracted }) => await onExtracted(sourceDir),
     );
-    installPackageDirWithManifestDepsMock.mockImplementation(async ({ sourceDir: packageDir, targetDir }) => {
-      await fs.mkdir(targetDir, { recursive: true });
-      await fs.copyFile(path.join(packageDir, "package.json"), path.join(targetDir, "package.json"));
-      return { ok: true };
-    });
+    installFromValidatedNpmSpecArchiveMock.mockImplementation(
+      async ({ installFromArchive }) =>
+        await installFromArchive({ archivePath: path.join(tempRoot, "pkg.tgz") }),
+    );
+    installPackageDirWithManifestDepsMock.mockImplementation(
+      async ({ sourceDir: packageDir, targetDir }) => {
+        await fs.mkdir(targetDir, { recursive: true });
+        await fs.copyFile(
+          path.join(packageDir, "package.json"),
+          path.join(targetDir, "package.json"),
+        );
+        return { ok: true };
+      },
+    );
 
     const service = createBootstrapRequestService({ stateDir: tempRoot });
+    installBootstrapContinuationNoop();
     const created = service.create(buildNodeRequest());
     service.resolve(created.id, "approve");
 

@@ -21,11 +21,7 @@ import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controlle
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
 import { loadAgents, loadToolsCatalog, saveAgentsConfig } from "./controllers/agents.ts";
-import {
-  loadArtifactDetail,
-  loadArtifacts,
-  transitionArtifact,
-} from "./controllers/artifacts.ts";
+import { loadArtifactDetail, loadArtifacts, transitionArtifact } from "./controllers/artifacts.ts";
 import {
   loadBootstrapDetail,
   loadBootstrapRequests,
@@ -89,17 +85,17 @@ import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionsAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
 import {
-  loadSpecialistContext,
-  saveSpecialistOverride,
-  scheduleSpecialistContextRefresh,
-} from "./controllers/specialist.ts";
-import {
   installSkill,
   loadSkills,
   saveSkillApiKey,
   updateSkillEdit,
   updateSkillEnabled,
 } from "./controllers/skills.ts";
+import {
+  loadSpecialistContext,
+  saveSpecialistOverride,
+  scheduleSpecialistContextRefresh,
+} from "./controllers/specialist.ts";
 import "./components/dashboard-header.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "./external-link.ts";
 import { icons } from "./icons.ts";
@@ -859,7 +855,8 @@ export function renderApp(state: AppViewState) {
                   onFilterChange: (value) => {
                     state.artifactsFilterQuery = value;
                   },
-                  onTransition: (artifactId, operation) => transitionArtifact(state, artifactId, operation),
+                  onTransition: (artifactId, operation) =>
+                    transitionArtifact(state, artifactId, operation),
                 }),
               )
             : nothing
@@ -884,7 +881,8 @@ export function renderApp(state: AppViewState) {
                   onFilterChange: (value) => {
                     state.bootstrapFilterQuery = value;
                   },
-                  onResolve: (requestId, decision) => resolveBootstrapRequest(state, requestId, decision),
+                  onResolve: (requestId, decision) =>
+                    resolveBootstrapRequest(state, requestId, decision),
                   onRun: (requestId) => runBootstrapRequest(state, requestId),
                 }),
               )

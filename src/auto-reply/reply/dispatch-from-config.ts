@@ -42,6 +42,10 @@ import { normalizeTtsAutoMode, resolveConfiguredTtsMode } from "../../tts/tts-co
 import { INTERNAL_MESSAGE_CHANNEL, normalizeMessageChannel } from "../../utils/message-channel.js";
 import type { FinalizedMsgContext } from "../templating.js";
 import type { BlockReplyContext, GetReplyOptions, ReplyPayload } from "../types.js";
+import type {
+  MessagingDeliveryClosureCandidate,
+  MessagingDeliveryReceipt,
+} from "./agent-runner-helpers.js";
 import { shouldSkipDuplicateInbound } from "./inbound-dedupe.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
 import { resolveRunTypingPolicy } from "./typing-policy.js";
@@ -144,6 +148,8 @@ const resolveSessionStoreLookup = (
 export type DispatchFromConfigResult = {
   queuedFinal: boolean;
   counts: Record<ReplyDispatchKind, number>;
+  deliveryCandidate?: MessagingDeliveryClosureCandidate;
+  routedDeliveryReceipt?: MessagingDeliveryReceipt;
 };
 
 export async function dispatchReplyFromConfig(params: {
@@ -276,7 +282,7 @@ export async function dispatchReplyFromConfig(params: {
     payload: ReplyPayload,
     abortSignal?: AbortSignal,
     mirror?: boolean,
-  ): Promise<void> => {
+  ): Promise<Awaited<ReturnType<typeof routeReplyRuntime.routeReply>> | undefined> => {
     // TypeScript doesn't narrow these from the shouldRouteToOriginating check,
     // but they're guaranteed non-null when this function is called.
     if (!originatingChannel || !originatingTo) {
@@ -301,6 +307,7 @@ export async function dispatchReplyFromConfig(params: {
     if (!result.ok) {
       logVerbose(`dispatch-from-config: route-reply failed: ${result.error ?? "unknown error"}`);
     }
+    return result;
   };
 
   const sendBindingNotice = async (
@@ -578,12 +585,20 @@ export async function dispatchReplyFromConfig(params: {
 
     const replyResolver =
       params.replyResolver ?? (await loadGetReplyFromConfigRuntime()).getReplyFromConfig;
+    let deliveryCandidate: MessagingDeliveryClosureCandidate | undefined;
+    let attemptedDeliveryCount = 0;
+    let confirmedDeliveryCount = 0;
+    let failedDeliveryCount = 0;
     const replyResult = await replyResolver(
       ctx,
       {
         ...params.replyOptions,
         typingPolicy: typing.typingPolicy,
         suppressTyping: typing.suppressTyping,
+        onDeliveryClosureCandidate: (candidate) => {
+          deliveryCandidate = candidate;
+          params.replyOptions?.onDeliveryClosureCandidate?.(candidate);
+        },
         onToolResult: (payload: ReplyPayload) => {
           const run = async () => {
             const ttsPayload = await maybeApplyTtsToPayload({
@@ -599,7 +614,10 @@ export async function dispatchReplyFromConfig(params: {
               return;
             }
             if (shouldRouteToOriginating) {
-              await sendPayloadAsync(deliveryPayload, undefined, false);
+              const result = await sendPayloadAsync(deliveryPayload, undefined, false);
+              attemptedDeliveryCount += result?.attemptedDeliveryCount ?? 0;
+              confirmedDeliveryCount += result?.confirmedDeliveryCount ?? 0;
+              failedDeliveryCount += result?.failedDeliveryCount ?? 0;
             } else {
               dispatcher.sendToolResult(deliveryPayload);
             }
@@ -633,7 +651,10 @@ export async function dispatchReplyFromConfig(params: {
               ttsAuto: sessionTtsAuto,
             });
             if (shouldRouteToOriginating) {
-              await sendPayloadAsync(ttsPayload, context?.abortSignal, false);
+              const result = await sendPayloadAsync(ttsPayload, context?.abortSignal, false);
+              attemptedDeliveryCount += result?.attemptedDeliveryCount ?? 0;
+              confirmedDeliveryCount += result?.confirmedDeliveryCount ?? 0;
+              failedDeliveryCount += result?.failedDeliveryCount ?? 0;
             } else {
               dispatcher.sendBlockReply(ttsPayload);
             }
@@ -707,6 +728,9 @@ export async function dispatchReplyFromConfig(params: {
             `dispatch-from-config: route-reply (final) failed: ${result.error ?? "unknown error"}`,
           );
         }
+        attemptedDeliveryCount += result.attemptedDeliveryCount ?? 0;
+        confirmedDeliveryCount += result.confirmedDeliveryCount ?? 0;
+        failedDeliveryCount += result.failedDeliveryCount ?? 0;
         queuedFinal = result.ok || queuedFinal;
         if (result.ok) {
           routedFinalCount += 1;
@@ -755,6 +779,9 @@ export async function dispatchReplyFromConfig(params: {
               groupId,
             });
             queuedFinal = result.ok || queuedFinal;
+            attemptedDeliveryCount += result.attemptedDeliveryCount ?? 0;
+            confirmedDeliveryCount += result.confirmedDeliveryCount ?? 0;
+            failedDeliveryCount += result.failedDeliveryCount ?? 0;
             if (result.ok) {
               routedFinalCount += 1;
             }
@@ -782,7 +809,18 @@ export async function dispatchReplyFromConfig(params: {
       pluginFallbackReason ? { reason: pluginFallbackReason } : undefined,
     );
     markIdle("message_completed");
-    return { queuedFinal, counts };
+    return {
+      queuedFinal,
+      counts,
+      deliveryCandidate,
+      routedDeliveryReceipt: {
+        stagedReplyCount: counts.tool + counts.block + counts.final,
+        attemptedDeliveryCount,
+        confirmedDeliveryCount,
+        failedDeliveryCount,
+        partialDelivery: confirmedDeliveryCount > 0 && failedDeliveryCount > 0,
+      },
+    };
   } catch (err) {
     recordProcessed("error", { error: String(err) });
     markIdle("message_error");

@@ -3,8 +3,8 @@ import { t } from "../../i18n/index.ts";
 import { formatRelativeTimestamp, formatDurationHuman } from "../format.ts";
 import type { WhatsAppStatus } from "../types.ts";
 import { renderChannelConfigSection } from "./channels.config.ts";
-import type { ChannelsProps } from "./channels.types.ts";
 import { formatChannelOptionalBool } from "./channels.shared.ts";
+import type { ChannelsProps } from "./channels.types.ts";
 
 export function renderWhatsAppCard(params: {
   props: ChannelsProps;

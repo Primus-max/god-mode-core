@@ -1,9 +1,12 @@
 import path from "node:path";
-import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import type { SessionEntry } from "../../config/sessions.js";
+import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
-import { resolvePlatformRuntimePlan, type ResolvedPlatformRuntimePlan } from "../recipe/runtime-adapter.js";
+import {
+  resolvePlatformRuntimePlan,
+  type ResolvedPlatformRuntimePlan,
+} from "../recipe/runtime-adapter.js";
 
 const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
 const DEVELOPER_EXECUTION_KEYWORDS =
@@ -185,7 +188,9 @@ function extractTranscriptUserText(content: unknown): string | undefined {
   }
   const textBlocks = content
     .map((block) =>
-      block && typeof block === "object" && "text" in block ? (block as { text?: unknown }).text : undefined,
+      block && typeof block === "object" && "text" in block
+        ? (block as { text?: unknown }).text
+        : undefined,
     )
     .filter((text): text is string => typeof text === "string");
   return textBlocks.length > 0 ? textBlocks.join("") : undefined;
@@ -198,9 +203,10 @@ function pushMediaPath(value: unknown, into: Set<string>) {
   into.add(path.basename(value.trim()));
 }
 
-export function resolveSessionDecisionInputContext(
-  messages: unknown[],
-): { prompt: string; fileNames: string[] } {
+export function resolveSessionDecisionInputContext(messages: unknown[]): {
+  prompt: string;
+  fileNames: string[];
+} {
   const recentTexts: string[] = [];
   const fileNames = new Set<string>();
   for (const raw of messages.slice(-24)) {

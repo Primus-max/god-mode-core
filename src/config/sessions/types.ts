@@ -208,8 +208,7 @@ function normalizeSessionSpecialistOverrideFields(entry: SessionEntry): SessionE
     : undefined;
 
   const inferredMode =
-    normalizedMode ??
-    (normalizedSession ? "session" : normalizedBase ? "base" : undefined);
+    normalizedMode ?? (normalizedSession ? "session" : normalizedBase ? "base" : undefined);
 
   let next = entry;
   const ensureClone = () => {

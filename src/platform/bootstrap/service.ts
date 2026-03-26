@@ -1,22 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { resolveStateDir } from "../../config/paths.js";
 import { buildExecutionDecisionInput } from "../decision/input.js";
-import { createCapabilityRegistry } from "../registry/capability-registry.js";
-import type { CapabilityRegistry } from "../registry/types.js";
 import type { PolicyContext } from "../policy/types.js";
 import {
   buildPolicyContextFromExecutionContext,
   resolvePlatformRuntimePlan,
 } from "../recipe/runtime-adapter.js";
+import { createCapabilityRegistry } from "../registry/capability-registry.js";
+import type { CapabilityRegistry } from "../registry/types.js";
+import { getPlatformRuntimeCheckpointService } from "../runtime/index.js";
 import type { CapabilityInstallMethod } from "../schemas/capability.js";
-import {
-  appendBootstrapAuditEvent,
-  rehydrateBootstrapRequestRecords,
-} from "./audit.js";
-import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
-import type { BootstrapInstaller } from "./installers.js";
-import { orchestrateBootstrapRequest } from "./orchestrator.js";
-import { resolveBootstrapAuditPath } from "./paths.js";
+import { appendBootstrapAuditEvent, rehydrateBootstrapRequestRecords } from "./audit.js";
 import {
   BootstrapAuditEventSchema,
   BootstrapRequestRecordDetailSchema,
@@ -30,7 +24,10 @@ import {
   type BootstrapRequestRecordDetail,
   type BootstrapRequestRecordSummary,
 } from "./contracts.js";
-import { getPlatformRuntimeCheckpointService } from "../runtime/index.js";
+import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
+import type { BootstrapInstaller } from "./installers.js";
+import { orchestrateBootstrapRequest } from "./orchestrator.js";
+import { resolveBootstrapAuditPath } from "./paths.js";
 
 export type BootstrapRequestService = {
   configure: (params: { stateDir?: string }) => void;
@@ -38,7 +35,10 @@ export type BootstrapRequestService = {
   create: (request: BootstrapRequest) => BootstrapRequestRecord;
   list: () => BootstrapRequestRecordSummary[];
   get: (id: string) => BootstrapRequestRecordDetail | undefined;
-  resolve: (id: string, decision: BootstrapRequestDecision) => BootstrapRequestRecordDetail | undefined;
+  resolve: (
+    id: string,
+    decision: BootstrapRequestDecision,
+  ) => BootstrapRequestRecordDetail | undefined;
   run: (params: {
     id: string;
     installers?: Partial<Record<CapabilityInstallMethod, BootstrapInstaller>>;
@@ -105,7 +105,10 @@ function resolveBootstrapDecisionPrompt(request: BootstrapRequest): string {
   return `Bootstrap capability ${request.capabilityId} for platform execution workflow.`;
 }
 
-function buildBootstrapPolicyContext(request: BootstrapRequest, explicitApproval: boolean): PolicyContext {
+function buildBootstrapPolicyContext(
+  request: BootstrapRequest,
+  explicitApproval: boolean,
+): PolicyContext {
   if (request.executionContext) {
     const fromDecision = buildPolicyContextFromExecutionContext(request.executionContext, {
       explicitApproval,
@@ -172,9 +175,9 @@ export function createBootstrapRequestService(params?: {
   const records = new Map<string, BootstrapRequestRecord>();
   const registry = params?.registry ?? createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
   let stateDir = params?.stateDir;
-  const runtimeCheckpointService = getPlatformRuntimeCheckpointService({
-    ...(params?.stateDir ? { stateDir: params.stateDir } : {}),
-  });
+  const runtimeCheckpointService = getPlatformRuntimeCheckpointService(
+    params?.stateDir ? { stateDir: params.stateDir } : undefined,
+  );
   const service: BootstrapRequestService = {
     configure(config) {
       if (config.stateDir) {
@@ -261,7 +264,7 @@ export function createBootstrapRequestService(params?: {
     },
     list() {
       return Array.from(records.values())
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .map((record) => toSummary(record));
     },
     get(id) {
@@ -308,7 +311,9 @@ export function createBootstrapRequestService(params?: {
         const blocked = BootstrapRequestRecordSchema.parse({
           ...existing,
           updatedAt: new Date().toISOString(),
-          reasons: [`bootstrap request must be approved before run (current state: ${existing.state})`],
+          reasons: [
+            `bootstrap request must be approved before run (current state: ${existing.state})`,
+          ],
         });
         records.set(blocked.id, blocked);
         appendAuditRecord(stateDir, "request.run_blocked", blocked);
@@ -389,7 +394,9 @@ export function createBootstrapRequestService(params?: {
 
 let sharedBootstrapRequestService: BootstrapRequestService | null = null;
 
-export function getPlatformBootstrapService(config?: { stateDir?: string }): BootstrapRequestService {
+export function getPlatformBootstrapService(config?: {
+  stateDir?: string;
+}): BootstrapRequestService {
   if (!sharedBootstrapRequestService) {
     sharedBootstrapRequestService = createBootstrapRequestService({
       stateDir: config?.stateDir ?? resolveStateDir(process.env),

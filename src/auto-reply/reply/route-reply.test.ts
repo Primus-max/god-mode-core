@@ -270,6 +270,40 @@ describe("routeReply", () => {
     );
   });
 
+  it("returns confirmed delivery receipt counts on success", async () => {
+    mocks.sendMessageSlack.mockClear();
+    const res = await routeReply({
+      payload: { text: "hello" },
+      channel: "slack",
+      to: "channel:C123",
+      cfg: {} as never,
+    });
+
+    expect(res).toMatchObject({
+      ok: true,
+      attemptedDeliveryCount: 1,
+      confirmedDeliveryCount: 1,
+      failedDeliveryCount: 0,
+    });
+  });
+
+  it("returns failed delivery receipt counts on error", async () => {
+    mocks.deliverOutboundPayloads.mockRejectedValueOnce(new Error("send failed"));
+    const res = await routeReply({
+      payload: { text: "hello" },
+      channel: "slack",
+      to: "channel:C123",
+      cfg: {} as never,
+    });
+
+    expect(res).toMatchObject({
+      ok: false,
+      attemptedDeliveryCount: 1,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 1,
+    });
+  });
+
   it("routes directive-only Slack replies when interactive replies are enabled", async () => {
     mocks.sendMessageSlack.mockClear();
     const cfg = {

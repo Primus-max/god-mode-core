@@ -238,9 +238,7 @@ export function renderSessions(props: SessionsProps) {
         <div>
           <div class="card-title">${t("sessions.title")}</div>
           <div class="card-sub">${
-            props.result
-              ? t("sessions.store", { path: props.result.path })
-              : t("sessions.subtitle")
+            props.result ? t("sessions.store", { path: props.result.path }) : t("sessions.subtitle")
           }</div>
         </div>
         <button class="btn" ?disabled=${props.loading} @click=${props.onRefresh}>

@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { ProfileIdSchema } from "../schemas/profile.js";
 import { BootstrapResolutionStatusSchema } from "../bootstrap/contracts.js";
+import { ProfileIdSchema } from "../schemas/profile.js";
 
 const PolicyAutonomySchema = z.enum(["chat", "assist", "guarded"]);
 const BootstrapContinuationModeSchema = z.enum(["frozen", "fallback"]);

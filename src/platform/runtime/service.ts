@@ -1,6 +1,6 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { resolveStateDir } from "../../config/paths.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import {
@@ -73,7 +73,9 @@ function resolveRuntimeCheckpointStorePath(stateDir: string): string {
 function buildStorePayload(checkpoints: Map<string, PlatformRuntimeCheckpoint>) {
   return PlatformRuntimeCheckpointStoreSchema.parse({
     version: 1,
-    checkpoints: Array.from(checkpoints.values()).sort((left, right) => right.updatedAtMs - left.updatedAtMs),
+    checkpoints: Array.from(checkpoints.values()).toSorted(
+      (left, right) => right.updatedAtMs - left.updatedAtMs,
+    ),
   });
 }
 
@@ -118,10 +120,18 @@ export function createPlatformRuntimeCheckpointService(params?: {
         ...(checkpointParams.sessionKey ? { sessionKey: checkpointParams.sessionKey } : {}),
         boundary: checkpointParams.boundary,
         status: "blocked",
-        ...(checkpointParams.blockedReason ? { blockedReason: checkpointParams.blockedReason } : {}),
-        ...(checkpointParams.policyReasons?.length ? { policyReasons: checkpointParams.policyReasons } : {}),
-        ...(checkpointParams.deniedReasons?.length ? { deniedReasons: checkpointParams.deniedReasons } : {}),
-        ...(checkpointParams.nextActions?.length ? { nextActions: checkpointParams.nextActions } : {}),
+        ...(checkpointParams.blockedReason
+          ? { blockedReason: checkpointParams.blockedReason }
+          : {}),
+        ...(checkpointParams.policyReasons?.length
+          ? { policyReasons: checkpointParams.policyReasons }
+          : {}),
+        ...(checkpointParams.deniedReasons?.length
+          ? { deniedReasons: checkpointParams.deniedReasons }
+          : {}),
+        ...(checkpointParams.nextActions?.length
+          ? { nextActions: checkpointParams.nextActions }
+          : {}),
         ...(checkpointParams.target ? { target: checkpointParams.target } : {}),
         ...(checkpointParams.continuation ? { continuation: checkpointParams.continuation } : {}),
         ...(checkpointParams.executionContext
@@ -147,8 +157,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         ...patch,
         id: existing.id,
         createdAtMs: existing.createdAtMs,
-        updatedAtMs:
-          typeof patch.updatedAtMs === "number" ? patch.updatedAtMs : Date.now(),
+        updatedAtMs: typeof patch.updatedAtMs === "number" ? patch.updatedAtMs : Date.now(),
       });
       checkpoints.set(id, next);
       persist();
@@ -175,8 +184,10 @@ export function createPlatformRuntimeCheckpointService(params?: {
           listParams?.sessionKey ? checkpoint.sessionKey === listParams.sessionKey : true,
         )
         .filter((checkpoint) => (listParams?.runId ? checkpoint.runId === listParams.runId : true))
-        .filter((checkpoint) => (listParams?.status ? checkpoint.status === listParams.status : true))
-        .sort((left, right) => right.updatedAtMs - left.updatedAtMs)
+        .filter((checkpoint) =>
+          listParams?.status ? checkpoint.status === listParams.status : true,
+        )
+        .toSorted((left, right) => right.updatedAtMs - left.updatedAtMs)
         .map((checkpoint) => PlatformRuntimeCheckpointSummarySchema.parse(checkpoint));
     },
     buildRunOutcome(runId) {
@@ -191,10 +202,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
         return undefined;
       }
       const blockedCheckpointIds = runCheckpoints
-        .filter((checkpoint) =>
-          checkpoint.status === "blocked" ||
-          checkpoint.status === "approved" ||
-          checkpoint.status === "resumed",
+        .filter(
+          (checkpoint) =>
+            checkpoint.status === "blocked" ||
+            checkpoint.status === "approved" ||
+            checkpoint.status === "resumed",
         )
         .map((checkpoint) => checkpoint.id);
       const completedCheckpointIds = runCheckpoints
@@ -204,10 +216,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
         .filter((checkpoint) => checkpoint.status === "denied" || checkpoint.status === "cancelled")
         .map((checkpoint) => checkpoint.id);
       const pendingApprovalIds = runCheckpoints
-        .filter((checkpoint) =>
-          checkpoint.status === "blocked" ||
-          checkpoint.status === "approved" ||
-          checkpoint.status === "resumed",
+        .filter(
+          (checkpoint) =>
+            checkpoint.status === "blocked" ||
+            checkpoint.status === "approved" ||
+            checkpoint.status === "resumed",
         )
         .map((checkpoint) => checkpoint.target?.approvalId)
         .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
@@ -289,16 +302,51 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
+      const confirmedDeliveryCount =
+        evidence.confirmedDeliveryCount ?? evidence.deliveredReplyCount ?? 0;
+      const attemptedDeliveryCount = evidence.attemptedDeliveryCount ?? 0;
+      const failedDeliveryCount = evidence.failedDeliveryCount ?? 0;
+      if (attemptedDeliveryCount > 0 && confirmedDeliveryCount === 0 && failedDeliveryCount > 0) {
+        reasons.push(
+          "Run completed, but delivery attempts failed before any message was confirmed.",
+        );
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode: "delivery_failed",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (
+        evidence.partialDelivery === true ||
+        (confirmedDeliveryCount > 0 && failedDeliveryCount > 0)
+      ) {
+        reasons.push("Run completed, but delivery only partially succeeded.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "partial",
+          action: "retry",
+          reasonCode: "delivery_partial",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
       const hasDeliverableEvidence =
-        params.outcome.artifactIds.length > 0 ||
-        params.outcome.bootstrapRequestIds.length > 0 ||
+        (evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
+        (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0 ||
         evidence.didSendViaMessagingTool === true ||
         evidence.hasOutput === true ||
         evidence.hasStructuredReplyPayload === true ||
-        (evidence.deliveredReplyCount ?? 0) > 0 ||
+        confirmedDeliveryCount > 0 ||
         (evidence.successfulCronAdds ?? 0) > 0;
       if (evidence.hadToolError === true && hasDeliverableEvidence) {
-        reasons.push("Run completed with deliverable evidence, but one or more tool errors were observed.");
+        reasons.push(
+          "Run completed with deliverable evidence, but one or more tool errors were observed.",
+        );
         return PlatformRuntimeAcceptanceResultSchema.parse({
           runId: params.runId,
           status: "partial",
@@ -309,13 +357,30 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
-      if (params.outcome.artifactIds.length > 0 || params.outcome.bootstrapRequestIds.length > 0) {
-        reasons.push("Run completed and produced structured platform artifacts or bootstrap output.");
+      if (
+        (evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
+        (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
+      ) {
+        reasons.push(
+          "Run completed and produced structured platform artifacts or bootstrap output.",
+        );
         return PlatformRuntimeAcceptanceResultSchema.parse({
           runId: params.runId,
           status: "satisfied",
           action: "close",
           reasonCode: "completed_with_artifacts",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (confirmedDeliveryCount > 0) {
+        reasons.push("Run completed and delivery was confirmed by the outbound runtime.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "satisfied",
+          action: "close",
+          reasonCode: "completed_with_confirmed_delivery",
           reasons,
           outcome: params.outcome,
           evidence,
@@ -382,7 +447,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
         return latest;
       }
       const completed =
-        latest.status === "completed" || latest.status === "denied" || latest.status === "cancelled";
+        latest.status === "completed" ||
+        latest.status === "denied" ||
+        latest.status === "cancelled";
       return this.updateCheckpoint(checkpointId, {
         continuation: {
           ...latest.continuation,

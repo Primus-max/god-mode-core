@@ -63,8 +63,6 @@ flowchart TD
   escalateTask --> automationState
 ```
 
-
-
 ## Workstreams
 
 ### 1. Universal Frozen Execution Context On Production Ingress
