@@ -18,6 +18,9 @@ export type AgentRunContext = {
   sessionKey?: string;
   verboseLevel?: VerboseLevel;
   platformExecution?: PluginHookPlatformExecutionContext;
+  runtimeState?: "queued" | "running" | "blocked" | "approved" | "resumed" | "completed" | "failed";
+  runtimeCheckpointId?: string;
+  runtimeBoundary?: string;
   isHeartbeat?: boolean;
   /** Whether control UI clients should receive chat/agent updates for this run. */
   isControlUiVisible?: boolean;
@@ -57,6 +60,15 @@ export function registerAgentRunContext(runId: string, context: AgentRunContext)
       ...(existing.platformExecution ?? {}),
       ...context.platformExecution,
     };
+  }
+  if (context.runtimeState && existing.runtimeState !== context.runtimeState) {
+    existing.runtimeState = context.runtimeState;
+  }
+  if (context.runtimeCheckpointId && existing.runtimeCheckpointId !== context.runtimeCheckpointId) {
+    existing.runtimeCheckpointId = context.runtimeCheckpointId;
+  }
+  if (context.runtimeBoundary && existing.runtimeBoundary !== context.runtimeBoundary) {
+    existing.runtimeBoundary = context.runtimeBoundary;
   }
   if (context.isControlUiVisible !== undefined) {
     existing.isControlUiVisible = context.isControlUiVisible;

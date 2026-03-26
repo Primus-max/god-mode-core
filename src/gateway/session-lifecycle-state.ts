@@ -3,7 +3,7 @@ import type { AgentEventPayload } from "../infra/agent-events.js";
 import { loadSessionEntry } from "./session-utils.js";
 import type { GatewaySessionRow, SessionRunStatus } from "./session-utils.types.js";
 
-type LifecyclePhase = "start" | "end" | "error";
+type LifecyclePhase = "start" | "blocked" | "approved" | "resumed" | "end" | "error";
 
 type LifecycleEventLike = Pick<AgentEventPayload, "ts"> & {
   data?: {
@@ -33,7 +33,14 @@ function isFiniteTimestamp(value: unknown): value is number {
 
 function resolveLifecyclePhase(event: LifecycleEventLike): LifecyclePhase | null {
   const phase = typeof event.data?.phase === "string" ? event.data.phase : "";
-  return phase === "start" || phase === "end" || phase === "error" ? phase : null;
+  return phase === "start" ||
+    phase === "blocked" ||
+    phase === "approved" ||
+    phase === "resumed" ||
+    phase === "end" ||
+    phase === "error"
+    ? phase
+    : null;
 }
 
 function resolveTerminalStatus(event: LifecycleEventLike): SessionRunStatus {
@@ -108,6 +115,32 @@ export function deriveGatewaySessionLifecycleSnapshot(params: {
       startedAt,
       endedAt: undefined,
       runtimeMs: undefined,
+      abortedLastRun: false,
+    };
+  }
+  if (phase === "blocked" || phase === "approved") {
+    const startedAt = resolveLifecycleStartedAt(existing?.startedAt, params.event);
+    const updatedAt = isFiniteTimestamp(params.event.ts) ? params.event.ts : existing?.updatedAt;
+    return {
+      updatedAt,
+      status: "blocked",
+      startedAt,
+      endedAt: undefined,
+      runtimeMs: existing?.runtimeMs,
+      abortedLastRun: false,
+    };
+  }
+  if (phase === "resumed") {
+    const startedAt = resolveLifecycleStartedAt(existing?.startedAt, params.event);
+    const updatedAt =
+      (isFiniteTimestamp(params.event.data?.startedAt) ? params.event.data.startedAt : undefined) ??
+      (isFiniteTimestamp(params.event.ts) ? params.event.ts : existing?.updatedAt);
+    return {
+      updatedAt,
+      status: "running",
+      startedAt,
+      endedAt: undefined,
+      runtimeMs: existing?.runtimeMs,
       abortedLastRun: false,
     };
   }

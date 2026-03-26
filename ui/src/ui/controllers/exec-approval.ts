@@ -14,6 +14,10 @@ export type ExecApprovalRequestPayload = {
     requestedByDeviceId?: string | null;
     linkedAtMs?: number | null;
   } | null;
+  runtimeRunId?: string | null;
+  runtimeCheckpointId?: string | null;
+  runtimeBoundary?: string | null;
+  blockedReason?: string | null;
 };
 
 export type ExecApprovalRequest = {
@@ -81,6 +85,11 @@ export function parseExecApprovalRequested(payload: unknown): ExecApprovalReques
                   : null,
             }
           : null,
+      runtimeRunId: typeof request.runtimeRunId === "string" ? request.runtimeRunId : null,
+      runtimeCheckpointId:
+        typeof request.runtimeCheckpointId === "string" ? request.runtimeCheckpointId : null,
+      runtimeBoundary: typeof request.runtimeBoundary === "string" ? request.runtimeBoundary : null,
+      blockedReason: typeof request.blockedReason === "string" ? request.blockedReason : null,
     },
     createdAtMs,
     expiresAtMs,

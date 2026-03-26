@@ -101,12 +101,18 @@ describe("agent-events sequencing", () => {
     registerAgentRunContext("run-ctx", {
       verboseLevel: "full",
       isHeartbeat: true,
+      runtimeState: "blocked",
+      runtimeCheckpointId: "checkpoint-1",
+      runtimeBoundary: "exec_approval",
     });
 
     expect(getAgentRunContext("run-ctx")).toEqual({
       sessionKey: "session-main",
       verboseLevel: "full",
       isHeartbeat: true,
+      runtimeState: "blocked",
+      runtimeCheckpointId: "checkpoint-1",
+      runtimeBoundary: "exec_approval",
       isControlUiVisible: true,
     });
   });

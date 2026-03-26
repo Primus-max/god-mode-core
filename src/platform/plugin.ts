@@ -29,6 +29,11 @@ import {
   createMachineUnlinkGatewayMethod,
   getPlatformMachineControlService,
 } from "./machine/index.js";
+import {
+  createRuntimeCheckpointGetGatewayMethod,
+  createRuntimeCheckpointListGatewayMethod,
+  getPlatformRuntimeCheckpointService,
+} from "./runtime/index.js";
 import { buildExecutionDecisionInput } from "./decision/input.js";
 import { createProfileResolveGatewayMethod } from "./profile/index.js";
 import { getInitialProfile, getTaskOverlay } from "./profile/defaults.js";
@@ -150,9 +155,13 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   const bootstrapService = getPlatformBootstrapService({
     stateDir: resolveStateDir(process.env),
   });
+  const runtimeCheckpointService = getPlatformRuntimeCheckpointService({
+    stateDir: resolveStateDir(process.env),
+  });
   const machineControlService = getPlatformMachineControlService();
   artifactService.rehydrate();
   bootstrapService.rehydrate();
+  runtimeCheckpointService.rehydrate();
 
   api.registerHttpRoute({
     path: "/platform/artifacts",
@@ -190,6 +199,14 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   api.registerGatewayMethod(
     "platform.bootstrap.run",
     createBootstrapRunGatewayMethod(bootstrapService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.checkpoints.list",
+    createRuntimeCheckpointListGatewayMethod(runtimeCheckpointService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.checkpoints.get",
+    createRuntimeCheckpointGetGatewayMethod(runtimeCheckpointService),
   );
   api.registerGatewayMethod(
     "platform.machine.status",

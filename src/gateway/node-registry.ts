@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { emitAgentEvent, registerAgentRunContext } from "../infra/agent-events.js";
+import { getPlatformRuntimeCheckpointService } from "../platform/runtime/index.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 
 export type NodeSession = {
@@ -23,6 +25,7 @@ export type NodeSession = {
 type PendingInvoke = {
   nodeId: string;
   command: string;
+  runtimeCheckpointId?: string;
   resolve: (value: NodeInvokeResult) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -136,6 +139,15 @@ export class NodeRegistry {
       };
     }
     const timeoutMs = typeof params.timeoutMs === "number" ? params.timeoutMs : 30_000;
+    const runtimeCheckpointId =
+      params.command === "system.run" &&
+      params.params &&
+      typeof params.params === "object" &&
+      !Array.isArray(params.params) &&
+      (params.params as { approved?: unknown }).approved === true &&
+      typeof (params.params as { runId?: unknown }).runId === "string"
+        ? ((params.params as { runId: string }).runId ?? "")
+        : undefined;
     return await new Promise<NodeInvokeResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingInvokes.delete(requestId);
@@ -147,6 +159,7 @@ export class NodeRegistry {
       this.pendingInvokes.set(requestId, {
         nodeId: params.nodeId,
         command: params.command,
+        ...(runtimeCheckpointId ? { runtimeCheckpointId } : {}),
         resolve,
         reject,
         timer,
@@ -171,6 +184,40 @@ export class NodeRegistry {
     }
     clearTimeout(pending.timer);
     this.pendingInvokes.delete(params.id);
+    if (pending.runtimeCheckpointId) {
+      const checkpointService = getPlatformRuntimeCheckpointService();
+      const checkpoint = checkpointService.updateCheckpoint(pending.runtimeCheckpointId, {
+        status: params.ok ? "completed" : "denied",
+        completedAtMs: Date.now(),
+      });
+      if (checkpoint) {
+        registerAgentRunContext(checkpoint.runId, {
+          ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),
+          runtimeState: params.ok ? "completed" : "failed",
+          runtimeCheckpointId: checkpoint.id,
+          runtimeBoundary: checkpoint.boundary,
+        });
+        emitAgentEvent({
+          runId: checkpoint.runId,
+          stream: "lifecycle",
+          ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),
+          data: {
+            phase: params.ok ? "end" : "error",
+            checkpointId: checkpoint.id,
+            boundary: checkpoint.boundary,
+            endedAt: Date.now(),
+            ...(params.ok
+              ? {}
+              : {
+                  error:
+                    params.error?.message ??
+                    params.error?.code ??
+                    "node invoke completed with an error",
+                }),
+          },
+        });
+      }
+    }
     pending.resolve({
       ok: params.ok,
       payload: params.payload,

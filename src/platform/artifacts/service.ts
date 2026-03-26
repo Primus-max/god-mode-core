@@ -16,6 +16,7 @@ import { evaluatePolicy } from "../policy/engine.js";
 import { buildPolicyContextFromExecutionContext } from "../recipe/runtime-adapter.js";
 import { createArtifactStore } from "../registry/artifact-store.js";
 import type { ArtifactStore } from "../registry/types.js";
+import { getPlatformRuntimeCheckpointService } from "../runtime/index.js";
 import {
   ArtifactDescriptorSchema,
   type ArtifactDescriptor,
@@ -107,6 +108,10 @@ function resolveArtifactPolicy(descriptor: ArtifactDescriptor, explicitApproval 
     }
   }
   return { executionContext, decision: evaluatePolicy(policyContext) };
+}
+
+function resolveArtifactCheckpointId(artifactId: string, operation: ArtifactOperation): string {
+  return `${artifactId}:${operation}`;
 }
 
 function normalizeGatewayBaseUrl(raw: string): string {
@@ -265,6 +270,9 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
   let gatewayPort = initial?.gatewayPort;
   let store: ArtifactStore = createArtifactStore();
   let records = new Map<string, PersistedArtifactRecord>();
+  const runtimeCheckpointService = getPlatformRuntimeCheckpointService({
+    ...(initial?.stateDir ? { stateDir: initial.stateDir } : {}),
+  });
 
   function ensureRootDir(): string {
     const rootDir = resolvePlatformArtifactsRoot(stateDir);
@@ -334,6 +342,7 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
     configure(params) {
       if (params.stateDir) {
         stateDir = params.stateDir;
+        runtimeCheckpointService.configure({ stateDir: params.stateDir });
       }
       if (params.config) {
         config = params.config;
@@ -393,8 +402,28 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
         existing,
         opts?.explicitApproval ?? (operation === "publish" || operation === "approve"),
       );
+      const checkpointId = resolveArtifactCheckpointId(artifactId, operation);
       if (policy.executionContext && (operation === "publish" || operation === "approve")) {
         if ((policy.executionContext.publishTargets?.length ?? 0) === 0) {
+          runtimeCheckpointService.createCheckpoint({
+            id: checkpointId,
+            runId: resolveArtifactRunId(existing) ?? checkpointId,
+            boundary: "artifact_publish",
+            blockedReason:
+              "artifact publish transition requires publish intent in the frozen execution context",
+            nextActions: [
+              {
+                method: "platform.artifacts.transition",
+                label: "Retry artifact transition after explicit approval",
+                phase: "retry",
+              },
+            ],
+            target: {
+              artifactId,
+              operation,
+            },
+            executionContext: policy.executionContext,
+          });
           return {
             ok: false,
             code: "denied",
@@ -404,6 +433,27 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
       }
       if (policy.decision) {
         if ((operation === "publish" || operation === "approve") && !policy.decision.allowPublish) {
+          runtimeCheckpointService.createCheckpoint({
+            id: checkpointId,
+            runId: resolveArtifactRunId(existing) ?? checkpointId,
+            boundary: "artifact_publish",
+            blockedReason:
+              policy.decision.deniedReasons[0] ??
+              "artifact publish transition denied by platform execution policy",
+            deniedReasons: policy.decision.deniedReasons,
+            nextActions: [
+              {
+                method: "platform.artifacts.transition",
+                label: "Retry artifact transition after explicit approval",
+                phase: "retry",
+              },
+            ],
+            target: {
+              artifactId,
+              operation,
+            },
+            executionContext: policy.executionContext,
+          });
           return {
             ok: false,
             code: "denied",
@@ -429,6 +479,12 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
           code: "not_found",
           reason: "artifact not found",
         };
+      }
+      if (operation === "publish" || operation === "approve") {
+        runtimeCheckpointService.updateCheckpoint(checkpointId, {
+          status: "completed",
+          completedAtMs: Date.now(),
+        });
       }
       return {
         ok: true,

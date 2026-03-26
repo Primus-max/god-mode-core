@@ -13,7 +13,7 @@ export type GatewaySessionsDefaults = {
   contextTokens: number | null;
 };
 
-export type SessionRunStatus = "running" | "done" | "failed" | "killed" | "timeout";
+export type SessionRunStatus = "running" | "blocked" | "done" | "failed" | "killed" | "timeout";
 
 export type GatewaySessionRow = {
   key: string;
