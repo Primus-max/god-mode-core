@@ -82,7 +82,12 @@ export type RouteReplyResult = {
 export async function routeReply(params: RouteReplyParams): Promise<RouteReplyResult> {
   const { payload, channel, to, accountId, threadId, cfg, abortSignal } = params;
   if (shouldSuppressReasoningPayload(payload)) {
-    return { ok: true, attemptedDeliveryCount: 0, confirmedDeliveryCount: 0, failedDeliveryCount: 0 };
+    return {
+      ok: true,
+      attemptedDeliveryCount: 0,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 0,
+    };
   }
   const normalizedChannel = normalizeMessageChannel(channel);
   const channelId = normalizeChannelId(channel) ?? null;
@@ -112,7 +117,12 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
     }),
   });
   if (!normalized) {
-    return { ok: true, attemptedDeliveryCount: 0, confirmedDeliveryCount: 0, failedDeliveryCount: 0 };
+    return {
+      ok: true,
+      attemptedDeliveryCount: 0,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 0,
+    };
   }
   const externalPayload: ReplyPayload = {
     ...normalized,
@@ -143,7 +153,12 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
       },
     )
   ) {
-    return { ok: true, attemptedDeliveryCount: 0, confirmedDeliveryCount: 0, failedDeliveryCount: 0 };
+    return {
+      ok: true,
+      attemptedDeliveryCount: 0,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 0,
+    };
   }
 
   if (channel === INTERNAL_MESSAGE_CHANNEL) {

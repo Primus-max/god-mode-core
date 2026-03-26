@@ -28,7 +28,9 @@ describe("platform runtime checkpoint service", () => {
       sessionKey: "session-1",
       boundary: "exec_approval",
       blockedReason: "approval required",
-      nextActions: [{ method: "exec.approval.resolve", label: "Resolve approval", phase: "approve" }],
+      nextActions: [
+        { method: "exec.approval.resolve", label: "Resolve approval", phase: "approve" },
+      ],
       target: { approvalId: "approval-1", operation: "system.run" },
     });
     expect(blocked.status).toBe("blocked");

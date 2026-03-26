@@ -3,16 +3,21 @@ import {
   resolveSendableOutboundReplyParts,
 } from "openclaw/plugin-sdk/reply-payload";
 import { loadSessionStore } from "../../config/sessions.js";
+import { isAudioFileName } from "../../media/mime.js";
 import {
   getPlatformRuntimeCheckpointService,
   type PlatformRuntimeAcceptanceEvidence,
   type PlatformRuntimeAcceptanceResult,
   type PlatformRuntimeRunOutcome,
 } from "../../platform/runtime/index.js";
-import { isAudioFileName } from "../../media/mime.js";
 import { normalizeVerboseLevel, type VerboseLevel } from "../thinking.js";
 import type { ReplyPayload } from "../types.js";
-import { enqueueFollowupRun, scheduleFollowupDrain, type FollowupRun, type QueueSettings } from "./queue.js";
+import {
+  enqueueFollowupRun,
+  scheduleFollowupDrain,
+  type FollowupRun,
+  type QueueSettings,
+} from "./queue.js";
 import type { TypingSignaler } from "./typing-mode.js";
 
 const hasAudioMedia = (urls?: string[]): boolean =>
@@ -115,7 +120,9 @@ export function buildMessagingDeliveryReceipt(params: {
   confirmedDeliveries?: number;
   failedDeliveries?: number;
 }): MessagingDeliveryReceipt {
-  const stagedReplyCount = (params.stagedReplyPayloads ?? []).filter(isDeliverableReplyPayload).length;
+  const stagedReplyCount = (params.stagedReplyPayloads ?? []).filter(
+    isDeliverableReplyPayload,
+  ).length;
   const attemptedDeliveryCount = Math.max(params.attemptedDeliveries ?? 0, 0);
   const confirmedDeliveryCount = Math.max(params.confirmedDeliveries ?? 0, 0);
   const failedDeliveryCount = Math.max(params.failedDeliveries ?? 0, 0);
@@ -228,7 +235,9 @@ export function enqueueSemanticRetryFollowup(params: {
   }
   const prompt = [
     "The previous run did not satisfy the task well enough.",
-    params.acceptance.reasons.length > 0 ? `Observed issues: ${params.acceptance.reasons.join(" ")}` : undefined,
+    params.acceptance.reasons.length > 0
+      ? `Observed issues: ${params.acceptance.reasons.join(" ")}`
+      : undefined,
     "Continue the same task and return only the final completed result.",
     "Do not send an acknowledgement-only update.",
   ]

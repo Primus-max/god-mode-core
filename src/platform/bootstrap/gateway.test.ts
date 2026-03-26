@@ -1,4 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../runtime/index.js";
+import type { BootstrapRequest } from "./contracts.js";
 import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
 import {
   createBootstrapGetGatewayMethod,
@@ -7,10 +12,11 @@ import {
   createBootstrapRunGatewayMethod,
 } from "./gateway.js";
 import { createBootstrapRequestService } from "./service.js";
-import type { BootstrapRequest } from "./contracts.js";
 
 function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapRequest {
-  const catalogEntry = TRUSTED_CAPABILITY_CATALOG.find((entry) => entry.capability.id === "pdf-renderer");
+  const catalogEntry = TRUSTED_CAPABILITY_CATALOG.find(
+    (entry) => entry.capability.id === "pdf-renderer",
+  );
   if (!catalogEntry) {
     throw new Error("pdf-renderer catalog entry unavailable");
   }
@@ -27,7 +33,18 @@ function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapReque
   };
 }
 
+function installBootstrapContinuationNoop() {
+  getPlatformRuntimeCheckpointService().registerContinuationHandler(
+    "bootstrap_run",
+    async () => {},
+  );
+}
+
 describe("bootstrap gateway methods", () => {
+  afterEach(() => {
+    resetPlatformRuntimeCheckpointService();
+  });
+
   it("lists and fetches bootstrap requests", async () => {
     const service = createBootstrapRequestService();
     const record = service.create(buildRequest());
@@ -68,6 +85,7 @@ describe("bootstrap gateway methods", () => {
 
   it("resolves and runs bootstrap requests", async () => {
     const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
     const record = service.create(buildRequest());
     const originalRun = service.run;
     service.run = vi.fn((params) =>

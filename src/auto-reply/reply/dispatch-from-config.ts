@@ -42,7 +42,10 @@ import { normalizeTtsAutoMode, resolveConfiguredTtsMode } from "../../tts/tts-co
 import { INTERNAL_MESSAGE_CHANNEL, normalizeMessageChannel } from "../../utils/message-channel.js";
 import type { FinalizedMsgContext } from "../templating.js";
 import type { BlockReplyContext, GetReplyOptions, ReplyPayload } from "../types.js";
-import type { MessagingDeliveryClosureCandidate, MessagingDeliveryReceipt } from "./agent-runner-helpers.js";
+import type {
+  MessagingDeliveryClosureCandidate,
+  MessagingDeliveryReceipt,
+} from "./agent-runner-helpers.js";
 import { shouldSkipDuplicateInbound } from "./inbound-dedupe.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
 import { resolveRunTypingPolicy } from "./typing-policy.js";

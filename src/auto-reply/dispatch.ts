@@ -64,9 +64,11 @@ export async function dispatchInboundMessage(params: {
     deliveryReceipt: {
       stagedReplyCount: routedReceipt?.stagedReplyCount ?? 0,
       attemptedDeliveryCount:
-        (routedReceipt?.attemptedDeliveryCount ?? 0) + dispatcherDeliveryStats.attemptedDeliveryCount,
+        (routedReceipt?.attemptedDeliveryCount ?? 0) +
+        dispatcherDeliveryStats.attemptedDeliveryCount,
       confirmedDeliveryCount:
-        (routedReceipt?.confirmedDeliveryCount ?? 0) + dispatcherDeliveryStats.confirmedDeliveryCount,
+        (routedReceipt?.confirmedDeliveryCount ?? 0) +
+        dispatcherDeliveryStats.confirmedDeliveryCount,
       failedDeliveryCount:
         (routedReceipt?.failedDeliveryCount ?? 0) + dispatcherDeliveryStats.failedDeliveryCount,
       partialDelivery:

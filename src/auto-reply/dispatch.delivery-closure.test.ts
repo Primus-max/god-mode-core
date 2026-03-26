@@ -12,7 +12,8 @@ vi.mock("./reply/agent-runner-helpers.js", async () => {
   );
   return {
     ...actual,
-    finalizeMessagingDeliveryClosure: (params: unknown) => finalizeMessagingDeliveryClosureMock(params),
+    finalizeMessagingDeliveryClosure: (params: unknown) =>
+      finalizeMessagingDeliveryClosureMock(params),
   };
 });
 vi.mock("./reply/dispatch-from-config.js", () => ({

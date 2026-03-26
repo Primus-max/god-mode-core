@@ -107,9 +107,11 @@ describe("profile gateway method", () => {
 
     const snapshot = respond.mock.calls[0]?.[1] as {
       selectedProfileId: string;
+      activeProfileId: string;
       override: { mode: string; baseProfileId?: string };
     };
     expect(snapshot.selectedProfileId).toBe("developer");
+    expect(snapshot.activeProfileId).toBe("developer");
     expect(snapshot.override).toEqual(
       expect.objectContaining({
         mode: "base",
@@ -138,9 +140,11 @@ describe("profile gateway method", () => {
 
     const snapshot = respond.mock.calls[0]?.[1] as {
       selectedProfileId: string;
+      activeProfileId: string;
       override: { mode: string; sessionProfileId?: string };
     };
     expect(snapshot.selectedProfileId).toBe("builder");
+    expect(snapshot.activeProfileId).toBe("builder");
     expect(snapshot.override).toEqual(
       expect.objectContaining({
         mode: "session",

@@ -10,10 +10,10 @@ import { lookupContextTokens } from "../../agents/context.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { runWithModelFallback } from "../../agents/model-fallback.js";
 import type { SessionEntry } from "../../config/sessions.js";
-import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import type { TypingMode } from "../../config/types.js";
 import { logVerbose } from "../../globals.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
+import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { defaultRuntime } from "../../runtime.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
 import { stripHeartbeatToken } from "../heartbeat.js";
@@ -29,12 +29,12 @@ import {
   reevaluateAcceptanceForMessagingRun,
 } from "./agent-runner-helpers.js";
 import { resolvePlatformExecutionContextForTemplateRun } from "./agent-runner-utils.js";
-import type { QueueSettings } from "./queue.js";
 import {
   resolveOriginAccountId,
   resolveOriginMessageProvider,
   resolveOriginMessageTo,
 } from "./origin-routing.js";
+import type { QueueSettings } from "./queue.js";
 import type { FollowupRun } from "./queue.js";
 import { resolveReplyToMode } from "./reply-threading.js";
 import { incrementRunCompactionCount, persistRunSessionUsage } from "./session-run-accounting.js";

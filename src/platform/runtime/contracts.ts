@@ -33,9 +33,7 @@ export const PlatformRuntimeContinuationKindSchema = z.enum([
   "bootstrap_run",
   "artifact_transition",
 ]);
-export type PlatformRuntimeContinuationKind = z.infer<
-  typeof PlatformRuntimeContinuationKindSchema
->;
+export type PlatformRuntimeContinuationKind = z.infer<typeof PlatformRuntimeContinuationKindSchema>;
 
 export const PlatformRuntimeContinuationStateSchema = z.enum([
   "idle",
@@ -155,12 +153,7 @@ export const PlatformRuntimeAcceptanceStatusSchema = z.enum([
 ]);
 export type PlatformRuntimeAcceptanceStatus = z.infer<typeof PlatformRuntimeAcceptanceStatusSchema>;
 
-export const PlatformRuntimeAcceptanceActionSchema = z.enum([
-  "close",
-  "retry",
-  "escalate",
-  "stop",
-]);
+export const PlatformRuntimeAcceptanceActionSchema = z.enum(["close", "retry", "escalate", "stop"]);
 export type PlatformRuntimeAcceptanceAction = z.infer<typeof PlatformRuntimeAcceptanceActionSchema>;
 
 export const PlatformRuntimeAcceptanceReasonCodeSchema = z.enum([
@@ -213,6 +206,4 @@ export const PlatformRuntimeAcceptanceResultSchema = z
     evidence: PlatformRuntimeAcceptanceEvidenceSchema,
   })
   .strict();
-export type PlatformRuntimeAcceptanceResult = z.infer<
-  typeof PlatformRuntimeAcceptanceResultSchema
->;
+export type PlatformRuntimeAcceptanceResult = z.infer<typeof PlatformRuntimeAcceptanceResultSchema>;

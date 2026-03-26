@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadSessionStore, saveSessionStore, type SessionEntry } from "../../config/sessions.js";
-import { clearSessionQueues, getFollowupQueueDepth, resetRecentQueuedMessageIdDedupe, type FollowupRun } from "./queue.js";
+import {
+  clearSessionQueues,
+  getFollowupQueueDepth,
+  resetRecentQueuedMessageIdDedupe,
+  type FollowupRun,
+} from "./queue.js";
 import * as sessionRunAccounting from "./session-run-accounting.js";
 import { createMockFollowupRun, createMockTypingController } from "./test-helpers.js";
 
