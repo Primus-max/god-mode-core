@@ -26,9 +26,18 @@ export const SpecialistOverrideSnapshotSchema = z
   .strict();
 export type SpecialistOverrideSnapshot = z.infer<typeof SpecialistOverrideSnapshotSchema>;
 
+export const SpecialistProfileOptionSchema = z
+  .object({
+    id: ProfileIdSchema,
+    label: z.string().min(1),
+  })
+  .strict();
+export type SpecialistProfileOption = z.infer<typeof SpecialistProfileOptionSchema>;
+
 export const SpecialistRuntimeSnapshotSchema = z
   .object({
     sessionKey: z.string().min(1),
+    availableProfiles: z.array(SpecialistProfileOptionSchema),
     selectedProfileId: ProfileIdSchema,
     selectedProfileLabel: z.string().min(1),
     activeProfileId: ProfileIdSchema,

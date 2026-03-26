@@ -321,6 +321,7 @@ export class OpenClawApp extends LitElement {
   @state() machineActionBusy = false;
   @state() machineStatus: MachineControlStatus | null = null;
   @state() specialistLoading = false;
+  @state() specialistSaving = false;
   @state() specialistError: string | null = null;
   @state() specialistSnapshot: SpecialistRuntimeSnapshot | null = null;
 

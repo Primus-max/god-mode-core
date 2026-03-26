@@ -88,7 +88,11 @@ import {
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionsAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
-import { loadSpecialistContext, scheduleSpecialistContextRefresh } from "./controllers/specialist.ts";
+import {
+  loadSpecialistContext,
+  saveSpecialistOverride,
+  scheduleSpecialistContextRefresh,
+} from "./controllers/specialist.ts";
 import {
   installSkill,
   loadSkills,
@@ -658,6 +662,7 @@ export function renderApp(state: AppViewState) {
                 eventLog: state.eventLog,
                 overviewLogLines: state.overviewLogLines,
                 specialistLoading: state.specialistLoading,
+                specialistSaving: state.specialistSaving,
                 specialistError: state.specialistError,
                 specialistSnapshot: state.specialistSnapshot,
                 showGatewayToken: state.overviewShowGatewayToken,
@@ -676,6 +681,7 @@ export function renderApp(state: AppViewState) {
                   void state.loadAssistantIdentity();
                   void loadSpecialistContext(state, { draft: "" });
                 },
+                onSpecialistOverrideChange: (next) => void saveSpecialistOverride(state, next),
                 onToggleGatewayTokenVisibility: () => {
                   state.overviewShowGatewayToken = !state.overviewShowGatewayToken;
                 },

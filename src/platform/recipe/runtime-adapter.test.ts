@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { applySessionSpecialistOverrideToPlannerInput } from "../profile/index.js";
 import type { ExecutionRecipe } from "../schemas/index.js";
 import { planExecutionRecipe } from "./planner.js";
 import { adaptExecutionPlanToRuntime, resolvePlatformRuntimePlan } from "./runtime-adapter.js";
@@ -9,7 +10,6 @@ describe("resolvePlatformRuntimePlan", () => {
       prompt: "Parse this PDF estimate into a report",
       fileNames: ["estimate.pdf"],
       artifactKinds: ["document", "report"],
-      baseProfile: "general",
       intent: "document",
     });
 
@@ -45,7 +45,6 @@ describe("resolvePlatformRuntimePlan", () => {
       publishTargets: ["github"],
       fileNames: ["repo.ts"],
       requestedTools: ["exec"],
-      baseProfile: "general",
       intent: "publish",
       recipes: [generalRecipe, customRecipe],
     });
@@ -54,5 +53,33 @@ describe("resolvePlatformRuntimePlan", () => {
     expect(runtime.providerOverride).toBe("openai");
     expect(runtime.modelOverride).toBe("gpt-4o-mini");
     expect(runtime.fallbackModels).toEqual(["anthropic/claude-sonnet-4.6"]);
+  });
+
+  it("lets persisted specialist overrides change the selected profile and recipe", () => {
+    const autoResolved = resolvePlatformRuntimePlan({
+      prompt: "Parse this PDF estimate into a report",
+      fileNames: ["estimate.pdf"],
+      artifactKinds: ["document", "report"],
+      intent: "document",
+    });
+    const overridden = resolvePlatformRuntimePlan(
+      applySessionSpecialistOverrideToPlannerInput(
+        {
+          prompt: "Parse this PDF estimate into a report",
+          fileNames: ["estimate.pdf"],
+          artifactKinds: ["document", "report"],
+          intent: "document",
+        },
+        {
+          specialistOverrideMode: "session",
+          specialistSessionProfileId: "developer",
+        },
+      ),
+    );
+
+    expect(autoResolved.runtime.selectedProfileId).toBe("builder");
+    expect(autoResolved.runtime.selectedRecipeId).toBe("doc_ingest");
+    expect(overridden.runtime.selectedProfileId).toBe("developer");
+    expect(overridden.runtime.selectedRecipeId).not.toBe("doc_ingest");
   });
 });

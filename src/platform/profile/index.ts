@@ -6,6 +6,11 @@ export {
 } from "./defaults.js";
 export * from "./contracts.js";
 export { createProfileResolveGatewayMethod } from "./gateway.js";
+export {
+  applySessionSpecialistOverrideToPlannerInput,
+  resolveSessionSpecialistOverride,
+  type ResolvedSessionSpecialistOverride,
+} from "./session-overrides.js";
 export { extractProfileSignals, type ProfileSignalInput } from "./signals.js";
 export {
   applyTaskOverlay,

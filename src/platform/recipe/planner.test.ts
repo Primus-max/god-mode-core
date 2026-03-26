@@ -7,7 +7,6 @@ describe("planExecutionRecipe", () => {
       prompt: "Extract tables from this PDF estimate and summarize it",
       fileNames: ["estimate.pdf"],
       artifactKinds: ["document", "report"],
-      baseProfile: "general",
       intent: "document",
     });
 
@@ -22,7 +21,6 @@ describe("planExecutionRecipe", () => {
       fileNames: ["app.ts"],
       publishTargets: ["github"],
       requestedTools: ["exec"],
-      baseProfile: "general",
       intent: "publish",
     });
 
@@ -35,7 +33,6 @@ describe("planExecutionRecipe", () => {
       prompt: "Run OCR on this scanned invoice image and extract the totals",
       fileNames: ["invoice-scan.png"],
       artifactKinds: ["document"],
-      baseProfile: "general",
       intent: "document",
     });
 
@@ -48,7 +45,6 @@ describe("planExecutionRecipe", () => {
       prompt: "Extract the table rows from this spreadsheet and export them",
       fileNames: ["estimate.xlsx"],
       artifactKinds: ["document", "data"],
-      baseProfile: "general",
       intent: "document",
     });
 
@@ -56,15 +52,14 @@ describe("planExecutionRecipe", () => {
     expect(plan.recipe.id).toBe("table_extract");
   });
 
-  it("falls back to general_reasoning for lightweight chat", () => {
+  it("keeps explicit specialist overrides active for lightweight chat", () => {
     const plan = planExecutionRecipe({
       prompt: "Tell me a joke about robots",
-      baseProfile: "developer",
       sessionProfile: "developer",
       intent: "general",
     });
 
-    expect(plan.profile.selectedProfile.id).toBe("general");
-    expect(plan.recipe.id).toBe("general_reasoning");
+    expect(plan.profile.selectedProfile.id).toBe("developer");
+    expect(plan.profile.activeProfile.sessionProfile).toBe("developer");
   });
 });

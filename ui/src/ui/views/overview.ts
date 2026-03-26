@@ -48,6 +48,7 @@ export type OverviewProps = {
   eventLog: EventLogEntry[];
   overviewLogLines: string[];
   specialistLoading: boolean;
+  specialistSaving: boolean;
   specialistError: string | null;
   specialistSnapshot: SpecialistRuntimeSnapshot | null;
   showGatewayToken: boolean;
@@ -61,6 +62,12 @@ export type OverviewProps = {
   onRefresh: () => void;
   onNavigate: (tab: string) => void;
   onRefreshLogs: () => void;
+  onSpecialistOverrideChange: (
+    next:
+      | { mode: "auto" }
+      | { mode: "base"; profileId: string }
+      | { mode: "session"; profileId: string },
+  ) => void;
 };
 
 export function renderOverview(props: OverviewProps) {
@@ -388,8 +395,10 @@ export function renderOverview(props: OverviewProps) {
 
     ${renderSpecialistOverviewPanel({
       loading: props.specialistLoading,
+        saving: props.specialistSaving,
       error: props.specialistError,
       snapshot: props.specialistSnapshot,
+        onOverrideChange: props.onSpecialistOverrideChange,
     })}
 
     <div class="ov-section-divider"></div>

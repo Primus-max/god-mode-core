@@ -1,3 +1,4 @@
+import type { SpecialistOverrideMode } from "../../../../src/platform/profile/contracts.js";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { SpecialistRuntimeSnapshot } from "../types.ts";
 
@@ -10,9 +11,15 @@ export type SpecialistState = {
   connected: boolean;
   sessionKey: string;
   specialistLoading: boolean;
+  specialistSaving: boolean;
   specialistError: string | null;
   specialistSnapshot: SpecialistRuntimeSnapshot | null;
 };
+
+type SaveSpecialistOverrideArgs =
+  | { mode: "auto" }
+  | { mode: "base"; profileId: string }
+  | { mode: "session"; profileId: string };
 
 function nextRequestSeq(state: object): number {
   const next = (specialistRequestSeq.get(state) ?? 0) + 1;
@@ -56,6 +63,43 @@ export async function loadSpecialistContext(
     if (isLatestRequest(state, requestSeq)) {
       state.specialistLoading = false;
     }
+  }
+}
+
+export async function saveSpecialistOverride(
+  state: SpecialistState,
+  args: SaveSpecialistOverrideArgs,
+): Promise<void> {
+  if (!state.client || !state.connected) {
+    return;
+  }
+  state.specialistSaving = true;
+  state.specialistError = null;
+  try {
+    const mode: SpecialistOverrideMode = args.mode;
+    if (mode === "auto") {
+      await state.client.request("sessions.patch", {
+        key: state.sessionKey,
+        specialistOverrideMode: "auto",
+      });
+    } else if (mode === "base") {
+      await state.client.request("sessions.patch", {
+        key: state.sessionKey,
+        specialistOverrideMode: "base",
+        specialistBaseProfileId: args.profileId,
+      });
+    } else {
+      await state.client.request("sessions.patch", {
+        key: state.sessionKey,
+        specialistOverrideMode: "session",
+        specialistSessionProfileId: args.profileId,
+      });
+    }
+    await loadSpecialistContext(state, { draft: "" });
+  } catch (err) {
+    state.specialistError = String(err);
+  } finally {
+    state.specialistSaving = false;
   }
 }
 

@@ -5,7 +5,6 @@ import { resolveProfile } from "./resolver.js";
 describe("mixed-use profile scenarios", () => {
   it("gives a single user document-first behavior for builder-like requests", () => {
     const resolved = resolveProfile({
-      baseProfile: "general",
       prompt: "Parse this PDF estimate and produce a report",
       fileNames: ["estimate.pdf"],
       artifactKinds: ["document", "report"],
@@ -28,7 +27,6 @@ describe("mixed-use profile scenarios", () => {
 
   it("gives a single user code-first behavior for developer-like requests", () => {
     const resolved = resolveProfile({
-      baseProfile: "general",
       prompt: "Fix the failing TypeScript build and publish to GitHub",
       fileNames: ["app.ts"],
       publishTargets: ["github"],
@@ -52,9 +50,8 @@ describe("mixed-use profile scenarios", () => {
     expect(decision.allowPrivilegedTools).toBe(true);
   });
 
-  it("does not let a specialist profile block fun/general requests", () => {
+  it("keeps an explicit specialist override active for fun/general requests", () => {
     const resolved = resolveProfile({
-      baseProfile: "developer",
       sessionProfile: "developer",
       prompt: "Tell me a joke about compilers",
     });
@@ -68,9 +65,8 @@ describe("mixed-use profile scenarios", () => {
       explicitApproval: false,
     });
 
-    expect(resolved.selectedProfile.id).toBe("general");
-    expect(resolved.activeProfile.baseProfile).toBe("developer");
-    expect(decision.autonomy).toBe("chat");
+    expect(resolved.selectedProfile.id).toBe("developer");
+    expect(resolved.activeProfile.sessionProfile).toBe("developer");
     expect(decision.allowPrivilegedTools).toBe(false);
   });
 });

@@ -3,8 +3,12 @@ import { z } from "zod";
 import { loadSessionEntry, readSessionMessages } from "../../gateway/session-utils.js";
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
 import { resolvePlatformRuntimePlan } from "../recipe/runtime-adapter.js";
-import { getInitialProfile, getTaskOverlay } from "./defaults.js";
+import { getInitialProfile, getTaskOverlay, INITIAL_PROFILES } from "./defaults.js";
 import { SpecialistRuntimeSnapshotSchema } from "./contracts.js";
+import {
+  applySessionSpecialistOverrideToPlannerInput,
+  resolveSessionSpecialistOverride,
+} from "./session-overrides.js";
 
 const SpecialistResolveParamsSchema = z.object({
   sessionKey: z.string().min(1),
@@ -81,11 +85,16 @@ export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
       entry?.sessionId && storePath ? readSessionMessages(entry.sessionId, storePath, entry.sessionFile) : [];
     const sessionContext = resolveSessionPromptContext(messages);
     const prompt = [sessionContext.prompt, draft].filter(Boolean).join("\n\n");
-    const resolved = resolvePlatformRuntimePlan({
-      prompt,
-      baseProfile: "general",
-      fileNames: sessionContext.fileNames,
-    });
+    const override = resolveSessionSpecialistOverride(entry);
+    const resolved = resolvePlatformRuntimePlan(
+      applySessionSpecialistOverrideToPlannerInput(
+        {
+          prompt,
+          fileNames: sessionContext.fileNames,
+        },
+        entry,
+      ),
+    );
     const selectedProfile = resolved.profile.selectedProfile;
     const activeProfileId = resolved.profile.activeProfile.sessionProfile ?? selectedProfile.id;
     const activeProfile = getInitialProfile(activeProfileId) ?? selectedProfile;
@@ -97,6 +106,10 @@ export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
       true,
       SpecialistRuntimeSnapshotSchema.parse({
         sessionKey,
+        availableProfiles: INITIAL_PROFILES.map((profile) => ({
+          id: profile.id,
+          label: profile.label,
+        })),
         selectedProfileId: selectedProfile.id,
         selectedProfileLabel: selectedProfile.label,
         activeProfileId,
@@ -129,14 +142,14 @@ export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
           ...(signal.reason ? { reason: signal.reason } : {}),
         })),
         override: {
-          supported: false,
-          mode: "auto",
-          baseProfileId: resolved.profile.activeProfile.baseProfile,
-          ...(resolved.profile.activeProfile.sessionProfile
-            ? { sessionProfileId: resolved.profile.activeProfile.sessionProfile }
-            : {}),
+          supported: true,
+          mode: override.mode,
+          ...(override.baseProfileId ? { baseProfileId: override.baseProfileId } : {}),
+          ...(override.sessionProfileId ? { sessionProfileId: override.sessionProfileId } : {}),
           note:
-            "Manual profile override is not wired into this control surface yet. Selection remains automatic and policy-safe.",
+            override.mode === "auto"
+              ? "Automatic specialist selection stays policy-safe and can still react to task signals."
+              : undefined,
         },
       }),
     );

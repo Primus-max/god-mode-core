@@ -36,16 +36,13 @@ describe("resolveProfile", () => {
     expect(["code_first", "publish_release"]).toContain(resolved.activeProfile.taskOverlay);
   });
 
-  it("lets a specialist user fall back to general for fun/general tasks", () => {
+  it("pins the selected profile when an explicit session override is present", () => {
     const resolved = resolveProfile({
-      baseProfile: "developer",
       sessionProfile: "developer",
       prompt: "Tell me a joke about robots",
     });
-    expect(resolved.selectedProfile.id).toBe("general");
-    expect(resolved.activeProfile.baseProfile).toBe("developer");
-    expect(resolved.activeProfile.sessionProfile).toBe("general");
-    expect(resolved.activeProfile.taskOverlay).toBe("general_chat");
+    expect(resolved.selectedProfile.id).toBe("developer");
+    expect(resolved.activeProfile.sessionProfile).toBe("developer");
   });
 
   it("falls back to general when no strong signals are present", () => {

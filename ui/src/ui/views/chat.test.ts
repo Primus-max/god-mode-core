@@ -239,6 +239,7 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     eventLog: [],
     overviewLogLines: [],
     specialistLoading: false,
+    specialistSaving: false,
     specialistError: null,
     specialistSnapshot: null,
     showGatewayToken: false,
@@ -252,6 +253,7 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     onRefresh: () => undefined,
     onNavigate: () => undefined,
     onRefreshLogs: () => undefined,
+    onSpecialistOverrideChange: () => undefined,
     ...overrides,
   };
 }
