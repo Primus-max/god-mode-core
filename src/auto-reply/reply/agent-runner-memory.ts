@@ -512,6 +512,7 @@ export async function runMemoryFlushIfNeeded(params: {
     prompt: memoryFlushPrompt,
     run: params.followupRun.run,
     sessionCtx: params.sessionCtx,
+    storePath: params.storePath,
     sessionEntry: activeSessionEntry,
   });
   if (params.sessionKey) {

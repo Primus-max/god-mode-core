@@ -11,7 +11,7 @@ import {
   waitForQueueDebounce,
 } from "../../../utils/queue-helpers.js";
 import { isRoutableChannel } from "../route-reply.js";
-import { FOLLOWUP_QUEUES } from "./state.js";
+import { FOLLOWUP_QUEUES, syncPersistedFollowupQueues } from "./state.js";
 import type { FollowupRun } from "./types.js";
 
 // Persists the most recent runFollowup callback per queue key so that
@@ -128,8 +128,10 @@ export function scheduleFollowupDrain(
             ...routing,
           });
           queue.items.splice(0, items.length);
+          syncPersistedFollowupQueues();
           if (summary) {
             clearQueueSummaryState(queue);
+            syncPersistedFollowupQueues();
           }
           continue;
         }
@@ -156,15 +158,18 @@ export function scheduleFollowupDrain(
             break;
           }
           clearQueueSummaryState(queue);
+          syncPersistedFollowupQueues();
           continue;
         }
 
         if (!(await drainNextQueueItem(queue.items, runFollowup))) {
           break;
         }
+        syncPersistedFollowupQueues();
       }
     } catch (err) {
       queue.lastEnqueuedAt = Date.now();
+      syncPersistedFollowupQueues();
       defaultRuntime.error?.(`followup queue drain failed for ${key}: ${String(err)}`);
     } finally {
       queue.draining = false;
@@ -173,6 +178,7 @@ export function scheduleFollowupDrain(
       } else {
         scheduleFollowupDrain(key, runFollowup);
       }
+      syncPersistedFollowupQueues();
     }
   })();
 }

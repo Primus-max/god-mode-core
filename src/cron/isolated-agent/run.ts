@@ -41,6 +41,7 @@ import { registerAgentRunContext } from "../../infra/agent-events.js";
 import { logWarn } from "../../logger.js";
 import { resolveExecutionRuntimePlan } from "../../platform/decision/input.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
+import { getPlatformRuntimeCheckpointService } from "../../platform/runtime/index.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
 import {
   buildSafeExternalPrompt,
@@ -738,7 +739,34 @@ export async function runCronIsolatedAgentTurn(params: {
     payloads,
     runLevelError: finalRunResult.meta?.error,
   });
-  const acceptanceOutcome = finalRunResult.meta?.acceptanceOutcome;
+  const completionOutcome = finalRunResult.meta?.completionOutcome;
+  const acceptanceOutcome =
+    completionOutcome?.runId
+      ? getPlatformRuntimeCheckpointService().evaluateAcceptance({
+          runId: completionOutcome.runId,
+          outcome: completionOutcome,
+          evidence: {
+            ...(completionOutcome.hadToolError !== undefined
+              ? { hadToolError: completionOutcome.hadToolError }
+              : {}),
+            ...(completionOutcome.deterministicApprovalPromptSent !== undefined
+              ? {
+                  deterministicApprovalPromptSent:
+                    completionOutcome.deterministicApprovalPromptSent,
+                }
+              : {}),
+            ...(finalRunResult.didSendViaMessagingTool !== undefined
+              ? { didSendViaMessagingTool: finalRunResult.didSendViaMessagingTool }
+              : {}),
+            hasOutput: Boolean(outputText?.trim()),
+            hasStructuredReplyPayload: deliveryPayloadHasStructuredContent,
+            deliveredReplyCount: deliveryPayloads.length,
+            ...(finalRunResult.successfulCronAdds !== undefined
+              ? { successfulCronAdds: finalRunResult.successfulCronAdds }
+              : {}),
+          },
+        })
+      : finalRunResult.meta?.acceptanceOutcome;
   const deliveryBestEffort = resolveCronDeliveryBestEffort(params.job);
   const resolveRunOutcome = (params?: { delivered?: boolean; deliveryAttempted?: boolean }) =>
     withRunSession({

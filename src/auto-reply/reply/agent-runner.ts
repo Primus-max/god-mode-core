@@ -28,10 +28,13 @@ import { resolveResponseUsageMode, type VerboseLevel } from "../thinking.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { runAgentTurnWithFallback } from "./agent-runner-execution.runtime.js";
 import {
+  buildAcceptanceFallbackPayload,
   createShouldEmitToolOutput,
   createShouldEmitToolResult,
+  enqueueSemanticRetryFollowup,
   finalizeWithFollowup,
   isAudioPayload,
+  reevaluateAcceptanceForMessagingRun,
   signalTypingIfNeeded,
 } from "./agent-runner-helpers.js";
 import { runMemoryFlushIfNeeded } from "./agent-runner-memory.runtime.js";
@@ -266,6 +269,8 @@ export async function runReplyAgent(params: {
     opts,
     typing,
     typingMode,
+    queueKey,
+    resolvedQueue,
     sessionEntry: activeSessionEntry,
     sessionStore: activeSessionStore,
     sessionKey,
@@ -523,6 +528,20 @@ export async function runReplyAgent(params: {
     // Otherwise, a late typing trigger (e.g. from a tool callback) can outlive the run and
     // keep the typing indicator stuck.
     if (payloadArray.length === 0) {
+      const acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
+        runResult,
+        replyPayloads: [],
+      });
+      const queuedSemanticRetry = enqueueSemanticRetryFollowup({
+        queueKey,
+        sourceRun: followupRun,
+        settings: resolvedQueue,
+        acceptance: acceptanceOutcome,
+      });
+      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome);
+      if (fallbackPayload && !queuedSemanticRetry) {
+        return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
+      }
       return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
     }
 
@@ -552,6 +571,20 @@ export async function runReplyAgent(params: {
     didLogHeartbeatStrip = payloadResult.didLogHeartbeatStrip;
 
     if (replyPayloads.length === 0) {
+      const acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
+        runResult,
+        replyPayloads: [],
+      });
+      const queuedSemanticRetry = enqueueSemanticRetryFollowup({
+        queueKey,
+        sourceRun: followupRun,
+        settings: resolvedQueue,
+        acceptance: acceptanceOutcome,
+      });
+      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome);
+      if (fallbackPayload && !queuedSemanticRetry) {
+        return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
+      }
       return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
     }
 
@@ -575,6 +608,16 @@ export async function runReplyAgent(params: {
       hasReminderCommitment && successfulCronAdds === 0 && !coveredByExistingCron
         ? appendUnscheduledReminderNote(replyPayloads)
         : replyPayloads;
+    const acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
+      runResult,
+      replyPayloads: guardedReplyPayloads,
+    });
+    const queuedSemanticRetry = enqueueSemanticRetryFollowup({
+      queueKey,
+      sourceRun: followupRun,
+      settings: resolvedQueue,
+      acceptance: acceptanceOutcome,
+    });
 
     await signalTypingIfNeeded(guardedReplyPayloads, typingSignals);
 
@@ -782,9 +825,19 @@ export async function runReplyAgent(params: {
     if (responseUsageLine) {
       finalPayloads = appendUsageLine(finalPayloads, responseUsageLine);
     }
+    if (finalPayloads.length === 0) {
+      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome);
+      if (fallbackPayload && !queuedSemanticRetry) {
+        finalPayloads = [fallbackPayload];
+      }
+    }
 
     return finalizeWithFollowup(
-      finalPayloads.length === 1 ? finalPayloads[0] : finalPayloads,
+      finalPayloads.length === 0
+        ? undefined
+        : finalPayloads.length === 1
+          ? finalPayloads[0]
+          : finalPayloads,
       queueKey,
       runFollowupTurn,
     );

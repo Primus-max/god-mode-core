@@ -4,19 +4,19 @@ overview: "Дотянуть semantic outcome orchestration до основног
 todos:
   - id: gateway-parity-input
     content: Выровнять execution-decision input для messaging/followup paths с gateway profile resolve path, включая transcript-derived prompt и fileNames
-    status: pending
+    status: completed
   - id: messaging-acceptance-orchestration
     content: Поднять acceptanceOutcome и completionOutcome до реального orchestration contract в main reply и followup automation paths
-    status: pending
+    status: completed
   - id: stronger-deliverable-evidence
     content: Расширить machine-checkable evidence для completion/acceptance beyond raw output text и messaging-tool send flags
-    status: pending
+    status: completed
   - id: durable-pending-automation
     content: Добавить дешёвое durable хранение для pending semantic followups и bounded retries, чтобы работа не терялась при рестарте
-    status: pending
+    status: completed
   - id: deterministic-messaging-semantic-scenarios
     content: Закрепить stage короткими deterministic scenarios для messaging/followup ingress с outcome-driven retry or escalation
-    status: pending
+    status: completed
 isProject: false
 ---
 

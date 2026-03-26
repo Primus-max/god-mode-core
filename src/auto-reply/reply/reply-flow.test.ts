@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { importFreshModule } from "../../../test/helpers/import-fresh.js";
 import { expectChannelInboundContextContract as expectInboundContextContract } from "../../channels/plugins/contracts/suites.js";
@@ -11,6 +14,9 @@ import { parseLineDirectives, hasLineDirectives } from "./line-directives.js";
 import type { FollowupRun, QueueSettings } from "./queue.js";
 import {
   enqueueFollowupRun,
+  getFollowupQueueDepth,
+  resetInMemoryFollowupQueuesForTests,
+  resetPersistedFollowupQueuesForTests,
   resetRecentQueuedMessageIdDedupe,
   scheduleFollowupDrain,
 } from "./queue.js";
@@ -1611,6 +1617,65 @@ describe("followup queue drain restart after idle window", () => {
     // Only the first message was processed; the post-clear one is still pending.
     expect(calls).toHaveLength(1);
     expect(calls[0]?.prompt).toBe("before-clear");
+  });
+});
+
+describe("followup queue semantic persistence", () => {
+  it("rehydrates persisted semantic retries after an in-memory reset", async () => {
+    const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+    const tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-followup-persist-"));
+    process.env.OPENCLAW_STATE_DIR = tempStateDir;
+    resetInMemoryFollowupQueuesForTests();
+    resetPersistedFollowupQueuesForTests();
+    resetRecentQueuedMessageIdDedupe();
+    const key = `test-semantic-persist-${Date.now()}`;
+    const settings: QueueSettings = { mode: "followup", debounceMs: 0, cap: 10 };
+    const calls: FollowupRun[] = [];
+    try {
+      enqueueFollowupRun(
+        key,
+        {
+          ...createRun({ prompt: "retry this task" }),
+          automation: {
+            source: "acceptance_retry",
+            retryCount: 1,
+            persisted: true,
+            reasonCode: "completed_without_evidence",
+            reasonSummary: "Run completed but no machine-checkable delivery evidence was observed.",
+          },
+        },
+        settings,
+        "prompt",
+      );
+      expect(getFollowupQueueDepth(key)).toBe(1);
+
+      resetInMemoryFollowupQueuesForTests({ keepPersisted: true });
+      expect(getFollowupQueueDepth(key)).toBe(1);
+
+      scheduleFollowupDrain(key, async (run) => {
+        calls.push(run);
+      });
+
+      await vi.waitFor(
+        () => {
+          expect(calls).toHaveLength(1);
+        },
+        { timeout: 1_000 },
+      );
+      expect(calls[0]?.automation).toMatchObject({
+        source: "acceptance_retry",
+        retryCount: 1,
+        persisted: true,
+      });
+    } finally {
+      resetInMemoryFollowupQueuesForTests();
+      resetRecentQueuedMessageIdDedupe();
+      if (previousStateDir === undefined) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = previousStateDir;
+      }
+    }
   });
 });
 

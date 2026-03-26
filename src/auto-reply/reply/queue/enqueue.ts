@@ -1,7 +1,7 @@
 import { resolveGlobalDedupeCache } from "../../../infra/dedupe.js";
 import { applyQueueDropPolicy, shouldSkipQueueItem } from "../../../utils/queue-helpers.js";
 import { kickFollowupDrainIfIdle } from "./drain.js";
-import { getExistingFollowupQueue, getFollowupQueue } from "./state.js";
+import { getExistingFollowupQueue, getFollowupQueue, syncPersistedFollowupQueues } from "./state.js";
 import type { FollowupRun, QueueDedupeMode, QueueSettings } from "./types.js";
 
 /**
@@ -85,10 +85,12 @@ export function enqueueFollowupRun(
     summarize: (item) => item.summaryLine?.trim() || item.prompt.trim(),
   });
   if (!shouldEnqueue) {
+    syncPersistedFollowupQueues();
     return false;
   }
 
   queue.items.push(run);
+  syncPersistedFollowupQueues();
   if (recentMessageIdKey) {
     RECENT_QUEUE_MESSAGE_IDS.check(recentMessageIdKey);
   }
