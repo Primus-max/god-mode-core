@@ -36,6 +36,35 @@ describe("resolveProfile", () => {
     expect(["code_first", "publish_release"]).toContain(resolved.activeProfile.taskOverlay);
   });
 
+  it("resolves integrator for integration-first tasks", () => {
+    const resolved = resolveProfile({
+      prompt: "Validate the webhook integration and sync the connector rollout",
+      integrations: ["slack", "webhook"],
+    });
+    expect(resolved.selectedProfile.id).toBe("integrator");
+    expect(resolved.activeProfile.taskOverlay).toBe("integration_first");
+  });
+
+  it("resolves operator for machine/bootstrap tasks", () => {
+    const resolved = resolveProfile({
+      prompt: "Check the linked machine, inspect logs, and bootstrap the missing capability",
+      requestedTools: ["exec", "process"],
+    });
+    expect(resolved.selectedProfile.id).toBe("operator");
+    expect(["machine_control", "bootstrap_capability", "ops_first"]).toContain(
+      resolved.activeProfile.taskOverlay,
+    );
+  });
+
+  it("resolves media_creator for media tasks", () => {
+    const resolved = resolveProfile({
+      prompt: "Generate a thumbnail image and caption the audio clip",
+      artifactKinds: ["image", "audio"],
+    });
+    expect(resolved.selectedProfile.id).toBe("media_creator");
+    expect(resolved.activeProfile.taskOverlay).toBe("media_first");
+  });
+
   it("pins the selected profile when an explicit session override is present", () => {
     const resolved = resolveProfile({
       sessionProfile: "developer",

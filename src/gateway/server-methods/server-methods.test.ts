@@ -434,7 +434,7 @@ describe("exec approval handlers", () => {
             device: { id: "dev-1" },
             scopes: ["operator.approvals"],
           },
-        } as ExecApprovalRequestArgs["client"]),
+        } as unknown as ExecApprovalRequestArgs["client"]),
       req: { id: "req-1", type: "req", method: "exec.approval.request" },
       isWebchatConnect: execApprovalNoop,
     });
@@ -621,7 +621,7 @@ describe("exec approval handlers", () => {
           device: { id: "dev-2" },
           scopes: ["operator.approvals"],
         },
-      } as ExecApprovalRequestArgs["client"],
+      } as unknown as ExecApprovalRequestArgs["client"],
     });
     expect(respond).toHaveBeenCalledWith(
       false,
@@ -667,7 +667,7 @@ describe("exec approval handlers", () => {
         device: { id: "dev-1" },
         scopes: ["operator.admin"],
       },
-    } as ExecApprovalRequestArgs["client"];
+    } as unknown as ExecApprovalRequestArgs["client"];
 
     createMachineLinkGatewayMethod(service)({
       params: { deviceId: "dev-1" },

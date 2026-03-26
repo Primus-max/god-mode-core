@@ -44,9 +44,10 @@ function createProps(overrides: Partial<BootstrapProps> = {}): BootstrapProps {
         catalogEntry: {
           capability: {
             id: "pdf-renderer",
+            label: "PDF Renderer",
             version: "1.0.0",
-            trustLevel: "trusted",
             status: "missing",
+            trusted: true,
           },
           install: {
             method: "download",
@@ -54,7 +55,7 @@ function createProps(overrides: Partial<BootstrapProps> = {}): BootstrapProps {
             sandboxed: true,
             rollbackStrategy: "restore_previous",
           },
-          healthChecks: [{ kind: "binary", name: "playwright" }],
+          source: "catalog",
         },
       },
     },

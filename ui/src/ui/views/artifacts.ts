@@ -38,6 +38,14 @@ function formatBytes(sizeBytes?: number) {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatRelativeIsoTimestamp(timestamp?: string) {
+  if (!timestamp) {
+    return "n/a";
+  }
+  const parsed = Date.parse(timestamp);
+  return formatRelativeTimestamp(Number.isFinite(parsed) ? parsed : null);
+}
+
 function getArtifactActions(detail: ArtifactRecordDetail | null): ArtifactOperation[] {
   const lifecycle = detail?.descriptor.lifecycle;
   if (!lifecycle) {
@@ -116,7 +124,7 @@ function renderArtifactListItem(params: {
           ${artifact.artifactType ?? artifact.kind} · ${artifact.lifecycle}
         </span>
       </span>
-      <span style="opacity:0.75;">${formatRelativeTimestamp(artifact.updatedAt ?? artifact.createdAt)}</span>
+      <span style="opacity:0.75;">${formatRelativeIsoTimestamp(artifact.updatedAt ?? artifact.createdAt)}</span>
     </button>
   `;
 }
@@ -203,7 +211,7 @@ export function renderArtifacts(props: ArtifactsProps) {
                     <dt>${t("artifacts.fields.size")}</dt>
                     <dd>${formatBytes(descriptor.sizeBytes)}</dd>
                     <dt>${t("artifacts.fields.updated")}</dt>
-                    <dd>${formatRelativeTimestamp(descriptor.updatedAt ?? descriptor.createdAt)}</dd>
+                    <dd>${formatRelativeIsoTimestamp(descriptor.updatedAt ?? descriptor.createdAt)}</dd>
                   </dl>
                   ${detail.warnings?.length
                     ? html`

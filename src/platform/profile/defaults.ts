@@ -86,6 +86,113 @@ export const INITIAL_PROFILES: Profile[] = [
       },
     ],
   },
+  {
+    id: "integrator",
+    label: "Integrator",
+    description:
+      "API, webhook, rollout, and cross-system integration specialist for connected workflows.",
+    preferredTools: ["read", "write", "edit", "exec"],
+    preferredPublishTargets: ["github", "docker", "vercel", "netlify", "webhook"],
+    riskCeiling: "high",
+    priority: 35,
+    taskOverlays: [
+      {
+        id: "integration_first",
+        label: "Integration First",
+        parentProfile: "integrator",
+        toolHints: ["read", "write", "edit", "exec"],
+        modelHints: ["tool-use", "structured-output"],
+        timeoutSeconds: 240,
+      },
+      {
+        id: "publish_release",
+        label: "Publish Release",
+        parentProfile: "integrator",
+        publishTargets: ["github", "docker", "vercel", "netlify", "webhook"],
+        timeoutSeconds: 360,
+      },
+      {
+        id: "general_chat",
+        label: "General Chat",
+        parentProfile: "integrator",
+        toolHints: ["read"],
+        timeoutSeconds: 60,
+      },
+    ],
+  },
+  {
+    id: "operator",
+    label: "Operator",
+    description:
+      "Infrastructure, machine-control, and capability-operations specialist for guarded runtime work.",
+    preferredTools: ["read", "exec", "process"],
+    riskCeiling: "high",
+    priority: 45,
+    taskOverlays: [
+      {
+        id: "ops_first",
+        label: "Ops First",
+        parentProfile: "operator",
+        toolHints: ["read", "exec", "process"],
+        modelHints: ["tool-use", "ops-aware"],
+        timeoutSeconds: 300,
+      },
+      {
+        id: "machine_control",
+        label: "Machine Control",
+        parentProfile: "operator",
+        toolHints: ["exec", "process"],
+        timeoutSeconds: 300,
+      },
+      {
+        id: "bootstrap_capability",
+        label: "Bootstrap Capability",
+        parentProfile: "operator",
+        toolHints: ["read", "exec"],
+        timeoutSeconds: 240,
+      },
+      {
+        id: "general_chat",
+        label: "General Chat",
+        parentProfile: "operator",
+        toolHints: ["read"],
+        timeoutSeconds: 60,
+      },
+    ],
+  },
+  {
+    id: "media_creator",
+    label: "Media Creator",
+    description: "Image, video, audio, and multimodal content production specialist.",
+    preferredTools: ["read", "write", "browser", "canvas"],
+    preferredPublishTargets: ["site"],
+    riskCeiling: "medium",
+    priority: 25,
+    taskOverlays: [
+      {
+        id: "media_first",
+        label: "Media First",
+        parentProfile: "media_creator",
+        toolHints: ["read", "write", "browser", "canvas"],
+        modelHints: ["multimodal", "visual"],
+        timeoutSeconds: 240,
+      },
+      {
+        id: "media_publish",
+        label: "Media Publish",
+        parentProfile: "media_creator",
+        publishTargets: ["site"],
+        timeoutSeconds: 180,
+      },
+      {
+        id: "general_chat",
+        label: "General Chat",
+        parentProfile: "media_creator",
+        toolHints: ["read"],
+        timeoutSeconds: 60,
+      },
+    ],
+  },
 ];
 
 export const INITIAL_PROFILE_IDS = INITIAL_PROFILES.map((profile) => profile.id);

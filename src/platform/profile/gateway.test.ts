@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionEntry } from "../../config/sessions.js";
 
 async function loadGatewayMethod(entry?: SessionEntry) {
-  vi.doMock("../../gateway/session-utils.js", () => ({
+  vi.doMock("../../gateway/session-entry.js", () => ({
     loadSessionEntry: vi.fn(() => ({
       entry,
       storePath: entry ? "mock-store" : undefined,
     })),
+  }));
+  vi.doMock("../../gateway/session-utils.fs.js", () => ({
     readSessionMessages: vi.fn(() => []),
   }));
   const mod = await import("./gateway.js");
@@ -46,6 +48,9 @@ describe("profile gateway method", () => {
         draftApplied: true,
         availableProfiles: expect.arrayContaining([
           expect.objectContaining({ id: "developer", label: "Developer" }),
+          expect.objectContaining({ id: "integrator", label: "Integrator" }),
+          expect.objectContaining({ id: "operator", label: "Operator" }),
+          expect.objectContaining({ id: "media_creator", label: "Media Creator" }),
         ]),
         override: expect.objectContaining({
           supported: true,

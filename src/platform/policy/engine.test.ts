@@ -153,6 +153,43 @@ describe("evaluatePolicy", () => {
     expect(decision.requireExplicitApproval).toBe(true);
   });
 
+  it("does not let operator profile bypass machine approval by itself", () => {
+    const profile = getInitialProfile("operator")!;
+    const decision = evaluatePolicy({
+      activeProfileId: profile.id,
+      activeProfile: profile,
+      activeStateTaskOverlay: "machine_control",
+      effective: applyTaskOverlay(
+        profile,
+        profile.taskOverlays?.find((overlay) => overlay.id === "machine_control"),
+      ),
+      requestedToolNames: ["exec", "process"],
+      requestedMachineControl: true,
+      machineControlLinked: true,
+      explicitApproval: false,
+    });
+    expect(decision.allowMachineControl).toBe(false);
+    expect(decision.requireExplicitApproval).toBe(true);
+  });
+
+  it("does not let media creator profile unlock privileged tools implicitly", () => {
+    const profile = getInitialProfile("media_creator")!;
+    const decision = evaluatePolicy({
+      activeProfileId: profile.id,
+      activeProfile: profile,
+      activeStateTaskOverlay: "media_first",
+      effective: applyTaskOverlay(
+        profile,
+        profile.taskOverlays?.find((overlay) => overlay.id === "media_first"),
+      ),
+      requestedToolNames: ["apply_patch"],
+      intent: "general",
+      explicitApproval: false,
+    });
+    expect(decision.allowPrivilegedTools).toBe(false);
+    expect(decision.requireExplicitApproval).toBe(true);
+  });
+
   it("honors machine-control kill switch even when device is linked", () => {
     const profile = getInitialProfile("developer")!;
     const decision = evaluatePolicy({

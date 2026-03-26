@@ -82,4 +82,23 @@ describe("resolvePlatformRuntimePlan", () => {
     expect(overridden.runtime.selectedProfileId).toBe("developer");
     expect(overridden.runtime.selectedRecipeId).not.toBe("doc_ingest");
   });
+
+  it("projects integration and media specialist routes into runtime", () => {
+    const integrationResolved = resolvePlatformRuntimePlan({
+      prompt: "Validate the webhook integration and roll out the connector",
+      integrations: ["webhook", "slack"],
+      requestedTools: ["exec"],
+      intent: "publish",
+    });
+    const mediaResolved = resolvePlatformRuntimePlan({
+      prompt: "Generate a thumbnail image and caption the audio track",
+      artifactKinds: ["image", "audio"],
+      publishTargets: ["site"],
+    });
+
+    expect(integrationResolved.runtime.selectedProfileId).toBe("integrator");
+    expect(integrationResolved.runtime.selectedRecipeId).toBe("integration_delivery");
+    expect(mediaResolved.runtime.selectedProfileId).toBe("media_creator");
+    expect(mediaResolved.runtime.selectedRecipeId).toBe("media_production");
+  });
 });

@@ -3,6 +3,7 @@ import { getInitialProfile } from "../profile/defaults.js";
 import { applyTaskOverlay } from "../profile/overlay.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
+import type { BootstrapInstaller } from "./installers.js";
 import { resolveBootstrapRequest } from "./resolver.js";
 import { runBootstrapLifecycle } from "./runtime.js";
 
@@ -20,8 +21,8 @@ function makePolicyContext(explicitApproval: boolean) {
   };
 }
 
-function makeSuccessfulInstaller() {
-  return async ({ request }: { request: { catalogEntry: { capability: { id: string; label: string; trusted: boolean } }; installMethod: "download" } }) => ({
+function makeSuccessfulInstaller(): BootstrapInstaller {
+  return async ({ request }) => ({
     ok: true,
     capability: {
       ...request.catalogEntry.capability,

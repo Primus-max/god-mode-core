@@ -31,12 +31,19 @@ export function resolveTaskOverlay(
 ): TaskOverlay | undefined {
   const normalizedTargets = (input.publishTargets ?? []).map((value) => value.toLowerCase());
   const normalizedFiles = (input.fileNames ?? []).map((value) => value.toLowerCase());
+  const normalizedPrompt = (input.prompt ?? "").toLowerCase();
 
   if (
     normalizedTargets.length > 0 &&
-    (getTaskOverlay(profile, "publish_release") || getTaskOverlay(profile, "publish_brief"))
+    (getTaskOverlay(profile, "publish_release") ||
+      getTaskOverlay(profile, "publish_brief") ||
+      getTaskOverlay(profile, "media_publish"))
   ) {
-    return getTaskOverlay(profile, "publish_release") ?? getTaskOverlay(profile, "publish_brief");
+    return (
+      getTaskOverlay(profile, "publish_release") ??
+      getTaskOverlay(profile, "publish_brief") ??
+      getTaskOverlay(profile, "media_publish")
+    );
   }
 
   if (
@@ -56,6 +63,35 @@ export function resolveTaskOverlay(
   }
 
   if (
+    (promptIncludes(input.prompt, ["integration", "webhook", "connector", "sync", "oauth", "pipeline"]) ||
+      (input.integrations?.length ?? 0) > 0) &&
+    getTaskOverlay(profile, "integration_first")
+  ) {
+    return getTaskOverlay(profile, "integration_first");
+  }
+
+  if (
+    promptIncludes(input.prompt, ["bootstrap", "install capability", "capability bootstrap"]) &&
+    getTaskOverlay(profile, "bootstrap_capability")
+  ) {
+    return getTaskOverlay(profile, "bootstrap_capability");
+  }
+
+  if (
+    promptIncludes(input.prompt, ["machine control", "linked machine", "kill switch", "run on node"]) &&
+    getTaskOverlay(profile, "machine_control")
+  ) {
+    return getTaskOverlay(profile, "machine_control");
+  }
+
+  if (
+    promptIncludes(input.prompt, ["infra", "infrastructure", "server", "ssh", "machine", "kubernetes", "logs", "restart"]) &&
+    getTaskOverlay(profile, "ops_first")
+  ) {
+    return getTaskOverlay(profile, "ops_first");
+  }
+
+  if (
     promptIncludes(input.prompt, ["pdf", "document", "estimate", "extract", "ocr", "report"]) ||
     normalizedFiles.some((file) =>
       [".pdf", ".docx", ".xlsx", ".csv"].some((ext) => file.endsWith(ext)),
@@ -63,6 +99,34 @@ export function resolveTaskOverlay(
     hasArtifactKinds(input, ["document", "estimate", "report", "data"])
   ) {
     return getTaskOverlay(profile, "document_first");
+  }
+
+  if (
+    (promptIncludes(input.prompt, [
+      "image",
+      "video",
+      "audio",
+      "thumbnail",
+      "render",
+      "caption",
+      "transcribe",
+      "storyboard",
+      "figma",
+      "design",
+    ]) ||
+      normalizedFiles.some((file) =>
+        [".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mp3", ".wav"].some((ext) =>
+          file.endsWith(ext),
+        ),
+      ) ||
+      hasArtifactKinds(input, ["image", "video", "audio"])) &&
+    getTaskOverlay(profile, "media_first")
+  ) {
+    return getTaskOverlay(profile, "media_first");
+  }
+
+  if (normalizedPrompt.includes("publish") && getTaskOverlay(profile, "media_publish")) {
+    return getTaskOverlay(profile, "media_publish");
   }
 
   return undefined;

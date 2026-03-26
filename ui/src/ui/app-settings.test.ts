@@ -8,6 +8,7 @@ import {
   syncThemeWithSettings,
 } from "./app-settings.ts";
 import type { ThemeMode, ThemeName } from "./theme.ts";
+import type { MachineControlStatus } from "./types.ts";
 
 type Tab =
   | "agents"
@@ -68,7 +69,7 @@ type SettingsHost = {
   artifactsPollInterval: number | null;
   bootstrapPollInterval: number | null;
   machinePollInterval: number | null;
-  machineStatus?: { killSwitch?: { enabled?: boolean }; currentDevice?: { access?: { code?: string } } } | null;
+  machineStatus?: MachineControlStatus | null;
   pendingGatewayUrl?: string | null;
   pendingGatewayToken?: string | null;
 };

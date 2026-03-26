@@ -62,4 +62,37 @@ describe("planExecutionRecipe", () => {
     expect(plan.profile.selectedProfile.id).toBe("developer");
     expect(plan.profile.activeProfile.sessionProfile).toBe("developer");
   });
+
+  it("selects integration_delivery for integration-heavy work", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Validate the webhook integration, sync OAuth config, and roll out the connector",
+      integrations: ["slack", "webhook"],
+      requestedTools: ["exec"],
+      intent: "publish",
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("integrator");
+    expect(plan.recipe.id).toBe("integration_delivery");
+  });
+
+  it("selects ops_orchestration for guarded operator work", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Check the linked machine, inspect logs, and bootstrap the missing capability",
+      requestedTools: ["exec", "process"],
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("operator");
+    expect(plan.recipe.id).toBe("ops_orchestration");
+  });
+
+  it("selects media_production for multimodal media work", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Generate a thumbnail image, caption the audio track, and package the media output",
+      artifactKinds: ["image", "audio"],
+      publishTargets: ["site"],
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("media_creator");
+    expect(plan.recipe.id).toBe("media_production");
+  });
 });

@@ -1,4 +1,4 @@
-import type { ArtifactOperation } from "../../../src/platform/schemas/artifact.js";
+import type { ArtifactOperation } from "../../../../src/platform/schemas/artifact.js";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { ArtifactRecordDetail, ArtifactRecordSummary } from "../types.ts";
 

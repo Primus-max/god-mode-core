@@ -42,9 +42,14 @@ describe("resolveBundledPluginsDir", () => {
       "utf8",
     );
 
-    vi.spyOn(process, "cwd").mockReturnValue(repoRoot);
-
-    expect(fs.realpathSync(resolveBundledPluginsDir() ?? "")).toBe(
+    expect(
+      fs.realpathSync(
+        resolveBundledPluginsDir(
+          { ...process.env, OPENCLAW_BUNDLED_PLUGINS_DIR: undefined, VITEST: undefined },
+          { cwd: repoRoot },
+        ) ?? "",
+      ),
+    ).toBe(
       fs.realpathSync(path.join(repoRoot, "dist-runtime", "extensions")),
     );
   });
@@ -58,9 +63,14 @@ describe("resolveBundledPluginsDir", () => {
       "utf8",
     );
 
-    vi.spyOn(process, "cwd").mockReturnValue(repoRoot);
-
-    expect(fs.realpathSync(resolveBundledPluginsDir() ?? "")).toBe(
+    expect(
+      fs.realpathSync(
+        resolveBundledPluginsDir(
+          { ...process.env, OPENCLAW_BUNDLED_PLUGINS_DIR: undefined, VITEST: undefined },
+          { cwd: repoRoot },
+        ) ?? "",
+      ),
+    ).toBe(
       fs.realpathSync(path.join(repoRoot, "dist", "extensions")),
     );
   });
@@ -76,10 +86,14 @@ describe("resolveBundledPluginsDir", () => {
       "utf8",
     );
 
-    vi.spyOn(process, "cwd").mockReturnValue(repoRoot);
-    process.env.VITEST = "true";
-
-    expect(fs.realpathSync(resolveBundledPluginsDir() ?? "")).toBe(
+    expect(
+      fs.realpathSync(
+        resolveBundledPluginsDir(
+          { ...process.env, OPENCLAW_BUNDLED_PLUGINS_DIR: undefined, VITEST: "true" },
+          { cwd: repoRoot },
+        ) ?? "",
+      ),
+    ).toBe(
       fs.realpathSync(path.join(repoRoot, "extensions")),
     );
   });
@@ -97,10 +111,14 @@ describe("resolveBundledPluginsDir", () => {
       "utf8",
     );
 
-    vi.spyOn(process, "cwd").mockReturnValue(repoRoot);
-    delete process.env.VITEST;
-
-    expect(fs.realpathSync(resolveBundledPluginsDir() ?? "")).toBe(
+    expect(
+      fs.realpathSync(
+        resolveBundledPluginsDir(
+          { ...process.env, OPENCLAW_BUNDLED_PLUGINS_DIR: undefined, VITEST: undefined },
+          { cwd: repoRoot },
+        ) ?? "",
+      ),
+    ).toBe(
       fs.realpathSync(path.join(repoRoot, "extensions")),
     );
   });

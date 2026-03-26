@@ -30,23 +30,26 @@ const BASELINE_PROFILES: Profile[] = [
   {
     id: "integrator",
     label: "Integrator",
-    description: "API, webhook, and system integration specialist",
-    riskCeiling: "medium",
-    preferredTools: ["exec", "read", "write"],
+    description: "API, webhook, rollout, and cross-system integration specialist for connected workflows.",
+    riskCeiling: "high",
+    preferredTools: ["read", "write", "edit", "exec"],
+    preferredPublishTargets: ["github", "docker", "vercel", "netlify", "webhook"],
   },
   {
     id: "operator",
     label: "Operator",
-    description: "Infrastructure and operations specialist",
+    description:
+      "Infrastructure, machine-control, and capability-operations specialist for guarded runtime work.",
     riskCeiling: "high",
-    preferredTools: ["exec", "process"],
+    preferredTools: ["read", "exec", "process"],
   },
   {
     id: "media_creator",
     label: "Media Creator",
-    description: "Image, video, and audio generation specialist",
-    riskCeiling: "low",
-    preferredTools: ["canvas", "browser"],
+    description: "Image, video, audio, and multimodal content production specialist.",
+    riskCeiling: "medium",
+    preferredTools: ["read", "write", "browser", "canvas"],
+    preferredPublishTargets: ["site"],
   },
   {
     id: "general",
@@ -118,6 +121,42 @@ const BASELINE_RECIPES: ExecutionRecipe[] = [
     allowedProfiles: ["developer", "integrator"],
     riskLevel: "high",
     publishTargets: ["github", "npm"],
+  },
+  {
+    id: "integration_delivery",
+    purpose: "Wire integrations, webhooks, and connected rollout workflows",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [
+      { type: "report", description: "Integration rollout summary" },
+      { type: "site", description: "Connected preview or delivery endpoint" },
+      { type: "release", description: "Integration release handoff" },
+    ],
+    requiredCapabilities: ["node", "git"],
+    allowedProfiles: ["integrator", "developer"],
+    riskLevel: "high",
+    publishTargets: ["github", "docker", "vercel", "netlify", "webhook"],
+  },
+  {
+    id: "ops_orchestration",
+    purpose: "Operate infrastructure, guarded machine control, and capability lifecycle tasks",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [{ type: "report", description: "Operational runbook and execution summary" }],
+    allowedProfiles: ["operator"],
+    riskLevel: "high",
+  },
+  {
+    id: "media_production",
+    purpose: "Create, refine, and package multimodal media outputs",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [
+      { type: "image", description: "Generated or edited image asset" },
+      { type: "video", description: "Generated or edited video asset" },
+      { type: "audio", description: "Generated or edited audio asset" },
+      { type: "report", description: "Media production summary" },
+    ],
+    allowedProfiles: ["media_creator"],
+    riskLevel: "medium",
+    publishTargets: ["site"],
   },
 ];
 
@@ -197,6 +236,9 @@ describe("baseline recipe descriptors", () => {
         "ocr_extract",
         "table_extract",
         "code_build_publish",
+        "integration_delivery",
+        "ops_orchestration",
+        "media_production",
       ]
     `);
   });
