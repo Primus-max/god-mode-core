@@ -16,6 +16,7 @@ import {
   sanitizeUserFacingText,
 } from "../../agents/pi-embedded-helpers.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
+import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import {
   resolveGroupSessionKey,
   resolveSessionTranscriptPath,
@@ -42,6 +43,7 @@ import {
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import {
   buildEmbeddedRunExecutionParams,
+  resolvePlatformExecutionContextForTemplateRun,
   resolveModelFallbackOptions,
 } from "./agent-runner-utils.js";
 import { type BlockReplyPipeline } from "./block-reply-pipeline.js";
@@ -109,6 +111,12 @@ export async function runAgentTurnWithFallback(params: {
   const directlySentBlockKeys = new Set<string>();
 
   const runId = params.opts?.runId ?? crypto.randomUUID();
+  const platformExecutionContext = resolvePlatformExecutionContextForTemplateRun({
+    prompt: params.commandBody,
+    run: params.followupRun.run,
+    sessionCtx: params.sessionCtx,
+    sessionEntry: params.getActiveSessionEntry(),
+  });
   const normalizeReplyMediaPaths = createReplyMediaPathNormalizer({
     cfg: params.followupRun.run.config,
     sessionKey: params.sessionKey,
@@ -132,6 +140,7 @@ export async function runAgentTurnWithFallback(params: {
       sessionKey: params.sessionKey,
       verboseLevel: params.resolvedVerboseLevel,
       isHeartbeat: params.isHeartbeat,
+      platformExecution: toPluginHookPlatformExecutionContext(platformExecutionContext),
       isControlUiVisible: shouldSurfaceToControlUi,
     });
   }
@@ -350,6 +359,7 @@ export async function runAgentTurnWithFallback(params: {
                 groupSpace: params.sessionCtx.GroupSpace?.trim() ?? undefined,
                 ...senderContext,
                 ...runBaseParams,
+                platformExecutionContext,
                 prompt: params.commandBody,
                 extraSystemPrompt: params.followupRun.run.extraSystemPrompt,
                 toolResultFormat: (() => {

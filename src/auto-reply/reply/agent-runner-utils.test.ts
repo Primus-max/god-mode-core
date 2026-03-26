@@ -15,6 +15,7 @@ const {
   buildThreadingToolContext,
   buildEmbeddedRunBaseParams,
   buildEmbeddedRunContexts,
+  resolvePlatformExecutionContextForTemplateRun,
   resolveModelFallbackOptions,
   resolveProviderScopedAuthProfile,
 } = await import("./agent-runner-utils.js");
@@ -213,5 +214,27 @@ describe("agent-runner-utils", () => {
       currentChannelId: "channel:123456789012345678",
       currentMessageId: "msg-9",
     });
+  });
+
+  it("resolves a frozen platform execution context for template runs", () => {
+    const run = makeRun({ messageProvider: "telegram" });
+
+    const resolved = resolvePlatformExecutionContextForTemplateRun({
+      prompt: "Build the repo and publish the release to GitHub",
+      run,
+      sessionCtx: {
+        Provider: "telegram",
+        OriginatingChannel: "telegram",
+        Surface: "telegram",
+      },
+      sessionEntry: {
+        specialistOverrideMode: "session",
+        specialistSessionProfileId: "developer",
+      },
+    });
+
+    expect(resolved.selectedProfileId).toBe("developer");
+    expect(resolved.readinessStatus).toBe("approval_required");
+    expect(resolved.requestedToolNames).toEqual(expect.arrayContaining(["exec", "process"]));
   });
 });

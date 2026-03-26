@@ -3,6 +3,9 @@ import { getChannelPlugin } from "../../channels/plugins/index.js";
 import type { ChannelId, ChannelThreadingToolContext } from "../../channels/plugins/types.js";
 import { normalizeAnyChannelId, normalizeChannelId } from "../../channels/registry.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { SessionEntry } from "../../config/sessions.js";
+import { resolveExecutionRuntimePlan } from "../../platform/decision/input.js";
+import type { RecipeRuntimePlan } from "../../platform/recipe/runtime-adapter.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import type { TemplateContext } from "../templating.js";
 import {
@@ -218,4 +221,27 @@ export function buildEmbeddedRunExecutionParams(params: {
     senderContext,
     runBaseParams,
   };
+}
+
+export function resolvePlatformExecutionContextForTemplateRun(params: {
+  prompt: string;
+  run: FollowupRun["run"];
+  sessionCtx: Pick<TemplateContext, "OriginatingChannel" | "Provider" | "Surface">;
+  sessionEntry?: Pick<
+    SessionEntry,
+    "specialistOverrideMode" | "specialistBaseProfileId" | "specialistSessionProfileId"
+  > | null;
+}): RecipeRuntimePlan {
+  return resolveExecutionRuntimePlan({
+    prompt: params.prompt,
+    sessionEntry: params.sessionEntry,
+    channelHints: {
+      messageChannel: resolveOriginMessageProvider({
+        originatingChannel: params.sessionCtx.OriginatingChannel,
+        provider: params.sessionCtx.Provider,
+      }),
+      channel: params.sessionCtx.Surface,
+      replyChannel: params.run.messageProvider,
+    },
+  }).runtime;
 }

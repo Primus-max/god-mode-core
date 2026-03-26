@@ -145,3 +145,62 @@ export const PlatformRuntimeRunOutcomeSchema = z
   })
   .strict();
 export type PlatformRuntimeRunOutcome = z.infer<typeof PlatformRuntimeRunOutcomeSchema>;
+
+export const PlatformRuntimeAcceptanceStatusSchema = z.enum([
+  "satisfied",
+  "partial",
+  "retryable",
+  "needs_human",
+  "failed",
+]);
+export type PlatformRuntimeAcceptanceStatus = z.infer<typeof PlatformRuntimeAcceptanceStatusSchema>;
+
+export const PlatformRuntimeAcceptanceActionSchema = z.enum([
+  "close",
+  "retry",
+  "escalate",
+  "stop",
+]);
+export type PlatformRuntimeAcceptanceAction = z.infer<typeof PlatformRuntimeAcceptanceActionSchema>;
+
+export const PlatformRuntimeAcceptanceReasonCodeSchema = z.enum([
+  "completed_with_output",
+  "completed_with_artifacts",
+  "completed_with_warnings",
+  "completed_without_evidence",
+  "pending_approval",
+  "runtime_blocked",
+  "runtime_failed",
+  "runtime_partial",
+]);
+export type PlatformRuntimeAcceptanceReasonCode = z.infer<
+  typeof PlatformRuntimeAcceptanceReasonCodeSchema
+>;
+
+export const PlatformRuntimeAcceptanceEvidenceSchema = z
+  .object({
+    hadToolError: z.boolean().optional(),
+    deterministicApprovalPromptSent: z.boolean().optional(),
+    didSendViaMessagingTool: z.boolean().optional(),
+    hasOutput: z.boolean().optional(),
+    successfulCronAdds: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export type PlatformRuntimeAcceptanceEvidence = z.infer<
+  typeof PlatformRuntimeAcceptanceEvidenceSchema
+>;
+
+export const PlatformRuntimeAcceptanceResultSchema = z
+  .object({
+    runId: z.string().min(1),
+    status: PlatformRuntimeAcceptanceStatusSchema,
+    action: PlatformRuntimeAcceptanceActionSchema,
+    reasonCode: PlatformRuntimeAcceptanceReasonCodeSchema,
+    reasons: z.array(z.string().min(1)),
+    outcome: PlatformRuntimeRunOutcomeSchema,
+    evidence: PlatformRuntimeAcceptanceEvidenceSchema,
+  })
+  .strict();
+export type PlatformRuntimeAcceptanceResult = z.infer<
+  typeof PlatformRuntimeAcceptanceResultSchema
+>;

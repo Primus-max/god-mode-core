@@ -1,6 +1,9 @@
 import type { SessionSystemPromptReport } from "../../config/sessions/types.js";
 import type { MessagingToolSend } from "../pi-embedded-messaging.js";
-import type { PlatformRuntimeRunOutcome } from "../../platform/runtime/index.js";
+import type {
+  PlatformRuntimeAcceptanceResult,
+  PlatformRuntimeRunOutcome,
+} from "../../platform/runtime/index.js";
 
 export type EmbeddedPiAgentMeta = {
   sessionId: string;
@@ -57,6 +60,7 @@ export type EmbeddedPiRunMeta = {
     hadToolError?: boolean;
     deterministicApprovalPromptSent?: boolean;
   };
+  acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
 };
 
 export type EmbeddedPiRunResult = {

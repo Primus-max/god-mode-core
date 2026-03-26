@@ -10,6 +10,7 @@ import { lookupContextTokens } from "../../agents/context.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { runWithModelFallback } from "../../agents/model-fallback.js";
 import type { SessionEntry } from "../../config/sessions.js";
+import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import type { TypingMode } from "../../config/types.js";
 import { logVerbose } from "../../globals.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
@@ -20,6 +21,7 @@ import type { OriginatingChannelType } from "../templating.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { resolveRunAuthProfile } from "./agent-runner-auth-profile.js";
+import { resolvePlatformExecutionContextForTemplateRun } from "./agent-runner-utils.js";
 import {
   resolveOriginAccountId,
   resolveOriginMessageProvider,
@@ -149,6 +151,19 @@ export function createFollowupRunner(params: {
   return async (queued: FollowupRun) => {
     try {
       const runId = crypto.randomUUID();
+      const activeSessionEntry =
+        (sessionKey ? sessionStore?.[sessionKey] : undefined) ?? sessionEntry;
+      const syntheticSessionCtx = {
+        OriginatingChannel: queued.originatingChannel,
+        Provider: queued.run.messageProvider,
+        Surface: queued.originatingChannel ?? queued.run.messageProvider,
+      } as const;
+      const platformExecutionContext = resolvePlatformExecutionContextForTemplateRun({
+        prompt: queued.prompt,
+        run: queued.run,
+        sessionCtx: syntheticSessionCtx,
+        sessionEntry: activeSessionEntry,
+      });
       const shouldSurfaceToControlUi = isInternalMessageChannel(
         resolveOriginMessageProvider({
           originatingChannel: queued.originatingChannel,
@@ -159,6 +174,7 @@ export function createFollowupRunner(params: {
         registerAgentRunContext(runId, {
           sessionKey: queued.run.sessionKey,
           verboseLevel: queued.run.verboseLevel,
+          platformExecution: toPluginHookPlatformExecutionContext(platformExecutionContext),
           isControlUiVisible: shouldSurfaceToControlUi,
         });
       }
@@ -205,8 +221,6 @@ export function createFollowupRunner(params: {
       >;
       let fallbackProvider = queued.run.provider;
       let fallbackModel = queued.run.model;
-      const activeSessionEntry =
-        (sessionKey ? sessionStore?.[sessionKey] : undefined) ?? sessionEntry;
       let bootstrapPromptWarningSignaturesSeen = resolveBootstrapWarningSignaturesSeen(
         activeSessionEntry?.systemPromptReport,
       );
@@ -266,6 +280,7 @@ export function createFollowupRunner(params: {
                 thinkLevel: queued.run.thinkLevel,
                 verboseLevel: queued.run.verboseLevel,
                 reasoningLevel: queued.run.reasoningLevel,
+                platformExecutionContext,
                 suppressToolErrorWarnings: opts?.suppressToolErrorWarnings,
                 execOverrides: queued.run.execOverrides,
                 bashElevated: queued.run.bashElevated,

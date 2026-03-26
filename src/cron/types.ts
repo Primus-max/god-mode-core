@@ -1,5 +1,10 @@
 import type { FailoverReason } from "../agents/pi-embedded-helpers.js";
 import type { ChannelId } from "../channels/plugins/types.js";
+import type {
+  PlatformRuntimeAcceptanceAction,
+  PlatformRuntimeAcceptanceReasonCode,
+  PlatformRuntimeAcceptanceStatus,
+} from "../platform/runtime/index.js";
 import type { HookExternalContentSource } from "../security/external-content.js";
 import type { CronJobBase } from "./types-shared.js";
 
@@ -63,6 +68,9 @@ export type CronRunOutcome = {
   error?: string;
   /** Optional classifier for execution errors to guide fallback behavior. */
   errorKind?: "delivery-target";
+  acceptanceStatus?: PlatformRuntimeAcceptanceStatus;
+  acceptanceAction?: PlatformRuntimeAcceptanceAction;
+  acceptanceReasonCode?: PlatformRuntimeAcceptanceReasonCode;
   summary?: string;
   sessionId?: string;
   sessionKey?: string;

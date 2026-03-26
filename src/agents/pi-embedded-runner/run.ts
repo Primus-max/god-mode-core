@@ -10,7 +10,10 @@ import { generateSecureToken } from "../../infra/secure-random.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { prepareProviderRuntimeAuth } from "../../plugins/provider-runtime.js";
 import type { PluginHookBeforeAgentStartResult } from "../../plugins/types.js";
-import { getPlatformRuntimeCheckpointService } from "../../platform/runtime/index.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  PlatformRuntimeRunOutcomeSchema,
+} from "../../platform/runtime/index.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { enqueueCommandInLane } from "../../process/command-queue.js";
 import { isMarkdownCapableMessageChannel } from "../../utils/message-channel.js";
@@ -267,25 +270,61 @@ function buildErrorAgentMeta(params: {
   };
 }
 
-function buildCompletionOutcome(params: {
+function buildCompletionArtifacts(params: {
   runId?: string;
   hadToolError?: boolean;
   deterministicApprovalPromptSent?: boolean;
+  didSendViaMessagingTool?: boolean;
+  hasOutput?: boolean;
+  successfulCronAdds?: number;
+  fallbackStatus?: "completed" | "failed";
 }) {
   const normalizedRunId = params.runId?.trim();
   if (!normalizedRunId) {
-    return undefined;
+    return {};
   }
-  const outcome = getPlatformRuntimeCheckpointService().buildRunOutcome(normalizedRunId);
-  if (!outcome) {
-    return undefined;
-  }
-  return {
+  const runtimeService = getPlatformRuntimeCheckpointService();
+  const outcome =
+    runtimeService.buildRunOutcome(normalizedRunId) ??
+    PlatformRuntimeRunOutcomeSchema.parse({
+      runId: normalizedRunId,
+      status: params.fallbackStatus ?? "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      boundaries: [],
+    });
+  const completionOutcome = {
     ...outcome,
     ...(params.hadToolError !== undefined ? { hadToolError: params.hadToolError } : {}),
     ...(params.deterministicApprovalPromptSent !== undefined
       ? { deterministicApprovalPromptSent: params.deterministicApprovalPromptSent }
       : {}),
+  };
+  const acceptanceOutcome = runtimeService.evaluateAcceptance({
+    runId: normalizedRunId,
+    outcome,
+    evidence: {
+      ...(params.hadToolError !== undefined ? { hadToolError: params.hadToolError } : {}),
+      ...(params.deterministicApprovalPromptSent !== undefined
+        ? { deterministicApprovalPromptSent: params.deterministicApprovalPromptSent }
+        : {}),
+      ...(params.didSendViaMessagingTool !== undefined
+        ? { didSendViaMessagingTool: params.didSendViaMessagingTool }
+        : {}),
+      ...(params.hasOutput !== undefined ? { hasOutput: params.hasOutput } : {}),
+      ...(params.successfulCronAdds !== undefined
+        ? { successfulCronAdds: params.successfulCronAdds }
+        : {}),
+    },
+  });
+  return {
+    completionOutcome,
+    acceptanceOutcome,
   };
 }
 
@@ -939,7 +978,10 @@ export async function runEmbeddedPiAgent(
                   lastTurnTotal,
                 }),
                 error: { kind: "retry_limit", message },
-                completionOutcome: buildCompletionOutcome({ runId: params.runId }),
+                ...buildCompletionArtifacts({
+                  runId: params.runId,
+                  fallbackStatus: "failed",
+                }),
               },
             };
           }
@@ -1334,10 +1376,11 @@ export async function runEmbeddedPiAgent(
                 }),
                 systemPromptReport: attempt.systemPromptReport,
                 error: { kind, message: errorText },
-                completionOutcome: buildCompletionOutcome({
+                ...buildCompletionArtifacts({
                   runId: params.runId,
                   hadToolError: Boolean(attempt.lastToolError),
                   deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                  fallbackStatus: "failed",
                 }),
               },
             };
@@ -1383,10 +1426,11 @@ export async function runEmbeddedPiAgent(
                   }),
                   systemPromptReport: attempt.systemPromptReport,
                   error: { kind: "role_ordering", message: errorText },
-                  completionOutcome: buildCompletionOutcome({
+                  ...buildCompletionArtifacts({
                     runId: params.runId,
                     hadToolError: Boolean(attempt.lastToolError),
                     deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                    fallbackStatus: "failed",
                   }),
                 },
               };
@@ -1420,10 +1464,11 @@ export async function runEmbeddedPiAgent(
                   }),
                   systemPromptReport: attempt.systemPromptReport,
                   error: { kind: "image_size", message: errorText },
-                  completionOutcome: buildCompletionOutcome({
+                  ...buildCompletionArtifacts({
                     runId: params.runId,
                     hadToolError: Boolean(attempt.lastToolError),
                     deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                    fallbackStatus: "failed",
                   }),
                 },
               };
@@ -1691,10 +1736,14 @@ export async function runEmbeddedPiAgent(
                 agentMeta,
                 aborted,
                 systemPromptReport: attempt.systemPromptReport,
-                completionOutcome: buildCompletionOutcome({
+                ...buildCompletionArtifacts({
                   runId: params.runId,
                   hadToolError: Boolean(attempt.lastToolError),
                   deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                  hasOutput: false,
+                  didSendViaMessagingTool: attempt.didSendViaMessagingTool,
+                  successfulCronAdds: attempt.successfulCronAdds,
+                  fallbackStatus: "failed",
                 }),
               },
               didSendViaMessagingTool: attempt.didSendViaMessagingTool,
@@ -1746,10 +1795,14 @@ export async function runEmbeddedPiAgent(
                     },
                   ]
                 : undefined,
-              completionOutcome: buildCompletionOutcome({
+              ...buildCompletionArtifacts({
                 runId: params.runId,
                 hadToolError: Boolean(attempt.lastToolError),
                 deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                hasOutput: payloads.some((payload) => Boolean(payload.text?.trim())),
+                didSendViaMessagingTool: attempt.didSendViaMessagingTool,
+                successfulCronAdds: attempt.successfulCronAdds,
+                fallbackStatus: aborted ? "failed" : "completed",
               }),
             },
             didSendViaMessagingTool: attempt.didSendViaMessagingTool,
