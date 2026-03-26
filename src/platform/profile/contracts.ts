@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { ProfileIdSchema } from "../schemas/profile.js";
+import { BootstrapResolutionStatusSchema } from "../bootstrap/contracts.js";
+
+const PolicyAutonomySchema = z.enum(["chat", "assist", "guarded"]);
 
 export const SpecialistOverrideModeSchema = z.enum(["auto", "base", "session"]);
 export type SpecialistOverrideMode = z.infer<typeof SpecialistOverrideModeSchema>;
@@ -34,6 +37,17 @@ export const SpecialistProfileOptionSchema = z
   .strict();
 export type SpecialistProfileOption = z.infer<typeof SpecialistProfileOptionSchema>;
 
+export const SpecialistCapabilityRequirementSchema = z
+  .object({
+    id: z.string().min(1),
+    label: z.string().min(1),
+    status: BootstrapResolutionStatusSchema,
+    requiresBootstrap: z.boolean(),
+    reasons: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
+export type SpecialistCapabilityRequirement = z.infer<typeof SpecialistCapabilityRequirementSchema>;
+
 export const SpecialistRuntimeSnapshotSchema = z
   .object({
     sessionKey: z.string().min(1),
@@ -51,6 +65,11 @@ export const SpecialistRuntimeSnapshotSchema = z
     recipePurpose: z.string().min(1),
     recipeSummary: z.string().min(1).optional(),
     reasoningSummary: z.string().min(1),
+    requiredCapabilities: z.array(z.string().min(1)),
+    bootstrapRequiredCapabilities: z.array(z.string().min(1)),
+    capabilityRequirements: z.array(SpecialistCapabilityRequirementSchema),
+    policyAutonomy: PolicyAutonomySchema,
+    requiresExplicitApproval: z.boolean(),
     confidence: z.number().min(0).max(1),
     preferredTools: z.array(z.string().min(1)),
     publishTargets: z.array(z.string().min(1)),

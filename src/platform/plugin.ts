@@ -1,9 +1,11 @@
 import type {
   OpenClawPluginApi,
   OpenClawPluginDefinition,
+  PluginHookAgentContext,
   PluginHookBeforeAgentStartResult,
   PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildResult,
+  PluginHookPlatformExecutionContext,
 } from "../plugins/types.js";
 import { resolveStateDir } from "../config/paths.js";
 import {
@@ -27,24 +29,69 @@ import {
   createMachineUnlinkGatewayMethod,
   getPlatformMachineControlService,
 } from "./machine/index.js";
+import { buildExecutionDecisionInput } from "./decision/input.js";
 import { createProfileResolveGatewayMethod } from "./profile/index.js";
+import { getInitialProfile, getTaskOverlay } from "./profile/defaults.js";
 import { evaluatePolicy } from "./policy/engine.js";
 import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
-import { resolvePlatformRuntimePlan } from "./recipe/runtime-adapter.js";
+import {
+  buildPolicyContextFromRuntimePlan,
+  resolvePlatformRuntimePlan,
+  toPluginHookPlatformExecutionContext,
+} from "./recipe/runtime-adapter.js";
+import { getInitialRecipe } from "./recipe/defaults.js";
 
-function buildProfilePromptSection(prompt: string): PluginHookBeforePromptBuildResult | void {
-  const resolved = resolvePlatformRuntimePlan({ prompt });
+function resolveHookExecution(
+  prompt: string,
+  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
+): PluginHookPlatformExecutionContext {
+  if (ctx?.platformExecution) {
+    return ctx.platformExecution;
+  }
+  return toPluginHookPlatformExecutionContext(
+    resolvePlatformRuntimePlan(buildExecutionDecisionInput({ prompt })).runtime,
+  );
+}
+
+function resolveExecutionLabels(execution: PluginHookPlatformExecutionContext): {
+  profileLabel: string;
+  overlayLabel?: string;
+} {
+  const profile = getInitialProfile(execution.profileId as Parameters<typeof getInitialProfile>[0]);
+  const overlayLabel =
+    profile && execution.taskOverlayId
+      ? getTaskOverlay(profile, execution.taskOverlayId)?.label ?? execution.taskOverlayId
+      : execution.taskOverlayId;
+  return {
+    profileLabel: profile?.label ?? execution.profileId,
+    ...(overlayLabel ? { overlayLabel } : {}),
+  };
+}
+
+function buildProfilePromptSection(
+  prompt: string,
+  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
+): PluginHookBeforePromptBuildResult | void {
+  const execution = resolveHookExecution(prompt, ctx);
+  const labels = resolveExecutionLabels(execution);
+  const recipe = getInitialRecipe(execution.recipeId);
   return {
     prependSystemContext: [
-      `Active specialist profile: ${resolved.profile.selectedProfile.label}.`,
-      resolved.profile.effective.taskOverlay?.label
-        ? `Task overlay: ${resolved.profile.effective.taskOverlay.label}.`
+      `Active specialist profile: ${labels.profileLabel}.`,
+      labels.overlayLabel ? `Task overlay: ${labels.overlayLabel}.` : undefined,
+      execution.requestedToolNames?.length
+        ? `Planned tools: ${execution.requestedToolNames.join(", ")}.`
         : undefined,
-      resolved.profile.effective.preferredTools.length > 0
-        ? `Preferred tools: ${resolved.profile.effective.preferredTools.join(", ")}.`
+      `Execution recipe: ${execution.recipeId}.`,
+      recipe?.summary ? `Recipe summary: ${recipe.summary}` : undefined,
+      recipe?.systemPrompt,
+      execution.requiredCapabilities?.length
+        ? `Required capabilities: ${execution.requiredCapabilities.join(", ")}.`
         : undefined,
-      resolved.runtime.prependSystemContext,
+      execution.bootstrapRequiredCapabilities?.length
+        ? `Bootstrap required: ${execution.bootstrapRequiredCapabilities.join(", ")}.`
+        : undefined,
       "Profile selection narrows preferences only; it does not grant hidden permissions.",
     ]
       .filter(Boolean)
@@ -52,27 +99,40 @@ function buildProfilePromptSection(prompt: string): PluginHookBeforePromptBuildR
   };
 }
 
-function buildAgentStartResult(prompt: string): PluginHookBeforeAgentStartResult | void {
-  const resolved = resolvePlatformRuntimePlan({ prompt });
+function buildAgentStartResult(
+  prompt: string,
+  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
+): PluginHookBeforeAgentStartResult | void {
+  const execution = resolveHookExecution(prompt, ctx);
+  const labels = resolveExecutionLabels(execution);
   return {
     prependContext: [
-      `Profile hint: ${resolved.profile.selectedProfile.label}. Confidence ${resolved.profile.activeProfile.confidence.toFixed(2)}.`,
-      `Recipe hint: ${resolved.recipe.id}.`,
-      resolved.runtime.prependContext,
+      `Profile hint: ${labels.profileLabel}.`,
+      `Recipe hint: ${execution.recipeId}.`,
+      execution.plannerReasoning ? `Planner reasoning: ${execution.plannerReasoning}` : undefined,
+      execution.bootstrapRequiredCapabilities?.length
+        ? `Pending bootstrap: ${execution.bootstrapRequiredCapabilities.join(", ")}.`
+        : undefined,
+      execution.requireExplicitApproval
+        ? `Policy posture: explicit approval required (${execution.policyAutonomy ?? "guarded"}).`
+        : undefined,
     ]
       .filter(Boolean)
       .join("\n"),
   };
 }
 
-function buildModelResolveResult(prompt: string): PluginHookBeforeModelResolveResult | void {
-  const resolved = resolvePlatformRuntimePlan({ prompt });
-  if (!resolved.runtime.modelOverride && !resolved.runtime.providerOverride) {
+function buildModelResolveResult(
+  prompt: string,
+  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
+): PluginHookBeforeModelResolveResult | void {
+  const execution = resolveHookExecution(prompt, ctx);
+  if (!execution.modelOverride && !execution.providerOverride) {
     return undefined;
   }
   return {
-    providerOverride: resolved.runtime.providerOverride,
-    modelOverride: resolved.runtime.modelOverride,
+    providerOverride: execution.providerOverride,
+    modelOverride: execution.modelOverride,
   };
 }
 
@@ -148,11 +208,11 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
     createMachineKillSwitchGatewayMethod(machineControlService),
   );
   api.registerGatewayMethod("platform.profile.resolve", createProfileResolveGatewayMethod());
-  api.on("before_agent_start", (event) => buildAgentStartResult(event.prompt), { priority: 20 });
-  api.on("before_model_resolve", (event) => buildModelResolveResult(event.prompt), {
+  api.on("before_agent_start", (event, ctx) => buildAgentStartResult(event.prompt, ctx), { priority: 20 });
+  api.on("before_model_resolve", (event, ctx) => buildModelResolveResult(event.prompt, ctx), {
     priority: 20,
   });
-  api.on("before_prompt_build", (event) => buildProfilePromptSection(event.prompt), {
+  api.on("before_prompt_build", (event, ctx) => buildProfilePromptSection(event.prompt, ctx), {
     priority: 20,
   });
   api.on(
@@ -168,13 +228,17 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   api.on(
     "llm_input",
     (event, ctx) => {
-      const resolved = resolvePlatformRuntimePlan({ prompt: event.prompt });
+      const fallbackExecution = toPluginHookPlatformExecutionContext(
+        resolvePlatformRuntimePlan(buildExecutionDecisionInput({ prompt: event.prompt })).runtime,
+      );
+      const execution = ctx.platformExecution ?? fallbackExecution;
       machineControlService.recordRunSnapshot({
         runId: event.runId,
         sessionId: event.sessionId,
         prompt: event.prompt,
-        profileId: ctx.platformExecution?.profileId ?? resolved.profile.selectedProfile.id,
-        recipeId: ctx.platformExecution?.recipeId ?? resolved.recipe.id,
+        profileId: execution.profileId,
+        recipeId: execution.recipeId,
+        platformExecution: execution,
         recordedAtMs: Date.now(),
       });
     },
@@ -191,22 +255,39 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
         return undefined;
       }
       const runSnapshot = ctx.runId ? machineControlService.getRunSnapshot(ctx.runId) : undefined;
-      const resolved =
-        runSnapshot?.prompt !== undefined
-          ? resolvePlatformRuntimePlan({ prompt: runSnapshot.prompt })
-          : resolvePlatformRuntimePlan({ prompt: "" });
-      const policy = evaluatePolicy({
-        activeProfileId: resolved.profile.selectedProfile.id,
-        activeProfile: resolved.profile.selectedProfile,
-        activeStateTaskOverlay: resolved.profile.effective.taskOverlay?.id,
-        effective: resolved.profile.effective,
-        intent: "code",
-        requestedToolNames: [event.toolName],
-        requestedMachineControl: true,
-        machineControlLinked: true,
-        machineControlKillSwitchEnabled: machineControlService.getSnapshot().killSwitch.enabled,
-        explicitApproval: false,
-      });
+      const policyContext =
+        runSnapshot?.platformExecution
+          ? buildPolicyContextFromRuntimePlan(
+              {
+                selectedProfileId:
+                  runSnapshot.platformExecution.profileId as Parameters<typeof getInitialProfile>[0],
+                taskOverlayId: runSnapshot.platformExecution.taskOverlayId,
+                intent: runSnapshot.platformExecution.intent,
+                requestedToolNames: [event.toolName],
+                publishTargets: runSnapshot.platformExecution.publishTargets,
+                requiredCapabilities: runSnapshot.platformExecution.requiredCapabilities,
+              },
+              {
+                requestedMachineControl: true,
+                machineControlLinked: true,
+                machineControlKillSwitchEnabled: machineControlService.getSnapshot().killSwitch.enabled,
+                explicitApproval: false,
+              },
+            )
+          : undefined;
+      const fallbackDecision = !policyContext
+        ? resolvePlatformRuntimePlan(buildExecutionDecisionInput({ prompt: runSnapshot?.prompt ?? "" }))
+        : undefined;
+      const policy = evaluatePolicy(
+        policyContext ?? {
+          ...fallbackDecision!.policyContext,
+          requestedToolNames: [event.toolName],
+          requestedMachineControl: true,
+          machineControlLinked: true,
+          machineControlKillSwitchEnabled: machineControlService.getSnapshot().killSwitch.enabled,
+          explicitApproval: false,
+        },
+      );
       if (!policy.allowMachineControl && policy.deniedReasons.length > 0) {
         const blockingReason = policy.deniedReasons.find((reason) => reason.includes("kill switch"));
         if (blockingReason) {

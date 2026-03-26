@@ -45,7 +45,7 @@ import {
 } from "../infra/agent-events.js";
 import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
-import { applySessionSpecialistOverrideToPlannerInput } from "../platform/profile/index.js";
+import { buildExecutionDecisionInput } from "../platform/decision/input.js";
 import {
   resolvePlatformRuntimePlan,
   type ResolvedPlatformRuntimePlan,
@@ -475,52 +475,19 @@ export function buildEmbeddedAgentRunParams(
   };
 }
 
-const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
-const DEVELOPER_EXECUTION_KEYWORDS =
-  /\b(build|test|fix|refactor|repo|repository|compile|ci|code)\b/iu;
-const DEVELOPER_PUBLISH_KEYWORDS = /\b(preview|publish|release|deploy|ship|rollout)\b/iu;
-
-function collectPromptHints(prompt: string, candidates: readonly string[]): string[] {
-  const normalized = prompt.toLowerCase();
-  return candidates.filter((candidate) => normalized.includes(candidate));
-}
-
 export function buildPlatformPlannerInput(params: {
   prompt: string;
   opts: Pick<AgentCommandOpts, "messageChannel" | "channel" | "replyChannel">;
+  sessionEntry?: Pick<
+    SessionEntry,
+    "specialistOverrideMode" | "specialistBaseProfileId" | "specialistSessionProfileId"
+  > | null;
 }): Parameters<typeof resolvePlatformRuntimePlan>[0] {
-  const publishTargets = collectPromptHints(params.prompt, DEVELOPER_PUBLISH_TARGET_HINTS);
-  const integrations = publishTargets.filter((target) => target !== "npm");
-  const artifactKinds = [
-    ...(publishTargets.length > 0 || /\bpreview\b/iu.test(params.prompt)
-      ? (["site"] as const)
-      : []),
-    ...(publishTargets.length > 0 || /\brelease\b/iu.test(params.prompt)
-      ? (["release"] as const)
-      : []),
-    ...(DEVELOPER_EXECUTION_KEYWORDS.test(params.prompt) ? (["binary"] as const) : []),
-  ];
-  const intent = DEVELOPER_PUBLISH_KEYWORDS.test(params.prompt)
-    ? "publish"
-    : DEVELOPER_EXECUTION_KEYWORDS.test(params.prompt)
-      ? "code"
-      : undefined;
-  const requestedTools =
-    intent === "code" || intent === "publish" ? ["exec", "apply_patch", "process"] : undefined;
-  const channelHints = [params.opts.messageChannel, params.opts.channel, params.opts.replyChannel]
-    .filter((value): value is string => Boolean(value))
-    .map((value) => value.toLowerCase());
-  const uniqueIntegrations = Array.from(new Set([...integrations, ...channelHints]));
-  const uniqueArtifacts = Array.from(new Set(artifactKinds));
-
-  return {
+  return buildExecutionDecisionInput({
     prompt: params.prompt,
-    ...(intent ? { intent } : {}),
-    ...(publishTargets.length > 0 ? { publishTargets } : {}),
-    ...(uniqueIntegrations.length > 0 ? { integrations: uniqueIntegrations } : {}),
-    ...(requestedTools ? { requestedTools } : {}),
-    ...(uniqueArtifacts.length > 0 ? { artifactKinds: uniqueArtifacts } : {}),
-  };
+    channelHints: params.opts,
+    sessionEntry: params.sessionEntry,
+  });
 }
 
 function runAgentAttempt(params: RunAgentAttemptParams) {
@@ -746,13 +713,11 @@ async function prepareAgentCommandExecution(
     persistedVerbose,
   } = sessionResolution;
   const platformRuntimePlan = resolvePlatformRuntimePlan(
-    applySessionSpecialistOverrideToPlannerInput(
-      buildPlatformPlannerInput({
-        prompt: body,
-        opts,
-      }),
-      sessionEntryRaw,
-    ),
+    buildPlatformPlannerInput({
+      prompt: body,
+      opts,
+      sessionEntry: sessionEntryRaw,
+    }),
   );
   const laneRaw = typeof opts.lane === "string" ? opts.lane.trim() : "";
   const isSubagentLane = laneRaw === String(AGENT_LANE_SUBAGENT);

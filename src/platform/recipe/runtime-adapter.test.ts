@@ -18,6 +18,12 @@ describe("resolvePlatformRuntimePlan", () => {
     expect(resolved.runtime.taskOverlayId).toBe("document_first");
     expect(resolved.runtime.plannerReasoning).toContain("doc_ingest");
     expect(resolved.runtime.timeoutSeconds).toBe(180);
+    expect(resolved.runtime.requiredCapabilities).toEqual(["pdf-parser"]);
+    expect(resolved.capabilitySummary.requirements).toEqual([
+      expect.objectContaining({
+        capabilityId: "pdf-parser",
+      }),
+    ]);
     expect(resolved.runtime.prependSystemContext).toContain("Execution recipe: doc_ingest.");
     expect(resolved.runtime.prependContext).toContain("Planner reasoning:");
   });
@@ -100,5 +106,20 @@ describe("resolvePlatformRuntimePlan", () => {
     expect(integrationResolved.runtime.selectedRecipeId).toBe("integration_delivery");
     expect(mediaResolved.runtime.selectedProfileId).toBe("media_creator");
     expect(mediaResolved.runtime.selectedRecipeId).toBe("media_production");
+  });
+
+  it("adds policy preview and bootstrap hints to the execution decision", () => {
+    const resolved = resolvePlatformRuntimePlan({
+      prompt: "Fix the failing TypeScript build and publish to GitHub",
+      fileNames: ["app.ts"],
+      publishTargets: ["github"],
+      requestedTools: ["exec"],
+      intent: "publish",
+    });
+
+    expect(resolved.policyContext.requestedCapabilities).toEqual(["node", "git"]);
+    expect(resolved.policyPreview.requireExplicitApproval).toBe(true);
+    expect(resolved.runtime.policyAutonomy).toBe("assist");
+    expect(resolved.runtime.requireExplicitApproval).toBe(true);
   });
 });
