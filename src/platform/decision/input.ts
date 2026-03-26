@@ -2,6 +2,7 @@ import path from "node:path";
 import type { SessionEntry } from "../../config/sessions.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
+import { resolvePlatformRuntimePlan, type ResolvedPlatformRuntimePlan } from "../recipe/runtime-adapter.js";
 
 const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
 const DEVELOPER_EXECUTION_KEYWORDS =
@@ -116,6 +117,12 @@ export function buildExecutionDecisionInput(
     },
     params.sessionEntry,
   );
+}
+
+export function resolveExecutionRuntimePlan(
+  params: BuildExecutionDecisionInputParams,
+): ResolvedPlatformRuntimePlan {
+  return resolvePlatformRuntimePlan(buildExecutionDecisionInput(params));
 }
 
 function extractTranscriptUserText(content: unknown): string | undefined {

@@ -4,10 +4,13 @@ import { randomUUID } from "node:crypto";
 import { resolveStateDir } from "../../config/paths.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import {
+  PlatformRuntimeAcceptanceResultSchema,
   PlatformRuntimeCheckpointSchema,
   PlatformRuntimeCheckpointStoreSchema,
   PlatformRuntimeCheckpointSummarySchema,
   PlatformRuntimeRunOutcomeSchema,
+  type PlatformRuntimeAcceptanceEvidence,
+  type PlatformRuntimeAcceptanceResult,
   type PlatformRuntimeBoundary,
   type PlatformRuntimeCheckpoint,
   type PlatformRuntimeContinuation,
@@ -49,6 +52,11 @@ export type PlatformRuntimeCheckpointService = {
     status?: PlatformRuntimeCheckpointStatus;
   }) => PlatformRuntimeCheckpointSummary[];
   buildRunOutcome: (runId: string) => PlatformRuntimeRunOutcome | undefined;
+  evaluateAcceptance: (params: {
+    runId: string;
+    outcome: PlatformRuntimeRunOutcome;
+    evidence?: PlatformRuntimeAcceptanceEvidence;
+  }) => PlatformRuntimeAcceptanceResult;
   registerContinuationHandler: (
     kind: PlatformRuntimeContinuationKind,
     handler: (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void,
@@ -228,6 +236,110 @@ export function createPlatformRuntimeCheckpointService(params?: {
         artifactIds: Array.from(new Set(artifactIds)),
         bootstrapRequestIds: Array.from(new Set(bootstrapRequestIds)),
         boundaries: Array.from(new Set(runCheckpoints.map((checkpoint) => checkpoint.boundary))),
+      });
+    },
+    evaluateAcceptance(params) {
+      const evidence = params.evidence ?? {};
+      const reasons: string[] = [];
+      if (params.outcome.pendingApprovalIds.length > 0) {
+        reasons.push("Run still requires operator approval before the task can finish.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "needs_human",
+          action: "escalate",
+          reasonCode: "pending_approval",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (params.outcome.status === "blocked") {
+        reasons.push("Run is blocked on a runtime boundary and cannot safely auto-complete.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "needs_human",
+          action: "escalate",
+          reasonCode: "runtime_blocked",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (params.outcome.status === "failed") {
+        reasons.push("Run reached a failed runtime outcome.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "failed",
+          action: "stop",
+          reasonCode: "runtime_failed",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (params.outcome.status === "partial") {
+        reasons.push("Run finished with only a partial runtime outcome.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode: "runtime_partial",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      const hasDeliverableEvidence =
+        params.outcome.artifactIds.length > 0 ||
+        params.outcome.bootstrapRequestIds.length > 0 ||
+        evidence.didSendViaMessagingTool === true ||
+        evidence.hasOutput === true ||
+        (evidence.successfulCronAdds ?? 0) > 0;
+      if (evidence.hadToolError === true && hasDeliverableEvidence) {
+        reasons.push("Run completed with deliverable evidence, but one or more tool errors were observed.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "partial",
+          action: "stop",
+          reasonCode: "completed_with_warnings",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (params.outcome.artifactIds.length > 0 || params.outcome.bootstrapRequestIds.length > 0) {
+        reasons.push("Run completed and produced structured platform artifacts or bootstrap output.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "satisfied",
+          action: "close",
+          reasonCode: "completed_with_artifacts",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (hasDeliverableEvidence) {
+        reasons.push("Run completed with user-visible or automation-visible output.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "satisfied",
+          action: "close",
+          reasonCode: "completed_with_output",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      reasons.push("Run completed but no machine-checkable delivery evidence was observed.");
+      return PlatformRuntimeAcceptanceResultSchema.parse({
+        runId: params.runId,
+        status: "retryable",
+        action: "retry",
+        reasonCode: "completed_without_evidence",
+        reasons,
+        outcome: params.outcome,
+        evidence,
       });
     },
     registerContinuationHandler(kind, handler) {

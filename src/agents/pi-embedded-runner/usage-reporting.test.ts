@@ -232,5 +232,12 @@ describe("runEmbeddedPiAgent usage reporting", () => {
         deterministicApprovalPromptSent: true,
       }),
     );
+    expect(result.meta.acceptanceOutcome).toEqual(
+      expect.objectContaining({
+        status: "needs_human",
+        action: "escalate",
+        reasonCode: "pending_approval",
+      }),
+    );
   });
 });

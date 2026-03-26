@@ -94,4 +94,56 @@ describe("platform runtime checkpoint service", () => {
       }),
     );
   });
+
+  it("evaluates acceptance outcomes from runtime evidence", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const accepted = service.evaluateAcceptance({
+      runId: "run-acceptance",
+      outcome: {
+        runId: "run-acceptance",
+        status: "completed",
+        checkpointIds: [],
+        blockedCheckpointIds: [],
+        completedCheckpointIds: [],
+        deniedCheckpointIds: [],
+        pendingApprovalIds: [],
+        artifactIds: [],
+        bootstrapRequestIds: [],
+        boundaries: [],
+      },
+      evidence: {
+        hasOutput: true,
+      },
+    });
+    expect(accepted).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+        reasonCode: "completed_with_output",
+      }),
+    );
+
+    const escalate = service.evaluateAcceptance({
+      runId: "run-human",
+      outcome: {
+        runId: "run-human",
+        status: "blocked",
+        checkpointIds: ["checkpoint-human"],
+        blockedCheckpointIds: ["checkpoint-human"],
+        completedCheckpointIds: [],
+        deniedCheckpointIds: [],
+        pendingApprovalIds: ["approval-human"],
+        artifactIds: [],
+        bootstrapRequestIds: [],
+        boundaries: ["exec_approval"],
+      },
+    });
+    expect(escalate).toEqual(
+      expect.objectContaining({
+        status: "needs_human",
+        action: "escalate",
+        reasonCode: "pending_approval",
+      }),
+    );
+  });
 });
