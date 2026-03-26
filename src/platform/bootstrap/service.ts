@@ -30,6 +30,7 @@ import {
   type BootstrapRequestRecordDetail,
   type BootstrapRequestRecordSummary,
 } from "./contracts.js";
+import { getPlatformRuntimeCheckpointService } from "../runtime/index.js";
 
 export type BootstrapRequestService = {
   configure: (params: { stateDir?: string }) => void;
@@ -158,11 +159,15 @@ export function createBootstrapRequestService(params?: {
   const records = new Map<string, BootstrapRequestRecord>();
   const registry = params?.registry ?? createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
   let stateDir = params?.stateDir;
+  const runtimeCheckpointService = getPlatformRuntimeCheckpointService({
+    ...(params?.stateDir ? { stateDir: params.stateDir } : {}),
+  });
 
   return {
     configure(config) {
       if (config.stateDir) {
         stateDir = config.stateDir;
+        runtimeCheckpointService.configure({ stateDir: config.stateDir });
       }
     },
     getAuditPath() {
@@ -194,6 +199,29 @@ export function createBootstrapRequestService(params?: {
         updatedAt: now,
       });
       records.set(record.id, record);
+      runtimeCheckpointService.createCheckpoint({
+        id: record.id,
+        runId: record.id,
+        boundary: "bootstrap",
+        blockedReason: "bootstrap approval required",
+        nextActions: [
+          {
+            method: "platform.bootstrap.resolve",
+            label: "Approve or deny bootstrap request",
+            phase: "approve",
+          },
+          {
+            method: "platform.bootstrap.run",
+            label: "Run approved bootstrap request",
+            phase: "resume",
+          },
+        ],
+        target: {
+          bootstrapRequestId: record.id,
+          operation: "bootstrap.run",
+        },
+        executionContext: record.request.executionContext,
+      });
       appendAuditRecord(stateDir, "request.created", record);
       return record;
     },
@@ -222,6 +250,11 @@ export function createBootstrapRequestService(params?: {
           : { reasons: existing.reasons }),
       });
       records.set(id, updated);
+      runtimeCheckpointService.updateCheckpoint(id, {
+        status: decision === "approve" ? "approved" : "denied",
+        approvedAtMs: decision === "approve" ? Date.now() : undefined,
+        completedAtMs: decision === "deny" ? Date.now() : undefined,
+      });
       appendAuditRecord(
         stateDir,
         decision === "approve" ? "request.approved" : "request.denied",
@@ -252,6 +285,10 @@ export function createBootstrapRequestService(params?: {
         startedAt,
       });
       records.set(running.id, running);
+      runtimeCheckpointService.updateCheckpoint(running.id, {
+        status: "resumed",
+        resumedAtMs: Date.now(),
+      });
       appendAuditRecord(stateDir, "request.started", running);
       const policyContext = buildBootstrapPolicyContext(running.request, true);
       const result = await orchestrateBootstrapRequest({
@@ -275,6 +312,10 @@ export function createBootstrapRequestService(params?: {
         reasons: result.reasons,
       });
       records.set(updated.id, updated);
+      runtimeCheckpointService.updateCheckpoint(updated.id, {
+        status: result.status === "bootstrapped" ? "completed" : "denied",
+        completedAtMs: Date.now(),
+      });
       appendAuditRecord(
         stateDir,
         result.status === "bootstrapped" ? "request.available" : "request.degraded",

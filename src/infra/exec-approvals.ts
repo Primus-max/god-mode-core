@@ -84,6 +84,10 @@ export type ExecApprovalRequestPayload = {
     requestedByDeviceId?: string | null;
     linkedAtMs?: number | null;
   } | null;
+  runtimeRunId?: string | null;
+  runtimeCheckpointId?: string | null;
+  runtimeBoundary?: string | null;
+  blockedReason?: string | null;
 };
 
 export type ExecApprovalRequest = {

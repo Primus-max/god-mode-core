@@ -61,6 +61,56 @@ describe("session lifecycle state", () => {
     });
   });
 
+  it("marks blocked lifecycle events as resumable blocked sessions", () => {
+    expect(
+      deriveGatewaySessionLifecycleSnapshot({
+        session: {
+          updatedAt: 1_000,
+          status: "running",
+          startedAt: 1_100,
+        },
+        event: {
+          ts: 1_500,
+          data: {
+            phase: "blocked",
+          },
+        },
+      }),
+    ).toEqual({
+      updatedAt: 1_500,
+      status: "blocked",
+      startedAt: 1_100,
+      endedAt: undefined,
+      runtimeMs: undefined,
+      abortedLastRun: false,
+    });
+  });
+
+  it("returns blocked sessions back to running on lifecycle resumed", () => {
+    expect(
+      deriveGatewaySessionLifecycleSnapshot({
+        session: {
+          updatedAt: 1_500,
+          status: "blocked",
+          startedAt: 1_100,
+        },
+        event: {
+          ts: 1_600,
+          data: {
+            phase: "resumed",
+          },
+        },
+      }),
+    ).toEqual({
+      updatedAt: 1_600,
+      status: "running",
+      startedAt: 1_100,
+      endedAt: undefined,
+      runtimeMs: undefined,
+      abortedLastRun: false,
+    });
+  });
+
   it("maps aborted stop reasons to killed", () => {
     expect(
       derivePersistedSessionLifecyclePatch({

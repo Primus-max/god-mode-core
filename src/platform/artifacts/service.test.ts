@@ -4,6 +4,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { applyMaterializationToDescriptor, materializeArtifact } from "../materialization/index.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../runtime/index.js";
 import { createArtifactService } from "./service.js";
 
 function createTempStateDir(): string {
@@ -25,6 +29,7 @@ function buildDescriptor(overrides: Partial<ArtifactDescriptor> = {}): ArtifactD
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  resetPlatformRuntimeCheckpointService();
   for (const tempDir of tempDirs.splice(0)) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -134,6 +139,12 @@ describe("artifact service", () => {
       code: "denied",
       reason: expect.stringContaining("requires publish intent"),
     });
+    expect(getPlatformRuntimeCheckpointService().get("artifact-report:publish")).toEqual(
+      expect.objectContaining({
+        status: "blocked",
+        boundary: "artifact_publish",
+      }),
+    );
   });
 
   it("skips corrupt persisted records during rehydration", () => {

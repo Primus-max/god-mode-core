@@ -15,6 +15,10 @@ import {
   getPlatformMachineControlService,
   resetPlatformMachineControlService,
 } from "../../platform/machine/index.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../../platform/runtime/index.js";
 import { ExecApprovalManager } from "../exec-approval-manager.js";
 import { validateExecApprovalRequestParams } from "../protocol/index.js";
 import { waitForAgentJob } from "./agent-job.js";
@@ -75,6 +79,27 @@ describe("waitForAgentJob", () => {
     expect(snapshot?.status).toBe("ok");
     expect(snapshot?.startedAt).toBe(300);
     expect(snapshot?.endedAt).toBe(400);
+  });
+
+  it("returns blocked snapshots for resumable lifecycle boundaries", async () => {
+    const runId = `run-blocked-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const waitPromise = waitForAgentJob({ runId, timeoutMs: 1_000 });
+
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: { phase: "start", startedAt: 500 },
+    });
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: { phase: "blocked", startedAt: 500 },
+    });
+
+    const snapshot = await waitPromise;
+    expect(snapshot?.status).toBe("blocked");
+    expect(snapshot?.startedAt).toBe(500);
+    expect(snapshot?.endedAt).toBeUndefined();
   });
 
   it("can ignore cached snapshots and wait for fresh lifecycle events", async () => {
@@ -341,6 +366,7 @@ describe("exec approval handlers", () => {
 
   afterEach(() => {
     resetPlatformMachineControlService();
+    resetPlatformRuntimeCheckpointService();
     delete process.env.OPENCLAW_STATE_DIR;
     for (const tempDir of tempStateDirs.splice(0)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -545,6 +571,49 @@ describe("exec approval handlers", () => {
       const params = { ...baseParams, ...extra };
       expect(validateExecApprovalRequestParams(params)).toBe(true);
     });
+  });
+
+  it("creates and advances runtime checkpoints for exec approvals", async () => {
+    const fixture = createExecApprovalFixture();
+
+    const requestPromise = requestExecApproval({
+      handlers: fixture.handlers,
+      respond: fixture.respond,
+      context: fixture.context,
+      params: {
+        id: "checkpoint-runtime-checkpoint",
+        twoPhase: true,
+        runtimeRunId: "run-runtime-checkpoint",
+        runtimeCheckpointId: "checkpoint-runtime-checkpoint",
+        blockedReason: "approval required for privileged system.run",
+      },
+    });
+
+    expect(
+      getPlatformRuntimeCheckpointService().get("checkpoint-runtime-checkpoint"),
+    ).toEqual(
+      expect.objectContaining({
+        runId: "run-runtime-checkpoint",
+        status: "blocked",
+        boundary: "machine_control",
+      }),
+    );
+
+    await resolveExecApproval({
+      handlers: fixture.handlers,
+      id: "checkpoint-runtime-checkpoint",
+      respond: fixture.respond,
+      context: fixture.context,
+    });
+    await requestPromise;
+
+    expect(
+      getPlatformRuntimeCheckpointService().get("checkpoint-runtime-checkpoint"),
+    ).toEqual(
+      expect.objectContaining({
+        status: "approved",
+      }),
+    );
   });
 
   it("rejects host=node approval requests without nodeId", async () => {

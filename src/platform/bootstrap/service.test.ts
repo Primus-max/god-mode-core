@@ -1,10 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
 import { createBootstrapRequestService } from "./service.js";
 import type { BootstrapRequest } from "./contracts.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../runtime/index.js";
 
 function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapRequest {
   const catalogEntry = TRUSTED_CAPABILITY_CATALOG.find((entry) => entry.capability.id === "pdf-renderer");
@@ -35,9 +39,14 @@ function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapReque
 }
 
 describe("bootstrap request service", () => {
+  afterEach(() => {
+    resetPlatformRuntimeCheckpointService();
+  });
+
   it("creates, lists, and resolves bootstrap requests", () => {
     const service = createBootstrapRequestService();
     const created = service.create(buildRequest());
+    expect(getPlatformRuntimeCheckpointService().get(created.id)?.status).toBe("blocked");
 
     expect(service.list()).toEqual([
       expect.objectContaining({
@@ -49,6 +58,7 @@ describe("bootstrap request service", () => {
 
     const approved = service.resolve(created.id, "approve");
     expect(approved?.state).toBe("approved");
+    expect(getPlatformRuntimeCheckpointService().get(created.id)?.status).toBe("approved");
     expect(service.get(created.id)?.state).toBe("approved");
     expect(service.get(created.id)?.request.executionContext).toEqual(
       expect.objectContaining({
@@ -93,6 +103,7 @@ describe("bootstrap request service", () => {
     expect(result?.state).toBe("available");
     expect(result?.result?.status).toBe("bootstrapped");
     expect(result?.result?.lifecycle?.status).toBe("available");
+    expect(getPlatformRuntimeCheckpointService().get(created.id)?.status).toBe("completed");
   });
 
   it("persists the bootstrap audit trail and rehydrates records after restart", async () => {

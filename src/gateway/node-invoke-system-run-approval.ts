@@ -1,6 +1,8 @@
 import { resolveSystemRunApprovalRuntimeContext } from "../infra/system-run-approval-context.js";
 import { resolveSystemRunCommandRequest } from "../infra/system-run-command.js";
+import { emitAgentEvent, registerAgentRunContext } from "../infra/agent-events.js";
 import { getPlatformMachineControlService } from "../platform/machine/index.js";
+import { getPlatformRuntimeCheckpointService } from "../platform/runtime/index.js";
 import type { ExecApprovalRecord } from "./exec-approval-manager.js";
 import {
   systemRunApprovalGuardError,
@@ -63,6 +65,34 @@ function normalizeApprovalDecision(value: unknown): "allow-once" | "allow-always
 function clientHasApprovals(client: ApprovalClient | null): boolean {
   const scopes = Array.isArray(client?.connect?.scopes) ? client?.connect?.scopes : [];
   return scopes.includes("operator.admin") || scopes.includes("operator.approvals");
+}
+
+function markApprovalCheckpointResumed(snapshot: ExecApprovalRecord) {
+  const runtimeRunId = snapshot.request.runtimeRunId ?? snapshot.id;
+  const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
+  const checkpoint = runtimeCheckpointService.updateCheckpoint(
+    snapshot.request.runtimeCheckpointId ?? snapshot.id,
+    {
+      status: "resumed",
+      resumedAtMs: Date.now(),
+    },
+  );
+  registerAgentRunContext(runtimeRunId, {
+    ...(snapshot.request.sessionKey ? { sessionKey: snapshot.request.sessionKey } : {}),
+    runtimeState: "resumed",
+    runtimeCheckpointId: checkpoint?.id ?? snapshot.request.runtimeCheckpointId ?? snapshot.id,
+    runtimeBoundary: checkpoint?.boundary ?? snapshot.request.runtimeBoundary ?? undefined,
+  });
+  emitAgentEvent({
+    runId: runtimeRunId,
+    stream: "lifecycle",
+    ...(snapshot.request.sessionKey ? { sessionKey: snapshot.request.sessionKey } : {}),
+    data: {
+      phase: "resumed",
+      checkpointId: checkpoint?.id ?? snapshot.request.runtimeCheckpointId ?? snapshot.id,
+      boundary: checkpoint?.boundary ?? snapshot.request.runtimeBoundary ?? undefined,
+    },
+  });
 }
 
 function pickSystemRunParams(raw: Record<string, unknown>): Record<string, unknown> {
@@ -285,12 +315,14 @@ export function sanitizeSystemRunParamsForForwarding(opts: {
     if (typeof manager.consumeAllowOnce !== "function" || !manager.consumeAllowOnce(runId)) {
       return systemRunApprovalRequired(runId);
     }
+    markApprovalCheckpointResumed(snapshot);
     next.approved = true;
     next.approvalDecision = "allow-once";
     return { ok: true, params: next };
   }
 
   if (snapshot.decision === "allow-always") {
+    markApprovalCheckpointResumed(snapshot);
     next.approved = true;
     next.approvalDecision = "allow-always";
     return { ok: true, params: next };
@@ -308,6 +340,7 @@ export function sanitizeSystemRunParamsForForwarding(opts: {
     requestedDecision === "allow-once" &&
     clientHasApprovals(opts.client)
   ) {
+    markApprovalCheckpointResumed(snapshot);
     next.approved = true;
     next.approvalDecision = "allow-once";
     return { ok: true, params: next };

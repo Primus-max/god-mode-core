@@ -1,0 +1,91 @@
+import { z } from "zod";
+import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
+
+export const PlatformRuntimeBoundarySchema = z.enum([
+  "exec_approval",
+  "bootstrap",
+  "artifact_publish",
+  "machine_control",
+  "privileged_tool",
+]);
+export type PlatformRuntimeBoundary = z.infer<typeof PlatformRuntimeBoundarySchema>;
+
+export const PlatformRuntimeCheckpointStatusSchema = z.enum([
+  "blocked",
+  "approved",
+  "resumed",
+  "completed",
+  "denied",
+  "cancelled",
+]);
+export type PlatformRuntimeCheckpointStatus = z.infer<typeof PlatformRuntimeCheckpointStatusSchema>;
+
+export const PlatformRuntimeNextActionSchema = z
+  .object({
+    method: z.string().min(1),
+    label: z.string().min(1),
+    phase: z.enum(["approve", "deny", "resume", "retry", "inspect"]).optional(),
+  })
+  .strict();
+export type PlatformRuntimeNextAction = z.infer<typeof PlatformRuntimeNextActionSchema>;
+
+export const PlatformRuntimeTargetSchema = z
+  .object({
+    approvalId: z.string().min(1).optional(),
+    artifactId: z.string().min(1).optional(),
+    bootstrapRequestId: z.string().min(1).optional(),
+    nodeId: z.string().min(1).optional(),
+    toolName: z.string().min(1).optional(),
+    operation: z.string().min(1).optional(),
+  })
+  .strict();
+export type PlatformRuntimeTarget = z.infer<typeof PlatformRuntimeTargetSchema>;
+
+export const PlatformRuntimeCheckpointSchema = z
+  .object({
+    id: z.string().min(1),
+    runId: z.string().min(1),
+    sessionKey: z.string().min(1).optional(),
+    boundary: PlatformRuntimeBoundarySchema,
+    status: PlatformRuntimeCheckpointStatusSchema,
+    blockedReason: z.string().min(1).optional(),
+    policyReasons: z.array(z.string().min(1)).optional(),
+    deniedReasons: z.array(z.string().min(1)).optional(),
+    nextActions: z.array(PlatformRuntimeNextActionSchema).optional(),
+    target: PlatformRuntimeTargetSchema.optional(),
+    executionContext: PlatformExecutionContextSnapshotSchema.optional(),
+    createdAtMs: z.number().int().nonnegative(),
+    updatedAtMs: z.number().int().nonnegative(),
+    approvedAtMs: z.number().int().nonnegative().optional(),
+    resumedAtMs: z.number().int().nonnegative().optional(),
+    completedAtMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export type PlatformRuntimeCheckpoint = z.infer<typeof PlatformRuntimeCheckpointSchema>;
+
+export const PlatformRuntimeCheckpointSummarySchema = PlatformRuntimeCheckpointSchema.pick({
+  id: true,
+  runId: true,
+  sessionKey: true,
+  boundary: true,
+  status: true,
+  blockedReason: true,
+  nextActions: true,
+  target: true,
+  createdAtMs: true,
+  updatedAtMs: true,
+  approvedAtMs: true,
+  resumedAtMs: true,
+  completedAtMs: true,
+});
+export type PlatformRuntimeCheckpointSummary = z.infer<
+  typeof PlatformRuntimeCheckpointSummarySchema
+>;
+
+export const PlatformRuntimeCheckpointStoreSchema = z
+  .object({
+    version: z.literal(1),
+    checkpoints: z.array(PlatformRuntimeCheckpointSchema),
+  })
+  .strict();
+export type PlatformRuntimeCheckpointStore = z.infer<typeof PlatformRuntimeCheckpointStoreSchema>;

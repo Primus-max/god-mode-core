@@ -100,7 +100,7 @@ export type SessionEntry = {
   /** Accumulated runtime across subagent follow-up runs, persisted after completion. */
   runtimeMs?: number;
   /** Final persisted subagent run status, used after in-memory run archival. */
-  status?: "running" | "done" | "failed" | "killed" | "timeout";
+  status?: "running" | "blocked" | "done" | "failed" | "killed" | "timeout";
   /**
    * Session-level stop cutoff captured when /stop is received.
    * Messages at/before this boundary are skipped to avoid replaying

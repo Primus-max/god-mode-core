@@ -98,6 +98,8 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "platform.artifacts.get",
     "platform.bootstrap.list",
     "platform.bootstrap.get",
+    "platform.runtime.checkpoints.list",
+    "platform.runtime.checkpoints.get",
     "platform.machine.status",
     "platform.profile.resolve",
   ],
