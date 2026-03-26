@@ -45,6 +45,7 @@ import {
 } from "../infra/agent-events.js";
 import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
+import { applySessionSpecialistOverrideToPlannerInput } from "../platform/profile/index.js";
 import {
   resolvePlatformRuntimePlan,
   type ResolvedPlatformRuntimePlan,
@@ -514,7 +515,6 @@ export function buildPlatformPlannerInput(params: {
 
   return {
     prompt: params.prompt,
-    baseProfile: "general",
     ...(intent ? { intent } : {}),
     ...(publishTargets.length > 0 ? { publishTargets } : {}),
     ...(uniqueIntegrations.length > 0 ? { integrations: uniqueIntegrations } : {}),
@@ -655,12 +655,6 @@ async function prepareAgentCommandExecution(
     throw new Error("Message (--message) is required");
   }
   const body = prependInternalEventContext(message, opts.internalEvents);
-  const platformRuntimePlan = resolvePlatformRuntimePlan(
-    buildPlatformPlannerInput({
-      prompt: body,
-      opts,
-    }),
-  );
   if (!opts.to && !opts.sessionId && !opts.sessionKey && !opts.agentId) {
     throw new Error("Pass --to <E.164>, --session-id, or --agent to choose a session");
   }
@@ -733,25 +727,6 @@ async function prepareAgentCommandExecution(
     throw new Error('Invalid verbose level. Use "on", "full", or "off".');
   }
 
-  const laneRaw = typeof opts.lane === "string" ? opts.lane.trim() : "";
-  const isSubagentLane = laneRaw === String(AGENT_LANE_SUBAGENT);
-  const timeoutSecondsRaw =
-    opts.timeout !== undefined
-      ? Number.parseInt(String(opts.timeout), 10)
-      : isSubagentLane
-        ? 0
-        : platformRuntimePlan.runtime.timeoutSeconds;
-  if (
-    timeoutSecondsRaw !== undefined &&
-    (Number.isNaN(timeoutSecondsRaw) || timeoutSecondsRaw < 0)
-  ) {
-    throw new Error("--timeout must be a non-negative integer (seconds; 0 means no timeout)");
-  }
-  const timeoutMs = resolveAgentTimeoutMs({
-    cfg,
-    overrideSeconds: timeoutSecondsRaw,
-  });
-
   const sessionResolution = resolveSession({
     cfg,
     to: opts.to,
@@ -770,6 +745,33 @@ async function prepareAgentCommandExecution(
     persistedThinking,
     persistedVerbose,
   } = sessionResolution;
+  const platformRuntimePlan = resolvePlatformRuntimePlan(
+    applySessionSpecialistOverrideToPlannerInput(
+      buildPlatformPlannerInput({
+        prompt: body,
+        opts,
+      }),
+      sessionEntryRaw,
+    ),
+  );
+  const laneRaw = typeof opts.lane === "string" ? opts.lane.trim() : "";
+  const isSubagentLane = laneRaw === String(AGENT_LANE_SUBAGENT);
+  const timeoutSecondsRaw =
+    opts.timeout !== undefined
+      ? Number.parseInt(String(opts.timeout), 10)
+      : isSubagentLane
+        ? 0
+        : platformRuntimePlan.runtime.timeoutSeconds;
+  if (
+    timeoutSecondsRaw !== undefined &&
+    (Number.isNaN(timeoutSecondsRaw) || timeoutSecondsRaw < 0)
+  ) {
+    throw new Error("--timeout must be a non-negative integer (seconds; 0 means no timeout)");
+  }
+  const timeoutMs = resolveAgentTimeoutMs({
+    cfg,
+    overrideSeconds: timeoutSecondsRaw,
+  });
   const sessionAgentId =
     agentIdOverride ??
     resolveSessionAgentId({

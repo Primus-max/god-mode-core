@@ -14,7 +14,6 @@ describe("agent-command Stage 4 planner input helpers", () => {
     });
 
     expect(input).toMatchObject({
-      baseProfile: "general",
       intent: "publish",
       publishTargets: ["github", "vercel"],
       integrations: ["github", "vercel", "webchat"],

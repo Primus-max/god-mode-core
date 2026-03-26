@@ -768,10 +768,13 @@ export const en: TranslationMap = {
       config: "config",
     },
     override: {
-      title: "Manual override seam",
-      subtitle: "Prepared for future base/session profile controls without bypassing policy.",
+      title: "Manual override",
+      subtitle: "Pin the active specialist profile without bypassing policy or hidden permissions.",
       mode: "Mode",
-      comingSoon: "Manual specialist overrides are staged here, but this release remains read-only and automatic.",
+      baseProfile: "Base profile",
+      sessionProfile: "Session profile",
+      ready: "Override changes apply to the session planner immediately and remain policy-safe.",
+      saving: "Saving specialist override…",
       modes: {
         auto: "Auto",
         base: "Base profile",

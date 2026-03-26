@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { render } from "lit";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import type { SpecialistRuntimeSnapshot } from "../types.ts";
 import { renderChat, type ChatProps } from "./chat.ts";
@@ -10,6 +10,12 @@ import { renderOverview, type OverviewProps } from "./overview.ts";
 function createSnapshot(): SpecialistRuntimeSnapshot {
   return {
     sessionKey: "main",
+    availableProfiles: [
+      { id: "builder", label: "Builder" },
+      { id: "developer", label: "Developer" },
+      { id: "general", label: "General" },
+      { id: "operator", label: "Operator" },
+    ],
     selectedProfileId: "developer",
     selectedProfileLabel: "Developer",
     activeProfileId: "developer",
@@ -40,11 +46,9 @@ function createSnapshot(): SpecialistRuntimeSnapshot {
       },
     ],
     override: {
-      supported: false,
+      supported: true,
       mode: "auto",
-      baseProfileId: "general",
-      sessionProfileId: "developer",
-      note: "Manual specialist override is not wired yet.",
+      note: "Automatic specialist selection stays policy-safe and can still react to task signals.",
     },
   };
 }
@@ -74,6 +78,7 @@ function createChatProps(overrides: Partial<ChatProps> = {}): ChatProps {
     disabledReason: null,
     error: null,
     specialistLoading: false,
+    specialistSaving: false,
     specialistError: null,
     specialistSnapshot: null,
     sessions: {
@@ -137,6 +142,7 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     eventLog: [],
     overviewLogLines: [],
     specialistLoading: false,
+    specialistSaving: false,
     specialistError: null,
     specialistSnapshot: null,
     showGatewayToken: false,
@@ -150,6 +156,7 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     onRefresh: () => undefined,
     onNavigate: () => undefined,
     onRefreshLogs: () => undefined,
+    onSpecialistOverrideChange: () => undefined,
     ...overrides,
   };
 }
@@ -198,5 +205,59 @@ describe("specialist context views", () => {
     expect(container.textContent).toContain(
       "No specialist context yet. Start a session or type a draft to resolve one.",
     );
+  });
+
+  it("enables specialist override controls and emits base/session changes", async () => {
+    const container = document.createElement("div");
+    const onSpecialistOverrideChange = vi.fn();
+
+    render(
+      renderOverview(
+        createOverviewProps({
+          specialistSnapshot: createSnapshot(),
+          onSpecialistOverrideChange,
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const selects = Array.from(container.querySelectorAll("select"));
+    const overrideModeSelect = selects.at(-1) as HTMLSelectElement;
+    expect(overrideModeSelect.disabled).toBe(false);
+
+    overrideModeSelect.value = "base";
+    overrideModeSelect.dispatchEvent(new Event("change"));
+    expect(onSpecialistOverrideChange).toHaveBeenCalledWith({
+      mode: "base",
+      profileId: "developer",
+    });
+
+    render(
+      renderOverview(
+        createOverviewProps({
+          specialistSnapshot: {
+            ...createSnapshot(),
+            override: {
+              supported: true,
+              mode: "session",
+              sessionProfileId: "builder",
+            },
+          },
+          onSpecialistOverrideChange,
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const updatedSelects = Array.from(container.querySelectorAll("select"));
+    const profileSelect = updatedSelects.at(-1) as HTMLSelectElement;
+    profileSelect.value = "general";
+    profileSelect.dispatchEvent(new Event("change"));
+    expect(onSpecialistOverrideChange).toHaveBeenCalledWith({
+      mode: "session",
+      profileId: "general",
+    });
   });
 });

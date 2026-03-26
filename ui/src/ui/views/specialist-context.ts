@@ -4,8 +4,15 @@ import type { SpecialistRuntimeSnapshot } from "../types.ts";
 
 type SpecialistContextProps = {
   loading: boolean;
+  saving?: boolean;
   error: string | null;
   snapshot: SpecialistRuntimeSnapshot | null;
+  onOverrideChange?: (
+    next:
+      | { mode: "auto" }
+      | { mode: "base"; profileId: string }
+      | { mode: "session"; profileId: string },
+  ) => void;
 };
 
 function formatConfidence(confidence: number): string {
@@ -65,6 +72,27 @@ function renderSignalList(snapshot: SpecialistRuntimeSnapshot) {
 
 function renderOverrideModeLabel(mode: SpecialistRuntimeSnapshot["override"]["mode"]): string {
   return t(`specialist.override.modes.${mode}`);
+}
+
+function resolveOverrideProfileId(snapshot: SpecialistRuntimeSnapshot): string {
+  return (
+    snapshot.override.sessionProfileId ??
+    snapshot.override.baseProfileId ??
+    snapshot.selectedProfileId
+  );
+}
+
+function resolveModeTargetProfileId(
+  snapshot: SpecialistRuntimeSnapshot,
+  mode: SpecialistRuntimeSnapshot["override"]["mode"],
+): string {
+  if (mode === "base") {
+    return snapshot.override.baseProfileId ?? snapshot.selectedProfileId;
+  }
+  if (mode === "session") {
+    return snapshot.override.sessionProfileId ?? snapshot.selectedProfileId;
+  }
+  return snapshot.selectedProfileId;
 }
 
 function renderSpecialistEmptyState() {
@@ -162,14 +190,68 @@ export function renderSpecialistOverviewPanel(props: SpecialistContextProps) {
                 <div class="muted" style="margin-top: 4px;">${t("specialist.override.subtitle")}</div>
                 <label class="field" style="margin-top: 10px;">
                   <span>${t("specialist.override.mode")}</span>
-                  <select .value=${props.snapshot.override.mode} disabled>
+                  <select
+                    .value=${props.snapshot.override.mode}
+                    ?disabled=${!props.onOverrideChange || props.saving}
+                    @change=${(event: Event) => {
+                      const mode = (event.currentTarget as HTMLSelectElement).value as
+                        | "auto"
+                        | "base"
+                        | "session";
+                      if (!props.onOverrideChange) {
+                        return;
+                      }
+                      if (mode === "auto") {
+                        props.onOverrideChange({ mode });
+                        return;
+                      }
+                      props.onOverrideChange({
+                        mode,
+                        profileId: resolveModeTargetProfileId(props.snapshot!, mode),
+                      });
+                    }}
+                  >
                     <option value="auto">${renderOverrideModeLabel("auto")}</option>
                     <option value="base">${renderOverrideModeLabel("base")}</option>
                     <option value="session">${renderOverrideModeLabel("session")}</option>
                   </select>
                 </label>
+                ${
+                  props.snapshot.override.mode !== "auto"
+                    ? html`
+                        <label class="field" style="margin-top: 10px;">
+                          <span>
+                            ${props.snapshot.override.mode === "base"
+                              ? t("specialist.override.baseProfile")
+                              : t("specialist.override.sessionProfile")}
+                          </span>
+                          <select
+                            .value=${resolveOverrideProfileId(props.snapshot)}
+                            ?disabled=${!props.onOverrideChange || props.saving}
+                            @change=${(event: Event) => {
+                              if (!props.onOverrideChange) {
+                                return;
+                              }
+                              const profileId = (event.currentTarget as HTMLSelectElement).value;
+                              props.onOverrideChange({
+                                mode: props.snapshot!.override.mode as "base" | "session",
+                                profileId,
+                              });
+                            }}
+                          >
+                            ${props.snapshot.availableProfiles.map(
+                              (profile) =>
+                                html`<option value=${profile.id}>${profile.label}</option>`,
+                            )}
+                          </select>
+                        </label>
+                      `
+                    : nothing
+                }
                 <div class="muted" style="margin-top: 8px;">
-                  ${props.snapshot.override.note ?? t("specialist.override.comingSoon")}
+                  ${props.saving
+                    ? t("specialist.override.saving")
+                    : props.snapshot.override.note ?? t("specialist.override.ready")}
                 </div>
               </div>
             `

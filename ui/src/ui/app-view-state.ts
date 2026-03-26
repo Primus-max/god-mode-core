@@ -222,6 +222,7 @@ export type AppViewState = {
   machineActionBusy: boolean;
   machineStatus: MachineControlStatus | null;
   specialistLoading: boolean;
+  specialistSaving: boolean;
   specialistError: string | null;
   specialistSnapshot: SpecialistRuntimeSnapshot | null;
   usageLoading: boolean;

@@ -34,7 +34,7 @@ import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
 import { resolvePlatformRuntimePlan } from "./recipe/runtime-adapter.js";
 
 function buildProfilePromptSection(prompt: string): PluginHookBeforePromptBuildResult | void {
-  const resolved = resolvePlatformRuntimePlan({ prompt, baseProfile: "general" });
+  const resolved = resolvePlatformRuntimePlan({ prompt });
   return {
     prependSystemContext: [
       `Active specialist profile: ${resolved.profile.selectedProfile.label}.`,
@@ -53,7 +53,7 @@ function buildProfilePromptSection(prompt: string): PluginHookBeforePromptBuildR
 }
 
 function buildAgentStartResult(prompt: string): PluginHookBeforeAgentStartResult | void {
-  const resolved = resolvePlatformRuntimePlan({ prompt, baseProfile: "general" });
+  const resolved = resolvePlatformRuntimePlan({ prompt });
   return {
     prependContext: [
       `Profile hint: ${resolved.profile.selectedProfile.label}. Confidence ${resolved.profile.activeProfile.confidence.toFixed(2)}.`,
@@ -66,7 +66,7 @@ function buildAgentStartResult(prompt: string): PluginHookBeforeAgentStartResult
 }
 
 function buildModelResolveResult(prompt: string): PluginHookBeforeModelResolveResult | void {
-  const resolved = resolvePlatformRuntimePlan({ prompt, baseProfile: "general" });
+  const resolved = resolvePlatformRuntimePlan({ prompt });
   if (!resolved.runtime.modelOverride && !resolved.runtime.providerOverride) {
     return undefined;
   }
@@ -168,7 +168,7 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   api.on(
     "llm_input",
     (event, ctx) => {
-      const resolved = resolvePlatformRuntimePlan({ prompt: event.prompt, baseProfile: "general" });
+      const resolved = resolvePlatformRuntimePlan({ prompt: event.prompt });
       machineControlService.recordRunSnapshot({
         runId: event.runId,
         sessionId: event.sessionId,
@@ -193,8 +193,8 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
       const runSnapshot = ctx.runId ? machineControlService.getRunSnapshot(ctx.runId) : undefined;
       const resolved =
         runSnapshot?.prompt !== undefined
-          ? resolvePlatformRuntimePlan({ prompt: runSnapshot.prompt, baseProfile: "general" })
-          : resolvePlatformRuntimePlan({ prompt: "", baseProfile: "general" });
+          ? resolvePlatformRuntimePlan({ prompt: runSnapshot.prompt })
+          : resolvePlatformRuntimePlan({ prompt: "" });
       const policy = evaluatePolicy({
         activeProfileId: resolved.profile.selectedProfile.id,
         activeProfile: resolved.profile.selectedProfile,

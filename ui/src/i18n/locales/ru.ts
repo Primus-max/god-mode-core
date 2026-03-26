@@ -118,11 +118,11 @@ export const ru: TranslationMap = {
   },
   specialist: {
     loading: "Загрузка specialist-контекста…",
-    empty: "Specialist-контекст пока не определён. Начните сессию или введите черновик, чтобы его вычислить.",
+    empty: "Specialist-контекст пока не определен. Начните сессию или введите черновик, чтобы его вычислить.",
     chatTitle: "Текущий specialist-контекст",
     overviewTitle: "Центр specialist-решений",
     overviewSubtitle:
-      "Объяснимое состояние profile, overlay, recipe и seam для override в активной сессии.",
+      "Объяснимое состояние профиля, overlay, recipe и override для активной сессии.",
     activeProfile: "Активный профиль",
     overlay: "Task overlay",
     recipe: "Recipe",
@@ -130,7 +130,7 @@ export const ru: TranslationMap = {
     reasoning: "Объяснение",
     signals: "Сигналы",
     noSignals: "Для этого контекста не найдено сильных routing-сигналов.",
-    draftApplied: "Черновик учтён",
+    draftApplied: "Черновик учтен",
     model: "Модель",
     timeout: "Таймаут",
     selectionLine: "Выбран {selected} · base {base} · session {session}",
@@ -143,11 +143,15 @@ export const ru: TranslationMap = {
       config: "конфиг",
     },
     override: {
-      title: "Seam для ручного override",
-      subtitle: "Подготовлено для будущих base/session profile controls без обхода policy.",
+      title: "Ручной override",
+      subtitle:
+        "Закрепляет активный specialist-профиль без обхода policy и без скрытых полномочий.",
       mode: "Режим",
-      comingSoon:
-        "Ручные specialist overrides подготовлены в этом месте, но в текущем этапе surface остаётся только для чтения и работает в auto-режиме.",
+      baseProfile: "Base profile",
+      sessionProfile: "Session profile",
+      ready:
+        "Изменения override сразу применяются к planner для этой сессии и остаются policy-safe.",
+      saving: "Сохранение specialist override…",
       modes: {
         auto: "Авто",
         base: "Base profile",

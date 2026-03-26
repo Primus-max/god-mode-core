@@ -1,11 +1,29 @@
-import { describe, expect, it, vi } from "vitest";
-import { createProfileResolveGatewayMethod } from "./gateway.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SessionEntry } from "../../config/sessions.js";
+
+async function loadGatewayMethod(entry?: SessionEntry) {
+  vi.doMock("../../gateway/session-utils.js", () => ({
+    loadSessionEntry: vi.fn(() => ({
+      entry,
+      storePath: entry ? "mock-store" : undefined,
+    })),
+    readSessionMessages: vi.fn(() => []),
+  }));
+  const mod = await import("./gateway.js");
+  return mod.createProfileResolveGatewayMethod();
+}
 
 describe("profile gateway method", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
   it("resolves a specialist runtime snapshot from the current draft", async () => {
     const respond = vi.fn();
+    const method = await loadGatewayMethod();
 
-    await createProfileResolveGatewayMethod()({
+    await method({
       params: {
         sessionKey: "main",
         draft: "Review this TypeScript repo, run tests if needed, and prepare a GitHub release.",
@@ -26,8 +44,11 @@ describe("profile gateway method", () => {
         recipeId: "code_build_publish",
         taskOverlayId: expect.any(String),
         draftApplied: true,
+        availableProfiles: expect.arrayContaining([
+          expect.objectContaining({ id: "developer", label: "Developer" }),
+        ]),
         override: expect.objectContaining({
-          supported: false,
+          supported: true,
           mode: "auto",
         }),
       }),
@@ -41,5 +62,67 @@ describe("profile gateway method", () => {
     expect(snapshot.reasoningSummary).toContain("code_build_publish");
     expect(snapshot.preferredTools).toContain("exec");
     expect(snapshot.confidence).toBeGreaterThan(0);
+  });
+
+  it("reflects persisted base specialist overrides", async () => {
+    const respond = vi.fn();
+    const method = await loadGatewayMethod({
+      sessionId: "sess-base",
+      updatedAt: 1,
+      specialistOverrideMode: "base",
+      specialistBaseProfileId: "developer",
+    } as SessionEntry);
+
+    await method({
+      params: { sessionKey: "main", draft: "Tell me a joke about robots." },
+      req: { type: "req", method: "platform.profile.resolve", id: "req-profile-2" },
+      client: null,
+      isWebchatConnect: () => false,
+      respond,
+      context: {} as never,
+    });
+
+    const snapshot = respond.mock.calls[0]?.[1] as {
+      selectedProfileId: string;
+      override: { mode: string; baseProfileId?: string };
+    };
+    expect(snapshot.selectedProfileId).toBe("developer");
+    expect(snapshot.override).toEqual(
+      expect.objectContaining({
+        mode: "base",
+        baseProfileId: "developer",
+      }),
+    );
+  });
+
+  it("reflects persisted session specialist overrides", async () => {
+    const respond = vi.fn();
+    const method = await loadGatewayMethod({
+      sessionId: "sess-session",
+      updatedAt: 1,
+      specialistOverrideMode: "session",
+      specialistSessionProfileId: "builder",
+    } as SessionEntry);
+
+    await method({
+      params: { sessionKey: "main", draft: "Tell me a joke about robots." },
+      req: { type: "req", method: "platform.profile.resolve", id: "req-profile-3" },
+      client: null,
+      isWebchatConnect: () => false,
+      respond,
+      context: {} as never,
+    });
+
+    const snapshot = respond.mock.calls[0]?.[1] as {
+      selectedProfileId: string;
+      override: { mode: string; sessionProfileId?: string };
+    };
+    expect(snapshot.selectedProfileId).toBe("builder");
+    expect(snapshot.override).toEqual(
+      expect.objectContaining({
+        mode: "session",
+        sessionProfileId: "builder",
+      }),
+    );
   });
 });

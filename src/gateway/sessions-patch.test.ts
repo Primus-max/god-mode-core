@@ -105,6 +105,81 @@ function createAllowlistedAnthropicModelCfg(): OpenClawConfig {
 }
 
 describe("gateway sessions patch", () => {
+  test("persists base specialist overrides and clears session specialist fields", async () => {
+    const store: Record<string, SessionEntry> = {
+      [MAIN_SESSION_KEY]: {
+        sessionId: "sess-base",
+        updatedAt: 1,
+        specialistOverrideMode: "session",
+        specialistSessionProfileId: "developer",
+      } as SessionEntry,
+    };
+    const entry = expectPatchOk(
+      await runPatch({
+        store,
+        patch: {
+          key: MAIN_SESSION_KEY,
+          specialistOverrideMode: "base",
+          specialistBaseProfileId: "operator",
+        },
+      }),
+    );
+    expect(entry.specialistOverrideMode).toBe("base");
+    expect(entry.specialistBaseProfileId).toBe("operator");
+    expect(entry.specialistSessionProfileId).toBeUndefined();
+  });
+
+  test("persists session specialist overrides and clears base specialist fields", async () => {
+    const store: Record<string, SessionEntry> = {
+      [MAIN_SESSION_KEY]: {
+        sessionId: "sess-session",
+        updatedAt: 1,
+        specialistOverrideMode: "base",
+        specialistBaseProfileId: "builder",
+      } as SessionEntry,
+    };
+    const entry = expectPatchOk(
+      await runPatch({
+        store,
+        patch: {
+          key: MAIN_SESSION_KEY,
+          specialistOverrideMode: "session",
+          specialistSessionProfileId: "developer",
+        },
+      }),
+    );
+    expect(entry.specialistOverrideMode).toBe("session");
+    expect(entry.specialistSessionProfileId).toBe("developer");
+    expect(entry.specialistBaseProfileId).toBeUndefined();
+  });
+
+  test("clears specialist overrides when mode resets to auto", async () => {
+    const store: Record<string, SessionEntry> = {
+      [MAIN_SESSION_KEY]: {
+        sessionId: "sess-auto",
+        updatedAt: 1,
+        specialistOverrideMode: "session",
+        specialistSessionProfileId: "developer",
+      } as SessionEntry,
+    };
+    const entry = expectPatchOk(
+      await runPatch({
+        store,
+        patch: { key: MAIN_SESSION_KEY, specialistOverrideMode: "auto" },
+      }),
+    );
+    expect(entry.specialistOverrideMode).toBe("auto");
+    expect(entry.specialistBaseProfileId).toBeUndefined();
+    expect(entry.specialistSessionProfileId).toBeUndefined();
+  });
+
+  test("rejects incomplete specialist override payloads", async () => {
+    const result = await runPatch({
+      patch: { key: MAIN_SESSION_KEY, specialistOverrideMode: "base" },
+    });
+    expectPatchError(result, "specialistBaseProfileId is required");
+  });
+
   test("persists thinkingLevel=off (does not clear)", async () => {
     const entry = expectPatchOk(
       await runPatch({

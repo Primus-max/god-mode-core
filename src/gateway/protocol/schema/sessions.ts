@@ -98,6 +98,16 @@ export const SessionsPatchParamsSchema = Type.Object(
   {
     key: NonEmptyString,
     label: Type.Optional(Type.Union([SessionLabelString, Type.Null()])),
+    specialistOverrideMode: Type.Optional(
+      Type.Union([
+        Type.Literal("auto"),
+        Type.Literal("base"),
+        Type.Literal("session"),
+        Type.Null(),
+      ]),
+    ),
+    specialistBaseProfileId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
+    specialistSessionProfileId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
     thinkingLevel: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
     fastMode: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
     verboseLevel: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
