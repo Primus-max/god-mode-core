@@ -19,6 +19,7 @@ import {
 } from "../auto-reply/thinking.js";
 import type { OpenClawConfig } from "../config/config.js";
 import type { SessionEntry } from "../config/sessions.js";
+import { PROFILE_IDS, type ProfileId } from "../platform/schemas/profile.js";
 import {
   isAcpSessionKey,
   isSubagentSessionKey,
@@ -82,6 +83,21 @@ function normalizeSubagentControlScope(raw: string): "children" | "none" | undef
     return normalized;
   }
   return undefined;
+}
+
+function normalizeSpecialistOverrideMode(
+  raw: string,
+): "auto" | "base" | "session" | undefined {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "auto" || normalized === "base" || normalized === "session") {
+    return normalized;
+  }
+  return undefined;
+}
+
+function normalizeProfileId(raw: string): ProfileId | undefined {
+  const normalized = raw.trim();
+  return PROFILE_IDS.includes(normalized as ProfileId) ? (normalized as ProfileId) : undefined;
 }
 
 export async function applySessionsPatchToStore(params: {
@@ -232,6 +248,51 @@ export async function applySessionsPatchToStore(params: {
         }
       }
       next.label = parsed.label;
+    }
+  }
+
+  if ("specialistOverrideMode" in patch) {
+    const raw = patch.specialistOverrideMode;
+    if (raw === null) {
+      delete next.specialistOverrideMode;
+      delete next.specialistBaseProfileId;
+      delete next.specialistSessionProfileId;
+    } else if (raw !== undefined) {
+      const normalized = normalizeSpecialistOverrideMode(String(raw));
+      if (!normalized) {
+        return invalid('invalid specialistOverrideMode (use "auto"|"base"|"session")');
+      }
+      next.specialistOverrideMode = normalized;
+      if (normalized === "auto") {
+        delete next.specialistBaseProfileId;
+        delete next.specialistSessionProfileId;
+      }
+    }
+  }
+
+  if ("specialistBaseProfileId" in patch) {
+    const raw = patch.specialistBaseProfileId;
+    if (raw === null) {
+      delete next.specialistBaseProfileId;
+    } else if (raw !== undefined) {
+      const normalized = normalizeProfileId(String(raw));
+      if (!normalized) {
+        return invalid("invalid specialistBaseProfileId");
+      }
+      next.specialistBaseProfileId = normalized;
+    }
+  }
+
+  if ("specialistSessionProfileId" in patch) {
+    const raw = patch.specialistSessionProfileId;
+    if (raw === null) {
+      delete next.specialistSessionProfileId;
+    } else if (raw !== undefined) {
+      const normalized = normalizeProfileId(String(raw));
+      if (!normalized) {
+        return invalid("invalid specialistSessionProfileId");
+      }
+      next.specialistSessionProfileId = normalized;
     }
   }
 
@@ -455,6 +516,22 @@ export async function applySessionsPatchToStore(params: {
       }
       next.groupActivation = normalized;
     }
+  }
+
+  if (next.specialistOverrideMode === "base") {
+    if (!next.specialistBaseProfileId) {
+      return invalid("specialistBaseProfileId is required when specialistOverrideMode is \"base\"");
+    }
+    delete next.specialistSessionProfileId;
+  }
+
+  if (next.specialistOverrideMode === "session") {
+    if (!next.specialistSessionProfileId) {
+      return invalid(
+        "specialistSessionProfileId is required when specialistOverrideMode is \"session\"",
+      );
+    }
+    delete next.specialistBaseProfileId;
   }
 
   store[storeKey] = next;

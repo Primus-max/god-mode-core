@@ -181,6 +181,9 @@ function createProps(overrides: Partial<ChatProps> = {}): ChatProps {
     canSend: true,
     disabledReason: null,
     error: null,
+    specialistLoading: false,
+    specialistError: null,
+    specialistSnapshot: null,
     sessions: createSessions(),
     focusMode: false,
     assistantName: "OpenClaw",
@@ -235,6 +238,10 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     attentionItems: [],
     eventLog: [],
     overviewLogLines: [],
+    specialistLoading: false,
+    specialistSaving: false,
+    specialistError: null,
+    specialistSnapshot: null,
     showGatewayToken: false,
     showGatewayPassword: false,
     onSettingsChange: () => undefined,
@@ -246,11 +253,26 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     onRefresh: () => undefined,
     onNavigate: () => undefined,
     onRefreshLogs: () => undefined,
+    onSpecialistOverrideChange: () => undefined,
     ...overrides,
   };
 }
 
 describe("chat view", () => {
+  it("renders localized Russian welcome and composer copy", async () => {
+    const container = document.createElement("div");
+    await i18n.setLocale("ru");
+
+    render(renderChat(createProps({ connected: false, messages: [] })), container);
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Готов к чату");
+    const textarea = container.querySelector("textarea");
+    expect(textarea?.getAttribute("placeholder")).toBe("Подключитесь к gateway, чтобы начать чат...");
+
+    await i18n.setLocale("en");
+  });
+
   it("hides the context notice when only cumulative inputTokens exceed the limit", () => {
     const container = document.createElement("div");
     render(

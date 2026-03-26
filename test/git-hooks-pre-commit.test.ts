@@ -9,6 +9,16 @@ const baseGitEnv = {
   GIT_TERMINAL_PROMPT: "0",
 };
 const baseRunEnv: NodeJS.ProcessEnv = { ...process.env, ...baseGitEnv };
+const hasBash = (() => {
+  try {
+    execFileSync(process.platform === "win32" ? "bash" : "/bin/bash", ["-lc", "true"], {
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 const run = (cwd: string, cmd: string, args: string[] = [], env?: NodeJS.ProcessEnv) => {
   return execFileSync(cmd, args, {
@@ -27,16 +37,21 @@ function writeExecutable(dir: string, name: string, contents: string): void {
 
 describe("git-hooks/pre-commit (integration)", () => {
   it("does not treat staged filenames as git-add flags (e.g. --all)", () => {
+    if (!hasBash) {
+      return;
+    }
     const dir = mkdtempSync(path.join(os.tmpdir(), "openclaw-pre-commit-"));
     run(dir, "git", ["init", "-q", "--initial-branch=main"]);
 
     // Use the real hook script and lightweight helper stubs.
     mkdirSync(path.join(dir, "git-hooks"), { recursive: true });
     mkdirSync(path.join(dir, "scripts", "pre-commit"), { recursive: true });
-    symlinkSync(
-      path.join(process.cwd(), "git-hooks", "pre-commit"),
-      path.join(dir, "git-hooks", "pre-commit"),
-    );
+    try {
+      symlinkSync(path.join(process.cwd(), "git-hooks", "pre-commit"), path.join(dir, "git-hooks", "pre-commit"));
+    } catch {
+      // Some Windows environments disallow symlink creation without Developer Mode/elevation.
+      return;
+    }
     writeFileSync(
       path.join(dir, "scripts", "pre-commit", "run-node-tool.sh"),
       "#!/usr/bin/env bash\nexit 0\n",

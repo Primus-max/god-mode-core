@@ -1,4 +1,5 @@
 import { html, nothing } from "lit";
+import { t } from "../../i18n/index.ts";
 import { icons } from "../icons.ts";
 import type { ConfigUiHints } from "../types.ts";
 import { matchesNodeSearch, parseConfigSearchQuery, renderNode } from "./config-form.node.ts";
@@ -281,6 +282,19 @@ function getSectionIcon(key: string) {
   return sectionIcons[key as keyof typeof sectionIcons] ?? sectionIcons.default;
 }
 
+function translateOrFallback(key: string, fallback: string): string {
+  const translated = t(key);
+  return translated === key ? fallback : translated;
+}
+
+function getSectionMeta(key: string, fallback?: { label: string; description: string }) {
+  const base = fallback ?? SECTION_META[key] ?? { label: humanize(key), description: "" };
+  return {
+    label: translateOrFallback(`configForm.sections.${key}.label`, base.label),
+    description: translateOrFallback(`configForm.sections.${key}.description`, base.description),
+  };
+}
+
 function matchesSearch(params: {
   key: string;
   schema: JsonSchema;
@@ -294,11 +308,12 @@ function matchesSearch(params: {
   const criteria = parseConfigSearchQuery(params.query);
   const q = criteria.text;
   const meta = SECTION_META[params.key];
+  const localizedMeta = meta ? getSectionMeta(params.key, meta) : null;
   const sectionMetaMatches =
     q &&
     (params.key.toLowerCase().includes(q) ||
-      (meta?.label ? meta.label.toLowerCase().includes(q) : false) ||
-      (meta?.description ? meta.description.toLowerCase().includes(q) : false));
+      (localizedMeta?.label ? localizedMeta.label.toLowerCase().includes(q) : false) ||
+      (localizedMeta?.description ? localizedMeta.description.toLowerCase().includes(q) : false));
 
   if (sectionMetaMatches && criteria.tags.length === 0) {
     return true;
@@ -316,14 +331,14 @@ function matchesSearch(params: {
 export function renderConfigForm(props: ConfigFormProps) {
   if (!props.schema) {
     return html`
-      <div class="muted">Schema unavailable.</div>
+      <div class="muted">${t("configForm.schemaUnavailable")}</div>
     `;
   }
   const schema = props.schema;
   const value = props.value ?? {};
   if (schemaType(schema) !== "object" || !schema.properties) {
     return html`
-      <div class="callout danger">Unsupported schema. Use Raw.</div>
+      <div class="callout danger">${t("configForm.unsupportedSchema")}</div>
     `;
   }
   const unsupported = new Set(props.unsupportedPaths ?? []);
@@ -384,7 +399,9 @@ export function renderConfigForm(props: ConfigFormProps) {
       <div class="config-empty">
         <div class="config-empty__icon">${icons.search}</div>
         <div class="config-empty__text">
-          ${searchQuery ? `No settings match "${searchQuery}"` : "No settings in this section"}
+          ${searchQuery
+            ? t("configForm.emptySearch", { query: searchQuery })
+            : t("configForm.emptySection")}
         </div>
       </div>
     `;
@@ -438,10 +455,10 @@ export function renderConfigForm(props: ConfigFormProps) {
             `;
             })()
           : filteredEntries.map(([key, node]) => {
-              const meta = SECTION_META[key] ?? {
+              const meta = getSectionMeta(key, {
                 label: key.charAt(0).toUpperCase() + key.slice(1),
                 description: node.description ?? "",
-              };
+              });
 
               return html`
               <section class="config-section-card" id="config-section-${key}">

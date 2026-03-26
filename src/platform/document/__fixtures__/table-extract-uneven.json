@@ -1,0 +1,27 @@
+{
+  "route": "table_extract",
+  "artifacts": [
+    {
+      "type": "extraction",
+      "tables": [
+        {
+          "id": "line-items",
+          "headers": ["Item", "Item", "Price"],
+          "rows": [
+            ["Concrete", "Primary", "1000"],
+            ["Steel", "Secondary"],
+            ["Glass", "1200", "extra-value", "ignored"]
+          ]
+        }
+      ]
+    },
+    {
+      "type": "export",
+      "format": "json",
+      "previewRows": [
+        { "Item Name": "Concrete", "Unit Price": 1000 },
+        { "Item Name": "Steel", "Extra Notes": "secondary" }
+      ]
+    }
+  ]
+}

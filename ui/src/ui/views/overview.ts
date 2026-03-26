@@ -11,6 +11,7 @@ import type {
   CronJob,
   CronStatus,
   SessionsListResult,
+  SpecialistRuntimeSnapshot,
   SessionsUsageResult,
   SkillStatusReport,
 } from "../types.ts";
@@ -23,6 +24,7 @@ import {
   shouldShowPairingHint,
 } from "./overview-hints.ts";
 import { renderOverviewLogTail } from "./overview-log-tail.ts";
+import { renderSpecialistOverviewPanel } from "./specialist-context.ts";
 
 export type OverviewProps = {
   connected: boolean;
@@ -45,6 +47,10 @@ export type OverviewProps = {
   attentionItems: AttentionItem[];
   eventLog: EventLogEntry[];
   overviewLogLines: string[];
+  specialistLoading: boolean;
+  specialistSaving: boolean;
+  specialistError: string | null;
+  specialistSnapshot: SpecialistRuntimeSnapshot | null;
   showGatewayToken: boolean;
   showGatewayPassword: boolean;
   onSettingsChange: (next: UiSettings) => void;
@@ -56,6 +62,12 @@ export type OverviewProps = {
   onRefresh: () => void;
   onNavigate: (tab: string) => void;
   onRefreshLogs: () => void;
+  onSpecialistOverrideChange: (
+    next:
+      | { mode: "auto" }
+      | { mode: "base"; profileId: string }
+      | { mode: "session"; profileId: string },
+  ) => void;
 };
 
 export function renderOverview(props: OverviewProps) {
@@ -93,8 +105,8 @@ export function renderOverview(props: OverviewProps) {
             href="https://docs.openclaw.ai/web/control-ui#device-pairing-first-connection"
             target=${EXTERNAL_LINK_TARGET}
             rel=${buildExternalLinkRel()}
-            title="Device pairing docs (opens in new tab)"
-            >Docs: Device pairing</a
+            title=${t("overview.access.pairingDocsTitle")}
+            >${t("overview.access.pairingDocsLink")}</a
           >
         </div>
       </div>
@@ -126,8 +138,8 @@ export function renderOverview(props: OverviewProps) {
               href="https://docs.openclaw.ai/web/dashboard"
               target=${EXTERNAL_LINK_TARGET}
               rel=${buildExternalLinkRel()}
-              title="Control UI auth docs (opens in new tab)"
-              >Docs: Control UI auth</a
+              title=${t("overview.access.authDocsTitle")}
+              >${t("overview.access.authDocsLink")}</a
             >
           </div>
         </div>
@@ -142,8 +154,8 @@ export function renderOverview(props: OverviewProps) {
             href="https://docs.openclaw.ai/web/dashboard"
             target=${EXTERNAL_LINK_TARGET}
             rel=${buildExternalLinkRel()}
-            title="Control UI auth docs (opens in new tab)"
-            >Docs: Control UI auth</a
+            title=${t("overview.access.authDocsTitle")}
+            >${t("overview.access.authDocsLink")}</a
           >
         </div>
       </div>
@@ -173,8 +185,8 @@ export function renderOverview(props: OverviewProps) {
             href="https://docs.openclaw.ai/gateway/tailscale"
             target=${EXTERNAL_LINK_TARGET}
             rel=${buildExternalLinkRel()}
-            title="Tailscale Serve docs (opens in new tab)"
-            >Docs: Tailscale Serve</a
+            title=${t("overview.access.tailscaleDocsTitle")}
+            >${t("overview.access.tailscaleDocsLink")}</a
           >
           <span class="muted"> · </span>
           <a
@@ -182,8 +194,8 @@ export function renderOverview(props: OverviewProps) {
             href="https://docs.openclaw.ai/web/control-ui#insecure-http"
             target=${EXTERNAL_LINK_TARGET}
             rel=${buildExternalLinkRel()}
-            title="Insecure HTTP docs (opens in new tab)"
-            >Docs: Insecure HTTP</a
+            title=${t("overview.access.insecureDocsTitle")}
+            >${t("overview.access.insecureDocsLink")}</a
           >
         </div>
       </div>
@@ -212,7 +224,7 @@ export function renderOverview(props: OverviewProps) {
                   token: v.trim() === props.settings.gatewayUrl.trim() ? props.settings.token : "",
                 });
               }}
-              placeholder="ws://100.x.y.z:18789"
+              placeholder=${t("overview.access.gatewayPlaceholder")}
             />
           </label>
           ${
@@ -231,14 +243,14 @@ export function renderOverview(props: OverviewProps) {
                         const v = (e.target as HTMLInputElement).value;
                         props.onSettingsChange({ ...props.settings, token: v });
                       }}
-                      placeholder="OPENCLAW_GATEWAY_TOKEN"
+                      placeholder=${t("overview.access.tokenPlaceholder")}
                     />
                     <button
                       type="button"
                       class="btn btn--icon ${props.showGatewayToken ? "active" : ""}"
                       style="width: 36px; height: 36px;"
-                      title=${props.showGatewayToken ? "Hide token" : "Show token"}
-                      aria-label="Toggle token visibility"
+                      title=${props.showGatewayToken ? t("overview.access.hideToken") : t("overview.access.showToken")}
+                      aria-label=${t("overview.access.toggleTokenVisibility")}
                       aria-pressed=${props.showGatewayToken}
                       @click=${props.onToggleGatewayTokenVisibility}
                     >
@@ -258,14 +270,14 @@ export function renderOverview(props: OverviewProps) {
                         const v = (e.target as HTMLInputElement).value;
                         props.onPasswordChange(v);
                       }}
-                      placeholder="system or shared password"
+                      placeholder=${t("overview.access.passwordPlaceholder")}
                     />
                     <button
                       type="button"
                       class="btn btn--icon ${props.showGatewayPassword ? "active" : ""}"
                       style="width: 36px; height: 36px;"
-                      title=${props.showGatewayPassword ? "Hide password" : "Show password"}
-                      aria-label="Toggle password visibility"
+                      title=${props.showGatewayPassword ? t("overview.access.hidePassword") : t("overview.access.showPassword")}
+                      aria-label=${t("overview.access.togglePasswordVisibility")}
                       aria-pressed=${props.showGatewayPassword}
                       @click=${props.onToggleGatewayPasswordVisibility}
                     >
@@ -378,6 +390,16 @@ export function renderOverview(props: OverviewProps) {
         }
       </div>
     </section>
+
+    <div class="ov-section-divider"></div>
+
+    ${renderSpecialistOverviewPanel({
+      loading: props.specialistLoading,
+        saving: props.specialistSaving,
+      error: props.specialistError,
+      snapshot: props.specialistSnapshot,
+        onOverrideChange: props.onSpecialistOverrideChange,
+    })}
 
     <div class="ov-section-divider"></div>
 

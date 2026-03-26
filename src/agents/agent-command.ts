@@ -45,7 +45,12 @@ import {
 } from "../infra/agent-events.js";
 import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
-import { resolvePlatformRuntimePlan } from "../platform/recipe/runtime-adapter.js";
+import { buildExecutionDecisionInput } from "../platform/decision/input.js";
+import {
+  resolvePlatformRuntimePlan,
+  type ResolvedPlatformRuntimePlan,
+  toPluginHookPlatformExecutionContext,
+} from "../platform/recipe/runtime-adapter.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { applyVerboseOverride } from "../sessions/level-overrides.js";
@@ -350,7 +355,7 @@ async function persistAcpTurnTranscript(params: {
   return sessionEntry;
 }
 
-function runAgentAttempt(params: {
+type RunAgentAttemptParams = {
   providerOverride: string;
   modelOverride: string;
   cfg: ReturnType<typeof loadConfig>;
@@ -377,7 +382,116 @@ function runAgentAttempt(params: {
   sessionStore?: Record<string, SessionEntry>;
   storePath?: string;
   allowTransientCooldownProbe?: boolean;
-}) {
+  platformRuntimePlan: ResolvedPlatformRuntimePlan;
+};
+
+type BuildEmbeddedAgentRunParams = Pick<
+  RunAgentAttemptParams,
+  | "sessionId"
+  | "sessionKey"
+  | "sessionAgentId"
+  | "messageChannel"
+  | "runContext"
+  | "spawnedBy"
+  | "opts"
+  | "sessionFile"
+  | "workspaceDir"
+  | "cfg"
+  | "skillsSnapshot"
+  | "providerOverride"
+  | "modelOverride"
+  | "sessionEntry"
+  | "resolvedThinkLevel"
+  | "resolvedVerboseLevel"
+  | "timeoutMs"
+  | "runId"
+  | "agentDir"
+  | "allowTransientCooldownProbe"
+  | "onAgentEvent"
+  | "platformRuntimePlan"
+> & {
+  effectivePrompt: string;
+  images?: AgentCommandOpts["images"];
+  authProfileId?: string;
+  bootstrapPromptWarningSignaturesSeen?: string[];
+  bootstrapPromptWarningSignature?: string;
+};
+
+export function resolveAgentCommandFallbackOverride(params: {
+  platformRuntimePlan: ResolvedPlatformRuntimePlan;
+  configuredFallbacks?: string[];
+}): string[] | undefined {
+  return params.platformRuntimePlan.runtime.fallbackModels ?? params.configuredFallbacks;
+}
+
+export function buildEmbeddedAgentRunParams(
+  params: BuildEmbeddedAgentRunParams,
+): Parameters<typeof runEmbeddedPiAgent>[0] {
+  return {
+    sessionId: params.sessionId,
+    sessionKey: params.sessionKey,
+    agentId: params.sessionAgentId,
+    trigger: "user",
+    messageChannel: params.messageChannel,
+    agentAccountId: params.runContext.accountId,
+    messageTo: params.opts.replyTo ?? params.opts.to,
+    messageThreadId: params.opts.threadId,
+    groupId: params.runContext.groupId,
+    groupChannel: params.runContext.groupChannel,
+    groupSpace: params.runContext.groupSpace,
+    spawnedBy: params.spawnedBy,
+    currentChannelId: params.runContext.currentChannelId,
+    currentThreadTs: params.runContext.currentThreadTs,
+    replyToMode: params.runContext.replyToMode,
+    hasRepliedRef: params.runContext.hasRepliedRef,
+    senderIsOwner: params.opts.senderIsOwner,
+    sessionFile: params.sessionFile,
+    workspaceDir: params.workspaceDir,
+    config: params.cfg,
+    skillsSnapshot: params.skillsSnapshot,
+    prompt: params.effectivePrompt,
+    images: params.images,
+    clientTools: params.opts.clientTools,
+    provider: params.providerOverride,
+    model: params.modelOverride,
+    authProfileId: params.authProfileId,
+    authProfileIdSource: params.authProfileId
+      ? params.sessionEntry?.authProfileOverrideSource
+      : undefined,
+    thinkLevel: params.resolvedThinkLevel,
+    verboseLevel: params.resolvedVerboseLevel,
+    timeoutMs: params.timeoutMs,
+    runId: params.runId,
+    lane: params.opts.lane,
+    abortSignal: params.opts.abortSignal,
+    extraSystemPrompt: params.opts.extraSystemPrompt,
+    inputProvenance: params.opts.inputProvenance,
+    streamParams: params.opts.streamParams,
+    agentDir: params.agentDir,
+    platformExecutionContext: params.platformRuntimePlan.runtime,
+    allowTransientCooldownProbe: params.allowTransientCooldownProbe,
+    onAgentEvent: params.onAgentEvent,
+    bootstrapPromptWarningSignaturesSeen: params.bootstrapPromptWarningSignaturesSeen,
+    bootstrapPromptWarningSignature: params.bootstrapPromptWarningSignature,
+  };
+}
+
+export function buildPlatformPlannerInput(params: {
+  prompt: string;
+  opts: Pick<AgentCommandOpts, "messageChannel" | "channel" | "replyChannel">;
+  sessionEntry?: Pick<
+    SessionEntry,
+    "specialistOverrideMode" | "specialistBaseProfileId" | "specialistSessionProfileId"
+  > | null;
+}): Parameters<typeof resolvePlatformRuntimePlan>[0] {
+  return buildExecutionDecisionInput({
+    prompt: params.prompt,
+    channelHints: params.opts,
+    sessionEntry: params.sessionEntry,
+  });
+}
+
+function runAgentAttempt(params: RunAgentAttemptParams) {
   const effectivePrompt = resolveFallbackRetryPrompt({
     body: params.body,
     isFallbackRetry: params.isFallbackRetry,
@@ -488,50 +602,16 @@ function runAgentAttempt(params: {
     params.providerOverride === params.authProfileProvider
       ? params.sessionEntry?.authProfileOverride
       : undefined;
-  return runEmbeddedPiAgent({
-    sessionId: params.sessionId,
-    sessionKey: params.sessionKey,
-    agentId: params.sessionAgentId,
-    trigger: "user",
-    messageChannel: params.messageChannel,
-    agentAccountId: params.runContext.accountId,
-    messageTo: params.opts.replyTo ?? params.opts.to,
-    messageThreadId: params.opts.threadId,
-    groupId: params.runContext.groupId,
-    groupChannel: params.runContext.groupChannel,
-    groupSpace: params.runContext.groupSpace,
-    spawnedBy: params.spawnedBy,
-    currentChannelId: params.runContext.currentChannelId,
-    currentThreadTs: params.runContext.currentThreadTs,
-    replyToMode: params.runContext.replyToMode,
-    hasRepliedRef: params.runContext.hasRepliedRef,
-    senderIsOwner: params.opts.senderIsOwner,
-    sessionFile: params.sessionFile,
-    workspaceDir: params.workspaceDir,
-    config: params.cfg,
-    skillsSnapshot: params.skillsSnapshot,
-    prompt: effectivePrompt,
-    images: params.isFallbackRetry ? undefined : params.opts.images,
-    clientTools: params.opts.clientTools,
-    provider: params.providerOverride,
-    model: params.modelOverride,
-    authProfileId,
-    authProfileIdSource: authProfileId ? params.sessionEntry?.authProfileOverrideSource : undefined,
-    thinkLevel: params.resolvedThinkLevel,
-    verboseLevel: params.resolvedVerboseLevel,
-    timeoutMs: params.timeoutMs,
-    runId: params.runId,
-    lane: params.opts.lane,
-    abortSignal: params.opts.abortSignal,
-    extraSystemPrompt: params.opts.extraSystemPrompt,
-    inputProvenance: params.opts.inputProvenance,
-    streamParams: params.opts.streamParams,
-    agentDir: params.agentDir,
-    allowTransientCooldownProbe: params.allowTransientCooldownProbe,
-    onAgentEvent: params.onAgentEvent,
-    bootstrapPromptWarningSignaturesSeen,
-    bootstrapPromptWarningSignature,
-  });
+  return runEmbeddedPiAgent(
+    buildEmbeddedAgentRunParams({
+      ...params,
+      effectivePrompt,
+      images: params.isFallbackRetry ? undefined : params.opts.images,
+      authProfileId,
+      bootstrapPromptWarningSignaturesSeen,
+      bootstrapPromptWarningSignature,
+    }),
+  );
 }
 
 async function prepareAgentCommandExecution(
@@ -543,10 +623,6 @@ async function prepareAgentCommandExecution(
     throw new Error("Message (--message) is required");
   }
   const body = prependInternalEventContext(message, opts.internalEvents);
-  const platformRuntimePlan = resolvePlatformRuntimePlan({
-    prompt: body,
-    baseProfile: "general",
-  });
   if (!opts.to && !opts.sessionId && !opts.sessionKey && !opts.agentId) {
     throw new Error("Pass --to <E.164>, --session-id, or --agent to choose a session");
   }
@@ -619,25 +695,6 @@ async function prepareAgentCommandExecution(
     throw new Error('Invalid verbose level. Use "on", "full", or "off".');
   }
 
-  const laneRaw = typeof opts.lane === "string" ? opts.lane.trim() : "";
-  const isSubagentLane = laneRaw === String(AGENT_LANE_SUBAGENT);
-  const timeoutSecondsRaw =
-    opts.timeout !== undefined
-      ? Number.parseInt(String(opts.timeout), 10)
-      : isSubagentLane
-        ? 0
-        : platformRuntimePlan.runtime.timeoutSeconds;
-  if (
-    timeoutSecondsRaw !== undefined &&
-    (Number.isNaN(timeoutSecondsRaw) || timeoutSecondsRaw < 0)
-  ) {
-    throw new Error("--timeout must be a non-negative integer (seconds; 0 means no timeout)");
-  }
-  const timeoutMs = resolveAgentTimeoutMs({
-    cfg,
-    overrideSeconds: timeoutSecondsRaw,
-  });
-
   const sessionResolution = resolveSession({
     cfg,
     to: opts.to,
@@ -656,6 +713,31 @@ async function prepareAgentCommandExecution(
     persistedThinking,
     persistedVerbose,
   } = sessionResolution;
+  const platformRuntimePlan = resolvePlatformRuntimePlan(
+    buildPlatformPlannerInput({
+      prompt: body,
+      opts,
+      sessionEntry: sessionEntryRaw,
+    }),
+  );
+  const laneRaw = typeof opts.lane === "string" ? opts.lane.trim() : "";
+  const isSubagentLane = laneRaw === String(AGENT_LANE_SUBAGENT);
+  const timeoutSecondsRaw =
+    opts.timeout !== undefined
+      ? Number.parseInt(String(opts.timeout), 10)
+      : isSubagentLane
+        ? 0
+        : platformRuntimePlan.runtime.timeoutSeconds;
+  if (
+    timeoutSecondsRaw !== undefined &&
+    (Number.isNaN(timeoutSecondsRaw) || timeoutSecondsRaw < 0)
+  ) {
+    throw new Error("--timeout must be a non-negative integer (seconds; 0 means no timeout)");
+  }
+  const timeoutMs = resolveAgentTimeoutMs({
+    cfg,
+    overrideSeconds: timeoutSecondsRaw,
+  });
   const sessionAgentId =
     agentIdOverride ??
     resolveSessionAgentId({
@@ -767,7 +849,8 @@ async function agentCommandInternal(
     if (acpResolution?.kind === "ready" && sessionKey) {
       const startedAt = Date.now();
       registerAgentRunContext(runId, {
-        sessionKey,
+        ...(sessionKey ? { sessionKey } : {}),
+        platformExecution: toPluginHookPlatformExecutionContext(platformRuntimePlan.runtime),
       });
       emitAgentEvent({
         runId,
@@ -905,12 +988,11 @@ async function agentCommandInternal(
     const resolvedVerboseLevel =
       verboseOverride ?? persistedVerbose ?? (agentCfg?.verboseDefault as VerboseLevel | undefined);
 
-    if (sessionKey) {
-      registerAgentRunContext(runId, {
-        sessionKey,
-        verboseLevel: resolvedVerboseLevel,
-      });
-    }
+    registerAgentRunContext(runId, {
+      ...(sessionKey ? { sessionKey } : {}),
+      ...(resolvedVerboseLevel ? { verboseLevel: resolvedVerboseLevel } : {}),
+      platformExecution: toPluginHookPlatformExecutionContext(platformRuntimePlan.runtime),
+    });
 
     const needsSkillsSnapshot = isNewSession || !sessionEntry?.skillsSnapshot;
     const skillsSnapshotVersion = getSkillsSnapshotVersion(workspaceDir);
@@ -1173,8 +1255,10 @@ async function agentCommandInternal(
         agentId: sessionAgentId,
         hasSessionModelOverride: Boolean(storedModelOverride),
       });
-      const fallbackOverride =
-        platformRuntimePlan.runtime.fallbackModels ?? effectiveFallbacksOverride;
+      const fallbackOverride = resolveAgentCommandFallbackOverride({
+        platformRuntimePlan,
+        configuredFallbacks: effectiveFallbacksOverride,
+      });
 
       // Track model fallback attempts so retries on an existing session don't
       // re-inject the original prompt as a duplicate user message.
@@ -1215,6 +1299,7 @@ async function agentCommandInternal(
             sessionStore,
             storePath,
             allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
+            platformRuntimePlan,
             onAgentEvent: (evt) => {
               // Track lifecycle end for fallback emission below.
               if (

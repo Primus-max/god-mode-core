@@ -7,6 +7,7 @@ import {
   publicKeyRawBase64UrlFromPem,
   signDevicePayload,
 } from "../infra/device-identity.js";
+import { getPlatformMachineControlService, resetPlatformMachineControlService } from "../platform/machine/index.js";
 import { sleep } from "../utils.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { GatewayClient } from "./client.js";
@@ -23,6 +24,8 @@ import {
 installGatewayTestHooks({ scope: "suite" });
 const NODE_CONNECT_TIMEOUT_MS = 3_000;
 const CONNECT_REQ_TIMEOUT_MS = 2_000;
+const operatorDeviceIds = new WeakMap<WebSocket, string>();
+const defaultOperatorIdentity = createDeviceIdentity();
 
 function createDeviceIdentity(): DeviceIdentity {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
@@ -74,6 +77,9 @@ async function requestAllowOnceApproval(
   command: string,
   nodeId: string,
 ): Promise<string> {
+  const deviceId = operatorDeviceIds.get(ws) ?? "";
+  expect(deviceId).toBeTruthy();
+  getPlatformMachineControlService().linkDevice({ deviceId });
   const approvalId = crypto.randomUUID();
   const commandArgv = command.split(/\s+/).filter((part) => part.length > 0);
   const requestP = rpcReq(ws, "exec.approval.request", {
@@ -103,6 +109,7 @@ describe("node.invoke approval bypass", () => {
   let port: number;
 
   beforeAll(async () => {
+    resetPlatformMachineControlService();
     const started = await startServerWithClient("secret", { controlUiEnabled: true });
     server = started.server;
     port = started.port;
@@ -110,6 +117,7 @@ describe("node.invoke approval bypass", () => {
   });
 
   afterAll(async () => {
+    resetPlatformMachineControlService();
     await server.close();
   });
 
@@ -170,7 +178,30 @@ describe("node.invoke approval bypass", () => {
   };
 
   const connectOperator = async (scopes: string[]) => {
-    return await connectOperatorWithRetry(scopes);
+    const publicKeyRaw = publicKeyRawBase64UrlFromPem(defaultOperatorIdentity.publicKeyPem);
+    const deviceId = defaultOperatorIdentity.deviceId;
+    const ws = await connectOperatorWithRetry(scopes, (nonce) => {
+      const signedAtMs = Date.now();
+      const payload = buildDeviceAuthPayload({
+        deviceId,
+        clientId: GATEWAY_CLIENT_NAMES.TEST,
+        clientMode: GATEWAY_CLIENT_MODES.TEST,
+        role: "operator",
+        scopes,
+        signedAtMs,
+        token: "secret",
+        nonce,
+      });
+      return {
+        id: deviceId,
+        publicKey: publicKeyRaw,
+        signature: signDevicePayload(defaultOperatorIdentity.privateKeyPem, payload),
+        signedAt: signedAtMs,
+        nonce,
+      };
+    });
+    operatorDeviceIds.set(ws, deviceId);
+    return ws;
   };
 
   const connectOperatorWithNewDevice = async (scopes: string[]) => {
@@ -180,7 +211,7 @@ describe("node.invoke approval bypass", () => {
     const publicKeyRaw = publicKeyRawBase64UrlFromPem(publicKeyPem);
     const deviceId = deriveDeviceIdFromPublicKey(publicKeyRaw);
     expect(deviceId).toBeTruthy();
-    return await connectOperatorWithRetry(scopes, (nonce) => {
+    const ws = await connectOperatorWithRetry(scopes, (nonce) => {
       const signedAtMs = Date.now();
       const payload = buildDeviceAuthPayload({
         deviceId: deviceId!,
@@ -200,6 +231,8 @@ describe("node.invoke approval bypass", () => {
         nonce,
       };
     });
+    operatorDeviceIds.set(ws, deviceId!);
+    return ws;
   };
 
   const connectLinuxNode = async (

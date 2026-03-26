@@ -1,12 +1,19 @@
 export type ExecApprovalRequestPayload = {
   command: string;
   cwd?: string | null;
+  nodeId?: string | null;
+  envKeys?: string[] | null;
   host?: string | null;
   security?: string | null;
   ask?: string | null;
   agentId?: string | null;
   resolvedPath?: string | null;
   sessionKey?: string | null;
+  machineControl?: {
+    required: boolean;
+    requestedByDeviceId?: string | null;
+    linkedAtMs?: number | null;
+  } | null;
 };
 
 export type ExecApprovalRequest = {
@@ -50,12 +57,30 @@ export function parseExecApprovalRequested(payload: unknown): ExecApprovalReques
     request: {
       command,
       cwd: typeof request.cwd === "string" ? request.cwd : null,
+      nodeId: typeof request.nodeId === "string" ? request.nodeId : null,
+      envKeys: Array.isArray(request.envKeys)
+        ? request.envKeys.filter((entry): entry is string => typeof entry === "string")
+        : null,
       host: typeof request.host === "string" ? request.host : null,
       security: typeof request.security === "string" ? request.security : null,
       ask: typeof request.ask === "string" ? request.ask : null,
       agentId: typeof request.agentId === "string" ? request.agentId : null,
       resolvedPath: typeof request.resolvedPath === "string" ? request.resolvedPath : null,
       sessionKey: typeof request.sessionKey === "string" ? request.sessionKey : null,
+      machineControl:
+        isRecord(request.machineControl) && request.machineControl.required === true
+          ? {
+              required: true,
+              requestedByDeviceId:
+                typeof request.machineControl.requestedByDeviceId === "string"
+                  ? request.machineControl.requestedByDeviceId
+                  : null,
+              linkedAtMs:
+                typeof request.machineControl.linkedAtMs === "number"
+                  ? request.machineControl.linkedAtMs
+                  : null,
+            }
+          : null,
     },
     createdAtMs,
     expiresAtMs,

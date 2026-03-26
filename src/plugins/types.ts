@@ -1477,6 +1477,24 @@ export const isPromptInjectionHookName = (hookName: PluginHookName): boolean =>
   promptInjectionHookNameSet.has(hookName);
 
 // Agent context shared across agent hooks
+export type PluginHookPlatformExecutionContext = {
+  profileId: string;
+  recipeId: string;
+  taskOverlayId?: string;
+  plannerReasoning?: string;
+  intent?: "general" | "document" | "code" | "publish";
+  providerOverride?: string;
+  modelOverride?: string;
+  timeoutSeconds?: number;
+  fallbackModels?: string[];
+  requestedToolNames?: string[];
+  publishTargets?: string[];
+  requiredCapabilities?: string[];
+  bootstrapRequiredCapabilities?: string[];
+  requireExplicitApproval?: boolean;
+  policyAutonomy?: "chat" | "assist" | "guarded";
+};
+
 export type PluginHookAgentContext = {
   agentId?: string;
   sessionKey?: string;
@@ -1487,6 +1505,8 @@ export type PluginHookAgentContext = {
   trigger?: string;
   /** Channel identifier (e.g. "telegram", "discord", "whatsapp"). */
   channelId?: string;
+  /** Structured orchestration hints resolved before the runner starts. */
+  platformExecution?: PluginHookPlatformExecutionContext;
 };
 
 // before_model_resolve hook

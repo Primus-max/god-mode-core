@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { i18n } from "../i18n/index.ts";
 import {
   TAB_GROUPS,
   iconForTab,
@@ -32,6 +33,7 @@ describe("iconForTab", () => {
     expect(iconForTab("instances")).toBe("radio");
     expect(iconForTab("sessions")).toBe("fileText");
     expect(iconForTab("cron")).toBe("loader");
+    expect(iconForTab("artifacts")).toBe("folder");
     expect(iconForTab("skills")).toBe("zap");
     expect(iconForTab("nodes")).toBe("monitor");
     expect(iconForTab("config")).toBe("settings");
@@ -59,6 +61,18 @@ describe("titleForTab", () => {
     expect(titleForTab("chat")).toBe("Chat");
     expect(titleForTab("overview")).toBe("Overview");
     expect(titleForTab("cron")).toBe("Cron Jobs");
+    expect(titleForTab("artifacts")).toBe("Artifacts");
+    expect(titleForTab("bootstrap")).toBe("Capability Installs");
+    expect(titleForTab("machine")).toBe("Machine Access");
+    expect(titleForTab("nodes")).toBe("Devices & Nodes");
+  });
+
+  it("returns localized titles for Russian", async () => {
+    await i18n.setLocale("ru");
+    expect(titleForTab("bootstrap")).toBe("Установка возможностей");
+    expect(titleForTab("machine")).toBe("Доступ к машине");
+    expect(titleForTab("nodes")).toBe("Устройства и узлы");
+    await i18n.setLocale("en");
   });
 });
 
@@ -73,6 +87,7 @@ describe("subtitleForTab", () => {
   it("returns descriptive subtitles", () => {
     expect(subtitleForTab("chat")).toContain("quick interventions");
     expect(subtitleForTab("config")).toContain("openclaw.json");
+    expect(subtitleForTab("nodes")).toContain("exec approvals");
   });
 });
 
@@ -117,6 +132,7 @@ describe("pathForTab", () => {
   it("returns correct path without base", () => {
     expect(pathForTab("chat")).toBe("/chat");
     expect(pathForTab("overview")).toBe("/overview");
+    expect(pathForTab("artifacts")).toBe("/artifacts");
   });
 
   it("prepends base path", () => {
@@ -130,6 +146,7 @@ describe("tabFromPath", () => {
     expect(tabFromPath("/chat")).toBe("chat");
     expect(tabFromPath("/overview")).toBe("overview");
     expect(tabFromPath("/sessions")).toBe("sessions");
+    expect(tabFromPath("/artifacts")).toBe("artifacts");
   });
 
   it("returns chat for root path", () => {

@@ -12,7 +12,13 @@ function isSourceCheckoutRoot(packageRoot: string): boolean {
   );
 }
 
-export function resolveBundledPluginsDir(env: NodeJS.ProcessEnv = process.env): string | undefined {
+export function resolveBundledPluginsDir(
+  env: NodeJS.ProcessEnv = process.env,
+  opts: {
+    cwd?: string;
+    moduleUrl?: string;
+  } = {},
+): string | undefined {
   const override = env.OPENCLAW_BUNDLED_PLUGINS_DIR?.trim();
   if (override) {
     return resolveUserPath(override, env);
@@ -22,8 +28,9 @@ export function resolveBundledPluginsDir(env: NodeJS.ProcessEnv = process.env): 
 
   try {
     const packageRoots = [
-      resolveOpenClawPackageRootSync({ cwd: process.cwd() }),
-      resolveOpenClawPackageRootSync({ moduleUrl: import.meta.url }),
+      opts.cwd ? path.resolve(opts.cwd) : null,
+      resolveOpenClawPackageRootSync({ cwd: opts.cwd ?? process.cwd() }),
+      resolveOpenClawPackageRootSync({ moduleUrl: opts.moduleUrl ?? import.meta.url }),
     ].filter(
       (entry, index, all): entry is string => Boolean(entry) && all.indexOf(entry) === index,
     );

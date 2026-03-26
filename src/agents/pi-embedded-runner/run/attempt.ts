@@ -27,6 +27,7 @@ import type {
   PluginHookBeforeAgentStartResult,
   PluginHookBeforePromptBuildResult,
 } from "../../../plugins/types.js";
+import { toPluginHookPlatformExecutionContext } from "../../../platform/recipe/runtime-adapter.js";
 import { isCronSessionKey, isSubagentSessionKey } from "../../../routing/session-key.js";
 import { joinPresentTextSegments } from "../../../shared/text/join-segments.js";
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
@@ -3186,6 +3187,9 @@ export async function runEmbeddedAttempt(
               messageProvider: params.messageProvider ?? undefined,
               trigger: params.trigger,
               channelId: params.messageChannel ?? params.messageProvider ?? undefined,
+              ...(params.platformExecutionContext
+                ? { platformExecution: toPluginHookPlatformExecutionContext(params.platformExecutionContext) }
+                : {}),
             },
           )
           .catch((err) => {

@@ -67,6 +67,10 @@ import type {
   AgentsListResult,
   AgentsFilesListResult,
   AgentIdentityResult,
+  ArtifactRecordDetail,
+  ArtifactRecordSummary,
+  BootstrapRequestRecordDetail,
+  BootstrapRequestRecordSummary,
   ConfigSnapshot,
   ConfigUiHints,
   ChatModelOverride,
@@ -76,11 +80,13 @@ import type {
   HealthSummary,
   LogEntry,
   LogLevel,
+  MachineControlStatus,
   ModelCatalogEntry,
   PresenceEntry,
   ChannelsStatusSnapshot,
   SessionsListResult,
   SkillStatusReport,
+  SpecialistRuntimeSnapshot,
   StatusSummary,
   NostrProfile,
   ToolsCatalogResult,
@@ -291,6 +297,34 @@ export class OpenClawApp extends LitElement {
   @state() sessionsPageSize = 25;
   @state() sessionsSelectedKeys: Set<string> = new Set();
 
+  @state() artifactsLoading = false;
+  @state() artifactsError: string | null = null;
+  @state() artifactsList: ArtifactRecordSummary[] = [];
+  @state() artifactsFilterQuery = "";
+  @state() artifactsSelectedId: string | null = null;
+  @state() artifactDetailLoading = false;
+  @state() artifactDetail: ArtifactRecordDetail | null = null;
+  @state() artifactDetailError: string | null = null;
+  @state() artifactTransitionBusy = false;
+  @state() bootstrapLoading = false;
+  @state() bootstrapError: string | null = null;
+  @state() bootstrapList: BootstrapRequestRecordSummary[] = [];
+  @state() bootstrapPendingCount = 0;
+  @state() bootstrapFilterQuery = "";
+  @state() bootstrapSelectedId: string | null = null;
+  @state() bootstrapDetailLoading = false;
+  @state() bootstrapDetail: BootstrapRequestRecordDetail | null = null;
+  @state() bootstrapDetailError: string | null = null;
+  @state() bootstrapActionBusy = false;
+  @state() machineLoading = false;
+  @state() machineError: string | null = null;
+  @state() machineActionBusy = false;
+  @state() machineStatus: MachineControlStatus | null = null;
+  @state() specialistLoading = false;
+  @state() specialistSaving = false;
+  @state() specialistError: string | null = null;
+  @state() specialistSnapshot: SpecialistRuntimeSnapshot | null = null;
+
   @state() usageLoading = false;
   @state() usageResult: import("./types.js").SessionsUsageResult | null = null;
   @state() usageCostSummary: import("./types.js").CostUsageSummary | null = null;
@@ -441,6 +475,9 @@ export class OpenClawApp extends LitElement {
   private nodesPollInterval: number | null = null;
   private logsPollInterval: number | null = null;
   private debugPollInterval: number | null = null;
+  private artifactsPollInterval: number | null = null;
+  private bootstrapPollInterval: number | null = null;
+  private machinePollInterval: number | null = null;
   private logsScrollFrame: number | null = null;
   private toolStreamById = new Map<string, ToolStreamEntry>();
   private toolStreamOrder: string[] = [];

@@ -1,0 +1,15 @@
+{
+  "route": "code_build_publish",
+  "artifacts": [
+    {
+      "type": "release",
+      "stage": "publish",
+      "target": "github",
+      "version": "1.4.2",
+      "tag": "v1.4.2",
+      "url": "https://github.com/openclaw/openclaw/releases/tag/v1.4.2",
+      "published": true,
+      "notes": "Release notes generated."
+    }
+  ]
+}

@@ -91,6 +91,7 @@ export function resolveGatewayStartupPluginIds(params: {
         return true;
       }
       return (
+        plugin.gatewayStartup === true ||
         pluginsConfig.allow.includes(plugin.id) ||
         pluginsConfig.entries[plugin.id]?.enabled === true ||
         pluginsConfig.slots.memory === plugin.id

@@ -107,6 +107,7 @@ function normalizePluginManifest(raw) {
     id: raw.id.trim(),
     configSchema: raw.configSchema,
     ...(raw.enabledByDefault === true ? { enabledByDefault: true } : {}),
+    ...(raw.gatewayStartup === true ? { gatewayStartup: true } : {}),
     ...(typeof raw.kind === "string" ? { kind: raw.kind.trim() } : {}),
     ...(normalizeStringList(raw.channels) ? { channels: normalizeStringList(raw.channels) } : {}),
     ...(normalizeStringList(raw.providers)

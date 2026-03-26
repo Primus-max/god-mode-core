@@ -44,6 +44,56 @@ function hasCodeArtifact(artifactKinds: ArtifactKind[]): boolean {
   );
 }
 
+function hasMediaArtifact(artifactKinds: ArtifactKind[]): boolean {
+  return artifactKinds.some((kind) => kind === "image" || kind === "video" || kind === "audio");
+}
+
+function hasOcrSignal(input: RecipePlannerInput, files: string[]): boolean {
+  const prompt = (input.prompt ?? "").toLowerCase();
+  return (
+    /\b(ocr|scan|scanned|screenshot|photo|image[- ]based)\b/iu.test(prompt) ||
+    files.some((file) => /\.(png|jpe?g|webp|tiff?)$/iu.test(file))
+  );
+}
+
+function hasIntegrationSignal(input: RecipePlannerInput, files: string[]): boolean {
+  const prompt = (input.prompt ?? "").toLowerCase();
+  const integrations = (input.integrations ?? []).map((value) => value.toLowerCase());
+  return (
+    /\b(integration|integrate|webhook|connector|sync|pipeline|workflow|oauth|mcp)\b/iu.test(
+      prompt,
+    ) ||
+    integrations.length > 0 ||
+    files.some((file) => /\.(yaml|yml|toml|graphql|proto)$/iu.test(file))
+  );
+}
+
+function hasOpsSignal(input: RecipePlannerInput): boolean {
+  const prompt = (input.prompt ?? "").toLowerCase();
+  return /\b(infra|infrastructure|ops|server|ssh|machine|node|cluster|kubernetes|bootstrap|capability|restart|logs)\b/iu.test(
+    prompt,
+  );
+}
+
+function hasMediaSignal(input: RecipePlannerInput, files: string[]): boolean {
+  const prompt = (input.prompt ?? "").toLowerCase();
+  return (
+    /\b(image|video|audio|thumbnail|poster|render|caption|transcribe|voiceover|storyboard|figma|design)\b/iu.test(
+      prompt,
+    ) ||
+    files.some((file) => /\.(png|jpe?g|webp|gif|mp4|webm|mp3|wav)$/iu.test(file)) ||
+    hasMediaArtifact(input.artifactKinds ?? [])
+  );
+}
+
+function hasTableSignal(input: RecipePlannerInput, files: string[]): boolean {
+  const prompt = (input.prompt ?? "").toLowerCase();
+  return (
+    /\b(table|spreadsheet|csv|xlsx|rows|columns|line items?)\b/iu.test(prompt) ||
+    files.some((file) => /\.(csv|xlsx|xls|ods)$/iu.test(file))
+  );
+}
+
 function buildRecipeScore(params: {
   recipe: ExecutionRecipe;
   profile: ProfileResolution;
@@ -95,10 +145,52 @@ function buildRecipeScore(params: {
     return score;
   }
 
+  if (recipe.id === "ocr_extract") {
+    let score = 0;
+    if (profile.selectedProfile.id === "builder") {
+      score += 1;
+    }
+    if (overlayId === "document_first") {
+      score += 1.2;
+    }
+    if (input.intent === "document") {
+      score += 0.8;
+    }
+    if (hasOcrSignal(input, files)) {
+      score += 1.8;
+    }
+    if (hasDocumentArtifact(artifactKinds)) {
+      score += 0.5;
+    }
+    return score;
+  }
+
+  if (recipe.id === "table_extract") {
+    let score = 0;
+    if (profile.selectedProfile.id === "builder") {
+      score += 1;
+    }
+    if (overlayId === "document_first") {
+      score += 1.1;
+    }
+    if (input.intent === "document") {
+      score += 0.8;
+    }
+    if (hasTableSignal(input, files)) {
+      score += 2.2;
+    }
+    if (hasDocumentArtifact(artifactKinds)) {
+      score += 0.5;
+    }
+    return score;
+  }
+
   if (recipe.id === "code_build_publish") {
     let score = 0;
     if (profile.selectedProfile.id === "developer") {
       score += 1;
+    } else if (profile.selectedProfile.id === "integrator") {
+      score += 0.45;
     }
     if (overlayId === "code_first" || overlayId === "publish_release") {
       score += 1.4;
@@ -117,6 +209,72 @@ function buildRecipeScore(params: {
     }
     if (tools.some((tool) => tool === "exec" || tool === "process" || tool === "apply_patch")) {
       score += 0.6;
+    }
+    return score;
+  }
+
+  if (recipe.id === "integration_delivery") {
+    let score = 0;
+    if (profile.selectedProfile.id === "integrator") {
+      score += 1.2;
+    } else if (profile.selectedProfile.id === "developer") {
+      score += 0.4;
+    }
+    if (overlayId === "integration_first" || overlayId === "publish_release") {
+      score += 1.4;
+    }
+    if (input.intent === "code" || input.intent === "publish") {
+      score += 0.6;
+    }
+    if (hasIntegrationSignal(input, files)) {
+      score += 1.8;
+    }
+    if (hasCodeArtifact(artifactKinds)) {
+      score += 0.4;
+    }
+    if (hasMatchingTarget(recipe, publishTargets)) {
+      score += 0.8;
+    }
+    return score;
+  }
+
+  if (recipe.id === "ops_orchestration") {
+    let score = 0;
+    if (profile.selectedProfile.id === "operator") {
+      score += 1.2;
+    }
+    if (
+      overlayId === "ops_first" ||
+      overlayId === "machine_control" ||
+      overlayId === "bootstrap_capability"
+    ) {
+      score += 1.5;
+    }
+    if (hasOpsSignal(input)) {
+      score += 1.9;
+    }
+    if (tools.some((tool) => tool === "exec" || tool === "process")) {
+      score += 0.5;
+    }
+    return score;
+  }
+
+  if (recipe.id === "media_production") {
+    let score = 0;
+    if (profile.selectedProfile.id === "media_creator") {
+      score += 1.2;
+    }
+    if (overlayId === "media_first" || overlayId === "media_publish") {
+      score += 1.4;
+    }
+    if (hasMediaSignal(input, files)) {
+      score += 2;
+    }
+    if (hasMediaArtifact(artifactKinds)) {
+      score += 0.9;
+    }
+    if (hasMatchingTarget(recipe, publishTargets)) {
+      score += 0.5;
     }
     return score;
   }

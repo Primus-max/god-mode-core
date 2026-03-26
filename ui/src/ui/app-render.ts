@@ -21,6 +21,17 @@ import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controlle
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
 import { loadAgents, loadToolsCatalog, saveAgentsConfig } from "./controllers/agents.ts";
+import {
+  loadArtifactDetail,
+  loadArtifacts,
+  transitionArtifact,
+} from "./controllers/artifacts.ts";
+import {
+  loadBootstrapDetail,
+  loadBootstrapRequests,
+  resolveBootstrapRequest,
+  runBootstrapRequest,
+} from "./controllers/bootstrap.ts";
 import { loadChannels } from "./controllers/channels.ts";
 import { loadChatHistory } from "./controllers/chat.ts";
 import {
@@ -68,9 +79,20 @@ import {
   updateExecApprovalsFormValue,
 } from "./controllers/exec-approvals.ts";
 import { loadLogs } from "./controllers/logs.ts";
+import {
+  linkMachineCurrentDevice,
+  loadMachineControl,
+  setMachineKillSwitch,
+  unlinkMachineDevice,
+} from "./controllers/machine.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionsAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
+import {
+  loadSpecialistContext,
+  saveSpecialistOverride,
+  scheduleSpecialistContextRefresh,
+} from "./controllers/specialist.ts";
 import {
   installSkill,
   loadSkills,
@@ -122,6 +144,9 @@ function createLazy<T>(loader: () => Promise<T>): () => T | null {
 }
 
 const lazyAgents = createLazy(() => import("./views/agents.ts"));
+const lazyArtifacts = createLazy(() => import("./views/artifacts.ts"));
+const lazyBootstrap = createLazy(() => import("./views/bootstrap.ts"));
+const lazyMachine = createLazy(() => import("./views/machine.ts"));
 const lazyChannels = createLazy(() => import("./views/channels.ts"));
 const lazyCron = createLazy(() => import("./views/cron.ts"));
 const lazyDebug = createLazy(() => import("./views/debug.ts"));
@@ -636,6 +661,10 @@ export function renderApp(state: AppViewState) {
                 attentionItems: state.attentionItems,
                 eventLog: state.eventLog,
                 overviewLogLines: state.overviewLogLines,
+                specialistLoading: state.specialistLoading,
+                specialistSaving: state.specialistSaving,
+                specialistError: state.specialistError,
+                specialistSnapshot: state.specialistSnapshot,
                 showGatewayToken: state.overviewShowGatewayToken,
                 showGatewayPassword: state.overviewShowGatewayPassword,
                 onSettingsChange: (next) => state.applySettings(next),
@@ -650,7 +679,9 @@ export function renderApp(state: AppViewState) {
                     lastActiveSessionKey: next,
                   });
                   void state.loadAssistantIdentity();
+                  void loadSpecialistContext(state, { draft: "" });
                 },
+                onSpecialistOverrideChange: (next) => void saveSpecialistOverride(state, next),
                 onToggleGatewayTokenVisibility: () => {
                   state.overviewShowGatewayToken = !state.overviewShowGatewayToken;
                 },
@@ -809,6 +840,73 @@ export function renderApp(state: AppViewState) {
         }
 
         ${renderUsageTab(state)}
+
+        ${
+          state.tab === "artifacts"
+            ? lazyRender(lazyArtifacts, (m) =>
+                m.renderArtifacts({
+                  loading: state.artifactsLoading,
+                  detailLoading: state.artifactDetailLoading,
+                  actionBusy: state.artifactTransitionBusy,
+                  error: state.artifactsError,
+                  detailError: state.artifactDetailError,
+                  artifacts: state.artifactsList,
+                  filterQuery: state.artifactsFilterQuery,
+                  selectedId: state.artifactsSelectedId,
+                  detail: state.artifactDetail,
+                  onRefresh: () => loadArtifacts(state),
+                  onSelect: (artifactId) => loadArtifactDetail(state, artifactId),
+                  onFilterChange: (value) => {
+                    state.artifactsFilterQuery = value;
+                  },
+                  onTransition: (artifactId, operation) => transitionArtifact(state, artifactId, operation),
+                }),
+              )
+            : nothing
+        }
+
+        ${
+          state.tab === "bootstrap"
+            ? lazyRender(lazyBootstrap, (m) =>
+                m.renderBootstrap({
+                  loading: state.bootstrapLoading,
+                  detailLoading: state.bootstrapDetailLoading,
+                  actionBusy: state.bootstrapActionBusy,
+                  error: state.bootstrapError,
+                  detailError: state.bootstrapDetailError,
+                  requests: state.bootstrapList,
+                  pendingCount: state.bootstrapPendingCount,
+                  filterQuery: state.bootstrapFilterQuery,
+                  selectedId: state.bootstrapSelectedId,
+                  detail: state.bootstrapDetail,
+                  onRefresh: () => loadBootstrapRequests(state),
+                  onSelect: (requestId) => loadBootstrapDetail(state, requestId),
+                  onFilterChange: (value) => {
+                    state.bootstrapFilterQuery = value;
+                  },
+                  onResolve: (requestId, decision) => resolveBootstrapRequest(state, requestId, decision),
+                  onRun: (requestId) => runBootstrapRequest(state, requestId),
+                }),
+              )
+            : nothing
+        }
+
+        ${
+          state.tab === "machine"
+            ? lazyRender(lazyMachine, (m) =>
+                m.renderMachine({
+                  loading: state.machineLoading,
+                  actionBusy: state.machineActionBusy,
+                  error: state.machineError,
+                  status: state.machineStatus,
+                  onRefresh: () => loadMachineControl(state),
+                  onLinkCurrentDevice: () => linkMachineCurrentDevice(state),
+                  onUnlink: (deviceId) => unlinkMachineDevice(state, deviceId),
+                  onSetKillSwitch: (enabled) => setMachineKillSwitch(state, enabled),
+                }),
+              )
+            : nothing
+        }
 
         ${
           state.tab === "cron"
@@ -1394,6 +1492,7 @@ export function renderApp(state: AppViewState) {
                   void state.loadAssistantIdentity();
                   void loadChatHistory(state);
                   void refreshChatAvatar(state);
+                  void loadSpecialistContext(state, { draft: "" });
                 },
                 thinkingLevel: state.chatThinkingLevel,
                 showThinking,
@@ -1414,6 +1513,9 @@ export function renderApp(state: AppViewState) {
                 canSend: state.connected,
                 disabledReason: chatDisabledReason,
                 error: state.lastError,
+                specialistLoading: state.specialistLoading,
+                specialistError: state.specialistError,
+                specialistSnapshot: state.specialistSnapshot,
                 sessions: state.sessionsResult,
                 focusMode: chatFocus,
                 onRefresh: () => {
@@ -1431,7 +1533,10 @@ export function renderApp(state: AppViewState) {
                 },
                 onChatScroll: (event) => state.handleChatScroll(event),
                 getDraft: () => state.chatMessage,
-                onDraftChange: (next) => (state.chatMessage = next),
+                onDraftChange: (next) => {
+                  state.chatMessage = next;
+                  scheduleSpecialistContextRefresh(state, next);
+                },
                 onRequestUpdate: requestHostUpdate,
                 attachments: state.chatAttachments,
                 onAttachmentsChange: (next) => (state.chatAttachments = next),
@@ -1450,6 +1555,7 @@ export function renderApp(state: AppViewState) {
                     state.chatStream = null;
                     state.chatRunId = null;
                     await loadChatHistory(state);
+                    await loadSpecialistContext(state, { draft: "" });
                   } catch (err) {
                     state.lastError = String(err);
                   }
@@ -1468,6 +1574,7 @@ export function renderApp(state: AppViewState) {
                   });
                   void loadChatHistory(state);
                   void state.loadAssistantIdentity();
+                  void loadSpecialistContext(state, { draft: "" });
                 },
                 onNavigateToAgent: () => {
                   state.agentsSelectedId = resolvedAgentId;

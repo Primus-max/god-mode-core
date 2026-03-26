@@ -36,16 +36,42 @@ describe("resolveProfile", () => {
     expect(["code_first", "publish_release"]).toContain(resolved.activeProfile.taskOverlay);
   });
 
-  it("lets a specialist user fall back to general for fun/general tasks", () => {
+  it("resolves integrator for integration-first tasks", () => {
     const resolved = resolveProfile({
-      baseProfile: "developer",
+      prompt: "Validate the webhook integration and sync the connector rollout",
+      integrations: ["slack", "webhook"],
+    });
+    expect(resolved.selectedProfile.id).toBe("integrator");
+    expect(resolved.activeProfile.taskOverlay).toBe("integration_first");
+  });
+
+  it("resolves operator for machine/bootstrap tasks", () => {
+    const resolved = resolveProfile({
+      prompt: "Check the linked machine, inspect logs, and bootstrap the missing capability",
+      requestedTools: ["exec", "process"],
+    });
+    expect(resolved.selectedProfile.id).toBe("operator");
+    expect(["machine_control", "bootstrap_capability", "ops_first"]).toContain(
+      resolved.activeProfile.taskOverlay,
+    );
+  });
+
+  it("resolves media_creator for media tasks", () => {
+    const resolved = resolveProfile({
+      prompt: "Generate a thumbnail image and caption the audio clip",
+      artifactKinds: ["image", "audio"],
+    });
+    expect(resolved.selectedProfile.id).toBe("media_creator");
+    expect(resolved.activeProfile.taskOverlay).toBe("media_first");
+  });
+
+  it("pins the selected profile when an explicit session override is present", () => {
+    const resolved = resolveProfile({
       sessionProfile: "developer",
       prompt: "Tell me a joke about robots",
     });
-    expect(resolved.selectedProfile.id).toBe("general");
-    expect(resolved.activeProfile.baseProfile).toBe("developer");
-    expect(resolved.activeProfile.sessionProfile).toBe("general");
-    expect(resolved.activeProfile.taskOverlay).toBe("general_chat");
+    expect(resolved.selectedProfile.id).toBe("developer");
+    expect(resolved.activeProfile.sessionProfile).toBe("developer");
   });
 
   it("falls back to general when no strong signals are present", () => {

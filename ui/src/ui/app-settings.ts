@@ -1,6 +1,12 @@
 import { roleScopesAllow } from "../../../src/shared/operator-scope-compat.js";
 import { refreshChat } from "./app-chat.ts";
 import {
+  startBootstrapPolling,
+  startArtifactsPolling,
+  startMachinePolling,
+  stopBootstrapPolling,
+  stopArtifactsPolling,
+  stopMachinePolling,
   startLogsPolling,
   stopLogsPolling,
   startDebugPolling,
@@ -11,6 +17,8 @@ import type { OpenClawApp } from "./app.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
 import { loadAgents } from "./controllers/agents.ts";
+import { loadArtifacts } from "./controllers/artifacts.ts";
+import { loadBootstrapRequests } from "./controllers/bootstrap.ts";
 import { loadChannels } from "./controllers/channels.ts";
 import { loadConfig, loadConfigSchema } from "./controllers/config.ts";
 import { loadCronJobs, loadCronRuns, loadCronStatus } from "./controllers/cron.ts";
@@ -18,10 +26,12 @@ import { loadDebug } from "./controllers/debug.ts";
 import { loadDevices } from "./controllers/devices.ts";
 import { loadExecApprovals } from "./controllers/exec-approvals.ts";
 import { loadLogs } from "./controllers/logs.ts";
+import { loadMachineControl } from "./controllers/machine.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSkills } from "./controllers/skills.ts";
+import { loadSpecialistContext } from "./controllers/specialist.ts";
 import { loadUsage } from "./controllers/usage.ts";
 import {
   inferBasePathFromPathname,
@@ -52,6 +62,10 @@ type SettingsHost = {
   eventLog: unknown[];
   eventLogBuffer: unknown[];
   basePath: string;
+  artifactsPollInterval?: number | null;
+  bootstrapPollInterval?: number | null;
+  machinePollInterval?: number | null;
+  machineStatus?: OpenClawApp["machineStatus"];
   agentsList?: AgentsListResult | null;
   agentsSelectedId?: string | null;
   agentsPanel?: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
@@ -231,6 +245,15 @@ export async function refreshActiveTab(host: SettingsHost) {
   }
   if (host.tab === "cron") {
     await loadCron(host);
+  }
+  if (host.tab === "artifacts") {
+    await loadArtifacts(host as unknown as OpenClawApp);
+  }
+  if (host.tab === "bootstrap") {
+    await loadBootstrapRequests(host as unknown as OpenClawApp);
+  }
+  if (host.tab === "machine") {
+    await loadMachineControl(host as unknown as OpenClawApp);
   }
   if (host.tab === "skills") {
     await loadSkills(host as unknown as OpenClawApp);
@@ -446,6 +469,21 @@ function applyTabSelection(
   } else {
     stopDebugPolling(host as unknown as Parameters<typeof stopDebugPolling>[0]);
   }
+  if (next === "artifacts") {
+    startArtifactsPolling(host as unknown as Parameters<typeof startArtifactsPolling>[0]);
+  } else {
+    stopArtifactsPolling(host as unknown as Parameters<typeof stopArtifactsPolling>[0]);
+  }
+  if (next === "bootstrap") {
+    startBootstrapPolling(host as unknown as Parameters<typeof startBootstrapPolling>[0]);
+  } else {
+    stopBootstrapPolling(host as unknown as Parameters<typeof stopBootstrapPolling>[0]);
+  }
+  if (next === "machine") {
+    startMachinePolling(host as unknown as Parameters<typeof startMachinePolling>[0]);
+  } else {
+    stopMachinePolling(host as unknown as Parameters<typeof stopMachinePolling>[0]);
+  }
 
   if (options.refreshPolicy === "always" || host.connected) {
     void refreshActiveTab(host);
@@ -505,6 +543,9 @@ export async function loadOverview(host: SettingsHost) {
     loadDebug(app),
     loadSkills(app),
     loadUsage(app),
+    loadBootstrapRequests(app),
+    loadMachineControl(app),
+    loadSpecialistContext(app, { draft: app.chatMessage }),
     loadOverviewLogs(app),
   ]);
   buildAttentionItems(app);
@@ -604,6 +645,38 @@ function buildAttentionItems(host: OpenClawApp) {
       icon: "shield",
       title: `${blocked.length} skill${blocked.length > 1 ? "s" : ""} blocked`,
       description: blocked.map((s) => s.name).join(", "),
+    });
+  }
+
+  if (host.bootstrapPendingCount > 0) {
+    items.push({
+      severity: "warning",
+      icon: "shield",
+      title: `${host.bootstrapPendingCount} bootstrap request${host.bootstrapPendingCount > 1 ? "s" : ""} pending`,
+      description: "Capability installs are waiting for operator approval.",
+      href: "/bootstrap",
+      actionLabel: "Open",
+    });
+  }
+
+  const machineStatus = host.machineStatus;
+  if (machineStatus?.killSwitch.enabled) {
+    items.push({
+      severity: "warning",
+      icon: "monitor",
+      title: "Machine control kill switch enabled",
+      description: "All machine-scoped execution is currently blocked.",
+      href: "/machine",
+      actionLabel: "Open",
+    });
+  } else if (machineStatus?.currentDevice?.access.code === "device_not_linked") {
+    items.push({
+      severity: "warning",
+      icon: "monitor",
+      title: "Current device is not linked for machine control",
+      description: "Link this operator device before approving machine-scoped execution.",
+      href: "/machine",
+      actionLabel: "Open",
     });
   }
 

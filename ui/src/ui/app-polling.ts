@@ -1,12 +1,18 @@
 import type { OpenClawApp } from "./app.ts";
+import { loadArtifacts } from "./controllers/artifacts.ts";
+import { loadBootstrapRequests } from "./controllers/bootstrap.ts";
 import { loadDebug } from "./controllers/debug.ts";
 import { loadLogs } from "./controllers/logs.ts";
+import { loadMachineControl } from "./controllers/machine.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 
 type PollingHost = {
   nodesPollInterval: number | null;
   logsPollInterval: number | null;
   debugPollInterval: number | null;
+  artifactsPollInterval: number | null;
+  bootstrapPollInterval: number | null;
+  machinePollInterval: number | null;
   tab: string;
 };
 
@@ -66,4 +72,64 @@ export function stopDebugPolling(host: PollingHost) {
   }
   clearInterval(host.debugPollInterval);
   host.debugPollInterval = null;
+}
+
+export function startArtifactsPolling(host: PollingHost) {
+  if (host.artifactsPollInterval != null) {
+    return;
+  }
+  host.artifactsPollInterval = window.setInterval(() => {
+    if (host.tab !== "artifacts") {
+      return;
+    }
+    void loadArtifacts(host as unknown as OpenClawApp);
+  }, 5000);
+}
+
+export function stopArtifactsPolling(host: PollingHost) {
+  if (host.artifactsPollInterval == null) {
+    return;
+  }
+  clearInterval(host.artifactsPollInterval);
+  host.artifactsPollInterval = null;
+}
+
+export function startBootstrapPolling(host: PollingHost) {
+  if (host.bootstrapPollInterval != null) {
+    return;
+  }
+  host.bootstrapPollInterval = window.setInterval(() => {
+    if (host.tab !== "bootstrap") {
+      return;
+    }
+    void loadBootstrapRequests(host as unknown as OpenClawApp);
+  }, 5000);
+}
+
+export function stopBootstrapPolling(host: PollingHost) {
+  if (host.bootstrapPollInterval == null) {
+    return;
+  }
+  clearInterval(host.bootstrapPollInterval);
+  host.bootstrapPollInterval = null;
+}
+
+export function startMachinePolling(host: PollingHost) {
+  if (host.machinePollInterval != null) {
+    return;
+  }
+  host.machinePollInterval = window.setInterval(() => {
+    if (host.tab !== "machine") {
+      return;
+    }
+    void loadMachineControl(host as unknown as OpenClawApp);
+  }, 5000);
+}
+
+export function stopMachinePolling(host: PollingHost) {
+  if (host.machinePollInterval == null) {
+    return;
+  }
+  clearInterval(host.machinePollInterval);
+  host.machinePollInterval = null;
 }

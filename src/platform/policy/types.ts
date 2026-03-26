@@ -18,6 +18,10 @@ export type PolicyContext = {
   touchesSensitiveData?: boolean;
   explicitApproval?: boolean;
   requestedRiskLevel?: RiskLevel;
+  requestedMachineControl?: boolean;
+  machineControlDeviceId?: string;
+  machineControlLinked?: boolean;
+  machineControlKillSwitchEnabled?: boolean;
 };
 
 export type PolicyDecision = {
@@ -28,6 +32,7 @@ export type PolicyDecision = {
   allowPublish: boolean;
   allowCapabilityBootstrap: boolean;
   allowPrivilegedTools: boolean;
+  allowMachineControl: boolean;
   requireExplicitApproval: boolean;
   autonomy: PolicyAutonomy;
   reasons: string[];

@@ -1,0 +1,28 @@
+{
+  "route": "table_extract",
+  "artifacts": [
+    {
+      "type": "extraction",
+      "tables": [
+        {
+          "id": "line-items",
+          "title": "Line Items",
+          "headers": ["Item", "Qty", "Price"],
+          "rows": [
+            ["Concrete", "12", "1000"],
+            ["Steel", "4", "1800"]
+          ]
+        }
+      ]
+    },
+    {
+      "type": "export",
+      "format": "csv",
+      "fileName": "line-items.csv",
+      "previewRows": [
+        { "Item": "Concrete", "Qty": 12, "Price": 1000 },
+        { "Item": "Steel", "Qty": 4, "Price": 1800 }
+      ]
+    }
+  ]
+}

@@ -475,6 +475,7 @@ describe("config cli", () => {
       const configCommand = program.commands.find((command) => command.name() === "config");
       const setCommand = configCommand?.commands.find((command) => command.name() === "set");
       const helpText = setCommand?.helpInformation() ?? "";
+      const compactHelpText = helpText.replace(/\s+/g, " ");
 
       expect(helpText).toContain("--strict-json");
       expect(helpText).toContain("--json");
@@ -486,14 +487,11 @@ describe("config cli", () => {
       expect(helpText).toContain("--batch-json");
       expect(helpText).toContain("--dry-run");
       expect(helpText).toContain("--allow-exec");
-      expect(helpText).toContain("openclaw config set gateway.port 19001 --strict-json");
-      expect(helpText).toContain(
-        "openclaw config set channels.discord.token --ref-provider default --ref-source",
-      );
+      expect(helpText).toContain("config set gateway.port 19001 --strict-json");
+      expect(helpText).toContain("channels.discord.token --ref-provider default");
+      expect(compactHelpText).toContain("--ref-source env --ref-id DISCORD_BOT_TOKEN");
       expect(helpText).toContain("--ref-id DISCORD_BOT_TOKEN");
-      expect(helpText).toContain(
-        "openclaw config set --batch-file ./config-set.batch.json --dry-run",
-      );
+      expect(helpText).toContain("config set --batch-file ./config-set.batch.json --dry-run");
     });
   });
 

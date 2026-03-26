@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 const loadSessionsMock = vi.fn();
+const loadMachineControlMock = vi.fn();
+const refreshActiveTabMock = vi.fn();
 
 vi.mock("./app-chat.ts", () => ({
   CHAT_SESSIONS_ACTIVE_MINUTES: 10,
@@ -9,7 +11,7 @@ vi.mock("./app-chat.ts", () => ({
 vi.mock("./app-settings.ts", () => ({
   applySettings: vi.fn(),
   loadCron: vi.fn(),
-  refreshActiveTab: vi.fn(),
+  refreshActiveTab: refreshActiveTabMock,
   setLastActiveSessionKey: vi.fn(),
 }));
 vi.mock("./app-tool-stream.ts", () => ({
@@ -35,6 +37,9 @@ vi.mock("./controllers/exec-approval.ts", () => ({
   parseExecApprovalRequested: vi.fn(() => null),
   parseExecApprovalResolved: vi.fn(() => null),
   removeExecApproval: vi.fn(),
+}));
+vi.mock("./controllers/machine.ts", () => ({
+  loadMachineControl: loadMachineControlMock,
 }));
 vi.mock("./controllers/nodes.ts", () => ({
   loadNodes: vi.fn(),
@@ -118,5 +123,23 @@ describe("handleGatewayEvent sessions.changed", () => {
 
     expect(loadSessionsMock).toHaveBeenCalledTimes(1);
     expect(loadSessionsMock).toHaveBeenCalledWith(host);
+  });
+
+  it("refreshes machine state immediately on platform.machine.changed", () => {
+    loadMachineControlMock.mockReset();
+    refreshActiveTabMock.mockReset();
+    const host = createHost();
+
+    handleGatewayEvent(host, {
+      type: "event",
+      event: "platform.machine.changed",
+      payload: { kind: "link" },
+      seq: 2,
+    });
+
+    expect(loadMachineControlMock).toHaveBeenCalledTimes(1);
+    expect(loadMachineControlMock).toHaveBeenCalledWith(host);
+    expect(refreshActiveTabMock).toHaveBeenCalledTimes(1);
+    expect(refreshActiveTabMock).toHaveBeenCalledWith(host);
   });
 });

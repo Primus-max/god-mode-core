@@ -30,23 +30,26 @@ const BASELINE_PROFILES: Profile[] = [
   {
     id: "integrator",
     label: "Integrator",
-    description: "API, webhook, and system integration specialist",
-    riskCeiling: "medium",
-    preferredTools: ["exec", "read", "write"],
+    description: "API, webhook, rollout, and cross-system integration specialist for connected workflows.",
+    riskCeiling: "high",
+    preferredTools: ["read", "write", "edit", "exec"],
+    preferredPublishTargets: ["github", "docker", "vercel", "netlify", "webhook"],
   },
   {
     id: "operator",
     label: "Operator",
-    description: "Infrastructure and operations specialist",
+    description:
+      "Infrastructure, machine-control, and capability-operations specialist for guarded runtime work.",
     riskCeiling: "high",
-    preferredTools: ["exec", "process"],
+    preferredTools: ["read", "exec", "process"],
   },
   {
     id: "media_creator",
     label: "Media Creator",
-    description: "Image, video, and audio generation specialist",
-    riskCeiling: "low",
-    preferredTools: ["canvas", "browser"],
+    description: "Image, video, audio, and multimodal content production specialist.",
+    riskCeiling: "medium",
+    preferredTools: ["read", "write", "browser", "canvas"],
+    preferredPublishTargets: ["site"],
   },
   {
     id: "general",
@@ -76,10 +79,41 @@ const BASELINE_RECIPES: ExecutionRecipe[] = [
     riskLevel: "low",
   },
   {
+    id: "ocr_extract",
+    purpose: "Extract structured text and fields from scans and image-heavy documents",
+    acceptedInputs: [
+      { type: "file", required: true, description: "Scan or image-heavy document to process" },
+      { type: "text", description: "OCR extraction instructions" },
+    ],
+    producedArtifacts: [{ type: "data", description: "OCR extraction output" }],
+    requiredCapabilities: ["ocr-engine"],
+    riskLevel: "low",
+  },
+  {
+    id: "table_extract",
+    purpose: "Extract tables and spreadsheet-like structures into structured rows",
+    acceptedInputs: [
+      {
+        type: "file",
+        required: true,
+        description: "Spreadsheet, table image, or table-heavy document",
+      },
+      { type: "text", description: "Table extraction instructions" },
+    ],
+    producedArtifacts: [
+      { type: "data", description: "Structured table rows" },
+      { type: "report", description: "Table extraction summary" },
+    ],
+    requiredCapabilities: ["table-parser"],
+    riskLevel: "low",
+  },
+  {
     id: "code_build_publish",
     purpose: "Build, test, and publish code artifacts",
     acceptedInputs: [{ type: "text", required: true }],
     producedArtifacts: [
+      { type: "report", description: "Build/test execution summary" },
+      { type: "site", description: "Preview deployment or preview URL" },
       { type: "binary", description: "Built artifact" },
       { type: "release", description: "Published release" },
     ],
@@ -87,6 +121,42 @@ const BASELINE_RECIPES: ExecutionRecipe[] = [
     allowedProfiles: ["developer", "integrator"],
     riskLevel: "high",
     publishTargets: ["github", "npm"],
+  },
+  {
+    id: "integration_delivery",
+    purpose: "Wire integrations, webhooks, and connected rollout workflows",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [
+      { type: "report", description: "Integration rollout summary" },
+      { type: "site", description: "Connected preview or delivery endpoint" },
+      { type: "release", description: "Integration release handoff" },
+    ],
+    requiredCapabilities: ["node", "git"],
+    allowedProfiles: ["integrator", "developer"],
+    riskLevel: "high",
+    publishTargets: ["github", "docker", "vercel", "netlify", "webhook"],
+  },
+  {
+    id: "ops_orchestration",
+    purpose: "Operate infrastructure, guarded machine control, and capability lifecycle tasks",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [{ type: "report", description: "Operational runbook and execution summary" }],
+    allowedProfiles: ["operator"],
+    riskLevel: "high",
+  },
+  {
+    id: "media_production",
+    purpose: "Create, refine, and package multimodal media outputs",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [
+      { type: "image", description: "Generated or edited image asset" },
+      { type: "video", description: "Generated or edited video asset" },
+      { type: "audio", description: "Generated or edited audio asset" },
+      { type: "report", description: "Media production summary" },
+    ],
+    allowedProfiles: ["media_creator"],
+    riskLevel: "medium",
+    publishTargets: ["site"],
   },
 ];
 
@@ -99,6 +169,27 @@ const BASELINE_CAPABILITIES: CapabilityDescriptor[] = [
     status: "missing",
     trusted: true,
     installMethod: "node",
+  },
+  {
+    id: "ocr-engine",
+    label: "OCR Engine",
+    status: "missing",
+    trusted: true,
+    installMethod: "download",
+  },
+  {
+    id: "table-parser",
+    label: "Table Parser",
+    status: "missing",
+    trusted: true,
+    installMethod: "node",
+  },
+  {
+    id: "pdf-renderer",
+    label: "PDF Renderer",
+    status: "missing",
+    trusted: true,
+    installMethod: "download",
   },
 ];
 
@@ -142,7 +233,12 @@ describe("baseline recipe descriptors", () => {
       [
         "general_reasoning",
         "doc_ingest",
+        "ocr_extract",
+        "table_extract",
         "code_build_publish",
+        "integration_delivery",
+        "ops_orchestration",
+        "media_production",
       ]
     `);
   });
@@ -159,6 +255,9 @@ describe("baseline capability descriptors", () => {
         "node:available",
         "git:available",
         "pdf-parser:missing",
+        "ocr-engine:missing",
+        "table-parser:missing",
+        "pdf-renderer:missing",
       ]
     `);
   });

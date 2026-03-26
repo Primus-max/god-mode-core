@@ -26,12 +26,20 @@ export {
 } from "./recipe.js";
 
 export {
+  CapabilityCatalogSchema,
+  CapabilityCatalogInstallSchema,
   CapabilityDescriptorSchema,
   CapabilityCatalogEntrySchema,
+  CapabilityCatalogSourceSchema,
+  CapabilityRollbackStrategySchema,
   CapabilityStatusSchema,
   CapabilityInstallMethodSchema,
+  type CapabilityCatalog,
+  type CapabilityCatalogInstall,
   type CapabilityDescriptor,
   type CapabilityCatalogEntry,
+  type CapabilityCatalogSource,
+  type CapabilityRollbackStrategy,
   type CapabilityStatus,
   type CapabilityInstallMethod,
 } from "./capability.js";

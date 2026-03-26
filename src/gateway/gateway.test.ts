@@ -6,6 +6,12 @@ import { clearAllBootstrapSnapshots } from "../agents/bootstrap-cache.js";
 import { clearConfigCache, clearRuntimeConfigSnapshot } from "../config/config.js";
 import { clearSessionStoreCacheForTest } from "../config/sessions/store.js";
 import { resetAgentRunContextForTest } from "../infra/agent-events.js";
+import { getPlatformArtifactService, resetPlatformArtifactService } from "../platform/artifacts/index.js";
+import { buildExecutionDecisionInput } from "../platform/decision/input.js";
+import {
+  resolvePlatformRuntimePlan,
+  toPluginHookPlatformExecutionContext,
+} from "../platform/recipe/runtime-adapter.js";
 import { clearGatewaySubagentRuntime } from "../plugins/runtime/index.js";
 import { captureEnv } from "../test-utils/env.js";
 import { startGatewayServer } from "./server.js";
@@ -36,6 +42,7 @@ describe("gateway e2e", () => {
     resetAgentRunContextForTest();
     clearAllBootstrapSnapshots();
     clearGatewaySubagentRuntime();
+    resetPlatformArtifactService();
   });
 
   afterEach(() => {
@@ -45,6 +52,7 @@ describe("gateway e2e", () => {
     resetAgentRunContextForTest();
     clearAllBootstrapSnapshots();
     clearGatewaySubagentRuntime();
+    resetPlatformArtifactService();
   });
 
   beforeAll(async () => {
@@ -146,6 +154,121 @@ describe("gateway e2e", () => {
         await server.close({ reason: "mock openai test complete" });
         await fs.rm(tempHome, { recursive: true, force: true });
         restore();
+        envSnapshot.restore();
+      }
+    },
+  );
+
+  it(
+    "keeps artifact publish denial aligned with the frozen decision context",
+    { timeout: GATEWAY_E2E_TIMEOUT_MS },
+    async () => {
+      const envSnapshot = captureEnv([
+        "HOME",
+        "OPENCLAW_STATE_DIR",
+        "OPENCLAW_CONFIG_PATH",
+        "OPENCLAW_GATEWAY_TOKEN",
+        "OPENCLAW_SKIP_CHANNELS",
+        "OPENCLAW_SKIP_GMAIL_WATCHER",
+        "OPENCLAW_SKIP_CRON",
+        "OPENCLAW_SKIP_CANVAS_HOST",
+        "OPENCLAW_SKIP_BROWSER_CONTROL_SERVER",
+        "OPENCLAW_BUNDLED_PLUGINS_DIR",
+      ]);
+
+      const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-platform-home-"));
+      process.env.HOME = tempHome;
+      process.env.OPENCLAW_STATE_DIR = path.join(tempHome, ".openclaw");
+      delete process.env.OPENCLAW_CONFIG_PATH;
+      process.env.OPENCLAW_SKIP_CHANNELS = "1";
+      process.env.OPENCLAW_SKIP_GMAIL_WATCHER = "1";
+      process.env.OPENCLAW_SKIP_CRON = "1";
+      process.env.OPENCLAW_SKIP_CANVAS_HOST = "1";
+      process.env.OPENCLAW_SKIP_BROWSER_CONTROL_SERVER = "1";
+      process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = path.resolve(process.cwd(), "extensions");
+
+      const token = nextGatewayId("platform-token");
+      process.env.OPENCLAW_GATEWAY_TOKEN = token;
+
+      const workspaceDir = path.join(tempHome, "openclaw");
+      await fs.mkdir(workspaceDir, { recursive: true });
+
+      const configDir = path.join(tempHome, ".openclaw");
+      await fs.mkdir(configDir, { recursive: true });
+      const configPath = path.join(configDir, "openclaw.json");
+      const prompt = "Analyze this PDF invoice and return a structured markdown report.";
+      const sessionKey = "agent:dev:platform-enforcement";
+      const stateDir = process.env.OPENCLAW_STATE_DIR;
+      if (!stateDir) {
+        throw new Error("OPENCLAW_STATE_DIR missing");
+      }
+      const resolved = resolvePlatformRuntimePlan(buildExecutionDecisionInput({ prompt }));
+      getPlatformArtifactService({
+        stateDir,
+        gatewayBaseUrl: "http://127.0.0.1:18789",
+      }).register({
+        id: "artifact-frozen-doc",
+        kind: "report",
+        label: "Decision Report",
+        lifecycle: "draft",
+        createdAt: "2026-03-26T00:00:00.000Z",
+        updatedAt: "2026-03-26T00:00:00.000Z",
+        metadata: {
+          runId: "run-frozen-doc",
+          platformExecution: toPluginHookPlatformExecutionContext(resolved.runtime),
+        },
+      });
+
+      const cfg = {
+        agents: {
+          defaults: {
+            workspace: workspaceDir,
+          },
+        },
+        plugins: {
+          enabled: true,
+          slots: { memory: "none" },
+          entries: {
+            "platform-profile-foundation": {
+              enabled: true,
+            },
+          },
+        },
+        gateway: { auth: { token } },
+      };
+
+      const { server, client } = await startGatewayWithClient({
+        cfg,
+        configPath,
+        token,
+        clientDisplayName: "vitest-platform-enforcement",
+      });
+
+      try {
+        const snapshot = (await client.request("platform.profile.resolve", {
+          sessionKey,
+          draft: prompt,
+        })) as {
+          recipeId?: string;
+          allowPublish?: boolean;
+          requiresExplicitApproval?: boolean;
+          policyDeniedReasons?: string[];
+        };
+        expect(typeof snapshot.recipeId).toBe("string");
+        expect(snapshot.allowPublish).toBe(false);
+        expect(snapshot.requiresExplicitApproval).toBe(true);
+        expect(snapshot.policyDeniedReasons?.join(" ")).toContain("explicit approval");
+
+        await expect(
+          client.request("platform.artifacts.transition", {
+            artifactId: "artifact-frozen-doc",
+            operation: "publish",
+          }),
+        ).rejects.toThrow();
+      } finally {
+        await disconnectGatewayClient(client);
+        await server.close({ reason: "platform enforcement test complete" });
+        await fs.rm(tempHome, { recursive: true, force: true });
         envSnapshot.restore();
       }
     },

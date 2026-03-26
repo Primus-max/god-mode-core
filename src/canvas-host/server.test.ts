@@ -345,7 +345,12 @@ describe("canvas host", () => {
       createdBundle = true;
     }
 
-    await fs.symlink(path.join(process.cwd(), "package.json"), linkPath);
+    try {
+      await fs.symlink(path.join(process.cwd(), "package.json"), linkPath);
+    } catch {
+      // Some Windows environments disallow symlink creation without Developer Mode/elevation.
+      return;
+    }
     createdLink = true;
 
     try {

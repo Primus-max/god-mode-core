@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveDeveloperCredentialGate } from "../developer/index.js";
 import { getInitialProfile } from "../profile/defaults.js";
 import { applyTaskOverlay } from "../profile/overlay.js";
 import { evaluatePolicy } from "./engine.js";
@@ -55,6 +56,31 @@ describe("evaluatePolicy", () => {
     expect(decision.requireExplicitApproval).toBe(true);
   });
 
+  it("does not let credential bindings bypass publish approval", () => {
+    const profile = getInitialProfile("developer")!;
+    const gate = resolveDeveloperCredentialGate({
+      id: "github-release",
+      target: "github",
+      credentialKind: "oauth",
+      bindingScope: "persistent",
+      source: "auth_profile",
+      authProfileId: "github-release",
+    });
+    const decision = evaluatePolicy({
+      activeProfileId: profile.id,
+      activeProfile: profile,
+      effective: applyTaskOverlay(
+        profile,
+        profile.taskOverlays?.find((overlay) => overlay.id === "publish_release"),
+      ),
+      intent: gate.policyIntent,
+      publishTargets: gate.publishTargets,
+      explicitApproval: false,
+    });
+    expect(decision.allowPublish).toBe(false);
+    expect(decision.requireExplicitApproval).toBe(true);
+  });
+
   it("blocks external model use for sensitive data until approval is explicit", () => {
     const profile = getInitialProfile("builder")!;
     const decision = evaluatePolicy({
@@ -87,5 +113,100 @@ describe("evaluatePolicy", () => {
     expect(decision.allowPublish).toBe(false);
     expect(decision.allowCapabilityBootstrap).toBe(false);
     expect(decision.autonomy).toBe("chat");
+  });
+
+  it("denies machine control by default for unlinked devices", () => {
+    const profile = getInitialProfile("developer")!;
+    const decision = evaluatePolicy({
+      activeProfileId: profile.id,
+      activeProfile: profile,
+      effective: applyTaskOverlay(
+        profile,
+        profile.taskOverlays?.find((overlay) => overlay.id === "code_first"),
+      ),
+      intent: "code",
+      requestedToolNames: ["exec"],
+      requestedMachineControl: true,
+      machineControlLinked: false,
+      explicitApproval: false,
+    });
+    expect(decision.allowMachineControl).toBe(false);
+    expect(decision.deniedReasons).toContain("machine control requires explicit device binding");
+  });
+
+  it("lets linked machine control stay guarded until approval is explicit", () => {
+    const profile = getInitialProfile("developer")!;
+    const decision = evaluatePolicy({
+      activeProfileId: profile.id,
+      activeProfile: profile,
+      effective: applyTaskOverlay(
+        profile,
+        profile.taskOverlays?.find((overlay) => overlay.id === "code_first"),
+      ),
+      intent: "code",
+      requestedToolNames: ["exec"],
+      requestedMachineControl: true,
+      machineControlLinked: true,
+      explicitApproval: false,
+    });
+    expect(decision.allowMachineControl).toBe(false);
+    expect(decision.requireExplicitApproval).toBe(true);
+  });
+
+  it("does not let operator profile bypass machine approval by itself", () => {
+    const profile = getInitialProfile("operator")!;
+    const decision = evaluatePolicy({
+      activeProfileId: profile.id,
+      activeProfile: profile,
+      activeStateTaskOverlay: "machine_control",
+      effective: applyTaskOverlay(
+        profile,
+        profile.taskOverlays?.find((overlay) => overlay.id === "machine_control"),
+      ),
+      requestedToolNames: ["exec", "process"],
+      requestedMachineControl: true,
+      machineControlLinked: true,
+      explicitApproval: false,
+    });
+    expect(decision.allowMachineControl).toBe(false);
+    expect(decision.requireExplicitApproval).toBe(true);
+  });
+
+  it("does not let media creator profile unlock privileged tools implicitly", () => {
+    const profile = getInitialProfile("media_creator")!;
+    const decision = evaluatePolicy({
+      activeProfileId: profile.id,
+      activeProfile: profile,
+      activeStateTaskOverlay: "media_first",
+      effective: applyTaskOverlay(
+        profile,
+        profile.taskOverlays?.find((overlay) => overlay.id === "media_first"),
+      ),
+      requestedToolNames: ["apply_patch"],
+      intent: "general",
+      explicitApproval: false,
+    });
+    expect(decision.allowPrivilegedTools).toBe(false);
+    expect(decision.requireExplicitApproval).toBe(true);
+  });
+
+  it("honors machine-control kill switch even when device is linked", () => {
+    const profile = getInitialProfile("developer")!;
+    const decision = evaluatePolicy({
+      activeProfileId: profile.id,
+      activeProfile: profile,
+      effective: applyTaskOverlay(
+        profile,
+        profile.taskOverlays?.find((overlay) => overlay.id === "code_first"),
+      ),
+      intent: "code",
+      requestedToolNames: ["exec"],
+      requestedMachineControl: true,
+      machineControlLinked: true,
+      machineControlKillSwitchEnabled: true,
+      explicitApproval: true,
+    });
+    expect(decision.allowMachineControl).toBe(false);
+    expect(decision.deniedReasons).toContain("machine control is disabled by kill switch");
   });
 });

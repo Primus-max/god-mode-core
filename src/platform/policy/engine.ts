@@ -2,7 +2,12 @@ import { DEFAULT_POLICY_RULES } from "./rules.js";
 import type { PolicyContext, PolicyDecision, PolicyRule } from "./types.js";
 
 function computeAutonomy(decision: PolicyDecision): PolicyDecision {
-  if (decision.allowPublish || decision.allowCapabilityBootstrap || decision.allowPrivilegedTools) {
+  if (
+    decision.allowPublish ||
+    decision.allowCapabilityBootstrap ||
+    decision.allowPrivilegedTools ||
+    decision.allowMachineControl
+  ) {
     return { ...decision, autonomy: "guarded" };
   }
   if (decision.allowArtifactPersistence || decision.requireExplicitApproval) {
@@ -20,6 +25,7 @@ export function createInitialPolicyDecision(context: PolicyContext): PolicyDecis
     allowPublish: false,
     allowCapabilityBootstrap: false,
     allowPrivilegedTools: false,
+    allowMachineControl: false,
     requireExplicitApproval: false,
     autonomy: "chat",
     reasons: [],

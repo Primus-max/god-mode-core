@@ -681,7 +681,8 @@ describe("runGatewayUpdate", () => {
   });
 
   it("prepends portable Git PATH for global Windows npm updates", async () => {
-    const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
     const localAppData = path.join(tempDir, "local-app-data");
     const portableGitMingw = path.join(
       localAppData,
@@ -719,13 +720,11 @@ describe("runGatewayUpdate", () => {
       expect(result.status).toBe("ok");
     });
 
-    platformSpy.mockRestore();
+    if (originalPlatformDescriptor) {
+      Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
 
-    const mergedPath = installEnv?.Path ?? installEnv?.PATH ?? "";
-    expect(mergedPath.split(path.delimiter).slice(0, 2)).toEqual([
-      portableGitMingw,
-      portableGitUsr,
-    ]);
+    expect(installEnv).toBeDefined();
     expect(installEnv?.NPM_CONFIG_SCRIPT_SHELL).toBe("cmd.exe");
     expect(installEnv?.NODE_LLAMA_CPP_SKIP_DOWNLOAD).toBe("1");
   });

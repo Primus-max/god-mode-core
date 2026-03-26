@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { Skill } from "@mariozechner/pi-coding-agent";
 import type { ChatType } from "../../channels/chat-type.js";
 import type { ChannelId } from "../../channels/plugins/types.js";
+import { PROFILE_IDS, type ProfileId } from "../../platform/schemas/profile.js";
 import type { DeliveryContext } from "../../utils/delivery-context.js";
 import type { TtsAutoMode } from "../types.tts.js";
 
@@ -122,6 +123,9 @@ export type SessionEntry = {
   responseUsage?: "on" | "off" | "tokens" | "full";
   providerOverride?: string;
   modelOverride?: string;
+  specialistOverrideMode?: "auto" | "base" | "session";
+  specialistBaseProfileId?: ProfileId;
+  specialistSessionProfileId?: ProfileId;
   authProfileOverride?: string;
   authProfileOverrideSource?: "auto" | "user";
   authProfileOverrideCompactionCount?: number;
@@ -188,6 +192,92 @@ export type SessionEntry = {
 function normalizeRuntimeField(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function isProfileId(value: string | undefined): value is ProfileId {
+  return typeof value === "string" && PROFILE_IDS.includes(value as ProfileId);
+}
+
+function normalizeSessionSpecialistOverrideFields(entry: SessionEntry): SessionEntry {
+  const normalizedMode = entry.specialistOverrideMode;
+  const normalizedBase = isProfileId(entry.specialistBaseProfileId)
+    ? entry.specialistBaseProfileId
+    : undefined;
+  const normalizedSession = isProfileId(entry.specialistSessionProfileId)
+    ? entry.specialistSessionProfileId
+    : undefined;
+
+  const inferredMode =
+    normalizedMode ??
+    (normalizedSession ? "session" : normalizedBase ? "base" : undefined);
+
+  let next = entry;
+  const ensureClone = () => {
+    if (next === entry) {
+      next = { ...entry };
+    }
+  };
+
+  if (normalizedBase !== entry.specialistBaseProfileId) {
+    ensureClone();
+    if (normalizedBase) {
+      next.specialistBaseProfileId = normalizedBase;
+    } else {
+      delete next.specialistBaseProfileId;
+    }
+  }
+
+  if (normalizedSession !== entry.specialistSessionProfileId) {
+    ensureClone();
+    if (normalizedSession) {
+      next.specialistSessionProfileId = normalizedSession;
+    } else {
+      delete next.specialistSessionProfileId;
+    }
+  }
+
+  if (!inferredMode) {
+    if (
+      next.specialistOverrideMode !== undefined ||
+      next.specialistBaseProfileId !== undefined ||
+      next.specialistSessionProfileId !== undefined
+    ) {
+      ensureClone();
+      delete next.specialistOverrideMode;
+      delete next.specialistBaseProfileId;
+      delete next.specialistSessionProfileId;
+    }
+    return next;
+  }
+
+  if (next.specialistOverrideMode !== inferredMode) {
+    ensureClone();
+    next.specialistOverrideMode = inferredMode;
+  }
+
+  if (inferredMode === "auto") {
+    if (
+      next.specialistBaseProfileId !== undefined ||
+      next.specialistSessionProfileId !== undefined
+    ) {
+      ensureClone();
+      delete next.specialistBaseProfileId;
+      delete next.specialistSessionProfileId;
+    }
+    return next;
+  }
+
+  if (inferredMode === "base" && next.specialistSessionProfileId !== undefined) {
+    ensureClone();
+    delete next.specialistSessionProfileId;
+  }
+
+  if (inferredMode === "session" && next.specialistBaseProfileId !== undefined) {
+    ensureClone();
+    delete next.specialistBaseProfileId;
+  }
+
+  return next;
 }
 
 export function normalizeSessionRuntimeModelFields(entry: SessionEntry): SessionEntry {
@@ -270,7 +360,9 @@ export function mergeSessionEntryWithPolicy(
   const sessionId = patch.sessionId ?? existing?.sessionId ?? crypto.randomUUID();
   const updatedAt = resolveMergedUpdatedAt(existing, patch, options);
   if (!existing) {
-    return normalizeSessionRuntimeModelFields({ ...patch, sessionId, updatedAt });
+    return normalizeSessionSpecialistOverrideFields(
+      normalizeSessionRuntimeModelFields({ ...patch, sessionId, updatedAt }),
+    );
   }
   const next = { ...existing, ...patch, sessionId, updatedAt };
 
@@ -283,7 +375,7 @@ export function mergeSessionEntryWithPolicy(
       delete next.modelProvider;
     }
   }
-  return normalizeSessionRuntimeModelFields(next);
+  return normalizeSessionSpecialistOverrideFields(normalizeSessionRuntimeModelFields(next));
 }
 
 export function mergeSessionEntry(

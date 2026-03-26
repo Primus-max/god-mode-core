@@ -4,6 +4,7 @@ import type { CronModelSuggestionsState, CronState } from "./controllers/cron.ts
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
+import type { MachineControlStatus } from "./types.ts";
 import type { SkillMessage } from "./controllers/skills.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
@@ -14,6 +15,10 @@ import type {
   AgentsListResult,
   AgentsFilesListResult,
   AgentIdentityResult,
+  ArtifactRecordDetail,
+  ArtifactRecordSummary,
+  BootstrapRequestRecordDetail,
+  BootstrapRequestRecordSummary,
   AttentionItem,
   ChannelsStatusSnapshot,
   ConfigSnapshot,
@@ -30,6 +35,7 @@ import type {
   SessionUsageTimeSeries,
   SessionsListResult,
   SkillStatusReport,
+  SpecialistRuntimeSnapshot,
   StatusSummary,
   ToolsCatalogResult,
 } from "./types.ts";
@@ -192,6 +198,33 @@ export type AppViewState = {
   sessionsPage: number;
   sessionsPageSize: number;
   sessionsSelectedKeys: Set<string>;
+  artifactsLoading: boolean;
+  artifactsError: string | null;
+  artifactsList: ArtifactRecordSummary[];
+  artifactsFilterQuery: string;
+  artifactsSelectedId: string | null;
+  artifactDetailLoading: boolean;
+  artifactDetail: ArtifactRecordDetail | null;
+  artifactDetailError: string | null;
+  artifactTransitionBusy: boolean;
+  bootstrapLoading: boolean;
+  bootstrapError: string | null;
+  bootstrapList: BootstrapRequestRecordSummary[];
+  bootstrapPendingCount: number;
+  bootstrapFilterQuery: string;
+  bootstrapSelectedId: string | null;
+  bootstrapDetailLoading: boolean;
+  bootstrapDetail: BootstrapRequestRecordDetail | null;
+  bootstrapDetailError: string | null;
+  bootstrapActionBusy: boolean;
+  machineLoading: boolean;
+  machineError: string | null;
+  machineActionBusy: boolean;
+  machineStatus: MachineControlStatus | null;
+  specialistLoading: boolean;
+  specialistSaving: boolean;
+  specialistError: string | null;
+  specialistSnapshot: SpecialistRuntimeSnapshot | null;
   usageLoading: boolean;
   usageResult: SessionsUsageResult | null;
   usageCostSummary: CostUsageSummary | null;

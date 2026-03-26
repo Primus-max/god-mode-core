@@ -100,7 +100,12 @@ describe("openVerifiedFileSync", () => {
       const targetFile = path.join(root, "target.txt");
       const linkFile = path.join(root, "link.txt");
       await fsp.writeFile(targetFile, "hello");
-      await fsp.symlink(targetFile, linkFile);
+      try {
+        await fsp.symlink(targetFile, linkFile);
+      } catch {
+        // Some Windows environments disallow symlink creation without Developer Mode/elevation.
+        return;
+      }
 
       const opened = openVerifiedFileSync({
         filePath: linkFile,

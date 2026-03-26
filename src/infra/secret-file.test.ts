@@ -87,7 +87,12 @@ describe("readSecretFileSync", () => {
     const target = path.join(dir, "target.txt");
     const link = path.join(dir, "secret-link.txt");
     await writeFile(target, "top-secret\n", "utf8");
-    await symlink(target, link);
+    try {
+      await symlink(target, link);
+    } catch {
+      // Some Windows environments disallow symlink creation without Developer Mode/elevation.
+      return;
+    }
 
     expect(() => readSecretFileSync(link, "Gateway password", { rejectSymlink: true })).toThrow(
       `Gateway password file at ${link} must not be a symlink.`,
@@ -121,7 +126,12 @@ describe("readSecretFileSync", () => {
     const target = path.join(dir, "target.txt");
     const link = path.join(dir, "secret-link.txt");
     await writeFile(target, "top-secret\n", "utf8");
-    await symlink(target, link);
+    try {
+      await symlink(target, link);
+    } catch {
+      // Some Windows environments disallow symlink creation without Developer Mode/elevation.
+      return;
+    }
 
     expect(tryReadSecretFileSync(link, "Telegram bot token", { rejectSymlink: true })).toBe(
       undefined,

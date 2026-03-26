@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
-import type { CapabilityDescriptor } from "../schemas/capability.js";
+import type { CapabilityCatalogEntry, CapabilityDescriptor } from "../schemas/capability.js";
 import type { Profile } from "../schemas/profile.js";
 import type { ExecutionRecipe } from "../schemas/recipe.js";
 import { createArtifactStore } from "./artifact-store.js";
@@ -56,6 +56,26 @@ const missingCapability: CapabilityDescriptor = {
   label: "Ollama",
   status: "missing",
   trusted: true,
+};
+
+const pdfRendererCatalogEntry: CapabilityCatalogEntry = {
+  capability: {
+    id: "pdf-renderer",
+    label: "PDF Renderer",
+    status: "missing",
+    trusted: true,
+    requiredBins: ["playwright"],
+  },
+  source: "catalog",
+  install: {
+    method: "download",
+    packageRef: "playwright-pdf-renderer@1.0.0",
+    integrity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    downloadUrl: "https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.0.0.tgz",
+    archiveKind: "tar",
+    rollbackStrategy: "restore_previous",
+    sandboxed: true,
+  },
 };
 
 const draftDoc: ArtifactDescriptor = {
@@ -143,6 +163,18 @@ describe("CapabilityRegistry contract", () => {
     reg.register({ ...missingCapability, status: "available" });
     expect(reg.available()).toHaveLength(1);
     expect(reg.missing()).toHaveLength(0);
+  });
+
+  it("updates registered capability state", () => {
+    const reg = createCapabilityRegistry([missingCapability]);
+    reg.update("ollama", { status: "failed" });
+    expect(reg.get("ollama")?.status).toBe("failed");
+  });
+
+  it("registers and resolves trusted catalog entries", () => {
+    const reg = createCapabilityRegistry([], [pdfRendererCatalogEntry]);
+    expect(reg.listCatalogEntries()).toHaveLength(1);
+    expect(reg.resolveCatalogEntry("pdf-renderer")).toEqual(pdfRendererCatalogEntry);
   });
 });
 

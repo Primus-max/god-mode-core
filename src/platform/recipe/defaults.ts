@@ -29,11 +29,53 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
     timeoutSeconds: 180,
   },
   {
+    id: "ocr_extract",
+    purpose: "Extract structured text and fields from scans and image-heavy documents",
+    summary: "Use OCR-first flow when the source is a scan, screenshot, or image-dominant page.",
+    acceptedInputs: [
+      { type: "file", required: true, description: "Scan or image-heavy document to process" },
+      { type: "text", description: "OCR extraction instructions" },
+    ],
+    producedArtifacts: [{ type: "data", description: "OCR extraction output" }],
+    requiredCapabilities: ["ocr-engine"],
+    allowedProfiles: ["builder", "general"],
+    riskLevel: "low",
+    systemPrompt:
+      "Use OCR-first reasoning. Recover text faithfully, then normalize it into structured fields.",
+    timeoutSeconds: 240,
+  },
+  {
+    id: "table_extract",
+    purpose: "Extract tables and spreadsheet-like structures into structured rows",
+    summary:
+      "Use table-first flow when the task is dominated by rows, columns, or tabular exports.",
+    acceptedInputs: [
+      {
+        type: "file",
+        required: true,
+        description: "Spreadsheet, table image, or table-heavy document",
+      },
+      { type: "text", description: "Table extraction instructions" },
+    ],
+    producedArtifacts: [
+      { type: "data", description: "Structured table rows" },
+      { type: "report", description: "Table extraction summary" },
+    ],
+    requiredCapabilities: ["table-parser"],
+    allowedProfiles: ["builder", "general"],
+    riskLevel: "low",
+    systemPrompt:
+      "Use table-first reasoning. Preserve row and column structure before summarizing totals or trends.",
+    timeoutSeconds: 210,
+  },
+  {
     id: "code_build_publish",
     purpose: "Build, test, and publish code artifacts",
     summary: "Work repo-first and validate changes before publish when possible.",
     acceptedInputs: [{ type: "text", required: true }],
     producedArtifacts: [
+      { type: "report", description: "Build/test execution summary" },
+      { type: "site", description: "Preview deployment or preview URL" },
       { type: "binary", description: "Built artifact" },
       { type: "release", description: "Published release" },
     ],
@@ -44,6 +86,54 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
     systemPrompt:
       "Work repository-first. Prefer reading code, validating with targeted checks, and only then publishing.",
     timeoutSeconds: 420,
+  },
+  {
+    id: "integration_delivery",
+    purpose: "Wire integrations, webhooks, and connected rollout workflows",
+    summary: "Work integration-first: validate contracts, endpoints, and rollout handoffs before release.",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [
+      { type: "report", description: "Integration rollout summary" },
+      { type: "site", description: "Connected preview or delivery endpoint" },
+      { type: "release", description: "Integration release handoff" },
+    ],
+    requiredCapabilities: ["node", "git"],
+    allowedProfiles: ["integrator", "developer"],
+    riskLevel: "high",
+    publishTargets: ["github", "docker", "vercel", "netlify", "webhook"],
+    systemPrompt:
+      "Work integration-first. Validate API contracts, environment assumptions, and rollout handoffs before activation.",
+    timeoutSeconds: 360,
+  },
+  {
+    id: "ops_orchestration",
+    purpose: "Operate infrastructure, guarded machine control, and capability lifecycle tasks",
+    summary: "Work approval-first: inspect runtime state, then sequence guarded operational steps.",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [{ type: "report", description: "Operational runbook and execution summary" }],
+    allowedProfiles: ["operator"],
+    riskLevel: "high",
+    systemPrompt:
+      "Work operations-first. Prefer inspection, explain planned impact, and keep approvals explicit for machine or bootstrap actions.",
+    timeoutSeconds: 360,
+  },
+  {
+    id: "media_production",
+    purpose: "Create, refine, and package multimodal media outputs",
+    summary: "Work media-first: structure assets, prompts, and deliverables before final packaging.",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [
+      { type: "image", description: "Generated or edited image asset" },
+      { type: "video", description: "Generated or edited video asset" },
+      { type: "audio", description: "Generated or edited audio asset" },
+      { type: "report", description: "Media production summary" },
+    ],
+    allowedProfiles: ["media_creator"],
+    riskLevel: "medium",
+    publishTargets: ["site"],
+    systemPrompt:
+      "Work media-first. Preserve creative intent, asset structure, and delivery format before broad packaging.",
+    timeoutSeconds: 240,
   },
 ];
 

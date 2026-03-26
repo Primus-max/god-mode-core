@@ -1,4 +1,18 @@
 export type UpdateAvailable = import("../../../src/infra/update-startup.js").UpdateAvailable;
+import type {
+  ArtifactRecordDetail as PlatformArtifactRecordDetail,
+  ArtifactRecordSummary as PlatformArtifactRecordSummary,
+} from "../../../src/platform/artifacts/contracts.js";
+import type {
+  BootstrapRequestRecordDetail as PlatformBootstrapRequestRecordDetail,
+  BootstrapRequestRecordSummary as PlatformBootstrapRequestRecordSummary,
+} from "../../../src/platform/bootstrap/contracts.js";
+import type {
+  MachineControlAccessResult as PlatformMachineControlAccessResult,
+  MachineControlKillSwitch as PlatformMachineControlKillSwitch,
+  MachineControlLinkRecord as PlatformMachineControlLinkRecord,
+} from "../../../src/platform/machine/contracts.js";
+import type { SpecialistRuntimeSnapshot as PlatformSpecialistRuntimeSnapshot } from "../../../src/platform/profile/contracts.js";
 import type { CronJobBase } from "../../../src/cron/types-shared.js";
 import type { ConfigUiHints } from "../../../src/shared/config-ui-hints-types.js";
 import type {
@@ -404,6 +418,24 @@ export type GatewaySessionRow = {
 
 export type SessionsListResult = SessionsListResultBase<GatewaySessionsDefaults, GatewaySessionRow>;
 
+export type ArtifactRecordSummary = PlatformArtifactRecordSummary;
+export type ArtifactRecordDetail = PlatformArtifactRecordDetail;
+export type BootstrapRequestRecordSummary = PlatformBootstrapRequestRecordSummary;
+export type BootstrapRequestRecordDetail = PlatformBootstrapRequestRecordDetail;
+export type MachineControlLinkRecord = PlatformMachineControlLinkRecord;
+export type MachineControlKillSwitch = PlatformMachineControlKillSwitch;
+export type MachineControlAccessResult = PlatformMachineControlAccessResult;
+export type MachineControlCurrentDevice = {
+  deviceId: string;
+  access: MachineControlAccessResult;
+};
+export type MachineControlStatus = {
+  killSwitch: MachineControlKillSwitch;
+  linkedDevices: MachineControlLinkRecord[];
+  currentDevice?: MachineControlCurrentDevice;
+};
+export type SpecialistRuntimeSnapshot = PlatformSpecialistRuntimeSnapshot;
+
 export type SessionsPatchResult = SessionsPatchResultBase<{
   sessionId: string;
   updatedAt?: number;
@@ -679,4 +711,5 @@ export type AttentionItem = {
   description: string;
   href?: string;
   external?: boolean;
+  actionLabel?: string;
 };

@@ -350,6 +350,47 @@ describe("exec approval forwarder", () => {
     expect(text).toContain("Reply with: /approve <id> allow-once|allow-always|deny");
   });
 
+  it("includes machine-control context in forwarded request and resolved messages", async () => {
+    vi.useFakeTimers();
+    const { deliver, forwarder } = createForwarder({ cfg: TARGETS_CFG });
+    const machineRequest = {
+      ...baseRequest,
+      request: {
+        ...baseRequest.request,
+        host: "node",
+        nodeId: "node-1",
+        envKeys: ["A_VAR", "Z_VAR"],
+        machineControl: {
+          required: true,
+          requestedByDeviceId: "dev-1",
+          linkedAtMs: 1_700_000_000_000,
+        },
+      },
+    };
+
+    await expect(forwarder.handleRequested(machineRequest)).resolves.toBe(true);
+    await Promise.resolve();
+
+    const requestText = getFirstDeliveryText(deliver);
+    expect(requestText).toContain("Machine control: required");
+    expect(requestText).toContain("Linked device: dev-1");
+    expect(requestText).toContain("Linked at: 2023-11-14T22:13:20.000Z");
+    expect(requestText).toContain("Node: node-1");
+    expect(requestText).toContain("Env overrides: A_VAR, Z_VAR");
+
+    await forwarder.handleResolved({
+      id: machineRequest.id,
+      decision: "allow-once",
+      resolvedBy: "slack:U1",
+      ts: 2000,
+      request: machineRequest.request,
+    });
+
+    const resolvedText = (deliver.mock.calls[1]?.[0] as { payloads?: Array<{ text?: string }> })
+      ?.payloads?.[0]?.text;
+    expect(resolvedText).toContain("Machine control: node node-1, device dev-1.");
+  });
+
   it("renders invisible Unicode format chars as visible escapes", async () => {
     vi.useFakeTimers();
     const { deliver, forwarder } = createForwarder({ cfg: TARGETS_CFG });

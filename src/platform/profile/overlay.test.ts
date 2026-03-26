@@ -35,6 +35,37 @@ describe("resolveTaskOverlay", () => {
     const overlay = resolveTaskOverlay(profile, { prompt: "Tell me a fun story about TypeScript" });
     expect(overlay?.id).toBe("general_chat");
   });
+
+  it("selects integration_first for integrator integration tasks", () => {
+    const profile = getInitialProfile("integrator")!;
+    const overlay = resolveTaskOverlay(profile, {
+      prompt: "Validate the webhook integration and sync the connector rollout",
+      integrations: ["slack"],
+    });
+    expect(overlay?.id).toBe("integration_first");
+  });
+
+  it("selects ops overlays for operator machine/bootstrap tasks", () => {
+    const profile = getInitialProfile("operator")!;
+    const machineOverlay = resolveTaskOverlay(profile, {
+      prompt: "Run a command on the linked machine and check the kill switch",
+    });
+    expect(machineOverlay?.id).toBe("machine_control");
+
+    const bootstrapOverlay = resolveTaskOverlay(profile, {
+      prompt: "Bootstrap the missing capability before the next run",
+    });
+    expect(bootstrapOverlay?.id).toBe("bootstrap_capability");
+  });
+
+  it("selects media_first for media creation tasks", () => {
+    const profile = getInitialProfile("media_creator")!;
+    const overlay = resolveTaskOverlay(profile, {
+      prompt: "Generate a thumbnail image and caption the audio track",
+      fileNames: ["intro.wav"],
+    });
+    expect(overlay?.id).toBe("media_first");
+  });
 });
 
 describe("applyTaskOverlay", () => {

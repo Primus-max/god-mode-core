@@ -7,7 +7,6 @@ describe("planExecutionRecipe", () => {
       prompt: "Extract tables from this PDF estimate and summarize it",
       fileNames: ["estimate.pdf"],
       artifactKinds: ["document", "report"],
-      baseProfile: "general",
       intent: "document",
     });
 
@@ -22,7 +21,6 @@ describe("planExecutionRecipe", () => {
       fileNames: ["app.ts"],
       publishTargets: ["github"],
       requestedTools: ["exec"],
-      baseProfile: "general",
       intent: "publish",
     });
 
@@ -30,15 +28,71 @@ describe("planExecutionRecipe", () => {
     expect(plan.recipe.id).toBe("code_build_publish");
   });
 
-  it("falls back to general_reasoning for lightweight chat", () => {
+  it("selects ocr_extract for scan-heavy document work", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Run OCR on this scanned invoice image and extract the totals",
+      fileNames: ["invoice-scan.png"],
+      artifactKinds: ["document"],
+      intent: "document",
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).toBe("ocr_extract");
+  });
+
+  it("selects table_extract for spreadsheet-heavy document work", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Extract the table rows from this spreadsheet and export them",
+      fileNames: ["estimate.xlsx"],
+      artifactKinds: ["document", "data"],
+      intent: "document",
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).toBe("table_extract");
+  });
+
+  it("keeps explicit specialist overrides active for lightweight chat", () => {
     const plan = planExecutionRecipe({
       prompt: "Tell me a joke about robots",
-      baseProfile: "developer",
       sessionProfile: "developer",
       intent: "general",
     });
 
-    expect(plan.profile.selectedProfile.id).toBe("general");
-    expect(plan.recipe.id).toBe("general_reasoning");
+    expect(plan.profile.selectedProfile.id).toBe("developer");
+    expect(plan.profile.activeProfile.sessionProfile).toBe("developer");
+  });
+
+  it("selects integration_delivery for integration-heavy work", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Validate the webhook integration, sync OAuth config, and roll out the connector",
+      integrations: ["slack", "webhook"],
+      requestedTools: ["exec"],
+      intent: "publish",
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("integrator");
+    expect(plan.recipe.id).toBe("integration_delivery");
+  });
+
+  it("selects ops_orchestration for guarded operator work", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Check the linked machine, inspect logs, and bootstrap the missing capability",
+      requestedTools: ["exec", "process"],
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("operator");
+    expect(plan.recipe.id).toBe("ops_orchestration");
+  });
+
+  it("selects media_production for multimodal media work", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Generate a thumbnail image, caption the audio track, and package the media output",
+      artifactKinds: ["image", "audio"],
+      publishTargets: ["site"],
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("media_creator");
+    expect(plan.recipe.id).toBe("media_production");
   });
 });

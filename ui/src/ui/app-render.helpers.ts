@@ -15,6 +15,7 @@ import {
 } from "./chat-model-ref.ts";
 import { ChatState, loadChatHistory } from "./controllers/chat.ts";
 import { loadSessions } from "./controllers/sessions.ts";
+import { loadSpecialistContext } from "./controllers/specialist.ts";
 import { icons } from "./icons.ts";
 import { iconForTab, pathForTab, titleForTab, type Tab } from "./navigation.ts";
 import type { ThemeTransitionContext } from "./theme-transition.ts";
@@ -509,6 +510,7 @@ export function switchChatSession(state: AppViewState, nextSessionKey: string) {
     true,
   );
   void loadChatHistory(state as unknown as ChatState);
+  void loadSpecialistContext(state as unknown as OpenClawApp, { draft: "" });
   void refreshSessionOptions(state);
 }
 

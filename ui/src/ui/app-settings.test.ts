@@ -8,6 +8,7 @@ import {
   syncThemeWithSettings,
 } from "./app-settings.ts";
 import type { ThemeMode, ThemeName } from "./theme.ts";
+import type { MachineControlStatus } from "./types.ts";
 
 type Tab =
   | "agents"
@@ -17,6 +18,9 @@ type Tab =
   | "sessions"
   | "usage"
   | "cron"
+  | "artifacts"
+  | "bootstrap"
+  | "machine"
   | "skills"
   | "nodes"
   | "chat"
@@ -62,6 +66,10 @@ type SettingsHost = {
   themeMediaHandler: ((event: MediaQueryListEvent) => void) | null;
   logsPollInterval: number | null;
   debugPollInterval: number | null;
+  artifactsPollInterval: number | null;
+  bootstrapPollInterval: number | null;
+  machinePollInterval: number | null;
+  machineStatus?: MachineControlStatus | null;
   pendingGatewayUrl?: string | null;
   pendingGatewayToken?: string | null;
 };
@@ -166,6 +174,10 @@ const createHost = (tab: Tab): SettingsHost => ({
   themeMediaHandler: null,
   logsPollInterval: null,
   debugPollInterval: null,
+  artifactsPollInterval: null,
+  bootstrapPollInterval: null,
+  machinePollInterval: null,
+  machineStatus: null,
   pendingGatewayUrl: null,
   pendingGatewayToken: null,
 });
@@ -174,6 +186,7 @@ describe("setTabFromRoute", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", createStorageMock());
     vi.stubGlobal("navigator", { language: "en-US" } as Navigator);
+    setTestWindowUrl("https://control.example/ui/chat");
   });
 
   afterEach(() => {
@@ -200,6 +213,42 @@ describe("setTabFromRoute", () => {
 
     setTabFromRoute(host, "chat");
     expect(host.debugPollInterval).toBeNull();
+  });
+
+  it("starts and stops artifact polling based on the tab", () => {
+    const host = createHost("chat");
+
+    setTabFromRoute(host, "artifacts");
+    expect(host.artifactsPollInterval).not.toBeNull();
+    expect(host.logsPollInterval).toBeNull();
+    expect(host.debugPollInterval).toBeNull();
+
+    setTabFromRoute(host, "chat");
+    expect(host.artifactsPollInterval).toBeNull();
+  });
+
+  it("starts and stops bootstrap polling based on the tab", () => {
+    const host = createHost("chat");
+
+    setTabFromRoute(host, "bootstrap");
+    expect(host.bootstrapPollInterval).not.toBeNull();
+    expect(host.logsPollInterval).toBeNull();
+    expect(host.debugPollInterval).toBeNull();
+
+    setTabFromRoute(host, "chat");
+    expect(host.bootstrapPollInterval).toBeNull();
+  });
+
+  it("starts and stops machine polling based on the tab", () => {
+    const host = createHost("chat");
+
+    setTabFromRoute(host, "machine");
+    expect(host.machinePollInterval).not.toBeNull();
+    expect(host.logsPollInterval).toBeNull();
+    expect(host.debugPollInterval).toBeNull();
+
+    setTabFromRoute(host, "chat");
+    expect(host.machinePollInterval).toBeNull();
   });
 
   it("re-resolves the active palette when only themeMode changes", () => {
