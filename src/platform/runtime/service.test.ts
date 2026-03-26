@@ -49,4 +49,49 @@ describe("platform runtime checkpoint service", () => {
       }),
     );
   });
+
+  it("dispatches checkpoint continuations and builds run outcomes", async () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const dispatched: string[] = [];
+    service.registerContinuationHandler("bootstrap_run", async (checkpoint) => {
+      dispatched.push(checkpoint.id);
+      service.updateCheckpoint(checkpoint.id, {
+        status: "completed",
+        completedAtMs: 456,
+      });
+    });
+
+    service.createCheckpoint({
+      id: "checkpoint-dispatch",
+      runId: "run-dispatch",
+      boundary: "bootstrap",
+      target: { bootstrapRequestId: "bootstrap-1", operation: "bootstrap.run" },
+      continuation: {
+        kind: "bootstrap_run",
+        state: "idle",
+        attempts: 0,
+      },
+    });
+
+    await service.dispatchContinuation("checkpoint-dispatch");
+
+    expect(dispatched).toEqual(["checkpoint-dispatch"]);
+    expect(service.get("checkpoint-dispatch")).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        continuation: expect.objectContaining({
+          state: "completed",
+          attempts: 1,
+        }),
+      }),
+    );
+    expect(service.buildRunOutcome("run-dispatch")).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        checkpointIds: ["checkpoint-dispatch"],
+        completedCheckpointIds: ["checkpoint-dispatch"],
+        bootstrapRequestIds: ["bootstrap-1"],
+      }),
+    );
+  });
 });

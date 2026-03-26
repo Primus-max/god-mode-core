@@ -1,9 +1,13 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   loadRunOverflowCompactionHarness,
   mockedEnsureRuntimePluginsLoaded,
   mockedRunEmbeddedAttempt,
 } from "./run.overflow-compaction.harness.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../../platform/runtime/index.js";
 
 let runEmbeddedPiAgent: typeof import("./run.js").runEmbeddedPiAgent;
 
@@ -15,6 +19,10 @@ describe("runEmbeddedPiAgent usage reporting", () => {
   beforeEach(() => {
     mockedEnsureRuntimePluginsLoaded.mockReset();
     mockedRunEmbeddedAttempt.mockReset();
+  });
+
+  afterEach(() => {
+    resetPlatformRuntimeCheckpointService();
   });
 
   it("bootstraps runtime plugins with the resolved workspace before running", async () => {
@@ -187,5 +195,42 @@ describe("runEmbeddedPiAgent usage reporting", () => {
     // Check if total matches the last turn's total (200)
     // If the bug exists, it will likely be 350
     expect(usage?.total).toBe(200);
+  });
+
+  it("attaches machine-checkable completion outcome from runtime checkpoints", async () => {
+    getPlatformRuntimeCheckpointService().createCheckpoint({
+      id: "checkpoint-run-outcome",
+      runId: "run-outcome",
+      boundary: "exec_approval",
+      target: { approvalId: "approval-run-outcome", operation: "system.run" },
+    });
+    mockedRunEmbeddedAttempt.mockResolvedValueOnce({
+      aborted: false,
+      promptError: null,
+      timedOut: false,
+      sessionIdUsed: "test-session",
+      assistantTexts: ["Response 1"],
+      didSendDeterministicApprovalPrompt: true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    const result = await runEmbeddedPiAgent({
+      sessionId: "test-session",
+      sessionKey: "test-key",
+      sessionFile: "/tmp/session.json",
+      workspaceDir: "/tmp/workspace",
+      prompt: "hello",
+      timeoutMs: 30000,
+      runId: "run-outcome",
+    });
+
+    expect(result.meta.completionOutcome).toEqual(
+      expect.objectContaining({
+        status: "blocked",
+        checkpointIds: ["checkpoint-run-outcome"],
+        pendingApprovalIds: ["approval-run-outcome"],
+        deterministicApprovalPromptSent: true,
+      }),
+    );
   });
 });

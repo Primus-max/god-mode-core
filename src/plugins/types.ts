@@ -1493,6 +1493,9 @@ export type PluginHookPlatformExecutionContext = {
   bootstrapRequiredCapabilities?: string[];
   requireExplicitApproval?: boolean;
   policyAutonomy?: "chat" | "assist" | "guarded";
+  readinessStatus?: "ready" | "bootstrap_required" | "approval_required";
+  readinessReasons?: string[];
+  unattendedBoundary?: "bootstrap" | "artifact_publish";
 };
 
 export type PluginHookAgentContext = {

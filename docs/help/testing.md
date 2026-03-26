@@ -52,6 +52,9 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
   - Runs in CI
   - No real keys required
   - Should be fast and stable
+- Runtime closure loop note:
+  - When you touch checkpoint-driven continuation, keep at least one deterministic backend scenario that proves `blocked -> approved -> resumed -> completed` plus a machine-checkable outcome assertion.
+  - Current reference coverage lives in `src/gateway/server.node-invoke-approval-bypass.test.ts`, `src/platform/bootstrap/service.test.ts`, and `src/agents/pi-embedded-runner/usage-reporting.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.
   - Shared unit coverage now defaults to `threads`, while the manifest keeps the measured fork-only exceptions and heavy singleton lanes explicit.

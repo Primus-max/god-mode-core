@@ -38,6 +38,10 @@ function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapReque
   };
 }
 
+function installBootstrapContinuationNoop() {
+  getPlatformRuntimeCheckpointService().registerContinuationHandler("bootstrap_run", async () => {});
+}
+
 describe("bootstrap request service", () => {
   afterEach(() => {
     resetPlatformRuntimeCheckpointService();
@@ -45,6 +49,7 @@ describe("bootstrap request service", () => {
 
   it("creates, lists, and resolves bootstrap requests", () => {
     const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
     const created = service.create(buildRequest());
     expect(getPlatformRuntimeCheckpointService().get(created.id)?.status).toBe("blocked");
 
@@ -70,6 +75,7 @@ describe("bootstrap request service", () => {
 
   it("reuses an active request with the same signature", () => {
     const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
     const first = service.create(buildRequest());
     const second = service.create(buildRequest());
 
@@ -79,6 +85,7 @@ describe("bootstrap request service", () => {
 
   it("runs an approved request and stores the orchestration result", async () => {
     const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
     const created = service.create(buildRequest());
     service.resolve(created.id, "approve");
 
@@ -106,10 +113,68 @@ describe("bootstrap request service", () => {
     expect(getPlatformRuntimeCheckpointService().get(created.id)?.status).toBe("completed");
   });
 
+  it("auto-approves and continues trusted unattended bootstrap lanes", async () => {
+    const service = createBootstrapRequestService();
+    getPlatformRuntimeCheckpointService().registerContinuationHandler("bootstrap_run", async (checkpoint) => {
+      await service.run({
+        id: checkpoint.target?.bootstrapRequestId ?? checkpoint.id,
+        installers: {
+          download: async ({ request }) => ({
+            ok: true,
+            capability: {
+              ...request.catalogEntry.capability,
+              trusted: true,
+              sandboxed: true,
+              installMethod: "download",
+              status: "available",
+            },
+          }),
+        },
+        availableBins: ["playwright"],
+        runHealthCheckCommand: async () => true,
+      });
+    });
+
+    const created = service.create(
+      buildRequest({
+        installMethod: "builtin",
+        executionContext: {
+          profileId: "builder",
+          recipeId: "doc_ingest",
+          taskOverlayId: "document_first",
+          intent: "document",
+          requiredCapabilities: ["pdf-renderer"],
+          bootstrapRequiredCapabilities: ["pdf-renderer"],
+          requireExplicitApproval: false,
+          policyAutonomy: "assist",
+          readinessStatus: "bootstrap_required",
+          unattendedBoundary: "bootstrap",
+        },
+      }),
+    );
+
+    expect(created.state).toBe("approved");
+    await expect
+      .poll(() => service.get(created.id)?.state, {
+        timeout: 3_000,
+        interval: 25,
+      })
+      .toBe("available");
+    expect(getPlatformRuntimeCheckpointService().get(created.id)).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        continuation: expect.objectContaining({
+          state: "completed",
+        }),
+      }),
+    );
+  });
+
   it("persists the bootstrap audit trail and rehydrates records after restart", async () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-bootstrap-service-"));
     try {
       const service = createBootstrapRequestService({ stateDir });
+      installBootstrapContinuationNoop();
       const created = service.create(buildRequest());
       service.resolve(created.id, "approve");
       await service.run({
