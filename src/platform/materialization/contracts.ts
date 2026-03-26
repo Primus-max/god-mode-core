@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BootstrapRequestSchema } from "../bootstrap/contracts.js";
+import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
 import { ArtifactLifecycleSchema } from "../schemas/artifact.js";
 
 export const MaterializationRenderKindSchema = z.enum([
@@ -39,6 +40,7 @@ export const MaterializationRequestSchema = z
     outputDir: z.string().min(1).optional(),
     baseFileName: z.string().min(1).optional(),
     includePdf: z.boolean().optional(),
+    executionContext: PlatformExecutionContextSnapshotSchema.optional(),
     payload: MaterializationPayloadSchema,
   })
   .strict();

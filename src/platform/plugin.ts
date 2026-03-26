@@ -36,7 +36,7 @@ import { evaluatePolicy } from "./policy/engine.js";
 import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
 import {
-  buildPolicyContextFromRuntimePlan,
+  buildPolicyContextFromExecutionContext,
   resolvePlatformRuntimePlan,
   toPluginHookPlatformExecutionContext,
 } from "./recipe/runtime-adapter.js";
@@ -257,16 +257,8 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
       const runSnapshot = ctx.runId ? machineControlService.getRunSnapshot(ctx.runId) : undefined;
       const policyContext =
         runSnapshot?.platformExecution
-          ? buildPolicyContextFromRuntimePlan(
-              {
-                selectedProfileId:
-                  runSnapshot.platformExecution.profileId as Parameters<typeof getInitialProfile>[0],
-                taskOverlayId: runSnapshot.platformExecution.taskOverlayId,
-                intent: runSnapshot.platformExecution.intent,
-                requestedToolNames: [event.toolName],
-                publishTargets: runSnapshot.platformExecution.publishTargets,
-                requiredCapabilities: runSnapshot.platformExecution.requiredCapabilities,
-              },
+          ? buildPolicyContextFromExecutionContext(
+              runSnapshot.platformExecution,
               {
                 requestedMachineControl: true,
                 machineControlLinked: true,
@@ -308,6 +300,7 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
         sessionId: event.sessionId,
         runId: event.runId,
         recipeId: ctx.platformExecution?.recipeId,
+        executionContext: ctx.platformExecution,
         assistantTexts: event.assistantTexts,
         artifactService,
       });
@@ -315,6 +308,7 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
         sessionId: event.sessionId,
         runId: event.runId,
         recipeId: ctx.platformExecution?.recipeId,
+        executionContext: ctx.platformExecution,
         assistantTexts: event.assistantTexts,
         artifactService,
       });

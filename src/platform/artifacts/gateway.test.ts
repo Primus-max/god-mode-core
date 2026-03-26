@@ -117,4 +117,42 @@ describe("artifact gateway methods", () => {
       }),
     );
   });
+
+  it("returns a policy error when publish transition is denied", async () => {
+    const stateDir = createTempStateDir();
+    tempDirs.push(stateDir);
+    const service = createArtifactService({ stateDir, gatewayBaseUrl: "http://127.0.0.1:18789" });
+    service.register(
+      buildDescriptor({
+        id: "artifact-denied",
+        label: "Artifact Denied",
+        publishTarget: "github",
+        metadata: {
+          runId: "run-denied",
+          platformExecution: {
+            profileId: "developer",
+            recipeId: "general_reasoning",
+            intent: "general",
+          },
+        },
+      }),
+    );
+
+    const respond = vi.fn();
+    await createArtifactTransitionGatewayMethod(service)({
+      params: { artifactId: "artifact-denied", operation: "publish" },
+      req: { type: "req", method: "platform.artifacts.transition", id: "req-4" },
+      client: null,
+      isWebchatConnect: () => false,
+      respond,
+      context: {} as never,
+    });
+
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      expect.objectContaining({
+        error: expect.stringContaining("requires publish intent"),
+      }),
+    );
+  });
 });

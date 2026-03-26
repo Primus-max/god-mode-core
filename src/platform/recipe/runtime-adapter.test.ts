@@ -24,6 +24,13 @@ describe("resolvePlatformRuntimePlan", () => {
         capabilityId: "pdf-parser",
       }),
     ]);
+    expect(resolved.capabilitySummary.bootstrapResolutions[0]?.request?.executionContext).toEqual(
+      expect.objectContaining({
+        profileId: "builder",
+        recipeId: "doc_ingest",
+        requiredCapabilities: ["pdf-parser"],
+      }),
+    );
     expect(resolved.runtime.prependSystemContext).toContain("Execution recipe: doc_ingest.");
     expect(resolved.runtime.prependContext).toContain("Planner reasoning:");
   });

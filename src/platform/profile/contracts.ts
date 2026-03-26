@@ -3,6 +3,7 @@ import { ProfileIdSchema } from "../schemas/profile.js";
 import { BootstrapResolutionStatusSchema } from "../bootstrap/contracts.js";
 
 const PolicyAutonomySchema = z.enum(["chat", "assist", "guarded"]);
+const BootstrapContinuationModeSchema = z.enum(["frozen", "fallback"]);
 
 export const SpecialistOverrideModeSchema = z.enum(["auto", "base", "session"]);
 export type SpecialistOverrideMode = z.infer<typeof SpecialistOverrideModeSchema>;
@@ -70,6 +71,13 @@ export const SpecialistRuntimeSnapshotSchema = z
     capabilityRequirements: z.array(SpecialistCapabilityRequirementSchema),
     policyAutonomy: PolicyAutonomySchema,
     requiresExplicitApproval: z.boolean(),
+    allowArtifactPersistence: z.boolean(),
+    allowPublish: z.boolean(),
+    allowCapabilityBootstrap: z.boolean(),
+    allowPrivilegedTools: z.boolean(),
+    policyReasons: z.array(z.string().min(1)),
+    policyDeniedReasons: z.array(z.string().min(1)),
+    bootstrapContinuationMode: BootstrapContinuationModeSchema.optional(),
     confidence: z.number().min(0).max(1),
     preferredTools: z.array(z.string().min(1)),
     publishTargets: z.array(z.string().min(1)),

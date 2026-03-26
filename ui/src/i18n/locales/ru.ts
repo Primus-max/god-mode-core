@@ -134,6 +134,27 @@ export const ru: TranslationMap = {
     model: "Модель",
     timeout: "Таймаут",
     selectionLine: "Выбран {selected} · base {base} · session {session}",
+    operational: {
+      title: "Операционная политика",
+      autonomyLabel: "Автономность",
+      approvalRequired: "Нужно явное подтверждение",
+      approvalNotRequired: "Явное подтверждение не требуется",
+      artifactPersistence: "Сохранение артефактов",
+      publish: "Публикация",
+      bootstrap: "Bootstrap capability",
+      privilegedTools: "Привилегированные инструменты",
+      reasons: "Почему это разрешено",
+      blocks: "Текущие policy-блокировки",
+      autonomy: {
+        chat: "Chat",
+        assist: "Assist",
+        guarded: "Guarded",
+      },
+      bootstrapContinuation: {
+        frozen: "Bootstrap продолжает frozen decision",
+        fallback: "Bootstrap использует fallback decision path",
+      },
+    },
     signalSources: {
       channel: "канал",
       file: "файл",

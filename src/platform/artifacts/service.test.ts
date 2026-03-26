@@ -92,7 +92,10 @@ describe("artifact service", () => {
     service.register(buildDescriptor({ id: "artifact-release", label: "Artifact Release" }));
     const transitioned = service.transition("artifact-release", "publish");
 
-    expect(transitioned?.lifecycle).toBe("published");
+    expect(transitioned).toEqual({
+      ok: true,
+      descriptor: expect.objectContaining({ lifecycle: "published" }),
+    });
 
     const nextService = createArtifactService({
       stateDir,
@@ -100,6 +103,37 @@ describe("artifact service", () => {
     });
     nextService.rehydrate();
     expect(nextService.get("artifact-release")?.lifecycle).toBe("published");
+  });
+
+  it("denies publish transitions when the frozen decision posture does not allow publish", () => {
+    const stateDir = createTempStateDir();
+    tempDirs.push(stateDir);
+    const service = createArtifactService({
+      stateDir,
+      gatewayBaseUrl: "http://127.0.0.1:18789",
+    });
+
+    service.register(
+      buildDescriptor({
+        id: "artifact-report",
+        label: "Artifact Report",
+        publishTarget: "github",
+        metadata: {
+          runId: "run-artifact-deny",
+          platformExecution: {
+            profileId: "developer",
+            recipeId: "general_reasoning",
+            intent: "general",
+          },
+        },
+      }),
+    );
+
+    expect(service.transition("artifact-report", "publish")).toEqual({
+      ok: false,
+      code: "denied",
+      reason: expect.stringContaining("requires publish intent"),
+    });
   });
 
   it("skips corrupt persisted records during rehydration", () => {

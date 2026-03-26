@@ -1,6 +1,7 @@
 import { DEFAULT_PROVIDER } from "../../agents/defaults.js";
 import { parseModelRef } from "../../agents/model-selection.js";
 import type { PluginHookPlatformExecutionContext } from "../../plugins/types.js";
+import type { PlatformExecutionContextSnapshot } from "../decision/contracts.js";
 import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import type { BootstrapResolution } from "../bootstrap/contracts.js";
 import { resolveBootstrapRequests } from "../bootstrap/resolver.js";
@@ -181,6 +182,26 @@ function buildCapabilitySummary(params: {
   };
 }
 
+function attachExecutionContextToCapabilitySummary(
+  summary: PlatformCapabilitySummary,
+  executionContext: PluginHookPlatformExecutionContext,
+): PlatformCapabilitySummary {
+  return {
+    ...summary,
+    bootstrapResolutions: summary.bootstrapResolutions.map((resolution) =>
+      resolution.request
+        ? {
+            ...resolution,
+            request: {
+              ...resolution.request,
+              executionContext,
+            },
+          }
+        : resolution,
+    ),
+  };
+}
+
 export function buildPolicyContextFromRuntimePlan(
   runtimePlan: Pick<
     RecipeRuntimePlan,
@@ -224,6 +245,40 @@ export function buildPolicyContextFromRuntimePlan(
       : {}),
     ...overrides,
   };
+}
+
+export function buildPolicyContextFromExecutionContext(
+  execution: Pick<
+    PlatformExecutionContextSnapshot,
+    | "profileId"
+    | "taskOverlayId"
+    | "intent"
+    | "requestedToolNames"
+    | "publishTargets"
+    | "requiredCapabilities"
+  >,
+  overrides: Pick<
+    PolicyContext,
+    | "explicitApproval"
+    | "requestedMachineControl"
+    | "machineControlLinked"
+    | "machineControlKillSwitchEnabled"
+    | "machineControlDeviceId"
+    | "touchesSensitiveData"
+    | "artifactKinds"
+  > = {},
+): PolicyContext | undefined {
+  return buildPolicyContextFromRuntimePlan(
+    {
+      selectedProfileId: execution.profileId as ProfileId,
+      taskOverlayId: execution.taskOverlayId,
+      intent: execution.intent,
+      requestedToolNames: execution.requestedToolNames,
+      publishTargets: execution.publishTargets,
+      requiredCapabilities: execution.requiredCapabilities,
+    },
+    overrides,
+  );
 }
 
 export function toPluginHookPlatformExecutionContext(
@@ -310,7 +365,7 @@ export function resolvePlatformExecutionDecision(
   options: ResolvePlatformExecutionDecisionOptions = {},
 ): ResolvedPlatformExecutionDecision {
   const plan = planExecutionRecipe(input);
-  const capabilitySummary = buildCapabilitySummary({
+  const baseCapabilitySummary = buildCapabilitySummary({
     plan,
     input,
     capabilityRegistry: options.capabilityRegistry,
@@ -324,7 +379,7 @@ export function resolvePlatformExecutionDecision(
         intent: input.intent,
         requestedToolNames: input.requestedTools,
         publishTargets: input.publishTargets,
-        requiredCapabilities: capabilitySummary.requiredCapabilities,
+        requiredCapabilities: baseCapabilitySummary.requiredCapabilities,
       },
       {
         explicitApproval: options.explicitApproval,
@@ -337,16 +392,22 @@ export function resolvePlatformExecutionDecision(
     }),
   } satisfies PolicyContext;
   const policyPreview = evaluatePolicy(policyContext);
+  const runtime = adaptExecutionPlanToRuntime(plan, {
+    input,
+    capabilitySummary: baseCapabilitySummary,
+    policyPreview,
+  });
+  const executionContext = toPluginHookPlatformExecutionContext(runtime);
+  const capabilitySummary = attachExecutionContextToCapabilitySummary(
+    baseCapabilitySummary,
+    executionContext,
+  );
   return {
     ...plan,
     capabilitySummary,
     policyContext,
     policyPreview,
-    runtime: adaptExecutionPlanToRuntime(plan, {
-      input,
-      capabilitySummary,
-      policyPreview,
-    }),
+    runtime,
   };
 }
 

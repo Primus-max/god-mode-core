@@ -51,6 +51,13 @@ function createSnapshot(): SpecialistRuntimeSnapshot {
     ],
     policyAutonomy: "guarded",
     requiresExplicitApproval: true,
+    allowArtifactPersistence: true,
+    allowPublish: false,
+    allowCapabilityBootstrap: false,
+    allowPrivilegedTools: false,
+    policyReasons: ["artifact persistence enabled for document/publish intent"],
+    policyDeniedReasons: ["publishing requires explicit approval and an explicit target"],
+    bootstrapContinuationMode: "frozen",
     confidence: 0.82,
     preferredTools: ["read", "edit", "exec"],
     publishTargets: ["github", "npm"],
@@ -192,6 +199,7 @@ describe("specialist context views", () => {
     expect(container.textContent).toContain("Current specialist context");
     expect(container.textContent).toContain("Developer");
     expect(container.textContent).toContain("code_build_publish");
+    expect(container.textContent).toContain("Operational posture");
   });
 
   it("renders the overview specialist panel in Russian", async () => {
@@ -212,6 +220,7 @@ describe("specialist context views", () => {
     expect(container.textContent).toContain("Центр specialist-решений");
     expect(container.textContent).toContain("Уверенность");
     expect(container.textContent).toContain("Авто");
+    expect(container.textContent).toContain("Операционная политика");
 
     await i18n.setLocale("en");
   });

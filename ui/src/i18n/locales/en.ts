@@ -759,6 +759,27 @@ export const en: TranslationMap = {
     model: "Model",
     timeout: "Timeout",
     selectionLine: "Selected {selected} · base {base} · session {session}",
+    operational: {
+      title: "Operational posture",
+      autonomyLabel: "Autonomy",
+      approvalRequired: "Explicit approval required",
+      approvalNotRequired: "No explicit approval required",
+      artifactPersistence: "Artifact persistence",
+      publish: "Publish",
+      bootstrap: "Capability bootstrap",
+      privilegedTools: "Privileged tools",
+      reasons: "Why this is allowed",
+      blocks: "Current policy blocks",
+      autonomy: {
+        chat: "Chat",
+        assist: "Assist",
+        guarded: "Guarded",
+      },
+      bootstrapContinuation: {
+        frozen: "Bootstrap continues the frozen decision",
+        fallback: "Bootstrap is using a fallback decision path",
+      },
+    },
     signalSources: {
       channel: "channel",
       file: "file",

@@ -56,6 +56,12 @@ describe("profile gateway method", () => {
         ]),
         policyAutonomy: expect.any(String),
         requiresExplicitApproval: expect.any(Boolean),
+        allowArtifactPersistence: expect.any(Boolean),
+        allowPublish: expect.any(Boolean),
+        allowCapabilityBootstrap: expect.any(Boolean),
+        allowPrivilegedTools: expect.any(Boolean),
+        policyReasons: expect.any(Array),
+        policyDeniedReasons: expect.any(Array),
         availableProfiles: expect.arrayContaining([
           expect.objectContaining({ id: "developer", label: "Developer" }),
           expect.objectContaining({ id: "integrator", label: "Integrator" }),
@@ -73,10 +79,12 @@ describe("profile gateway method", () => {
       reasoningSummary?: string;
       preferredTools?: string[];
       confidence?: number;
+      policyDeniedReasons?: string[];
     };
     expect(snapshot.reasoningSummary).toContain("code_build_publish");
     expect(snapshot.preferredTools).toContain("exec");
     expect(snapshot.confidence).toBeGreaterThan(0);
+    expect(snapshot.policyDeniedReasons?.length ?? 0).toBeGreaterThan(0);
   });
 
   it("reflects persisted base specialist overrides", async () => {

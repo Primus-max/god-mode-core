@@ -4,7 +4,10 @@ import { buildExecutionDecisionInput } from "../decision/input.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { CapabilityRegistry } from "../registry/types.js";
 import type { PolicyContext } from "../policy/types.js";
-import { resolvePlatformRuntimePlan } from "../recipe/runtime-adapter.js";
+import {
+  buildPolicyContextFromExecutionContext,
+  resolvePlatformRuntimePlan,
+} from "../recipe/runtime-adapter.js";
 import type { CapabilityInstallMethod } from "../schemas/capability.js";
 import {
   appendBootstrapAuditEvent,
@@ -102,6 +105,25 @@ function resolveBootstrapDecisionPrompt(request: BootstrapRequest): string {
 }
 
 function buildBootstrapPolicyContext(request: BootstrapRequest, explicitApproval: boolean): PolicyContext {
+  if (request.executionContext) {
+    const fromDecision = buildPolicyContextFromExecutionContext(request.executionContext, {
+      explicitApproval,
+    });
+    if (fromDecision) {
+      return {
+        ...fromDecision,
+        requestedCapabilities: Array.from(
+          new Set([...(fromDecision.requestedCapabilities ?? []), request.capabilityId]),
+        ),
+        requestedToolNames: Array.from(
+          new Set([
+            ...(fromDecision.requestedToolNames ?? []),
+            ...(request.installMethod === "builtin" ? [] : ["exec", "process"]),
+          ]),
+        ),
+      };
+    }
+  }
   const intent =
     request.sourceDomain === "document"
       ? "document"

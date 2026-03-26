@@ -38,13 +38,15 @@ export function createArtifactTransitionGatewayMethod(
       respond(false, { error: "invalid artifact operation" });
       return;
     }
-    const descriptor = service.transition(artifactId, parsedOperation.data);
-    if (!descriptor) {
-      respond(false, { error: "artifact not found" });
+    const transition = service.transition(artifactId, parsedOperation.data, {
+      explicitApproval: parsedOperation.data === "publish" || parsedOperation.data === "approve",
+    });
+    if (!transition.ok) {
+      respond(false, { error: transition.reason });
       return;
     }
     respond(true, {
-      descriptor,
+      descriptor: transition.descriptor,
       detail: service.getDetail(artifactId),
     });
   };

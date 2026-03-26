@@ -18,6 +18,16 @@ function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapReque
     reason: "renderer_unavailable",
     sourceDomain: "document",
     sourceRecipeId: "doc_ingest",
+    executionContext: {
+      profileId: "builder",
+      recipeId: "doc_ingest",
+      taskOverlayId: "document_first",
+      intent: "document",
+      requiredCapabilities: ["pdf-renderer"],
+      bootstrapRequiredCapabilities: ["pdf-renderer"],
+      requireExplicitApproval: true,
+      policyAutonomy: "assist",
+    },
     approvalMode: "explicit",
     catalogEntry,
     ...overrides,
@@ -40,6 +50,12 @@ describe("bootstrap request service", () => {
     const approved = service.resolve(created.id, "approve");
     expect(approved?.state).toBe("approved");
     expect(service.get(created.id)?.state).toBe("approved");
+    expect(service.get(created.id)?.request.executionContext).toEqual(
+      expect.objectContaining({
+        profileId: "builder",
+        recipeId: "doc_ingest",
+      }),
+    );
   });
 
   it("reuses an active request with the same signature", () => {
