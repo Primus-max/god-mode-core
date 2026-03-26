@@ -3,8 +3,10 @@ import { refreshChat } from "./app-chat.ts";
 import {
   startBootstrapPolling,
   startArtifactsPolling,
+  startMachinePolling,
   stopBootstrapPolling,
   stopArtifactsPolling,
+  stopMachinePolling,
   startLogsPolling,
   stopLogsPolling,
   startDebugPolling,
@@ -24,6 +26,7 @@ import { loadDebug } from "./controllers/debug.ts";
 import { loadDevices } from "./controllers/devices.ts";
 import { loadExecApprovals } from "./controllers/exec-approvals.ts";
 import { loadLogs } from "./controllers/logs.ts";
+import { loadMachineControl } from "./controllers/machine.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { loadSessions } from "./controllers/sessions.ts";
@@ -60,6 +63,8 @@ type SettingsHost = {
   basePath: string;
   artifactsPollInterval?: number | null;
   bootstrapPollInterval?: number | null;
+  machinePollInterval?: number | null;
+  machineStatus?: OpenClawApp["machineStatus"];
   agentsList?: AgentsListResult | null;
   agentsSelectedId?: string | null;
   agentsPanel?: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
@@ -245,6 +250,9 @@ export async function refreshActiveTab(host: SettingsHost) {
   }
   if (host.tab === "bootstrap") {
     await loadBootstrapRequests(host as unknown as OpenClawApp);
+  }
+  if (host.tab === "machine") {
+    await loadMachineControl(host as unknown as OpenClawApp);
   }
   if (host.tab === "skills") {
     await loadSkills(host as unknown as OpenClawApp);
@@ -470,6 +478,11 @@ function applyTabSelection(
   } else {
     stopBootstrapPolling(host as unknown as Parameters<typeof stopBootstrapPolling>[0]);
   }
+  if (next === "machine") {
+    startMachinePolling(host as unknown as Parameters<typeof startMachinePolling>[0]);
+  } else {
+    stopMachinePolling(host as unknown as Parameters<typeof stopMachinePolling>[0]);
+  }
 
   if (options.refreshPolicy === "always" || host.connected) {
     void refreshActiveTab(host);
@@ -530,6 +543,7 @@ export async function loadOverview(host: SettingsHost) {
     loadSkills(app),
     loadUsage(app),
     loadBootstrapRequests(app),
+    loadMachineControl(app),
     loadOverviewLogs(app),
   ]);
   buildAttentionItems(app);
@@ -639,6 +653,27 @@ function buildAttentionItems(host: OpenClawApp) {
       title: `${host.bootstrapPendingCount} bootstrap request${host.bootstrapPendingCount > 1 ? "s" : ""} pending`,
       description: "Capability installs are waiting for operator approval.",
       href: "/bootstrap",
+      actionLabel: "Open",
+    });
+  }
+
+  const machineStatus = host.machineStatus;
+  if (machineStatus?.killSwitch.enabled) {
+    items.push({
+      severity: "warning",
+      icon: "monitor",
+      title: "Machine control kill switch enabled",
+      description: "All machine-scoped execution is currently blocked.",
+      href: "/machine",
+      actionLabel: "Open",
+    });
+  } else if (machineStatus?.currentDevice?.access.code === "device_not_linked") {
+    items.push({
+      severity: "warning",
+      icon: "monitor",
+      title: "Current device is not linked for machine control",
+      description: "Link this operator device before approving machine-scoped execution.",
+      href: "/machine",
       actionLabel: "Open",
     });
   }

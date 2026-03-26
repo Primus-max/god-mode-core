@@ -2,6 +2,7 @@
 
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
+import { i18n } from "../../i18n/index.ts";
 import { renderBootstrap, type BootstrapProps } from "./bootstrap.ts";
 
 function createProps(overrides: Partial<BootstrapProps> = {}): BootstrapProps {
@@ -74,7 +75,7 @@ describe("bootstrap view", () => {
     render(renderBootstrap(createProps({ onResolve })), container);
     await Promise.resolve();
 
-    expect(container.textContent).toContain("Bootstrap");
+    expect(container.textContent).toContain("Capability Installs");
     expect(container.textContent).toContain("Approve");
     expect(container.textContent).toContain("Deny");
 
@@ -116,5 +117,19 @@ describe("bootstrap view", () => {
     expect(runButton).toBeTruthy();
     runButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onRun).toHaveBeenCalledWith("bootstrap-1");
+  });
+
+  it("renders localized Russian bootstrap controls", async () => {
+    const container = document.createElement("div");
+    await i18n.setLocale("ru");
+
+    render(renderBootstrap(createProps()), container);
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Установка возможностей");
+    expect(container.textContent).toContain("Одобрить");
+    expect(container.textContent).toContain("Отклонить");
+
+    await i18n.setLocale("en");
   });
 });

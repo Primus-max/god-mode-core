@@ -71,11 +71,16 @@ describe("loadChannelConfigSurfaceModule", () => {
     );
     fs.mkdirSync(poisonedStorePackage, { recursive: true });
     fs.mkdirSync(path.join(packageRoot, "node_modules"), { recursive: true });
-    fs.symlinkSync(
-      "../../../node_modules/.pnpm/zod@0.0.0/node_modules/zod",
-      path.join(packageRoot, "node_modules", "zod"),
-      "dir",
-    );
+    try {
+      fs.symlinkSync(
+        "../../../node_modules/.pnpm/zod@0.0.0/node_modules/zod",
+        path.join(packageRoot, "node_modules", "zod"),
+        "dir",
+      );
+    } catch {
+      // Some Windows environments disallow symlink creation without Developer Mode/elevation.
+      return;
+    }
 
     await expect(loadChannelConfigSurfaceModule(modulePath, { repoRoot })).resolves.toMatchObject({
       schema: {

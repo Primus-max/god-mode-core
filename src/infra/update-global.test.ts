@@ -6,6 +6,7 @@ import { captureEnv } from "../test-utils/env.js";
 import {
   canResolveRegistryVersionForPackageTarget,
   cleanupGlobalRenameDirs,
+  createGlobalInstallEnv,
   detectGlobalInstallManagerByPresence,
   detectGlobalInstallManagerForRoot,
   globalInstallArgs,
@@ -13,11 +14,63 @@ import {
   isExplicitPackageInstallSpec,
   isMainPackageTarget,
   OPENCLAW_MAIN_PACKAGE_SPEC,
-  resolveGlobalPackageRoot,
   resolveGlobalInstallSpec,
+  resolveGlobalPackageRoot,
   resolveGlobalRoot,
   type CommandRunner,
 } from "./update-global.js";
+
+describe("createGlobalInstallEnv", () => {
+  const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+
+  afterEach(() => {
+    if (originalPlatformDescriptor) {
+      Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
+  });
+
+  it("prepends portable Git paths for Windows global installs", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-update-global-"));
+    const localAppData = path.join(root, "local-app-data");
+    const portableGitMingw = path.join(
+      localAppData,
+      "OpenClaw",
+      "deps",
+      "portable-git",
+      "mingw64",
+      "bin",
+    );
+    const portableGitUsr = path.join(
+      localAppData,
+      "OpenClaw",
+      "deps",
+      "portable-git",
+      "usr",
+      "bin",
+    );
+    await fs.mkdir(portableGitMingw, { recursive: true });
+    await fs.mkdir(portableGitUsr, { recursive: true });
+
+    try {
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+      const env = await createGlobalInstallEnv({
+        LOCALAPPDATA: localAppData,
+        PATH: ["./node_modules/.bin", "C:\\Windows\\System32"].join(path.delimiter),
+      });
+
+      const mergedPath = env?.Path ?? env?.PATH ?? "";
+      expect(mergedPath.split(path.delimiter).slice(0, 2)).toEqual([
+        portableGitMingw,
+        portableGitUsr,
+      ]);
+      expect(env?.NPM_CONFIG_SCRIPT_SHELL).toBe("cmd.exe");
+      expect(env?.NODE_LLAMA_CPP_SKIP_DOWNLOAD).toBe("1");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("update global helpers", () => {
   let envSnapshot: ReturnType<typeof captureEnv> | undefined;

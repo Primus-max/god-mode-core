@@ -5,6 +5,7 @@ import type {
   PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildResult,
 } from "../plugins/types.js";
+import { resolveStateDir } from "../config/paths.js";
 import {
   createArtifactGetGatewayMethod,
   createArtifactHttpHandler,
@@ -19,6 +20,14 @@ import {
   createBootstrapRunGatewayMethod,
   getPlatformBootstrapService,
 } from "./bootstrap/index.js";
+import {
+  createMachineKillSwitchGatewayMethod,
+  createMachineLinkGatewayMethod,
+  createMachineStatusGatewayMethod,
+  createMachineUnlinkGatewayMethod,
+  getPlatformMachineControlService,
+} from "./machine/index.js";
+import { evaluatePolicy } from "./policy/engine.js";
 import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
 import { resolvePlatformRuntimePlan } from "./recipe/runtime-adapter.js";
@@ -66,12 +75,23 @@ function buildModelResolveResult(prompt: string): PluginHookBeforeModelResolveRe
   };
 }
 
+function isMachineControlToolCall(toolName: string, params: Record<string, unknown>): boolean {
+  if (toolName !== "exec") {
+    return false;
+  }
+  return params.host === "node";
+}
+
 export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   const artifactService = getPlatformArtifactService({
     config: api.config,
   });
-  const bootstrapService = getPlatformBootstrapService();
+  const bootstrapService = getPlatformBootstrapService({
+    stateDir: resolveStateDir(process.env),
+  });
+  const machineControlService = getPlatformMachineControlService();
   artifactService.rehydrate();
+  bootstrapService.rehydrate();
 
   api.registerHttpRoute({
     path: "/platform/artifacts",
@@ -110,6 +130,22 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
     "platform.bootstrap.run",
     createBootstrapRunGatewayMethod(bootstrapService),
   );
+  api.registerGatewayMethod(
+    "platform.machine.status",
+    createMachineStatusGatewayMethod(machineControlService),
+  );
+  api.registerGatewayMethod(
+    "platform.machine.link",
+    createMachineLinkGatewayMethod(machineControlService),
+  );
+  api.registerGatewayMethod(
+    "platform.machine.unlink",
+    createMachineUnlinkGatewayMethod(machineControlService),
+  );
+  api.registerGatewayMethod(
+    "platform.machine.setKillSwitch",
+    createMachineKillSwitchGatewayMethod(machineControlService),
+  );
   api.on("before_agent_start", (event) => buildAgentStartResult(event.prompt), { priority: 20 });
   api.on("before_model_resolve", (event) => buildModelResolveResult(event.prompt), {
     priority: 20,
@@ -124,6 +160,61 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
         config: api.config,
         gatewayPort: event.port,
       });
+    },
+    { priority: 20 },
+  );
+  api.on(
+    "llm_input",
+    (event, ctx) => {
+      const resolved = resolvePlatformRuntimePlan({ prompt: event.prompt, baseProfile: "general" });
+      machineControlService.recordRunSnapshot({
+        runId: event.runId,
+        sessionId: event.sessionId,
+        prompt: event.prompt,
+        profileId: ctx.platformExecution?.profileId ?? resolved.profile.selectedProfile.id,
+        recipeId: ctx.platformExecution?.recipeId ?? resolved.recipe.id,
+        recordedAtMs: Date.now(),
+      });
+    },
+    { priority: 20 },
+  );
+  api.on(
+    "before_tool_call",
+    (event, ctx) => {
+      const params =
+        event.params && typeof event.params === "object" && !Array.isArray(event.params)
+          ? (event.params as Record<string, unknown>)
+          : {};
+      if (!isMachineControlToolCall(event.toolName, params)) {
+        return undefined;
+      }
+      const runSnapshot = ctx.runId ? machineControlService.getRunSnapshot(ctx.runId) : undefined;
+      const resolved =
+        runSnapshot?.prompt !== undefined
+          ? resolvePlatformRuntimePlan({ prompt: runSnapshot.prompt, baseProfile: "general" })
+          : resolvePlatformRuntimePlan({ prompt: "", baseProfile: "general" });
+      const policy = evaluatePolicy({
+        activeProfileId: resolved.profile.selectedProfile.id,
+        activeProfile: resolved.profile.selectedProfile,
+        activeStateTaskOverlay: resolved.profile.effective.taskOverlay?.id,
+        effective: resolved.profile.effective,
+        intent: "code",
+        requestedToolNames: [event.toolName],
+        requestedMachineControl: true,
+        machineControlLinked: true,
+        machineControlKillSwitchEnabled: machineControlService.getSnapshot().killSwitch.enabled,
+        explicitApproval: false,
+      });
+      if (!policy.allowMachineControl && policy.deniedReasons.length > 0) {
+        const blockingReason = policy.deniedReasons.find((reason) => reason.includes("kill switch"));
+        if (blockingReason) {
+          return {
+            block: true,
+            blockReason: blockingReason,
+          };
+        }
+      }
+      return undefined;
     },
     { priority: 20 },
   );

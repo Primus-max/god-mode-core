@@ -36,6 +36,8 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "exec.approval.resolve",
     "platform.bootstrap.resolve",
     "platform.bootstrap.run",
+    "platform.machine.link",
+    "platform.machine.unlink",
   ],
   [PAIRING_SCOPE]: [
     "node.pair.request",
@@ -96,6 +98,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "platform.artifacts.get",
     "platform.bootstrap.list",
     "platform.bootstrap.get",
+    "platform.machine.status",
   ],
   [WRITE_SCOPE]: [
     "send",
@@ -138,6 +141,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "sessions.patch",
     "sessions.reset",
     "sessions.delete",
+    "platform.machine.setKillSwitch",
     "sessions.compact",
     "connect",
     "chat.inject",

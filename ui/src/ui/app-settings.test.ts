@@ -19,6 +19,7 @@ type Tab =
   | "cron"
   | "artifacts"
   | "bootstrap"
+  | "machine"
   | "skills"
   | "nodes"
   | "chat"
@@ -66,6 +67,8 @@ type SettingsHost = {
   debugPollInterval: number | null;
   artifactsPollInterval: number | null;
   bootstrapPollInterval: number | null;
+  machinePollInterval: number | null;
+  machineStatus?: { killSwitch?: { enabled?: boolean }; currentDevice?: { access?: { code?: string } } } | null;
   pendingGatewayUrl?: string | null;
   pendingGatewayToken?: string | null;
 };
@@ -172,6 +175,8 @@ const createHost = (tab: Tab): SettingsHost => ({
   debugPollInterval: null,
   artifactsPollInterval: null,
   bootstrapPollInterval: null,
+  machinePollInterval: null,
+  machineStatus: null,
   pendingGatewayUrl: null,
   pendingGatewayToken: null,
 });
@@ -231,6 +236,18 @@ describe("setTabFromRoute", () => {
 
     setTabFromRoute(host, "chat");
     expect(host.bootstrapPollInterval).toBeNull();
+  });
+
+  it("starts and stops machine polling based on the tab", () => {
+    const host = createHost("chat");
+
+    setTabFromRoute(host, "machine");
+    expect(host.machinePollInterval).not.toBeNull();
+    expect(host.logsPollInterval).toBeNull();
+    expect(host.debugPollInterval).toBeNull();
+
+    setTabFromRoute(host, "chat");
+    expect(host.machinePollInterval).toBeNull();
   });
 
   it("re-resolves the active palette when only themeMode changes", () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { i18n } from "../i18n/index.ts";
 import {
   TAB_GROUPS,
   iconForTab,
@@ -61,6 +62,17 @@ describe("titleForTab", () => {
     expect(titleForTab("overview")).toBe("Overview");
     expect(titleForTab("cron")).toBe("Cron Jobs");
     expect(titleForTab("artifacts")).toBe("Artifacts");
+    expect(titleForTab("bootstrap")).toBe("Capability Installs");
+    expect(titleForTab("machine")).toBe("Machine Access");
+    expect(titleForTab("nodes")).toBe("Devices & Nodes");
+  });
+
+  it("returns localized titles for Russian", async () => {
+    await i18n.setLocale("ru");
+    expect(titleForTab("bootstrap")).toBe("Установка возможностей");
+    expect(titleForTab("machine")).toBe("Доступ к машине");
+    expect(titleForTab("nodes")).toBe("Устройства и узлы");
+    await i18n.setLocale("en");
   });
 });
 
@@ -75,6 +87,7 @@ describe("subtitleForTab", () => {
   it("returns descriptive subtitles", () => {
     expect(subtitleForTab("chat")).toContain("quick interventions");
     expect(subtitleForTab("config")).toContain("openclaw.json");
+    expect(subtitleForTab("nodes")).toContain("exec approvals");
   });
 });
 

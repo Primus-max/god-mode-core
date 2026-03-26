@@ -13,6 +13,7 @@ export async function orchestrateBootstrapRequest(params: {
   request: BootstrapRequest;
   policyContext: PolicyContext;
   registry: CapabilityRegistry;
+  stateDir?: string;
   installers?: Partial<Record<CapabilityInstallMethod, BootstrapInstaller>>;
   availableBins?: string[];
   availableEnv?: string[];
@@ -50,6 +51,7 @@ export async function orchestrateBootstrapRequest(params: {
     policyContext: params.policyContext,
     policyDecision: decision,
     registry: params.registry,
+    stateDir: params.stateDir,
     installers: params.installers,
     availableBins: params.availableBins,
     availableEnv: params.availableEnv,

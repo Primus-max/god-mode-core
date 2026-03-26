@@ -7,6 +7,11 @@ import type {
   BootstrapRequestRecordDetail as PlatformBootstrapRequestRecordDetail,
   BootstrapRequestRecordSummary as PlatformBootstrapRequestRecordSummary,
 } from "../../../src/platform/bootstrap/contracts.js";
+import type {
+  MachineControlAccessResult as PlatformMachineControlAccessResult,
+  MachineControlKillSwitch as PlatformMachineControlKillSwitch,
+  MachineControlLinkRecord as PlatformMachineControlLinkRecord,
+} from "../../../src/platform/machine/contracts.js";
 import type { CronJobBase } from "../../../src/cron/types-shared.js";
 import type { ConfigUiHints } from "../../../src/shared/config-ui-hints-types.js";
 import type {
@@ -416,6 +421,18 @@ export type ArtifactRecordSummary = PlatformArtifactRecordSummary;
 export type ArtifactRecordDetail = PlatformArtifactRecordDetail;
 export type BootstrapRequestRecordSummary = PlatformBootstrapRequestRecordSummary;
 export type BootstrapRequestRecordDetail = PlatformBootstrapRequestRecordDetail;
+export type MachineControlLinkRecord = PlatformMachineControlLinkRecord;
+export type MachineControlKillSwitch = PlatformMachineControlKillSwitch;
+export type MachineControlAccessResult = PlatformMachineControlAccessResult;
+export type MachineControlCurrentDevice = {
+  deviceId: string;
+  access: MachineControlAccessResult;
+};
+export type MachineControlStatus = {
+  killSwitch: MachineControlKillSwitch;
+  linkedDevices: MachineControlLinkRecord[];
+  currentDevice?: MachineControlCurrentDevice;
+};
 
 export type SessionsPatchResult = SessionsPatchResultBase<{
   sessionId: string;

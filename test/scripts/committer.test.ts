@@ -6,6 +6,18 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const scriptPath = path.join(process.cwd(), "scripts", "committer");
 const tempRepos: string[] = [];
+const bashCommand = process.platform === "win32" ? "bash" : "/bin/bash";
+const bashCheckArgs = process.platform === "win32" ? ["-lc", "true"] : ["--noprofile", "--norc", "-lc", "true"];
+const hasBash = (() => {
+  try {
+    execFileSync(bashCommand, bashCheckArgs, {
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 function run(cwd: string, command: string, args: string[]) {
   return execFileSync(command, args, {
@@ -58,6 +70,9 @@ afterEach(() => {
 
 describe("scripts/committer", () => {
   it("accepts supported path argument shapes", () => {
+    if (!hasBash) {
+      return;
+    }
     const cases = [
       {
         commitMessage: "test: plain argv",
@@ -101,6 +116,9 @@ describe("scripts/committer", () => {
   });
 
   it("commits changelog-only changes without pulling in unrelated dirty files", () => {
+    if (!hasBash) {
+      return;
+    }
     const repo = createRepo();
     writeRepoFile(repo, "CHANGELOG.md", "initial\n");
     writeRepoFile(repo, "unrelated.ts", "export const ok = true;\n");

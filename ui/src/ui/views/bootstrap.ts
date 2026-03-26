@@ -93,9 +93,7 @@ export function renderBootstrap(props: BootstrapProps) {
       <div class="row" style="justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
         <div>
           <h2 style="margin:0;">${t("tabs.bootstrap")}</h2>
-          <div style="opacity:0.75;">
-            Pending capability install approvals and lifecycle results. ${props.pendingCount} pending.
-          </div>
+          <div style="opacity:0.75;">${t("bootstrap.subtitle", { count: String(props.pendingCount) })}</div>
         </div>
         <button class="btn" type="button" ?disabled=${props.loading} @click=${props.onRefresh}>
           ${t("common.refresh")}
@@ -104,7 +102,7 @@ export function renderBootstrap(props: BootstrapProps) {
       <div class="row" style="margin-top:12px;">
         <input
           type="search"
-          placeholder="Filter bootstrap requests"
+          placeholder=${t("bootstrap.filterPlaceholder")}
           .value=${props.filterQuery}
           @input=${(event: Event) =>
             props.onFilterChange((event.target as HTMLInputElement).value)}
@@ -118,7 +116,7 @@ export function renderBootstrap(props: BootstrapProps) {
       >
         <div style="display:flex; flex-direction:column; gap:8px;">
           ${filteredRequests.length === 0
-            ? html`<div style="opacity:0.75;">No bootstrap requests yet.</div>`
+            ? html`<div style="opacity:0.75;">${t("bootstrap.empty")}</div>`
             : filteredRequests.map((entry) =>
                 renderBootstrapListItem({
                   request: entry,
@@ -129,7 +127,7 @@ export function renderBootstrap(props: BootstrapProps) {
         </div>
         <div class="card" style="padding:16px;">
           ${props.detailLoading
-            ? html`<div>Loading bootstrap details…</div>`
+            ? html`<div>${t("bootstrap.loadingDetail")}</div>`
             : detail && request
               ? html`
                   <div class="row" style="justify-content:space-between; align-items:flex-start;">
@@ -147,23 +145,23 @@ export function renderBootstrap(props: BootstrapProps) {
                   <dl
                     style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:16px 0;"
                   >
-                    <dt>ID</dt>
+                    <dt>${t("bootstrap.fields.id")}</dt>
                     <dd>${detail.id}</dd>
-                    <dt>Source</dt>
+                    <dt>${t("bootstrap.fields.source")}</dt>
                     <dd>${request.sourceDomain}</dd>
-                    <dt>Recipe</dt>
+                    <dt>${t("bootstrap.fields.recipe")}</dt>
                     <dd>${request.sourceRecipeId ?? "n/a"}</dd>
-                    <dt>Approval</dt>
+                    <dt>${t("bootstrap.fields.approval")}</dt>
                     <dd>${request.approvalMode}</dd>
-                    <dt>Created</dt>
+                    <dt>${t("bootstrap.fields.created")}</dt>
                     <dd>${detail.createdAt}</dd>
-                    <dt>Updated</dt>
+                    <dt>${t("bootstrap.fields.updated")}</dt>
                     <dd>${detail.updatedAt}</dd>
-                    <dt>Lifecycle</dt>
-                    <dd>${result?.lifecycle?.status ?? result?.status ?? "not run"}</dd>
+                    <dt>${t("bootstrap.fields.lifecycle")}</dt>
+                    <dd>${result?.lifecycle?.status ?? result?.status ?? t("bootstrap.notRun")}</dd>
                   </dl>
-                  ${renderReasonList("Record reasons", detail.reasons)}
-                  ${renderReasonList("Result reasons", result?.reasons)}
+                  ${renderReasonList(t("bootstrap.reasonLists.record"), detail.reasons)}
+                  ${renderReasonList(t("bootstrap.reasonLists.result"), result?.reasons)}
                   <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:16px;">
                     ${showApprove
                       ? html`
@@ -173,7 +171,7 @@ export function renderBootstrap(props: BootstrapProps) {
                             ?disabled=${props.actionBusy}
                             @click=${() => props.onResolve(detail.id, "approve")}
                           >
-                            Approve
+                            ${t("bootstrap.actions.approve")}
                           </button>
                           <button
                             class="btn danger"
@@ -181,7 +179,7 @@ export function renderBootstrap(props: BootstrapProps) {
                             ?disabled=${props.actionBusy}
                             @click=${() => props.onResolve(detail.id, "deny")}
                           >
-                            Deny
+                            ${t("bootstrap.actions.deny")}
                           </button>
                         `
                       : nothing}
@@ -193,13 +191,13 @@ export function renderBootstrap(props: BootstrapProps) {
                             ?disabled=${props.actionBusy}
                             @click=${() => props.onRun(detail.id)}
                           >
-                            Run bootstrap
+                            ${t("bootstrap.actions.run")}
                           </button>
                         `
                       : nothing}
                   </div>
                 `
-              : html`<div style="opacity:0.75;">Select a bootstrap request to inspect it.</div>`}
+              : html`<div style="opacity:0.75;">${t("bootstrap.selectHint")}</div>`}
         </div>
       </div>
     </section>

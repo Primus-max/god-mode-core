@@ -22,7 +22,7 @@ export type ArtifactsProps = {
 };
 
 function formatAvailability(available: boolean) {
-  return available ? "Yes" : "No";
+  return available ? t("artifacts.availabilityYes") : t("artifacts.availabilityNo");
 }
 
 function formatBytes(sizeBytes?: number) {
@@ -64,15 +64,15 @@ function getArtifactActions(detail: ArtifactRecordDetail | null): ArtifactOperat
 function actionLabel(operation: ArtifactOperation) {
   switch (operation) {
     case "preview":
-      return "Mark preview";
+      return t("artifacts.actions.preview");
     case "approve":
-      return "Approve";
+      return t("artifacts.actions.approve");
     case "publish":
-      return "Publish";
+      return t("artifacts.actions.publish");
     case "retain":
-      return "Archive";
+      return t("artifacts.actions.retain");
     case "delete":
-      return "Delete";
+      return t("artifacts.actions.delete");
     default:
       return operation;
   }
@@ -134,7 +134,7 @@ export function renderArtifacts(props: ArtifactsProps) {
       <div class="row" style="justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
         <div>
           <h2 style="margin:0;">${t("tabs.artifacts")}</h2>
-          <div style="opacity:0.75;">Browse persisted previews, exports, and publishable outputs.</div>
+          <div style="opacity:0.75;">${t("artifacts.subtitle")}</div>
         </div>
         <button class="btn" type="button" ?disabled=${props.loading} @click=${props.onRefresh}>
           ${t("common.refresh")}
@@ -143,7 +143,7 @@ export function renderArtifacts(props: ArtifactsProps) {
       <div class="row" style="margin-top:12px;">
         <input
           type="search"
-          placeholder="Filter artifacts"
+          placeholder=${t("artifacts.filterPlaceholder")}
           .value=${props.filterQuery}
           @input=${(event: Event) =>
             props.onFilterChange((event.target as HTMLInputElement).value)}
@@ -157,7 +157,7 @@ export function renderArtifacts(props: ArtifactsProps) {
       >
         <div style="display:flex; flex-direction:column; gap:8px;">
           ${filteredArtifacts.length === 0
-            ? html`<div style="opacity:0.75;">No artifacts yet.</div>`
+            ? html`<div style="opacity:0.75;">${t("artifacts.empty")}</div>`
             : filteredArtifacts.map((artifact) =>
                 renderArtifactListItem({
                   artifact,
@@ -168,7 +168,7 @@ export function renderArtifacts(props: ArtifactsProps) {
         </div>
         <div class="card" style="padding:16px;">
           ${props.detailLoading
-            ? html`<div>Loading artifact details…</div>`
+            ? html`<div>${t("artifacts.loadingDetail")}</div>`
             : detail && descriptor
               ? html`
                   <div class="row" style="justify-content:space-between; align-items:flex-start;">
@@ -186,29 +186,29 @@ export function renderArtifacts(props: ArtifactsProps) {
                   <dl
                     style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:16px 0;"
                   >
-                    <dt>ID</dt>
+                    <dt>${t("artifacts.fields.id")}</dt>
                     <dd>${descriptor.id}</dd>
-                    <dt>Kind</dt>
+                    <dt>${t("artifacts.fields.kind")}</dt>
                     <dd>${descriptor.kind}</dd>
-                    <dt>Recipe</dt>
+                    <dt>${t("artifacts.fields.recipe")}</dt>
                     <dd>${descriptor.sourceRecipeId ?? "n/a"}</dd>
-                    <dt>Run</dt>
+                    <dt>${t("artifacts.fields.run")}</dt>
                     <dd>${detail.runId ?? "n/a"}</dd>
-                    <dt>Preview</dt>
+                    <dt>${t("artifacts.fields.preview")}</dt>
                     <dd>${formatAvailability(detail.previewAvailable)}</dd>
-                    <dt>Content</dt>
+                    <dt>${t("artifacts.fields.content")}</dt>
                     <dd>${formatAvailability(detail.contentAvailable)}</dd>
-                    <dt>MIME</dt>
+                    <dt>${t("artifacts.fields.mime")}</dt>
                     <dd>${descriptor.mimeType ?? "n/a"}</dd>
-                    <dt>Size</dt>
+                    <dt>${t("artifacts.fields.size")}</dt>
                     <dd>${formatBytes(descriptor.sizeBytes)}</dd>
-                    <dt>Updated</dt>
+                    <dt>${t("artifacts.fields.updated")}</dt>
                     <dd>${formatRelativeTimestamp(descriptor.updatedAt ?? descriptor.createdAt)}</dd>
                   </dl>
                   ${detail.warnings?.length
                     ? html`
                         <div style="margin-bottom:16px;">
-                          <strong>Warnings</strong>
+                          <strong>${t("artifacts.warnings")}</strong>
                           <ul>
                             ${detail.warnings.map((warning) => html`<li>${warning}</li>`)}
                           </ul>
@@ -224,7 +224,7 @@ export function renderArtifacts(props: ArtifactsProps) {
                             target=${EXTERNAL_LINK_TARGET}
                             rel=${buildExternalLinkRel()}
                           >
-                            Open preview
+                            ${t("artifacts.openPreview")}
                           </a>
                         `
                       : nothing}
@@ -236,7 +236,7 @@ export function renderArtifacts(props: ArtifactsProps) {
                             target=${EXTERNAL_LINK_TARGET}
                             rel=${buildExternalLinkRel()}
                           >
-                            Open content
+                            ${t("artifacts.openContent")}
                           </a>
                         `
                       : nothing}
@@ -254,7 +254,7 @@ export function renderArtifacts(props: ArtifactsProps) {
                     )}
                   </div>
                 `
-              : html`<div style="opacity:0.75;">Select an artifact to inspect its details.</div>`}
+              : html`<div style="opacity:0.75;">${t("artifacts.selectHint")}</div>`}
         </div>
       </div>
     </section>

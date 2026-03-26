@@ -60,6 +60,97 @@ describe("bootstrap resolver", () => {
     expect(result.reasons?.[0]).toContain("no trusted catalog entry");
   });
 
+  it("returns untrusted for user-sourced catalog entries", () => {
+    const registry = createCapabilityRegistry();
+    const result = resolveBootstrapRequest({
+      capabilityId: "pdf-renderer",
+      registry,
+      catalog: [
+        {
+          capability: {
+            id: "pdf-renderer",
+            label: "PDF Renderer",
+            status: "missing",
+            trusted: false,
+          },
+          source: "user",
+          install: { method: "builtin" },
+        },
+      ],
+      reason: "renderer_unavailable",
+      sourceDomain: "document",
+    });
+
+    expect(result.status).toBe("untrusted");
+    expect(result.reasons).toContain(
+      "capability pdf-renderer comes from a user catalog source",
+    );
+  });
+
+  it("returns untrusted for node entries without an exact npm packageRef", () => {
+    const registry = createCapabilityRegistry();
+    const result = resolveBootstrapRequest({
+      capabilityId: "pdf-parser",
+      registry,
+      catalog: [
+        {
+          capability: {
+            id: "pdf-parser",
+            label: "PDF Parser",
+            status: "missing",
+            trusted: true,
+          },
+          source: "catalog",
+          install: {
+            method: "node",
+            packageRef: "@openclaw/pdf-parser@latest",
+            integrity: "sha512-demo",
+            rollbackStrategy: "restore_previous",
+          },
+        },
+      ],
+      reason: "missing_capability",
+      sourceDomain: "platform",
+    });
+
+    expect(result.status).toBe("untrusted");
+    expect(result.reasons).toContain(
+      "capability pdf-parser must use an exact npm registry packageRef for node installs",
+    );
+  });
+
+  it("returns untrusted for download entries without a full source contract", () => {
+    const registry = createCapabilityRegistry();
+    const result = resolveBootstrapRequest({
+      capabilityId: "pdf-renderer",
+      registry,
+      catalog: [
+        {
+          capability: {
+            id: "pdf-renderer",
+            label: "PDF Renderer",
+            status: "missing",
+            trusted: true,
+            requiredBins: ["playwright"],
+          },
+          source: "catalog",
+          install: {
+            method: "download",
+            packageRef: "playwright-pdf-renderer@1.0.0",
+            integrity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            rollbackStrategy: "restore_previous",
+          },
+        },
+      ],
+      reason: "renderer_unavailable",
+      sourceDomain: "document",
+    });
+
+    expect(result.status).toBe("untrusted");
+    expect(result.reasons).toContain("capability pdf-renderer is missing downloadUrl");
+    expect(result.reasons).toContain("capability pdf-renderer is missing archiveKind");
+  });
+
   it("resolves bulk recipe capability requirements", () => {
     const registry = createCapabilityRegistry();
     const results = resolveBootstrapRequests({

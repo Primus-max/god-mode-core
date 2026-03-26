@@ -2,6 +2,7 @@
 
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
+import { i18n } from "../../i18n/index.ts";
 import { renderArtifacts, type ArtifactsProps } from "./artifacts.ts";
 
 function createProps(overrides: Partial<ArtifactsProps> = {}): ArtifactsProps {
@@ -84,5 +85,19 @@ describe("artifacts view", () => {
     await Promise.resolve();
 
     expect(container.textContent).toContain("No artifacts yet.");
+  });
+
+  it("renders localized Russian copy for artifact actions", async () => {
+    const container = document.createElement("div");
+    await i18n.setLocale("ru");
+
+    render(renderArtifacts(createProps()), container);
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Артефакты");
+    expect(container.textContent).toContain("Открыть превью");
+    expect(container.textContent).toContain("Одобрить");
+
+    await i18n.setLocale("en");
   });
 });

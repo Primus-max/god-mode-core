@@ -54,7 +54,7 @@ describe("bootstrap runtime", () => {
     });
 
     expect(result.status).toBe("denied");
-    expect(result.transitions).toEqual(["requested", "denied", "degraded"]);
+    expect(result.transitions).toEqual(["requested", "denied"]);
     expect(result.verificationStatus).toBe("not_run");
     expect(result.rollbackStatus).toBe("not_needed");
   });
@@ -136,19 +136,31 @@ describe("bootstrap runtime", () => {
 
   it("keeps degraded state when the install method is unsupported", async () => {
     const registry = createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
-    const resolution = resolveBootstrapRequest({
-      capabilityId: "pdf-renderer",
-      registry,
-      reason: "renderer_unavailable",
-      sourceDomain: "document",
-    });
-
-    if (!resolution.request) {
-      throw new Error("expected bootstrap request");
-    }
-
     const result = await runBootstrapLifecycle({
-      request: resolution.request,
+      request: {
+        capabilityId: "brew-only-smoke",
+        installMethod: "brew",
+        rollbackStrategy: "keep_failed",
+        reason: "missing_capability",
+        sourceDomain: "developer",
+        approvalMode: "explicit",
+        catalogEntry: {
+          capability: {
+            id: "brew-only-smoke",
+            label: "Brew Only Smoke",
+            status: "missing",
+            trusted: true,
+          },
+          source: "catalog",
+          install: {
+            method: "brew",
+            packageRef: "brew-only-smoke",
+            integrity:
+              "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            rollbackStrategy: "keep_failed",
+          },
+        },
+      },
       policyContext: makePolicyContext(true),
       registry,
     });
@@ -156,9 +168,7 @@ describe("bootstrap runtime", () => {
     expect(result.status).toBe("degraded");
     expect(result.verificationStatus).toBe("not_run");
     expect(result.rollbackStatus).toBe("keep_failed");
-    expect(result.reasons).toContain(
-      "bootstrap installer for download is not implemented",
-    );
-    expect(registry.get("pdf-renderer")?.status).toBe("failed");
+    expect(result.reasons).toContain("bootstrap installer for brew is not implemented");
+    expect(registry.get("brew-only-smoke")?.status).toBe("failed");
   });
 });

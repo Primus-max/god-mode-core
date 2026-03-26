@@ -90,12 +90,12 @@ export function renderOverviewCards(props: OverviewCardsProps) {
     cronEnabled == null
       ? t("common.na")
       : cronEnabled
-        ? `${cronJobCount} jobs`
+        ? t("overview.cardMetrics.cronJobs", { count: String(cronJobCount) })
         : t("common.disabled");
 
   const cronHint =
     failedCronCount > 0
-      ? html`<span class="danger">${failedCronCount} failed</span>`
+      ? html`<span class="danger">${t("overview.cardMetrics.cronFailed", { count: String(failedCronCount) })}</span>`
       : cronNext
         ? t("overview.stats.cronNext", { time: formatNextRun(cronNext) })
         : "";
@@ -106,7 +106,7 @@ export function renderOverviewCards(props: OverviewCardsProps) {
       tab: "usage",
       label: t("overview.cards.cost"),
       value: totalCost,
-      hint: `${totalTokens} tokens · ${totalMessages} msgs`,
+      hint: t("overview.cardMetrics.costHint", { tokens: totalTokens, msgs: totalMessages }),
     },
     {
       kind: "sessions",
@@ -120,7 +120,10 @@ export function renderOverviewCards(props: OverviewCardsProps) {
       tab: "skills",
       label: t("overview.cards.skills"),
       value: `${enabledSkills}/${totalSkills}`,
-      hint: blockedSkills > 0 ? `${blockedSkills} blocked` : `${enabledSkills} active`,
+      hint:
+        blockedSkills > 0
+          ? t("overview.cardMetrics.skillsBlocked", { count: String(blockedSkills) })
+          : t("overview.cardMetrics.skillsActive", { count: String(enabledSkills) }),
     },
     {
       kind: "cron",

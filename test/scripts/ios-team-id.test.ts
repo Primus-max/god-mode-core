@@ -8,8 +8,20 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const SCRIPT = path.join(process.cwd(), "scripts", "ios-team-id.sh");
 const BASH_BIN = process.platform === "win32" ? "bash" : "/bin/bash";
 const BASH_ARGS = process.platform === "win32" ? [SCRIPT] : ["--noprofile", "--norc", SCRIPT];
+const BASH_CHECK_ARGS =
+  process.platform === "win32" ? ["-lc", "true"] : ["--noprofile", "--norc", "-lc", "true"];
 const BASE_PATH = process.env.PATH ?? "/usr/bin:/bin";
 const BASE_LANG = process.env.LANG ?? "C";
+const HAS_BASH = (() => {
+  try {
+    execFileSync(BASH_BIN, BASH_CHECK_ARGS, {
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+})();
 let fixtureRoot = "";
 let sharedBinDir = "";
 let sharedHomeDir = "";
@@ -211,12 +223,18 @@ printf 'BBBBB22222\\t0\\tBeta Team\\r\\n'`,
   });
 
   it("resolves a fallback team ID from Xcode team listings (smoke)", async () => {
+    if (!HAS_BASH) {
+      return;
+    }
     const fallbackResult = runScript(sharedHomeDir, { IOS_PYTHON_BIN: sharedFakePythonPath });
     expect(fallbackResult.ok).toBe(true);
     expect(fallbackResult.stdout).toBe("AAAAA11111");
   });
 
   it("prints actionable guidance when Xcode account exists but no Team ID is resolvable", async () => {
+    if (!HAS_BASH) {
+      return;
+    }
     const result = runScript(sharedHomeDir);
     expect(result.ok).toBe(false);
     expect(

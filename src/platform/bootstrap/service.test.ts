@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
 import { createBootstrapRequestService } from "./service.js";
@@ -74,5 +77,46 @@ describe("bootstrap request service", () => {
     expect(result?.state).toBe("available");
     expect(result?.result?.status).toBe("bootstrapped");
     expect(result?.result?.lifecycle?.status).toBe("available");
+  });
+
+  it("persists the bootstrap audit trail and rehydrates records after restart", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-bootstrap-service-"));
+    try {
+      const service = createBootstrapRequestService({ stateDir });
+      const created = service.create(buildRequest());
+      service.resolve(created.id, "approve");
+      await service.run({
+        id: created.id,
+        installers: {
+          download: async ({ request }) => ({
+            ok: true,
+            capability: {
+              ...request.catalogEntry.capability,
+              trusted: true,
+              sandboxed: true,
+              installMethod: "download",
+              status: "available",
+            },
+          }),
+        },
+        availableBins: ["playwright"],
+        runHealthCheckCommand: async () => true,
+      });
+
+      expect(service.getAuditPath()).toMatch(/requests-audit\.jsonl$/);
+      const next = createBootstrapRequestService({ stateDir });
+      expect(next.rehydrate()).toBe(1);
+      expect(next.get(created.id)).toEqual(
+        expect.objectContaining({
+          id: created.id,
+          state: "available",
+          result: expect.objectContaining({
+            status: "bootstrapped",
+          }),
+        }),
+      );
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 });

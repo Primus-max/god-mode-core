@@ -2,6 +2,8 @@ export { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
 export {
   BootstrapLifecycleResultSchema,
   BootstrapLifecycleStateSchema,
+  BootstrapAuditEventSchema,
+  BootstrapAuditEventTypeSchema,
   BootstrapOrchestrationResultSchema,
   BootstrapOrchestrationStatusSchema,
   BootstrapPolicySummarySchema,
@@ -12,11 +14,14 @@ export {
   BootstrapRequestRecordSchema,
   BootstrapRequestRecordStateSchema,
   BootstrapRequestRecordSummarySchema,
+  BootstrapResolutionStatusSchema,
   BootstrapRollbackStatusSchema,
   BootstrapRequestSchema,
   BootstrapResolutionSchema,
   BootstrapSourceDomainSchema,
   BootstrapVerificationStatusSchema,
+  type BootstrapAuditEvent,
+  type BootstrapAuditEventType,
   type BootstrapApprovalMode,
   type BootstrapLifecycleResult,
   type BootstrapLifecycleState,
@@ -29,6 +34,7 @@ export {
   type BootstrapRequestRecordDetail,
   type BootstrapRequestRecordState,
   type BootstrapRequestRecordSummary,
+  type BootstrapResolutionStatus,
   type BootstrapRollbackStatus,
   type BootstrapRequest,
   type BootstrapResolution,
@@ -36,8 +42,19 @@ export {
   type BootstrapVerificationStatus,
 } from "./contracts.js";
 export { resolveBootstrapRequest, resolveBootstrapRequests } from "./resolver.js";
-export { verifyCapabilityHealth } from "./health-check.js";
+export { runDefaultBootstrapHealthCheckCommand, verifyCapabilityHealth } from "./health-check.js";
 export { installCapabilityRequest, type BootstrapInstaller } from "./installers.js";
+export {
+  resolveBootstrapAuditPath,
+  resolvePlatformBootstrapDownloadCapabilityInstallDir,
+  resolvePlatformBootstrapDownloadCapabilityStageDir,
+  resolvePlatformBootstrapDownloadInstallRoot,
+  resolvePlatformBootstrapDownloadStageRoot,
+  resolvePlatformBootstrapNodeCapabilityInstallDir,
+  resolvePlatformBootstrapNodeInstallRoot,
+  resolvePlatformBootstrapInstallRoot,
+  resolvePlatformBootstrapRoot,
+} from "./paths.js";
 export {
   buildBootstrapPolicyContext,
   evaluateBootstrapRequestPolicy,

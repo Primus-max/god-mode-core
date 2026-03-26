@@ -4,6 +4,7 @@ import type { CronModelSuggestionsState, CronState } from "./controllers/cron.ts
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
+import type { MachineControlStatus } from "./types.ts";
 import type { SkillMessage } from "./controllers/skills.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
@@ -215,6 +216,10 @@ export type AppViewState = {
   bootstrapDetail: BootstrapRequestRecordDetail | null;
   bootstrapDetailError: string | null;
   bootstrapActionBusy: boolean;
+  machineLoading: boolean;
+  machineError: string | null;
+  machineActionBusy: boolean;
+  machineStatus: MachineControlStatus | null;
   usageLoading: boolean;
   usageResult: SessionsUsageResult | null;
   usageCostSummary: CostUsageSummary | null;

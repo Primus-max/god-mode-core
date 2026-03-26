@@ -140,6 +140,10 @@ function formatApprovalCommand(command: string): { inline: boolean; text: string
   return { inline: false, text: `${fence}\n${command}\n${fence}` };
 }
 
+function formatApprovalTimestamp(ts?: number | null): string | null {
+  return typeof ts === "number" && ts > 0 ? new Date(ts).toISOString() : null;
+}
+
 function buildRequestMessage(request: ExecApprovalRequest, nowMs: number) {
   const lines: string[] = ["🔒 Exec approval required", `ID: ${request.id}`];
   const command = formatApprovalCommand(
@@ -156,6 +160,16 @@ function buildRequestMessage(request: ExecApprovalRequest, nowMs: number) {
   }
   if (request.request.nodeId) {
     lines.push(`Node: ${request.request.nodeId}`);
+  }
+  if (request.request.machineControl?.required) {
+    lines.push("Machine control: required");
+    if (request.request.machineControl.requestedByDeviceId) {
+      lines.push(`Linked device: ${request.request.machineControl.requestedByDeviceId}`);
+    }
+    const linkedAt = formatApprovalTimestamp(request.request.machineControl.linkedAtMs);
+    if (linkedAt) {
+      lines.push(`Linked at: ${linkedAt}`);
+    }
   }
   if (Array.isArray(request.request.envKeys) && request.request.envKeys.length > 0) {
     lines.push(`Env overrides: ${request.request.envKeys.join(", ")}`);
@@ -195,7 +209,20 @@ function decisionLabel(decision: ExecApprovalDecision): string {
 function buildResolvedMessage(resolved: ExecApprovalResolved) {
   const base = `✅ Exec approval ${decisionLabel(resolved.decision)}.`;
   const by = resolved.resolvedBy ? ` Resolved by ${resolved.resolvedBy}.` : "";
-  return `${base}${by} ID: ${resolved.id}`;
+  const request = resolved.request;
+  const machine =
+    request?.machineControl?.required === true
+      ? [
+          request.nodeId ? `node ${request.nodeId}` : null,
+          request.machineControl.requestedByDeviceId
+            ? `device ${request.machineControl.requestedByDeviceId}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(", ")
+      : "";
+  const machineSuffix = machine ? ` Machine control: ${machine}.` : "";
+  return `${base}${by}${machineSuffix} ID: ${resolved.id}`;
 }
 
 function buildExpiredMessage(request: ExecApprovalRequest) {

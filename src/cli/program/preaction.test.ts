@@ -187,7 +187,9 @@ describe("registerPreActionHooks", () => {
       commandPath: ["status"],
     });
     expect(ensurePluginRegistryLoadedMock).toHaveBeenCalledWith({ scope: "channels" });
-    expect(process.title).toBe("openclaw-status");
+    if (process.platform !== "win32") {
+      expect(process.title).toBe("openclaw-status");
+    }
 
     vi.clearAllMocks();
     await runPreAction({

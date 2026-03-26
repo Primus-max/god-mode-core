@@ -90,6 +90,40 @@ export const BOOTSTRAP_RULE: PolicyRule = {
   },
 };
 
+export const MACHINE_CONTROL_RULE: PolicyRule = {
+  id: "machine-control-requires-link-and-approval",
+  evaluate(context, decision) {
+    if (!context.requestedMachineControl) {
+      return decision;
+    }
+    if (context.machineControlKillSwitchEnabled) {
+      return withDeniedReason(
+        { ...decision, allowMachineControl: false, requireExplicitApproval: true },
+        "machine control is disabled by kill switch",
+      );
+    }
+    if (!context.machineControlLinked) {
+      return withDeniedReason(
+        { ...decision, allowMachineControl: false, requireExplicitApproval: true },
+        "machine control requires explicit device binding",
+      );
+    }
+    if (!context.explicitApproval) {
+      return withDeniedReason(
+        { ...decision, allowMachineControl: false, requireExplicitApproval: true },
+        "machine control requires explicit approval even for linked devices",
+      );
+    }
+    return withReason(
+      {
+        ...decision,
+        allowMachineControl: true,
+      },
+      "explicit approval granted for machine control on linked device",
+    );
+  },
+};
+
 export const ARTIFACT_PERSISTENCE_RULE: PolicyRule = {
   id: "artifact-persistence-follows-intent",
   evaluate(context, decision) {
@@ -119,6 +153,7 @@ export const GENERAL_CHAT_OVERLAY_RULE: PolicyRule = {
         allowPublish: false,
         allowCapabilityBootstrap: false,
         allowPrivilegedTools: false,
+        allowMachineControl: false,
       },
       "general chat overlay keeps execution lightweight unless explicitly approved",
     );
@@ -130,6 +165,7 @@ export const DEFAULT_POLICY_RULES: PolicyRule[] = [
   SENSITIVE_DATA_RULE,
   PUBLISH_RULE,
   BOOTSTRAP_RULE,
+  MACHINE_CONTROL_RULE,
   ARTIFACT_PERSISTENCE_RULE,
   GENERAL_CHAT_OVERLAY_RULE,
 ];

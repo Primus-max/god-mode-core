@@ -5,6 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi, PluginHookName } from "../plugins/types.js";
 import { resetPlatformArtifactService } from "./artifacts/index.js";
 import {
+  getPlatformMachineControlService,
+  resetPlatformMachineControlService,
+} from "./machine/index.js";
+import {
   listCapturedDeveloperArtifacts,
   resetCapturedDeveloperArtifacts,
 } from "./developer/index.js";
@@ -43,6 +47,7 @@ describe("platform profile plugin", () => {
     resetCapturedDocumentArtifacts();
     resetCapturedDeveloperArtifacts();
     resetPlatformArtifactService();
+    resetPlatformMachineControlService();
     if (originalStateDir === undefined) {
       delete process.env.OPENCLAW_STATE_DIR;
     } else {
@@ -143,6 +148,8 @@ describe("platform profile plugin", () => {
       "before_model_resolve",
       "before_prompt_build",
       "gateway_start",
+      "llm_input",
+      "before_tool_call",
       "llm_output",
     ]);
     expect(api.registerHttpRoute).toHaveBeenCalledWith(
@@ -151,7 +158,7 @@ describe("platform profile plugin", () => {
         match: "prefix",
       }),
     );
-    expect(api.registerGatewayMethod).toHaveBeenCalledTimes(7);
+    expect(api.registerGatewayMethod).toHaveBeenCalledTimes(11);
   });
 
   it("exports an OpenClaw plugin definition", () => {
@@ -180,5 +187,57 @@ describe("platform profile plugin", () => {
     expect(result?.prependSystemContext).toContain("Active specialist profile");
     expect(result?.prependSystemContext).toContain("Execution recipe:");
     expect(result?.prependSystemContext).toContain("hidden permissions");
+  });
+
+  it("records llm_input runs and blocks machine exec when kill switch is on", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-platform-plugin-machine-"));
+    tempDirs.push(stateDir);
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+    const api = createApiMock();
+
+    registerPlatformProfilePlugin(api);
+
+    const llmInput = (api.on as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call) => call[0] === "llm_input",
+    )?.[1] as
+      | ((event: { runId: string; sessionId: string; prompt: string }, ctx: unknown) => void)
+      | undefined;
+    const beforeToolCall = (api.on as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call) => call[0] === "before_tool_call",
+    )?.[1] as
+      | ((
+          event: { toolName: string; params: Record<string, unknown> },
+          ctx: { runId?: string },
+        ) => { block?: boolean; blockReason?: string } | void)
+      | undefined;
+
+    llmInput?.(
+      {
+        runId: "run-machine-1",
+        sessionId: "session-machine-1",
+        prompt: "Run a command on the linked machine",
+      },
+      {
+        platformExecution: {
+          profileId: "developer",
+          recipeId: "general_reasoning",
+        },
+      },
+    );
+    getPlatformMachineControlService().setKillSwitch({ enabled: true, reason: "operator stop" });
+
+    const result = beforeToolCall?.(
+      {
+        toolName: "exec",
+        params: { host: "node", command: "echo hi" },
+      },
+      { runId: "run-machine-1" },
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        block: true,
+      }),
+    );
+    expect(result?.blockReason).toContain("kill switch");
   });
 });

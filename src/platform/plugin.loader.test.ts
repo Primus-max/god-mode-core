@@ -39,7 +39,7 @@ describe("platform bundled plugin wiring", () => {
     const plugin = registry.plugins.find((entry) => entry.id === "platform-profile-foundation");
     expect(plugin?.origin).toBe("bundled");
     expect(plugin?.status).toBe("loaded");
-    expect(plugin?.hookCount).toBe(5);
+    expect(plugin?.hookCount).toBe(7);
     expect(
       registry.typedHooks
         .filter((entry) => entry.pluginId === "platform-profile-foundation")
@@ -50,6 +50,8 @@ describe("platform bundled plugin wiring", () => {
         "before_model_resolve",
         "before_prompt_build",
         "gateway_start",
+        "llm_input",
+        "before_tool_call",
         "llm_output",
       ]),
     );

@@ -251,6 +251,20 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
 }
 
 describe("chat view", () => {
+  it("renders localized Russian welcome and composer copy", async () => {
+    const container = document.createElement("div");
+    await i18n.setLocale("ru");
+
+    render(renderChat(createProps({ connected: false, messages: [] })), container);
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Готов к чату");
+    const textarea = container.querySelector("textarea");
+    expect(textarea?.getAttribute("placeholder")).toBe("Подключитесь к gateway, чтобы начать чат...");
+
+    await i18n.setLocale("en");
+  });
+
   it("hides the context notice when only cumulative inputTokens exceed the limit", () => {
     const container = document.createElement("div");
     render(

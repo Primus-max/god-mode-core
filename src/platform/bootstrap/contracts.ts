@@ -57,9 +57,17 @@ export const BootstrapRequestSchema = z
   .strict();
 export type BootstrapRequest = z.infer<typeof BootstrapRequestSchema>;
 
+export const BootstrapResolutionStatusSchema = z.enum([
+  "available",
+  "request",
+  "unknown",
+  "untrusted",
+]);
+export type BootstrapResolutionStatus = z.infer<typeof BootstrapResolutionStatusSchema>;
+
 export const BootstrapResolutionSchema = z
   .object({
-    status: z.enum(["available", "request", "unknown", "untrusted"]),
+    status: BootstrapResolutionStatusSchema,
     capability: CapabilityDescriptorSchema.optional(),
     catalogEntry: CapabilityCatalogEntrySchema.optional(),
     request: BootstrapRequestSchema.optional(),
@@ -164,3 +172,26 @@ export type BootstrapRequestRecordSummary = z.infer<typeof BootstrapRequestRecor
 
 export const BootstrapRequestRecordDetailSchema = BootstrapRequestRecordSchema;
 export type BootstrapRequestRecordDetail = BootstrapRequestRecord;
+
+export const BootstrapAuditEventTypeSchema = z.enum([
+  "request.created",
+  "request.approved",
+  "request.denied",
+  "request.run_blocked",
+  "request.started",
+  "request.available",
+  "request.degraded",
+  "request.rolled_back",
+]);
+export type BootstrapAuditEventType = z.infer<typeof BootstrapAuditEventTypeSchema>;
+
+export const BootstrapAuditEventSchema = z
+  .object({
+    version: z.literal(1),
+    ts: z.string().datetime(),
+    requestId: z.string().min(1),
+    type: BootstrapAuditEventTypeSchema,
+    record: BootstrapRequestRecordSchema,
+  })
+  .strict();
+export type BootstrapAuditEvent = z.infer<typeof BootstrapAuditEventSchema>;

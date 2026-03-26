@@ -79,6 +79,11 @@ export type ExecApprovalRequestPayload = {
   turnSourceTo?: string | null;
   turnSourceAccountId?: string | null;
   turnSourceThreadId?: string | number | null;
+  machineControl?: {
+    required: boolean;
+    requestedByDeviceId?: string | null;
+    linkedAtMs?: number | null;
+  } | null;
 };
 
 export type ExecApprovalRequest = {

@@ -11,6 +11,10 @@ import {
   buildSystemRunApprovalEnvBinding,
 } from "../../infra/system-run-approval-binding.js";
 import { resetLogger, setLoggerOverride } from "../../logging.js";
+import {
+  getPlatformMachineControlService,
+  resetPlatformMachineControlService,
+} from "../../platform/machine/index.js";
 import { ExecApprovalManager } from "../exec-approval-manager.js";
 import { validateExecApprovalRequestParams } from "../protocol/index.js";
 import { waitForAgentJob } from "./agent-job.js";
@@ -333,6 +337,15 @@ describe("exec approval handlers", () => {
   type ExecApprovalHandlers = ReturnType<typeof createExecApprovalHandlers>;
   type ExecApprovalRequestArgs = Parameters<ExecApprovalHandlers["exec.approval.request"]>[0];
   type ExecApprovalResolveArgs = Parameters<ExecApprovalHandlers["exec.approval.resolve"]>[0];
+  const tempStateDirs: string[] = [];
+
+  afterEach(() => {
+    resetPlatformMachineControlService();
+    delete process.env.OPENCLAW_STATE_DIR;
+    for (const tempDir of tempStateDirs.splice(0)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 
   const defaultExecApprovalRequestParams = {
     command: "echo ok",
@@ -368,6 +381,7 @@ describe("exec approval handlers", () => {
     respond: ReturnType<typeof vi.fn>;
     context: { broadcast: (event: string, payload: unknown) => void };
     params?: Record<string, unknown>;
+    client?: ExecApprovalRequestArgs["client"];
   }) {
     const requestParams = {
       ...defaultExecApprovalRequestParams,
@@ -411,7 +425,16 @@ describe("exec approval handlers", () => {
         hasExecApprovalClients: () => true,
         ...params.context,
       }),
-      client: null,
+      client:
+        params.client ??
+        ({
+          connId: "conn-1",
+          connect: {
+            client: { id: "client-1" },
+            device: { id: "dev-1" },
+            scopes: ["operator.approvals"],
+          },
+        } as ExecApprovalRequestArgs["client"]),
       req: { id: "req-1", type: "req", method: "exec.approval.request" },
       isWebchatConnect: execApprovalNoop,
     });
@@ -434,6 +457,24 @@ describe("exec approval handlers", () => {
   }
 
   function createExecApprovalFixture() {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-machine-control-"));
+    tempStateDirs.push(stateDir);
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+    const devicesDir = path.join(stateDir, "devices");
+    fs.mkdirSync(devicesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(devicesDir, "paired.json"),
+      JSON.stringify({
+        "dev-1": {
+          deviceId: "dev-1",
+          publicKey: "pk-dev-1",
+          approvedAtMs: Date.now(),
+          createdAtMs: Date.now(),
+        },
+      }),
+    );
+    resetPlatformMachineControlService();
+    getPlatformMachineControlService().linkDevice({ deviceId: "dev-1" });
     const manager = new ExecApprovalManager();
     const handlers = createExecApprovalHandlers(manager);
     const broadcasts: Array<{ event: string; payload: unknown }> = [];
@@ -448,6 +489,24 @@ describe("exec approval handlers", () => {
   }
 
   function createForwardingExecApprovalFixture() {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-machine-control-forward-"));
+    tempStateDirs.push(stateDir);
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+    const devicesDir = path.join(stateDir, "devices");
+    fs.mkdirSync(devicesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(devicesDir, "paired.json"),
+      JSON.stringify({
+        "dev-1": {
+          deviceId: "dev-1",
+          publicKey: "pk-dev-1",
+          approvedAtMs: Date.now(),
+          createdAtMs: Date.now(),
+        },
+      }),
+    );
+    resetPlatformMachineControlService();
+    getPlatformMachineControlService().linkDevice({ deviceId: "dev-1" });
     const manager = new ExecApprovalManager();
     const forwarder = {
       handleRequested: vi.fn(async () => false),
@@ -524,6 +583,122 @@ describe("exec approval handlers", () => {
         message: "systemRunPlan is required for host=node",
       }),
     );
+  });
+
+  it("rejects host=node approval requests from unlinked devices", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-machine-control-unlinked-"));
+    tempStateDirs.push(stateDir);
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+    const devicesDir = path.join(stateDir, "devices");
+    fs.mkdirSync(devicesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(devicesDir, "paired.json"),
+      JSON.stringify({
+        "dev-2": {
+          deviceId: "dev-2",
+          publicKey: "pk-dev-2",
+          approvedAtMs: Date.now(),
+          createdAtMs: Date.now(),
+        },
+      }),
+    );
+    resetPlatformMachineControlService();
+    const manager = new ExecApprovalManager();
+    const handlers = createExecApprovalHandlers(manager);
+    const respond = vi.fn();
+    const context = {
+      broadcast: (_event: string, _payload: unknown) => {},
+      hasExecApprovalClients: () => true,
+    };
+    await requestExecApproval({
+      handlers,
+      respond,
+      context,
+      client: {
+        connId: "conn-2",
+        connect: {
+          client: { id: "client-2" },
+          device: { id: "dev-2" },
+          scopes: ["operator.approvals"],
+        },
+      } as ExecApprovalRequestArgs["client"],
+    });
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        message: "machine control is not linked for this device",
+      }),
+    );
+  });
+
+  it("broadcasts machine-control change events for link, unlink, and kill switch", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-machine-control-events-"));
+    tempStateDirs.push(stateDir);
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+    const devicesDir = path.join(stateDir, "devices");
+    fs.mkdirSync(devicesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(devicesDir, "paired.json"),
+      JSON.stringify({
+        "dev-1": {
+          deviceId: "dev-1",
+          publicKey: "pk-dev-1",
+          approvedAtMs: Date.now(),
+          createdAtMs: Date.now(),
+        },
+      }),
+    );
+    resetPlatformMachineControlService();
+    const broadcasts: Array<{ event: string; payload: unknown }> = [];
+    const context = {
+      broadcast: (event: string, payload: unknown) => {
+        broadcasts.push({ event, payload });
+      },
+    } as unknown as ExecApprovalRequestArgs["context"];
+    const respond = vi.fn();
+    const service = getPlatformMachineControlService();
+    const { createMachineKillSwitchGatewayMethod, createMachineLinkGatewayMethod, createMachineUnlinkGatewayMethod } =
+      await import("../../platform/machine/gateway.js");
+    const client = {
+      connId: "conn-1",
+      connect: {
+        client: { id: "client-1" },
+        device: { id: "dev-1" },
+        scopes: ["operator.admin"],
+      },
+    } as ExecApprovalRequestArgs["client"];
+
+    createMachineLinkGatewayMethod(service)({
+      params: { deviceId: "dev-1" },
+      respond: respond as never,
+      context: context as never,
+      client,
+      req: { id: "req-machine-link", type: "req", method: "platform.machine.link" },
+      isWebchatConnect: execApprovalNoop,
+    });
+    createMachineKillSwitchGatewayMethod(service)({
+      params: { enabled: true, reason: "test" },
+      respond: respond as never,
+      context: context as never,
+      client,
+      req: { id: "req-machine-kill", type: "req", method: "platform.machine.setKillSwitch" },
+      isWebchatConnect: execApprovalNoop,
+    });
+    createMachineUnlinkGatewayMethod(service)({
+      params: { deviceId: "dev-1" },
+      respond: respond as never,
+      context: context as never,
+      client,
+      req: { id: "req-machine-unlink", type: "req", method: "platform.machine.unlink" },
+      isWebchatConnect: execApprovalNoop,
+    });
+
+    expect(broadcasts.map((entry) => entry.event)).toEqual([
+      "platform.machine.changed",
+      "platform.machine.changed",
+      "platform.machine.changed",
+    ]);
   });
 
   it("broadcasts request + resolve", async () => {
@@ -604,6 +779,13 @@ describe("exec approval handlers", () => {
         cwd: "/tmp",
         env: { A_VAR: "a", Z_VAR: "z" },
       }).binding,
+    );
+    expect(request["machineControl"]).toEqual(
+      expect.objectContaining({
+        required: true,
+        requestedByDeviceId: "dev-1",
+        linkedAtMs: expect.any(Number),
+      }),
     );
   });
 
@@ -730,8 +912,7 @@ describe("exec approval handlers", () => {
   });
 
   it("accepts resolve during broadcast", async () => {
-    const manager = new ExecApprovalManager();
-    const handlers = createExecApprovalHandlers(manager);
+    const { handlers } = createExecApprovalFixture();
     const respond = vi.fn();
     const resolveRespond = vi.fn();
 
@@ -1024,12 +1205,10 @@ describe("gateway healthHandlers.status scope handling", () => {
   let statusModule: typeof import("../../commands/status.js");
   let healthHandlers: typeof import("./health.js").healthHandlers;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
+    vi.resetModules();
     statusModule = await import("../../commands/status.js");
     ({ healthHandlers } = await import("./health.js"));
-  });
-
-  beforeEach(() => {
     vi.mocked(statusModule.getStatusSummary).mockClear();
   });
 
