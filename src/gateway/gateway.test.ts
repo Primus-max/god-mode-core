@@ -6,7 +6,10 @@ import { clearAllBootstrapSnapshots } from "../agents/bootstrap-cache.js";
 import { clearConfigCache, clearRuntimeConfigSnapshot } from "../config/config.js";
 import { clearSessionStoreCacheForTest } from "../config/sessions/store.js";
 import { resetAgentRunContextForTest } from "../infra/agent-events.js";
-import { getPlatformArtifactService, resetPlatformArtifactService } from "../platform/artifacts/index.js";
+import {
+  getPlatformArtifactService,
+  resetPlatformArtifactService,
+} from "../platform/artifacts/index.js";
 import { buildExecutionDecisionInput } from "../platform/decision/input.js";
 import {
   resolvePlatformRuntimePlan,
@@ -245,19 +248,20 @@ describe("gateway e2e", () => {
       });
 
       try {
-        const snapshot = (await client.request("platform.profile.resolve", {
+        const snapshot = await client.request("platform.profile.resolve", {
           sessionKey,
           draft: prompt,
-        })) as {
+        });
+        const typedSnapshot = snapshot as {
           recipeId?: string;
           allowPublish?: boolean;
           requiresExplicitApproval?: boolean;
           policyDeniedReasons?: string[];
         };
-        expect(typeof snapshot.recipeId).toBe("string");
-        expect(snapshot.allowPublish).toBe(false);
-        expect(snapshot.requiresExplicitApproval).toBe(true);
-        expect(snapshot.policyDeniedReasons?.join(" ")).toContain("explicit approval");
+        expect(typeof typedSnapshot.recipeId).toBe("string");
+        expect(typedSnapshot.allowPublish).toBe(false);
+        expect(typedSnapshot.requiresExplicitApproval).toBe(true);
+        expect(typedSnapshot.policyDeniedReasons?.join(" ")).toContain("explicit approval");
 
         await expect(
           client.request("platform.artifacts.transition", {

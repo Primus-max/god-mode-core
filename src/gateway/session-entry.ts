@@ -10,7 +10,11 @@ import {
   type SessionEntry,
   type SessionStoreTarget,
 } from "../config/sessions.js";
-import { normalizeAgentId, normalizeMainKey, parseAgentSessionKey } from "../routing/session-key.js";
+import {
+  normalizeAgentId,
+  normalizeMainKey,
+  parseAgentSessionKey,
+} from "../routing/session-key.js";
 
 function canonicalizeSessionKeyForAgent(agentId: string, key: string): string {
   const lowered = key.toLowerCase();
@@ -81,7 +85,9 @@ function findStoreMatch(
       return { entry: store[candidate], key: candidate };
     }
   }
-  const loweredSet = new Set(candidates.filter(Boolean).map((candidate) => candidate.toLowerCase()));
+  const loweredSet = new Set(
+    candidates.filter(Boolean).map((candidate) => candidate.toLowerCase()),
+  );
   for (const key of Object.keys(store)) {
     if (loweredSet.has(key.toLowerCase())) {
       return { entry: store[key], key };

@@ -112,32 +112,36 @@ export function renderBootstrap(props: BootstrapProps) {
           type="search"
           placeholder=${t("bootstrap.filterPlaceholder")}
           .value=${props.filterQuery}
-          @input=${(event: Event) =>
-            props.onFilterChange((event.target as HTMLInputElement).value)}
+          @input=${(event: Event) => props.onFilterChange((event.target as HTMLInputElement).value)}
         />
       </div>
-      ${props.error
-        ? html`<p role="alert" style="color:var(--color-danger, #d44);">${props.error}</p>`
-        : nothing}
+      ${
+        props.error
+          ? html`<p role="alert" style="color:var(--color-danger, #d44);">${props.error}</p>`
+          : nothing
+      }
       <div
         style="display:grid; grid-template-columns:minmax(280px, 360px) minmax(0, 1fr); gap:16px; margin-top:16px;"
       >
         <div style="display:flex; flex-direction:column; gap:8px;">
-          ${filteredRequests.length === 0
-            ? html`<div style="opacity:0.75;">${t("bootstrap.empty")}</div>`
-            : filteredRequests.map((entry) =>
-                renderBootstrapListItem({
-                  request: entry,
-                  selected: entry.id === props.selectedId,
-                  onSelect: props.onSelect,
-                }),
-              )}
+          ${
+            filteredRequests.length === 0
+              ? html`<div style="opacity:0.75;">${t("bootstrap.empty")}</div>`
+              : filteredRequests.map((entry) =>
+                  renderBootstrapListItem({
+                    request: entry,
+                    selected: entry.id === props.selectedId,
+                    onSelect: props.onSelect,
+                  }),
+                )
+          }
         </div>
         <div class="card" style="padding:16px;">
-          ${props.detailLoading
-            ? html`<div>${t("bootstrap.loadingDetail")}</div>`
-            : detail && request
-              ? html`
+          ${
+            props.detailLoading
+              ? html`<div>${t("bootstrap.loadingDetail")}</div>`
+              : detail && request
+                ? html`
                   <div class="row" style="justify-content:space-between; align-items:flex-start;">
                     <div>
                       <h3 style="margin:0;">${request.capabilityId}</h3>
@@ -145,11 +149,13 @@ export function renderBootstrap(props: BootstrapProps) {
                     </div>
                     <div style="opacity:0.75;">${request.installMethod}</div>
                   </div>
-                  ${props.detailError
-                    ? html`<p role="alert" style="color:var(--color-danger, #d44);">
+                  ${
+                    props.detailError
+                      ? html`<p role="alert" style="color:var(--color-danger, #d44);">
                         ${props.detailError}
                       </p>`
-                    : nothing}
+                      : nothing
+                  }
                   <dl
                     style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:16px 0;"
                   >
@@ -171,8 +177,9 @@ export function renderBootstrap(props: BootstrapProps) {
                   ${renderReasonList(t("bootstrap.reasonLists.record"), detail.reasons)}
                   ${renderReasonList(t("bootstrap.reasonLists.result"), result?.reasons)}
                   <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:16px;">
-                    ${showApprove
-                      ? html`
+                    ${
+                      showApprove
+                        ? html`
                           <button
                             class="btn primary"
                             type="button"
@@ -190,9 +197,11 @@ export function renderBootstrap(props: BootstrapProps) {
                             ${t("bootstrap.actions.deny")}
                           </button>
                         `
-                      : nothing}
-                    ${showRun
-                      ? html`
+                        : nothing
+                    }
+                    ${
+                      showRun
+                        ? html`
                           <button
                             class="btn primary"
                             type="button"
@@ -202,10 +211,12 @@ export function renderBootstrap(props: BootstrapProps) {
                             ${t("bootstrap.actions.run")}
                           </button>
                         `
-                      : nothing}
+                        : nothing
+                    }
                   </div>
                 `
-              : html`<div style="opacity:0.75;">${t("bootstrap.selectHint")}</div>`}
+                : html`<div style="opacity:0.75;">${t("bootstrap.selectHint")}</div>`
+          }
         </div>
       </div>
     </section>

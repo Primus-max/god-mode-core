@@ -4,7 +4,10 @@ import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
-import { fetchWithSsrFGuard, withTrustedEnvProxyGuardedFetchMode } from "../../infra/net/fetch-guard.js";
+import {
+  fetchWithSsrFGuard,
+  withTrustedEnvProxyGuardedFetchMode,
+} from "../../infra/net/fetch-guard.js";
 
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024;
@@ -13,9 +16,9 @@ function isNodeReadableStream(value: unknown): value is NodeJS.ReadableStream {
   return Boolean(value && typeof (value as NodeJS.ReadableStream).pipe === "function");
 }
 
-function parseExpectedSha256Integrity(integrity: string):
-  | { ok: true; sha256: string }
-  | { ok: false; error: string } {
+function parseExpectedSha256Integrity(
+  integrity: string,
+): { ok: true; sha256: string } | { ok: false; error: string } {
   const trimmed = integrity.trim();
   const match = /^sha256:([a-f0-9]{64})$/iu.exec(trimmed);
   if (!match?.[1]) {
@@ -49,8 +52,7 @@ export async function fetchBootstrapDownloadArtifact(params: {
   maxBytes?: number;
   fetchImpl?: typeof fetch;
 }): Promise<
-  | { ok: true; archivePath: string; bytes: number; sha256: string }
-  | { ok: false; error: string }
+  { ok: true; archivePath: string; bytes: number; sha256: string } | { ok: false; error: string }
 > {
   const integrity = parseExpectedSha256Integrity(params.integrity);
   if (!integrity.ok) {

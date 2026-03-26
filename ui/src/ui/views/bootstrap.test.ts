@@ -97,7 +97,7 @@ describe("bootstrap view", () => {
         createProps({
           requests: [
             {
-              ...createProps().requests[0]!,
+              ...createProps().requests[0],
               state: "approved",
             },
           ],

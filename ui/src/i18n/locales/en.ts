@@ -747,7 +747,8 @@ export const en: TranslationMap = {
     empty: "No specialist context yet. Start a session or type a draft to resolve one.",
     chatTitle: "Current specialist context",
     overviewTitle: "Specialist Decision Center",
-    overviewSubtitle: "Explainable profile, overlay, recipe, and override state for the active session.",
+    overviewSubtitle:
+      "Explainable profile, overlay, recipe, and override state for the active session.",
     activeProfile: "Active Profile",
     overlay: "Task Overlay",
     recipe: "Recipe",
@@ -869,8 +870,7 @@ export const en: TranslationMap = {
     unlinkCurrentDevice: "Unlink current device",
     noCurrentDevice: "No authenticated device identity is available in this browser.",
     killSwitchTitle: "Kill switch",
-    killSwitchEnabled:
-      "Machine access is currently disabled for all linked devices.",
+    killSwitchEnabled: "Machine access is currently disabled for all linked devices.",
     killSwitchDisabled:
       "Machine access can run only for linked devices and still requires per-run approval.",
     enableKillSwitch: "Enable kill switch",
@@ -985,14 +985,20 @@ export const en: TranslationMap = {
   configForm: {
     schemaUnavailable: "Schema unavailable.",
     unsupportedSchema: "Unsupported schema. Use Raw.",
-    emptySearch: "No settings match \"{query}\"",
+    emptySearch: 'No settings match "{query}"',
     emptySection: "No settings in this section",
     sections: {
-      env: { label: "Environment Variables", description: "Environment variables passed to the gateway process" },
+      env: {
+        label: "Environment Variables",
+        description: "Environment variables passed to the gateway process",
+      },
       update: { label: "Updates", description: "Auto-update settings and release channel" },
       agents: { label: "Agents", description: "Agent configurations, models, and identities" },
       auth: { label: "Authentication", description: "API keys and authentication profiles" },
-      channels: { label: "Channels", description: "Messaging channels (Telegram, Discord, Slack, etc.)" },
+      channels: {
+        label: "Channels",
+        description: "Messaging channels (Telegram, Discord, Slack, etc.)",
+      },
       messages: { label: "Messages", description: "Message handling and routing settings" },
       commands: { label: "Commands", description: "Custom slash commands" },
       hooks: { label: "Hooks", description: "Webhooks and event hooks" },

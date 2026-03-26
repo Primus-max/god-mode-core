@@ -12,7 +12,10 @@ function ensureAuditDirectory(stateDir: string): void {
   fs.mkdirSync(resolvePlatformBootstrapRoot(stateDir), { recursive: true, mode: 0o700 });
 }
 
-export function appendBootstrapAuditEvent(stateDir: string | undefined, event: BootstrapAuditEvent): void {
+export function appendBootstrapAuditEvent(
+  stateDir: string | undefined,
+  event: BootstrapAuditEvent,
+): void {
   if (!stateDir) {
     return;
   }
@@ -51,12 +54,14 @@ export function readBootstrapAuditEvents(stateDir: string | undefined): Bootstra
   }
 }
 
-export function rehydrateBootstrapRequestRecords(stateDir: string | undefined): BootstrapRequestRecord[] {
+export function rehydrateBootstrapRequestRecords(
+  stateDir: string | undefined,
+): BootstrapRequestRecord[] {
   const latestById = new Map<string, BootstrapRequestRecord>();
   for (const event of readBootstrapAuditEvents(stateDir)) {
     latestById.set(event.requestId, BootstrapRequestRecordSchema.parse(event.record));
   }
-  return Array.from(latestById.values()).sort((left, right) =>
+  return Array.from(latestById.values()).toSorted((left, right) =>
     right.updatedAt.localeCompare(left.updatedAt),
   );
 }

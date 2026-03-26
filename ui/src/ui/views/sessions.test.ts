@@ -26,7 +26,9 @@ function buildMultiResult(sessions: SessionsListResult["sessions"]): SessionsLis
   };
 }
 
-function buildSession(overrides: Partial<SessionsListResult["sessions"][number]> = {}): SessionsListResult["sessions"][number] {
+function buildSession(
+  overrides: Partial<SessionsListResult["sessions"][number]> = {},
+): SessionsListResult["sessions"][number] {
   return {
     key: "agent:main:main",
     kind: "direct",

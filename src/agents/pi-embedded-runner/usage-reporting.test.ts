@@ -1,13 +1,13 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../../platform/runtime/index.js";
+import {
   loadRunOverflowCompactionHarness,
   mockedEnsureRuntimePluginsLoaded,
   mockedRunEmbeddedAttempt,
 } from "./run.overflow-compaction.harness.js";
-import {
-  getPlatformRuntimeCheckpointService,
-  resetPlatformRuntimeCheckpointService,
-} from "../../platform/runtime/index.js";
 
 let runEmbeddedPiAgent: typeof import("./run.js").runEmbeddedPiAgent;
 

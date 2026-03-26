@@ -8,8 +8,8 @@ import {
   type NostrProfileFormState,
   type NostrProfileFormCallbacks,
 } from "./channels.nostr-profile-form.ts";
-import type { ChannelsProps } from "./channels.types.ts";
 import { formatChannelBool, formatChannelOptionalBool } from "./channels.shared.ts";
+import type { ChannelsProps } from "./channels.types.ts";
 
 /**
  * Truncate a pubkey for display (shows first and last 8 chars)

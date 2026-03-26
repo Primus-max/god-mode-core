@@ -89,7 +89,13 @@ function createSnapshotFromLifecycleEvent(params: {
   return {
     runId,
     status:
-      phase === "blocked" ? "blocked" : phase === "error" ? "error" : data?.aborted ? "timeout" : "ok",
+      phase === "blocked"
+        ? "blocked"
+        : phase === "error"
+          ? "error"
+          : data?.aborted
+            ? "timeout"
+            : "ok",
     startedAt,
     endedAt,
     error,

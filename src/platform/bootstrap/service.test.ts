@@ -2,16 +2,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
-import { createBootstrapRequestService } from "./service.js";
-import type { BootstrapRequest } from "./contracts.js";
 import {
   getPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,
 } from "../runtime/index.js";
+import type { BootstrapRequest } from "./contracts.js";
+import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
+import { createBootstrapRequestService } from "./service.js";
 
 function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapRequest {
-  const catalogEntry = TRUSTED_CAPABILITY_CATALOG.find((entry) => entry.capability.id === "pdf-renderer");
+  const catalogEntry = TRUSTED_CAPABILITY_CATALOG.find(
+    (entry) => entry.capability.id === "pdf-renderer",
+  );
   if (!catalogEntry) {
     throw new Error("pdf-renderer catalog entry unavailable");
   }
@@ -39,7 +41,10 @@ function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapReque
 }
 
 function installBootstrapContinuationNoop() {
-  getPlatformRuntimeCheckpointService().registerContinuationHandler("bootstrap_run", async () => {});
+  getPlatformRuntimeCheckpointService().registerContinuationHandler(
+    "bootstrap_run",
+    async () => {},
+  );
 }
 
 describe("bootstrap request service", () => {
@@ -115,25 +120,28 @@ describe("bootstrap request service", () => {
 
   it("auto-approves and continues trusted unattended bootstrap lanes", async () => {
     const service = createBootstrapRequestService();
-    getPlatformRuntimeCheckpointService().registerContinuationHandler("bootstrap_run", async (checkpoint) => {
-      await service.run({
-        id: checkpoint.target?.bootstrapRequestId ?? checkpoint.id,
-        installers: {
-          download: async ({ request }) => ({
-            ok: true,
-            capability: {
-              ...request.catalogEntry.capability,
-              trusted: true,
-              sandboxed: true,
-              installMethod: "download",
-              status: "available",
-            },
-          }),
-        },
-        availableBins: ["playwright"],
-        runHealthCheckCommand: async () => true,
-      });
-    });
+    getPlatformRuntimeCheckpointService().registerContinuationHandler(
+      "bootstrap_run",
+      async (checkpoint) => {
+        await service.run({
+          id: checkpoint.target?.bootstrapRequestId ?? checkpoint.id,
+          installers: {
+            download: async ({ request }) => ({
+              ok: true,
+              capability: {
+                ...request.catalogEntry.capability,
+                trusted: true,
+                sandboxed: true,
+                installMethod: "download",
+                status: "available",
+              },
+            }),
+          },
+          availableBins: ["playwright"],
+          runHealthCheckCommand: async () => true,
+        });
+      },
+    );
 
     const created = service.create(
       buildRequest({

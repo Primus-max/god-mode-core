@@ -268,7 +268,9 @@ describe("chat view", () => {
 
     expect(container.textContent).toContain("Готов к чату");
     const textarea = container.querySelector("textarea");
-    expect(textarea?.getAttribute("placeholder")).toBe("Подключитесь к gateway, чтобы начать чат...");
+    expect(textarea?.getAttribute("placeholder")).toBe(
+      "Подключитесь к gateway, чтобы начать чат...",
+    );
 
     await i18n.setLocale("en");
   });

@@ -62,17 +62,20 @@ export function renderMachine(props: MachineProps) {
         </button>
       </div>
 
-      ${props.error
-        ? html`<p role="alert" style="color:var(--color-danger, #d44); margin-top:12px;">${props.error}</p>`
-        : nothing}
+      ${
+        props.error
+          ? html`<p role="alert" style="color:var(--color-danger, #d44); margin-top:12px;">${props.error}</p>`
+          : nothing
+      }
 
       <div
         style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-top:16px;"
       >
         <div class="card" style="padding:16px;">
           <h3 style="margin-top:0;">${t("machine.currentDeviceTitle")}</h3>
-          ${currentDevice
-            ? html`
+          ${
+            currentDevice
+              ? html`
                 <dl style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:0;">
                   <dt>${t("machine.fields.device")}</dt>
                   <dd>${currentDevice.deviceId}</dd>
@@ -82,8 +85,9 @@ export function renderMachine(props: MachineProps) {
                   <dd>${currentDevice.access.message}</dd>
                 </dl>
                 <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:16px;">
-                  ${currentLinked
-                    ? html`
+                  ${
+                    currentLinked
+                      ? html`
                         <button
                           class="btn danger"
                           type="button"
@@ -93,7 +97,7 @@ export function renderMachine(props: MachineProps) {
                           ${t("machine.unlinkCurrentDevice")}
                         </button>
                       `
-                    : html`
+                      : html`
                         <button
                           class="btn primary"
                           type="button"
@@ -102,18 +106,18 @@ export function renderMachine(props: MachineProps) {
                         >
                           ${t("machine.linkCurrentDevice")}
                         </button>
-                      `}
+                      `
+                  }
                 </div>
               `
-            : html`<div style="opacity:0.75;">${t("machine.noCurrentDevice")}</div>`}
+              : html`<div style="opacity:0.75;">${t("machine.noCurrentDevice")}</div>`
+          }
         </div>
 
         <div class="card" style="padding:16px;">
           <h3 style="margin-top:0;">${t("machine.killSwitchTitle")}</h3>
           <div style="opacity:0.75;">
-            ${killSwitchEnabled
-              ? t("machine.killSwitchEnabled")
-              : t("machine.killSwitchDisabled")}
+            ${killSwitchEnabled ? t("machine.killSwitchEnabled") : t("machine.killSwitchDisabled")}
           </div>
           <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:16px;">
             <button
@@ -133,31 +137,35 @@ export function renderMachine(props: MachineProps) {
               ${t("machine.clearKillSwitch")}
             </button>
           </div>
-          ${status?.killSwitch.updatedAtMs
-            ? html`
+          ${
+            status?.killSwitch.updatedAtMs
+              ? html`
                 <div style="margin-top:12px; opacity:0.75;">
                   ${t("machine.updated", {
                     time: formatRelativeTimestamp(status.killSwitch.updatedAtMs),
                   })}
                 </div>
               `
-            : nothing}
+              : nothing
+          }
         </div>
       </div>
 
       <div class="card" style="padding:16px; margin-top:16px;">
         <h3 style="margin-top:0;">${t("machine.linkedDevicesTitle")}</h3>
-        ${props.loading
-          ? html`<div>${t("machine.loading")}</div>`
-          : status?.linkedDevices.length
-            ? html`
+        ${
+          props.loading
+            ? html`<div>${t("machine.loading")}</div>`
+            : status?.linkedDevices.length
+              ? html`
                 <div style="display:flex; flex-direction:column; gap:8px;">
                   ${status.linkedDevices.map((link) =>
                     renderLinkItem(link, currentDeviceId, props.actionBusy, props.onUnlink),
                   )}
                 </div>
               `
-            : html`<div style="opacity:0.75;">${t("machine.empty")}</div>`}
+              : html`<div style="opacity:0.75;">${t("machine.empty")}</div>`
+        }
       </div>
     </section>
   `;

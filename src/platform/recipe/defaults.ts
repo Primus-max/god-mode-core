@@ -90,7 +90,8 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
   {
     id: "integration_delivery",
     purpose: "Wire integrations, webhooks, and connected rollout workflows",
-    summary: "Work integration-first: validate contracts, endpoints, and rollout handoffs before release.",
+    summary:
+      "Work integration-first: validate contracts, endpoints, and rollout handoffs before release.",
     acceptedInputs: [{ type: "text", required: true }],
     producedArtifacts: [
       { type: "report", description: "Integration rollout summary" },
@@ -110,7 +111,9 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
     purpose: "Operate infrastructure, guarded machine control, and capability lifecycle tasks",
     summary: "Work approval-first: inspect runtime state, then sequence guarded operational steps.",
     acceptedInputs: [{ type: "text", required: true }],
-    producedArtifacts: [{ type: "report", description: "Operational runbook and execution summary" }],
+    producedArtifacts: [
+      { type: "report", description: "Operational runbook and execution summary" },
+    ],
     allowedProfiles: ["operator"],
     riskLevel: "high",
     systemPrompt:
@@ -120,7 +123,8 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
   {
     id: "media_production",
     purpose: "Create, refine, and package multimodal media outputs",
-    summary: "Work media-first: structure assets, prompts, and deliverables before final packaging.",
+    summary:
+      "Work media-first: structure assets, prompts, and deliverables before final packaging.",
     acceptedInputs: [{ type: "text", required: true }],
     producedArtifacts: [
       { type: "image", description: "Generated or edited image asset" },

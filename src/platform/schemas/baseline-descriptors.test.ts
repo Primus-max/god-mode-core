@@ -30,7 +30,8 @@ const BASELINE_PROFILES: Profile[] = [
   {
     id: "integrator",
     label: "Integrator",
-    description: "API, webhook, rollout, and cross-system integration specialist for connected workflows.",
+    description:
+      "API, webhook, rollout, and cross-system integration specialist for connected workflows.",
     riskCeiling: "high",
     preferredTools: ["read", "write", "edit", "exec"],
     preferredPublishTargets: ["github", "docker", "vercel", "netlify", "webhook"],
@@ -140,7 +141,9 @@ const BASELINE_RECIPES: ExecutionRecipe[] = [
     id: "ops_orchestration",
     purpose: "Operate infrastructure, guarded machine control, and capability lifecycle tasks",
     acceptedInputs: [{ type: "text", required: true }],
-    producedArtifacts: [{ type: "report", description: "Operational runbook and execution summary" }],
+    producedArtifacts: [
+      { type: "report", description: "Operational runbook and execution summary" },
+    ],
     allowedProfiles: ["operator"],
     riskLevel: "high",
   },

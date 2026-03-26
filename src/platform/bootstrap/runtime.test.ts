@@ -156,8 +156,7 @@ describe("bootstrap runtime", () => {
           install: {
             method: "brew",
             packageRef: "brew-only-smoke",
-            integrity:
-              "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            integrity: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
             rollbackStrategy: "keep_failed",
           },
         },

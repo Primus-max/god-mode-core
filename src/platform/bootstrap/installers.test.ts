@@ -19,7 +19,8 @@ vi.mock("../../infra/install-from-npm-spec.js", () => ({
 }));
 
 vi.mock("./download-fetch.js", () => ({
-  fetchBootstrapDownloadArtifact: (...args: unknown[]) => fetchBootstrapDownloadArtifactMock(...args),
+  fetchBootstrapDownloadArtifact: (...args: unknown[]) =>
+    fetchBootstrapDownloadArtifactMock(...args),
 }));
 
 vi.mock("../../infra/install-flow.js", () => ({
@@ -31,8 +32,8 @@ vi.mock("../../infra/install-package-dir.js", () => ({
     installPackageDirWithManifestDepsMock(...args),
 }));
 
-import { installCapabilityRequest } from "./installers.js";
 import type { BootstrapRequest } from "./contracts.js";
+import { installCapabilityRequest } from "./installers.js";
 
 function buildNodeRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapRequest {
   return {
@@ -120,9 +121,12 @@ describe("bootstrap installers", () => {
       "utf-8",
     );
 
-    withExtractedArchiveRootMock.mockImplementation(async ({ onExtracted }) => await onExtracted(sourceDir));
+    withExtractedArchiveRootMock.mockImplementation(
+      async ({ onExtracted }) => await onExtracted(sourceDir),
+    );
     installFromValidatedNpmSpecArchiveMock.mockImplementation(
-      async ({ installFromArchive }) => await installFromArchive({ archivePath: path.join(tempRoot, "pkg.tgz") }),
+      async ({ installFromArchive }) =>
+        await installFromArchive({ archivePath: path.join(tempRoot, "pkg.tgz") }),
     );
     installPackageDirWithManifestDepsMock.mockImplementation(async ({ targetDir }) => {
       await fs.mkdir(targetDir, { recursive: true });
@@ -167,8 +171,9 @@ describe("bootstrap installers", () => {
     expect(result.capability.healthCheckCommand).toBe(
       `node ${path.join(targetDir, ".openclaw-bootstrap-healthcheck.cjs")}`,
     );
-    await expect(fs.readFile(path.join(targetDir, ".openclaw-bootstrap-healthcheck.cjs"), "utf-8")).resolves
-      .toContain('"package.json"');
+    await expect(
+      fs.readFile(path.join(targetDir, ".openclaw-bootstrap-healthcheck.cjs"), "utf-8"),
+    ).resolves.toContain('"package.json"');
   });
 
   it("fails node installs when the resolved package name does not match the catalog packageRef", async () => {
@@ -184,9 +189,12 @@ describe("bootstrap installers", () => {
       "utf-8",
     );
 
-    withExtractedArchiveRootMock.mockImplementation(async ({ onExtracted }) => await onExtracted(sourceDir));
+    withExtractedArchiveRootMock.mockImplementation(
+      async ({ onExtracted }) => await onExtracted(sourceDir),
+    );
     installFromValidatedNpmSpecArchiveMock.mockImplementation(
-      async ({ installFromArchive }) => await installFromArchive({ archivePath: path.join(tempRoot, "pkg.tgz") }),
+      async ({ installFromArchive }) =>
+        await installFromArchive({ archivePath: path.join(tempRoot, "pkg.tgz") }),
     );
 
     const result = await installCapabilityRequest({
@@ -242,10 +250,15 @@ describe("bootstrap installers", () => {
       bytes: 128,
       sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     });
-    withExtractedArchiveRootMock.mockImplementation(async ({ onExtracted }) => await onExtracted(sourceDir));
+    withExtractedArchiveRootMock.mockImplementation(
+      async ({ onExtracted }) => await onExtracted(sourceDir),
+    );
     installPackageDirWithManifestDepsMock.mockImplementation(async ({ targetDir }) => {
       await fs.mkdir(path.join(targetDir, "bin"), { recursive: true });
-      await fs.copyFile(path.join(sourceDir, "bin", "playwright"), path.join(targetDir, "bin", "playwright"));
+      await fs.copyFile(
+        path.join(sourceDir, "bin", "playwright"),
+        path.join(targetDir, "bin", "playwright"),
+      );
       return { ok: true };
     });
 
@@ -268,8 +281,7 @@ describe("bootstrap installers", () => {
     expect(fetchBootstrapDownloadArtifactMock).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.2.3.tgz",
-        integrity:
-          "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        integrity: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         archiveKind: "tar",
         targetDir: stageDir,
       }),
@@ -298,7 +310,8 @@ describe("bootstrap installers", () => {
   it("fails download installs when trusted artifact fetch fails", async () => {
     fetchBootstrapDownloadArtifactMock.mockResolvedValue({
       ok: false,
-      error: "bootstrap download integrity mismatch for https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.2.3.tgz",
+      error:
+        "bootstrap download integrity mismatch for https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.2.3.tgz",
     });
 
     const result = await installCapabilityRequest({

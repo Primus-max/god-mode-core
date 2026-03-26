@@ -73,7 +73,7 @@ function resolveRuntimeCheckpointStorePath(stateDir: string): string {
 function buildStorePayload(checkpoints: Map<string, PlatformRuntimeCheckpoint>) {
   return PlatformRuntimeCheckpointStoreSchema.parse({
     version: 1,
-    checkpoints: Array.from(checkpoints.values()).sort(
+    checkpoints: Array.from(checkpoints.values()).toSorted(
       (left, right) => right.updatedAtMs - left.updatedAtMs,
     ),
   });
@@ -187,7 +187,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         .filter((checkpoint) =>
           listParams?.status ? checkpoint.status === listParams.status : true,
         )
-        .sort((left, right) => right.updatedAtMs - left.updatedAtMs)
+        .toSorted((left, right) => right.updatedAtMs - left.updatedAtMs)
         .map((checkpoint) => PlatformRuntimeCheckpointSummarySchema.parse(checkpoint));
     },
     buildRunOutcome(runId) {

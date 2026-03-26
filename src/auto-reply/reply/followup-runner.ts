@@ -24,7 +24,6 @@ import { resolveRunAuthProfile } from "./agent-runner-auth-profile.js";
 import {
   buildAcceptanceFallbackPayload,
   buildMessagingDeliveryReceipt,
-  enqueueSemanticRetryFollowup,
   finalizeMessagingDeliveryClosure,
   reevaluateAcceptanceForMessagingRun,
 } from "./agent-runner-helpers.js";

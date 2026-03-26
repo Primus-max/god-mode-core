@@ -1,17 +1,17 @@
+import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import { sanitizeExecApprovalDisplayText } from "../../infra/exec-approval-command-display.js";
 import type { ExecApprovalForwarder } from "../../infra/exec-approval-forwarder.js";
 import {
   DEFAULT_EXEC_APPROVAL_TIMEOUT_MS,
   type ExecApprovalDecision,
 } from "../../infra/exec-approvals.js";
-import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import {
   buildSystemRunApprovalBinding,
   buildSystemRunApprovalEnvBinding,
 } from "../../infra/system-run-approval-binding.js";
+import { resolveSystemRunApprovalRequestContext } from "../../infra/system-run-approval-context.js";
 import { getPlatformMachineControlService } from "../../platform/machine/index.js";
 import { getPlatformRuntimeCheckpointService } from "../../platform/runtime/index.js";
-import { resolveSystemRunApprovalRequestContext } from "../../infra/system-run-approval-context.js";
 import type { ExecApprovalManager } from "../exec-approval-manager.js";
 import {
   ErrorCodes,
@@ -192,7 +192,9 @@ export function createExecApprovalHandlers(
           typeof p.runtimeCheckpointId === "string" ? p.runtimeCheckpointId.trim() || null : null,
         runtimeBoundary: normalizeRuntimeBoundary(p.runtimeBoundary, host === "node"),
         blockedReason:
-          typeof p.blockedReason === "string" ? p.blockedReason.trim() || null : "approval required",
+          typeof p.blockedReason === "string"
+            ? p.blockedReason.trim() || null
+            : "approval required",
       };
       const record = manager.create(request, timeoutMs, explicitId);
       const runtimeRunId = request.runtimeRunId ?? record.id;
@@ -205,8 +207,16 @@ export function createExecApprovalHandlers(
           request.runtimeBoundary === "machine_control" ? "machine_control" : "exec_approval",
         blockedReason: request.blockedReason ?? undefined,
         nextActions: [
-          { method: "exec.approval.resolve", label: "Approve or deny exec request", phase: "approve" },
-          { method: "exec.approval.waitDecision", label: "Inspect pending exec decision", phase: "inspect" },
+          {
+            method: "exec.approval.resolve",
+            label: "Approve or deny exec request",
+            phase: "approve",
+          },
+          {
+            method: "exec.approval.waitDecision",
+            label: "Inspect pending exec decision",
+            phase: "inspect",
+          },
         ],
         target: {
           approvalId: record.id,
@@ -406,11 +416,14 @@ export function createExecApprovalHandlers(
       const runtimeRunId = snapshot?.request.runtimeRunId ?? approvalId;
       const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
       const checkpoint = snapshot
-        ? runtimeCheckpointService.updateCheckpoint(snapshot.request.runtimeCheckpointId ?? approvalId, {
-            status: decision === "deny" ? "denied" : "approved",
-            approvedAtMs: decision === "deny" ? undefined : Date.now(),
-            completedAtMs: decision === "deny" ? Date.now() : undefined,
-          })
+        ? runtimeCheckpointService.updateCheckpoint(
+            snapshot.request.runtimeCheckpointId ?? approvalId,
+            {
+              status: decision === "deny" ? "denied" : "approved",
+              approvedAtMs: decision === "deny" ? undefined : Date.now(),
+              completedAtMs: decision === "deny" ? Date.now() : undefined,
+            },
+          )
         : undefined;
       registerAgentRunContext(runtimeRunId, {
         ...(snapshot?.request.sessionKey ? { sessionKey: snapshot.request.sessionKey } : {}),

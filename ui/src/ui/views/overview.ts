@@ -395,10 +395,10 @@ export function renderOverview(props: OverviewProps) {
 
     ${renderSpecialistOverviewPanel({
       loading: props.specialistLoading,
-        saving: props.specialistSaving,
+      saving: props.specialistSaving,
       error: props.specialistError,
       snapshot: props.specialistSnapshot,
-        onOverrideChange: props.onSpecialistOverrideChange,
+      onOverrideChange: props.onSpecialistOverrideChange,
     })}
 
     <div class="ov-section-divider"></div>

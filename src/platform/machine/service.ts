@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { PluginHookPlatformExecutionContext } from "../../plugins/types.js";
 import { resolvePairingPaths } from "../../infra/pairing-files.js";
+import type { PluginHookPlatformExecutionContext } from "../../plugins/types.js";
 import {
   MachineControlAccessResultSchema,
   MachineControlSnapshotSchema,
@@ -99,9 +99,7 @@ function normalizeDeviceId(value?: string | null): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-export function createMachineControlService(params?: {
-  baseDir?: string;
-}): MachineControlService {
+export function createMachineControlService(params?: { baseDir?: string }): MachineControlService {
   const baseDir = params?.baseDir;
   const runSnapshots = new Map<string, MachineRunSnapshot>();
   const service: MachineControlService = {
@@ -141,7 +139,10 @@ export function createMachineControlService(params?: {
             linkedAtMs: existing?.linkedAtMs ?? now,
             updatedAtMs: now,
             ...(normalizeDeviceId(linkParams.linkedByDeviceId ?? undefined)
-              ? { linkedByDeviceId: normalizeDeviceId(linkParams.linkedByDeviceId ?? undefined) ?? undefined }
+              ? {
+                  linkedByDeviceId:
+                    normalizeDeviceId(linkParams.linkedByDeviceId ?? undefined) ?? undefined,
+                }
               : {}),
             ...(typeof linkParams.note === "string" && linkParams.note.trim()
               ? { note: linkParams.note.trim() }
@@ -150,7 +151,7 @@ export function createMachineControlService(params?: {
         },
       });
       writeStateSync(baseDir, next);
-      return next.linksByDeviceId[deviceId]!;
+      return next.linksByDeviceId[deviceId];
     },
     unlinkDevice(unlinkParams) {
       const deviceId = normalizeDeviceId(unlinkParams.deviceId);

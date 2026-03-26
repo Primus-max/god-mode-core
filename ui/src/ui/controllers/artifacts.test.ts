@@ -77,7 +77,9 @@ describe("loadArtifacts", () => {
     await loadArtifacts(state);
 
     expect(request).toHaveBeenNthCalledWith(1, "platform.artifacts.list", {});
-    expect(request).toHaveBeenNthCalledWith(2, "platform.artifacts.get", { artifactId: "artifact-1" });
+    expect(request).toHaveBeenNthCalledWith(2, "platform.artifacts.get", {
+      artifactId: "artifact-1",
+    });
     expect(state.artifactsSelectedId).toBe("artifact-1");
     expect(state.artifactDetail?.descriptor.id).toBe("artifact-1");
   });
@@ -165,7 +167,9 @@ describe("transitionArtifact", () => {
       operation: "approve",
     });
     expect(request).toHaveBeenNthCalledWith(2, "platform.artifacts.list", {});
-    expect(request).toHaveBeenNthCalledWith(3, "platform.artifacts.get", { artifactId: "artifact-1" });
+    expect(request).toHaveBeenNthCalledWith(3, "platform.artifacts.get", {
+      artifactId: "artifact-1",
+    });
     expect(state.artifactDetail?.descriptor.lifecycle).toBe("approved");
   });
 });

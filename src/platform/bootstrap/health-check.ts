@@ -9,9 +9,9 @@ const execFileAsync = promisify(execFile);
 const SIMPLE_HEALTH_CHECK_TOKEN_RE = /^[A-Za-z0-9_./:\\%+=,@-]+$/u;
 const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 10_000;
 
-function parseSimpleHealthCheckCommand(command: string):
-  | { ok: true; command: string; args: string[] }
-  | { ok: false; reason: string } {
+function parseSimpleHealthCheckCommand(
+  command: string,
+): { ok: true; command: string; args: string[] } | { ok: false; reason: string } {
   const trimmed = command.trim();
   if (!trimmed) {
     return { ok: false, reason: "health check command is empty" };
@@ -28,13 +28,16 @@ function parseSimpleHealthCheckCommand(command: string):
   }
   return {
     ok: true,
-    command: tokens[0]!,
+    command: tokens[0],
     args: tokens.slice(1),
   };
 }
 
 function normalizeCommandCandidate(value: string): string {
-  return path.basename(value).toLowerCase().replace(/\.(cmd|exe|bat)$/iu, "");
+  return path
+    .basename(value)
+    .toLowerCase()
+    .replace(/\.(cmd|exe|bat)$/iu, "");
 }
 
 function buildExecutableCandidates(command: string): string[] {
@@ -67,9 +70,7 @@ function canResolveCommandFromPath(command: string): boolean {
     return isResolvableFile(path.resolve(command));
   }
   const pathValue =
-    process.env.PATH ??
-    (process.platform === "win32" ? process.env.Path : undefined) ??
-    "";
+    process.env.PATH ?? (process.platform === "win32" ? process.env.Path : undefined) ?? "";
   if (!pathValue) {
     return false;
   }
@@ -103,9 +104,7 @@ export async function runDefaultBootstrapHealthCheckCommand(params: {
   if (!commandMatchesRequiredBins(parsed.command, params.capability)) {
     return {
       ok: false,
-      reasons: [
-        `health check command must use a declared required bin: ${params.command}`,
-      ],
+      reasons: [`health check command must use a declared required bin: ${params.command}`],
     };
   }
   for (const candidate of buildExecutableCandidates(parsed.command)) {

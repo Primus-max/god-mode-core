@@ -69,8 +69,7 @@ describe("bootstrap download fetch", () => {
 
     const result = await fetchBootstrapDownloadArtifact({
       url: "https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.2.3.tgz",
-      integrity:
-        "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      integrity: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       archiveKind: "tar",
       targetDir: tempRoot,
     });

@@ -95,10 +95,13 @@ export async function transitionArtifact(
   state.artifactTransitionBusy = true;
   state.artifactsError = null;
   try {
-    const res = await state.client.request<ArtifactTransitionResult>("platform.artifacts.transition", {
-      artifactId,
-      operation,
-    });
+    const res = await state.client.request<ArtifactTransitionResult>(
+      "platform.artifacts.transition",
+      {
+        artifactId,
+        operation,
+      },
+    );
     if (res?.detail) {
       state.artifactDetail = res.detail;
       state.artifactsSelectedId = res.detail.descriptor.id;

@@ -80,7 +80,7 @@ describe("memory search async sync", () => {
 
     const searchResult = await MemoryIndexManager.prototype.search.call(managerLike, "   ");
     expect(searchResult).toEqual([]);
-    const syncMock = managerLike.sync as ReturnType<typeof vi.fn>;
+    const syncMock = managerLike.sync;
     expect(syncMock).toHaveBeenCalledTimes(1);
     expect(managerLike.syncing).not.toBeNull();
 

@@ -1,7 +1,10 @@
 import { parseRegistryNpmSpec } from "../../infra/npm-registry-spec.js";
 import type { PlatformExecutionContextSnapshot } from "../decision/contracts.js";
 import type { CapabilityRegistry } from "../registry/types.js";
-import { CapabilityCatalogEntrySchema, type CapabilityCatalogEntry } from "../schemas/capability.js";
+import {
+  CapabilityCatalogEntrySchema,
+  type CapabilityCatalogEntry,
+} from "../schemas/capability.js";
 import {
   BootstrapRequestSchema,
   BootstrapResolutionSchema,
