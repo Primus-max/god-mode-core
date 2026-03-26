@@ -49,6 +49,7 @@ import { buildExecutionDecisionInput } from "../platform/decision/input.js";
 import {
   resolvePlatformRuntimePlan,
   type ResolvedPlatformRuntimePlan,
+  toPluginHookPlatformExecutionContext,
 } from "../platform/recipe/runtime-adapter.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
@@ -848,7 +849,8 @@ async function agentCommandInternal(
     if (acpResolution?.kind === "ready" && sessionKey) {
       const startedAt = Date.now();
       registerAgentRunContext(runId, {
-        sessionKey,
+        ...(sessionKey ? { sessionKey } : {}),
+        platformExecution: toPluginHookPlatformExecutionContext(platformRuntimePlan.runtime),
       });
       emitAgentEvent({
         runId,
@@ -986,12 +988,11 @@ async function agentCommandInternal(
     const resolvedVerboseLevel =
       verboseOverride ?? persistedVerbose ?? (agentCfg?.verboseDefault as VerboseLevel | undefined);
 
-    if (sessionKey) {
-      registerAgentRunContext(runId, {
-        sessionKey,
-        verboseLevel: resolvedVerboseLevel,
-      });
-    }
+    registerAgentRunContext(runId, {
+      ...(sessionKey ? { sessionKey } : {}),
+      ...(resolvedVerboseLevel ? { verboseLevel: resolvedVerboseLevel } : {}),
+      platformExecution: toPluginHookPlatformExecutionContext(platformRuntimePlan.runtime),
+    });
 
     const needsSkillsSnapshot = isNewSession || !sessionEntry?.skillsSnapshot;
     const skillsSnapshotVersion = getSkillsSnapshotVersion(workspaceDir);

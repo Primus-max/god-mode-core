@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import type { ArtifactService } from "../artifacts/index.js";
+import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
 import { applyMaterializationToDescriptor, materializeArtifact } from "../materialization/index.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import type { DeveloperArtifactPayload } from "./artifacts.js";
@@ -32,6 +33,9 @@ export function materializeDeveloperDescriptor(params: {
   artifactService?: ArtifactService;
 }): ArtifactDescriptor {
   const { descriptor, payload, artifactService } = params;
+  const executionContext = PlatformExecutionContextSnapshotSchema.safeParse(
+    descriptor.metadata?.platformExecution,
+  );
 
   if (payload.type === "preview") {
     const materialized = applyMaterializationToDescriptor({
@@ -43,6 +47,7 @@ export function materializeDeveloperDescriptor(params: {
         renderKind: "site_preview",
         outputTarget: "preview",
         ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
+        ...(executionContext.success ? { executionContext: executionContext.data } : {}),
         payload: {
           title: descriptor.label,
           summary: payload.summary,
@@ -90,6 +95,7 @@ export function materializeDeveloperDescriptor(params: {
         renderKind: "html",
         outputTarget: "file",
         ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
+        ...(executionContext.success ? { executionContext: executionContext.data } : {}),
         payload: {
           title: descriptor.label,
           summary: payload.summary,
@@ -114,6 +120,7 @@ export function materializeDeveloperDescriptor(params: {
       outputTarget: "file",
       ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
       includePdf: true,
+      ...(executionContext.success ? { executionContext: executionContext.data } : {}),
       payload: {
         title: descriptor.label,
         summary: payload.published ? "Published release artifact" : "Draft release artifact",

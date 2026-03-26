@@ -44,6 +44,69 @@ function renderRuntimeChips(snapshot: SpecialistRuntimeSnapshot) {
   `;
 }
 
+function renderOperationalFlag(label: string, enabled: boolean) {
+  return html`
+    <div>
+      <strong>${label}:</strong>
+      <span class="muted">${enabled ? t("common.enabled") : t("common.disabled")}</span>
+    </div>
+  `;
+}
+
+function renderOperationalPosture(snapshot: SpecialistRuntimeSnapshot) {
+  const reasons = snapshot.policyReasons.slice(0, 3);
+  const deniedReasons = snapshot.policyDeniedReasons.slice(0, 3);
+  const chips = [
+    `${t("specialist.operational.autonomyLabel")}: ${t(`specialist.operational.autonomy.${snapshot.policyAutonomy}`)}`,
+    snapshot.requiresExplicitApproval
+      ? t("specialist.operational.approvalRequired")
+      : t("specialist.operational.approvalNotRequired"),
+    snapshot.bootstrapContinuationMode
+      ? t(`specialist.operational.bootstrapContinuation.${snapshot.bootstrapContinuationMode}`)
+      : null,
+  ].filter(Boolean);
+  return html`
+    <div class="callout" style="margin-top: 12px;">
+      <strong>${t("specialist.operational.title")}</strong>
+      <div class="chip-row" style="margin-top: 8px;">
+        ${chips.map((chip) => html`<span class="chip">${chip}</span>`)}
+      </div>
+      <div style="display: grid; gap: 4px; margin-top: 10px;">
+        ${renderOperationalFlag(t("specialist.operational.artifactPersistence"), snapshot.allowArtifactPersistence)}
+        ${renderOperationalFlag(t("specialist.operational.publish"), snapshot.allowPublish)}
+        ${renderOperationalFlag(
+          t("specialist.operational.bootstrap"),
+          snapshot.allowCapabilityBootstrap,
+        )}
+        ${renderOperationalFlag(
+          t("specialist.operational.privilegedTools"),
+          snapshot.allowPrivilegedTools,
+        )}
+      </div>
+      ${
+        reasons.length > 0
+          ? html`
+              <div style="margin-top: 10px;">
+                <div class="muted">${t("specialist.operational.reasons")}</div>
+                ${reasons.map((reason) => html`<div>${reason}</div>`)}
+              </div>
+            `
+          : nothing
+      }
+      ${
+        deniedReasons.length > 0
+          ? html`
+              <div style="margin-top: 10px;">
+                <div class="muted">${t("specialist.operational.blocks")}</div>
+                ${deniedReasons.map((reason) => html`<div>${reason}</div>`)}
+              </div>
+            `
+          : nothing
+      }
+    </div>
+  `;
+}
+
 function renderSignalList(snapshot: SpecialistRuntimeSnapshot) {
   const signals = [...snapshot.signals].sort((left, right) => right.weight - left.weight).slice(0, 4);
   if (signals.length === 0) {
@@ -124,6 +187,7 @@ export function renderSpecialistChatStrip(props: SpecialistContextProps) {
         <span class="chip">${t("specialist.confidence")}: ${formatConfidence(snapshot.confidence)}</span>
       </div>
       ${renderRuntimeChips(snapshot)}
+      ${renderOperationalPosture(snapshot)}
     </div>
   `;
 }
@@ -179,6 +243,7 @@ export function renderSpecialistOverviewPanel(props: SpecialistContextProps) {
               </div>
 
               ${renderRuntimeChips(props.snapshot)}
+              ${renderOperationalPosture(props.snapshot)}
 
               <div style="margin-top: 14px;">
                 <div class="muted">${t("specialist.signals")}</div>

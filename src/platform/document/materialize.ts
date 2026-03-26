@@ -1,4 +1,5 @@
 import type { ArtifactService } from "../artifacts/index.js";
+import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
 import { applyMaterializationToDescriptor, materializeArtifact } from "../materialization/index.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import type { DocumentRuntimeRoute } from "./contracts.js";
@@ -62,6 +63,9 @@ function materializeNormalizedDocumentArtifact(params: {
   artifactService?: ArtifactService;
 }): ArtifactDescriptor {
   const { descriptor, route, payload, artifactService } = params;
+  const executionContext = PlatformExecutionContextSnapshotSchema.safeParse(
+    descriptor.metadata?.platformExecution,
+  );
   if (payload.type === "report") {
     let parsedJsonContent: unknown;
     if (payload.format === "json") {
@@ -81,6 +85,7 @@ function materializeNormalizedDocumentArtifact(params: {
         outputTarget: "file",
         ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
         includePdf: true,
+        ...(executionContext.success ? { executionContext: executionContext.data } : {}),
         payload: {
           title: descriptor.label,
           summary: payload.summary,
@@ -112,6 +117,7 @@ function materializeNormalizedDocumentArtifact(params: {
         renderKind: "html",
         outputTarget: "file",
         ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
+        ...(executionContext.success ? { executionContext: executionContext.data } : {}),
         payload: {
           title: descriptor.label,
           summary: `Export preview with ${String(payload.rowCount)} rows`,
@@ -132,6 +138,7 @@ function materializeNormalizedDocumentArtifact(params: {
       outputTarget: "file",
       ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
       includePdf: true,
+      ...(executionContext.success ? { executionContext: executionContext.data } : {}),
       payload: {
         title: descriptor.label,
         summary: `${route} produced ${String(payload.fieldCount)} fields and ${String(payload.tableCount)} tables`,

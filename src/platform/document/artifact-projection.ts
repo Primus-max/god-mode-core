@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getPlatformArtifactService, type ArtifactService } from "../artifacts/index.js";
+import type { PlatformExecutionContextSnapshot } from "../decision/contracts.js";
 import { createArtifactStore } from "../registry/artifact-store.js";
 import type { ArtifactDescriptor, ArtifactKind } from "../schemas/artifact.js";
 import { DocumentArtifactPayloadSchema, type DocumentArtifactPayload } from "./artifacts.js";
@@ -69,12 +70,14 @@ function buildArtifactMetadata(params: {
   rawPayload: DocumentArtifactPayload;
   normalizedPayload: NormalizedDocumentArtifact;
   runId: string;
+  executionContext?: PlatformExecutionContextSnapshot;
 }) {
-  const { route, rawPayload, normalizedPayload, runId } = params;
+  const { route, rawPayload, normalizedPayload, runId, executionContext } = params;
   const base = {
     runId,
     route,
     documentArtifactType: normalizedPayload.type,
+    ...(executionContext ? { platformExecution: executionContext } : {}),
     rawDocumentPayload: rawPayload,
     normalizedDocumentPayload: normalizedPayload,
   };
@@ -188,6 +191,7 @@ export function projectDocumentArtifacts(params: {
   runId: string;
   route: DocumentRuntimeRoute;
   payloads: DocumentArtifactPayload[];
+  executionContext?: PlatformExecutionContextSnapshot;
   materialize?: boolean;
   artifactService?: ArtifactService;
 }): ArtifactDescriptor[] {
@@ -211,6 +215,7 @@ export function projectDocumentArtifacts(params: {
         rawPayload: raw,
         normalizedPayload: normalized,
         runId: params.runId,
+        executionContext: params.executionContext,
       }),
     };
     if (params.materialize === false) {
@@ -230,6 +235,7 @@ export function captureDocumentArtifactsFromLlmOutput(params: {
   runId: string;
   recipeId?: string;
   assistantTexts: string[];
+  executionContext?: PlatformExecutionContextSnapshot;
   materialize?: boolean;
   artifactService?: ArtifactService;
 }): ArtifactDescriptor[] {
@@ -242,6 +248,7 @@ export function captureDocumentArtifactsFromLlmOutput(params: {
     runId: params.runId,
     route: params.recipeId,
     payloads: extractDocumentArtifactPayloads(params.assistantTexts, params.recipeId),
+    executionContext: params.executionContext,
     materialize: params.materialize,
     artifactService: params.artifactService,
   });

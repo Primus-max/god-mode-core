@@ -82,6 +82,21 @@ export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
         })),
         policyAutonomy: resolved.policyPreview.autonomy,
         requiresExplicitApproval: resolved.policyPreview.requireExplicitApproval,
+        allowArtifactPersistence: resolved.policyPreview.allowArtifactPersistence,
+        allowPublish: resolved.policyPreview.allowPublish,
+        allowCapabilityBootstrap: resolved.policyPreview.allowCapabilityBootstrap,
+        allowPrivilegedTools: resolved.policyPreview.allowPrivilegedTools,
+        policyReasons: resolved.policyPreview.reasons,
+        policyDeniedReasons: resolved.policyPreview.deniedReasons,
+        ...(resolved.capabilitySummary.bootstrapRequiredCapabilities.length > 0
+          ? {
+              bootstrapContinuationMode: resolved.capabilitySummary.bootstrapResolutions.some(
+                (resolution) => Boolean(resolution.request?.executionContext),
+              )
+                ? "frozen"
+                : "fallback",
+            }
+          : {}),
         confidence: resolved.profile.activeProfile.confidence,
         preferredTools: resolved.profile.effective.preferredTools,
         publishTargets: resolved.profile.effective.preferredPublishTargets,

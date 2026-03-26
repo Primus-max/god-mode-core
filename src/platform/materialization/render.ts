@@ -10,6 +10,7 @@ import {
   type BootstrapOrchestrationResult,
   type BootstrapRequestService,
 } from "../bootstrap/index.js";
+import type { PlatformExecutionContextSnapshot } from "../decision/contracts.js";
 import type { PolicyContext } from "../policy/types.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { CapabilityRegistry } from "../registry/types.js";
@@ -76,6 +77,7 @@ export function materializeArtifact(
     capabilityRegistry?: CapabilityRegistry;
     capabilityCatalog?: CapabilityCatalogEntry[];
     sourceRecipeId?: string;
+    executionContext?: PlatformExecutionContextSnapshot;
     bootstrapService?: BootstrapRequestService;
   },
 ): MaterializationResult {
@@ -126,6 +128,7 @@ export function materializeArtifact(
         reason: "renderer_unavailable",
         sourceDomain: request.sourceDomain,
         sourceRecipeId: options?.sourceRecipeId,
+        executionContext: options?.executionContext,
       });
       const primary = writeHtmlMaterialization({
         outputDir,

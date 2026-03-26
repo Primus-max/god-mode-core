@@ -1,4 +1,5 @@
 import { getPlatformArtifactService, type ArtifactService } from "../artifacts/index.js";
+import type { PlatformExecutionContextSnapshot } from "../decision/contracts.js";
 import { createArtifactStore } from "../registry/artifact-store.js";
 import type { ArtifactDescriptor, ArtifactKind, ArtifactLifecycle } from "../schemas/artifact.js";
 import { DeveloperArtifactPayloadSchema, type DeveloperArtifactPayload } from "./artifacts.js";
@@ -57,11 +58,16 @@ function buildArtifactLabel(payload: DeveloperArtifactPayload, index: number): s
   return payload.label ?? `Release ${payload.version}`;
 }
 
-function buildArtifactMetadata(payload: DeveloperArtifactPayload, runId: string) {
+function buildArtifactMetadata(
+  payload: DeveloperArtifactPayload,
+  runId: string,
+  executionContext?: PlatformExecutionContextSnapshot,
+) {
   return {
     developerArtifactType: payload.type,
     stage: payload.stage,
     runId,
+    ...(executionContext ? { platformExecution: executionContext } : {}),
     normalizedDeveloperPayload: payload,
   };
 }
@@ -98,6 +104,7 @@ export function projectDeveloperArtifacts(params: {
   sessionId: string;
   runId: string;
   payloads: DeveloperArtifactPayload[];
+  executionContext?: PlatformExecutionContextSnapshot;
   materialize?: boolean;
   artifactService?: ArtifactService;
 }): ArtifactDescriptor[] {
@@ -120,7 +127,7 @@ export function projectDeveloperArtifacts(params: {
         "target" in payload ? DeveloperPublishTargetSchema.parse(payload.target) : undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      metadata: buildArtifactMetadata(payload, params.runId),
+      metadata: buildArtifactMetadata(payload, params.runId, params.executionContext),
     };
     if (params.materialize === false) {
       return descriptor;
@@ -138,6 +145,7 @@ export function captureDeveloperArtifactsFromLlmOutput(params: {
   sessionId: string;
   assistantTexts: string[];
   recipeId?: string;
+  executionContext?: PlatformExecutionContextSnapshot;
   materialize?: boolean;
   artifactService?: ArtifactService;
 }): ArtifactDescriptor[] {
@@ -149,6 +157,7 @@ export function captureDeveloperArtifactsFromLlmOutput(params: {
     sessionId: params.sessionId,
     runId: params.runId,
     payloads,
+    executionContext: params.executionContext,
     materialize: params.materialize,
     artifactService: params.artifactService,
   });

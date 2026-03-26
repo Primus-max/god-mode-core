@@ -1,4 +1,5 @@
 import { parseRegistryNpmSpec } from "../../infra/npm-registry-spec.js";
+import type { PlatformExecutionContextSnapshot } from "../decision/contracts.js";
 import type { CapabilityRegistry } from "../registry/types.js";
 import { CapabilityCatalogEntrySchema, type CapabilityCatalogEntry } from "../schemas/capability.js";
 import {
@@ -63,6 +64,7 @@ export function resolveBootstrapRequest(params: {
   reason: BootstrapReason;
   sourceDomain: BootstrapSourceDomain;
   sourceRecipeId?: string;
+  executionContext?: PlatformExecutionContextSnapshot;
 }): BootstrapResolution {
   const existing = params.registry.get(params.capabilityId);
   if (existing?.status === "available") {
@@ -100,6 +102,7 @@ export function resolveBootstrapRequest(params: {
     reason: params.reason,
     sourceDomain: params.sourceDomain,
     ...(params.sourceRecipeId ? { sourceRecipeId: params.sourceRecipeId } : {}),
+    ...(params.executionContext ? { executionContext: params.executionContext } : {}),
     approvalMode: "explicit",
     catalogEntry,
   });
@@ -119,6 +122,7 @@ export function resolveBootstrapRequests(params: {
   reason: BootstrapReason;
   sourceDomain: BootstrapSourceDomain;
   sourceRecipeId?: string;
+  executionContext?: PlatformExecutionContextSnapshot;
 }): BootstrapResolution[] {
   return params.capabilityIds.map((capabilityId) =>
     resolveBootstrapRequest({
@@ -128,6 +132,7 @@ export function resolveBootstrapRequests(params: {
       reason: params.reason,
       sourceDomain: params.sourceDomain,
       sourceRecipeId: params.sourceRecipeId,
+      executionContext: params.executionContext,
     }),
   );
 }

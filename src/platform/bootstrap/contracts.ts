@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
 import {
   CapabilityCatalogEntrySchema,
   CapabilityDescriptorSchema,
@@ -51,6 +52,7 @@ export const BootstrapRequestSchema = z
     reason: BootstrapReasonSchema,
     sourceDomain: BootstrapSourceDomainSchema,
     sourceRecipeId: z.string().min(1).optional(),
+    executionContext: PlatformExecutionContextSnapshotSchema.optional(),
     approvalMode: BootstrapApprovalModeSchema,
     catalogEntry: CapabilityCatalogEntrySchema,
   })

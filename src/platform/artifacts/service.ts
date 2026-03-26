@@ -2,11 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import type { OpenClawConfig } from "../../config/config.js";
 import { DEFAULT_GATEWAY_PORT } from "../../config/paths.js";
+import { getAgentRunContext } from "../../infra/agent-events.js";
 import { generateSecureToken } from "../../infra/secure-random.js";
+import {
+  PlatformExecutionContextSnapshotSchema,
+  type PlatformExecutionContextSnapshot,
+} from "../decision/contracts.js";
 import {
   MaterializationResultSchema,
   type MaterializationResult,
 } from "../materialization/contracts.js";
+import { evaluatePolicy } from "../policy/engine.js";
+import { buildPolicyContextFromExecutionContext } from "../recipe/runtime-adapter.js";
 import { createArtifactStore } from "../registry/artifact-store.js";
 import type { ArtifactStore } from "../registry/types.js";
 import {
@@ -48,9 +55,59 @@ export type ArtifactService = {
     artifactId: string,
     patch: Partial<ArtifactDescriptor>,
   ) => ArtifactDescriptor | undefined;
-  transition: (artifactId: string, operation: ArtifactOperation) => ArtifactDescriptor | undefined;
+  transition: (
+    artifactId: string,
+    operation: ArtifactOperation,
+    opts?: { explicitApproval?: boolean },
+  ) =>
+    | { ok: true; descriptor: ArtifactDescriptor }
+    | { ok: false; code: "not_found" | "denied"; reason: string };
   rehydrate: () => number;
 };
+
+function resolveArtifactRunId(descriptor: ArtifactDescriptor): string | undefined {
+  const runId = descriptor.metadata?.runId;
+  return typeof runId === "string" && runId.trim().length > 0 ? runId.trim() : undefined;
+}
+
+function resolveArtifactExecutionContext(
+  descriptor: ArtifactDescriptor,
+): PlatformExecutionContextSnapshot | undefined {
+  const parsedMetadataContext = PlatformExecutionContextSnapshotSchema.safeParse(
+    descriptor.metadata?.platformExecution,
+  );
+  if (parsedMetadataContext.success) {
+    return parsedMetadataContext.data;
+  }
+  const runId = resolveArtifactRunId(descriptor);
+  const runContextExecution = runId ? getAgentRunContext(runId)?.platformExecution : undefined;
+  const parsedRunContext = PlatformExecutionContextSnapshotSchema.safeParse(runContextExecution);
+  return parsedRunContext.success ? parsedRunContext.data : undefined;
+}
+
+function resolveArtifactPolicy(descriptor: ArtifactDescriptor, explicitApproval = false) {
+  const executionContext = resolveArtifactExecutionContext(descriptor);
+  if (!executionContext) {
+    return { executionContext: undefined, decision: undefined };
+  }
+  const policyContext = buildPolicyContextFromExecutionContext(executionContext, {
+    artifactKinds: [descriptor.kind],
+    explicitApproval,
+  });
+  if (!policyContext) {
+    return { executionContext, decision: undefined };
+  }
+  if ((executionContext.publishTargets?.length ?? 0) > 0 || descriptor.publishTarget) {
+    policyContext.publishTargets = Array.from(
+      new Set([...(policyContext.publishTargets ?? []), ...(executionContext.publishTargets ?? [])]),
+    );
+    if (descriptor.publishTarget) {
+      policyContext.publishTargets.push(descriptor.publishTarget);
+      policyContext.publishTargets = Array.from(new Set(policyContext.publishTargets));
+    }
+  }
+  return { executionContext, decision: evaluatePolicy(policyContext) };
+}
 
 function normalizeGatewayBaseUrl(raw: string): string {
   const parsed = new URL(raw);
@@ -229,6 +286,10 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
 
   function upsertRecord(descriptorInput: ArtifactDescriptor): ArtifactDescriptor {
     const descriptor = ArtifactDescriptorSchema.parse(descriptorInput);
+    const policy = resolveArtifactPolicy(descriptor);
+    if (policy.decision && !policy.decision.allowArtifactPersistence) {
+      return descriptor;
+    }
     const existing = records.get(descriptor.id);
     const token = existing?.access.token ?? generateSecureToken(18);
     const materialization = readMaterializationFromDescriptor(descriptor);
@@ -319,12 +380,60 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
         id: artifactId,
       });
     },
-    transition(artifactId, operation) {
+    transition(artifactId, operation, opts) {
+      const existing = store.get(artifactId);
+      if (!existing) {
+        return {
+          ok: false,
+          code: "not_found",
+          reason: "artifact not found",
+        };
+      }
+      const policy = resolveArtifactPolicy(
+        existing,
+        opts?.explicitApproval ?? (operation === "publish" || operation === "approve"),
+      );
+      if (policy.executionContext && (operation === "publish" || operation === "approve")) {
+        if ((policy.executionContext.publishTargets?.length ?? 0) === 0) {
+          return {
+            ok: false,
+            code: "denied",
+            reason: "artifact publish transition requires publish intent in the frozen execution context",
+          };
+        }
+      }
+      if (policy.decision) {
+        if ((operation === "publish" || operation === "approve") && !policy.decision.allowPublish) {
+          return {
+            ok: false,
+            code: "denied",
+            reason:
+              policy.decision.deniedReasons[0] ??
+              "artifact publish transition denied by platform execution policy",
+          };
+        }
+        if (operation === "preview" && !policy.decision.allowArtifactPersistence) {
+          return {
+            ok: false,
+            code: "denied",
+            reason:
+              policy.decision.deniedReasons[0] ??
+              "artifact preview transition denied by platform execution policy",
+          };
+        }
+      }
       const transitioned = store.transition(artifactId, operation);
       if (!transitioned) {
-        return undefined;
+        return {
+          ok: false,
+          code: "not_found",
+          reason: "artifact not found",
+        };
       }
-      return upsertRecord(transitioned);
+      return {
+        ok: true,
+        descriptor: upsertRecord(transitioned),
+      };
     },
     rehydrate() {
       const rootDir = ensureRootDir();
