@@ -28,6 +28,8 @@ export function buildThreadingToolContext(params: {
 }): ChannelThreadingToolContext {
   const { sessionCtx, config, hasRepliedRef } = params;
   const currentMessageId = sessionCtx.MessageSidFull ?? sessionCtx.MessageSid;
+  const currentThreadTs =
+    sessionCtx.MessageThreadId != null ? String(sessionCtx.MessageThreadId).trim() || undefined : undefined;
   const originProvider = resolveOriginMessageProvider({
     originatingChannel: sessionCtx.OriginatingChannel,
     provider: sessionCtx.Provider,
@@ -54,6 +56,7 @@ export function buildThreadingToolContext(params: {
     return {
       currentChannelId: originTo?.trim() || undefined,
       currentChannelProvider: provider ?? (rawProvider as ChannelId),
+      currentThreadTs,
       currentMessageId,
       hasRepliedRef,
     };
