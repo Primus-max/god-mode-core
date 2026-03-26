@@ -1,4 +1,3 @@
-import type { SpecialistOverrideMode } from "../../../../src/platform/profile/contracts.js";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { SpecialistRuntimeSnapshot } from "../types.ts";
 
@@ -76,13 +75,12 @@ export async function saveSpecialistOverride(
   state.specialistSaving = true;
   state.specialistError = null;
   try {
-    const mode: SpecialistOverrideMode = args.mode;
-    if (mode === "auto") {
+    if (args.mode === "auto") {
       await state.client.request("sessions.patch", {
         key: state.sessionKey,
         specialistOverrideMode: "auto",
       });
-    } else if (mode === "base") {
+    } else if (args.mode === "base") {
       await state.client.request("sessions.patch", {
         key: state.sessionKey,
         specialistOverrideMode: "base",

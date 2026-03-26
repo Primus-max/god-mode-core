@@ -87,6 +87,54 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
       "Work repository-first. Prefer reading code, validating with targeted checks, and only then publishing.",
     timeoutSeconds: 420,
   },
+  {
+    id: "integration_delivery",
+    purpose: "Wire integrations, webhooks, and connected rollout workflows",
+    summary: "Work integration-first: validate contracts, endpoints, and rollout handoffs before release.",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [
+      { type: "report", description: "Integration rollout summary" },
+      { type: "site", description: "Connected preview or delivery endpoint" },
+      { type: "release", description: "Integration release handoff" },
+    ],
+    requiredCapabilities: ["node", "git"],
+    allowedProfiles: ["integrator", "developer"],
+    riskLevel: "high",
+    publishTargets: ["github", "docker", "vercel", "netlify", "webhook"],
+    systemPrompt:
+      "Work integration-first. Validate API contracts, environment assumptions, and rollout handoffs before activation.",
+    timeoutSeconds: 360,
+  },
+  {
+    id: "ops_orchestration",
+    purpose: "Operate infrastructure, guarded machine control, and capability lifecycle tasks",
+    summary: "Work approval-first: inspect runtime state, then sequence guarded operational steps.",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [{ type: "report", description: "Operational runbook and execution summary" }],
+    allowedProfiles: ["operator"],
+    riskLevel: "high",
+    systemPrompt:
+      "Work operations-first. Prefer inspection, explain planned impact, and keep approvals explicit for machine or bootstrap actions.",
+    timeoutSeconds: 360,
+  },
+  {
+    id: "media_production",
+    purpose: "Create, refine, and package multimodal media outputs",
+    summary: "Work media-first: structure assets, prompts, and deliverables before final packaging.",
+    acceptedInputs: [{ type: "text", required: true }],
+    producedArtifacts: [
+      { type: "image", description: "Generated or edited image asset" },
+      { type: "video", description: "Generated or edited video asset" },
+      { type: "audio", description: "Generated or edited audio asset" },
+      { type: "report", description: "Media production summary" },
+    ],
+    allowedProfiles: ["media_creator"],
+    riskLevel: "medium",
+    publishTargets: ["site"],
+    systemPrompt:
+      "Work media-first. Preserve creative intent, asset structure, and delivery format before broad packaging.",
+    timeoutSeconds: 240,
+  },
 ];
 
 export const initialRecipeRegistry = createRecipeRegistry(INITIAL_RECIPES);

@@ -14,7 +14,9 @@ function createSnapshot(): SpecialistRuntimeSnapshot {
       { id: "builder", label: "Builder" },
       { id: "developer", label: "Developer" },
       { id: "general", label: "General" },
+      { id: "integrator", label: "Integrator" },
       { id: "operator", label: "Operator" },
+      { id: "media_creator", label: "Media Creator" },
     ],
     selectedProfileId: "developer",
     selectedProfileLabel: "Developer",
@@ -78,7 +80,6 @@ function createChatProps(overrides: Partial<ChatProps> = {}): ChatProps {
     disabledReason: null,
     error: null,
     specialistLoading: false,
-    specialistSaving: false,
     specialistError: null,
     specialistSnapshot: null,
     sessions: {
@@ -259,5 +260,33 @@ describe("specialist context views", () => {
       mode: "session",
       profileId: "general",
     });
+  });
+
+  it("renders expanded specialist catalog options in override controls", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderOverview(
+        createOverviewProps({
+          specialistSnapshot: {
+            ...createSnapshot(),
+            override: {
+              supported: true,
+              mode: "session",
+              sessionProfileId: "integrator",
+            },
+          },
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const selects = Array.from(container.querySelectorAll("select"));
+    const profileSelect = selects.at(-1) as HTMLSelectElement;
+    const optionLabels = Array.from(profileSelect.options).map((option) => option.textContent);
+    expect(optionLabels).toContain("Integrator");
+    expect(optionLabels).toContain("Operator");
+    expect(optionLabels).toContain("Media Creator");
   });
 });

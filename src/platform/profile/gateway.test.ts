@@ -46,6 +46,9 @@ describe("profile gateway method", () => {
         draftApplied: true,
         availableProfiles: expect.arrayContaining([
           expect.objectContaining({ id: "developer", label: "Developer" }),
+          expect.objectContaining({ id: "integrator", label: "Integrator" }),
+          expect.objectContaining({ id: "operator", label: "Operator" }),
+          expect.objectContaining({ id: "media_creator", label: "Media Creator" }),
         ]),
         override: expect.objectContaining({
           supported: true,
