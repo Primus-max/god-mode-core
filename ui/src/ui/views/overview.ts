@@ -11,6 +11,7 @@ import type {
   CronJob,
   CronStatus,
   SessionsListResult,
+  SpecialistRuntimeSnapshot,
   SessionsUsageResult,
   SkillStatusReport,
 } from "../types.ts";
@@ -23,6 +24,7 @@ import {
   shouldShowPairingHint,
 } from "./overview-hints.ts";
 import { renderOverviewLogTail } from "./overview-log-tail.ts";
+import { renderSpecialistOverviewPanel } from "./specialist-context.ts";
 
 export type OverviewProps = {
   connected: boolean;
@@ -45,6 +47,9 @@ export type OverviewProps = {
   attentionItems: AttentionItem[];
   eventLog: EventLogEntry[];
   overviewLogLines: string[];
+  specialistLoading: boolean;
+  specialistError: string | null;
+  specialistSnapshot: SpecialistRuntimeSnapshot | null;
   showGatewayToken: boolean;
   showGatewayPassword: boolean;
   onSettingsChange: (next: UiSettings) => void;
@@ -378,6 +383,14 @@ export function renderOverview(props: OverviewProps) {
         }
       </div>
     </section>
+
+    <div class="ov-section-divider"></div>
+
+    ${renderSpecialistOverviewPanel({
+      loading: props.specialistLoading,
+      error: props.specialistError,
+      snapshot: props.specialistSnapshot,
+    })}
 
     <div class="ov-section-divider"></div>
 

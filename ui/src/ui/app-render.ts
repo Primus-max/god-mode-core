@@ -88,6 +88,7 @@ import {
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionsAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
+import { loadSpecialistContext, scheduleSpecialistContextRefresh } from "./controllers/specialist.ts";
 import {
   installSkill,
   loadSkills,
@@ -656,6 +657,9 @@ export function renderApp(state: AppViewState) {
                 attentionItems: state.attentionItems,
                 eventLog: state.eventLog,
                 overviewLogLines: state.overviewLogLines,
+                specialistLoading: state.specialistLoading,
+                specialistError: state.specialistError,
+                specialistSnapshot: state.specialistSnapshot,
                 showGatewayToken: state.overviewShowGatewayToken,
                 showGatewayPassword: state.overviewShowGatewayPassword,
                 onSettingsChange: (next) => state.applySettings(next),
@@ -670,6 +674,7 @@ export function renderApp(state: AppViewState) {
                     lastActiveSessionKey: next,
                   });
                   void state.loadAssistantIdentity();
+                  void loadSpecialistContext(state, { draft: "" });
                 },
                 onToggleGatewayTokenVisibility: () => {
                   state.overviewShowGatewayToken = !state.overviewShowGatewayToken;
@@ -1481,6 +1486,7 @@ export function renderApp(state: AppViewState) {
                   void state.loadAssistantIdentity();
                   void loadChatHistory(state);
                   void refreshChatAvatar(state);
+                  void loadSpecialistContext(state, { draft: "" });
                 },
                 thinkingLevel: state.chatThinkingLevel,
                 showThinking,
@@ -1501,6 +1507,9 @@ export function renderApp(state: AppViewState) {
                 canSend: state.connected,
                 disabledReason: chatDisabledReason,
                 error: state.lastError,
+                specialistLoading: state.specialistLoading,
+                specialistError: state.specialistError,
+                specialistSnapshot: state.specialistSnapshot,
                 sessions: state.sessionsResult,
                 focusMode: chatFocus,
                 onRefresh: () => {
@@ -1518,7 +1527,10 @@ export function renderApp(state: AppViewState) {
                 },
                 onChatScroll: (event) => state.handleChatScroll(event),
                 getDraft: () => state.chatMessage,
-                onDraftChange: (next) => (state.chatMessage = next),
+                onDraftChange: (next) => {
+                  state.chatMessage = next;
+                  scheduleSpecialistContextRefresh(state, next);
+                },
                 onRequestUpdate: requestHostUpdate,
                 attachments: state.chatAttachments,
                 onAttachmentsChange: (next) => (state.chatAttachments = next),
@@ -1537,6 +1549,7 @@ export function renderApp(state: AppViewState) {
                     state.chatStream = null;
                     state.chatRunId = null;
                     await loadChatHistory(state);
+                    await loadSpecialistContext(state, { draft: "" });
                   } catch (err) {
                     state.lastError = String(err);
                   }
@@ -1555,6 +1568,7 @@ export function renderApp(state: AppViewState) {
                   });
                   void loadChatHistory(state);
                   void state.loadAssistantIdentity();
+                  void loadSpecialistContext(state, { draft: "" });
                 },
                 onNavigateToAgent: () => {
                   state.agentsSelectedId = resolvedAgentId;

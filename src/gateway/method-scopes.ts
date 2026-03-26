@@ -99,6 +99,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "platform.bootstrap.list",
     "platform.bootstrap.get",
     "platform.machine.status",
+    "platform.profile.resolve",
   ],
   [WRITE_SCOPE]: [
     "send",

@@ -8,6 +8,7 @@ import { parseSlashCommand } from "./chat/slash-commands.ts";
 import { abortChatRun, loadChatHistory, sendChatMessage } from "./controllers/chat.ts";
 import { loadModels } from "./controllers/models.ts";
 import { loadSessions } from "./controllers/sessions.ts";
+import { loadSpecialistContext } from "./controllers/specialist.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import { normalizeBasePath } from "./navigation.ts";
 import type { ChatModelOverride, ModelCatalogEntry } from "./types.ts";
@@ -136,6 +137,7 @@ async function sendChatMessageNow(
       host as unknown as Parameters<typeof setLastActiveSessionKey>[0],
       host.sessionKey,
     );
+    void loadSpecialistContext(host as unknown as OpenClawApp, { draft: message });
   }
   if (ok && opts?.restoreDraft && opts.previousDraft?.trim()) {
     host.chatMessage = opts.previousDraft;
@@ -335,6 +337,7 @@ async function clearChatHistory(host: ChatHost) {
     host.chatStream = null;
     host.chatRunId = null;
     await loadChatHistory(host as unknown as OpenClawApp);
+    await loadSpecialistContext(host as unknown as OpenClawApp, { draft: "" });
   } catch (err) {
     host.lastError = String(err);
   }
@@ -363,6 +366,7 @@ export async function refreshChat(host: ChatHost, opts?: { scheduleScroll?: bool
     }),
     refreshChatAvatar(host),
     refreshChatModels(host),
+    loadSpecialistContext(host as unknown as OpenClawApp, { draft: host.chatMessage }),
   ]);
   if (opts?.scheduleScroll !== false) {
     scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);

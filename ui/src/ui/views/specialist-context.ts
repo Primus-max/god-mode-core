@@ -1,0 +1,180 @@
+import { html, nothing } from "lit";
+import { t } from "../../i18n/index.ts";
+import type { SpecialistRuntimeSnapshot } from "../types.ts";
+
+type SpecialistContextProps = {
+  loading: boolean;
+  error: string | null;
+  snapshot: SpecialistRuntimeSnapshot | null;
+};
+
+function formatConfidence(confidence: number): string {
+  return `${Math.round(confidence * 100)}%`;
+}
+
+function renderSignalSource(source: SpecialistRuntimeSnapshot["signals"][number]["source"]): string {
+  return t(`specialist.signalSources.${source}`);
+}
+
+function renderRuntimeChips(snapshot: SpecialistRuntimeSnapshot) {
+  const chips = [
+    snapshot.activeProfileLabel,
+    snapshot.taskOverlayLabel ?? null,
+    snapshot.recipeId,
+    snapshot.modelOverride ? `${t("specialist.model")}: ${snapshot.modelOverride}` : null,
+    snapshot.timeoutSeconds ? `${t("specialist.timeout")}: ${snapshot.timeoutSeconds}s` : null,
+    snapshot.draftApplied ? t("specialist.draftApplied") : null,
+  ].filter(Boolean);
+
+  if (chips.length === 0) {
+    return nothing;
+  }
+
+  return html`
+    <div class="chip-row" style="margin-top: 8px;">
+      ${chips.map((chip) => html`<span class="chip">${chip}</span>`)}
+    </div>
+  `;
+}
+
+function renderSignalList(snapshot: SpecialistRuntimeSnapshot) {
+  const signals = [...snapshot.signals].sort((left, right) => right.weight - left.weight).slice(0, 4);
+  if (signals.length === 0) {
+    return html`<div class="muted">${t("specialist.noSignals")}</div>`;
+  }
+  return html`
+    <div style="display: grid; gap: 8px; margin-top: 10px;">
+      ${signals.map(
+        (signal) => html`
+          <div>
+            <div>
+              <strong>${signal.profileLabel}</strong>
+              <span class="muted">· ${renderSignalSource(signal.source)} · ${formatConfidence(signal.weight)}</span>
+            </div>
+            ${
+              signal.reason
+                ? html`<div class="muted" style="margin-top: 2px;">${signal.reason}</div>`
+                : nothing
+            }
+          </div>
+        `,
+      )}
+    </div>
+  `;
+}
+
+function renderOverrideModeLabel(mode: SpecialistRuntimeSnapshot["override"]["mode"]): string {
+  return t(`specialist.override.modes.${mode}`);
+}
+
+function renderSpecialistEmptyState() {
+  return html`<div class="callout" style="margin-top: 12px;">${t("specialist.empty")}</div>`;
+}
+
+function renderSpecialistLoadingState() {
+  return html`<div class="muted" style="margin-top: 12px;">${t("specialist.loading")}</div>`;
+}
+
+export function renderSpecialistChatStrip(props: SpecialistContextProps) {
+  if (props.error) {
+    return html`<div class="callout danger" style="margin-bottom: 12px;">${props.error}</div>`;
+  }
+  if (props.loading && !props.snapshot) {
+    return renderSpecialistLoadingState();
+  }
+  if (!props.snapshot) {
+    return renderSpecialistEmptyState();
+  }
+  const snapshot = props.snapshot;
+  return html`
+    <div class="callout" style="margin-bottom: 12px;">
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
+        <div>
+          <strong>${t("specialist.chatTitle")}</strong>
+          <div class="muted" style="margin-top: 2px;">${snapshot.reasoningSummary}</div>
+        </div>
+        <span class="chip">${t("specialist.confidence")}: ${formatConfidence(snapshot.confidence)}</span>
+      </div>
+      ${renderRuntimeChips(snapshot)}
+    </div>
+  `;
+}
+
+export function renderSpecialistOverviewPanel(props: SpecialistContextProps) {
+  return html`
+    <div class="card">
+      <div class="card-title">${t("specialist.overviewTitle")}</div>
+      <div class="card-sub">${t("specialist.overviewSubtitle")}</div>
+      ${
+        props.error
+          ? html`<div class="callout danger" style="margin-top: 12px;">${props.error}</div>`
+          : nothing
+      }
+      ${props.loading && !props.snapshot ? renderSpecialistLoadingState() : nothing}
+      ${
+        !props.loading && !props.snapshot && !props.error
+          ? renderSpecialistEmptyState()
+          : nothing
+      }
+      ${
+        props.snapshot
+          ? html`
+              <div class="stat-grid" style="margin-top: 16px;">
+                <div class="stat">
+                  <div class="stat-label">${t("specialist.activeProfile")}</div>
+                  <div class="stat-value">${props.snapshot.activeProfileLabel}</div>
+                </div>
+                <div class="stat">
+                  <div class="stat-label">${t("specialist.overlay")}</div>
+                  <div class="stat-value">${props.snapshot.taskOverlayLabel ?? t("common.na")}</div>
+                </div>
+                <div class="stat">
+                  <div class="stat-label">${t("specialist.recipe")}</div>
+                  <div class="stat-value">${props.snapshot.recipeId}</div>
+                </div>
+                <div class="stat">
+                  <div class="stat-label">${t("specialist.confidence")}</div>
+                  <div class="stat-value">${formatConfidence(props.snapshot.confidence)}</div>
+                </div>
+              </div>
+
+              <div class="muted" style="margin-top: 12px;">
+                ${t("specialist.selectionLine", {
+                  selected: props.snapshot.selectedProfileLabel,
+                  base: props.snapshot.baseProfileId,
+                  session: props.snapshot.sessionProfileId ?? t("common.na"),
+                })}
+              </div>
+
+              <div class="callout" style="margin-top: 12px;">
+                <strong>${t("specialist.reasoning")}:</strong> ${props.snapshot.reasoningSummary}
+              </div>
+
+              ${renderRuntimeChips(props.snapshot)}
+
+              <div style="margin-top: 14px;">
+                <div class="muted">${t("specialist.signals")}</div>
+                ${renderSignalList(props.snapshot)}
+              </div>
+
+              <div style="margin-top: 16px;">
+                <div class="card-sub">${t("specialist.override.title")}</div>
+                <div class="muted" style="margin-top: 4px;">${t("specialist.override.subtitle")}</div>
+                <label class="field" style="margin-top: 10px;">
+                  <span>${t("specialist.override.mode")}</span>
+                  <select .value=${props.snapshot.override.mode} disabled>
+                    <option value="auto">${renderOverrideModeLabel("auto")}</option>
+                    <option value="base">${renderOverrideModeLabel("base")}</option>
+                    <option value="session">${renderOverrideModeLabel("session")}</option>
+                  </select>
+                </label>
+                <div class="muted" style="margin-top: 8px;">
+                  ${props.snapshot.override.note ?? t("specialist.override.comingSoon")}
+                </div>
+              </div>
+            `
+          : nothing
+      }
+    </div>
+  `;
+}
