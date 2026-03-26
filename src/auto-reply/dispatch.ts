@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../config/config.js";
+import { finalizeMessagingDeliveryClosure } from "./reply/agent-runner-helpers.js";
 import type { DispatchFromConfigResult } from "./reply/dispatch-from-config.js";
 import { dispatchReplyFromConfig } from "./reply/dispatch-from-config.js";
 import { finalizeInboundContext } from "./reply/inbound-context.js";
@@ -40,7 +41,7 @@ export async function dispatchInboundMessage(params: {
   replyResolver?: typeof import("./reply.js").getReplyFromConfig;
 }): Promise<DispatchInboundResult> {
   const finalized = finalizeInboundContext(params.ctx);
-  return await withReplyDispatcher({
+  const result = await withReplyDispatcher({
     dispatcher: params.dispatcher,
     run: () =>
       dispatchReplyFromConfig({
@@ -51,6 +52,30 @@ export async function dispatchInboundMessage(params: {
         replyResolver: params.replyResolver,
       }),
   });
+  const dispatcherDeliveryStats = params.dispatcher.getDeliveryStats?.() ?? {
+    attemptedDeliveryCount: 0,
+    confirmedDeliveryCount: 0,
+    failedDeliveryCount: 0,
+  };
+  const routedReceipt = result.routedDeliveryReceipt;
+  finalizeMessagingDeliveryClosure({
+    candidate: result.deliveryCandidate,
+    replyPayloads: [],
+    deliveryReceipt: {
+      stagedReplyCount: routedReceipt?.stagedReplyCount ?? 0,
+      attemptedDeliveryCount:
+        (routedReceipt?.attemptedDeliveryCount ?? 0) + dispatcherDeliveryStats.attemptedDeliveryCount,
+      confirmedDeliveryCount:
+        (routedReceipt?.confirmedDeliveryCount ?? 0) + dispatcherDeliveryStats.confirmedDeliveryCount,
+      failedDeliveryCount:
+        (routedReceipt?.failedDeliveryCount ?? 0) + dispatcherDeliveryStats.failedDeliveryCount,
+      partialDelivery:
+        (routedReceipt?.partialDelivery ?? false) ||
+        (dispatcherDeliveryStats.confirmedDeliveryCount > 0 &&
+          dispatcherDeliveryStats.failedDeliveryCount > 0),
+    },
+  });
+  return result;
 }
 
 export async function dispatchInboundMessageWithBufferedDispatcher(params: {

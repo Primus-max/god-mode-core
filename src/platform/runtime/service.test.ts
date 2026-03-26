@@ -145,5 +145,62 @@ describe("platform runtime checkpoint service", () => {
         reasonCode: "pending_approval",
       }),
     );
+
+    const confirmedDelivery = service.evaluateAcceptance({
+      runId: "run-delivered",
+      outcome: {
+        runId: "run-delivered",
+        status: "completed",
+        checkpointIds: [],
+        blockedCheckpointIds: [],
+        completedCheckpointIds: [],
+        deniedCheckpointIds: [],
+        pendingApprovalIds: [],
+        artifactIds: [],
+        bootstrapRequestIds: [],
+        boundaries: [],
+      },
+      evidence: {
+        attemptedDeliveryCount: 1,
+        confirmedDeliveryCount: 1,
+        deliveredReplyCount: 1,
+      },
+    });
+    expect(confirmedDelivery).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+        reasonCode: "completed_with_confirmed_delivery",
+      }),
+    );
+
+    const failedDelivery = service.evaluateAcceptance({
+      runId: "run-delivery-failed",
+      outcome: {
+        runId: "run-delivery-failed",
+        status: "completed",
+        checkpointIds: [],
+        blockedCheckpointIds: [],
+        completedCheckpointIds: [],
+        deniedCheckpointIds: [],
+        pendingApprovalIds: [],
+        artifactIds: [],
+        bootstrapRequestIds: [],
+        boundaries: [],
+      },
+      evidence: {
+        stagedReplyCount: 1,
+        attemptedDeliveryCount: 1,
+        confirmedDeliveryCount: 0,
+        failedDeliveryCount: 1,
+      },
+    });
+    expect(failedDelivery).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        action: "retry",
+        reasonCode: "delivery_failed",
+      }),
+    );
   });
 });

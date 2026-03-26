@@ -5,6 +5,7 @@ import {
 import { loadSessionStore } from "../../config/sessions.js";
 import {
   getPlatformRuntimeCheckpointService,
+  type PlatformRuntimeAcceptanceEvidence,
   type PlatformRuntimeAcceptanceResult,
   type PlatformRuntimeRunOutcome,
 } from "../../platform/runtime/index.js";
@@ -70,6 +71,31 @@ export const finalizeWithFollowup = <T>(
 
 const MAX_SEMANTIC_RETRY_COUNT = 1;
 
+export type MessagingDeliveryReceipt = {
+  stagedReplyCount: number;
+  attemptedDeliveryCount: number;
+  confirmedDeliveryCount: number;
+  failedDeliveryCount: number;
+  partialDelivery: boolean;
+};
+
+export type MessagingDeliveryClosureCandidate = {
+  runResult: {
+    meta?: {
+      completionOutcome?: PlatformRuntimeRunOutcome & {
+        hadToolError?: boolean;
+        deterministicApprovalPromptSent?: boolean;
+      };
+      acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
+    };
+    didSendViaMessagingTool?: boolean;
+    successfulCronAdds?: number;
+  };
+  sourceRun: FollowupRun;
+  queueKey?: string;
+  settings: QueueSettings;
+};
+
 function hasStructuredReplyPayload(payload: ReplyPayload): boolean {
   const parts = resolveSendableOutboundReplyParts(payload);
   return (
@@ -83,19 +109,67 @@ function isDeliverableReplyPayload(payload: ReplyPayload): boolean {
   return hasOutboundReplyContent(payload, { trimText: true }) || hasStructuredReplyPayload(payload);
 }
 
-export function reevaluateAcceptanceForMessagingRun(params: {
-  runResult: {
-    meta?: {
-      completionOutcome?: PlatformRuntimeRunOutcome & {
-        hadToolError?: boolean;
-        deterministicApprovalPromptSent?: boolean;
-      };
-      acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
-    };
-    didSendViaMessagingTool?: boolean;
-    successfulCronAdds?: number;
+export function buildMessagingDeliveryReceipt(params: {
+  stagedReplyPayloads?: ReplyPayload[];
+  attemptedDeliveries?: number;
+  confirmedDeliveries?: number;
+  failedDeliveries?: number;
+}): MessagingDeliveryReceipt {
+  const stagedReplyCount = (params.stagedReplyPayloads ?? []).filter(isDeliverableReplyPayload).length;
+  const attemptedDeliveryCount = Math.max(params.attemptedDeliveries ?? 0, 0);
+  const confirmedDeliveryCount = Math.max(params.confirmedDeliveries ?? 0, 0);
+  const failedDeliveryCount = Math.max(params.failedDeliveries ?? 0, 0);
+  return {
+    stagedReplyCount,
+    attemptedDeliveryCount,
+    confirmedDeliveryCount,
+    failedDeliveryCount,
+    partialDelivery: confirmedDeliveryCount > 0 && failedDeliveryCount > 0,
   };
+}
+
+export function buildMessagingAcceptanceEvidence(params: {
+  runResult: MessagingDeliveryClosureCandidate["runResult"];
+  replyPayloads?: ReplyPayload[];
+  deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
+}): PlatformRuntimeAcceptanceEvidence {
+  const deliveryReceipt = buildMessagingDeliveryReceipt({
+    stagedReplyPayloads: params.replyPayloads,
+    attemptedDeliveries: params.deliveryReceipt?.attemptedDeliveryCount,
+    confirmedDeliveries: params.deliveryReceipt?.confirmedDeliveryCount,
+    failedDeliveries: params.deliveryReceipt?.failedDeliveryCount,
+  });
+  return {
+    ...(params.runResult.meta?.completionOutcome?.hadToolError !== undefined
+      ? { hadToolError: params.runResult.meta.completionOutcome.hadToolError }
+      : {}),
+    ...(params.runResult.meta?.completionOutcome?.deterministicApprovalPromptSent !== undefined
+      ? {
+          deterministicApprovalPromptSent:
+            params.runResult.meta.completionOutcome.deterministicApprovalPromptSent,
+        }
+      : {}),
+    ...(params.runResult.didSendViaMessagingTool !== undefined
+      ? { didSendViaMessagingTool: params.runResult.didSendViaMessagingTool }
+      : {}),
+    hasOutput: Boolean(params.replyPayloads?.some((payload) => Boolean(payload.text?.trim()))),
+    hasStructuredReplyPayload: Boolean(params.replyPayloads?.some(hasStructuredReplyPayload)),
+    deliveredReplyCount: deliveryReceipt.confirmedDeliveryCount,
+    stagedReplyCount: deliveryReceipt.stagedReplyCount,
+    attemptedDeliveryCount: deliveryReceipt.attemptedDeliveryCount,
+    confirmedDeliveryCount: deliveryReceipt.confirmedDeliveryCount,
+    failedDeliveryCount: deliveryReceipt.failedDeliveryCount,
+    partialDelivery: deliveryReceipt.partialDelivery,
+    ...(params.runResult.successfulCronAdds !== undefined
+      ? { successfulCronAdds: params.runResult.successfulCronAdds }
+      : {}),
+  };
+}
+
+export function reevaluateAcceptanceForMessagingRun(params: {
+  runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads: ReplyPayload[];
+  deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
 }): PlatformRuntimeAcceptanceResult | undefined {
   const completionOutcome = params.runResult.meta?.completionOutcome;
   if (!completionOutcome?.runId) {
@@ -104,23 +178,11 @@ export function reevaluateAcceptanceForMessagingRun(params: {
   return getPlatformRuntimeCheckpointService().evaluateAcceptance({
     runId: completionOutcome.runId,
     outcome: completionOutcome,
-    evidence: {
-      ...(completionOutcome.hadToolError !== undefined
-        ? { hadToolError: completionOutcome.hadToolError }
-        : {}),
-      ...(completionOutcome.deterministicApprovalPromptSent !== undefined
-        ? { deterministicApprovalPromptSent: completionOutcome.deterministicApprovalPromptSent }
-        : {}),
-      ...(params.runResult.didSendViaMessagingTool !== undefined
-        ? { didSendViaMessagingTool: params.runResult.didSendViaMessagingTool }
-        : {}),
-      hasOutput: params.replyPayloads.some((payload) => Boolean(payload.text?.trim())),
-      hasStructuredReplyPayload: params.replyPayloads.some(hasStructuredReplyPayload),
-      deliveredReplyCount: params.replyPayloads.filter(isDeliverableReplyPayload).length,
-      ...(params.runResult.successfulCronAdds !== undefined
-        ? { successfulCronAdds: params.runResult.successfulCronAdds }
-        : {}),
-    },
+    evidence: buildMessagingAcceptanceEvidence({
+      runResult: params.runResult,
+      replyPayloads: params.replyPayloads,
+      deliveryReceipt: params.deliveryReceipt,
+    }),
   });
 }
 
@@ -191,6 +253,48 @@ export function enqueueSemanticRetryFollowup(params: {
     params.settings,
     "prompt",
   );
+}
+
+export function captureMessagingDeliveryClosureCandidate(params: {
+  onCandidate?: (candidate: MessagingDeliveryClosureCandidate) => void;
+  runResult: MessagingDeliveryClosureCandidate["runResult"];
+  sourceRun: FollowupRun;
+  queueKey?: string;
+  settings: QueueSettings;
+}): void {
+  params.onCandidate?.({
+    runResult: params.runResult,
+    sourceRun: params.sourceRun,
+    queueKey: params.queueKey,
+    settings: params.settings,
+  });
+}
+
+export function finalizeMessagingDeliveryClosure(params: {
+  candidate: MessagingDeliveryClosureCandidate | undefined;
+  replyPayloads: ReplyPayload[];
+  deliveryReceipt: Partial<MessagingDeliveryReceipt>;
+}): {
+  acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
+  queuedSemanticRetry: boolean;
+} {
+  if (!params.candidate) {
+    return { queuedSemanticRetry: false };
+  }
+  const acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
+    runResult: params.candidate.runResult,
+    replyPayloads: params.replyPayloads,
+    deliveryReceipt: params.deliveryReceipt,
+  });
+  return {
+    acceptanceOutcome,
+    queuedSemanticRetry: enqueueSemanticRetryFollowup({
+      queueKey: params.candidate.queueKey,
+      sourceRun: params.candidate.sourceRun,
+      settings: params.candidate.settings,
+      acceptance: acceptanceOutcome,
+    }),
+  };
 }
 
 export const signalTypingIfNeeded = async (

@@ -289,13 +289,40 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
+      const confirmedDeliveryCount = evidence.confirmedDeliveryCount ?? evidence.deliveredReplyCount ?? 0;
+      const attemptedDeliveryCount = evidence.attemptedDeliveryCount ?? 0;
+      const failedDeliveryCount = evidence.failedDeliveryCount ?? 0;
+      if (attemptedDeliveryCount > 0 && confirmedDeliveryCount === 0 && failedDeliveryCount > 0) {
+        reasons.push("Run completed, but delivery attempts failed before any message was confirmed.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode: "delivery_failed",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (evidence.partialDelivery === true || (confirmedDeliveryCount > 0 && failedDeliveryCount > 0)) {
+        reasons.push("Run completed, but delivery only partially succeeded.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "partial",
+          action: "retry",
+          reasonCode: "delivery_partial",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
       const hasDeliverableEvidence =
-        params.outcome.artifactIds.length > 0 ||
-        params.outcome.bootstrapRequestIds.length > 0 ||
+        (evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
+        (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0 ||
         evidence.didSendViaMessagingTool === true ||
         evidence.hasOutput === true ||
         evidence.hasStructuredReplyPayload === true ||
-        (evidence.deliveredReplyCount ?? 0) > 0 ||
+        confirmedDeliveryCount > 0 ||
         (evidence.successfulCronAdds ?? 0) > 0;
       if (evidence.hadToolError === true && hasDeliverableEvidence) {
         reasons.push("Run completed with deliverable evidence, but one or more tool errors were observed.");
@@ -309,13 +336,28 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
-      if (params.outcome.artifactIds.length > 0 || params.outcome.bootstrapRequestIds.length > 0) {
+      if (
+        (evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
+        (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
+      ) {
         reasons.push("Run completed and produced structured platform artifacts or bootstrap output.");
         return PlatformRuntimeAcceptanceResultSchema.parse({
           runId: params.runId,
           status: "satisfied",
           action: "close",
           reasonCode: "completed_with_artifacts",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (confirmedDeliveryCount > 0) {
+        reasons.push("Run completed and delivery was confirmed by the outbound runtime.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "satisfied",
+          action: "close",
+          reasonCode: "completed_with_confirmed_delivery",
           reasons,
           outcome: params.outcome,
           evidence,

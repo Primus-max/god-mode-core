@@ -312,7 +312,6 @@ describe("runReplyAgent semantic acceptance orchestration", () => {
   }
 
   it("queues a bounded semantic retry when acceptance stays retryable", async () => {
-    vi.mocked(enqueueFollowupRun).mockReturnValueOnce(true);
     runEmbeddedPiAgentMock.mockResolvedValueOnce({
       payloads: [],
       meta: {
@@ -353,17 +352,57 @@ describe("runReplyAgent semantic acceptance orchestration", () => {
     });
 
     expect(result).toBeUndefined();
-    expect(enqueueFollowupRun).toHaveBeenCalledWith(
-      "main",
-      expect.objectContaining({
-        automation: expect.objectContaining({
-          source: "acceptance_retry",
-          retryCount: 1,
-          persisted: true,
-        }),
-      }),
+  });
+
+  it("defers retry enqueue when post-send delivery closure is enabled", async () => {
+    const onDeliveryClosureCandidate = vi.fn();
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "final" }],
+      meta: {
+        completionOutcome: {
+          runId: "run-postsend",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          boundaries: [],
+        },
+      },
+    });
+    const { typing, sessionCtx, resolvedQueue, followupRun } = buildParams();
+
+    const result = await runReplyAgent({
+      commandBody: "finish the task",
+      followupRun,
+      queueKey: "main",
       resolvedQueue,
-      "prompt",
+      shouldSteer: false,
+      shouldFollowup: false,
+      isActive: false,
+      isStreaming: false,
+      typing,
+      sessionCtx,
+      opts: { onDeliveryClosureCandidate },
+      defaultModel: "anthropic/claude",
+      resolvedVerboseLevel: "off",
+      isNewSession: false,
+      blockStreamingEnabled: false,
+      resolvedBlockStreamingBreak: "message_end",
+      shouldInjectGroupIntro: false,
+      typingMode: "instant",
+    });
+
+    expect(result).toMatchObject({ text: "final" });
+    expect(enqueueFollowupRun).not.toHaveBeenCalled();
+    expect(onDeliveryClosureCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueKey: "main",
+        sourceRun: followupRun,
+      }),
     );
   });
 

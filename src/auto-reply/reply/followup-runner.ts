@@ -23,7 +23,9 @@ import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { resolveRunAuthProfile } from "./agent-runner-auth-profile.js";
 import {
   buildAcceptanceFallbackPayload,
+  buildMessagingDeliveryReceipt,
   enqueueSemanticRetryFollowup,
+  finalizeMessagingDeliveryClosure,
   reevaluateAcceptanceForMessagingRun,
 } from "./agent-runner-helpers.js";
 import { resolvePlatformExecutionContextForTemplateRun } from "./agent-runner-utils.js";
@@ -100,6 +102,9 @@ export function createFollowupRunner(params: {
    * where the message originated.
    */
   const sendFollowupPayloads = async (payloads: ReplyPayload[], queued: FollowupRun) => {
+    let attemptedDeliveryCount = 0;
+    let confirmedDeliveryCount = 0;
+    let failedDeliveryCount = 0;
     // Check if we should route to originating channel.
     const { originatingChannel, originatingTo } = queued;
     const { isRoutableChannel, routeReply } = await loadRouteReplyRuntime();
@@ -124,6 +129,7 @@ export function createFollowupRunner(params: {
 
       // Route to originating channel if set, otherwise fall back to dispatcher.
       if (shouldRouteToOriginating) {
+        attemptedDeliveryCount += 1;
         const result = await routeReply({
           payload,
           channel: originatingChannel,
@@ -134,6 +140,7 @@ export function createFollowupRunner(params: {
           cfg: queued.run.config,
         });
         if (!result.ok) {
+          failedDeliveryCount += 1;
           const errorMsg = result.error ?? "unknown error";
           logVerbose(`followup queue: route-reply failed: ${errorMsg}`);
           // Fall back to the caller-provided dispatcher only when the
@@ -150,12 +157,23 @@ export function createFollowupRunner(params: {
           });
           if (opts?.onBlockReply && origin && origin === provider) {
             await opts.onBlockReply(payload);
+            confirmedDeliveryCount += 1;
           }
+        } else {
+          confirmedDeliveryCount += Math.max(result.confirmedDeliveryCount ?? 1, 1);
         }
       } else if (opts?.onBlockReply) {
+        attemptedDeliveryCount += 1;
         await opts.onBlockReply(payload);
+        confirmedDeliveryCount += 1;
       }
     }
+    return buildMessagingDeliveryReceipt({
+      stagedReplyPayloads: payloads,
+      attemptedDeliveries: attemptedDeliveryCount,
+      confirmedDeliveries: confirmedDeliveryCount,
+      failedDeliveries: failedDeliveryCount,
+    });
   };
 
   return async (queued: FollowupRun) => {
@@ -415,16 +433,11 @@ export function createFollowupRunner(params: {
         }),
       });
       let finalPayloads = suppressMessagingToolReplies ? [] : mediaFilteredPayloads;
-      const acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
+      let acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
         runResult,
         replyPayloads: finalPayloads,
       });
-      const queuedSemanticRetry = enqueueSemanticRetryFollowup({
-        queueKey,
-        sourceRun: queued,
-        settings: resolvedQueue,
-        acceptance: acceptanceOutcome,
-      });
+      let queuedSemanticRetry = false;
 
       if (autoCompactionCount > 0) {
         const count = await incrementRunCompactionCount({
@@ -455,13 +468,28 @@ export function createFollowupRunner(params: {
 
       if (finalPayloads.length === 0) {
         const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome);
-        if (!fallbackPayload || queuedSemanticRetry) {
+        if (!fallbackPayload) {
           return;
         }
         finalPayloads = await applyFollowupReplyThreading([fallbackPayload]);
       }
 
-      await sendFollowupPayloads(finalPayloads, queued);
+      const deliveryReceipt = await sendFollowupPayloads(finalPayloads, queued);
+      const closure = finalizeMessagingDeliveryClosure({
+        candidate: {
+          runResult,
+          sourceRun: queued,
+          queueKey,
+          settings: resolvedQueue,
+        },
+        replyPayloads: finalPayloads,
+        deliveryReceipt: deliveryReceipt ?? {},
+      });
+      acceptanceOutcome = closure.acceptanceOutcome ?? acceptanceOutcome;
+      queuedSemanticRetry = closure.queuedSemanticRetry;
+      if (queuedSemanticRetry) {
+        return;
+      }
     } finally {
       // Both signals are required for the typing controller to clean up.
       // The main inbound dispatch path calls markDispatchIdle() from the

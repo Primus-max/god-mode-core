@@ -61,6 +61,9 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
 - Messaging ingress parity note:
   - When you touch main reply or followup orchestration, keep at least one deterministic scenario where the messaging path re-evaluates acceptance from real reply payload evidence and another where a persisted semantic retry rehydrates after in-memory reset.
   - Current reference coverage lives in `src/platform/decision/input.test.ts`, `src/auto-reply/reply/agent-runner.misc.runreplyagent.test.ts`, `src/auto-reply/reply/followup-runner.test.ts`, and `src/auto-reply/reply/reply-flow.test.ts`.
+- Verified delivery note:
+  - When you touch outbound closure or acceptance evidence, keep one scenario where `staged` output is not treated as delivered truth after send failure and one where post-send receipts close the run only after confirmed delivery evidence.
+  - Current reference coverage lives in `src/platform/runtime/service.test.ts`, `src/auto-reply/reply/route-reply.test.ts`, and `src/auto-reply/dispatch.delivery-closure.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.
   - Shared unit coverage now defaults to `threads`, while the manifest keeps the measured fork-only exceptions and heavy singleton lanes explicit.

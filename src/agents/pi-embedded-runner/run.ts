@@ -317,6 +317,8 @@ function buildCompletionArtifacts(params: {
         ? { didSendViaMessagingTool: params.didSendViaMessagingTool }
         : {}),
       ...(params.hasOutput !== undefined ? { hasOutput: params.hasOutput } : {}),
+      artifactReceiptCount: outcome.artifactIds.length,
+      bootstrapReceiptCount: outcome.bootstrapRequestIds.length,
       ...(params.successfulCronAdds !== undefined
         ? { successfulCronAdds: params.successfulCronAdds }
         : {}),

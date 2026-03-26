@@ -166,8 +166,11 @@ export type PlatformRuntimeAcceptanceAction = z.infer<typeof PlatformRuntimeAcce
 export const PlatformRuntimeAcceptanceReasonCodeSchema = z.enum([
   "completed_with_output",
   "completed_with_artifacts",
+  "completed_with_confirmed_delivery",
   "completed_with_warnings",
   "completed_without_evidence",
+  "delivery_failed",
+  "delivery_partial",
   "pending_approval",
   "runtime_blocked",
   "runtime_failed",
@@ -185,6 +188,13 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     hasOutput: z.boolean().optional(),
     hasStructuredReplyPayload: z.boolean().optional(),
     deliveredReplyCount: z.number().int().nonnegative().optional(),
+    stagedReplyCount: z.number().int().nonnegative().optional(),
+    attemptedDeliveryCount: z.number().int().nonnegative().optional(),
+    confirmedDeliveryCount: z.number().int().nonnegative().optional(),
+    failedDeliveryCount: z.number().int().nonnegative().optional(),
+    partialDelivery: z.boolean().optional(),
+    artifactReceiptCount: z.number().int().nonnegative().optional(),
+    bootstrapReceiptCount: z.number().int().nonnegative().optional(),
     successfulCronAdds: z.number().int().nonnegative().optional(),
   })
   .strict();
