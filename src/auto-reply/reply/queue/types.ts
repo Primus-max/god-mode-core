@@ -19,12 +19,21 @@ export type QueueSettings = {
 
 export type QueueDedupeMode = "message-id" | "prompt" | "none";
 
+export type FollowupAutomationMetadata = {
+  source: "acceptance_retry";
+  retryCount: number;
+  persisted?: boolean;
+  reasonCode?: string;
+  reasonSummary?: string;
+};
+
 export type FollowupRun = {
   prompt: string;
   /** Provider message ID, when available (for deduplication). */
   messageId?: string;
   summaryLine?: string;
   enqueuedAt: number;
+  automation?: FollowupAutomationMetadata;
   /**
    * Originating channel for reply routing.
    * When set, replies should be routed back to this provider

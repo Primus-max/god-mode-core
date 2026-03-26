@@ -21,7 +21,13 @@ import type { OriginatingChannelType } from "../templating.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { resolveRunAuthProfile } from "./agent-runner-auth-profile.js";
+import {
+  buildAcceptanceFallbackPayload,
+  enqueueSemanticRetryFollowup,
+  reevaluateAcceptanceForMessagingRun,
+} from "./agent-runner-helpers.js";
 import { resolvePlatformExecutionContextForTemplateRun } from "./agent-runner-utils.js";
+import type { QueueSettings } from "./queue.js";
 import {
   resolveOriginAccountId,
   resolveOriginMessageProvider,
@@ -57,6 +63,8 @@ export function createFollowupRunner(params: {
   opts?: GetReplyOptions;
   typing: TypingController;
   typingMode: TypingMode;
+  queueKey?: string;
+  resolvedQueue?: QueueSettings;
   sessionEntry?: SessionEntry;
   sessionStore?: Record<string, SessionEntry>;
   sessionKey?: string;
@@ -68,6 +76,8 @@ export function createFollowupRunner(params: {
     opts,
     typing,
     typingMode,
+    queueKey,
+    resolvedQueue = { mode: "followup", debounceMs: 0, cap: 20 },
     sessionEntry,
     sessionStore,
     sessionKey,
@@ -162,6 +172,7 @@ export function createFollowupRunner(params: {
         prompt: queued.prompt,
         run: queued.run,
         sessionCtx: syntheticSessionCtx,
+        storePath,
         sessionEntry: activeSessionEntry,
       });
       const shouldSurfaceToControlUi = isInternalMessageChannel(
@@ -404,6 +415,16 @@ export function createFollowupRunner(params: {
         }),
       });
       let finalPayloads = suppressMessagingToolReplies ? [] : mediaFilteredPayloads;
+      const acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
+        runResult,
+        replyPayloads: finalPayloads,
+      });
+      const queuedSemanticRetry = enqueueSemanticRetryFollowup({
+        queueKey,
+        sourceRun: queued,
+        settings: resolvedQueue,
+        acceptance: acceptanceOutcome,
+      });
 
       if (autoCompactionCount > 0) {
         const count = await incrementRunCompactionCount({
@@ -433,7 +454,11 @@ export function createFollowupRunner(params: {
       }
 
       if (finalPayloads.length === 0) {
-        return;
+        const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome);
+        if (!fallbackPayload || queuedSemanticRetry) {
+          return;
+        }
+        finalPayloads = await applyFollowupReplyThreading([fallbackPayload]);
       }
 
       await sendFollowupPayloads(finalPayloads, queued);

@@ -377,6 +377,47 @@ describe("createFollowupRunner bootstrap warning dedupe", () => {
   });
 });
 
+describe("createFollowupRunner semantic acceptance", () => {
+  it("emits a human-required fallback payload when acceptance requires escalation", async () => {
+    const onBlockReply = vi.fn(async () => {});
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [],
+      meta: {
+        completionOutcome: {
+          runId: "followup-human",
+          status: "blocked",
+          checkpointIds: ["checkpoint-human"],
+          blockedCheckpointIds: ["checkpoint-human"],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: ["approval-human"],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          boundaries: ["exec_approval"],
+        },
+      },
+    });
+
+    const runner = createFollowupRunner({
+      opts: { onBlockReply },
+      typing: createMockTypingController(),
+      typingMode: "instant",
+      queueKey: "main",
+      resolvedQueue: { mode: "followup", debounceMs: 0, cap: 20 },
+      defaultModel: "anthropic/claude-opus-4-5",
+    });
+
+    await runner(createQueuedRun());
+
+    expect(onBlockReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("human input or approval"),
+        isError: true,
+      }),
+    );
+  });
+});
+
 describe("createFollowupRunner messaging tool dedupe", () => {
   function createMessagingDedupeRunner(
     onBlockReply: (payload: unknown) => Promise<void>,

@@ -58,6 +58,9 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
 - Semantic outcome note:
   - When you touch unattended orchestration, keep at least one deterministic scenario where `completionOutcome` and `acceptanceOutcome` directly drive the backend decision (`close`, `retry`, or `escalate`) rather than asserting only on assistant text.
   - Current reference coverage lives in `src/platform/runtime/service.test.ts`, `src/cron/isolated-agent/run.interim-retry.test.ts`, and `src/agents/pi-embedded-runner/usage-reporting.test.ts`.
+- Messaging ingress parity note:
+  - When you touch main reply or followup orchestration, keep at least one deterministic scenario where the messaging path re-evaluates acceptance from real reply payload evidence and another where a persisted semantic retry rehydrates after in-memory reset.
+  - Current reference coverage lives in `src/platform/decision/input.test.ts`, `src/auto-reply/reply/agent-runner.misc.runreplyagent.test.ts`, `src/auto-reply/reply/followup-runner.test.ts`, and `src/auto-reply/reply/reply-flow.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.
   - Shared unit coverage now defaults to `threads`, while the manifest keeps the measured fork-only exceptions and heavy singleton lanes explicit.

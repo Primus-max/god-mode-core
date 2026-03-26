@@ -9,6 +9,7 @@ import { onAgentEvent } from "../../infra/agent-events.js";
 import { peekSystemEvents, resetSystemEventsForTest } from "../../infra/system-events.js";
 import type { TemplateContext } from "../templating.js";
 import type { FollowupRun, QueueSettings } from "./queue.js";
+import { enqueueFollowupRun } from "./queue.js";
 import { createMockTypingController } from "./test-helpers.js";
 
 const runEmbeddedPiAgentMock = vi.fn();
@@ -105,6 +106,7 @@ type RunWithModelFallbackParams = {
 beforeEach(() => {
   vi.useRealTimers();
   vi.clearAllTimers();
+  vi.mocked(enqueueFollowupRun).mockReset();
   runEmbeddedPiAgentMock.mockClear();
   runCliAgentMock.mockClear();
   runWithModelFallbackMock.mockClear();
@@ -263,6 +265,197 @@ describe("runReplyAgent onAgentRunStart", () => {
     expect(onAgentRunStart).toHaveBeenCalledTimes(1);
     expect(onAgentRunStart).toHaveBeenCalledWith("run-started");
     expect(result).toMatchObject({ text: "ok" });
+  });
+});
+
+describe("runReplyAgent semantic acceptance orchestration", () => {
+  function buildParams() {
+    const typing = createMockTypingController();
+    const sessionCtx = {
+      Provider: "telegram",
+      Surface: "telegram",
+      OriginatingTo: "chat:1",
+      AccountId: "primary",
+      MessageSid: "msg-1",
+    } as unknown as TemplateContext;
+    const resolvedQueue = { mode: "followup", debounceMs: 0, cap: 20 } as QueueSettings;
+    const followupRun = {
+      prompt: "finish the task",
+      summaryLine: "finish the task",
+      enqueuedAt: Date.now(),
+      run: {
+        agentId: "main",
+        agentDir: "/tmp/agent",
+        sessionId: "session-1",
+        sessionKey: "main",
+        messageProvider: "telegram",
+        sessionFile: "/tmp/session-1.jsonl",
+        workspaceDir: "/tmp",
+        config: {},
+        skillsSnapshot: {},
+        provider: "anthropic",
+        model: "claude",
+        thinkLevel: "low",
+        verboseLevel: "off",
+        elevatedLevel: "off",
+        bashElevated: { enabled: false, allowed: false, defaultLevel: "off" },
+        timeoutMs: 5_000,
+        blockReplyBreak: "message_end",
+      },
+    } as unknown as FollowupRun;
+    return {
+      typing,
+      sessionCtx,
+      resolvedQueue,
+      followupRun,
+    };
+  }
+
+  it("queues a bounded semantic retry when acceptance stays retryable", async () => {
+    vi.mocked(enqueueFollowupRun).mockReturnValueOnce(true);
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [],
+      meta: {
+        completionOutcome: {
+          runId: "run-retry",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          boundaries: [],
+        },
+      },
+    });
+    const { typing, sessionCtx, resolvedQueue, followupRun } = buildParams();
+
+    const result = await runReplyAgent({
+      commandBody: "finish the task",
+      followupRun,
+      queueKey: "main",
+      resolvedQueue,
+      shouldSteer: false,
+      shouldFollowup: false,
+      isActive: false,
+      isStreaming: false,
+      typing,
+      sessionCtx,
+      defaultModel: "anthropic/claude",
+      resolvedVerboseLevel: "off",
+      isNewSession: false,
+      blockStreamingEnabled: false,
+      resolvedBlockStreamingBreak: "message_end",
+      shouldInjectGroupIntro: false,
+      typingMode: "instant",
+    });
+
+    expect(result).toBeUndefined();
+    expect(enqueueFollowupRun).toHaveBeenCalledWith(
+      "main",
+      expect.objectContaining({
+        automation: expect.objectContaining({
+          source: "acceptance_retry",
+          retryCount: 1,
+          persisted: true,
+        }),
+      }),
+      resolvedQueue,
+      "prompt",
+    );
+  });
+
+  it("returns a human-required payload and does not enqueue retry loops", async () => {
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [],
+      meta: {
+        completionOutcome: {
+          runId: "run-human",
+          status: "blocked",
+          checkpointIds: ["checkpoint-1"],
+          blockedCheckpointIds: ["checkpoint-1"],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: ["approval-1"],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          boundaries: ["exec_approval"],
+        },
+      },
+    });
+    const { typing, sessionCtx, resolvedQueue, followupRun } = buildParams();
+
+    const result = await runReplyAgent({
+      commandBody: "finish the task",
+      followupRun,
+      queueKey: "main",
+      resolvedQueue,
+      shouldSteer: false,
+      shouldFollowup: false,
+      isActive: false,
+      isStreaming: false,
+      typing,
+      sessionCtx,
+      defaultModel: "anthropic/claude",
+      resolvedVerboseLevel: "off",
+      isNewSession: false,
+      blockStreamingEnabled: false,
+      resolvedBlockStreamingBreak: "message_end",
+      shouldInjectGroupIntro: false,
+      typingMode: "instant",
+    });
+
+    expect(result).toMatchObject({
+      text: expect.stringContaining("human input or approval"),
+      isError: true,
+    });
+    expect(enqueueFollowupRun).not.toHaveBeenCalled();
+  });
+
+  it("treats structured payload delivery as completion evidence", async () => {
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ mediaUrl: "https://example.com/report.png" }],
+      meta: {
+        completionOutcome: {
+          runId: "run-structured",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          boundaries: [],
+        },
+      },
+    });
+    const { typing, sessionCtx, resolvedQueue, followupRun } = buildParams();
+
+    const result = await runReplyAgent({
+      commandBody: "finish the task",
+      followupRun,
+      queueKey: "main",
+      resolvedQueue,
+      shouldSteer: false,
+      shouldFollowup: false,
+      isActive: false,
+      isStreaming: false,
+      typing,
+      sessionCtx,
+      defaultModel: "anthropic/claude",
+      resolvedVerboseLevel: "off",
+      isNewSession: false,
+      blockStreamingEnabled: false,
+      resolvedBlockStreamingBreak: "message_end",
+      shouldInjectGroupIntro: false,
+      typingMode: "instant",
+    });
+
+    expect(result).toMatchObject({ mediaUrl: "https://example.com/report.png" });
+    expect(enqueueFollowupRun).not.toHaveBeenCalled();
   });
 });
 

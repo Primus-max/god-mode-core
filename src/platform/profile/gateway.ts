@@ -1,10 +1,8 @@
 import { z } from "zod";
 import { loadSessionEntry } from "../../gateway/session-entry.js";
-import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
 import {
-  buildExecutionDecisionInput,
-  resolveSessionDecisionInputContext,
+  buildSessionBackedExecutionDecisionInput,
 } from "../decision/input.js";
 import { resolvePlatformRuntimePlan } from "../recipe/runtime-adapter.js";
 import { getInitialProfile, getTaskOverlay, INITIAL_PROFILES } from "./defaults.js";
@@ -27,15 +25,11 @@ export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
     const sessionKey = parsed.data.sessionKey.trim();
     const draft = parsed.data.draft?.trim() ?? "";
     const { entry, storePath } = loadSessionEntry(sessionKey);
-    const messages =
-      entry?.sessionId && storePath ? readSessionMessages(entry.sessionId, storePath, entry.sessionFile) : [];
-    const sessionContext = resolveSessionDecisionInputContext(messages);
-    const prompt = [sessionContext.prompt, draft].filter(Boolean).join("\n\n");
     const override = resolveSessionSpecialistOverride(entry);
     const resolved = resolvePlatformRuntimePlan(
-      buildExecutionDecisionInput({
-        prompt,
-        fileNames: sessionContext.fileNames,
+      buildSessionBackedExecutionDecisionInput({
+        draftPrompt: draft,
+        storePath,
         sessionEntry: entry,
       }),
     );

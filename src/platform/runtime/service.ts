@@ -294,6 +294,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
         params.outcome.bootstrapRequestIds.length > 0 ||
         evidence.didSendViaMessagingTool === true ||
         evidence.hasOutput === true ||
+        evidence.hasStructuredReplyPayload === true ||
+        (evidence.deliveredReplyCount ?? 0) > 0 ||
         (evidence.successfulCronAdds ?? 0) > 0;
       if (evidence.hadToolError === true && hasDeliverableEvidence) {
         reasons.push("Run completed with deliverable evidence, but one or more tool errors were observed.");

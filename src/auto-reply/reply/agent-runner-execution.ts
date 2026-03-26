@@ -115,6 +115,7 @@ export async function runAgentTurnWithFallback(params: {
     prompt: params.commandBody,
     run: params.followupRun.run,
     sessionCtx: params.sessionCtx,
+    storePath: params.storePath,
     sessionEntry: params.getActiveSessionEntry(),
   });
   const normalizeReplyMediaPaths = createReplyMediaPathNormalizer({

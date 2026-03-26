@@ -183,6 +183,8 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     deterministicApprovalPromptSent: z.boolean().optional(),
     didSendViaMessagingTool: z.boolean().optional(),
     hasOutput: z.boolean().optional(),
+    hasStructuredReplyPayload: z.boolean().optional(),
+    deliveredReplyCount: z.number().int().nonnegative().optional(),
     successfulCronAdds: z.number().int().nonnegative().optional(),
   })
   .strict();

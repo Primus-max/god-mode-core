@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
@@ -27,6 +28,23 @@ export type BuildExecutionDecisionInputParams = {
   sessionEntry?: Pick<
     SessionEntry,
     "specialistOverrideMode" | "specialistBaseProfileId" | "specialistSessionProfileId"
+  > | null;
+};
+
+export type BuildSessionBackedExecutionDecisionInputParams = Omit<
+  BuildExecutionDecisionInputParams,
+  "prompt" | "fileNames"
+> & {
+  draftPrompt?: string;
+  fileNames?: string[];
+  storePath?: string;
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
   > | null;
 };
 
@@ -123,6 +141,39 @@ export function resolveExecutionRuntimePlan(
   params: BuildExecutionDecisionInputParams,
 ): ResolvedPlatformRuntimePlan {
   return resolvePlatformRuntimePlan(buildExecutionDecisionInput(params));
+}
+
+export function buildSessionBackedExecutionDecisionInput(
+  params: BuildSessionBackedExecutionDecisionInputParams,
+): BuildExecutionDecisionInputParams {
+  const messages =
+    params.sessionEntry?.sessionId && params.storePath
+      ? readSessionMessages(
+          params.sessionEntry.sessionId,
+          params.storePath,
+          params.sessionEntry.sessionFile,
+        )
+      : [];
+  const sessionContext = resolveSessionDecisionInputContext(messages);
+  const prompt = [sessionContext.prompt, params.draftPrompt?.trim()].filter(Boolean).join("\n\n");
+  const fileNames = Array.from(new Set([...sessionContext.fileNames, ...(params.fileNames ?? [])]));
+  return {
+    prompt,
+    ...(fileNames.length > 0 ? { fileNames } : {}),
+    ...(params.artifactKinds?.length ? { artifactKinds: params.artifactKinds } : {}),
+    ...(params.intent ? { intent: params.intent } : {}),
+    ...(params.publishTargets?.length ? { publishTargets: params.publishTargets } : {}),
+    ...(params.integrations?.length ? { integrations: params.integrations } : {}),
+    ...(params.requestedTools?.length ? { requestedTools: params.requestedTools } : {}),
+    ...(params.channelHints ? { channelHints: params.channelHints } : {}),
+    ...(params.sessionEntry ? { sessionEntry: params.sessionEntry } : {}),
+  };
+}
+
+export function resolveSessionBackedExecutionRuntimePlan(
+  params: BuildSessionBackedExecutionDecisionInputParams,
+): ResolvedPlatformRuntimePlan {
+  return resolveExecutionRuntimePlan(buildSessionBackedExecutionDecisionInput(params));
 }
 
 function extractTranscriptUserText(content: unknown): string | undefined {
