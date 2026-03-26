@@ -7,11 +7,15 @@ import {
   PlatformRuntimeCheckpointSchema,
   PlatformRuntimeCheckpointStoreSchema,
   PlatformRuntimeCheckpointSummarySchema,
+  PlatformRuntimeRunOutcomeSchema,
   type PlatformRuntimeBoundary,
   type PlatformRuntimeCheckpoint,
+  type PlatformRuntimeContinuation,
+  type PlatformRuntimeContinuationKind,
   type PlatformRuntimeCheckpointStatus,
   type PlatformRuntimeCheckpointSummary,
   type PlatformRuntimeNextAction,
+  type PlatformRuntimeRunOutcome,
   type PlatformRuntimeTarget,
 } from "./contracts.js";
 
@@ -30,6 +34,7 @@ export type PlatformRuntimeCheckpointService = {
     deniedReasons?: string[];
     nextActions?: PlatformRuntimeNextAction[];
     target?: PlatformRuntimeTarget;
+    continuation?: PlatformRuntimeContinuation;
     executionContext?: PlatformRuntimeCheckpoint["executionContext"];
   }) => PlatformRuntimeCheckpoint;
   updateCheckpoint: (
@@ -38,7 +43,17 @@ export type PlatformRuntimeCheckpointService = {
   ) => PlatformRuntimeCheckpoint | undefined;
   get: (id: string) => PlatformRuntimeCheckpoint | undefined;
   findByApprovalId: (approvalId: string) => PlatformRuntimeCheckpoint | undefined;
-  list: (params?: { sessionKey?: string; status?: PlatformRuntimeCheckpointStatus }) => PlatformRuntimeCheckpointSummary[];
+  list: (params?: {
+    sessionKey?: string;
+    runId?: string;
+    status?: PlatformRuntimeCheckpointStatus;
+  }) => PlatformRuntimeCheckpointSummary[];
+  buildRunOutcome: (runId: string) => PlatformRuntimeRunOutcome | undefined;
+  registerContinuationHandler: (
+    kind: PlatformRuntimeContinuationKind,
+    handler: (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void,
+  ) => void;
+  dispatchContinuation: (checkpointId: string) => Promise<PlatformRuntimeCheckpoint | undefined>;
   rehydrate: () => number;
   reset: () => void;
 };
@@ -58,6 +73,10 @@ export function createPlatformRuntimeCheckpointService(params?: {
   stateDir?: string;
 }): PlatformRuntimeCheckpointService {
   const checkpoints = new Map<string, PlatformRuntimeCheckpoint>();
+  const continuationHandlers = new Map<
+    PlatformRuntimeContinuationKind,
+    (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void
+  >();
   let stateDir = params?.stateDir;
 
   const persist = () => {
@@ -96,6 +115,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         ...(checkpointParams.deniedReasons?.length ? { deniedReasons: checkpointParams.deniedReasons } : {}),
         ...(checkpointParams.nextActions?.length ? { nextActions: checkpointParams.nextActions } : {}),
         ...(checkpointParams.target ? { target: checkpointParams.target } : {}),
+        ...(checkpointParams.continuation ? { continuation: checkpointParams.continuation } : {}),
         ...(checkpointParams.executionContext
           ? { executionContext: checkpointParams.executionContext }
           : {}),
@@ -146,9 +166,116 @@ export function createPlatformRuntimeCheckpointService(params?: {
         .filter((checkpoint) =>
           listParams?.sessionKey ? checkpoint.sessionKey === listParams.sessionKey : true,
         )
+        .filter((checkpoint) => (listParams?.runId ? checkpoint.runId === listParams.runId : true))
         .filter((checkpoint) => (listParams?.status ? checkpoint.status === listParams.status : true))
         .sort((left, right) => right.updatedAtMs - left.updatedAtMs)
         .map((checkpoint) => PlatformRuntimeCheckpointSummarySchema.parse(checkpoint));
+    },
+    buildRunOutcome(runId) {
+      const normalized = runId.trim();
+      if (!normalized) {
+        return undefined;
+      }
+      const runCheckpoints = Array.from(checkpoints.values()).filter(
+        (checkpoint) => checkpoint.runId === normalized,
+      );
+      if (runCheckpoints.length === 0) {
+        return undefined;
+      }
+      const blockedCheckpointIds = runCheckpoints
+        .filter((checkpoint) =>
+          checkpoint.status === "blocked" ||
+          checkpoint.status === "approved" ||
+          checkpoint.status === "resumed",
+        )
+        .map((checkpoint) => checkpoint.id);
+      const completedCheckpointIds = runCheckpoints
+        .filter((checkpoint) => checkpoint.status === "completed")
+        .map((checkpoint) => checkpoint.id);
+      const deniedCheckpointIds = runCheckpoints
+        .filter((checkpoint) => checkpoint.status === "denied" || checkpoint.status === "cancelled")
+        .map((checkpoint) => checkpoint.id);
+      const pendingApprovalIds = runCheckpoints
+        .filter((checkpoint) =>
+          checkpoint.status === "blocked" ||
+          checkpoint.status === "approved" ||
+          checkpoint.status === "resumed",
+        )
+        .map((checkpoint) => checkpoint.target?.approvalId)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+      const artifactIds = runCheckpoints
+        .map((checkpoint) => checkpoint.target?.artifactId)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+      const bootstrapRequestIds = runCheckpoints
+        .map((checkpoint) => checkpoint.target?.bootstrapRequestId)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+      const status =
+        blockedCheckpointIds.length > 0
+          ? "blocked"
+          : deniedCheckpointIds.length > 0
+            ? "failed"
+            : completedCheckpointIds.length > 0
+              ? "completed"
+              : "partial";
+      return PlatformRuntimeRunOutcomeSchema.parse({
+        runId: normalized,
+        status,
+        checkpointIds: runCheckpoints.map((checkpoint) => checkpoint.id),
+        blockedCheckpointIds,
+        completedCheckpointIds,
+        deniedCheckpointIds,
+        pendingApprovalIds: Array.from(new Set(pendingApprovalIds)),
+        artifactIds: Array.from(new Set(artifactIds)),
+        bootstrapRequestIds: Array.from(new Set(bootstrapRequestIds)),
+        boundaries: Array.from(new Set(runCheckpoints.map((checkpoint) => checkpoint.boundary))),
+      });
+    },
+    registerContinuationHandler(kind, handler) {
+      continuationHandlers.set(kind, handler);
+    },
+    async dispatchContinuation(checkpointId) {
+      const checkpoint = checkpoints.get(checkpointId);
+      if (!checkpoint?.continuation?.kind) {
+        return checkpoint;
+      }
+      const handler = continuationHandlers.get(checkpoint.continuation.kind);
+      if (!handler) {
+        return checkpoint;
+      }
+      const currentContinuation = checkpoint.continuation;
+      const running = this.updateCheckpoint(checkpointId, {
+        continuation: {
+          ...currentContinuation,
+          state: "running",
+          attempts: (currentContinuation.attempts ?? 0) + 1,
+          lastError: undefined,
+          lastDispatchedAtMs: Date.now(),
+        },
+      });
+      try {
+        await handler(running ?? checkpoint);
+      } catch (error) {
+        return this.updateCheckpoint(checkpointId, {
+          continuation: {
+            ...(running?.continuation ?? currentContinuation),
+            state: "failed",
+            lastError: error instanceof Error ? error.message : String(error),
+          },
+        });
+      }
+      const latest = checkpoints.get(checkpointId);
+      if (!latest?.continuation) {
+        return latest;
+      }
+      const completed =
+        latest.status === "completed" || latest.status === "denied" || latest.status === "cancelled";
+      return this.updateCheckpoint(checkpointId, {
+        continuation: {
+          ...latest.continuation,
+          state: completed ? "completed" : "idle",
+          ...(completed ? { lastCompletedAtMs: Date.now() } : {}),
+        },
+      });
     },
     rehydrate() {
       if (!stateDir) {
@@ -171,6 +298,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
     },
     reset() {
       checkpoints.clear();
+      continuationHandlers.clear();
       if (stateDir) {
         try {
           fs.rmSync(resolveRuntimeCheckpointStorePath(stateDir), { force: true });

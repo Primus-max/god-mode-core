@@ -338,7 +338,7 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
     store = createArtifactStore(nextRecords.map((record) => record.descriptor));
   }
 
-  return {
+  const service: ArtifactService = {
     configure(params) {
       if (params.stateDir) {
         stateDir = params.stateDir;
@@ -422,6 +422,11 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
               artifactId,
               operation,
             },
+            continuation: {
+              kind: "artifact_transition",
+              state: "idle",
+              attempts: 0,
+            },
             executionContext: policy.executionContext,
           });
           return {
@@ -451,6 +456,11 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
             target: {
               artifactId,
               operation,
+            },
+            continuation: {
+              kind: "artifact_transition",
+              state: "idle",
+              attempts: 0,
             },
             executionContext: policy.executionContext,
           });
@@ -512,6 +522,17 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
       return nextRecords.length;
     },
   };
+  runtimeCheckpointService.registerContinuationHandler("artifact_transition", async (checkpoint) => {
+    const artifactId = checkpoint.target?.artifactId;
+    const operation = checkpoint.target?.operation;
+    if (!artifactId || !operation) {
+      return;
+    }
+    service.transition(artifactId, operation as ArtifactOperation, {
+      explicitApproval: true,
+    });
+  });
+  return service;
 }
 
 let platformArtifactService: ArtifactService | null = null;

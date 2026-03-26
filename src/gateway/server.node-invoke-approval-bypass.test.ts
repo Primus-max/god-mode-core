@@ -495,6 +495,14 @@ describe("node.invoke approval bypass", () => {
           interval: 50,
         })
         .toBe("completed");
+      expect(getPlatformRuntimeCheckpointService().buildRunOutcome(approvalId)).toEqual(
+        expect.objectContaining({
+          status: "completed",
+          checkpointIds: [approvalId],
+          completedCheckpointIds: [approvalId],
+          pendingApprovalIds: [],
+        }),
+      );
     } finally {
       wsApprover.close();
       wsCaller.close();

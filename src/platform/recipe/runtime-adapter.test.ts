@@ -128,5 +128,20 @@ describe("resolvePlatformRuntimePlan", () => {
     expect(resolved.policyPreview.requireExplicitApproval).toBe(true);
     expect(resolved.runtime.policyAutonomy).toBe("assist");
     expect(resolved.runtime.requireExplicitApproval).toBe(true);
+    expect(resolved.runtime.readinessStatus).toBe("approval_required");
+    expect(resolved.runtime.readinessReasons?.join(" ")).toContain("Explicit approval");
+  });
+
+  it("marks bootstrap-required document flows as ready for unattended continuation", () => {
+    const resolved = resolvePlatformRuntimePlan({
+      prompt: "Parse this PDF into a report and repair the renderer if needed",
+      fileNames: ["estimate.pdf"],
+      artifactKinds: ["document", "report"],
+      intent: "document",
+    });
+
+    expect(resolved.runtime.readinessStatus).toBe("bootstrap_required");
+    expect(resolved.runtime.unattendedBoundary).toBe("bootstrap");
+    expect(resolved.runtime.readinessReasons?.join(" ")).toContain("Bootstrap required");
   });
 });

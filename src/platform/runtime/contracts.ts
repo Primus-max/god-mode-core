@@ -29,6 +29,37 @@ export const PlatformRuntimeNextActionSchema = z
   .strict();
 export type PlatformRuntimeNextAction = z.infer<typeof PlatformRuntimeNextActionSchema>;
 
+export const PlatformRuntimeContinuationKindSchema = z.enum([
+  "bootstrap_run",
+  "artifact_transition",
+]);
+export type PlatformRuntimeContinuationKind = z.infer<
+  typeof PlatformRuntimeContinuationKindSchema
+>;
+
+export const PlatformRuntimeContinuationStateSchema = z.enum([
+  "idle",
+  "running",
+  "completed",
+  "failed",
+]);
+export type PlatformRuntimeContinuationState = z.infer<
+  typeof PlatformRuntimeContinuationStateSchema
+>;
+
+export const PlatformRuntimeContinuationSchema = z
+  .object({
+    kind: PlatformRuntimeContinuationKindSchema,
+    autoDispatch: z.boolean().optional(),
+    state: PlatformRuntimeContinuationStateSchema.optional(),
+    attempts: z.number().int().nonnegative().optional(),
+    lastError: z.string().min(1).optional(),
+    lastDispatchedAtMs: z.number().int().nonnegative().optional(),
+    lastCompletedAtMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export type PlatformRuntimeContinuation = z.infer<typeof PlatformRuntimeContinuationSchema>;
+
 export const PlatformRuntimeTargetSchema = z
   .object({
     approvalId: z.string().min(1).optional(),
@@ -53,6 +84,7 @@ export const PlatformRuntimeCheckpointSchema = z
     deniedReasons: z.array(z.string().min(1)).optional(),
     nextActions: z.array(PlatformRuntimeNextActionSchema).optional(),
     target: PlatformRuntimeTargetSchema.optional(),
+    continuation: PlatformRuntimeContinuationSchema.optional(),
     executionContext: PlatformExecutionContextSnapshotSchema.optional(),
     createdAtMs: z.number().int().nonnegative(),
     updatedAtMs: z.number().int().nonnegative(),
@@ -89,3 +121,27 @@ export const PlatformRuntimeCheckpointStoreSchema = z
   })
   .strict();
 export type PlatformRuntimeCheckpointStore = z.infer<typeof PlatformRuntimeCheckpointStoreSchema>;
+
+export const PlatformRuntimeRunOutcomeStatusSchema = z.enum([
+  "completed",
+  "blocked",
+  "partial",
+  "failed",
+]);
+export type PlatformRuntimeRunOutcomeStatus = z.infer<typeof PlatformRuntimeRunOutcomeStatusSchema>;
+
+export const PlatformRuntimeRunOutcomeSchema = z
+  .object({
+    runId: z.string().min(1),
+    status: PlatformRuntimeRunOutcomeStatusSchema,
+    checkpointIds: z.array(z.string().min(1)),
+    blockedCheckpointIds: z.array(z.string().min(1)),
+    completedCheckpointIds: z.array(z.string().min(1)),
+    deniedCheckpointIds: z.array(z.string().min(1)),
+    pendingApprovalIds: z.array(z.string().min(1)),
+    artifactIds: z.array(z.string().min(1)),
+    bootstrapRequestIds: z.array(z.string().min(1)),
+    boundaries: z.array(PlatformRuntimeBoundarySchema),
+  })
+  .strict();
+export type PlatformRuntimeRunOutcome = z.infer<typeof PlatformRuntimeRunOutcomeSchema>;

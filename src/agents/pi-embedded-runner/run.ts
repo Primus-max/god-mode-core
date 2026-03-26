@@ -10,6 +10,7 @@ import { generateSecureToken } from "../../infra/secure-random.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { prepareProviderRuntimeAuth } from "../../plugins/provider-runtime.js";
 import type { PluginHookBeforeAgentStartResult } from "../../plugins/types.js";
+import { getPlatformRuntimeCheckpointService } from "../../platform/runtime/index.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { enqueueCommandInLane } from "../../process/command-queue.js";
 import { isMarkdownCapableMessageChannel } from "../../utils/message-channel.js";
@@ -263,6 +264,28 @@ function buildErrorAgentMeta(params: {
     ...(usage ? { usage } : {}),
     ...(lastCallUsage ? { lastCallUsage } : {}),
     ...(promptTokens ? { promptTokens } : {}),
+  };
+}
+
+function buildCompletionOutcome(params: {
+  runId?: string;
+  hadToolError?: boolean;
+  deterministicApprovalPromptSent?: boolean;
+}) {
+  const normalizedRunId = params.runId?.trim();
+  if (!normalizedRunId) {
+    return undefined;
+  }
+  const outcome = getPlatformRuntimeCheckpointService().buildRunOutcome(normalizedRunId);
+  if (!outcome) {
+    return undefined;
+  }
+  return {
+    ...outcome,
+    ...(params.hadToolError !== undefined ? { hadToolError: params.hadToolError } : {}),
+    ...(params.deterministicApprovalPromptSent !== undefined
+      ? { deterministicApprovalPromptSent: params.deterministicApprovalPromptSent }
+      : {}),
   };
 }
 
@@ -916,6 +939,7 @@ export async function runEmbeddedPiAgent(
                   lastTurnTotal,
                 }),
                 error: { kind: "retry_limit", message },
+                completionOutcome: buildCompletionOutcome({ runId: params.runId }),
               },
             };
           }
@@ -1310,6 +1334,11 @@ export async function runEmbeddedPiAgent(
                 }),
                 systemPromptReport: attempt.systemPromptReport,
                 error: { kind, message: errorText },
+                completionOutcome: buildCompletionOutcome({
+                  runId: params.runId,
+                  hadToolError: Boolean(attempt.lastToolError),
+                  deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                }),
               },
             };
           }
@@ -1354,6 +1383,11 @@ export async function runEmbeddedPiAgent(
                   }),
                   systemPromptReport: attempt.systemPromptReport,
                   error: { kind: "role_ordering", message: errorText },
+                  completionOutcome: buildCompletionOutcome({
+                    runId: params.runId,
+                    hadToolError: Boolean(attempt.lastToolError),
+                    deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                  }),
                 },
               };
             }
@@ -1386,6 +1420,11 @@ export async function runEmbeddedPiAgent(
                   }),
                   systemPromptReport: attempt.systemPromptReport,
                   error: { kind: "image_size", message: errorText },
+                  completionOutcome: buildCompletionOutcome({
+                    runId: params.runId,
+                    hadToolError: Boolean(attempt.lastToolError),
+                    deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                  }),
                 },
               };
             }
@@ -1652,6 +1691,11 @@ export async function runEmbeddedPiAgent(
                 agentMeta,
                 aborted,
                 systemPromptReport: attempt.systemPromptReport,
+                completionOutcome: buildCompletionOutcome({
+                  runId: params.runId,
+                  hadToolError: Boolean(attempt.lastToolError),
+                  deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                }),
               },
               didSendViaMessagingTool: attempt.didSendViaMessagingTool,
               didSendDeterministicApprovalPrompt: attempt.didSendDeterministicApprovalPrompt,
@@ -1702,6 +1746,11 @@ export async function runEmbeddedPiAgent(
                     },
                   ]
                 : undefined,
+              completionOutcome: buildCompletionOutcome({
+                runId: params.runId,
+                hadToolError: Boolean(attempt.lastToolError),
+                deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+              }),
             },
             didSendViaMessagingTool: attempt.didSendViaMessagingTool,
             didSendDeterministicApprovalPrompt: attempt.didSendDeterministicApprovalPrompt,

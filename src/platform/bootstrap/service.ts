@@ -152,6 +152,19 @@ function buildBootstrapPolicyContext(request: BootstrapRequest, explicitApproval
   };
 }
 
+function shouldAutoContinueBootstrapRequest(request: BootstrapRequest): boolean {
+  if (
+    request.executionContext?.unattendedBoundary !== "bootstrap" ||
+    request.executionContext.policyAutonomy !== "assist"
+  ) {
+    return false;
+  }
+  if (!request.catalogEntry.capability.trusted) {
+    return false;
+  }
+  return request.sourceDomain === "document" || request.sourceDomain === "developer";
+}
+
 export function createBootstrapRequestService(params?: {
   registry?: CapabilityRegistry;
   stateDir?: string;
@@ -162,8 +175,7 @@ export function createBootstrapRequestService(params?: {
   const runtimeCheckpointService = getPlatformRuntimeCheckpointService({
     ...(params?.stateDir ? { stateDir: params.stateDir } : {}),
   });
-
-  return {
+  const service: BootstrapRequestService = {
     configure(config) {
       if (config.stateDir) {
         stateDir = config.stateDir;
@@ -220,9 +232,31 @@ export function createBootstrapRequestService(params?: {
           bootstrapRequestId: record.id,
           operation: "bootstrap.run",
         },
+        continuation: {
+          kind: "bootstrap_run",
+          ...(shouldAutoContinueBootstrapRequest(record.request) ? { autoDispatch: true } : {}),
+          state: "idle",
+          attempts: 0,
+        },
         executionContext: record.request.executionContext,
       });
       appendAuditRecord(stateDir, "request.created", record);
+      if (shouldAutoContinueBootstrapRequest(record.request)) {
+        const approved = BootstrapRequestRecordSchema.parse({
+          ...record,
+          state: "approved",
+          updatedAt: now,
+          resolvedAt: now,
+        });
+        records.set(record.id, approved);
+        runtimeCheckpointService.updateCheckpoint(record.id, {
+          status: "approved",
+          approvedAtMs: Date.now(),
+        });
+        appendAuditRecord(stateDir, "request.approved", approved);
+        void runtimeCheckpointService.dispatchContinuation(record.id);
+        return approved;
+      }
       return record;
     },
     list() {
@@ -260,6 +294,9 @@ export function createBootstrapRequestService(params?: {
         decision === "approve" ? "request.approved" : "request.denied",
         updated,
       );
+      if (decision === "approve") {
+        void runtimeCheckpointService.dispatchContinuation(id);
+      }
       return BootstrapRequestRecordDetailSchema.parse(updated);
     },
     async run(runParams) {
@@ -340,6 +377,14 @@ export function createBootstrapRequestService(params?: {
       records.clear();
     },
   };
+  runtimeCheckpointService.registerContinuationHandler("bootstrap_run", async (checkpoint) => {
+    const requestId = checkpoint.target?.bootstrapRequestId;
+    if (!requestId) {
+      return;
+    }
+    await service.run({ id: requestId });
+  });
+  return service;
 }
 
 let sharedBootstrapRequestService: BootstrapRequestService | null = null;
