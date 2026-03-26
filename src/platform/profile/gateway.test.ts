@@ -46,6 +46,16 @@ describe("profile gateway method", () => {
         recipeId: "code_build_publish",
         taskOverlayId: expect.any(String),
         draftApplied: true,
+        requiredCapabilities: ["node", "git"],
+        bootstrapRequiredCapabilities: expect.any(Array),
+        capabilityRequirements: expect.arrayContaining([
+          expect.objectContaining({
+            id: "node",
+            status: expect.any(String),
+          }),
+        ]),
+        policyAutonomy: expect.any(String),
+        requiresExplicitApproval: expect.any(Boolean),
         availableProfiles: expect.arrayContaining([
           expect.objectContaining({ id: "developer", label: "Developer" }),
           expect.objectContaining({ id: "integrator", label: "Integrator" }),

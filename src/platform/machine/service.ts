@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { PluginHookPlatformExecutionContext } from "../../plugins/types.js";
 import { resolvePairingPaths } from "../../infra/pairing-files.js";
 import {
   MachineControlAccessResultSchema,
@@ -17,6 +18,7 @@ export type MachineRunSnapshot = {
   prompt: string;
   profileId?: string;
   recipeId?: string;
+  platformExecution?: PluginHookPlatformExecutionContext;
   recordedAtMs: number;
 };
 

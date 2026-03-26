@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { resolveStateDir } from "../../config/paths.js";
-import { applyTaskOverlay } from "../profile/overlay.js";
-import { getInitialProfile } from "../profile/defaults.js";
+import { buildExecutionDecisionInput } from "../decision/input.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { CapabilityRegistry } from "../registry/types.js";
 import type { PolicyContext } from "../policy/types.js";
+import { resolvePlatformRuntimePlan } from "../recipe/runtime-adapter.js";
 import type { CapabilityInstallMethod } from "../schemas/capability.js";
 import {
   appendBootstrapAuditEvent,
@@ -91,47 +91,41 @@ function buildRecordSignature(request: BootstrapRequest): string {
   ].join("::");
 }
 
-function buildBootstrapPolicyContext(request: BootstrapRequest, explicitApproval: boolean): PolicyContext {
+function resolveBootstrapDecisionPrompt(request: BootstrapRequest): string {
   if (request.sourceDomain === "document") {
-    const profile = getInitialProfile("builder");
-    const overlay = profile?.taskOverlays?.find((entry) => entry.id === "document_first");
-    if (profile) {
-      return {
-        activeProfileId: profile.id,
-        activeProfile: profile,
-        activeStateTaskOverlay: overlay?.id,
-        effective: applyTaskOverlay(profile, overlay),
-        intent: "document",
-        explicitApproval,
-      };
-    }
+    return `Bootstrap capability ${request.capabilityId} for document processing workflow.`;
   }
   if (request.sourceDomain === "developer") {
-    const profile = getInitialProfile("developer");
-    const overlay = profile?.taskOverlays?.find((entry) => entry.id === "code_first");
-    if (profile) {
-      return {
-        activeProfileId: profile.id,
-        activeProfile: profile,
-        activeStateTaskOverlay: overlay?.id,
-        effective: applyTaskOverlay(profile, overlay),
-        intent: "code",
-        explicitApproval,
-      };
-    }
+    return `Bootstrap capability ${request.capabilityId} for repository build and delivery workflow.`;
   }
-  const profile = getInitialProfile("general");
-  const overlay = profile?.taskOverlays?.find((entry) => entry.id === "general_chat");
-  if (!profile) {
-    throw new Error("general profile unavailable");
-  }
+  return `Bootstrap capability ${request.capabilityId} for platform execution workflow.`;
+}
+
+function buildBootstrapPolicyContext(request: BootstrapRequest, explicitApproval: boolean): PolicyContext {
+  const intent =
+    request.sourceDomain === "document"
+      ? "document"
+      : request.sourceDomain === "developer"
+        ? "code"
+        : "general";
+  const requestedTools = request.installMethod === "builtin" ? [] : ["exec", "process"];
+  const resolved = resolvePlatformRuntimePlan(
+    buildExecutionDecisionInput({
+      prompt: resolveBootstrapDecisionPrompt(request),
+      intent,
+      requestedTools,
+    }),
+    { explicitApproval },
+  );
   return {
-    activeProfileId: profile.id,
-    activeProfile: profile,
-    activeStateTaskOverlay: overlay?.id,
-    effective: applyTaskOverlay(profile, overlay),
-    intent: "general",
+    ...resolved.policyContext,
     explicitApproval,
+    requestedCapabilities: Array.from(
+      new Set([...(resolved.policyContext.requestedCapabilities ?? []), request.capabilityId]),
+    ),
+    requestedToolNames: Array.from(
+      new Set([...(resolved.policyContext.requestedToolNames ?? []), ...requestedTools]),
+    ),
   };
 }
 

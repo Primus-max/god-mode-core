@@ -1,75 +1,20 @@
-import path from "node:path";
 import { z } from "zod";
 import { loadSessionEntry } from "../../gateway/session-entry.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
+import {
+  buildExecutionDecisionInput,
+  resolveSessionDecisionInputContext,
+} from "../decision/input.js";
 import { resolvePlatformRuntimePlan } from "../recipe/runtime-adapter.js";
 import { getInitialProfile, getTaskOverlay, INITIAL_PROFILES } from "./defaults.js";
 import { SpecialistRuntimeSnapshotSchema } from "./contracts.js";
-import {
-  applySessionSpecialistOverrideToPlannerInput,
-  resolveSessionSpecialistOverride,
-} from "./session-overrides.js";
+import { resolveSessionSpecialistOverride } from "./session-overrides.js";
 
 const SpecialistResolveParamsSchema = z.object({
   sessionKey: z.string().min(1),
   draft: z.string().optional(),
 });
-
-function extractTranscriptUserText(content: unknown): string | undefined {
-  if (typeof content === "string") {
-    return content;
-  }
-  if (!Array.isArray(content)) {
-    return undefined;
-  }
-  const textBlocks = content
-    .map((block) =>
-      block && typeof block === "object" && "text" in block ? (block as { text?: unknown }).text : undefined,
-    )
-    .filter((text): text is string => typeof text === "string");
-  return textBlocks.length > 0 ? textBlocks.join("") : undefined;
-}
-
-function pushMediaPath(value: unknown, into: Set<string>) {
-  if (typeof value !== "string" || !value.trim()) {
-    return;
-  }
-  into.add(path.basename(value.trim()));
-}
-
-function resolveSessionPromptContext(messages: unknown[]): { prompt: string; fileNames: string[] } {
-  const recentTexts: string[] = [];
-  const fileNames = new Set<string>();
-  for (const raw of messages.slice(-24)) {
-    if (!raw || typeof raw !== "object") {
-      continue;
-    }
-    const message = raw as {
-      role?: unknown;
-      content?: unknown;
-      MediaPath?: unknown;
-      MediaPaths?: unknown;
-    };
-    if (message.role !== "user") {
-      continue;
-    }
-    const text = extractTranscriptUserText(message.content)?.trim();
-    if (text) {
-      recentTexts.push(text);
-    }
-    pushMediaPath(message.MediaPath, fileNames);
-    if (Array.isArray(message.MediaPaths)) {
-      for (const entry of message.MediaPaths) {
-        pushMediaPath(entry, fileNames);
-      }
-    }
-  }
-  return {
-    prompt: recentTexts.slice(-6).join("\n\n"),
-    fileNames: Array.from(fileNames).slice(-8),
-  };
-}
 
 export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
   return ({ params, respond }) => {
@@ -84,17 +29,15 @@ export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
     const { entry, storePath } = loadSessionEntry(sessionKey);
     const messages =
       entry?.sessionId && storePath ? readSessionMessages(entry.sessionId, storePath, entry.sessionFile) : [];
-    const sessionContext = resolveSessionPromptContext(messages);
+    const sessionContext = resolveSessionDecisionInputContext(messages);
     const prompt = [sessionContext.prompt, draft].filter(Boolean).join("\n\n");
     const override = resolveSessionSpecialistOverride(entry);
     const resolved = resolvePlatformRuntimePlan(
-      applySessionSpecialistOverrideToPlannerInput(
-        {
-          prompt,
-          fileNames: sessionContext.fileNames,
-        },
-        entry,
-      ),
+      buildExecutionDecisionInput({
+        prompt,
+        fileNames: sessionContext.fileNames,
+        sessionEntry: entry,
+      }),
     );
     const selectedProfile = resolved.profile.selectedProfile;
     const activeProfileId = resolved.profile.activeProfile.sessionProfile ?? selectedProfile.id;
@@ -128,6 +71,17 @@ export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
         reasoningSummary:
           resolved.runtime.plannerReasoning ??
           `Recipe ${resolved.recipe.id} selected for profile ${selectedProfile.id}.`,
+        requiredCapabilities: resolved.capabilitySummary.requiredCapabilities,
+        bootstrapRequiredCapabilities: resolved.capabilitySummary.bootstrapRequiredCapabilities,
+        capabilityRequirements: resolved.capabilitySummary.requirements.map((requirement) => ({
+          id: requirement.capabilityId,
+          label: requirement.capabilityLabel ?? requirement.capabilityId,
+          status: requirement.status,
+          requiresBootstrap: requirement.requiresBootstrap,
+          ...(requirement.reasons?.length ? { reasons: requirement.reasons } : {}),
+        })),
+        policyAutonomy: resolved.policyPreview.autonomy,
+        requiresExplicitApproval: resolved.policyPreview.requireExplicitApproval,
         confidence: resolved.profile.activeProfile.confidence,
         preferredTools: resolved.profile.effective.preferredTools,
         publishTargets: resolved.profile.effective.preferredPublishTargets,

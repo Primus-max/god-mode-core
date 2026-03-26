@@ -27,6 +27,7 @@ import type {
   PluginHookBeforeAgentStartResult,
   PluginHookBeforePromptBuildResult,
 } from "../../../plugins/types.js";
+import { toPluginHookPlatformExecutionContext } from "../../../platform/recipe/runtime-adapter.js";
 import { isCronSessionKey, isSubagentSessionKey } from "../../../routing/session-key.js";
 import { joinPresentTextSegments } from "../../../shared/text/join-segments.js";
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
@@ -3187,24 +3188,7 @@ export async function runEmbeddedAttempt(
               trigger: params.trigger,
               channelId: params.messageChannel ?? params.messageProvider ?? undefined,
               ...(params.platformExecutionContext
-                ? {
-                    platformExecution: {
-                      profileId: params.platformExecutionContext.selectedProfileId,
-                      recipeId: params.platformExecutionContext.selectedRecipeId,
-                      ...(params.platformExecutionContext.taskOverlayId
-                        ? { taskOverlayId: params.platformExecutionContext.taskOverlayId }
-                        : {}),
-                      ...(params.platformExecutionContext.plannerReasoning
-                        ? { plannerReasoning: params.platformExecutionContext.plannerReasoning }
-                        : {}),
-                      ...(params.platformExecutionContext.timeoutSeconds
-                        ? { timeoutSeconds: params.platformExecutionContext.timeoutSeconds }
-                        : {}),
-                      ...(params.platformExecutionContext.fallbackModels?.length
-                        ? { fallbackModels: params.platformExecutionContext.fallbackModels }
-                        : {}),
-                    },
-                  }
+                ? { platformExecution: toPluginHookPlatformExecutionContext(params.platformExecutionContext) }
                 : {}),
             },
           )

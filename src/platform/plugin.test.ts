@@ -204,6 +204,72 @@ describe("platform profile plugin", () => {
     expect(result?.prependSystemContext).toContain("hidden permissions");
   });
 
+  it("reuses pre-resolved execution context in model and prompt hooks", () => {
+    const api = createApiMock();
+
+    registerPlatformProfilePlugin(api);
+
+    const beforeModelResolve = (api.on as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call) => call[0] === "before_model_resolve",
+    )?.[1] as
+      | ((
+          event: { prompt: string },
+          ctx: {
+            platformExecution?: {
+              profileId: string;
+              recipeId: string;
+              providerOverride?: string;
+              modelOverride?: string;
+              requestedToolNames?: string[];
+            };
+          },
+        ) => { providerOverride?: string; modelOverride?: string } | void)
+      | undefined;
+    const beforePromptBuild = (api.on as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call) => call[0] === "before_prompt_build",
+    )?.[1] as
+      | ((
+          event: { prompt: string; messages: unknown[] },
+          ctx: {
+            platformExecution?: {
+              profileId: string;
+              recipeId: string;
+              requestedToolNames?: string[];
+            };
+          },
+        ) => { prependSystemContext?: string } | void)
+      | undefined;
+
+    expect(
+      beforeModelResolve?.(
+        { prompt: "Tell me a joke." },
+        {
+          platformExecution: {
+            profileId: "developer",
+            recipeId: "code_build_publish",
+            providerOverride: "openai",
+            modelOverride: "gpt-5.4",
+          },
+        },
+      ),
+    ).toEqual({
+      providerOverride: "openai",
+      modelOverride: "gpt-5.4",
+    });
+    expect(
+      beforePromptBuild?.(
+        { prompt: "Tell me a joke.", messages: [] },
+        {
+          platformExecution: {
+            profileId: "developer",
+            recipeId: "code_build_publish",
+            requestedToolNames: ["exec", "apply_patch"],
+          },
+        },
+      )?.prependSystemContext,
+    ).toContain("Planned tools: exec, apply_patch.");
+  });
+
   it("records llm_input runs and blocks machine exec when kill switch is on", () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-platform-plugin-machine-"));
     tempDirs.push(stateDir);
