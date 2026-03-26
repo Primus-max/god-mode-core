@@ -158,7 +158,22 @@ describe("platform profile plugin", () => {
         match: "prefix",
       }),
     );
-    expect(api.registerGatewayMethod).toHaveBeenCalledTimes(11);
+    expect(
+      (api.registerGatewayMethod as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]),
+    ).toEqual([
+      "platform.artifacts.list",
+      "platform.artifacts.get",
+      "platform.artifacts.transition",
+      "platform.bootstrap.list",
+      "platform.bootstrap.get",
+      "platform.bootstrap.resolve",
+      "platform.bootstrap.run",
+      "platform.machine.status",
+      "platform.machine.link",
+      "platform.machine.unlink",
+      "platform.machine.setKillSwitch",
+      "platform.profile.resolve",
+    ]);
   });
 
   it("exports an OpenClaw plugin definition", () => {

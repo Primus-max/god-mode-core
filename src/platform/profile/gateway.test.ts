@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionEntry } from "../../config/sessions.js";
 
 async function loadGatewayMethod(entry?: SessionEntry) {
-  vi.doMock("../../gateway/session-utils.js", () => ({
+  vi.doMock("../../gateway/session-entry.js", () => ({
     loadSessionEntry: vi.fn(() => ({
       entry,
       storePath: entry ? "mock-store" : undefined,
     })),
+  }));
+  vi.doMock("../../gateway/session-utils.fs.js", () => ({
     readSessionMessages: vi.fn(() => []),
   }));
   const mod = await import("./gateway.js");

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { z } from "zod";
-import { loadSessionEntry, readSessionMessages } from "../../gateway/session-utils.js";
+import { loadSessionEntry } from "../../gateway/session-entry.js";
+import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
 import { resolvePlatformRuntimePlan } from "../recipe/runtime-adapter.js";
 import { getInitialProfile, getTaskOverlay, INITIAL_PROFILES } from "./defaults.js";

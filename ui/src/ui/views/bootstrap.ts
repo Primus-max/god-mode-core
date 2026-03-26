@@ -59,7 +59,7 @@ function renderBootstrapListItem(params: {
           ${request.reason} · ${request.state}
         </span>
       </span>
-      <span style="opacity:0.75;">${formatRelativeTimestamp(request.updatedAt)}</span>
+      <span style="opacity:0.75;">${formatRelativeIsoTimestamp(request.updatedAt)}</span>
     </button>
   `;
 }
@@ -76,6 +76,14 @@ function renderReasonList(label: string, reasons?: string[]) {
       </ul>
     </div>
   `;
+}
+
+function formatRelativeIsoTimestamp(timestamp?: string) {
+  if (!timestamp) {
+    return "n/a";
+  }
+  const parsed = Date.parse(timestamp);
+  return formatRelativeTimestamp(Number.isFinite(parsed) ? parsed : null);
 }
 
 export function renderBootstrap(props: BootstrapProps) {

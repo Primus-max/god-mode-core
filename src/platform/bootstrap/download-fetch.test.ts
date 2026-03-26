@@ -8,9 +8,11 @@ const fetchWithSsrFGuardMock = vi.hoisted(() => vi.fn());
 const withTrustedEnvProxyGuardedFetchModeMock = vi.hoisted(() => vi.fn((params) => params));
 
 vi.mock("../../infra/net/fetch-guard.js", () => ({
-  fetchWithSsrFGuard: (...args: unknown[]) => fetchWithSsrFGuardMock(...args),
-  withTrustedEnvProxyGuardedFetchMode: (...args: unknown[]) =>
-    withTrustedEnvProxyGuardedFetchModeMock(...args),
+  fetchWithSsrFGuard: (...args: Parameters<typeof fetchWithSsrFGuardMock>) =>
+    fetchWithSsrFGuardMock(...args),
+  withTrustedEnvProxyGuardedFetchMode: (
+    ...args: Parameters<typeof withTrustedEnvProxyGuardedFetchModeMock>
+  ) => withTrustedEnvProxyGuardedFetchModeMock(...args),
 }));
 
 import { fetchBootstrapDownloadArtifact } from "./download-fetch.js";

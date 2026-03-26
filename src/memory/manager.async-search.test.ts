@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeAllMemorySearchManagers, MemoryIndexManager } from "./index.js";
 
+type TestMemoryIndexManager = {
+  syncing: Promise<void> | null;
+  closed: boolean;
+  providerInitPromise: Promise<void> | null;
+  db: { close: () => void };
+  cacheKey: string;
+  sync: ReturnType<typeof vi.fn>;
+};
+
 describe("memory search async sync", () => {
   beforeEach(async () => {
     vi.useRealTimers();
@@ -67,13 +76,7 @@ describe("memory search async sync", () => {
         });
         return managerLike.syncing;
       }),
-    }) as MemoryIndexManager & {
-      syncing: Promise<void> | null;
-      closed: boolean;
-      providerInitPromise: Promise<void> | null;
-      db: { close: () => void };
-      cacheKey: string;
-    };
+    }) as unknown as TestMemoryIndexManager;
 
     const searchResult = await MemoryIndexManager.prototype.search.call(managerLike, "   ");
     expect(searchResult).toEqual([]);
