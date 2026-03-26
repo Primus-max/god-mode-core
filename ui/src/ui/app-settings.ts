@@ -31,6 +31,7 @@ import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSkills } from "./controllers/skills.ts";
+import { loadSpecialistContext } from "./controllers/specialist.ts";
 import { loadUsage } from "./controllers/usage.ts";
 import {
   inferBasePathFromPathname,
@@ -544,6 +545,7 @@ export async function loadOverview(host: SettingsHost) {
     loadUsage(app),
     loadBootstrapRequests(app),
     loadMachineControl(app),
+    loadSpecialistContext(app, { draft: app.chatMessage }),
     loadOverviewLogs(app),
   ]);
   buildAttentionItems(app);

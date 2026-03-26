@@ -29,11 +29,12 @@ import { isSttSupported, startStt, stopStt } from "../chat/speech.ts";
 import { t } from "../../i18n/index.ts";
 import { icons } from "../icons.ts";
 import { detectTextDirection } from "../text-direction.ts";
-import type { GatewaySessionRow, SessionsListResult } from "../types.ts";
+import type { GatewaySessionRow, SessionsListResult, SpecialistRuntimeSnapshot } from "../types.ts";
 import type { ChatItem, MessageGroup } from "../types/chat-types.ts";
 import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
 import { agentLogoUrl, resolveAgentAvatarUrl } from "./agents-utils.ts";
 import { renderMarkdownSidebar } from "./markdown-sidebar.ts";
+import { renderSpecialistChatStrip } from "./specialist-context.ts";
 import "../components/resizable-divider.ts";
 
 export type CompactionIndicatorStatus = {
@@ -75,6 +76,9 @@ export type ChatProps = {
   canSend: boolean;
   disabledReason: string | null;
   error: string | null;
+  specialistLoading: boolean;
+  specialistError: string | null;
+  specialistSnapshot: SpecialistRuntimeSnapshot | null;
   sessions: SessionsListResult | null;
   focusMode: boolean;
   sidebarOpen?: boolean;
@@ -1117,6 +1121,11 @@ export function renderChat(props: ChatProps) {
     >
       ${props.disabledReason ? html`<div class="callout">${props.disabledReason}</div>` : nothing}
       ${props.error ? html`<div class="callout danger">${props.error}</div>` : nothing}
+      ${renderSpecialistChatStrip({
+        loading: props.specialistLoading,
+        error: props.specialistError,
+        snapshot: props.specialistSnapshot,
+      })}
 
       ${
         props.focusMode

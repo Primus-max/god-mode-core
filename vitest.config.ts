@@ -83,6 +83,7 @@ export default defineConfig({
       "ui/src/ui/views/channels.test.ts",
       "ui/src/ui/views/agents.test.ts",
       "ui/src/ui/views/config.i18n.test.ts",
+      "ui/src/ui/views/specialist-context.test.ts",
       "ui/src/ui/app-gateway.sessions.node.test.ts",
     ],
     setupFiles: ["test/setup.ts"],

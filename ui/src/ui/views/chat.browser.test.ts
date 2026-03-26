@@ -27,6 +27,9 @@ function createProps(overrides: Partial<ChatProps> = {}): ChatProps {
     canSend: true,
     disabledReason: null,
     error: null,
+    specialistLoading: false,
+    specialistError: null,
+    specialistSnapshot: null,
     sessions: {
       ts: 0,
       path: "",

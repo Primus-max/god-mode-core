@@ -116,6 +116,45 @@ export const ru: TranslationMap = {
     send: "Отправить",
     compaction: "Сжатие",
   },
+  specialist: {
+    loading: "Загрузка specialist-контекста…",
+    empty: "Specialist-контекст пока не определён. Начните сессию или введите черновик, чтобы его вычислить.",
+    chatTitle: "Текущий specialist-контекст",
+    overviewTitle: "Центр specialist-решений",
+    overviewSubtitle:
+      "Объяснимое состояние profile, overlay, recipe и seam для override в активной сессии.",
+    activeProfile: "Активный профиль",
+    overlay: "Task overlay",
+    recipe: "Recipe",
+    confidence: "Уверенность",
+    reasoning: "Объяснение",
+    signals: "Сигналы",
+    noSignals: "Для этого контекста не найдено сильных routing-сигналов.",
+    draftApplied: "Черновик учтён",
+    model: "Модель",
+    timeout: "Таймаут",
+    selectionLine: "Выбран {selected} · base {base} · session {session}",
+    signalSources: {
+      channel: "канал",
+      file: "файл",
+      tool_usage: "инструменты",
+      artifact: "артефакт",
+      dialogue: "диалог",
+      config: "конфиг",
+    },
+    override: {
+      title: "Seam для ручного override",
+      subtitle: "Подготовлено для будущих base/session profile controls без обхода policy.",
+      mode: "Режим",
+      comingSoon:
+        "Ручные specialist overrides подготовлены в этом месте, но в текущем этапе surface остаётся только для чтения и работает в auto-режиме.",
+      modes: {
+        auto: "Авто",
+        base: "Base profile",
+        session: "Session profile",
+      },
+    },
+  },
   overview: {
     access: {
       title: "Доступ к Gateway",

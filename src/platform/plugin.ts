@@ -27,6 +27,7 @@ import {
   createMachineUnlinkGatewayMethod,
   getPlatformMachineControlService,
 } from "./machine/index.js";
+import { createProfileResolveGatewayMethod } from "./profile/index.js";
 import { evaluatePolicy } from "./policy/engine.js";
 import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
@@ -146,6 +147,7 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
     "platform.machine.setKillSwitch",
     createMachineKillSwitchGatewayMethod(machineControlService),
   );
+  api.registerGatewayMethod("platform.profile.resolve", createProfileResolveGatewayMethod());
   api.on("before_agent_start", (event) => buildAgentStartResult(event.prompt), { priority: 20 });
   api.on("before_model_resolve", (event) => buildModelResolveResult(event.prompt), {
     priority: 20,

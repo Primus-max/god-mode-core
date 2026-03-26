@@ -86,6 +86,7 @@ import type {
   ChannelsStatusSnapshot,
   SessionsListResult,
   SkillStatusReport,
+  SpecialistRuntimeSnapshot,
   StatusSummary,
   NostrProfile,
   ToolsCatalogResult,
@@ -319,6 +320,9 @@ export class OpenClawApp extends LitElement {
   @state() machineError: string | null = null;
   @state() machineActionBusy = false;
   @state() machineStatus: MachineControlStatus | null = null;
+  @state() specialistLoading = false;
+  @state() specialistError: string | null = null;
+  @state() specialistSnapshot: SpecialistRuntimeSnapshot | null = null;
 
   @state() usageLoading = false;
   @state() usageResult: import("./types.js").SessionsUsageResult | null = null;

@@ -35,6 +35,7 @@ import type {
   SessionUsageTimeSeries,
   SessionsListResult,
   SkillStatusReport,
+  SpecialistRuntimeSnapshot,
   StatusSummary,
   ToolsCatalogResult,
 } from "./types.ts";
@@ -220,6 +221,9 @@ export type AppViewState = {
   machineError: string | null;
   machineActionBusy: boolean;
   machineStatus: MachineControlStatus | null;
+  specialistLoading: boolean;
+  specialistError: string | null;
+  specialistSnapshot: SpecialistRuntimeSnapshot | null;
   usageLoading: boolean;
   usageResult: SessionsUsageResult | null;
   usageCostSummary: CostUsageSummary | null;

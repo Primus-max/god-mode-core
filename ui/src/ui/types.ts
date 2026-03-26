@@ -12,6 +12,7 @@ import type {
   MachineControlKillSwitch as PlatformMachineControlKillSwitch,
   MachineControlLinkRecord as PlatformMachineControlLinkRecord,
 } from "../../../src/platform/machine/contracts.js";
+import type { SpecialistRuntimeSnapshot as PlatformSpecialistRuntimeSnapshot } from "../../../src/platform/profile/contracts.js";
 import type { CronJobBase } from "../../../src/cron/types-shared.js";
 import type { ConfigUiHints } from "../../../src/shared/config-ui-hints-types.js";
 import type {
@@ -433,6 +434,7 @@ export type MachineControlStatus = {
   linkedDevices: MachineControlLinkRecord[];
   currentDevice?: MachineControlCurrentDevice;
 };
+export type SpecialistRuntimeSnapshot = PlatformSpecialistRuntimeSnapshot;
 
 export type SessionsPatchResult = SessionsPatchResultBase<{
   sessionId: string;
