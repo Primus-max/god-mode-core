@@ -1,10 +1,12 @@
 import type { SessionSystemPromptReport } from "../../config/sessions/types.js";
 import type {
   PlatformRuntimeAcceptanceResult,
+  PlatformRuntimeExecutionSurface,
   PlatformRuntimeExecutionVerification,
   PlatformRuntimeRunOutcome,
   PlatformRuntimeSupervisorVerdict,
 } from "../../platform/runtime/index.js";
+import type { ModelFallbackSummary } from "../model-fallback.types.js";
 import type { MessagingToolSend } from "../pi-embedded-messaging.js";
 
 export type EmbeddedPiAgentMeta = {
@@ -62,9 +64,11 @@ export type EmbeddedPiRunMeta = {
     hadToolError?: boolean;
     deterministicApprovalPromptSent?: boolean;
   };
+  executionSurface?: PlatformRuntimeExecutionSurface;
   executionVerification?: PlatformRuntimeExecutionVerification;
   acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
   supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
+  modelFallback?: ModelFallbackSummary;
 };
 
 export type EmbeddedPiRunResult = {

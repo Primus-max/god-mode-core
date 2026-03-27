@@ -70,6 +70,7 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
 - Contract verification note:
   - When you touch execution truth, keep one deterministic scenario where a formally successful tool/result path still produces `contract_mismatch` until verified output or confirmed delivery appears, and one scenario where `no_progress` drives a bounded supervisor retry instead of a close or infinite loop.
   - For non-messaging closure, keep one deterministic scenario where `derived` runtime evidence is not enough to close a bootstrap/artifact-heavy run, and one scenario where a verified structured receipt does allow the close path.
+  - When you touch remediation selection, keep one scenario where `retry` still means `semantic_retry`, one where the same coarse `retry` resolves to `bootstrap`, `provider_fallback`, or `auth_refresh`, and one post-restart scenario where a persisted semantic followup queue drains again without a fresh enqueue.
   - Current reference coverage lives in `src/platform/runtime/service.test.ts`, `src/auto-reply/reply/agent-runner-helpers.test.ts`, `src/agents/pi-embedded-runner/usage-reporting.test.ts`, and `src/gateway/server/readiness.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.

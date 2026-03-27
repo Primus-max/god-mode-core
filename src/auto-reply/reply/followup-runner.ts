@@ -7,7 +7,8 @@ import { resolveRunModelFallbacksOverride } from "../../agents/agent-scope.js";
 import { resolveBootstrapWarningSignaturesSeen } from "../../agents/bootstrap-budget.js";
 import { lookupCachedContextTokens } from "../../agents/context-cache.js";
 import { lookupContextTokens } from "../../agents/context.js";
-import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
+import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL } from "../../agents/defaults.js";
+import { buildModelFallbackSummary } from "../../agents/model-fallback-summary.js";
 import { runWithModelFallback } from "../../agents/model-fallback.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import type { TypingMode } from "../../config/types.js";
@@ -35,10 +36,11 @@ import {
 } from "./origin-routing.js";
 import type { QueueSettings } from "./queue.js";
 import type { FollowupRun } from "./queue.js";
+import { listExistingFollowupQueues, scheduleFollowupDrain } from "./queue.js";
 import { resolveReplyToMode } from "./reply-threading.js";
 import { incrementRunCompactionCount, persistRunSessionUsage } from "./session-run-accounting.js";
 import { createTypingSignaler } from "./typing-mode.js";
-import type { TypingController } from "./typing.js";
+import { createTypingController, type TypingController } from "./typing.js";
 
 let piEmbeddedRuntimePromise: Promise<typeof import("../../agents/pi-embedded.runtime.js")> | null =
   null;
@@ -60,6 +62,32 @@ function loadReplyPayloadsRuntime() {
   replyPayloadsRuntimePromise ??= import("./reply-payloads.runtime.js");
   return replyPayloadsRuntimePromise;
 }
+
+export function resumePersistedFollowupDrains(): number {
+  let resumed = 0;
+  for (const { key, queue } of listExistingFollowupQueues()) {
+    if (queue.items.length === 0) {
+      continue;
+    }
+    const defaultModel = queue.lastRun?.model ?? queue.items.at(-1)?.run.model ?? DEFAULT_MODEL;
+    const runFollowup = createFollowupRunner({
+      typing: createTypingController({}),
+      typingMode: "never",
+      queueKey: key,
+      resolvedQueue: {
+        mode: queue.mode,
+        debounceMs: queue.debounceMs,
+        cap: queue.cap,
+        dropPolicy: queue.dropPolicy,
+      },
+      defaultModel,
+    });
+    scheduleFollowupDrain(key, runFollowup);
+    resumed += 1;
+  }
+  return resumed;
+}
+
 export function createFollowupRunner(params: {
   opts?: GetReplyOptions;
   typing: TypingController;
@@ -352,6 +380,16 @@ export function createFollowupRunner(params: {
         runResult = fallbackResult.result;
         fallbackProvider = fallbackResult.provider;
         fallbackModel = fallbackResult.model;
+        runResult.meta = {
+          ...runResult.meta,
+          modelFallback: buildModelFallbackSummary({
+            requestedProvider: queued.run.provider,
+            requestedModel: queued.run.model,
+            selectedProvider: fallbackResult.provider,
+            selectedModel: fallbackResult.model,
+            attempts: fallbackResult.attempts,
+          }),
+        };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         defaultRuntime.error?.(`Followup agent failed before reply: ${message}`);

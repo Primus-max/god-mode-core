@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadSessionStore, saveSessionStore, type SessionEntry } from "../../config/sessions.js";
 import {
   clearSessionQueues,
+  enqueueFollowupRun,
   getFollowupQueueDepth,
+  resetInMemoryFollowupQueuesForTests,
+  resetPersistedFollowupQueuesForTests,
   resetRecentQueuedMessageIdDedupe,
   type FollowupRun,
 } from "./queue.js";
@@ -30,7 +33,7 @@ vi.mock("./route-reply.runtime.js", () => ({
   routeReply: (...args: unknown[]) => routeReplyMock(...args),
 }));
 
-import { createFollowupRunner } from "./followup-runner.js";
+import { createFollowupRunner, resumePersistedFollowupDrains } from "./followup-runner.js";
 
 const ROUTABLE_TEST_CHANNELS = new Set([
   "telegram",
@@ -791,6 +794,65 @@ describe("createFollowupRunner messaging tool dedupe", () => {
       }),
     );
     expect(onBlockReply).not.toHaveBeenCalled();
+  });
+});
+
+describe("resumePersistedFollowupDrains", () => {
+  it("drains persisted semantic followups after restart without manual reattach", async () => {
+    const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+    const tempStateDir = await fs.mkdtemp(path.join(tmpdir(), "openclaw-followup-resume-"));
+    process.env.OPENCLAW_STATE_DIR = tempStateDir;
+    resetInMemoryFollowupQueuesForTests();
+    resetPersistedFollowupQueuesForTests();
+    resetRecentQueuedMessageIdDedupe();
+    const key = `resume-${Date.now()}`;
+    try {
+      runEmbeddedPiAgentMock.mockResolvedValueOnce({
+        payloads: [{ text: "Recovered after restart." }],
+        meta: {},
+      });
+      enqueueFollowupRun(
+        key,
+        createQueuedRun({
+          prompt: "retry after restart",
+          automation: {
+            source: "acceptance_retry",
+            retryCount: 1,
+            persisted: true,
+            reasonCode: "contract_mismatch",
+            reasonSummary: "missing verified receipt",
+          },
+          originatingChannel: "discord",
+          originatingTo: "channel:C1",
+        }),
+        { mode: "followup", debounceMs: 0, cap: 5 },
+        "prompt",
+      );
+      expect(getFollowupQueueDepth(key)).toBe(1);
+
+      resetInMemoryFollowupQueuesForTests({ keepPersisted: true });
+      expect(getFollowupQueueDepth(key)).toBe(1);
+
+      expect(resumePersistedFollowupDrains()).toBe(1);
+
+      await vi.waitFor(() => {
+        expect(routeReplyMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            channel: "discord",
+            to: "channel:C1",
+          }),
+        );
+      });
+    } finally {
+      resetInMemoryFollowupQueuesForTests();
+      resetPersistedFollowupQueuesForTests();
+      resetRecentQueuedMessageIdDedupe();
+      if (previousStateDir === undefined) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = previousStateDir;
+      }
+    }
   });
 });
 

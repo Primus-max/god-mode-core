@@ -10,6 +10,7 @@ export {
 export { resolveQueueSettings } from "./queue/settings.js";
 export {
   clearFollowupQueue,
+  listExistingFollowupQueues,
   resetInMemoryFollowupQueuesForTests,
   resetPersistedFollowupQueuesForTests,
 } from "./queue/state.js";

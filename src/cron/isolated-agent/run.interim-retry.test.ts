@@ -101,6 +101,7 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
             runId: "run-1",
             status: "retryable",
             action: "retry",
+            remediation: "semantic_retry",
             reasonCode: "completed_without_evidence",
             reasons: ["Run completed but no machine-checkable delivery evidence was observed."],
             outcome: {
@@ -147,6 +148,7 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
           runId: "run-human",
           status: "needs_human",
           action: "escalate",
+          remediation: "needs_human",
           reasonCode: "pending_approval",
           reasons: ["Run still requires operator approval before the task can finish."],
           outcome: {
