@@ -328,31 +328,16 @@ function buildCompletionArtifacts(params: {
       ? { successfulCronAdds: params.successfulCronAdds }
       : {}),
   };
-  const executionReceipts: PlatformRuntimeExecutionReceipt[] = [
-    ...(params.executionReceipts ?? []),
-    ...(outcome.confirmedActionIds.length > 0
-      ? [
-          {
-            kind: "platform_action",
-            name: "runtime_action",
-            status: "success",
-            summary: "replay-safe runtime action confirmed",
-            metadata: { actionIds: outcome.confirmedActionIds },
-          } satisfies PlatformRuntimeExecutionReceipt,
-        ]
-      : []),
-    ...(outcome.failedActionIds.length > 0
-      ? [
-          {
-            kind: "platform_action",
-            name: "runtime_action",
-            status: "failed",
-            summary: "runtime action failed before confirmation",
-            metadata: { actionIds: outcome.failedActionIds },
-          } satisfies PlatformRuntimeExecutionReceipt,
-        ]
-      : []),
-  ];
+  const requiresStructuredReceipts =
+    outcome.actionIds.length > 0 ||
+    outcome.artifactIds.length > 0 ||
+    outcome.bootstrapRequestIds.length > 0;
+  const executionReceipts: PlatformRuntimeExecutionReceipt[] =
+    runtimeService.buildExecutionReceipts({
+      runId: normalizedRunId,
+      outcome,
+      receipts: params.executionReceipts,
+    });
   const executionVerification = runtimeService.verifyExecutionContract({
     contract: {
       runId: normalizedRunId,
@@ -361,6 +346,21 @@ function buildCompletionArtifacts(params: {
         requiresOutput: params.hasOutput === true,
         requiresMessagingDelivery: params.didSendViaMessagingTool === true,
         requiresConfirmedAction: outcome.actionIds.length > 0,
+        requireStructuredReceipts: requiresStructuredReceipts,
+        minimumVerifiedReceiptCount: requiresStructuredReceipts ? 1 : 0,
+        requiredReceiptKinds: Array.from(
+          new Set([
+            ...(params.didSendViaMessagingTool === true ? (["messaging_delivery"] as const) : []),
+            ...(outcome.bootstrapRequestIds.length > 0 ? (["capability"] as const) : []),
+            ...(outcome.actionIds.length > 0 &&
+            outcome.bootstrapRequestIds.length === 0 &&
+            params.didSendViaMessagingTool !== true
+              ? (["platform_action"] as const)
+              : []),
+          ]),
+        ),
+        allowStandaloneEvidence:
+          params.didSendViaMessagingTool !== true && !requiresStructuredReceipts,
         allowWarnings: true,
       },
     },

@@ -180,6 +180,7 @@ export const PlatformRuntimeActionReceiptSchema = z
   .object({
     deliveryResults: z.array(PlatformRuntimeActionDeliveryResultSchema).optional(),
     bootstrapRequestId: z.string().min(1).optional(),
+    capabilityId: z.string().min(1).optional(),
     artifactId: z.string().min(1).optional(),
     nodeId: z.string().min(1).optional(),
     command: z.string().min(1).optional(),
@@ -268,11 +269,21 @@ export type PlatformRuntimeExecutionReceiptStatus = z.infer<
   typeof PlatformRuntimeExecutionReceiptStatusSchema
 >;
 
+export const PlatformRuntimeExecutionReceiptProofSchema = z.enum([
+  "derived",
+  "reported",
+  "verified",
+]);
+export type PlatformRuntimeExecutionReceiptProof = z.infer<
+  typeof PlatformRuntimeExecutionReceiptProofSchema
+>;
+
 export const PlatformRuntimeExecutionReceiptSchema = z
   .object({
     kind: PlatformRuntimeExecutionReceiptKindSchema,
     name: z.string().min(1),
     status: PlatformRuntimeExecutionReceiptStatusSchema,
+    proof: PlatformRuntimeExecutionReceiptProofSchema,
     summary: z.string().min(1).optional(),
     reasons: z.array(z.string().min(1)).optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
@@ -285,6 +296,10 @@ export const PlatformRuntimeExecutionContractExpectationSchema = z
     requiresOutput: z.boolean().optional(),
     requiresMessagingDelivery: z.boolean().optional(),
     requiresConfirmedAction: z.boolean().optional(),
+    requireStructuredReceipts: z.boolean().optional(),
+    minimumVerifiedReceiptCount: z.number().int().nonnegative().optional(),
+    requiredReceiptKinds: z.array(PlatformRuntimeExecutionReceiptKindSchema).optional(),
+    allowStandaloneEvidence: z.boolean().optional(),
     allowWarnings: z.boolean().optional(),
     allowPartial: z.boolean().optional(),
   })
@@ -331,6 +346,17 @@ export type PlatformRuntimeExecutionReceiptCounts = z.infer<
   typeof PlatformRuntimeExecutionReceiptCountsSchema
 >;
 
+export const PlatformRuntimeExecutionReceiptProofCountsSchema = z
+  .object({
+    derived: z.number().int().nonnegative(),
+    reported: z.number().int().nonnegative(),
+    verified: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PlatformRuntimeExecutionReceiptProofCounts = z.infer<
+  typeof PlatformRuntimeExecutionReceiptProofCountsSchema
+>;
+
 export const PlatformRuntimeExecutionVerificationSchema = z
   .object({
     runId: z.string().min(1),
@@ -338,6 +364,9 @@ export const PlatformRuntimeExecutionVerificationSchema = z
     reasons: z.array(z.string().min(1)),
     receipts: z.array(PlatformRuntimeExecutionReceiptSchema),
     receiptCounts: PlatformRuntimeExecutionReceiptCountsSchema,
+    receiptProofCounts: PlatformRuntimeExecutionReceiptProofCountsSchema,
+    missingReceiptKinds: z.array(PlatformRuntimeExecutionReceiptKindSchema).optional(),
+    usedStandaloneEvidence: z.boolean().optional(),
     checkedAtMs: z.number().int().nonnegative(),
   })
   .strict();
@@ -452,6 +481,8 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     confirmedActionCount: z.number().int().nonnegative().optional(),
     failedActionCount: z.number().int().nonnegative().optional(),
     executionReceiptCount: z.number().int().nonnegative().optional(),
+    structuredExecutionReceiptCount: z.number().int().nonnegative().optional(),
+    verifiedExecutionReceiptCount: z.number().int().nonnegative().optional(),
     verifiedExecution: z.boolean().optional(),
     executionWarningCount: z.number().int().nonnegative().optional(),
     executionPartialCount: z.number().int().nonnegative().optional(),

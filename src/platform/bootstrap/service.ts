@@ -376,6 +376,7 @@ export function createBootstrapRequestService(params?: {
           retryable: true,
           receipt: {
             bootstrapRequestId: running.id,
+            capabilityId: running.request.capabilityId,
             operation: "bootstrap.run",
           },
         });
@@ -400,6 +401,7 @@ export function createBootstrapRequestService(params?: {
         runtimeCheckpointService.markActionConfirmed(actionId, {
           receipt: {
             bootstrapRequestId: updated.id,
+            capabilityId: updated.request.capabilityId,
             operation: "bootstrap.run",
             resultStatus: result.status,
           },
@@ -410,6 +412,7 @@ export function createBootstrapRequestService(params?: {
           retryable: true,
           receipt: {
             bootstrapRequestId: updated.id,
+            capabilityId: updated.request.capabilityId,
             operation: "bootstrap.run",
             resultStatus: result.status,
           },

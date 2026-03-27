@@ -354,7 +354,11 @@ export async function handleToolsInvokeHttpRequest(
             result,
           }),
         ],
-        expectations: { allowWarnings: true },
+        expectations: {
+          requireStructuredReceipts: true,
+          allowStandaloneEvidence: false,
+          allowWarnings: true,
+        },
       },
     });
     sendJson(res, 200, { ok: true, result, execution });

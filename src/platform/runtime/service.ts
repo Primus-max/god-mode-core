@@ -13,6 +13,7 @@ import {
   PlatformRuntimeCheckpointSummarySchema,
   PlatformRuntimeExecutionContractSchema,
   PlatformRuntimeExecutionReceiptCountsSchema,
+  PlatformRuntimeExecutionReceiptProofCountsSchema,
   PlatformRuntimeExecutionReceiptSchema,
   PlatformRuntimeExecutionSurfaceSchema,
   PlatformRuntimeExecutionVerificationSchema,
@@ -34,6 +35,8 @@ import {
   type PlatformRuntimeExecutionContract,
   type PlatformRuntimeExecutionReceipt,
   type PlatformRuntimeExecutionReceiptCounts,
+  type PlatformRuntimeExecutionReceiptKind,
+  type PlatformRuntimeExecutionReceiptProofCounts,
   type PlatformRuntimeExecutionSurface,
   type PlatformRuntimeExecutionVerification,
   type PlatformRuntimeNextAction,
@@ -114,6 +117,11 @@ export type PlatformRuntimeCheckpointService = {
     executionVerification?: PlatformRuntimeExecutionVerification;
     executionSurface?: PlatformRuntimeExecutionSurface;
   }) => PlatformRuntimeAcceptanceEvidence;
+  buildExecutionReceipts: (params: {
+    runId: string;
+    outcome?: PlatformRuntimeRunOutcome;
+    receipts?: PlatformRuntimeExecutionReceipt[];
+  }) => PlatformRuntimeExecutionReceipt[];
   verifyExecutionContract: (params: {
     contract: PlatformRuntimeExecutionContract;
     outcome?: PlatformRuntimeRunOutcome;
@@ -188,6 +196,161 @@ function buildExecutionReceiptCounts(
     counts[receipt.status] += 1;
   }
   return PlatformRuntimeExecutionReceiptCountsSchema.parse(counts);
+}
+
+function buildExecutionReceiptProofCounts(
+  receipts: PlatformRuntimeExecutionReceipt[],
+): PlatformRuntimeExecutionReceiptProofCounts {
+  const counts = {
+    derived: 0,
+    reported: 0,
+    verified: 0,
+  } satisfies PlatformRuntimeExecutionReceiptProofCounts;
+  for (const receipt of receipts) {
+    counts[receipt.proof] += 1;
+  }
+  return PlatformRuntimeExecutionReceiptProofCountsSchema.parse(counts);
+}
+
+function buildExecutionReceiptKey(receipt: PlatformRuntimeExecutionReceipt): string {
+  const actionId =
+    receipt.metadata && typeof receipt.metadata.actionId === "string"
+      ? receipt.metadata.actionId
+      : "";
+  return [receipt.kind, receipt.name, receipt.status, receipt.proof, actionId].join("::");
+}
+
+function resolveActionExecutionReceiptKind(
+  action: PlatformRuntimeAction,
+): PlatformRuntimeExecutionReceiptKind {
+  if (action.kind === "messaging_delivery") {
+    return "messaging_delivery";
+  }
+  if (action.kind === "bootstrap") {
+    return "capability";
+  }
+  return "platform_action";
+}
+
+function resolveActionExecutionReceiptName(action: PlatformRuntimeAction): string {
+  if (action.kind === "bootstrap") {
+    return action.receipt?.operation?.trim() || "bootstrap.run";
+  }
+  if (action.kind === "artifact_publish") {
+    const operation = action.receipt?.operation?.trim() || action.target?.operation?.trim();
+    return operation ? `artifact.${operation}` : "artifact.transition";
+  }
+  if (action.kind === "messaging_delivery") {
+    const deliveryChannel = action.receipt?.deliveryResults?.[0]?.channel?.trim();
+    return deliveryChannel ? `delivery.${deliveryChannel}` : "delivery";
+  }
+  if (action.kind === "node_invoke") {
+    return action.receipt?.operation?.trim() || "node.invoke";
+  }
+  if (action.kind === "machine_control") {
+    return action.receipt?.operation?.trim() || "machine.control";
+  }
+  if (action.kind === "privileged_tool") {
+    return (
+      action.receipt?.command?.trim() || action.receipt?.operation?.trim() || "privileged_tool"
+    );
+  }
+  return action.kind;
+}
+
+function hasStructuredActionReceipt(action: PlatformRuntimeAction): boolean {
+  if (!action.receipt) {
+    return false;
+  }
+  if ((action.receipt.deliveryResults?.length ?? 0) > 0) {
+    return true;
+  }
+  if (
+    action.kind === "bootstrap" &&
+    action.receipt.bootstrapRequestId &&
+    action.receipt.capabilityId &&
+    action.receipt.operation &&
+    action.receipt.resultStatus
+  ) {
+    return true;
+  }
+  if (
+    action.kind === "artifact_publish" &&
+    action.receipt.artifactId &&
+    action.receipt.operation &&
+    action.receipt.resultStatus
+  ) {
+    return true;
+  }
+  if (
+    action.kind === "node_invoke" &&
+    (action.receipt.nodeId || action.receipt.nodeInvokeResult || action.receipt.operation)
+  ) {
+    return true;
+  }
+  if (
+    (action.kind === "machine_control" || action.kind === "privileged_tool") &&
+    (action.receipt.command || action.receipt.operation || action.receipt.resultStatus)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function buildExecutionReceiptFromAction(
+  action: PlatformRuntimeAction,
+): PlatformRuntimeExecutionReceipt | undefined {
+  if (action.state === "staged") {
+    return undefined;
+  }
+  const reasons: string[] = [];
+  const structuredReceipt = hasStructuredActionReceipt(action);
+  const proof = structuredReceipt ? "verified" : "derived";
+  let status: PlatformRuntimeExecutionReceipt["status"];
+  if (action.state === "failed") {
+    status = "failed";
+  } else if (action.state === "partial" || action.state === "attempted") {
+    status = structuredReceipt ? "partial" : "warning";
+  } else {
+    status = structuredReceipt ? "success" : "warning";
+  }
+  if (!structuredReceipt) {
+    reasons.push("runtime action completed without a structured receipt payload");
+  }
+  if (action.lastError) {
+    reasons.push(action.lastError);
+  }
+  if (action.state === "attempted") {
+    reasons.push("runtime action was attempted but not yet confirmed");
+  }
+  return PlatformRuntimeExecutionReceiptSchema.parse({
+    kind: resolveActionExecutionReceiptKind(action),
+    name: resolveActionExecutionReceiptName(action),
+    status,
+    proof,
+    summary:
+      action.state === "confirmed"
+        ? "runtime action confirmed"
+        : action.state === "failed"
+          ? "runtime action failed"
+          : "runtime action remains in progress",
+    ...(normalizeReasons(reasons) ? { reasons: normalizeReasons(reasons) } : {}),
+    metadata: {
+      actionId: action.actionId,
+      actionKind: action.kind,
+      actionState: action.state,
+      ...(action.checkpointId ? { checkpointId: action.checkpointId } : {}),
+      ...(action.boundary ? { boundary: action.boundary } : {}),
+      ...(action.receipt?.artifactId ? { artifactId: action.receipt.artifactId } : {}),
+      ...(action.receipt?.bootstrapRequestId
+        ? { bootstrapRequestId: action.receipt.bootstrapRequestId }
+        : {}),
+      ...(action.receipt?.capabilityId ? { capabilityId: action.receipt.capabilityId } : {}),
+      ...(action.receipt?.nodeId ? { nodeId: action.receipt.nodeId } : {}),
+      ...(action.receipt?.operation ? { operation: action.receipt.operation } : {}),
+      ...(action.receipt?.resultStatus ? { resultStatus: action.receipt.resultStatus } : {}),
+    },
+  });
 }
 
 export function createPlatformRuntimeCheckpointService(params?: {
@@ -518,7 +681,10 @@ export function createPlatformRuntimeCheckpointService(params?: {
       };
       if (params.executionVerification) {
         const receiptCounts = params.executionVerification.receiptCounts;
+        const proofCounts = params.executionVerification.receiptProofCounts;
         merged.executionReceiptCount = params.executionVerification.receipts.length;
+        merged.structuredExecutionReceiptCount = proofCounts.reported + proofCounts.verified;
+        merged.verifiedExecutionReceiptCount = proofCounts.verified;
         merged.verifiedExecution =
           params.executionVerification.status === "verified" ||
           params.executionVerification.status === "warning";
@@ -541,6 +707,36 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       return merged;
     },
+    buildExecutionReceipts(params) {
+      const normalizedRunId = params.runId.trim();
+      if (!normalizedRunId) {
+        return [];
+      }
+      const explicitReceipts = (params.receipts ?? []).map((receipt) =>
+        PlatformRuntimeExecutionReceiptSchema.parse({
+          ...receipt,
+          ...(normalizeReasons(receipt.reasons)
+            ? { reasons: normalizeReasons(receipt.reasons) }
+            : {}),
+        }),
+      );
+      const actionIds = new Set(params.outcome?.actionIds ?? []);
+      const actionReceipts = Array.from(actions.values())
+        .filter((action) => action.runId === normalizedRunId)
+        .filter((action) => actionIds.size === 0 || actionIds.has(action.actionId))
+        .map((action) => buildExecutionReceiptFromAction(action))
+        .filter((receipt): receipt is PlatformRuntimeExecutionReceipt => Boolean(receipt));
+      return [...explicitReceipts, ...actionReceipts]
+        .toSorted((left, right) =>
+          buildExecutionReceiptKey(left).localeCompare(buildExecutionReceiptKey(right)),
+        )
+        .filter((receipt, index, all) => {
+          if (index === 0) {
+            return true;
+          }
+          return buildExecutionReceiptKey(receipt) !== buildExecutionReceiptKey(all[index - 1]);
+        });
+    },
     verifyExecutionContract(params) {
       const contract = PlatformRuntimeExecutionContractSchema.parse(params.contract);
       const receipts = contract.receipts.map((receipt) =>
@@ -553,6 +749,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       );
       const evidence = params.evidence ?? {};
       const counts = buildExecutionReceiptCounts(receipts);
+      const proofCounts = buildExecutionReceiptProofCounts(receipts);
       const reasons: string[] = [];
       const expectations = contract.expectations;
       const hasBlockedNoProgress = receipts.some((receipt) => receipt.status === "blocked");
@@ -560,6 +757,15 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const hasDegradedReceipt = counts.degraded > 0;
       const hasPartialReceipt = counts.partial > 0;
       const hasWarningReceipt = counts.warning > 0;
+      const missingReceiptKinds = Array.from(
+        new Set(
+          (expectations?.requiredReceiptKinds ?? []).filter(
+            (kind) =>
+              !receipts.some((receipt) => receipt.kind === kind && receipt.proof === "verified"),
+          ),
+        ),
+      );
+      const allowStandaloneEvidence = expectations?.allowStandaloneEvidence === true;
       const confirmedDeliveryCount =
         evidence.confirmedDeliveryCount ?? evidence.deliveredReplyCount ?? 0;
       const hasOutput = evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
@@ -592,6 +798,26 @@ export function createPlatformRuntimeCheckpointService(params?: {
           "Execution contract expected a confirmed runtime action, but none was observed.",
         );
       }
+      if (expectations?.requireStructuredReceipts && proofCounts.derived === receipts.length) {
+        reasons.push(
+          "Execution contract required structured receipts, but only derived or fallback receipts were available.",
+        );
+      }
+      if (
+        (expectations?.minimumVerifiedReceiptCount ?? 0) > 0 &&
+        proofCounts.verified < (expectations?.minimumVerifiedReceiptCount ?? 0)
+      ) {
+        reasons.push(
+          `Execution contract expected at least ${String(
+            expectations?.minimumVerifiedReceiptCount ?? 0,
+          )} verified receipt(s), but only ${String(proofCounts.verified)} were observed.`,
+        );
+      }
+      if (missingReceiptKinds.length > 0) {
+        reasons.push(
+          `Execution contract is missing verified receipt kind(s): ${missingReceiptKinds.join(", ")}.`,
+        );
+      }
 
       let status: PlatformRuntimeExecutionVerification["status"] = "verified";
       if (hasBlockedNoProgress) {
@@ -616,14 +842,30 @@ export function createPlatformRuntimeCheckpointService(params?: {
             : "Execution receipts contain warnings that the contract does not allow.",
         );
       } else if (receipts.length === 0) {
-        if (hasStandaloneOutcomeEvidence) {
+        if (hasStandaloneOutcomeEvidence && allowStandaloneEvidence) {
           status = "verified";
           reasons.push(
             "Execution closed on standalone output or delivery evidence without explicit receipts.",
           );
         } else {
           status = "mismatch";
-          reasons.push("Execution contract verification had no receipts to verify.");
+          reasons.push(
+            allowStandaloneEvidence
+              ? "Execution contract verification had no receipts to verify."
+              : "Execution contract requires receipts and cannot close on standalone evidence alone.",
+          );
+        }
+      } else if (proofCounts.verified === 0 && proofCounts.reported === 0) {
+        if (allowStandaloneEvidence && hasStandaloneOutcomeEvidence) {
+          status = "warning";
+          reasons.push(
+            "Execution relied on derived receipts plus standalone evidence instead of verified runtime receipts.",
+          );
+        } else {
+          status = "mismatch";
+          reasons.push(
+            "Execution receipts were only derived and cannot verify closure on their own.",
+          );
         }
       }
 
@@ -633,6 +875,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
         reasons: Array.from(new Set(reasons)),
         receipts,
         receiptCounts: counts,
+        receiptProofCounts: proofCounts,
+        ...(missingReceiptKinds.length > 0 ? { missingReceiptKinds } : {}),
+        ...(receipts.length === 0 && hasStandaloneOutcomeEvidence && allowStandaloneEvidence
+          ? { usedStandaloneEvidence: true }
+          : {}),
         checkedAtMs: contract.checkedAtMs ?? Date.now(),
       });
     },
@@ -778,6 +1025,14 @@ export function createPlatformRuntimeCheckpointService(params?: {
         confirmedDeliveryCount > 0 ||
         confirmedActionCount > 0 ||
         (evidence.successfulCronAdds ?? 0) > 0;
+      const requiresVerifiedNonMessagingClosure =
+        attemptedDeliveryCount === 0 &&
+        confirmedDeliveryCount === 0 &&
+        ((evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
+          (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0 ||
+          attemptedActionCount > 0 ||
+          confirmedActionCount > 0 ||
+          failedActionCount > 0);
       if (
         attemptedDeliveryCount === 0 &&
         confirmedDeliveryCount === 0 &&
@@ -793,6 +1048,23 @@ export function createPlatformRuntimeCheckpointService(params?: {
           status: "retryable",
           action: "retry",
           reasonCode: "completed_without_evidence",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (
+        requiresVerifiedNonMessagingClosure &&
+        (evidence.verifiedExecutionReceiptCount ?? 0) === 0
+      ) {
+        reasons.push(
+          "Run completed on a non-messaging execution path, but no verified structured receipt proved the final closure.",
+        );
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode: "contract_mismatch",
           reasons,
           outcome: params.outcome,
           evidence,

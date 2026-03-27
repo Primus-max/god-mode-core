@@ -123,6 +123,7 @@ describe("platform runtime checkpoint service", () => {
     service.markActionConfirmed("action-1", {
       receipt: {
         bootstrapRequestId: "bootstrap-1",
+        capabilityId: "pdf-renderer",
         operation: "bootstrap.run",
         resultStatus: "bootstrapped",
       },
@@ -156,6 +157,47 @@ describe("platform runtime checkpoint service", () => {
         state: "confirmed",
       }),
     );
+  });
+
+  it("builds verified execution receipts from structured runtime actions", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    service.stageAction({
+      actionId: "bootstrap-action",
+      runId: "run-execution-receipts",
+      kind: "bootstrap",
+      boundary: "bootstrap",
+      checkpointId: "bootstrap-checkpoint",
+      target: {
+        bootstrapRequestId: "bootstrap-verified",
+        operation: "bootstrap.run",
+      },
+    });
+    service.markActionConfirmed("bootstrap-action", {
+      receipt: {
+        bootstrapRequestId: "bootstrap-verified",
+        capabilityId: "pdf-renderer",
+        operation: "bootstrap.run",
+        resultStatus: "bootstrapped",
+      },
+    });
+
+    expect(
+      service.buildExecutionReceipts({
+        runId: "run-execution-receipts",
+        outcome: service.buildRunOutcome("run-execution-receipts"),
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        kind: "capability",
+        name: "bootstrap.run",
+        status: "success",
+        proof: "verified",
+        metadata: expect.objectContaining({
+          actionId: "bootstrap-action",
+          capabilityId: "pdf-renderer",
+        }),
+      }),
+    ]);
   });
 
   it("evaluates acceptance outcomes from runtime evidence", () => {
@@ -309,6 +351,7 @@ describe("platform runtime checkpoint service", () => {
             kind: "tool",
             name: "write",
             status: "success",
+            proof: "reported",
             summary: "tool returned ok",
           },
         ],
@@ -353,6 +396,77 @@ describe("platform runtime checkpoint service", () => {
     );
   });
 
+  it("does not close non-messaging runs without a verified structured receipt", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-non-messaging-proof",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: ["artifact-1"],
+      bootstrapRequestIds: [],
+      actionIds: ["artifact:artifact-1:publish"],
+      attemptedActionIds: [],
+      confirmedActionIds: ["artifact:artifact-1:publish"],
+      failedActionIds: [],
+      boundaries: ["artifact_publish"],
+    };
+    const verification = service.verifyExecutionContract({
+      contract: {
+        runId: "run-non-messaging-proof",
+        receipts: [
+          {
+            kind: "platform_action",
+            name: "artifact.publish",
+            status: "warning",
+            proof: "derived",
+            reasons: ["runtime action completed without a structured receipt payload"],
+          },
+        ],
+        expectations: {
+          requireStructuredReceipts: true,
+          minimumVerifiedReceiptCount: 1,
+          requiredReceiptKinds: ["platform_action"],
+          allowStandaloneEvidence: false,
+        },
+      },
+      outcome,
+      evidence: {
+        artifactReceiptCount: 1,
+      },
+    });
+    expect(verification).toEqual(
+      expect.objectContaining({
+        status: "mismatch",
+        receiptProofCounts: expect.objectContaining({
+          verified: 0,
+          derived: 1,
+        }),
+        missingReceiptKinds: ["platform_action"],
+      }),
+    );
+    const evidence = service.buildAcceptanceEvidence({
+      outcome,
+      evidence: { artifactReceiptCount: 1 },
+      executionVerification: verification,
+    });
+    const acceptance = service.evaluateAcceptance({
+      runId: "run-non-messaging-proof",
+      outcome,
+      evidence,
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        action: "retry",
+        reasonCode: "contract_mismatch",
+      }),
+    );
+  });
+
   it("turns no-progress execution receipts into a bounded supervisor retry", () => {
     const service = createPlatformRuntimeCheckpointService();
     const outcome: PlatformRuntimeRunOutcome = {
@@ -379,6 +493,7 @@ describe("platform runtime checkpoint service", () => {
             kind: "tool",
             name: "process",
             status: "blocked",
+            proof: "reported",
             reasons: ["tool reported no progress on a repeated poll path"],
             metadata: { noProgress: true },
           },
