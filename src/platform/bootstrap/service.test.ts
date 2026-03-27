@@ -116,6 +116,23 @@ describe("bootstrap request service", () => {
     expect(result?.result?.status).toBe("bootstrapped");
     expect(result?.result?.lifecycle?.status).toBe("available");
     expect(getPlatformRuntimeCheckpointService().get(created.id)?.status).toBe("completed");
+    expect(
+      getPlatformRuntimeCheckpointService().buildExecutionReceipts({
+        runId: created.id,
+        outcome: getPlatformRuntimeCheckpointService().buildRunOutcome(created.id),
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        kind: "capability",
+        name: "bootstrap.run",
+        status: "success",
+        proof: "verified",
+        metadata: expect.objectContaining({
+          bootstrapRequestId: created.id,
+          capabilityId: "pdf-renderer",
+        }),
+      }),
+    ]);
   });
 
   it("does not execute a confirmed bootstrap continuation twice on replay", async () => {

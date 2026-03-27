@@ -69,6 +69,7 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
   - Current reference coverage lives in `src/infra/outbound/delivery-queue.recovery.test.ts`, `src/platform/bootstrap/service.test.ts`, `src/platform/artifacts/service.test.ts`, and `src/platform/runtime/service.test.ts`.
 - Contract verification note:
   - When you touch execution truth, keep one deterministic scenario where a formally successful tool/result path still produces `contract_mismatch` until verified output or confirmed delivery appears, and one scenario where `no_progress` drives a bounded supervisor retry instead of a close or infinite loop.
+  - For non-messaging closure, keep one deterministic scenario where `derived` runtime evidence is not enough to close a bootstrap/artifact-heavy run, and one scenario where a verified structured receipt does allow the close path.
   - Current reference coverage lives in `src/platform/runtime/service.test.ts`, `src/auto-reply/reply/agent-runner-helpers.test.ts`, `src/agents/pi-embedded-runner/usage-reporting.test.ts`, and `src/gateway/server/readiness.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.

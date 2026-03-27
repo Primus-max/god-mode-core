@@ -202,15 +202,25 @@ function reevaluateMessagingDecision(params: {
     replyPayloads: params.replyPayloads,
     deliveryReceipt: params.deliveryReceipt,
   });
+  const executionReceipts = runtimeService.buildExecutionReceipts({
+    runId: completionOutcome.runId,
+    outcome: completionOutcome,
+    receipts: params.runResult.meta?.executionVerification?.receipts,
+  });
   const executionVerification = runtimeService.verifyExecutionContract({
     contract: {
       runId: completionOutcome.runId,
-      receipts: params.runResult.meta?.executionVerification?.receipts ?? [],
+      receipts: executionReceipts,
       expectations: {
         requiresOutput:
           baseEvidence.hasOutput === true || baseEvidence.hasStructuredReplyPayload === true,
         requiresMessagingDelivery: (baseEvidence.stagedReplyCount ?? 0) > 0,
         requiresConfirmedAction: completionOutcome.actionIds.length > 0,
+        requireStructuredReceipts: completionOutcome.actionIds.length > 0,
+        minimumVerifiedReceiptCount: completionOutcome.actionIds.length > 0 ? 1 : 0,
+        requiredReceiptKinds:
+          (baseEvidence.stagedReplyCount ?? 0) > 0 ? ["messaging_delivery"] : undefined,
+        allowStandaloneEvidence: false,
         allowWarnings: true,
       },
     },

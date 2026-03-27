@@ -431,6 +431,7 @@ export function buildToolExecutionReceipt(params: {
     kind: "tool",
     name: normalizedToolName,
     status,
+    proof: "reported",
     ...(params.meta ? { summary: params.meta } : {}),
     ...(reasons.length > 0 ? { reasons } : {}),
     metadata: {

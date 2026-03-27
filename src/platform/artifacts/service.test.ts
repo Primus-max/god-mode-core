@@ -101,6 +101,23 @@ describe("artifact service", () => {
       ok: true,
       descriptor: expect.objectContaining({ lifecycle: "published" }),
     });
+    expect(
+      getPlatformRuntimeCheckpointService().buildExecutionReceipts({
+        runId: "artifact-release:publish",
+        outcome: getPlatformRuntimeCheckpointService().buildRunOutcome("artifact-release:publish"),
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        kind: "platform_action",
+        name: "artifact.publish",
+        status: "success",
+        proof: "verified",
+        metadata: expect.objectContaining({
+          artifactId: "artifact-release",
+          operation: "publish",
+        }),
+      }),
+    ]);
 
     const nextService = createArtifactService({
       stateDir,

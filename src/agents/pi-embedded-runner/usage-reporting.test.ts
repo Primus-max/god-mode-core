@@ -242,6 +242,11 @@ describe("runEmbeddedPiAgent usage reporting", () => {
     expect(result.meta.executionVerification).toEqual(
       expect.objectContaining({
         status: "mismatch",
+        receiptProofCounts: expect.objectContaining({
+          derived: 0,
+          reported: 0,
+          verified: 0,
+        }),
       }),
     );
     expect(result.meta.supervisorVerdict).toEqual(
