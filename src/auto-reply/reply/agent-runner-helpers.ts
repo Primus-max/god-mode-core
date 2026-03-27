@@ -78,8 +78,6 @@ export const finalizeWithFollowup = <T>(
   return value;
 };
 
-const MAX_SEMANTIC_RETRY_COUNT = 1;
-
 export type MessagingDeliveryReceipt = {
   stagedReplyCount: number;
   attemptedDeliveryCount: number;
@@ -147,6 +145,7 @@ export function buildMessagingAcceptanceEvidence(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads?: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
+  recoveryAttemptCount?: number;
 }): PlatformRuntimeAcceptanceEvidence {
   const deliveryReceipt = buildMessagingDeliveryReceipt({
     stagedReplyPayloads: params.replyPayloads,
@@ -199,6 +198,9 @@ export function buildMessagingAcceptanceEvidence(params: {
     ...(params.runResult.successfulCronAdds !== undefined
       ? { successfulCronAdds: params.runResult.successfulCronAdds }
       : {}),
+    ...(params.recoveryAttemptCount !== undefined
+      ? { recoveryAttemptCount: params.recoveryAttemptCount }
+      : {}),
   };
 }
 
@@ -206,6 +208,7 @@ function reevaluateMessagingDecision(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
+  recoveryAttemptCount?: number;
 }):
   | {
       acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
@@ -226,6 +229,7 @@ function reevaluateMessagingDecision(params: {
     runResult: params.runResult,
     replyPayloads: params.replyPayloads,
     deliveryReceipt: params.deliveryReceipt,
+    recoveryAttemptCount: params.recoveryAttemptCount,
   });
   const executionReceipts = runtimeService.buildExecutionReceipts({
     runId: completionOutcome.runId,
@@ -276,6 +280,7 @@ export function reevaluateAcceptanceForMessagingRun(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
+  recoveryAttemptCount?: number;
 }): PlatformRuntimeAcceptanceResult | undefined {
   return reevaluateMessagingDecision(params)?.acceptanceOutcome;
 }
@@ -287,6 +292,17 @@ export function buildAcceptanceFallbackPayload(
     return undefined;
   }
   const reason = acceptance.reasons[0] ?? "The task needs additional handling.";
+  if (acceptance.recoveryPolicy.exhausted) {
+    return acceptance.recoveryPolicy.exhaustedAction === "escalate"
+      ? {
+          text: `I could not finish automatically and now need human intervention. ${reason}`.trim(),
+          isError: true,
+        }
+      : {
+          text: `I exhausted the automatic recovery budget and could not complete this task. ${reason}`.trim(),
+          isError: true,
+        };
+  }
   if (acceptance.remediation === "bootstrap") {
     return {
       text: `Still working on this. I need to finish bootstrap recovery before I can complete it. ${reason}`.trim(),
@@ -335,14 +351,12 @@ export function enqueueSemanticRetryFollowup(params: {
   if (
     !params.queueKey ||
     decision?.action !== "retry" ||
-    decision.remediation !== "semantic_retry"
+    decision.remediation !== "semantic_retry" ||
+    decision.recoveryPolicy.exhausted
   ) {
     return false;
   }
   const retryCount = params.sourceRun.automation?.retryCount ?? 0;
-  if (retryCount >= MAX_SEMANTIC_RETRY_COUNT) {
-    return false;
-  }
   const prompt = [
     "The previous run did not satisfy the task well enough.",
     decision.reasons.length > 0 ? `Observed issues: ${decision.reasons.join(" ")}` : undefined,
@@ -403,6 +417,7 @@ export function finalizeMessagingDeliveryClosure(params: {
     runResult: params.candidate.runResult,
     replyPayloads: params.replyPayloads,
     deliveryReceipt: params.deliveryReceipt,
+    recoveryAttemptCount: params.candidate.sourceRun.automation?.retryCount ?? 0,
   });
   const acceptanceOutcome = reevaluated?.acceptanceOutcome;
   const supervisorVerdict = reevaluated?.supervisorVerdict;

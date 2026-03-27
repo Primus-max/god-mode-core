@@ -13,5 +13,11 @@ export {
   isPermanentDeliveryError,
   MAX_RETRIES,
   recoverPendingDeliveries,
+  startContinuousDeliveryRecovery,
 } from "./delivery-queue-recovery.js";
-export type { DeliverFn, RecoveryLogger, RecoverySummary } from "./delivery-queue-recovery.js";
+export type {
+  ContinuousRecoveryHandle,
+  DeliverFn,
+  RecoveryLogger,
+  RecoverySummary,
+} from "./delivery-queue-recovery.js";

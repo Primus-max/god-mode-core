@@ -15,6 +15,7 @@ import {
   PlatformRuntimeExecutionReceiptCountsSchema,
   PlatformRuntimeExecutionReceiptProofCountsSchema,
   PlatformRuntimeExecutionReceiptSchema,
+  PlatformRuntimeRecoveryPolicySchema,
   PlatformRuntimeExecutionSurfaceSchema,
   PlatformRuntimeExecutionVerificationSchema,
   PlatformRuntimeRunOutcomeSchema,
@@ -40,6 +41,9 @@ import {
   type PlatformRuntimeExecutionSurface,
   type PlatformRuntimeExecutionVerification,
   type PlatformRuntimeNextAction,
+  type PlatformRuntimeRecoveryCadence,
+  type PlatformRuntimeRecoveryClass,
+  type PlatformRuntimeRecoveryPolicy,
   type PlatformRuntimeRunOutcome,
   type PlatformRuntimeSupervisorVerdict,
   type PlatformRuntimeTarget,
@@ -273,6 +277,118 @@ function resolveAcceptanceRemediation(params: {
   return "semantic_retry";
 }
 
+function resolveRecoveryPolicyDefaults(
+  remediation: PlatformRuntimeAcceptanceResult["remediation"],
+): {
+  recoveryClass: PlatformRuntimeRecoveryClass;
+  cadence: PlatformRuntimeRecoveryCadence;
+  continuous: boolean;
+  maxAttempts: number;
+  exhaustedAction: "escalate" | "stop";
+  nextAttemptDelayMs?: number;
+} {
+  switch (remediation) {
+    case "semantic_retry":
+      return {
+        recoveryClass: "semantic",
+        cadence: "immediate",
+        continuous: false,
+        maxAttempts: 1,
+        exhaustedAction: "stop",
+        nextAttemptDelayMs: 0,
+      };
+    case "delivery_retry":
+      return {
+        recoveryClass: "delivery",
+        cadence: "backoff",
+        continuous: true,
+        maxAttempts: 5,
+        exhaustedAction: "stop",
+      };
+    case "bootstrap":
+      return {
+        recoveryClass: "bootstrap",
+        cadence: "manual",
+        continuous: false,
+        maxAttempts: 2,
+        exhaustedAction: "escalate",
+      };
+    case "provider_fallback":
+      return {
+        recoveryClass: "provider",
+        cadence: "immediate",
+        continuous: false,
+        maxAttempts: 2,
+        exhaustedAction: "escalate",
+        nextAttemptDelayMs: 0,
+      };
+    case "auth_refresh":
+      return {
+        recoveryClass: "auth",
+        cadence: "manual",
+        continuous: false,
+        maxAttempts: 1,
+        exhaustedAction: "escalate",
+      };
+    case "needs_human":
+      return {
+        recoveryClass: "human",
+        cadence: "manual",
+        continuous: false,
+        maxAttempts: 0,
+        exhaustedAction: "escalate",
+      };
+    case "stop":
+      return {
+        recoveryClass: "stop",
+        cadence: "none",
+        continuous: false,
+        maxAttempts: 0,
+        exhaustedAction: "stop",
+      };
+    case "none":
+    default:
+      return {
+        recoveryClass: "none",
+        cadence: "none",
+        continuous: false,
+        maxAttempts: 0,
+        exhaustedAction: "stop",
+      };
+  }
+}
+
+function buildRecoveryPolicy(params: {
+  action: PlatformRuntimeAcceptanceResult["action"];
+  remediation: PlatformRuntimeAcceptanceResult["remediation"];
+  evidence: PlatformRuntimeAcceptanceEvidence;
+}): PlatformRuntimeRecoveryPolicy {
+  const defaults = resolveRecoveryPolicyDefaults(params.remediation);
+  const attemptCount = Math.max(0, params.evidence.recoveryAttemptCount ?? 0);
+  const maxAttempts = Math.max(0, params.evidence.recoveryMaxAttempts ?? defaults.maxAttempts);
+  const remainingAttempts = params.action === "retry" ? Math.max(maxAttempts - attemptCount, 0) : 0;
+  const exhausted =
+    params.action === "retry"
+      ? params.evidence.recoveryBudgetExhausted === true || remainingAttempts === 0
+      : params.evidence.recoveryBudgetExhausted === true;
+  return PlatformRuntimeRecoveryPolicySchema.parse({
+    remediation: params.remediation,
+    recoveryClass: defaults.recoveryClass,
+    cadence: defaults.cadence,
+    continuous: defaults.continuous,
+    attemptCount,
+    maxAttempts,
+    remainingAttempts,
+    exhausted,
+    exhaustedAction: defaults.exhaustedAction,
+    ...(params.evidence.recoveryNextAttemptDelayMs !== undefined
+      ? { nextAttemptDelayMs: params.evidence.recoveryNextAttemptDelayMs }
+      : defaults.nextAttemptDelayMs !== undefined
+        ? { nextAttemptDelayMs: defaults.nextAttemptDelayMs }
+        : {}),
+  });
+}
+
 function parseAcceptanceResult(params: {
   runId: string;
   status: PlatformRuntimeAcceptanceResult["status"];
@@ -282,11 +398,17 @@ function parseAcceptanceResult(params: {
   outcome: PlatformRuntimeRunOutcome;
   evidence: PlatformRuntimeAcceptanceEvidence;
 }): PlatformRuntimeAcceptanceResult {
+  const remediation = resolveAcceptanceRemediation({
+    action: params.action,
+    reasonCode: params.reasonCode,
+    evidence: params.evidence,
+  });
   return PlatformRuntimeAcceptanceResultSchema.parse({
     ...params,
-    remediation: resolveAcceptanceRemediation({
+    remediation,
+    recoveryPolicy: buildRecoveryPolicy({
       action: params.action,
-      reasonCode: params.reasonCode,
+      remediation,
       evidence: params.evidence,
     }),
   });
@@ -334,13 +456,21 @@ function parseSupervisorVerdict(params: {
   verification?: PlatformRuntimeExecutionVerification;
   surface?: PlatformRuntimeExecutionSurface;
 }): PlatformRuntimeSupervisorVerdict {
+  const remediation =
+    params.acceptance?.remediation ??
+    resolveAcceptanceRemediation({
+      action: params.action,
+      reasonCode: params.acceptance?.reasonCode ?? "completed_with_output",
+      evidence: params.acceptance?.evidence ?? {},
+    });
   return PlatformRuntimeSupervisorVerdictSchema.parse({
     ...params,
-    remediation:
-      params.acceptance?.remediation ??
-      resolveAcceptanceRemediation({
+    remediation,
+    recoveryPolicy:
+      params.acceptance?.recoveryPolicy ??
+      buildRecoveryPolicy({
         action: params.action,
-        reasonCode: params.acceptance?.reasonCode ?? "completed_with_output",
+        remediation,
         evidence: params.acceptance?.evidence ?? {},
       }),
   });
@@ -1309,6 +1439,23 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const acceptance = params.acceptance;
       const verification = params.verification;
       const reasons: string[] = [];
+      if (acceptance?.action === "retry" && acceptance.recoveryPolicy.exhausted) {
+        const exhaustedAction = acceptance.recoveryPolicy.exhaustedAction;
+        reasons.push(...acceptance.reasons);
+        reasons.push(
+          `Recovery budget exhausted after ${acceptance.recoveryPolicy.attemptCount}/${acceptance.recoveryPolicy.maxAttempts} attempts.`,
+        );
+        return parseSupervisorVerdict({
+          runId: params.runId,
+          status: exhaustedAction === "escalate" ? "needs_human" : "failed",
+          action: exhaustedAction,
+          reasonCode: "recovery_budget_exhausted",
+          reasons: Array.from(new Set(reasons)),
+          acceptance,
+          verification,
+          surface: params.surface,
+        });
+      }
       if (acceptance?.status === "needs_human") {
         return parseSupervisorVerdict({
           runId: params.runId,

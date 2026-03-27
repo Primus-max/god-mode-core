@@ -583,7 +583,12 @@ export async function deliverOutboundPayloads(
         forceDocument: params.forceDocument,
         silent: params.silent,
         mirror: params.mirror,
-      }).catch(() => null); // Best-effort — don't block delivery if queue write fails.
+      }).catch((error) => {
+        log.warn(
+          `Failed to persist outbound delivery ${actionId} to the recovery queue before send: ${String(error)}`,
+        );
+        return null;
+      });
 
   // Wrap onError to detect partial failures under bestEffort mode.
   // When bestEffort is true, per-payload errors are caught and passed to onError

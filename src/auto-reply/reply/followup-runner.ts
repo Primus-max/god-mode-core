@@ -473,6 +473,7 @@ export function createFollowupRunner(params: {
       let acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
         runResult,
         replyPayloads: finalPayloads,
+        recoveryAttemptCount: queued.automation?.retryCount ?? 0,
       });
       let queuedSemanticRetry = false;
 

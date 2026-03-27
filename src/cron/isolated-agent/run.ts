@@ -633,6 +633,8 @@ export async function runCronIsolatedAgentTurn(params: {
       const shouldRetryFromAcceptance =
         !semanticRetryAttempted &&
         acceptance?.action === "retry" &&
+        !acceptance.recoveryPolicy.exhausted &&
+        acceptance.recoveryPolicy.remainingAttempts > 0 &&
         !interimRunResult.meta?.error &&
         countActiveDescendantRuns(agentSessionKey) === 0 &&
         !hasDescendantsSinceRunStart();

@@ -1022,15 +1022,17 @@ export async function startGatewayServer(
   // Recover pending outbound deliveries from previous crash/restart.
   if (!minimalTestGateway) {
     void (async () => {
-      const { recoverPendingDeliveries } = await import("../infra/outbound/delivery-queue.js");
+      const { startContinuousDeliveryRecovery } =
+        await import("../infra/outbound/delivery-queue.js");
       const { deliverOutboundPayloads } = await import("../infra/outbound/deliver.js");
       const logRecovery = log.child("delivery-recovery");
-      await recoverPendingDeliveries({
+      startContinuousDeliveryRecovery({
         deliver: deliverOutboundPayloads,
         log: logRecovery,
         cfg: cfgAtStart,
+        maxRecoveryMs: 60_000,
       });
-    })().catch((err) => log.error(`Delivery recovery failed: ${String(err)}`));
+    })().catch((err) => log.error(`Delivery recovery startup failed: ${String(err)}`));
   }
 
   const execApprovalManager = new ExecApprovalManager();
