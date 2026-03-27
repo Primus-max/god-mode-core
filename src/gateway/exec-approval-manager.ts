@@ -3,6 +3,7 @@ import type {
   ExecApprovalDecision,
   ExecApprovalRequestPayload as InfraExecApprovalRequestPayload,
 } from "../infra/exec-approvals.js";
+import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 
 // Grace period to keep resolved entries for late awaitDecision calls
 const RESOLVED_ENTRY_GRACE_MS = 15_000;
@@ -35,6 +36,14 @@ export type ExecApprovalIdLookupResult =
   | { kind: "exact" | "prefix"; id: string }
   | { kind: "ambiguous"; ids: string[] }
   | { kind: "none" };
+
+const SHARED_EXEC_APPROVAL_MANAGER_STATE_KEY: unique symbol = Symbol.for(
+  "openclaw.sharedExecApprovalManagerState",
+);
+
+type SharedExecApprovalManagerState = {
+  manager: ExecApprovalManager | undefined;
+};
 
 export class ExecApprovalManager {
   private pending = new Map<string, PendingEntry>();
@@ -208,4 +217,27 @@ export class ExecApprovalManager {
     }
     return { kind: "none" };
   }
+}
+
+function getSharedExecApprovalManagerState(): SharedExecApprovalManagerState {
+  return resolveGlobalSingleton(SHARED_EXEC_APPROVAL_MANAGER_STATE_KEY, () => ({
+    manager: undefined,
+  }));
+}
+
+export function getSharedExecApprovalManager(): ExecApprovalManager {
+  const state = getSharedExecApprovalManagerState();
+  state.manager ??= new ExecApprovalManager();
+  return state.manager;
+}
+
+export function setSharedExecApprovalManager(manager: ExecApprovalManager): ExecApprovalManager {
+  const state = getSharedExecApprovalManagerState();
+  state.manager = manager;
+  return manager;
+}
+
+export function resetSharedExecApprovalManager(): void {
+  const state = getSharedExecApprovalManagerState();
+  state.manager = undefined;
 }

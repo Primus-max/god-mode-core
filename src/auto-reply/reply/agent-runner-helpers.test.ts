@@ -1,4 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../../platform/runtime/index.js";
+import {
+  getSharedExecApprovalManager,
+  resetSharedExecApprovalManager,
+} from "../../gateway/exec-approval-manager.js";
 import type { ReplyPayload } from "../types.js";
 import type { TypingSignaler } from "./typing-mode.js";
 
@@ -28,7 +36,10 @@ let createShouldEmitToolOutput: typeof import("./agent-runner-helpers.js").creat
 let createShouldEmitToolResult: typeof import("./agent-runner-helpers.js").createShouldEmitToolResult;
 let buildAcceptanceFallbackPayload: typeof import("./agent-runner-helpers.js").buildAcceptanceFallbackPayload;
 let enqueueSemanticRetryFollowup: typeof import("./agent-runner-helpers.js").enqueueSemanticRetryFollowup;
+let finalizeMessagingDeliveryClosure: typeof import("./agent-runner-helpers.js").finalizeMessagingDeliveryClosure;
 let finalizeWithFollowup: typeof import("./agent-runner-helpers.js").finalizeWithFollowup;
+let getPlatformBootstrapService: typeof import("../../platform/bootstrap/index.js").getPlatformBootstrapService;
+let resetPlatformBootstrapService: typeof import("../../platform/bootstrap/index.js").resetPlatformBootstrapService;
 let isAudioPayload: typeof import("./agent-runner-helpers.js").isAudioPayload;
 let reevaluateAcceptanceForMessagingRun: typeof import("./agent-runner-helpers.js").reevaluateAcceptanceForMessagingRun;
 let signalTypingIfNeeded: typeof import("./agent-runner-helpers.js").signalTypingIfNeeded;
@@ -38,11 +49,18 @@ describe("agent runner helpers", () => {
     vi.resetModules();
     hoisted.loadSessionStoreMock.mockClear();
     hoisted.scheduleFollowupDrainMock.mockClear();
+    resetPlatformRuntimeCheckpointService();
+    resetSharedExecApprovalManager();
+    ({ getPlatformBootstrapService, resetPlatformBootstrapService } = await import(
+      "../../platform/bootstrap/index.js"
+    ));
+    resetPlatformBootstrapService();
     ({
       createShouldEmitToolOutput,
       createShouldEmitToolResult,
       buildAcceptanceFallbackPayload,
       enqueueSemanticRetryFollowup,
+      finalizeMessagingDeliveryClosure,
       finalizeWithFollowup,
       isAudioPayload,
       reevaluateAcceptanceForMessagingRun,
@@ -601,6 +619,247 @@ describe("agent runner helpers", () => {
       }),
     );
     expect(whatsappPayload?.interactive).toBeUndefined();
+  });
+
+  it("creates a shared approval control object for auth refresh closure outcomes", () => {
+    const result = finalizeMessagingDeliveryClosure({
+      candidate: {
+        runResult: {
+          meta: {
+            acceptanceOutcome: {
+              runId: "run-auth-closure",
+              status: "failed",
+              action: "stop",
+              remediation: "auth_refresh",
+              reasonCode: "provider_auth_required",
+              reasons: ["Provider authentication expired before delivery could complete."],
+              recoveryPolicy: {
+                remediation: "auth_refresh",
+                recoveryClass: "auth",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 1,
+                maxAttempts: 1,
+                remainingAttempts: 0,
+                exhausted: true,
+                exhaustedAction: "escalate",
+              },
+              outcome: {
+                runId: "run-auth-closure",
+                status: "failed",
+                checkpointIds: [],
+                blockedCheckpointIds: [],
+                completedCheckpointIds: [],
+                deniedCheckpointIds: [],
+                pendingApprovalIds: [],
+                artifactIds: [],
+                bootstrapRequestIds: [],
+                actionIds: [],
+                attemptedActionIds: [],
+                confirmedActionIds: [],
+                failedActionIds: [],
+                boundaries: [],
+              },
+              evidence: {
+                providerAuthFailed: true,
+              },
+            },
+            supervisorVerdict: {
+              runId: "run-auth-closure",
+              status: "needs_human",
+              action: "escalate",
+              remediation: "auth_refresh",
+              reasonCode: "auth_recovery",
+              reasons: ["Provider authentication expired before delivery could complete."],
+              recoveryPolicy: {
+                remediation: "auth_refresh",
+                recoveryClass: "auth",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 1,
+                maxAttempts: 1,
+                remainingAttempts: 0,
+                exhausted: true,
+                exhaustedAction: "escalate",
+              },
+            },
+          },
+        },
+        sourceRun: {
+          prompt: "finish auth-sensitive task",
+          enqueuedAt: 1,
+          run: {
+            agentId: "agent",
+            agentDir: "/tmp/agent",
+            sessionId: "session",
+            sessionKey: "agent:main:main",
+            sessionFile: "/tmp/session.json",
+            workspaceDir: "/tmp/workspace",
+            config: {},
+            provider: "openai",
+            model: "gpt-5.4",
+            timeoutMs: 30_000,
+            blockReplyBreak: "message_end",
+          },
+        },
+        queueKey: "queue-1",
+        settings: { mode: "followup", debounceMs: 0, cap: 20 },
+      },
+      replyPayloads: [{ text: "Auth failed." }],
+      deliveryReceipt: {},
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        queuedSemanticRetry: false,
+        supervisorVerdict: expect.objectContaining({
+          remediation: "auth_refresh",
+          action: "escalate",
+        }),
+      }),
+    );
+    expect(getSharedExecApprovalManager().getSnapshot("closure:run-auth-closure:auth_refresh:escalate"))
+      .toEqual(
+        expect.objectContaining({
+          request: expect.objectContaining({
+            runtimeRunId: "run-auth-closure",
+            runtimeCheckpointId: "closure:run-auth-closure:auth_refresh:escalate",
+            blockedReason: "provider authentication refresh requires operator attention",
+          }),
+        }),
+      );
+    expect(
+      getPlatformRuntimeCheckpointService().get("closure:run-auth-closure:auth_refresh:escalate"),
+    ).toEqual(
+      expect.objectContaining({
+        runId: "run-auth-closure",
+        boundary: "exec_approval",
+        target: expect.objectContaining({
+          approvalId: "closure:run-auth-closure:auth_refresh:escalate",
+          operation: "closure.recovery",
+        }),
+      }),
+    );
+  });
+
+  it("creates bootstrap requests from closure bootstrap remediation", () => {
+    const result = finalizeMessagingDeliveryClosure({
+      candidate: {
+        runResult: {
+          meta: {
+            acceptanceOutcome: {
+              runId: "run-bootstrap-closure",
+              status: "retryable",
+              action: "retry",
+              remediation: "bootstrap",
+              reasonCode: "bootstrap_required",
+              reasons: ["Bootstrap is still required before the run can complete."],
+              recoveryPolicy: {
+                remediation: "bootstrap",
+                recoveryClass: "bootstrap",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 2,
+                remainingAttempts: 2,
+                exhausted: false,
+                exhaustedAction: "escalate",
+              },
+              outcome: {
+                runId: "run-bootstrap-closure",
+                status: "completed",
+                checkpointIds: [],
+                blockedCheckpointIds: [],
+                completedCheckpointIds: [],
+                deniedCheckpointIds: [],
+                pendingApprovalIds: [],
+                artifactIds: [],
+                bootstrapRequestIds: [],
+                actionIds: [],
+                attemptedActionIds: [],
+                confirmedActionIds: [],
+                failedActionIds: [],
+                boundaries: [],
+              },
+              evidence: {
+                executionSurfaceStatus: "bootstrap_required",
+                executionUnattendedBoundary: "bootstrap",
+              },
+            },
+            supervisorVerdict: {
+              runId: "run-bootstrap-closure",
+              status: "retryable",
+              action: "retry",
+              remediation: "bootstrap",
+              reasonCode: "bootstrap_recovery",
+              reasons: ["Bootstrap is still required before the run can complete."],
+              recoveryPolicy: {
+                remediation: "bootstrap",
+                recoveryClass: "bootstrap",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 2,
+                remainingAttempts: 2,
+                exhausted: false,
+                exhaustedAction: "escalate",
+              },
+            },
+            executionIntent: {
+              runId: "run-bootstrap-closure",
+              profileId: "developer",
+              recipeId: "code_build_publish",
+              intent: "code",
+              bootstrapRequiredCapabilities: ["pdf-renderer"],
+              policyAutonomy: "guarded",
+              expectations: {},
+            },
+          },
+        },
+        sourceRun: {
+          prompt: "finish build task",
+          enqueuedAt: 1,
+          run: {
+            agentId: "agent",
+            agentDir: "/tmp/agent",
+            sessionId: "session",
+            sessionKey: "agent:main:main",
+            sessionFile: "/tmp/session.json",
+            workspaceDir: "/tmp/workspace",
+            config: {},
+            provider: "openai",
+            model: "gpt-5.4",
+            timeoutMs: 30_000,
+            blockReplyBreak: "message_end",
+          },
+        },
+        queueKey: "queue-1",
+        settings: { mode: "followup", debounceMs: 0, cap: 20 },
+      },
+      replyPayloads: [{ text: "Bootstrap required." }],
+      deliveryReceipt: {},
+    });
+
+    expect(result.queuedSemanticRetry).toBe(false);
+    expect(getPlatformBootstrapService().list()).toEqual([
+      expect.objectContaining({
+        capabilityId: "pdf-renderer",
+        sourceRecipeId: "code_build_publish",
+        state: "pending",
+      }),
+    ]);
+    const requestId = getPlatformBootstrapService().list()[0]?.id;
+    expect(requestId).toBeTruthy();
+    expect(requestId ? getPlatformRuntimeCheckpointService().get(requestId) : undefined).toEqual(
+      expect.objectContaining({
+        runId: requestId,
+        boundary: "bootstrap",
+        target: expect.objectContaining({
+          bootstrapRequestId: requestId,
+          operation: "bootstrap.run",
+        }),
+      }),
+    );
   });
 
   it("reuses declared execution intent when messaging closure is reevaluated", () => {
