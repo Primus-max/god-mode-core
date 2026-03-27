@@ -491,6 +491,118 @@ describe("agent runner helpers", () => {
     );
   });
 
+  it("adds structured closure blocks for rich-capable channels only", () => {
+    const slackPayload = buildAcceptanceFallbackPayload(
+      {
+        runId: "run-rich-closure",
+        status: "retryable",
+        action: "retry",
+        remediation: "semantic_retry",
+        recoveryPolicy: {
+          remediation: "semantic_retry",
+          recoveryClass: "semantic",
+          cadence: "immediate",
+          continuous: false,
+          attemptCount: 0,
+          maxAttempts: 2,
+          remainingAttempts: 2,
+          exhausted: false,
+          exhaustedAction: "stop",
+          nextAttemptDelayMs: 0,
+        },
+        reasonCode: "contract_mismatch",
+        reasons: [
+          "The delivered output did not satisfy the request.",
+          "A second pass should tighten the final answer.",
+        ],
+        outcome: {
+          runId: "run-rich-closure",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: [],
+        },
+        evidence: {},
+      },
+      undefined,
+      { channel: "slack" },
+    );
+    const whatsappPayload = buildAcceptanceFallbackPayload(
+      {
+        runId: "run-rich-closure",
+        status: "retryable",
+        action: "retry",
+        remediation: "semantic_retry",
+        recoveryPolicy: {
+          remediation: "semantic_retry",
+          recoveryClass: "semantic",
+          cadence: "immediate",
+          continuous: false,
+          attemptCount: 0,
+          maxAttempts: 2,
+          remainingAttempts: 2,
+          exhausted: false,
+          exhaustedAction: "stop",
+          nextAttemptDelayMs: 0,
+        },
+        reasonCode: "contract_mismatch",
+        reasons: [
+          "The delivered output did not satisfy the request.",
+          "A second pass should tighten the final answer.",
+        ],
+        outcome: {
+          runId: "run-rich-closure",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: [],
+        },
+        evidence: {},
+      },
+      undefined,
+      { channel: "whatsapp" },
+    );
+
+    expect(slackPayload).toEqual(
+      expect.objectContaining({
+        text: expect.stringContaining("one more pass"),
+        interactive: {
+          blocks: expect.arrayContaining([
+            expect.objectContaining({ type: "text", text: "Automatic recovery continuing" }),
+            expect.objectContaining({
+              type: "text",
+              text: expect.stringContaining("Reason: The delivered output did not satisfy the request."),
+            }),
+          ]),
+        },
+      }),
+    );
+    expect(whatsappPayload).toEqual(
+      expect.objectContaining({
+        text: expect.stringContaining("one more pass"),
+      }),
+    );
+    expect(whatsappPayload?.interactive).toBeUndefined();
+  });
+
   it("reuses declared execution intent when messaging closure is reevaluated", () => {
     const acceptance = reevaluateAcceptanceForMessagingRun({
       runResult: {
