@@ -661,6 +661,31 @@ export const PlatformRuntimeRunClosureSchema = z
   .strict();
 export type PlatformRuntimeRunClosure = z.infer<typeof PlatformRuntimeRunClosureSchema>;
 
+export const PlatformRuntimeRunClosureSummarySchema = z
+  .object({
+    runId: z.string().min(1),
+    sessionKey: z.string().min(1).optional(),
+    updatedAtMs: z.number().int().nonnegative(),
+    outcomeStatus: PlatformRuntimeRunOutcomeStatusSchema,
+    verificationStatus: PlatformRuntimeExecutionVerificationStatusSchema,
+    acceptanceStatus: PlatformRuntimeAcceptanceStatusSchema,
+    action: PlatformRuntimeAcceptanceActionSchema,
+    remediation: PlatformRuntimeRemediationSchema,
+    reasonCode: PlatformRuntimeSupervisorVerdictReasonCodeSchema,
+    reasons: z.array(z.string().min(1)),
+    declaredIntent: PlatformRuntimeExecutionIntentSchema.shape.intent.optional(),
+    declaredProfileId: z.string().min(1).optional(),
+    declaredRecipeId: z.string().min(1).optional(),
+    requiresOutput: z.boolean().optional(),
+    requiresMessagingDelivery: z.boolean().optional(),
+    requiresConfirmedAction: z.boolean().optional(),
+    surfaceStatus: PlatformRuntimeExecutionSurfaceStatusSchema.optional(),
+  })
+  .strict();
+export type PlatformRuntimeRunClosureSummary = z.infer<
+  typeof PlatformRuntimeRunClosureSummarySchema
+>;
+
 export const PlatformRuntimeRunClosureStoreSchema = z
   .object({
     version: z.literal(1),

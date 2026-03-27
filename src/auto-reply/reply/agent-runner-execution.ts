@@ -143,6 +143,7 @@ export async function runAgentTurnWithFallback(params: {
       isHeartbeat: params.isHeartbeat,
       platformExecution: toPluginHookPlatformExecutionContext(platformExecutionContext),
       isControlUiVisible: shouldSurfaceToControlUi,
+      awaitingRunClosure: true,
     });
   }
   let runResult: Awaited<ReturnType<typeof runEmbeddedPiAgent>>;

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveStateDir } from "../../config/paths.js";
+import { emitRunClosureSummary } from "../../infra/agent-events.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import {
   PlatformRuntimeAcceptanceResultSchema,
@@ -17,6 +18,7 @@ import {
   PlatformRuntimeExecutionReceiptProofCountsSchema,
   PlatformRuntimeExecutionReceiptSchema,
   PlatformRuntimeRunClosureSchema,
+  PlatformRuntimeRunClosureSummarySchema,
   PlatformRuntimeRunClosureStoreSchema,
   PlatformRuntimeRecoveryPolicySchema,
   PlatformRuntimeExecutionSurfaceSchema,
@@ -50,6 +52,7 @@ import {
   type PlatformRuntimeRecoveryPolicy,
   type PlatformRuntimeRunOutcome,
   type PlatformRuntimeRunClosure,
+  type PlatformRuntimeRunClosureSummary,
   type PlatformRuntimeSupervisorVerdict,
   type PlatformRuntimeTarget,
 } from "./contracts.js";
@@ -217,6 +220,44 @@ function buildClosureStorePayload(closures: Map<string, PlatformRuntimeRunClosur
     closures: Array.from(closures.values()).toSorted(
       (left, right) => right.updatedAtMs - left.updatedAtMs,
     ),
+  });
+}
+
+function buildRunClosureSummary(
+  closure: PlatformRuntimeRunClosure,
+): PlatformRuntimeRunClosureSummary {
+  return PlatformRuntimeRunClosureSummarySchema.parse({
+    runId: closure.runId,
+    ...(closure.sessionKey ? { sessionKey: closure.sessionKey } : {}),
+    updatedAtMs: closure.updatedAtMs,
+    outcomeStatus: closure.outcome.status,
+    verificationStatus: closure.executionVerification.status,
+    acceptanceStatus: closure.acceptanceOutcome.status,
+    action: closure.supervisorVerdict.action,
+    remediation: closure.supervisorVerdict.remediation,
+    reasonCode: closure.supervisorVerdict.reasonCode,
+    reasons: closure.supervisorVerdict.reasons,
+    ...(closure.executionIntent.intent ? { declaredIntent: closure.executionIntent.intent } : {}),
+    ...(closure.executionIntent.profileId
+      ? { declaredProfileId: closure.executionIntent.profileId }
+      : {}),
+    ...(closure.executionIntent.recipeId
+      ? { declaredRecipeId: closure.executionIntent.recipeId }
+      : {}),
+    ...(closure.executionIntent.expectations.requiresOutput !== undefined
+      ? { requiresOutput: closure.executionIntent.expectations.requiresOutput }
+      : {}),
+    ...(closure.executionIntent.expectations.requiresMessagingDelivery !== undefined
+      ? {
+          requiresMessagingDelivery: closure.executionIntent.expectations.requiresMessagingDelivery,
+        }
+      : {}),
+    ...(closure.executionIntent.expectations.requiresConfirmedAction !== undefined
+      ? {
+          requiresConfirmedAction: closure.executionIntent.expectations.requiresConfirmedAction,
+        }
+      : {}),
+    ...(closure.executionSurface?.status ? { surfaceStatus: closure.executionSurface.status } : {}),
   });
 }
 
@@ -1943,7 +1984,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
       });
     },
     recordRunClosure(closure) {
-      return saveClosure(PlatformRuntimeRunClosureSchema.parse(closure));
+      const saved = saveClosure(PlatformRuntimeRunClosureSchema.parse(closure));
+      emitRunClosureSummary(buildRunClosureSummary(saved));
+      return saved;
     },
     getRunClosure(runId) {
       const normalized = runId.trim();

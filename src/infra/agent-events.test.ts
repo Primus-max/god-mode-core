@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   clearAgentRunContext,
   emitAgentEvent,
+  emitRunClosureSummary,
   getAgentRunContext,
   onAgentEvent,
   registerAgentRunContext,
@@ -134,6 +135,63 @@ describe("agent-events sequencing", () => {
     stop();
 
     expect(receivedSessionKey).toBe("session-main");
+  });
+
+  test("emits structured runtime closure summaries and stores them on run context", async () => {
+    resetAgentRunContextForTest();
+    registerAgentRunContext("run-closure", {
+      sessionKey: "session-main",
+      awaitingRunClosure: true,
+    });
+
+    const seen: Array<{ stream?: string; phase?: unknown; sessionKey?: string }> = [];
+    const stop = onAgentEvent((evt) => {
+      if (evt.runId !== "run-closure") {
+        return;
+      }
+      seen.push({
+        stream: evt.stream,
+        phase: evt.data?.phase,
+        sessionKey: evt.sessionKey,
+      });
+    });
+
+    emitRunClosureSummary({
+      runId: "run-closure",
+      sessionKey: "session-main",
+      updatedAtMs: 2_000,
+      outcomeStatus: "completed",
+      verificationStatus: "verified",
+      acceptanceStatus: "satisfied",
+      action: "close",
+      remediation: "none",
+      reasonCode: "verified_execution",
+      reasons: ["Execution contract was verified before final closure."],
+      declaredIntent: "publish",
+      declaredRecipeId: "recipe.publish",
+      requiresOutput: true,
+      requiresMessagingDelivery: true,
+      surfaceStatus: "ready",
+    });
+    stop();
+
+    expect(seen).toEqual([
+      {
+        stream: "runtime",
+        phase: "closure",
+        sessionKey: "session-main",
+      },
+    ]);
+    expect(getAgentRunContext("run-closure")).toMatchObject({
+      sessionKey: "session-main",
+      awaitingRunClosure: false,
+      runtimeState: "completed",
+      runClosureSummary: {
+        action: "close",
+        declaredIntent: "publish",
+        declaredRecipeId: "recipe.publish",
+      },
+    });
   });
 
   test("keeps notifying later listeners when one throws", async () => {

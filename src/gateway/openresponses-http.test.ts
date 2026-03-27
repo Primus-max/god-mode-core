@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { HISTORY_CONTEXT_MARKER } from "../auto-reply/reply/history.js";
 import { CURRENT_MESSAGE_MARKER } from "../auto-reply/reply/mentions.js";
-import { emitAgentEvent } from "../infra/agent-events.js";
+import { emitAgentEvent, resetAgentEventsForTest } from "../infra/agent-events.js";
 import { buildAssistantDeltaResult } from "./test-helpers.agent-results.js";
 import { agentCommand, getFreePort, installGatewayTestHooks } from "./test-helpers.js";
 
@@ -39,6 +39,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   openResponsesTesting.resetResponseSessionState();
+  resetAgentEventsForTest();
 });
 
 async function startServer(port: number, opts?: { openResponsesEnabled?: boolean }) {
@@ -636,6 +637,60 @@ describe("OpenResponses HTTP API (e2e)", () => {
     } finally {
       // shared server
     }
+  });
+
+  it("finalizes streamed responses from runtime closure truth", async () => {
+    const port = enabledPort;
+    agentCommand.mockClear();
+    agentCommand.mockImplementationOnce((async (opts: unknown) => {
+      const runId = (opts as { runId?: string } | undefined)?.runId ?? "";
+      emitAgentEvent({
+        runId,
+        stream: "assistant",
+        data: { text: "needs review" },
+      });
+      emitAgentEvent({
+        runId,
+        stream: "runtime",
+        data: {
+          phase: "closure",
+          summary: {
+            runId,
+            updatedAtMs: 2_000,
+            outcomeStatus: "failed",
+            verificationStatus: "mismatch",
+            acceptanceStatus: "needs_human",
+            action: "escalate",
+            remediation: "needs_human",
+            reasonCode: "needs_human",
+            reasons: ["Human intervention is required before completion."],
+          },
+        },
+      });
+      return { payloads: [{ text: "needs review" }] };
+    }) as never);
+
+    const res = await postResponses(port, {
+      stream: true,
+      model: "openclaw",
+      input: "hi",
+    });
+    expect(res.status).toBe(200);
+
+    const text = await res.text();
+    const events = parseSseEvents(text);
+    const completed = events.find((event) => event.event === "response.completed");
+    expect(completed).toBeTruthy();
+    const response = (
+      JSON.parse(completed?.data ?? "{}") as {
+        response?: { status?: string; output?: Array<Record<string, unknown>> };
+      }
+    ).response;
+    expect(response?.status).toBe("failed");
+    expect(
+      (((response?.output?.[0]?.content as Array<Record<string, unknown>> | undefined) ?? [])[0]
+        ?.text as string | undefined) ?? "",
+    ).toBe("needs review");
   });
 
   it("preserves assistant text alongside non-stream function_call output", async () => {

@@ -1,23 +1,35 @@
 import { updateSessionStoreEntry, type SessionEntry } from "../config/sessions.js";
 import type { AgentEventPayload } from "../infra/agent-events.js";
+import {
+  PlatformRuntimeRunClosureSummarySchema,
+  type PlatformRuntimeRunClosureSummary,
+} from "../platform/runtime/index.js";
 import { loadSessionEntry } from "./session-utils.js";
 import type { GatewaySessionRow, SessionRunStatus } from "./session-utils.types.js";
 
 type LifecyclePhase = "start" | "blocked" | "approved" | "resumed" | "end" | "error";
 
-type LifecycleEventLike = Pick<AgentEventPayload, "ts"> & {
+type SessionLifecycleEventLike = Pick<AgentEventPayload, "ts"> & {
+  stream?: AgentEventPayload["stream"];
   data?: {
     phase?: unknown;
     startedAt?: unknown;
     endedAt?: unknown;
     aborted?: unknown;
     stopReason?: unknown;
+    summary?: unknown;
   };
 };
 
 type LifecycleSessionShape = Pick<
   GatewaySessionRow,
-  "updatedAt" | "status" | "startedAt" | "endedAt" | "runtimeMs" | "abortedLastRun"
+  | "updatedAt"
+  | "status"
+  | "startedAt"
+  | "endedAt"
+  | "runtimeMs"
+  | "abortedLastRun"
+  | "runClosureSummary"
 >;
 
 type PersistedLifecycleSessionShape = Pick<
@@ -31,7 +43,7 @@ function isFiniteTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
-function resolveLifecyclePhase(event: LifecycleEventLike): LifecyclePhase | null {
+function resolveLifecyclePhase(event: SessionLifecycleEventLike): LifecyclePhase | null {
   const phase = typeof event.data?.phase === "string" ? event.data.phase : "";
   return phase === "start" ||
     phase === "blocked" ||
@@ -43,7 +55,17 @@ function resolveLifecyclePhase(event: LifecycleEventLike): LifecyclePhase | null
     : null;
 }
 
-function resolveTerminalStatus(event: LifecycleEventLike): SessionRunStatus {
+function resolveRunClosureSummary(
+  event: SessionLifecycleEventLike,
+): PlatformRuntimeRunClosureSummary | undefined {
+  if (event.stream !== "runtime" || event.data?.phase !== "closure") {
+    return undefined;
+  }
+  const parsed = PlatformRuntimeRunClosureSummarySchema.safeParse(event.data?.summary);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function resolveLifecycleTerminalStatus(event: SessionLifecycleEventLike): SessionRunStatus {
   const phase = resolveLifecyclePhase(event);
   if (phase === "error") {
     return "failed";
@@ -59,7 +81,7 @@ function resolveTerminalStatus(event: LifecycleEventLike): SessionRunStatus {
 
 function resolveLifecycleStartedAt(
   existingStartedAt: number | undefined,
-  event: LifecycleEventLike,
+  event: SessionLifecycleEventLike,
 ): number | undefined {
   if (isFiniteTimestamp(event.data?.startedAt)) {
     return event.data.startedAt;
@@ -70,7 +92,7 @@ function resolveLifecycleStartedAt(
   return isFiniteTimestamp(event.ts) ? event.ts : undefined;
 }
 
-function resolveLifecycleEndedAt(event: LifecycleEventLike): number | undefined {
+function resolveLifecycleEndedAt(event: SessionLifecycleEventLike): number | undefined {
   if (isFiniteTimestamp(event.data?.endedAt)) {
     return event.data.endedAt;
   }
@@ -98,8 +120,27 @@ function resolveRuntimeMs(params: {
 
 export function deriveGatewaySessionLifecycleSnapshot(params: {
   session?: Partial<LifecycleSessionShape> | null;
-  event: LifecycleEventLike;
+  event: SessionLifecycleEventLike;
 }): GatewaySessionLifecycleSnapshot {
+  const runtimeClosureSummary = resolveRunClosureSummary(params.event);
+  if (runtimeClosureSummary) {
+    const updatedAt = runtimeClosureSummary.updatedAtMs;
+    const status: SessionRunStatus =
+      runtimeClosureSummary.action === "close"
+        ? "done"
+        : runtimeClosureSummary.action === "stop"
+          ? "failed"
+          : "blocked";
+    return {
+      updatedAt,
+      status,
+      startedAt: params.session?.startedAt,
+      endedAt: params.session?.endedAt,
+      runtimeMs: params.session?.runtimeMs,
+      abortedLastRun: params.session?.abortedLastRun,
+      runClosureSummary: runtimeClosureSummary,
+    };
+  }
   const phase = resolveLifecyclePhase(params.event);
   if (!phase) {
     return {};
@@ -150,7 +191,7 @@ export function deriveGatewaySessionLifecycleSnapshot(params: {
   const updatedAt = endedAt ?? existing?.updatedAt;
   return {
     updatedAt,
-    status: resolveTerminalStatus(params.event),
+    status: resolveLifecycleTerminalStatus(params.event),
     startedAt,
     endedAt,
     runtimeMs: resolveRuntimeMs({
@@ -158,13 +199,14 @@ export function deriveGatewaySessionLifecycleSnapshot(params: {
       endedAt,
       existingRuntimeMs: existing?.runtimeMs,
     }),
-    abortedLastRun: resolveTerminalStatus(params.event) === "killed",
+    abortedLastRun: resolveLifecycleTerminalStatus(params.event) === "killed",
+    runClosureSummary: existing?.runClosureSummary,
   };
 }
 
 export function derivePersistedSessionLifecyclePatch(params: {
   entry?: Partial<PersistedLifecycleSessionShape> | null;
-  event: LifecycleEventLike;
+  event: SessionLifecycleEventLike;
 }): Partial<PersistedLifecycleSessionShape> {
   const snapshot = deriveGatewaySessionLifecycleSnapshot({
     session: params.entry ?? undefined,
@@ -178,8 +220,29 @@ export function derivePersistedSessionLifecyclePatch(params: {
 
 export async function persistGatewaySessionLifecycleEvent(params: {
   sessionKey: string;
-  event: LifecycleEventLike;
+  event: SessionLifecycleEventLike;
 }): Promise<void> {
+  const runtimeClosureSummary = resolveRunClosureSummary(params.event);
+  if (runtimeClosureSummary) {
+    const sessionEntry = loadSessionEntry(params.sessionKey);
+    if (!sessionEntry.entry) {
+      return;
+    }
+    await updateSessionStoreEntry({
+      storePath: sessionEntry.storePath,
+      sessionKey: sessionEntry.canonicalKey,
+      update: async () => ({
+        updatedAt: runtimeClosureSummary.updatedAtMs,
+        status:
+          runtimeClosureSummary.action === "close"
+            ? "done"
+            : runtimeClosureSummary.action === "stop"
+              ? "failed"
+              : "blocked",
+      }),
+    });
+    return;
+  }
   const phase = resolveLifecyclePhase(params.event);
   if (!phase) {
     return;
