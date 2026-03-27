@@ -6,6 +6,7 @@ import {
 import {
   loadRunOverflowCompactionHarness,
   mockedEnsureRuntimePluginsLoaded,
+  mockedGlobalHookRunner,
   mockedRunEmbeddedAttempt,
 } from "./run.overflow-compaction.harness.js";
 
@@ -257,6 +258,70 @@ describe("runEmbeddedPiAgent usage reporting", () => {
         remediation: "needs_human",
         reasonCode: "needs_human",
       }),
+    );
+  });
+
+  it("emits recipe lifecycle hooks with structured execution intent and closure", async () => {
+    mockedGlobalHookRunner.hasHooks.mockImplementation(
+      (hookName: string) =>
+        hookName === "before_recipe_execute" || hookName === "after_recipe_execute",
+    );
+    mockedRunEmbeddedAttempt.mockResolvedValueOnce({
+      aborted: false,
+      promptError: null,
+      timedOut: false,
+      sessionIdUsed: "test-session",
+      assistantTexts: ["done"],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    await runEmbeddedPiAgent({
+      sessionId: "test-session",
+      sessionKey: "test-key",
+      sessionFile: "/tmp/session.json",
+      workspaceDir: "/tmp/workspace",
+      prompt: "publish the preview build",
+      timeoutMs: 30_000,
+      runId: "run-recipe-hooks",
+      platformExecutionContext: {
+        selectedRecipeId: "code_build_publish",
+        selectedProfileId: "developer",
+        intent: "publish",
+        publishTargets: ["vercel"],
+        artifactKinds: ["site"],
+      },
+    });
+
+    expect(mockedGlobalHookRunner.runBeforeRecipeExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-recipe-hooks",
+        executionIntent: expect.objectContaining({
+          recipeId: "code_build_publish",
+          intent: "publish",
+          artifactKinds: ["site"],
+          expectations: expect.objectContaining({
+            requiresOutput: true,
+          }),
+        }),
+      }),
+      expect.any(Object),
+    );
+    expect(mockedGlobalHookRunner.runAfterRecipeExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        closure: expect.objectContaining({
+          runId: "run-recipe-hooks",
+          executionIntent: expect.objectContaining({
+            recipeId: "code_build_publish",
+          }),
+          acceptanceOutcome: expect.objectContaining({
+            evidence: expect.objectContaining({
+              declaredRecipeId: "code_build_publish",
+              declaredIntent: "publish",
+            }),
+          }),
+        }),
+      }),
+      expect.any(Object),
     );
   });
 });

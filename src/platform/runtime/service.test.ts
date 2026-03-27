@@ -338,6 +338,76 @@ describe("platform runtime checkpoint service", () => {
     );
   });
 
+  it("builds and persists durable run closures with declared execution intent", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-closures-"));
+    tempDirs.push(stateDir);
+    const service = createPlatformRuntimeCheckpointService({ stateDir });
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-closure",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const closure = service.buildRunClosure({
+      runId: outcome.runId,
+      sessionKey: "session-closure",
+      outcome,
+      evidence: {
+        hasOutput: true,
+      },
+      executionIntent: {
+        runId: outcome.runId,
+        profileId: "developer",
+        recipeId: "code_build_publish",
+        intent: "publish",
+        artifactKinds: ["site"],
+        expectations: {
+          requiresOutput: true,
+        },
+      },
+    });
+    expect(closure).toEqual(
+      expect.objectContaining({
+        runId: "run-closure",
+        sessionKey: "session-closure",
+        executionIntent: expect.objectContaining({
+          recipeId: "code_build_publish",
+          intent: "publish",
+          artifactKinds: ["site"],
+        }),
+        acceptanceOutcome: expect.objectContaining({
+          evidence: expect.objectContaining({
+            declaredRecipeId: "code_build_publish",
+            declaredIntent: "publish",
+            declaredRequiresOutput: true,
+          }),
+        }),
+      }),
+    );
+
+    service.recordRunClosure(closure);
+    const next = createPlatformRuntimeCheckpointService({ stateDir });
+    expect(next.rehydrate()).toBe(1);
+    expect(next.getRunClosure("run-closure")).toEqual(
+      expect.objectContaining({
+        sessionKey: "session-closure",
+        executionIntent: expect.objectContaining({
+          recipeId: "code_build_publish",
+        }),
+      }),
+    );
+  });
+
   it("treats contract mismatches as retryable instead of closing the run", () => {
     const service = createPlatformRuntimeCheckpointService();
     const outcome: PlatformRuntimeRunOutcome = {

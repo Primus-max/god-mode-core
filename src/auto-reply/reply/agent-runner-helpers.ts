@@ -9,9 +9,11 @@ import {
   getPlatformRuntimeCheckpointService,
   type PlatformRuntimeAcceptanceEvidence,
   type PlatformRuntimeAcceptanceResult,
+  type PlatformRuntimeExecutionIntent,
   type PlatformRuntimeExecutionSurface,
   type PlatformRuntimeExecutionVerification,
   type PlatformRuntimeRunOutcome,
+  type PlatformRuntimeRunClosure,
   type PlatformRuntimeSupervisorVerdict,
 } from "../../platform/runtime/index.js";
 import { normalizeVerboseLevel, type VerboseLevel } from "../thinking.js";
@@ -93,10 +95,12 @@ export type MessagingDeliveryClosureCandidate = {
         hadToolError?: boolean;
         deterministicApprovalPromptSent?: boolean;
       };
+      executionIntent?: PlatformRuntimeExecutionIntent;
       executionVerification?: PlatformRuntimeExecutionVerification;
       executionSurface?: PlatformRuntimeExecutionSurface;
       acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
       supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
+      runClosure?: PlatformRuntimeRunClosure;
       modelFallback?: ModelFallbackSummary;
     };
     didSendViaMessagingTool?: boolean;
@@ -211,6 +215,7 @@ function reevaluateMessagingDecision(params: {
   recoveryAttemptCount?: number;
 }):
   | {
+      runClosure?: PlatformRuntimeRunClosure;
       acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
       executionVerification?: PlatformRuntimeExecutionVerification;
       supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
@@ -231,49 +236,21 @@ function reevaluateMessagingDecision(params: {
     deliveryReceipt: params.deliveryReceipt,
     recoveryAttemptCount: params.recoveryAttemptCount,
   });
-  const executionReceipts = runtimeService.buildExecutionReceipts({
+  const runClosure = runtimeService.buildRunClosure({
     runId: completionOutcome.runId,
     outcome: completionOutcome,
     receipts: params.runResult.meta?.executionVerification?.receipts,
-  });
-  const executionVerification = runtimeService.verifyExecutionContract({
-    contract: {
-      runId: completionOutcome.runId,
-      receipts: executionReceipts,
-      expectations: {
-        requiresOutput:
-          baseEvidence.hasOutput === true || baseEvidence.hasStructuredReplyPayload === true,
-        requiresMessagingDelivery: (baseEvidence.stagedReplyCount ?? 0) > 0,
-        requiresConfirmedAction: completionOutcome.actionIds.length > 0,
-        requireStructuredReceipts: completionOutcome.actionIds.length > 0,
-        minimumVerifiedReceiptCount: completionOutcome.actionIds.length > 0 ? 1 : 0,
-        requiredReceiptKinds:
-          (baseEvidence.stagedReplyCount ?? 0) > 0 ? ["messaging_delivery"] : undefined,
-        allowStandaloneEvidence: false,
-        allowWarnings: true,
-      },
-    },
-    outcome: completionOutcome,
     evidence: baseEvidence,
-  });
-  const evidence = runtimeService.buildAcceptanceEvidence({
-    outcome: completionOutcome,
-    evidence: baseEvidence,
-    executionVerification,
     executionSurface: params.runResult.meta?.executionSurface,
+    executionIntent: params.runResult.meta?.executionIntent,
   });
-  const acceptanceOutcome = runtimeService.evaluateAcceptance({
-    runId: completionOutcome.runId,
-    outcome: completionOutcome,
-    evidence,
-  });
-  const supervisorVerdict = runtimeService.evaluateSupervisorVerdict({
-    runId: completionOutcome.runId,
-    acceptance: acceptanceOutcome,
-    verification: executionVerification,
-    surface: params.runResult.meta?.executionSurface,
-  });
-  return { acceptanceOutcome, executionVerification, supervisorVerdict };
+  runtimeService.recordRunClosure(runClosure);
+  return {
+    runClosure,
+    acceptanceOutcome: runClosure.acceptanceOutcome,
+    executionVerification: runClosure.executionVerification,
+    supervisorVerdict: runClosure.supervisorVerdict,
+  };
 }
 
 export function reevaluateAcceptanceForMessagingRun(params: {
