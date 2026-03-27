@@ -296,6 +296,10 @@ function buildCompletionArtifacts(params: {
       pendingApprovalIds: [],
       artifactIds: [],
       bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
       boundaries: [],
     });
   const completionOutcome = {

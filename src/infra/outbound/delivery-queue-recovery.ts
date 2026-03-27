@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../../config/config.js";
+import { getPlatformRuntimeCheckpointService } from "../../platform/runtime/index.js";
 import {
   ackDelivery,
   failDelivery,
@@ -63,6 +64,7 @@ function createEmptyRecoverySummary(): RecoverySummary {
 function buildRecoveryDeliverParams(entry: QueuedDelivery, cfg: OpenClawConfig) {
   return {
     cfg,
+    actionId: entry.actionId,
     channel: entry.channel,
     to: entry.to,
     accountId: entry.accountId,
@@ -76,6 +78,25 @@ function buildRecoveryDeliverParams(entry: QueuedDelivery, cfg: OpenClawConfig) 
     mirror: entry.mirror,
     skipQueue: true, // Prevent re-enqueueing during recovery.
   } satisfies Parameters<DeliverFn>[0];
+}
+
+function shouldSkipRecoveryReplay(entry: QueuedDelivery, stateDir?: string) {
+  const runtime = getPlatformRuntimeCheckpointService(stateDir ? { stateDir } : undefined);
+  const actionId = typeof entry.actionId === "string" ? entry.actionId.trim() : "";
+  if (!actionId) {
+    return { actionId: null, mode: "replay" as const };
+  }
+  const action = runtime.getAction(actionId);
+  if (!action) {
+    return { actionId, mode: "replay" as const };
+  }
+  if (action.state === "confirmed") {
+    return { actionId, mode: "confirmed" as const };
+  }
+  if (action.state === "failed" && action.retryable === false) {
+    return { actionId, mode: "permanent_failure" as const, error: action.lastError };
+  }
+  return { actionId, mode: "replay" as const };
 }
 
 async function moveEntryToFailedWithLogging(
@@ -151,12 +172,12 @@ export async function recoverPendingDeliveries(opts: {
   /** Maximum wall-clock time for recovery in ms. Remaining entries are deferred to next startup. Default: 60 000. */
   maxRecoveryMs?: number;
 }): Promise<RecoverySummary> {
-  const pending = await loadPendingDeliveries(opts.stateDir);
+  const pending = (await loadPendingDeliveries(opts.stateDir)).toSorted(
+    (a, b) => a.enqueuedAt - b.enqueuedAt,
+  );
   if (pending.length === 0) {
     return createEmptyRecoverySummary();
   }
-
-  pending.sort((a, b) => a.enqueuedAt - b.enqueuedAt);
   opts.log.info(`Found ${pending.length} pending delivery entries — starting recovery`);
 
   const deadline = Date.now() + (opts.maxRecoveryMs ?? 60_000);
@@ -188,6 +209,21 @@ export async function recoverPendingDeliveries(opts: {
       continue;
     }
 
+    const replayDisposition = shouldSkipRecoveryReplay(entry, opts.stateDir);
+    if (replayDisposition.mode === "confirmed") {
+      await ackDelivery(entry.id, opts.stateDir);
+      summary.recovered += 1;
+      opts.log.info(`Recovered delivery ${entry.id} via confirmed action ledger state`);
+      continue;
+    }
+    if (replayDisposition.mode === "permanent_failure") {
+      opts.log.warn(
+        `Delivery ${entry.id} already marked permanently failed in action ledger — moving to failed/`,
+      );
+      await moveEntryToFailedWithLogging(entry.id, opts.log, opts.stateDir);
+      summary.failed += 1;
+      continue;
+    }
     try {
       await opts.deliver(buildRecoveryDeliverParams(entry, opts.cfg));
       await ackDelivery(entry.id, opts.stateDir);

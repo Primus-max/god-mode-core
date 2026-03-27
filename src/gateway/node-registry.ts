@@ -131,14 +131,6 @@ export class NodeRegistry {
       timeoutMs: params.timeoutMs,
       idempotencyKey: params.idempotencyKey,
     };
-    const ok = this.sendEventToSession(node, "node.invoke.request", payload);
-    if (!ok) {
-      return {
-        ok: false,
-        error: { code: "UNAVAILABLE", message: "failed to send invoke to node" },
-      };
-    }
-    const timeoutMs = typeof params.timeoutMs === "number" ? params.timeoutMs : 30_000;
     const runtimeCheckpointId =
       params.command === "system.run" &&
       params.params &&
@@ -148,9 +140,56 @@ export class NodeRegistry {
       typeof (params.params as { runId?: unknown }).runId === "string"
         ? ((params.params as { runId: string }).runId ?? "")
         : undefined;
+    const runtimeService = getPlatformRuntimeCheckpointService();
+    const actionId = runtimeCheckpointId ? `node-invoke:${runtimeCheckpointId}` : undefined;
+    if (actionId) {
+      const existingAction = runtimeService.getAction(actionId);
+      const cachedResult = existingAction?.receipt?.nodeInvokeResult;
+      if (existingAction?.state === "confirmed" && cachedResult) {
+        return {
+          ok: cachedResult.ok,
+          payload: cachedResult.payload,
+          payloadJSON: cachedResult.payloadJSON ?? null,
+          error: cachedResult.error ?? null,
+        };
+      }
+      runtimeService.stageAction({
+        actionId,
+        runId: runtimeCheckpointId,
+        kind: "node_invoke",
+        boundary: "privileged_tool",
+        checkpointId: runtimeCheckpointId,
+        ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
+        target: {
+          nodeId: params.nodeId,
+          operation: params.command,
+        },
+      });
+      runtimeService.markActionAttempted(actionId, { retryable: true });
+    }
+    const ok = this.sendEventToSession(node, "node.invoke.request", payload);
+    if (!ok) {
+      if (actionId) {
+        runtimeService.markActionFailed(actionId, {
+          lastError: "failed to send invoke to node",
+          retryable: true,
+        });
+      }
+      return {
+        ok: false,
+        error: { code: "UNAVAILABLE", message: "failed to send invoke to node" },
+      };
+    }
+    const timeoutMs = typeof params.timeoutMs === "number" ? params.timeoutMs : 30_000;
     return await new Promise<NodeInvokeResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingInvokes.delete(requestId);
+        if (actionId) {
+          runtimeService.markActionFailed(actionId, {
+            lastError: "node invoke timed out",
+            retryable: true,
+          });
+        }
         resolve({
           ok: false,
           error: { code: "TIMEOUT", message: "node invoke timed out" },
@@ -186,10 +225,43 @@ export class NodeRegistry {
     this.pendingInvokes.delete(params.id);
     if (pending.runtimeCheckpointId) {
       const checkpointService = getPlatformRuntimeCheckpointService();
+      const actionId = `node-invoke:${pending.runtimeCheckpointId}`;
       const checkpoint = checkpointService.updateCheckpoint(pending.runtimeCheckpointId, {
         status: params.ok ? "completed" : "denied",
         completedAtMs: Date.now(),
       });
+      if (params.ok) {
+        checkpointService.markActionConfirmed(actionId, {
+          receipt: {
+            nodeId: params.nodeId,
+            command: pending.command,
+            operation: pending.command,
+            nodeInvokeResult: {
+              ok: params.ok,
+              ...(params.payload !== undefined ? { payload: params.payload } : {}),
+              payloadJSON: params.payloadJSON ?? null,
+              error: params.error ?? null,
+            },
+          },
+        });
+      } else {
+        checkpointService.markActionFailed(actionId, {
+          lastError:
+            params.error?.message ?? params.error?.code ?? "node invoke completed with an error",
+          retryable: true,
+          receipt: {
+            nodeId: params.nodeId,
+            command: pending.command,
+            operation: pending.command,
+            nodeInvokeResult: {
+              ok: params.ok,
+              ...(params.payload !== undefined ? { payload: params.payload } : {}),
+              payloadJSON: params.payloadJSON ?? null,
+              error: params.error ?? null,
+            },
+          },
+        });
+      }
       if (checkpoint) {
         registerAgentRunContext(checkpoint.runId, {
           ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),

@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../../platform/runtime/index.js";
 import {
   enqueueDelivery,
   loadPendingDeliveries,
@@ -17,6 +21,10 @@ import {
 describe("delivery-queue recovery", () => {
   const { tmpDir } = installDeliveryQueueTmpDirHooks();
   const baseCfg = {};
+
+  afterEach(() => {
+    resetPlatformRuntimeCheckpointService();
+  });
 
   const enqueueCrashRecoveryEntries = async () => {
     await enqueueDelivery({ channel: "whatsapp", to: "+1", payloads: [{ text: "a" }] }, tmpDir());
@@ -114,6 +122,51 @@ describe("delivery-queue recovery", () => {
     await runRecovery({ deliver });
 
     expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ skipQueue: true }));
+  });
+
+  it("does not replay confirmed deliveries after restart recovery", async () => {
+    const queueId = await enqueueDelivery(
+      {
+        actionId: "messaging:confirmed-once",
+        channel: "whatsapp",
+        to: "+1",
+        payloads: [{ text: "a" }],
+      },
+      tmpDir(),
+    );
+    const runtime = getPlatformRuntimeCheckpointService({ stateDir: tmpDir() });
+    runtime.stageAction({
+      actionId: "messaging:confirmed-once",
+      kind: "messaging_delivery",
+      target: {
+        operation: "deliver",
+      },
+    });
+    runtime.markActionConfirmed("messaging:confirmed-once", {
+      receipt: {
+        operation: "deliver",
+        deliveryResults: [
+          {
+            channel: "whatsapp",
+            messageId: "msg-1",
+            toJid: "jid-1",
+          },
+        ],
+      },
+    });
+
+    const deliver = vi.fn().mockResolvedValue([]);
+    const { result } = await runRecovery({ deliver });
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      recovered: 1,
+      failed: 0,
+      skippedMaxRetries: 0,
+      deferredBackoff: 0,
+    });
+    expect(await loadPendingDeliveries(tmpDir())).toHaveLength(0);
+    expect(fs.existsSync(path.join(tmpDir(), "delivery-queue", `${queueId}.json`))).toBe(false);
   });
 
   it("replays stored delivery options during recovery", async () => {

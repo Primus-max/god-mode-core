@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,
@@ -116,6 +116,49 @@ describe("bootstrap request service", () => {
     expect(result?.result?.status).toBe("bootstrapped");
     expect(result?.result?.lifecycle?.status).toBe("available");
     expect(getPlatformRuntimeCheckpointService().get(created.id)?.status).toBe("completed");
+  });
+
+  it("does not execute a confirmed bootstrap continuation twice on replay", async () => {
+    const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
+    const created = service.create(buildRequest());
+    service.resolve(created.id, "approve");
+    const installer = vi.fn(async ({ request }: { request: BootstrapRequest }) => ({
+      ok: true,
+      capability: {
+        ...request.catalogEntry.capability,
+        trusted: true,
+        sandboxed: true,
+        installMethod: "download" as const,
+        status: "available" as const,
+      },
+    }));
+
+    const first = await service.run({
+      id: created.id,
+      installers: {
+        download: installer,
+      },
+      availableBins: ["playwright"],
+      runHealthCheckCommand: async () => true,
+    });
+    const replay = await service.run({
+      id: created.id,
+      installers: {
+        download: installer,
+      },
+      availableBins: ["playwright"],
+      runHealthCheckCommand: async () => true,
+    });
+
+    expect(installer).toHaveBeenCalledTimes(1);
+    expect(first?.state).toBe("available");
+    expect(replay?.state).toBe("available");
+    expect(getPlatformRuntimeCheckpointService().getAction(`bootstrap:${created.id}:run`)).toEqual(
+      expect.objectContaining({
+        state: "confirmed",
+      }),
+    );
   });
 
   it("auto-approves and continues trusted unattended bootstrap lanes", async () => {

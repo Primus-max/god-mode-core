@@ -10,6 +10,7 @@ const QUEUE_DIRNAME = "delivery-queue";
 const FAILED_DIRNAME = "failed";
 
 export type QueuedDeliveryPayload = {
+  actionId?: string;
   channel: Exclude<OutboundChannel, "none">;
   to: string;
   accountId?: string;
@@ -90,24 +91,29 @@ function normalizeLegacyQueuedDeliveryEntry(entry: QueuedDelivery): {
   entry: QueuedDelivery;
   migrated: boolean;
 } {
+  const normalizedActionId =
+    typeof entry.actionId === "string" && entry.actionId.trim().length > 0
+      ? entry.actionId
+      : entry.id;
   const hasAttemptTimestamp =
     typeof entry.lastAttemptAt === "number" &&
     Number.isFinite(entry.lastAttemptAt) &&
     entry.lastAttemptAt > 0;
-  if (hasAttemptTimestamp || entry.retryCount <= 0) {
+  if ((hasAttemptTimestamp || entry.retryCount <= 0) && normalizedActionId === entry.actionId) {
     return { entry, migrated: false };
   }
   const hasEnqueuedTimestamp =
     typeof entry.enqueuedAt === "number" &&
     Number.isFinite(entry.enqueuedAt) &&
     entry.enqueuedAt > 0;
-  if (!hasEnqueuedTimestamp) {
+  if (!hasEnqueuedTimestamp && normalizedActionId === entry.actionId) {
     return { entry, migrated: false };
   }
   return {
     entry: {
       ...entry,
-      lastAttemptAt: entry.enqueuedAt,
+      actionId: normalizedActionId,
+      ...(hasAttemptTimestamp ? {} : { lastAttemptAt: entry.enqueuedAt }),
     },
     migrated: true,
   };
@@ -130,6 +136,7 @@ export async function enqueueDelivery(
   const id = generateSecureUuid();
   await writeQueueEntry(path.join(queueDir, `${id}.json`), {
     id,
+    actionId: params.actionId ?? id,
     enqueuedAt: Date.now(),
     channel: params.channel,
     to: params.to,

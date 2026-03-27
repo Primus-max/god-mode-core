@@ -93,6 +93,66 @@ describe("platform runtime checkpoint service", () => {
         checkpointIds: ["checkpoint-dispatch"],
         completedCheckpointIds: ["checkpoint-dispatch"],
         bootstrapRequestIds: ["bootstrap-1"],
+        actionIds: [],
+        attemptedActionIds: [],
+        confirmedActionIds: [],
+        failedActionIds: [],
+      }),
+    );
+  });
+
+  it("persists action ledger entries and includes them in run outcomes", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-actions-"));
+    tempDirs.push(stateDir);
+    const service = createPlatformRuntimeCheckpointService({ stateDir });
+
+    service.stageAction({
+      actionId: "action-1",
+      runId: "run-actions",
+      sessionKey: "session-actions",
+      kind: "bootstrap",
+      boundary: "bootstrap",
+      checkpointId: "checkpoint-actions",
+      target: {
+        bootstrapRequestId: "bootstrap-1",
+        operation: "bootstrap.run",
+      },
+    });
+    service.markActionAttempted("action-1", { retryable: true });
+    service.markActionConfirmed("action-1", {
+      receipt: {
+        bootstrapRequestId: "bootstrap-1",
+        operation: "bootstrap.run",
+        resultStatus: "bootstrapped",
+      },
+    });
+
+    expect(service.getAction("action-1")).toEqual(
+      expect.objectContaining({
+        state: "confirmed",
+        attemptCount: 1,
+      }),
+    );
+    expect(service.listActions({ runId: "run-actions" })).toEqual([
+      expect.objectContaining({
+        actionId: "action-1",
+        state: "confirmed",
+      }),
+    ]);
+    expect(service.buildRunOutcome("run-actions")).toEqual(
+      expect.objectContaining({
+        actionIds: ["action-1"],
+        attemptedActionIds: [],
+        confirmedActionIds: ["action-1"],
+        failedActionIds: [],
+      }),
+    );
+
+    const next = createPlatformRuntimeCheckpointService({ stateDir });
+    expect(next.rehydrate()).toBe(1);
+    expect(next.getAction("action-1")).toEqual(
+      expect.objectContaining({
+        state: "confirmed",
       }),
     );
   });
@@ -111,6 +171,10 @@ describe("platform runtime checkpoint service", () => {
         pendingApprovalIds: [],
         artifactIds: [],
         bootstrapRequestIds: [],
+        actionIds: [],
+        attemptedActionIds: [],
+        confirmedActionIds: [],
+        failedActionIds: [],
         boundaries: [],
       },
       evidence: {
@@ -137,6 +201,10 @@ describe("platform runtime checkpoint service", () => {
         pendingApprovalIds: ["approval-human"],
         artifactIds: [],
         bootstrapRequestIds: [],
+        actionIds: [],
+        attemptedActionIds: [],
+        confirmedActionIds: [],
+        failedActionIds: [],
         boundaries: ["exec_approval"],
       },
     });
@@ -160,6 +228,10 @@ describe("platform runtime checkpoint service", () => {
         pendingApprovalIds: [],
         artifactIds: [],
         bootstrapRequestIds: [],
+        actionIds: [],
+        attemptedActionIds: [],
+        confirmedActionIds: [],
+        failedActionIds: [],
         boundaries: [],
       },
       evidence: {
@@ -188,6 +260,10 @@ describe("platform runtime checkpoint service", () => {
         pendingApprovalIds: [],
         artifactIds: [],
         bootstrapRequestIds: [],
+        actionIds: [],
+        attemptedActionIds: [],
+        confirmedActionIds: [],
+        failedActionIds: [],
         boundaries: [],
       },
       evidence: {

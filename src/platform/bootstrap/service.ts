@@ -95,6 +95,10 @@ function buildRecordSignature(request: BootstrapRequest): string {
   ].join("::");
 }
 
+function resolveBootstrapRunActionId(requestId: string): string {
+  return `bootstrap:${requestId}:run`;
+}
+
 function resolveBootstrapDecisionPrompt(request: BootstrapRequest): string {
   if (request.sourceDomain === "document") {
     return `Bootstrap capability ${request.capabilityId} for document processing workflow.`;
@@ -307,6 +311,15 @@ export function createBootstrapRequestService(params?: {
       if (!existing) {
         return undefined;
       }
+      const actionId = resolveBootstrapRunActionId(runParams.id);
+      const existingAction = runtimeCheckpointService.getAction(actionId);
+      if (existingAction?.state === "confirmed") {
+        runtimeCheckpointService.updateCheckpoint(runParams.id, {
+          status: "completed",
+          completedAtMs: existingAction.confirmedAtMs ?? Date.now(),
+        });
+        return BootstrapRequestRecordDetailSchema.parse(existing);
+      }
       if (existing.state !== "approved") {
         const blocked = BootstrapRequestRecordSchema.parse({
           ...existing,
@@ -319,6 +332,17 @@ export function createBootstrapRequestService(params?: {
         appendAuditRecord(stateDir, "request.run_blocked", blocked);
         return BootstrapRequestRecordDetailSchema.parse(blocked);
       }
+      runtimeCheckpointService.stageAction({
+        actionId,
+        runId: existing.id,
+        kind: "bootstrap",
+        boundary: "bootstrap",
+        checkpointId: existing.id,
+        target: {
+          bootstrapRequestId: existing.id,
+          operation: "bootstrap.run",
+        },
+      });
       const startedAt = new Date().toISOString();
       const running = BootstrapRequestRecordSchema.parse({
         ...existing,
@@ -331,18 +355,32 @@ export function createBootstrapRequestService(params?: {
         status: "resumed",
         resumedAtMs: Date.now(),
       });
+      runtimeCheckpointService.markActionAttempted(actionId, { retryable: true });
       appendAuditRecord(stateDir, "request.started", running);
-      const policyContext = buildBootstrapPolicyContext(running.request, true);
-      const result = await orchestrateBootstrapRequest({
-        request: running.request,
-        policyContext,
-        registry,
-        stateDir,
-        installers: runParams.installers,
-        availableBins: runParams.availableBins,
-        availableEnv: runParams.availableEnv,
-        runHealthCheckCommand: runParams.runHealthCheckCommand,
-      });
+      let result: BootstrapOrchestrationResult;
+      try {
+        const policyContext = buildBootstrapPolicyContext(running.request, true);
+        result = await orchestrateBootstrapRequest({
+          request: running.request,
+          policyContext,
+          registry,
+          stateDir,
+          installers: runParams.installers,
+          availableBins: runParams.availableBins,
+          availableEnv: runParams.availableEnv,
+          runHealthCheckCommand: runParams.runHealthCheckCommand,
+        });
+      } catch (error) {
+        runtimeCheckpointService.markActionFailed(actionId, {
+          lastError: error instanceof Error ? error.message : String(error),
+          retryable: true,
+          receipt: {
+            bootstrapRequestId: running.id,
+            operation: "bootstrap.run",
+          },
+        });
+        throw error;
+      }
       const completedAt = new Date().toISOString();
       const nextState = result.status === "bootstrapped" ? "available" : "degraded";
       const updated = BootstrapRequestRecordSchema.parse({
@@ -358,6 +396,25 @@ export function createBootstrapRequestService(params?: {
         status: result.status === "bootstrapped" ? "completed" : "denied",
         completedAtMs: Date.now(),
       });
+      if (result.status === "bootstrapped") {
+        runtimeCheckpointService.markActionConfirmed(actionId, {
+          receipt: {
+            bootstrapRequestId: updated.id,
+            operation: "bootstrap.run",
+            resultStatus: result.status,
+          },
+        });
+      } else {
+        runtimeCheckpointService.markActionFailed(actionId, {
+          lastError: result.reasons?.[0] ?? "bootstrap degraded",
+          retryable: true,
+          receipt: {
+            bootstrapRequestId: updated.id,
+            operation: "bootstrap.run",
+            resultStatus: result.status,
+          },
+        });
+      }
       appendAuditRecord(
         stateDir,
         result.status === "bootstrapped" ? "request.available" : "request.degraded",
