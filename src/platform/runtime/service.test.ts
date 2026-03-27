@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import * as agentEvents from "../../infra/agent-events.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,
@@ -54,6 +55,7 @@ describe("platform runtime checkpoint service", () => {
   });
 
   it("dispatches checkpoint continuations and builds run outcomes", async () => {
+    const telemetrySpy = vi.spyOn(agentEvents, "emitRuntimeRecoveryTelemetry");
     const service = createPlatformRuntimeCheckpointService();
     const dispatched: string[] = [];
     service.registerContinuationHandler("closure_recovery", async (checkpoint) => {
@@ -78,6 +80,23 @@ describe("platform runtime checkpoint service", () => {
     });
 
     await service.dispatchContinuation("checkpoint-dispatch");
+
+    expect(telemetrySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        milestone: "continuation_dispatch_start",
+        checkpointId: "checkpoint-dispatch",
+        continuationKind: "closure_recovery",
+        runId: "run-dispatch",
+      }),
+    );
+    expect(telemetrySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        milestone: "continuation_dispatch_handler_done",
+        checkpointId: "checkpoint-dispatch",
+        continuationKind: "closure_recovery",
+      }),
+    );
+    telemetrySpy.mockRestore();
 
     expect(dispatched).toEqual(["checkpoint-dispatch"]);
     expect(service.get("checkpoint-dispatch")).toEqual(

@@ -55,6 +55,7 @@ describe("gateway session recovery state", () => {
     expect(row.recoveryContinuationState).toBe("idle");
     expect(row.recoveryAttempts).toBe(1);
     expect(row.recoveryBlockedReason).toContain("authentication refresh");
+    expect(row.recoveryOperatorHint).toContain("Awaiting operator approval");
   });
 
   test("listSessionsFromStore treats resumed closure recovery as running session truth", () => {
@@ -113,5 +114,6 @@ describe("gateway session recovery state", () => {
     expect(row?.recoveryStatus).toBe("resumed");
     expect(row?.recoveryContinuationState).toBe("running");
     expect(row?.recoveryAttempts).toBe(2);
+    expect(row?.recoveryOperatorHint).toContain("dispatching");
   });
 });

@@ -2,6 +2,7 @@ import { DEFAULT_HEARTBEAT_ACK_MAX_CHARS, stripHeartbeatToken } from "../auto-re
 import { normalizeVerboseLevel } from "../auto-reply/thinking.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { loadConfig } from "../config/config.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { type AgentEventPayload, getAgentRunContext } from "../infra/agent-events.js";
 import { resolveHeartbeatVisibility } from "../infra/heartbeat-visibility.js";
 import {
@@ -15,6 +16,8 @@ import {
 } from "./session-lifecycle-state.js";
 import { loadGatewaySessionRow, loadSessionEntry } from "./session-utils.js";
 import { formatForLog } from "./ws-log.js";
+
+const sessionLifecyclePersistLog = createSubsystemLogger("gateway/session-lifecycle-persist");
 
 function resolveHeartbeatAckMaxChars(): number {
   try {
@@ -877,7 +880,11 @@ export function createAgentEventHandler({
         lifecyclePhase === "error" ||
         Boolean(runtimeClosureSummary))
     ) {
-      void persistGatewaySessionLifecycleEvent({ sessionKey, event: evt }).catch(() => undefined);
+      void persistGatewaySessionLifecycleEvent({ sessionKey, event: evt }).catch((err) => {
+        sessionLifecyclePersistLog.warn(
+          `persist session lifecycle failed: ${formatForLog(err instanceof Error ? err.message : err)}`,
+        );
+      });
       const sessionEventConnIds = sessionEventSubscribers.getAll();
       if (sessionEventConnIds.size > 0) {
         broadcastToConnIds(

@@ -1,3 +1,4 @@
+import { deriveRecoveryOperatorHint } from "./recovery-operator-hint.js";
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
 import { PlatformRuntimeCheckpointSummarySchema } from "./contracts.js";
 import type { PlatformRuntimeCheckpointService } from "./service.js";
@@ -54,12 +55,16 @@ export function createRuntimeCheckpointListGatewayMethod(
     const sessionKey = typeof params.sessionKey === "string" ? params.sessionKey.trim() : undefined;
     const runId = typeof params.runId === "string" ? params.runId.trim() : undefined;
     const status = typeof params.status === "string" ? params.status.trim() : undefined;
+    const checkpoints = service.list({
+      ...(sessionKey ? { sessionKey } : {}),
+      ...(runId ? { runId } : {}),
+      ...(status ? { status: status as never } : {}),
+    });
     respond(true, {
-      checkpoints: service.list({
-        ...(sessionKey ? { sessionKey } : {}),
-        ...(runId ? { runId } : {}),
-        ...(status ? { status: status as never } : {}),
-      }),
+      checkpoints: checkpoints.map((cp) => ({
+        ...cp,
+        operatorHint: deriveRecoveryOperatorHint(cp),
+      })),
     });
   };
 }
@@ -78,7 +83,13 @@ export function createRuntimeCheckpointGetGatewayMethod(
       respond(false, { error: "checkpoint not found" });
       return;
     }
-    respond(true, { checkpoint: toRuntimeCheckpointSummary(checkpoint) });
+    const summary = toRuntimeCheckpointSummary(checkpoint);
+    respond(true, {
+      checkpoint: {
+        ...summary,
+        operatorHint: deriveRecoveryOperatorHint(summary),
+      },
+    });
   };
 }
 

@@ -269,6 +269,34 @@ export function summarizeAgentEventForWsLog(payload: unknown): Record<string, un
         }
       }
     }
+    if (phase === "recovery") {
+      const milestone = typeof data.milestone === "string" ? data.milestone : undefined;
+      if (milestone) {
+        extra.milestone = milestone;
+      }
+      const checkpointId = typeof data.checkpointId === "string" ? data.checkpointId : undefined;
+      if (checkpointId) {
+        extra.cp = shortId(checkpointId);
+      }
+      const continuationKind =
+        typeof data.continuationKind === "string" ? data.continuationKind : undefined;
+      if (continuationKind) {
+        extra.kind = continuationKind;
+      }
+      const queueKey = typeof data.queueKey === "string" ? data.queueKey : undefined;
+      if (queueKey?.trim()) {
+        extra.queue = compactPreview(queueKey, 48);
+      }
+      const terminalStatus =
+        typeof data.terminalStatus === "string" ? data.terminalStatus : undefined;
+      if (terminalStatus) {
+        extra.terminal = terminalStatus;
+      }
+      const err = typeof data.error === "string" ? data.error : undefined;
+      if (err?.trim()) {
+        extra.error = compactPreview(err, 120);
+      }
+    }
     return extra;
   }
 

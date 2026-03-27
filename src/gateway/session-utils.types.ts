@@ -71,6 +71,8 @@ export type GatewaySessionRow = {
   recoveryBlockedReason?: string;
   recoveryUpdatedAt?: number;
   recoveryAttempts?: number;
+  /** Derived operator-facing recovery narrative (closure.recovery checkpoints only). */
+  recoveryOperatorHint?: string;
 };
 
 export type GatewayAgentRow = SharedGatewayAgentRow;
