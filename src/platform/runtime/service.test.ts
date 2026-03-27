@@ -56,7 +56,7 @@ describe("platform runtime checkpoint service", () => {
   it("dispatches checkpoint continuations and builds run outcomes", async () => {
     const service = createPlatformRuntimeCheckpointService();
     const dispatched: string[] = [];
-    service.registerContinuationHandler("bootstrap_run", async (checkpoint) => {
+    service.registerContinuationHandler("closure_recovery", async (checkpoint) => {
       dispatched.push(checkpoint.id);
       service.updateCheckpoint(checkpoint.id, {
         status: "completed",
@@ -67,10 +67,11 @@ describe("platform runtime checkpoint service", () => {
     service.createCheckpoint({
       id: "checkpoint-dispatch",
       runId: "run-dispatch",
-      boundary: "bootstrap",
-      target: { bootstrapRequestId: "bootstrap-1", operation: "bootstrap.run" },
+      boundary: "exec_approval",
+      target: { approvalId: "approval-1", operation: "closure.recovery" },
       continuation: {
-        kind: "bootstrap_run",
+        kind: "closure_recovery",
+        input: { queueKey: "queue-1" },
         state: "idle",
         attempts: 0,
       },
@@ -93,13 +94,23 @@ describe("platform runtime checkpoint service", () => {
         status: "completed",
         checkpointIds: ["checkpoint-dispatch"],
         completedCheckpointIds: ["checkpoint-dispatch"],
-        bootstrapRequestIds: ["bootstrap-1"],
+        pendingApprovalIds: [],
         actionIds: [],
         attemptedActionIds: [],
         confirmedActionIds: [],
         failedActionIds: [],
       }),
     );
+    expect(service.list({ runId: "run-dispatch" })).toEqual([
+      expect.objectContaining({
+        id: "checkpoint-dispatch",
+        continuation: expect.objectContaining({
+          kind: "closure_recovery",
+          state: "completed",
+          attempts: 1,
+        }),
+      }),
+    ]);
   });
 
   it("persists action ledger entries and includes them in run outcomes", () => {

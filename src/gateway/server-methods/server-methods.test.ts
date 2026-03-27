@@ -612,6 +612,78 @@ describe("exec approval handlers", () => {
     );
   });
 
+  it("resumes closure recovery approvals instead of leaving them approved", async () => {
+    const manager = new ExecApprovalManager();
+    const handlers = createExecApprovalHandlers(manager);
+    const broadcasts: Array<{ event: string; payload: unknown }> = [];
+    const context = {
+      broadcast: (event: string, payload: unknown) => {
+        broadcasts.push({ event, payload });
+      },
+    };
+    const respond = vi.fn();
+
+    const record = manager.create(
+      {
+        command: "Review closure outcome for run run-closure-recovery",
+        host: "gateway",
+        runtimeRunId: "run-closure-recovery",
+        runtimeCheckpointId: "closure-approval",
+        runtimeBoundary: "exec_approval",
+        sessionKey: "agent:main:main",
+        blockedReason: "provider authentication refresh requires operator attention",
+      },
+      60_000,
+      "closure-approval",
+    );
+    void manager.register(record, 60_000);
+    getPlatformRuntimeCheckpointService().createCheckpoint({
+      id: "closure-approval",
+      runId: "run-closure-recovery",
+      sessionKey: "agent:main:main",
+      boundary: "exec_approval",
+      blockedReason: "provider authentication refresh requires operator attention",
+      nextActions: [
+        {
+          method: "exec.approval.resolve",
+          label: "Approve or deny closure recovery",
+          phase: "approve",
+        },
+      ],
+      target: {
+        approvalId: "closure-approval",
+        operation: "closure.recovery",
+      },
+      continuation: {
+        kind: "closure_recovery",
+        state: "idle",
+        attempts: 0,
+        input: {},
+      },
+    });
+
+    await resolveExecApproval({
+      handlers,
+      id: "closure-approval",
+      respond,
+      context,
+    });
+
+    expect(respond).toHaveBeenCalledWith(true, { ok: true }, undefined);
+    expect(getPlatformRuntimeCheckpointService().get("closure-approval")).toEqual(
+      expect.objectContaining({
+        status: "resumed",
+        approvedAtMs: expect.any(Number),
+        resumedAtMs: expect.any(Number),
+        continuation: expect.objectContaining({
+          kind: "closure_recovery",
+          state: "idle",
+        }),
+      }),
+    );
+    expect(broadcasts.some((entry) => entry.event === "exec.approval.resolved")).toBe(true);
+  });
+
   it("rejects host=node approval requests without nodeId", async () => {
     const { handlers, respond, context } = createExecApprovalFixture();
     await requestExecApproval({

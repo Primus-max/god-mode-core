@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import { DEFAULT_EXEC_APPROVAL_TIMEOUT_MS } from "../../infra/exec-approvals.js";
 import {
@@ -18,11 +19,117 @@ import {
   type PlatformRuntimeSupervisorVerdict,
 } from "../../platform/runtime/index.js";
 import { getSharedExecApprovalManager } from "../../gateway/exec-approval-manager.js";
-import { enqueueFollowupRun, type FollowupRun, type QueueSettings } from "./queue.js";
+import {
+  enqueueFollowupRun,
+  scheduleFollowupDrain,
+  type FollowupRun,
+  type QueueSettings,
+} from "./queue.js";
 
 type MessagingClosureDecision =
   | PlatformRuntimeAcceptanceResult
   | PlatformRuntimeSupervisorVerdict;
+
+const QueueSettingsSchema = z
+  .object({
+    mode: z.enum(["steer", "followup", "collect", "steer-backlog", "interrupt", "queue"]),
+    debounceMs: z.number().int().nonnegative().optional(),
+    cap: z.number().int().positive().optional(),
+    dropPolicy: z.enum(["old", "new", "summarize"]).optional(),
+  })
+  .strict();
+
+const FollowupAutomationMetadataSchema = z
+  .object({
+    source: z.enum(["acceptance_retry", "closure_recovery"]),
+    retryCount: z.number().int().nonnegative(),
+    persisted: z.boolean().optional(),
+    reasonCode: z.string().min(1).optional(),
+    reasonSummary: z.string().min(1).optional(),
+  })
+  .strict();
+
+const FollowupRunSnapshotSchema = z
+  .object({
+    prompt: z.string(),
+    messageId: z.string().min(1).optional(),
+    summaryLine: z.string().min(1).optional(),
+    enqueuedAt: z.number().int().nonnegative(),
+    automation: FollowupAutomationMetadataSchema.optional(),
+    originatingChannel: z.string().min(1).optional(),
+    originatingTo: z.string().min(1).optional(),
+    originatingAccountId: z.string().min(1).optional(),
+    originatingThreadId: z.union([z.string().min(1), z.number().int()]).optional(),
+    originatingChatType: z.string().min(1).optional(),
+    run: z
+      .object({
+        agentId: z.string().min(1),
+        agentDir: z.string().min(1),
+        sessionId: z.string().min(1),
+        sessionKey: z.string().min(1).optional(),
+        messageProvider: z.string().min(1).optional(),
+        agentAccountId: z.string().min(1).optional(),
+        groupId: z.string().min(1).optional(),
+        groupChannel: z.string().min(1).optional(),
+        groupSpace: z.string().min(1).optional(),
+        senderId: z.string().min(1).optional(),
+        senderName: z.string().min(1).optional(),
+        senderUsername: z.string().min(1).optional(),
+        senderE164: z.string().min(1).optional(),
+        senderIsOwner: z.boolean().optional(),
+        sessionFile: z.string().min(1),
+        workspaceDir: z.string().min(1),
+        config: z.record(z.string(), z.unknown()),
+        skillsSnapshot: z.unknown().optional(),
+        provider: z.string().min(1),
+        model: z.string().min(1),
+        authProfileId: z.string().min(1).optional(),
+        authProfileIdSource: z.enum(["auto", "user"]).optional(),
+        thinkLevel: z.string().min(1).optional(),
+        verboseLevel: z.string().min(1).optional(),
+        reasoningLevel: z.string().min(1).optional(),
+        elevatedLevel: z.string().min(1).optional(),
+        execOverrides: z
+          .object({
+            host: z.string().min(1).optional(),
+            security: z.string().min(1).optional(),
+            ask: z.string().min(1).optional(),
+            node: z.string().min(1).optional(),
+          })
+          .strict()
+          .optional(),
+        bashElevated: z
+          .object({
+            enabled: z.boolean(),
+            allowed: z.boolean(),
+            defaultLevel: z.string().min(1),
+          })
+          .strict()
+          .optional(),
+        timeoutMs: z.number().int().positive(),
+        blockReplyBreak: z.enum(["text_end", "message_end"]),
+        ownerNumbers: z.array(z.string().min(1)).optional(),
+        inputProvenance: z.unknown().optional(),
+        extraSystemPrompt: z.string().min(1).optional(),
+        enforceFinalTag: z.boolean().optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const ClosureRecoveryContinuationPayloadSchema = z
+  .object({
+    queueKey: z.string().min(1),
+    settings: QueueSettingsSchema,
+    sourceRun: FollowupRunSnapshotSchema,
+  })
+  .strict();
+
+type ClosureRecoveryContinuationPayload = {
+  queueKey: string;
+  settings: QueueSettings;
+  sourceRun: FollowupRun;
+};
 
 export type MessagingClosureOutcomeDispatchResult = {
   queuedSemanticRetry: boolean;
@@ -34,6 +141,74 @@ const CLOSURE_APPROVAL_TIMEOUT_MS = Math.max(
   DEFAULT_EXEC_APPROVAL_TIMEOUT_MS,
   24 * 60 * 60 * 1000,
 );
+
+function buildClosureRecoveryContinuationPayload(params: {
+  queueKey?: string;
+  settings: QueueSettings;
+  sourceRun: FollowupRun;
+}): ClosureRecoveryContinuationPayload | undefined {
+  const queueKey = params.queueKey?.trim();
+  if (!queueKey) {
+    return undefined;
+  }
+  return ClosureRecoveryContinuationPayloadSchema.parse({
+    queueKey,
+    settings: params.settings,
+    sourceRun: params.sourceRun,
+  }) as ClosureRecoveryContinuationPayload;
+}
+
+function parseClosureRecoveryContinuationPayload(
+  input: unknown,
+): ClosureRecoveryContinuationPayload | undefined {
+  const parsed = ClosureRecoveryContinuationPayloadSchema.safeParse(input);
+  return parsed.success ? (parsed.data as ClosureRecoveryContinuationPayload) : undefined;
+}
+
+async function dispatchClosureRecoveryContinuation(
+  checkpointId: string,
+  payload: ClosureRecoveryContinuationPayload,
+): Promise<void> {
+  const queued = enqueueFollowupRun(
+    payload.queueKey,
+    {
+      ...payload.sourceRun,
+      enqueuedAt: Date.now(),
+      automation: {
+        source: "closure_recovery",
+        retryCount: payload.sourceRun.automation?.retryCount ?? 0,
+        persisted: true,
+        ...(payload.sourceRun.automation?.reasonCode
+          ? { reasonCode: payload.sourceRun.automation.reasonCode }
+          : {}),
+        ...(payload.sourceRun.automation?.reasonSummary
+          ? { reasonSummary: payload.sourceRun.automation.reasonSummary }
+          : {}),
+      },
+    },
+    payload.settings,
+    "prompt",
+  );
+  const [{ createFollowupRunner }, { createTypingController }] = await Promise.all([
+    import("./followup-runner.js"),
+    import("./typing.js"),
+  ]);
+  const runFollowup = createFollowupRunner({
+    typing: createTypingController({}),
+    typingMode: "never",
+    queueKey: payload.queueKey,
+    resolvedQueue: payload.settings,
+    defaultModel: payload.sourceRun.run.model,
+  });
+  scheduleFollowupDrain(payload.queueKey, runFollowup);
+  getPlatformRuntimeCheckpointService().updateCheckpoint(checkpointId, {
+    status: "completed",
+    completedAtMs: Date.now(),
+  });
+  if (!queued) {
+    return;
+  }
+}
 
 function resolveMessagingClosureDecision(params: {
   acceptance: PlatformRuntimeAcceptanceResult | undefined;
@@ -125,6 +300,8 @@ function shouldCreateHumanApproval(decision: MessagingClosureDecision): boolean 
 function ensureClosureApprovalRequest(params: {
   decision: MessagingClosureDecision;
   sourceRun: FollowupRun;
+  queueKey?: string;
+  settings: QueueSettings;
 }): string | undefined {
   const outcome = resolveDecisionOutcome(params.decision);
   if ((outcome?.pendingApprovalIds.length ?? 0) > 0) {
@@ -135,6 +312,11 @@ function ensureClosureApprovalRequest(params: {
   const manager = getSharedExecApprovalManager();
   const existing = manager.getSnapshot(approvalId);
   const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
+  const continuation = buildClosureRecoveryContinuationPayload({
+    queueKey: params.queueKey,
+    settings: params.settings,
+    sourceRun: params.sourceRun,
+  });
   if (!existing || existing.resolvedAtMs !== undefined) {
     const request = {
       command: `Review closure outcome for run ${params.decision.runId}`,
@@ -182,6 +364,16 @@ function ensureClosureApprovalRequest(params: {
       approvalId,
       operation: "closure.recovery",
     },
+    ...(continuation
+      ? {
+          continuation: {
+            kind: "closure_recovery",
+            state: "idle",
+            attempts: 0,
+            input: continuation,
+          },
+        }
+      : {}),
   });
   registerAgentRunContext(params.decision.runId, {
     ...(params.sourceRun.run.sessionKey ? { sessionKey: params.sourceRun.run.sessionKey } : {}),
@@ -314,6 +506,8 @@ export function dispatchMessagingClosureOutcome(params: {
       ? ensureClosureApprovalRequest({
           decision,
           sourceRun: params.sourceRun,
+          queueKey: params.queueKey,
+          settings: params.settings,
         })
       : undefined;
 
@@ -323,3 +517,14 @@ export function dispatchMessagingClosureOutcome(params: {
     ...(bootstrapRequestIds.length > 0 ? { bootstrapRequestIds } : {}),
   };
 }
+
+getPlatformRuntimeCheckpointService().registerContinuationHandler(
+  "closure_recovery",
+  async (checkpoint) => {
+    const payload = parseClosureRecoveryContinuationPayload(checkpoint.continuation?.input);
+    if (!payload) {
+      return;
+    }
+    await dispatchClosureRecoveryContinuation(checkpoint.id, payload);
+  },
+);

@@ -29,6 +29,15 @@ function normalizeRuntimeBoundary(value: unknown, machineControlRequired: boolea
   return machineControlRequired ? "machine_control" : "exec_approval";
 }
 
+function isClosureRecoveryCheckpoint(
+  checkpoint: ReturnType<ReturnType<typeof getPlatformRuntimeCheckpointService>["get"]>,
+): boolean {
+  return (
+    checkpoint?.target?.operation === "closure.recovery" &&
+    checkpoint.continuation?.kind === "closure_recovery"
+  );
+}
+
 export function createExecApprovalHandlers(
   manager: ExecApprovalManager,
   opts?: { forwarder?: ExecApprovalForwarder },
@@ -425,20 +434,39 @@ export function createExecApprovalHandlers(
             },
           )
         : undefined;
+      const resumedCheckpoint =
+        decision !== "deny" && checkpoint && isClosureRecoveryCheckpoint(checkpoint)
+          ? runtimeCheckpointService.updateCheckpoint(checkpoint.id, {
+              status: "resumed",
+              approvedAtMs: checkpoint.approvedAtMs ?? Date.now(),
+              resumedAtMs: Date.now(),
+            })
+          : checkpoint;
       registerAgentRunContext(runtimeRunId, {
         ...(snapshot?.request.sessionKey ? { sessionKey: snapshot.request.sessionKey } : {}),
-        runtimeState: decision === "deny" ? "failed" : "approved",
-        runtimeCheckpointId: checkpoint?.id ?? snapshot?.request.runtimeCheckpointId ?? approvalId,
-        runtimeBoundary: checkpoint?.boundary ?? snapshot?.request.runtimeBoundary ?? undefined,
+        runtimeState:
+          decision === "deny"
+            ? "failed"
+            : isClosureRecoveryCheckpoint(resumedCheckpoint)
+              ? "resumed"
+              : "approved",
+        runtimeCheckpointId:
+          resumedCheckpoint?.id ?? snapshot?.request.runtimeCheckpointId ?? approvalId,
+        runtimeBoundary: resumedCheckpoint?.boundary ?? snapshot?.request.runtimeBoundary ?? undefined,
       });
       emitAgentEvent({
         runId: runtimeRunId,
         stream: "lifecycle",
         ...(snapshot?.request.sessionKey ? { sessionKey: snapshot.request.sessionKey } : {}),
         data: {
-          phase: decision === "deny" ? "error" : "approved",
-          checkpointId: checkpoint?.id ?? snapshot?.request.runtimeCheckpointId ?? approvalId,
-          boundary: checkpoint?.boundary ?? snapshot?.request.runtimeBoundary ?? undefined,
+          phase:
+            decision === "deny"
+              ? "error"
+              : isClosureRecoveryCheckpoint(resumedCheckpoint)
+                ? "resumed"
+                : "approved",
+          checkpointId: resumedCheckpoint?.id ?? snapshot?.request.runtimeCheckpointId ?? approvalId,
+          boundary: resumedCheckpoint?.boundary ?? snapshot?.request.runtimeBoundary ?? undefined,
           ...(decision === "deny" ? { error: "approval denied by operator" } : {}),
         },
       });
@@ -458,6 +486,10 @@ export function createExecApprovalHandlers(
         .catch((err) => {
           context.logGateway?.error?.(`exec approvals: forward resolve failed: ${String(err)}`);
         });
+      if (decision !== "deny" && resumedCheckpoint && isClosureRecoveryCheckpoint(resumedCheckpoint)) {
+        await import("../../auto-reply/reply/closure-outcome-dispatcher.js");
+        await runtimeCheckpointService.dispatchContinuation(resumedCheckpoint.id);
+      }
       respond(true, { ok: true }, undefined);
     },
   };

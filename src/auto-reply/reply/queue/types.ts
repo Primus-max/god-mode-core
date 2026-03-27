@@ -20,7 +20,7 @@ export type QueueSettings = {
 export type QueueDedupeMode = "message-id" | "prompt" | "none";
 
 export type FollowupAutomationMetadata = {
-  source: "acceptance_retry";
+  source: "acceptance_retry" | "closure_recovery";
   retryCount: number;
   persisted?: boolean;
   reasonCode?: string;

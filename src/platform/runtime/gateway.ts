@@ -6,10 +6,12 @@ export function createRuntimeCheckpointListGatewayMethod(
 ): GatewayRequestHandler {
   return ({ params, respond }) => {
     const sessionKey = typeof params.sessionKey === "string" ? params.sessionKey.trim() : undefined;
+    const runId = typeof params.runId === "string" ? params.runId.trim() : undefined;
     const status = typeof params.status === "string" ? params.status.trim() : undefined;
     respond(true, {
       checkpoints: service.list({
         ...(sessionKey ? { sessionKey } : {}),
+        ...(runId ? { runId } : {}),
         ...(status ? { status: status as never } : {}),
       }),
     });

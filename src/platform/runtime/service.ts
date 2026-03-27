@@ -1089,7 +1089,56 @@ export function createPlatformRuntimeCheckpointService(params?: {
           listParams?.status ? checkpoint.status === listParams.status : true,
         )
         .toSorted((left, right) => right.updatedAtMs - left.updatedAtMs)
-        .map((checkpoint) => PlatformRuntimeCheckpointSummarySchema.parse(checkpoint));
+        .map((checkpoint) =>
+          PlatformRuntimeCheckpointSummarySchema.parse({
+            id: checkpoint.id,
+            runId: checkpoint.runId,
+            ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),
+            boundary: checkpoint.boundary,
+            status: checkpoint.status,
+            ...(checkpoint.blockedReason ? { blockedReason: checkpoint.blockedReason } : {}),
+            ...(checkpoint.nextActions?.length ? { nextActions: checkpoint.nextActions } : {}),
+            ...(checkpoint.target ? { target: checkpoint.target } : {}),
+            ...(checkpoint.continuation
+              ? {
+                  continuation: {
+                    kind: checkpoint.continuation.kind,
+                    ...(checkpoint.continuation.autoDispatch !== undefined
+                      ? { autoDispatch: checkpoint.continuation.autoDispatch }
+                      : {}),
+                    ...(checkpoint.continuation.state
+                      ? { state: checkpoint.continuation.state }
+                      : {}),
+                    ...(checkpoint.continuation.attempts !== undefined
+                      ? { attempts: checkpoint.continuation.attempts }
+                      : {}),
+                    ...(checkpoint.continuation.lastError
+                      ? { lastError: checkpoint.continuation.lastError }
+                      : {}),
+                    ...(checkpoint.continuation.lastDispatchedAtMs !== undefined
+                      ? {
+                          lastDispatchedAtMs: checkpoint.continuation.lastDispatchedAtMs,
+                        }
+                      : {}),
+                    ...(checkpoint.continuation.lastCompletedAtMs !== undefined
+                      ? {
+                          lastCompletedAtMs: checkpoint.continuation.lastCompletedAtMs,
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
+            createdAtMs: checkpoint.createdAtMs,
+            updatedAtMs: checkpoint.updatedAtMs,
+            ...(checkpoint.approvedAtMs !== undefined
+              ? { approvedAtMs: checkpoint.approvedAtMs }
+              : {}),
+            ...(checkpoint.resumedAtMs !== undefined ? { resumedAtMs: checkpoint.resumedAtMs } : {}),
+            ...(checkpoint.completedAtMs !== undefined
+              ? { completedAtMs: checkpoint.completedAtMs }
+              : {}),
+          }),
+        );
     },
     buildRunOutcome(runId) {
       const normalized = runId.trim();
