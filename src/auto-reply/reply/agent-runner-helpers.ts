@@ -19,13 +19,11 @@ import {
 import { normalizeMessageChannel } from "../../utils/message-channel.js";
 import { normalizeVerboseLevel, type VerboseLevel } from "../thinking.js";
 import type { ReplyPayload } from "../types.js";
-import {
-  enqueueFollowupRun,
-  scheduleFollowupDrain,
-  type FollowupRun,
-  type QueueSettings,
-} from "./queue.js";
+import { dispatchMessagingClosureOutcome } from "./closure-outcome-dispatcher.js";
+import { scheduleFollowupDrain, type FollowupRun, type QueueSettings } from "./queue.js";
 import type { TypingSignaler } from "./typing-mode.js";
+
+export { enqueueSemanticRetryFollowup } from "./closure-outcome-dispatcher.js";
 
 const hasAudioMedia = (urls?: string[]): boolean =>
   Boolean(urls?.some((url) => isAudioFileName(url)));
@@ -447,52 +445,6 @@ export function buildAcceptanceFallbackPayload(
   });
 }
 
-export function enqueueSemanticRetryFollowup(params: {
-  queueKey?: string;
-  sourceRun: FollowupRun;
-  settings: QueueSettings;
-  acceptance: PlatformRuntimeAcceptanceResult | undefined;
-  supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
-}): boolean {
-  const decision = params.supervisorVerdict ?? params.acceptance;
-  if (
-    !params.queueKey ||
-    decision?.action !== "retry" ||
-    decision.remediation !== "semantic_retry" ||
-    decision.recoveryPolicy.exhausted
-  ) {
-    return false;
-  }
-  const retryCount = params.sourceRun.automation?.retryCount ?? 0;
-  const prompt = [
-    "The previous run did not satisfy the task well enough.",
-    decision.reasons.length > 0 ? `Observed issues: ${decision.reasons.join(" ")}` : undefined,
-    "Continue the same task and return only the final completed result.",
-    "Do not send an acknowledgement-only update.",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  return enqueueFollowupRun(
-    params.queueKey,
-    {
-      ...params.sourceRun,
-      prompt,
-      messageId: undefined,
-      summaryLine: decision.reasons[0] ?? "semantic retry",
-      enqueuedAt: Date.now(),
-      automation: {
-        source: "acceptance_retry",
-        retryCount: retryCount + 1,
-        persisted: true,
-        reasonCode: "reasonCode" in decision ? decision.reasonCode : undefined,
-        reasonSummary: decision.reasons.join(" "),
-      },
-    },
-    params.settings,
-    "prompt",
-  );
-}
-
 export function captureMessagingDeliveryClosureCandidate(params: {
   onCandidate?: (candidate: MessagingDeliveryClosureCandidate) => void;
   runResult: MessagingDeliveryClosureCandidate["runResult"];
@@ -528,16 +480,18 @@ export function finalizeMessagingDeliveryClosure(params: {
   });
   const acceptanceOutcome = reevaluated?.acceptanceOutcome;
   const supervisorVerdict = reevaluated?.supervisorVerdict;
+  const dispatched = dispatchMessagingClosureOutcome({
+    queueKey: params.candidate.queueKey,
+    sourceRun: params.candidate.sourceRun,
+    settings: params.candidate.settings,
+    acceptance: acceptanceOutcome,
+    supervisorVerdict,
+    executionIntent: params.candidate.runResult.meta?.executionIntent,
+  });
   return {
     acceptanceOutcome,
     supervisorVerdict,
-    queuedSemanticRetry: enqueueSemanticRetryFollowup({
-      queueKey: params.candidate.queueKey,
-      sourceRun: params.candidate.sourceRun,
-      settings: params.candidate.settings,
-      acceptance: acceptanceOutcome,
-      supervisorVerdict,
-    }),
+    queuedSemanticRetry: dispatched.queuedSemanticRetry,
   };
 }
 
