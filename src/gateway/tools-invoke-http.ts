@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createOpenClawTools } from "../agents/openclaw-tools.js";
+import { buildToolExecutionReceipt } from "../agents/pi-embedded-subscribe.tools.js";
 import { runBeforeToolCallHook } from "../agents/pi-tools.before-tool-call.js";
 import { resolveToolLoopDetectionConfig } from "../agents/pi-tools.js";
 import {
@@ -20,6 +21,7 @@ import { ToolInputError } from "../agents/tools/common.js";
 import { loadConfig } from "../config/config.js";
 import { resolveMainSessionKey } from "../config/sessions.js";
 import { logWarn } from "../logger.js";
+import { getPlatformRuntimeCheckpointService } from "../platform/runtime/index.js";
 import { isTestDefaultMemorySlotDisabled } from "../plugins/config-state.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
 import { isSubagentSessionKey } from "../routing/session-key.js";
@@ -340,7 +342,22 @@ export async function handleToolsInvokeHttpRequest(
     }
     // oxlint-disable-next-line typescript/no-explicit-any
     const result = await (tool as any).execute?.(toolCallId, hookResult.params);
-    sendJson(res, 200, { ok: true, result });
+    const runtimeService = getPlatformRuntimeCheckpointService();
+    const execution = runtimeService.verifyExecutionContract({
+      contract: {
+        runId: `http:${toolCallId}`,
+        receipts: [
+          buildToolExecutionReceipt({
+            toolName,
+            toolCallId,
+            isToolError: false,
+            result,
+          }),
+        ],
+        expectations: { allowWarnings: true },
+      },
+    });
+    sendJson(res, 200, { ok: true, result, execution });
   } catch (err) {
     const inputStatus = resolveToolInputErrorStatus(err);
     if (inputStatus !== null) {

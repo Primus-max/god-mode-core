@@ -1,6 +1,7 @@
 import { getChannelPlugin, normalizeChannelId } from "../channels/plugins/index.js";
 import { normalizeTargetForProvider } from "../infra/outbound/target-normalization.js";
 import { splitMediaFromOutput } from "../media/parse.js";
+import type { PlatformRuntimeExecutionReceipt } from "../platform/runtime/index.js";
 import { truncateUtf16Safe } from "../utils.js";
 import { collectTextContentBlocks } from "./content-blocks.js";
 import { type MessagingToolSend } from "./pi-embedded-messaging.js";
@@ -356,6 +357,90 @@ export function extractToolErrorMessage(result: unknown): string | undefined {
     // Fall through to first-line text fallback.
   }
   return normalizeToolErrorText(text);
+}
+
+function readToolResultStatus(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") {
+    return undefined;
+  }
+  const record = result as Record<string, unknown>;
+  const details =
+    record.details && typeof record.details === "object" && !Array.isArray(record.details)
+      ? (record.details as Record<string, unknown>)
+      : record;
+  return typeof details.status === "string" ? details.status.trim().toLowerCase() : undefined;
+}
+
+export function isToolResultNoProgress(toolName: string, result: unknown): boolean {
+  const normalizedToolName = normalizeToolName(toolName);
+  if (normalizedToolName !== "process" && normalizedToolName !== "command_status") {
+    return false;
+  }
+  if (!result || typeof result !== "object") {
+    return false;
+  }
+  const record = result as Record<string, unknown>;
+  const details =
+    record.details && typeof record.details === "object" && !Array.isArray(record.details)
+      ? (record.details as Record<string, unknown>)
+      : record;
+  const status = readToolResultStatus(result);
+  const aggregated =
+    typeof details.aggregated === "string" ? details.aggregated.trim().toLowerCase() : undefined;
+  const text = (extractToolResultText(result) ?? "").trim().toLowerCase();
+  return (
+    status === "running" &&
+    (aggregated === "steady" || /no new output|still running|no progress/.test(text))
+  );
+}
+
+export function buildToolExecutionReceipt(params: {
+  toolName: string;
+  toolCallId: string;
+  meta?: string;
+  isToolError: boolean;
+  result?: unknown;
+}): PlatformRuntimeExecutionReceipt {
+  const reasons: string[] = [];
+  const normalizedToolName = normalizeToolName(params.toolName);
+  const statusText = readToolResultStatus(params.result);
+  const errorMessage = params.isToolError ? extractToolErrorMessage(params.result) : undefined;
+  let status: PlatformRuntimeExecutionReceipt["status"] = "success";
+  if (params.isToolError) {
+    status = "failed";
+    if (errorMessage) {
+      reasons.push(errorMessage);
+    }
+  } else if (isToolResultNoProgress(normalizedToolName, params.result)) {
+    status = "blocked";
+    reasons.push("tool reported no progress on a repeated poll path");
+  } else if (statusText === "approval-pending") {
+    status = "blocked";
+    reasons.push("tool is waiting on approval before it can continue");
+  } else if (statusText === "approval-unavailable" || statusText === "degraded") {
+    status = "degraded";
+    reasons.push(statusText.replaceAll("-", " "));
+  } else if (statusText === "warning") {
+    status = "warning";
+    reasons.push("tool completed with a warning status");
+  } else if (statusText === "partial") {
+    status = "partial";
+    reasons.push("tool completed with a partial result");
+  }
+  return {
+    kind: "tool",
+    name: normalizedToolName,
+    status,
+    ...(params.meta ? { summary: params.meta } : {}),
+    ...(reasons.length > 0 ? { reasons } : {}),
+    metadata: {
+      toolCallId: params.toolCallId,
+      ...(status === "blocked"
+        ? { noProgress: isToolResultNoProgress(normalizedToolName, params.result) }
+        : {}),
+      ...(statusText ? { toolStatus: statusText } : {}),
+    },
+  };
 }
 
 function resolveMessageToolTarget(args: Record<string, unknown>): string | undefined {

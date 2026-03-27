@@ -11,6 +11,8 @@ import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runt
 import {
   getPlatformRuntimeCheckpointService,
   PlatformRuntimeRunOutcomeSchema,
+  type PlatformRuntimeExecutionReceipt,
+  type PlatformRuntimeExecutionSurface,
 } from "../../platform/runtime/index.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { prepareProviderRuntimeAuth } from "../../plugins/provider-runtime.js";
@@ -278,6 +280,8 @@ function buildCompletionArtifacts(params: {
   hasOutput?: boolean;
   successfulCronAdds?: number;
   fallbackStatus?: "completed" | "failed";
+  executionReceipts?: PlatformRuntimeExecutionReceipt[];
+  executionSurface?: PlatformRuntimeExecutionSurface;
 }) {
   const normalizedRunId = params.runId?.trim();
   if (!normalizedRunId) {
@@ -309,28 +313,82 @@ function buildCompletionArtifacts(params: {
       ? { deterministicApprovalPromptSent: params.deterministicApprovalPromptSent }
       : {}),
   };
+  const baseEvidence = {
+    ...(params.hadToolError !== undefined ? { hadToolError: params.hadToolError } : {}),
+    ...(params.deterministicApprovalPromptSent !== undefined
+      ? { deterministicApprovalPromptSent: params.deterministicApprovalPromptSent }
+      : {}),
+    ...(params.didSendViaMessagingTool !== undefined
+      ? { didSendViaMessagingTool: params.didSendViaMessagingTool }
+      : {}),
+    ...(params.hasOutput !== undefined ? { hasOutput: params.hasOutput } : {}),
+    artifactReceiptCount: outcome.artifactIds.length,
+    bootstrapReceiptCount: outcome.bootstrapRequestIds.length,
+    ...(params.successfulCronAdds !== undefined
+      ? { successfulCronAdds: params.successfulCronAdds }
+      : {}),
+  };
+  const executionReceipts: PlatformRuntimeExecutionReceipt[] = [
+    ...(params.executionReceipts ?? []),
+    ...(outcome.confirmedActionIds.length > 0
+      ? [
+          {
+            kind: "platform_action",
+            name: "runtime_action",
+            status: "success",
+            summary: "replay-safe runtime action confirmed",
+            metadata: { actionIds: outcome.confirmedActionIds },
+          } satisfies PlatformRuntimeExecutionReceipt,
+        ]
+      : []),
+    ...(outcome.failedActionIds.length > 0
+      ? [
+          {
+            kind: "platform_action",
+            name: "runtime_action",
+            status: "failed",
+            summary: "runtime action failed before confirmation",
+            metadata: { actionIds: outcome.failedActionIds },
+          } satisfies PlatformRuntimeExecutionReceipt,
+        ]
+      : []),
+  ];
+  const executionVerification = runtimeService.verifyExecutionContract({
+    contract: {
+      runId: normalizedRunId,
+      receipts: executionReceipts,
+      expectations: {
+        requiresOutput: params.hasOutput === true,
+        requiresMessagingDelivery: params.didSendViaMessagingTool === true,
+        requiresConfirmedAction: outcome.actionIds.length > 0,
+        allowWarnings: true,
+      },
+    },
+    outcome,
+    evidence: baseEvidence,
+  });
+  const evidence = runtimeService.buildAcceptanceEvidence({
+    outcome,
+    evidence: baseEvidence,
+    executionVerification,
+    executionSurface: params.executionSurface,
+  });
   const acceptanceOutcome = runtimeService.evaluateAcceptance({
     runId: normalizedRunId,
     outcome,
-    evidence: {
-      ...(params.hadToolError !== undefined ? { hadToolError: params.hadToolError } : {}),
-      ...(params.deterministicApprovalPromptSent !== undefined
-        ? { deterministicApprovalPromptSent: params.deterministicApprovalPromptSent }
-        : {}),
-      ...(params.didSendViaMessagingTool !== undefined
-        ? { didSendViaMessagingTool: params.didSendViaMessagingTool }
-        : {}),
-      ...(params.hasOutput !== undefined ? { hasOutput: params.hasOutput } : {}),
-      artifactReceiptCount: outcome.artifactIds.length,
-      bootstrapReceiptCount: outcome.bootstrapRequestIds.length,
-      ...(params.successfulCronAdds !== undefined
-        ? { successfulCronAdds: params.successfulCronAdds }
-        : {}),
-    },
+    evidence,
+  });
+  const supervisorVerdict = runtimeService.evaluateSupervisorVerdict({
+    runId: normalizedRunId,
+    acceptance: acceptanceOutcome,
+    verification: executionVerification,
+    surface: params.executionSurface,
   });
   return {
     completionOutcome,
     acceptanceOutcome,
+    executionVerification,
+    supervisorVerdict,
   };
 }
 
@@ -1390,6 +1448,7 @@ export async function runEmbeddedPiAgent(
                   runId: params.runId,
                   hadToolError: Boolean(attempt.lastToolError),
                   deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                  executionReceipts: attempt.executionReceipts,
                   fallbackStatus: "failed",
                 }),
               },
@@ -1440,6 +1499,7 @@ export async function runEmbeddedPiAgent(
                     runId: params.runId,
                     hadToolError: Boolean(attempt.lastToolError),
                     deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                    executionReceipts: attempt.executionReceipts,
                     fallbackStatus: "failed",
                   }),
                 },
@@ -1478,6 +1538,7 @@ export async function runEmbeddedPiAgent(
                     runId: params.runId,
                     hadToolError: Boolean(attempt.lastToolError),
                     deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                    executionReceipts: attempt.executionReceipts,
                     fallbackStatus: "failed",
                   }),
                 },
@@ -1753,6 +1814,7 @@ export async function runEmbeddedPiAgent(
                   hasOutput: false,
                   didSendViaMessagingTool: attempt.didSendViaMessagingTool,
                   successfulCronAdds: attempt.successfulCronAdds,
+                  executionReceipts: attempt.executionReceipts,
                   fallbackStatus: "failed",
                 }),
               },
@@ -1812,6 +1874,7 @@ export async function runEmbeddedPiAgent(
                 hasOutput: payloads.some((payload) => Boolean(payload.text?.trim())),
                 didSendViaMessagingTool: attempt.didSendViaMessagingTool,
                 successfulCronAdds: attempt.successfulCronAdds,
+                executionReceipts: attempt.executionReceipts,
                 fallbackStatus: aborted ? "failed" : "completed",
               }),
             },

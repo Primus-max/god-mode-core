@@ -409,7 +409,10 @@ const unitFastLaneCount = Math.max(
   1,
   parseEnvNumber("OPENCLAW_TEST_UNIT_FAST_LANES", defaultUnitFastLaneCount),
 );
-const defaultUnitFastBatchTargetMs = isCI && !isWindows ? 45_000 : 0;
+// Windows local runs have been prone to opaque unit-fast failures when one giant
+// shared-worker batch keeps a long-lived transform-heavy lane alive for too long.
+// Recycle unit-fast in smaller serial batches there by default.
+const defaultUnitFastBatchTargetMs = isWindows ? 10_000 : isCI && !isWindows ? 45_000 : 0;
 const unitFastBatchTargetMs = parseEnvNumber(
   "OPENCLAW_TEST_UNIT_FAST_BATCH_TARGET_MS",
   defaultUnitFastBatchTargetMs,

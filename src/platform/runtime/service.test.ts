@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,
+  type PlatformRuntimeRunOutcome,
 } from "./index.js";
 
 const tempDirs: string[] = [];
@@ -278,6 +279,134 @@ describe("platform runtime checkpoint service", () => {
         status: "retryable",
         action: "retry",
         reasonCode: "delivery_failed",
+      }),
+    );
+  });
+
+  it("treats contract mismatches as retryable instead of closing the run", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-contract-mismatch",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const verification = service.verifyExecutionContract({
+      contract: {
+        runId: "run-contract-mismatch",
+        receipts: [
+          {
+            kind: "tool",
+            name: "write",
+            status: "success",
+            summary: "tool returned ok",
+          },
+        ],
+        expectations: {
+          requiresOutput: true,
+        },
+      },
+      outcome,
+      evidence: {
+        hasOutput: false,
+      },
+    });
+    expect(verification.status).toBe("mismatch");
+    const evidence = service.buildAcceptanceEvidence({
+      outcome,
+      evidence: { hasOutput: false },
+      executionVerification: verification,
+    });
+    const acceptance = service.evaluateAcceptance({
+      runId: "run-contract-mismatch",
+      outcome,
+      evidence,
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        action: "retry",
+        reasonCode: "contract_mismatch",
+      }),
+    );
+    const verdict = service.evaluateSupervisorVerdict({
+      runId: "run-contract-mismatch",
+      acceptance,
+      verification,
+    });
+    expect(verdict).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        action: "retry",
+        reasonCode: "contract_mismatch",
+      }),
+    );
+  });
+
+  it("turns no-progress execution receipts into a bounded supervisor retry", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-no-progress",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const verification = service.verifyExecutionContract({
+      contract: {
+        runId: "run-no-progress",
+        receipts: [
+          {
+            kind: "tool",
+            name: "process",
+            status: "blocked",
+            reasons: ["tool reported no progress on a repeated poll path"],
+            metadata: { noProgress: true },
+          },
+        ],
+      },
+      outcome,
+    });
+    expect(verification.status).toBe("no_progress");
+    const evidence = service.buildAcceptanceEvidence({
+      outcome,
+      executionVerification: verification,
+    });
+    const acceptance = service.evaluateAcceptance({
+      runId: "run-no-progress",
+      outcome,
+      evidence,
+    });
+    expect(acceptance.reasonCode).toBe("execution_no_progress");
+    const verdict = service.evaluateSupervisorVerdict({
+      runId: "run-no-progress",
+      acceptance,
+      verification,
+    });
+    expect(verdict).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        action: "retry",
+        reasonCode: "execution_no_progress",
       }),
     );
   });
