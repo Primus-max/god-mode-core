@@ -2597,6 +2597,7 @@ export async function runEmbeddedAttempt(
         getMessagingToolSentMediaUrls,
         getMessagingToolSentTargets,
         getSuccessfulCronAdds,
+        getExecutionReceipts,
         didSendViaMessagingTool,
         getLastToolError,
         getUsageTotals,
@@ -3220,6 +3221,7 @@ export async function runEmbeddedAttempt(
         messagingToolSentMediaUrls: getMessagingToolSentMediaUrls(),
         messagingToolSentTargets: getMessagingToolSentTargets(),
         successfulCronAdds: getSuccessfulCronAdds(),
+        executionReceipts: getExecutionReceipts?.(),
         cloudCodeAssistFormatError: Boolean(
           lastAssistant?.errorMessage && isCloudCodeAssistFormatError(lastAssistant.errorMessage),
         ),

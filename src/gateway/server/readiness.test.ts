@@ -81,7 +81,14 @@ describe("createReadinessChecker", () => {
       const manager = createHealthyDiscordManager(startedAt, Date.now() - 1_000);
 
       const readiness = createReadinessChecker({ channelManager: manager, startedAt });
-      expect(readiness()).toEqual({ ready: true, failing: [], uptimeMs: 300_000 });
+      expect(readiness()).toEqual(
+        expect.objectContaining({
+          ready: true,
+          failing: [],
+          uptimeMs: 300_000,
+          surface: expect.objectContaining({ status: "ready", ready: true }),
+        }),
+      );
     });
   });
 
@@ -104,7 +111,14 @@ describe("createReadinessChecker", () => {
           },
         },
       });
-      expect(readiness()).toEqual({ ready: true, failing: [], uptimeMs: 300_000 });
+      expect(readiness()).toEqual(
+        expect.objectContaining({
+          ready: true,
+          failing: [],
+          uptimeMs: 300_000,
+          surface: expect.objectContaining({ status: "ready", ready: true }),
+        }),
+      );
     });
   });
 
@@ -122,7 +136,14 @@ describe("createReadinessChecker", () => {
           },
         },
       });
-      expect(readiness()).toEqual({ ready: true, failing: [], uptimeMs: 30_000 });
+      expect(readiness()).toEqual(
+        expect.objectContaining({
+          ready: true,
+          failing: [],
+          uptimeMs: 30_000,
+          surface: expect.objectContaining({ status: "ready", ready: true }),
+        }),
+      );
     });
   });
 
@@ -140,7 +161,18 @@ describe("createReadinessChecker", () => {
           },
         },
       });
-      expect(readiness()).toEqual({ ready: false, failing: ["discord"], uptimeMs: 300_000 });
+      expect(readiness()).toEqual(
+        expect.objectContaining({
+          ready: false,
+          failing: ["discord"],
+          uptimeMs: 300_000,
+          surface: expect.objectContaining({
+            status: "degraded",
+            ready: false,
+            failingChannels: ["discord"],
+          }),
+        }),
+      );
     });
   });
 
@@ -161,7 +193,14 @@ describe("createReadinessChecker", () => {
           },
         },
       });
-      expect(readiness()).toEqual({ ready: true, failing: [], uptimeMs: 300_000 });
+      expect(readiness()).toEqual(
+        expect.objectContaining({
+          ready: true,
+          failing: [],
+          uptimeMs: 300_000,
+          surface: expect.objectContaining({ status: "ready", ready: true }),
+        }),
+      );
     });
   });
 
@@ -181,7 +220,14 @@ describe("createReadinessChecker", () => {
           },
         },
       });
-      expect(readiness()).toEqual({ ready: true, failing: [], uptimeMs: 1_860_000 });
+      expect(readiness()).toEqual(
+        expect.objectContaining({
+          ready: true,
+          failing: [],
+          uptimeMs: 1_860_000,
+          surface: expect.objectContaining({ status: "ready", ready: true }),
+        }),
+      );
     });
   });
 
@@ -201,7 +247,14 @@ describe("createReadinessChecker", () => {
           },
         },
       });
-      expect(readiness()).toEqual({ ready: true, failing: [], uptimeMs: 1_860_000 });
+      expect(readiness()).toEqual(
+        expect.objectContaining({
+          ready: true,
+          failing: [],
+          uptimeMs: 1_860_000,
+          surface: expect.objectContaining({ status: "ready", ready: true }),
+        }),
+      );
     });
   });
 
@@ -221,13 +274,34 @@ describe("createReadinessChecker", () => {
         },
         cacheTtlMs: 1_000,
       });
-      expect(readiness()).toEqual({ ready: true, failing: [], uptimeMs: 300_000 });
+      expect(readiness()).toEqual(
+        expect.objectContaining({
+          ready: true,
+          failing: [],
+          uptimeMs: 300_000,
+          surface: expect.objectContaining({ status: "ready", ready: true }),
+        }),
+      );
       vi.advanceTimersByTime(500);
-      expect(readiness()).toEqual({ ready: true, failing: [], uptimeMs: 300_500 });
+      expect(readiness()).toEqual(
+        expect.objectContaining({
+          ready: true,
+          failing: [],
+          uptimeMs: 300_500,
+          surface: expect.objectContaining({ status: "ready", ready: true }),
+        }),
+      );
       expect(manager.getRuntimeSnapshot).toHaveBeenCalledTimes(1);
 
       vi.advanceTimersByTime(600);
-      expect(readiness()).toEqual({ ready: true, failing: [], uptimeMs: 301_100 });
+      expect(readiness()).toEqual(
+        expect.objectContaining({
+          ready: true,
+          failing: [],
+          uptimeMs: 301_100,
+          surface: expect.objectContaining({ status: "ready", ready: true }),
+        }),
+      );
       expect(manager.getRuntimeSnapshot).toHaveBeenCalledTimes(2);
     });
   });

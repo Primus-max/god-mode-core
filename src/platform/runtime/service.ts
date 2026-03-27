@@ -11,7 +11,13 @@ import {
   PlatformRuntimeCheckpointSchema,
   PlatformRuntimeCheckpointStoreSchema,
   PlatformRuntimeCheckpointSummarySchema,
+  PlatformRuntimeExecutionContractSchema,
+  PlatformRuntimeExecutionReceiptCountsSchema,
+  PlatformRuntimeExecutionReceiptSchema,
+  PlatformRuntimeExecutionSurfaceSchema,
+  PlatformRuntimeExecutionVerificationSchema,
   PlatformRuntimeRunOutcomeSchema,
+  PlatformRuntimeSupervisorVerdictSchema,
   type PlatformRuntimeAcceptanceEvidence,
   type PlatformRuntimeAcceptanceResult,
   type PlatformRuntimeAction,
@@ -25,8 +31,14 @@ import {
   type PlatformRuntimeContinuationKind,
   type PlatformRuntimeCheckpointStatus,
   type PlatformRuntimeCheckpointSummary,
+  type PlatformRuntimeExecutionContract,
+  type PlatformRuntimeExecutionReceipt,
+  type PlatformRuntimeExecutionReceiptCounts,
+  type PlatformRuntimeExecutionSurface,
+  type PlatformRuntimeExecutionVerification,
   type PlatformRuntimeNextAction,
   type PlatformRuntimeRunOutcome,
+  type PlatformRuntimeSupervisorVerdict,
   type PlatformRuntimeTarget,
 } from "./contracts.js";
 
@@ -96,11 +108,28 @@ export type PlatformRuntimeCheckpointService = {
     status?: PlatformRuntimeCheckpointStatus;
   }) => PlatformRuntimeCheckpointSummary[];
   buildRunOutcome: (runId: string) => PlatformRuntimeRunOutcome | undefined;
+  buildAcceptanceEvidence: (params: {
+    outcome: PlatformRuntimeRunOutcome;
+    evidence?: PlatformRuntimeAcceptanceEvidence;
+    executionVerification?: PlatformRuntimeExecutionVerification;
+    executionSurface?: PlatformRuntimeExecutionSurface;
+  }) => PlatformRuntimeAcceptanceEvidence;
+  verifyExecutionContract: (params: {
+    contract: PlatformRuntimeExecutionContract;
+    outcome?: PlatformRuntimeRunOutcome;
+    evidence?: PlatformRuntimeAcceptanceEvidence;
+  }) => PlatformRuntimeExecutionVerification;
   evaluateAcceptance: (params: {
     runId: string;
     outcome: PlatformRuntimeRunOutcome;
     evidence?: PlatformRuntimeAcceptanceEvidence;
   }) => PlatformRuntimeAcceptanceResult;
+  evaluateSupervisorVerdict: (params: {
+    runId: string;
+    acceptance?: PlatformRuntimeAcceptanceResult;
+    verification?: PlatformRuntimeExecutionVerification;
+    surface?: PlatformRuntimeExecutionSurface;
+  }) => PlatformRuntimeSupervisorVerdict;
   registerContinuationHandler: (
     kind: PlatformRuntimeContinuationKind,
     handler: (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void,
@@ -134,6 +163,31 @@ function buildActionStorePayload(actions: Map<string, PlatformRuntimeAction>) {
       (left, right) => right.updatedAtMs - left.updatedAtMs,
     ),
   });
+}
+
+function normalizeReasons(values: string[] | undefined): string[] | undefined {
+  if (!values?.length) {
+    return undefined;
+  }
+  const normalized = values.map((value) => value.trim()).filter(Boolean);
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : undefined;
+}
+
+function buildExecutionReceiptCounts(
+  receipts: PlatformRuntimeExecutionReceipt[],
+): PlatformRuntimeExecutionReceiptCounts {
+  const counts = {
+    success: 0,
+    warning: 0,
+    partial: 0,
+    degraded: 0,
+    failed: 0,
+    blocked: 0,
+  } satisfies PlatformRuntimeExecutionReceiptCounts;
+  for (const receipt of receipts) {
+    counts[receipt.status] += 1;
+  }
+  return PlatformRuntimeExecutionReceiptCountsSchema.parse(counts);
 }
 
 export function createPlatformRuntimeCheckpointService(params?: {
@@ -458,8 +512,135 @@ export function createPlatformRuntimeCheckpointService(params?: {
         boundaries: Array.from(new Set(runCheckpoints.map((checkpoint) => checkpoint.boundary))),
       });
     },
-    evaluateAcceptance(params) {
+    buildAcceptanceEvidence(params) {
+      const merged = {
+        ...params.evidence,
+      };
+      if (params.executionVerification) {
+        const receiptCounts = params.executionVerification.receiptCounts;
+        merged.executionReceiptCount = params.executionVerification.receipts.length;
+        merged.verifiedExecution =
+          params.executionVerification.status === "verified" ||
+          params.executionVerification.status === "warning";
+        merged.executionWarningCount = receiptCounts.warning;
+        merged.executionPartialCount = receiptCounts.partial;
+        merged.degradedExecutionCount = receiptCounts.degraded;
+        merged.executionContractMismatch =
+          params.executionVerification.status === "mismatch" ||
+          params.executionVerification.status === "failed";
+        merged.noProgressSignals =
+          params.executionVerification.status === "no_progress"
+            ? Math.max(receiptCounts.blocked, 1)
+            : receiptCounts.blocked;
+      }
+      if (params.executionSurface) {
+        merged.executionSurfaceStatus = params.executionSurface.status;
+        merged.executionSurfaceDegraded =
+          params.executionSurface.status === "degraded" ||
+          params.executionSurface.status === "unavailable";
+      }
+      return merged;
+    },
+    verifyExecutionContract(params) {
+      const contract = PlatformRuntimeExecutionContractSchema.parse(params.contract);
+      const receipts = contract.receipts.map((receipt) =>
+        PlatformRuntimeExecutionReceiptSchema.parse({
+          ...receipt,
+          ...(normalizeReasons(receipt.reasons)
+            ? { reasons: normalizeReasons(receipt.reasons) }
+            : {}),
+        }),
+      );
       const evidence = params.evidence ?? {};
+      const counts = buildExecutionReceiptCounts(receipts);
+      const reasons: string[] = [];
+      const expectations = contract.expectations;
+      const hasBlockedNoProgress = receipts.some((receipt) => receipt.status === "blocked");
+      const hasFailedReceipt = counts.failed > 0;
+      const hasDegradedReceipt = counts.degraded > 0;
+      const hasPartialReceipt = counts.partial > 0;
+      const hasWarningReceipt = counts.warning > 0;
+      const confirmedDeliveryCount =
+        evidence.confirmedDeliveryCount ?? evidence.deliveredReplyCount ?? 0;
+      const hasOutput = evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
+      const confirmedActionCount =
+        evidence.confirmedActionCount ?? params.outcome?.confirmedActionIds.length ?? 0;
+      const hasStandaloneOutcomeEvidence =
+        hasOutput ||
+        confirmedDeliveryCount > 0 ||
+        confirmedActionCount > 0 ||
+        (params.outcome?.artifactIds.length ?? 0) > 0 ||
+        (params.outcome?.bootstrapRequestIds.length ?? 0) > 0 ||
+        (evidence.successfulCronAdds ?? 0) > 0;
+
+      if (hasBlockedNoProgress) {
+        reasons.push("Execution receipts show no_progress on one or more tool or runtime paths.");
+      }
+      if (hasFailedReceipt) {
+        reasons.push("Execution receipts contain a failed outcome.");
+      }
+      if (expectations?.requiresMessagingDelivery && confirmedDeliveryCount === 0) {
+        reasons.push(
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+        );
+      }
+      if (expectations?.requiresOutput && !hasOutput) {
+        reasons.push("Execution contract expected output, but no output evidence was observed.");
+      }
+      if (expectations?.requiresConfirmedAction && confirmedActionCount === 0) {
+        reasons.push(
+          "Execution contract expected a confirmed runtime action, but none was observed.",
+        );
+      }
+
+      let status: PlatformRuntimeExecutionVerification["status"] = "verified";
+      if (hasBlockedNoProgress) {
+        status = "no_progress";
+      } else if (hasFailedReceipt || reasons.length > 0) {
+        status = "mismatch";
+      } else if (hasDegradedReceipt) {
+        status = "degraded";
+        reasons.push("Execution completed in a degraded state.");
+      } else if (hasPartialReceipt) {
+        status = expectations?.allowPartial ? "warning" : "mismatch";
+        reasons.push(
+          expectations?.allowPartial
+            ? "Execution completed partially but the contract allows partial receipts."
+            : "Execution contract was only partially satisfied.",
+        );
+      } else if (hasWarningReceipt) {
+        status = expectations?.allowWarnings ? "warning" : "mismatch";
+        reasons.push(
+          expectations?.allowWarnings
+            ? "Execution completed with warnings allowed by the contract."
+            : "Execution receipts contain warnings that the contract does not allow.",
+        );
+      } else if (receipts.length === 0) {
+        if (hasStandaloneOutcomeEvidence) {
+          status = "verified";
+          reasons.push(
+            "Execution closed on standalone output or delivery evidence without explicit receipts.",
+          );
+        } else {
+          status = "mismatch";
+          reasons.push("Execution contract verification had no receipts to verify.");
+        }
+      }
+
+      return PlatformRuntimeExecutionVerificationSchema.parse({
+        runId: contract.runId,
+        status,
+        reasons: Array.from(new Set(reasons)),
+        receipts,
+        receiptCounts: counts,
+        checkedAtMs: contract.checkedAtMs ?? Date.now(),
+      });
+    },
+    evaluateAcceptance(params) {
+      const evidence = this.buildAcceptanceEvidence({
+        outcome: params.outcome,
+        evidence: params.evidence,
+      });
       const reasons: string[] = [];
       if (params.outcome.pendingApprovalIds.length > 0) {
         reasons.push("Run still requires operator approval before the task can finish.");
@@ -492,6 +673,47 @@ export function createPlatformRuntimeCheckpointService(params?: {
           status: "failed",
           action: "stop",
           reasonCode: "runtime_failed",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (evidence.noProgressSignals && evidence.noProgressSignals > 0) {
+        reasons.push("Run hit a bounded no-progress path and needs supervisor recovery.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode: "execution_no_progress",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (evidence.executionContractMismatch === true) {
+        reasons.push(
+          "Run completed, but the verified execution contract does not match the requested outcome.",
+        );
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode: "contract_mismatch",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (
+        (evidence.degradedExecutionCount ?? 0) > 0 ||
+        evidence.executionSurfaceDegraded === true
+      ) {
+        reasons.push("Run completed, but execution truth remained degraded.");
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "partial",
+          action: "retry",
+          reasonCode: "execution_degraded",
           reasons,
           outcome: params.outcome,
           evidence,
@@ -640,6 +862,96 @@ export function createPlatformRuntimeCheckpointService(params?: {
         reasons,
         outcome: params.outcome,
         evidence,
+      });
+    },
+    evaluateSupervisorVerdict(params) {
+      if (params.surface) {
+        PlatformRuntimeExecutionSurfaceSchema.parse(params.surface);
+      }
+      const acceptance = params.acceptance;
+      const verification = params.verification;
+      const reasons: string[] = [];
+      if (acceptance?.status === "needs_human") {
+        return PlatformRuntimeSupervisorVerdictSchema.parse({
+          runId: params.runId,
+          status: "needs_human",
+          action: "escalate",
+          reasonCode: "needs_human",
+          reasons: acceptance.reasons,
+          acceptance,
+          verification,
+          surface: params.surface,
+        });
+      }
+      if (acceptance?.status === "failed") {
+        return PlatformRuntimeSupervisorVerdictSchema.parse({
+          runId: params.runId,
+          status: "failed",
+          action: "stop",
+          reasonCode: "runtime_failed",
+          reasons: acceptance.reasons,
+          acceptance,
+          verification,
+          surface: params.surface,
+        });
+      }
+      if (verification?.status === "no_progress") {
+        reasons.push(...verification.reasons);
+        return PlatformRuntimeSupervisorVerdictSchema.parse({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode: "execution_no_progress",
+          reasons: Array.from(new Set(reasons)),
+          acceptance,
+          verification,
+          surface: params.surface,
+        });
+      }
+      if (verification?.status === "mismatch" || verification?.status === "failed") {
+        reasons.push(...verification.reasons);
+        return PlatformRuntimeSupervisorVerdictSchema.parse({
+          runId: params.runId,
+          status: acceptance?.status ?? "retryable",
+          action: acceptance?.action === "escalate" ? "escalate" : "retry",
+          reasonCode: "contract_mismatch",
+          reasons: Array.from(new Set(reasons)),
+          acceptance,
+          verification,
+          surface: params.surface,
+        });
+      }
+      if (
+        verification?.status === "degraded" ||
+        params.surface?.status === "degraded" ||
+        params.surface?.status === "unavailable"
+      ) {
+        reasons.push(...(verification?.reasons ?? []));
+        reasons.push(...(params.surface?.reasons ?? []));
+        return PlatformRuntimeSupervisorVerdictSchema.parse({
+          runId: params.runId,
+          status: "retryable",
+          action: acceptance?.action === "escalate" ? "escalate" : "retry",
+          reasonCode: "execution_degraded",
+          reasons: Array.from(new Set(reasons)),
+          acceptance,
+          verification,
+          surface: params.surface,
+        });
+      }
+      return PlatformRuntimeSupervisorVerdictSchema.parse({
+        runId: params.runId,
+        status: acceptance?.status ?? "satisfied",
+        action: acceptance?.action ?? "close",
+        reasonCode:
+          acceptance && acceptance.action !== "close"
+            ? "transient_recoverable"
+            : "verified_execution",
+        reasons: acceptance?.reasons ??
+          verification?.reasons ?? ["Execution contract was verified before final closure."],
+        acceptance,
+        verification,
+        surface: params.surface,
       });
     },
     registerContinuationHandler(kind, handler) {

@@ -244,6 +244,135 @@ export const PlatformRuntimeActionStoreSchema = z
   .strict();
 export type PlatformRuntimeActionStore = z.infer<typeof PlatformRuntimeActionStoreSchema>;
 
+export const PlatformRuntimeExecutionReceiptKindSchema = z.enum([
+  "tool",
+  "provider_model",
+  "messaging_delivery",
+  "platform_action",
+  "capability",
+  "readiness",
+]);
+export type PlatformRuntimeExecutionReceiptKind = z.infer<
+  typeof PlatformRuntimeExecutionReceiptKindSchema
+>;
+
+export const PlatformRuntimeExecutionReceiptStatusSchema = z.enum([
+  "success",
+  "partial",
+  "failed",
+  "degraded",
+  "warning",
+  "blocked",
+]);
+export type PlatformRuntimeExecutionReceiptStatus = z.infer<
+  typeof PlatformRuntimeExecutionReceiptStatusSchema
+>;
+
+export const PlatformRuntimeExecutionReceiptSchema = z
+  .object({
+    kind: PlatformRuntimeExecutionReceiptKindSchema,
+    name: z.string().min(1),
+    status: PlatformRuntimeExecutionReceiptStatusSchema,
+    summary: z.string().min(1).optional(),
+    reasons: z.array(z.string().min(1)).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+export type PlatformRuntimeExecutionReceipt = z.infer<typeof PlatformRuntimeExecutionReceiptSchema>;
+
+export const PlatformRuntimeExecutionContractExpectationSchema = z
+  .object({
+    requiresOutput: z.boolean().optional(),
+    requiresMessagingDelivery: z.boolean().optional(),
+    requiresConfirmedAction: z.boolean().optional(),
+    allowWarnings: z.boolean().optional(),
+    allowPartial: z.boolean().optional(),
+  })
+  .strict();
+export type PlatformRuntimeExecutionContractExpectation = z.infer<
+  typeof PlatformRuntimeExecutionContractExpectationSchema
+>;
+
+export const PlatformRuntimeExecutionContractSchema = z
+  .object({
+    runId: z.string().min(1),
+    receipts: z.array(PlatformRuntimeExecutionReceiptSchema),
+    expectations: PlatformRuntimeExecutionContractExpectationSchema.optional(),
+    checkedAtMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export type PlatformRuntimeExecutionContract = z.infer<
+  typeof PlatformRuntimeExecutionContractSchema
+>;
+
+export const PlatformRuntimeExecutionVerificationStatusSchema = z.enum([
+  "verified",
+  "warning",
+  "mismatch",
+  "no_progress",
+  "failed",
+  "degraded",
+]);
+export type PlatformRuntimeExecutionVerificationStatus = z.infer<
+  typeof PlatformRuntimeExecutionVerificationStatusSchema
+>;
+
+export const PlatformRuntimeExecutionReceiptCountsSchema = z
+  .object({
+    success: z.number().int().nonnegative(),
+    warning: z.number().int().nonnegative(),
+    partial: z.number().int().nonnegative(),
+    degraded: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+    blocked: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PlatformRuntimeExecutionReceiptCounts = z.infer<
+  typeof PlatformRuntimeExecutionReceiptCountsSchema
+>;
+
+export const PlatformRuntimeExecutionVerificationSchema = z
+  .object({
+    runId: z.string().min(1),
+    status: PlatformRuntimeExecutionVerificationStatusSchema,
+    reasons: z.array(z.string().min(1)),
+    receipts: z.array(PlatformRuntimeExecutionReceiptSchema),
+    receiptCounts: PlatformRuntimeExecutionReceiptCountsSchema,
+    checkedAtMs: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PlatformRuntimeExecutionVerification = z.infer<
+  typeof PlatformRuntimeExecutionVerificationSchema
+>;
+
+export const PlatformRuntimeExecutionSurfaceStatusSchema = z.enum([
+  "ready",
+  "bootstrap_required",
+  "approval_required",
+  "degraded",
+  "unavailable",
+]);
+export type PlatformRuntimeExecutionSurfaceStatus = z.infer<
+  typeof PlatformRuntimeExecutionSurfaceStatusSchema
+>;
+
+export const PlatformRuntimeExecutionSurfaceSchema = z
+  .object({
+    status: PlatformRuntimeExecutionSurfaceStatusSchema,
+    ready: z.boolean(),
+    checkedAtMs: z.number().int().nonnegative(),
+    cacheTtlMs: z.number().int().nonnegative().optional(),
+    reasons: z.array(z.string().min(1)),
+    bootstrapRequiredCapabilities: z.array(z.string().min(1)).optional(),
+    unresolvedCapabilities: z.array(z.string().min(1)).optional(),
+    failingChannels: z.array(z.string().min(1)).optional(),
+    failingTools: z.array(z.string().min(1)).optional(),
+    modelFallbackActive: z.boolean().optional(),
+    approvalRequired: z.boolean().optional(),
+  })
+  .strict();
+export type PlatformRuntimeExecutionSurface = z.infer<typeof PlatformRuntimeExecutionSurfaceSchema>;
+
 export const PlatformRuntimeRunOutcomeStatusSchema = z.enum([
   "completed",
   "blocked",
@@ -290,6 +419,9 @@ export const PlatformRuntimeAcceptanceReasonCodeSchema = z.enum([
   "completed_with_confirmed_delivery",
   "completed_with_warnings",
   "completed_without_evidence",
+  "contract_mismatch",
+  "execution_no_progress",
+  "execution_degraded",
   "delivery_failed",
   "delivery_partial",
   "pending_approval",
@@ -319,11 +451,33 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     attemptedActionCount: z.number().int().nonnegative().optional(),
     confirmedActionCount: z.number().int().nonnegative().optional(),
     failedActionCount: z.number().int().nonnegative().optional(),
+    executionReceiptCount: z.number().int().nonnegative().optional(),
+    verifiedExecution: z.boolean().optional(),
+    executionWarningCount: z.number().int().nonnegative().optional(),
+    executionPartialCount: z.number().int().nonnegative().optional(),
+    degradedExecutionCount: z.number().int().nonnegative().optional(),
+    executionContractMismatch: z.boolean().optional(),
+    noProgressSignals: z.number().int().nonnegative().optional(),
+    executionSurfaceStatus: PlatformRuntimeExecutionSurfaceStatusSchema.optional(),
+    executionSurfaceDegraded: z.boolean().optional(),
     successfulCronAdds: z.number().int().nonnegative().optional(),
   })
   .strict();
 export type PlatformRuntimeAcceptanceEvidence = z.infer<
   typeof PlatformRuntimeAcceptanceEvidenceSchema
+>;
+
+export const PlatformRuntimeSupervisorVerdictReasonCodeSchema = z.enum([
+  "verified_execution",
+  "contract_mismatch",
+  "execution_no_progress",
+  "execution_degraded",
+  "transient_recoverable",
+  "needs_human",
+  "runtime_failed",
+]);
+export type PlatformRuntimeSupervisorVerdictReasonCode = z.infer<
+  typeof PlatformRuntimeSupervisorVerdictReasonCodeSchema
 >;
 
 export const PlatformRuntimeAcceptanceResultSchema = z
@@ -338,3 +492,19 @@ export const PlatformRuntimeAcceptanceResultSchema = z
   })
   .strict();
 export type PlatformRuntimeAcceptanceResult = z.infer<typeof PlatformRuntimeAcceptanceResultSchema>;
+
+export const PlatformRuntimeSupervisorVerdictSchema = z
+  .object({
+    runId: z.string().min(1),
+    status: PlatformRuntimeAcceptanceStatusSchema,
+    action: PlatformRuntimeAcceptanceActionSchema,
+    reasonCode: PlatformRuntimeSupervisorVerdictReasonCodeSchema,
+    reasons: z.array(z.string().min(1)),
+    acceptance: PlatformRuntimeAcceptanceResultSchema.optional(),
+    verification: PlatformRuntimeExecutionVerificationSchema.optional(),
+    surface: PlatformRuntimeExecutionSurfaceSchema.optional(),
+  })
+  .strict();
+export type PlatformRuntimeSupervisorVerdict = z.infer<
+  typeof PlatformRuntimeSupervisorVerdictSchema
+>;

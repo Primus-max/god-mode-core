@@ -13,6 +13,7 @@ import type {
   ToolHandlerContext,
 } from "./pi-embedded-subscribe.handlers.types.js";
 import {
+  buildToolExecutionReceipt,
   extractToolResultMediaArtifact,
   extractMessagingToolSend,
   extractToolErrorMessage,
@@ -472,6 +473,16 @@ export async function handleToolExecutionEnd(
   const callSummary = ctx.state.toolMetaById.get(toolCallId);
   const meta = callSummary?.meta;
   ctx.state.toolMetas.push({ toolName, meta });
+  ctx.state.executionReceipts ??= [];
+  ctx.state.executionReceipts.push(
+    buildToolExecutionReceipt({
+      toolName,
+      toolCallId,
+      meta,
+      isToolError,
+      result: sanitizedResult,
+    }),
+  );
   ctx.state.toolMetaById.delete(toolCallId);
   ctx.state.toolSummaryById.delete(toolCallId);
   if (isToolError) {

@@ -239,5 +239,17 @@ describe("runEmbeddedPiAgent usage reporting", () => {
         reasonCode: "pending_approval",
       }),
     );
+    expect(result.meta.executionVerification).toEqual(
+      expect.objectContaining({
+        status: "mismatch",
+      }),
+    );
+    expect(result.meta.supervisorVerdict).toEqual(
+      expect.objectContaining({
+        status: "needs_human",
+        action: "escalate",
+        reasonCode: "needs_human",
+      }),
+    );
   });
 });

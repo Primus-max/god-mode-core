@@ -24,18 +24,26 @@ vi.mock("./queue.js", async (importOriginal) => {
   };
 });
 
-const {
-  createShouldEmitToolOutput,
-  createShouldEmitToolResult,
-  finalizeWithFollowup,
-  isAudioPayload,
-  signalTypingIfNeeded,
-} = await import("./agent-runner-helpers.js");
+let createShouldEmitToolOutput: typeof import("./agent-runner-helpers.js").createShouldEmitToolOutput;
+let createShouldEmitToolResult: typeof import("./agent-runner-helpers.js").createShouldEmitToolResult;
+let enqueueSemanticRetryFollowup: typeof import("./agent-runner-helpers.js").enqueueSemanticRetryFollowup;
+let finalizeWithFollowup: typeof import("./agent-runner-helpers.js").finalizeWithFollowup;
+let isAudioPayload: typeof import("./agent-runner-helpers.js").isAudioPayload;
+let signalTypingIfNeeded: typeof import("./agent-runner-helpers.js").signalTypingIfNeeded;
 
 describe("agent runner helpers", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.resetModules();
     hoisted.loadSessionStoreMock.mockClear();
     hoisted.scheduleFollowupDrainMock.mockClear();
+    ({
+      createShouldEmitToolOutput,
+      createShouldEmitToolResult,
+      enqueueSemanticRetryFollowup,
+      finalizeWithFollowup,
+      isAudioPayload,
+      signalTypingIfNeeded,
+    } = await import("./agent-runner-helpers.js"));
   });
 
   it("detects audio payloads from mediaUrl/mediaUrls", () => {
@@ -108,5 +116,73 @@ describe("agent runner helpers", () => {
 
     await signalTypingIfNeeded([{ mediaUrl: "https://example.test/img.png" }], typingSignals);
     expect(signalRunStart).toHaveBeenCalledOnce();
+  });
+
+  it("queues at most one supervisor-driven retry for retryable verdicts", () => {
+    const queued = enqueueSemanticRetryFollowup({
+      queueKey: "queue-1",
+      sourceRun: {
+        prompt: "do work",
+        summaryLine: "original",
+        enqueuedAt: 1,
+        run: {
+          agentId: "agent",
+          agentDir: "/tmp/agent",
+          sessionId: "session",
+          sessionFile: "/tmp/session.json",
+          workspaceDir: "/tmp/workspace",
+          config: {},
+          provider: "openai",
+          model: "gpt-5.4",
+          timeoutMs: 30_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+      settings: {} as never,
+      acceptance: undefined,
+      supervisorVerdict: {
+        runId: "run-1",
+        status: "retryable",
+        action: "retry",
+        reasonCode: "contract_mismatch",
+        reasons: ["missing verified output"],
+      },
+    });
+    expect(queued).toBe(true);
+
+    const skipped = enqueueSemanticRetryFollowup({
+      queueKey: "queue-1",
+      sourceRun: {
+        prompt: "do work",
+        summaryLine: "original",
+        enqueuedAt: 1,
+        run: {
+          agentId: "agent",
+          agentDir: "/tmp/agent",
+          sessionId: "session",
+          sessionFile: "/tmp/session.json",
+          workspaceDir: "/tmp/workspace",
+          config: {},
+          provider: "openai",
+          model: "gpt-5.4",
+          timeoutMs: 30_000,
+          blockReplyBreak: "message_end",
+        },
+        automation: {
+          source: "acceptance_retry",
+          retryCount: 1,
+        },
+      },
+      settings: {} as never,
+      acceptance: undefined,
+      supervisorVerdict: {
+        runId: "run-1",
+        status: "retryable",
+        action: "retry",
+        reasonCode: "execution_no_progress",
+        reasons: ["tool reported no progress"],
+      },
+    });
+    expect(skipped).toBe(false);
   });
 });

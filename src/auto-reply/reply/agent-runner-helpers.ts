@@ -8,7 +8,9 @@ import {
   getPlatformRuntimeCheckpointService,
   type PlatformRuntimeAcceptanceEvidence,
   type PlatformRuntimeAcceptanceResult,
+  type PlatformRuntimeExecutionVerification,
   type PlatformRuntimeRunOutcome,
+  type PlatformRuntimeSupervisorVerdict,
 } from "../../platform/runtime/index.js";
 import { normalizeVerboseLevel, type VerboseLevel } from "../thinking.js";
 import type { ReplyPayload } from "../types.js";
@@ -91,7 +93,9 @@ export type MessagingDeliveryClosureCandidate = {
         hadToolError?: boolean;
         deterministicApprovalPromptSent?: boolean;
       };
+      executionVerification?: PlatformRuntimeExecutionVerification;
       acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
+      supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
     };
     didSendViaMessagingTool?: boolean;
     successfulCronAdds?: number;
@@ -173,24 +177,70 @@ export function buildMessagingAcceptanceEvidence(params: {
   };
 }
 
+function reevaluateMessagingDecision(params: {
+  runResult: MessagingDeliveryClosureCandidate["runResult"];
+  replyPayloads: ReplyPayload[];
+  deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
+}):
+  | {
+      acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
+      executionVerification?: PlatformRuntimeExecutionVerification;
+      supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
+    }
+  | undefined {
+  const completionOutcome = params.runResult.meta?.completionOutcome;
+  if (!completionOutcome?.runId) {
+    return {
+      acceptanceOutcome: params.runResult.meta?.acceptanceOutcome,
+      executionVerification: params.runResult.meta?.executionVerification,
+      supervisorVerdict: params.runResult.meta?.supervisorVerdict,
+    };
+  }
+  const runtimeService = getPlatformRuntimeCheckpointService();
+  const baseEvidence = buildMessagingAcceptanceEvidence({
+    runResult: params.runResult,
+    replyPayloads: params.replyPayloads,
+    deliveryReceipt: params.deliveryReceipt,
+  });
+  const executionVerification = runtimeService.verifyExecutionContract({
+    contract: {
+      runId: completionOutcome.runId,
+      receipts: params.runResult.meta?.executionVerification?.receipts ?? [],
+      expectations: {
+        requiresOutput:
+          baseEvidence.hasOutput === true || baseEvidence.hasStructuredReplyPayload === true,
+        requiresMessagingDelivery: (baseEvidence.stagedReplyCount ?? 0) > 0,
+        requiresConfirmedAction: completionOutcome.actionIds.length > 0,
+        allowWarnings: true,
+      },
+    },
+    outcome: completionOutcome,
+    evidence: baseEvidence,
+  });
+  const evidence = runtimeService.buildAcceptanceEvidence({
+    outcome: completionOutcome,
+    evidence: baseEvidence,
+    executionVerification,
+  });
+  const acceptanceOutcome = runtimeService.evaluateAcceptance({
+    runId: completionOutcome.runId,
+    outcome: completionOutcome,
+    evidence,
+  });
+  const supervisorVerdict = runtimeService.evaluateSupervisorVerdict({
+    runId: completionOutcome.runId,
+    acceptance: acceptanceOutcome,
+    verification: executionVerification,
+  });
+  return { acceptanceOutcome, executionVerification, supervisorVerdict };
+}
+
 export function reevaluateAcceptanceForMessagingRun(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
 }): PlatformRuntimeAcceptanceResult | undefined {
-  const completionOutcome = params.runResult.meta?.completionOutcome;
-  if (!completionOutcome?.runId) {
-    return params.runResult.meta?.acceptanceOutcome;
-  }
-  return getPlatformRuntimeCheckpointService().evaluateAcceptance({
-    runId: completionOutcome.runId,
-    outcome: completionOutcome,
-    evidence: buildMessagingAcceptanceEvidence({
-      runResult: params.runResult,
-      replyPayloads: params.replyPayloads,
-      deliveryReceipt: params.deliveryReceipt,
-    }),
-  });
+  return reevaluateMessagingDecision(params)?.acceptanceOutcome;
 }
 
 export function buildAcceptanceFallbackPayload(
@@ -225,8 +275,10 @@ export function enqueueSemanticRetryFollowup(params: {
   sourceRun: FollowupRun;
   settings: QueueSettings;
   acceptance: PlatformRuntimeAcceptanceResult | undefined;
+  supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
 }): boolean {
-  if (!params.queueKey || params.acceptance?.action !== "retry") {
+  const decision = params.supervisorVerdict ?? params.acceptance;
+  if (!params.queueKey || decision?.action !== "retry") {
     return false;
   }
   const retryCount = params.sourceRun.automation?.retryCount ?? 0;
@@ -235,9 +287,7 @@ export function enqueueSemanticRetryFollowup(params: {
   }
   const prompt = [
     "The previous run did not satisfy the task well enough.",
-    params.acceptance.reasons.length > 0
-      ? `Observed issues: ${params.acceptance.reasons.join(" ")}`
-      : undefined,
+    decision.reasons.length > 0 ? `Observed issues: ${decision.reasons.join(" ")}` : undefined,
     "Continue the same task and return only the final completed result.",
     "Do not send an acknowledgement-only update.",
   ]
@@ -249,14 +299,14 @@ export function enqueueSemanticRetryFollowup(params: {
       ...params.sourceRun,
       prompt,
       messageId: undefined,
-      summaryLine: params.acceptance.reasons[0] ?? "semantic retry",
+      summaryLine: decision.reasons[0] ?? "semantic retry",
       enqueuedAt: Date.now(),
       automation: {
         source: "acceptance_retry",
         retryCount: retryCount + 1,
         persisted: true,
-        reasonCode: params.acceptance.reasonCode,
-        reasonSummary: params.acceptance.reasons.join(" "),
+        reasonCode: "reasonCode" in decision ? decision.reasonCode : undefined,
+        reasonSummary: decision.reasons.join(" "),
       },
     },
     params.settings,
@@ -285,23 +335,28 @@ export function finalizeMessagingDeliveryClosure(params: {
   deliveryReceipt: Partial<MessagingDeliveryReceipt>;
 }): {
   acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
+  supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
   queuedSemanticRetry: boolean;
 } {
   if (!params.candidate) {
     return { queuedSemanticRetry: false };
   }
-  const acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
+  const reevaluated = reevaluateMessagingDecision({
     runResult: params.candidate.runResult,
     replyPayloads: params.replyPayloads,
     deliveryReceipt: params.deliveryReceipt,
   });
+  const acceptanceOutcome = reevaluated?.acceptanceOutcome;
+  const supervisorVerdict = reevaluated?.supervisorVerdict;
   return {
     acceptanceOutcome,
+    supervisorVerdict,
     queuedSemanticRetry: enqueueSemanticRetryFollowup({
       queueKey: params.candidate.queueKey,
       sourceRun: params.candidate.sourceRun,
       settings: params.candidate.settings,
       acceptance: acceptanceOutcome,
+      supervisorVerdict,
     }),
   };
 }

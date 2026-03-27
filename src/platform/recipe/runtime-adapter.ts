@@ -15,6 +15,10 @@ import { getInitialProfile, getTaskOverlay } from "../profile/defaults.js";
 import { applyTaskOverlay } from "../profile/overlay.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { CapabilityRegistry } from "../registry/types.js";
+import {
+  PlatformRuntimeExecutionSurfaceSchema,
+  type PlatformRuntimeExecutionSurface,
+} from "../runtime/index.js";
 import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 import type { ProfileId } from "../schemas/profile.js";
 import type { RecipePlannerInput } from "./planner.js";
@@ -88,6 +92,34 @@ export type PlatformExecutionReadiness = {
   reasons: string[];
   unattendedBoundary?: PlatformExecutionContextUnattendedBoundary;
 };
+
+export function buildExecutionSurfaceSnapshot(params: {
+  readiness: PlatformExecutionReadiness;
+  capabilitySummary: PlatformCapabilitySummary;
+  checkedAtMs?: number;
+  cacheTtlMs?: number;
+  modelFallbackActive?: boolean;
+}): PlatformRuntimeExecutionSurface {
+  const status =
+    params.readiness.status === "ready"
+      ? "ready"
+      : params.readiness.status === "bootstrap_required"
+        ? "bootstrap_required"
+        : params.readiness.status === "approval_required"
+          ? "approval_required"
+          : "degraded";
+  return PlatformRuntimeExecutionSurfaceSchema.parse({
+    status,
+    ready: status === "ready",
+    checkedAtMs: params.checkedAtMs ?? Date.now(),
+    cacheTtlMs: params.cacheTtlMs,
+    reasons: params.readiness.reasons,
+    bootstrapRequiredCapabilities: params.capabilitySummary.bootstrapRequiredCapabilities,
+    unresolvedCapabilities: params.capabilitySummary.unresolvedCapabilities,
+    modelFallbackActive: params.modelFallbackActive,
+    approvalRequired: status === "approval_required",
+  });
+}
 
 function buildSystemContext(
   plan: ExecutionPlan,
