@@ -1014,7 +1014,7 @@ export async function handleFeishuMessage(params: {
           log(
             `feishu[${account.accountId}]: broadcast active dispatch agent=${agentId} (session=${agentSessionKey})`,
           );
-          await core.channel.reply.withReplyDispatcher({
+          const result = await core.channel.reply.withReplyDispatcher({
             dispatcher,
             onSettled: () => markDispatchIdle(),
             run: () =>
@@ -1024,6 +1024,10 @@ export async function handleFeishuMessage(params: {
                 dispatcher,
                 replyOptions,
               }),
+          });
+          core.channel.reply.finalizeDispatchDeliveryClosure({
+            dispatcher,
+            result,
           });
         } else {
           // Observer agent: no-op dispatcher (session entry + inference, no Feishu reply).
@@ -1042,7 +1046,7 @@ export async function handleFeishuMessage(params: {
           log(
             `feishu[${account.accountId}]: broadcast observer dispatch agent=${agentId} (session=${agentSessionKey})`,
           );
-          await core.channel.reply.withReplyDispatcher({
+          const result = await core.channel.reply.withReplyDispatcher({
             dispatcher: noopDispatcher,
             run: () =>
               core.channel.reply.dispatchReplyFromConfig({
@@ -1050,6 +1054,10 @@ export async function handleFeishuMessage(params: {
                 cfg,
                 dispatcher: noopDispatcher,
               }),
+          });
+          core.channel.reply.finalizeDispatchDeliveryClosure({
+            dispatcher: noopDispatcher,
+            result,
           });
         }
       };
@@ -1113,7 +1121,7 @@ export async function handleFeishuMessage(params: {
       });
 
       log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);
-      const { queuedFinal, counts } = await core.channel.reply.withReplyDispatcher({
+      const result = await core.channel.reply.withReplyDispatcher({
         dispatcher,
         onSettled: () => {
           markDispatchIdle();
@@ -1126,6 +1134,11 @@ export async function handleFeishuMessage(params: {
             replyOptions,
           }),
       });
+      core.channel.reply.finalizeDispatchDeliveryClosure({
+        dispatcher,
+        result,
+      });
+      const { queuedFinal, counts } = result;
 
       if (isGroup && historyKey && chatHistories) {
         clearHistoryEntriesIfEnabled({

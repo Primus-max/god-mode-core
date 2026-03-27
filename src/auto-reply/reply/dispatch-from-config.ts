@@ -42,9 +42,10 @@ import { normalizeTtsAutoMode, resolveConfiguredTtsMode } from "../../tts/tts-co
 import { INTERNAL_MESSAGE_CHANNEL, normalizeMessageChannel } from "../../utils/message-channel.js";
 import type { FinalizedMsgContext } from "../templating.js";
 import type { BlockReplyContext, GetReplyOptions, ReplyPayload } from "../types.js";
-import type {
-  MessagingDeliveryClosureCandidate,
-  MessagingDeliveryReceipt,
+import {
+  buildCanonicalMessagingDeliveryReceipt,
+  type MessagingDeliveryClosureCandidate,
+  type MessagingDeliveryReceipt,
 } from "./agent-runner-helpers.js";
 import { shouldSkipDuplicateInbound } from "./inbound-dedupe.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
@@ -272,6 +273,9 @@ export async function dispatchReplyFromConfig(params: {
   const shouldSuppressTyping =
     shouldRouteToOriginating || originatingChannel === INTERNAL_MESSAGE_CHANNEL;
   const ttsChannel = shouldRouteToOriginating ? originatingChannel : currentSurface;
+  let deliveryCandidate: MessagingDeliveryClosureCandidate | undefined;
+  const resolveDeliveryActionRunId = () =>
+    deliveryCandidate?.runResult.meta?.completionOutcome?.runId;
 
   /**
    * Helper to send a payload via route-reply (async).
@@ -296,6 +300,7 @@ export async function dispatchReplyFromConfig(params: {
       payload,
       channel: originatingChannel,
       to: originatingTo,
+      ...(resolveDeliveryActionRunId() ? { actionRunId: resolveDeliveryActionRunId() } : {}),
       sessionKey: ctx.SessionKey,
       accountId: ctx.AccountId,
       threadId: routeThreadId,
@@ -320,6 +325,7 @@ export async function dispatchReplyFromConfig(params: {
         payload,
         channel: originatingChannel,
         to: originatingTo,
+        ...(resolveDeliveryActionRunId() ? { actionRunId: resolveDeliveryActionRunId() } : {}),
         sessionKey: ctx.SessionKey,
         accountId: ctx.AccountId,
         threadId: routeThreadId,
@@ -465,6 +471,7 @@ export async function dispatchReplyFromConfig(params: {
           payload,
           channel: originatingChannel,
           to: originatingTo,
+          ...(resolveDeliveryActionRunId() ? { actionRunId: resolveDeliveryActionRunId() } : {}),
           sessionKey: ctx.SessionKey,
           accountId: ctx.AccountId,
           threadId: routeThreadId,
@@ -586,7 +593,6 @@ export async function dispatchReplyFromConfig(params: {
 
     const replyResolver =
       params.replyResolver ?? (await loadGetReplyFromConfigRuntime()).getReplyFromConfig;
-    let deliveryCandidate: MessagingDeliveryClosureCandidate | undefined;
     let attemptedDeliveryCount = 0;
     let confirmedDeliveryCount = 0;
     let failedDeliveryCount = 0;
@@ -719,6 +725,7 @@ export async function dispatchReplyFromConfig(params: {
           payload: ttsReply,
           channel: originatingChannel,
           to: originatingTo,
+          ...(resolveDeliveryActionRunId() ? { actionRunId: resolveDeliveryActionRunId() } : {}),
           sessionKey: ctx.SessionKey,
           accountId: ctx.AccountId,
           threadId: routeThreadId,
@@ -775,6 +782,9 @@ export async function dispatchReplyFromConfig(params: {
               payload: ttsOnlyPayload,
               channel: originatingChannel,
               to: originatingTo,
+              ...(resolveDeliveryActionRunId()
+                ? { actionRunId: resolveDeliveryActionRunId() }
+                : {}),
               sessionKey: ctx.SessionKey,
               accountId: ctx.AccountId,
               threadId: routeThreadId,
@@ -818,13 +828,16 @@ export async function dispatchReplyFromConfig(params: {
       counts,
       deliveryCandidate,
       finalReplyPayloads,
-      routedDeliveryReceipt: {
-        stagedReplyCount: counts.tool + counts.block + counts.final,
-        attemptedDeliveryCount,
-        confirmedDeliveryCount,
-        failedDeliveryCount,
-        partialDelivery: confirmedDeliveryCount > 0 && failedDeliveryCount > 0,
-      },
+      routedDeliveryReceipt: buildCanonicalMessagingDeliveryReceipt({
+        replyPayloads: finalReplyPayloads,
+        receipts: [
+          {
+            attemptedDeliveryCount,
+            confirmedDeliveryCount,
+            failedDeliveryCount,
+          },
+        ],
+      }),
     };
   } catch (err) {
     recordProcessed("error", { error: String(err) });

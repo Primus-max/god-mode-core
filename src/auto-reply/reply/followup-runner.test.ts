@@ -488,6 +488,49 @@ describe("createFollowupRunner semantic acceptance", () => {
       resetRecentQueuedMessageIdDedupe();
     }
   });
+
+  it("routes followup deliveries with completion runId for action correlation", async () => {
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "final" }],
+      meta: {
+        completionOutcome: {
+          runId: "followup-correlated-run",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: [],
+        },
+      },
+    });
+
+    const runner = createFollowupRunner({
+      typing: createMockTypingController(),
+      typingMode: "instant",
+      defaultModel: "anthropic/claude-opus-4-5",
+    });
+
+    await runner(
+      createQueuedRun({
+        originatingChannel: "telegram",
+        originatingTo: "chat:1",
+      }),
+    );
+
+    expect(routeReplyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionRunId: "followup-correlated-run",
+      }),
+    );
+  });
 });
 
 describe("createFollowupRunner messaging tool dedupe", () => {

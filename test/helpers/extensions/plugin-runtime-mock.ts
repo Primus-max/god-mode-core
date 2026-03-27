@@ -175,6 +175,9 @@ export function createPluginRuntimeMock(overrides: DeepPartial<PluginRuntime> = 
             }
           }
         }) as unknown as PluginRuntime["channel"]["reply"]["withReplyDispatcher"],
+        finalizeDispatchDeliveryClosure: vi.fn(
+          () => undefined,
+        ) as unknown as PluginRuntime["channel"]["reply"]["finalizeDispatchDeliveryClosure"],
         finalizeInboundContext: vi.fn(
           (ctx: Record<string, unknown>) => ctx,
         ) as unknown as PluginRuntime["channel"]["reply"]["finalizeInboundContext"],
