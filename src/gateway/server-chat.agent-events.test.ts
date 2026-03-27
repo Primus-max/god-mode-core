@@ -4,6 +4,8 @@ import { resolveHeartbeatVisibility } from "../infra/heartbeat-visibility.js";
 
 const persistGatewaySessionLifecycleEventMock = vi.fn();
 const configState = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
+type ServerChatModule = typeof import("./server-chat.js");
+let serverChatModule: ServerChatModule;
 
 vi.mock("./session-lifecycle-state.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./session-lifecycle-state.js")>();
@@ -14,16 +16,13 @@ vi.mock("./session-lifecycle-state.js", async (importOriginal) => {
   };
 });
 
-import {
-  createAgentEventHandler,
-  createChatRunState,
-  createSessionEventSubscriberRegistry,
-  createToolEventRecipientRegistry,
-} from "./server-chat.js";
-
-vi.mock("../config/config.js", () => ({
-  loadConfig: vi.fn(() => configState.value),
-}));
+vi.mock("../config/config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../config/config.js")>();
+  return {
+    ...actual,
+    loadConfig: vi.fn(() => configState.value),
+  };
+});
 
 vi.mock("../infra/heartbeat-visibility.js", () => ({
   resolveHeartbeatVisibility: vi.fn(() => ({
@@ -34,7 +33,7 @@ vi.mock("../infra/heartbeat-visibility.js", () => ({
 }));
 
 describe("agent event handler", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     configState.value = {};
     vi.mocked(resolveHeartbeatVisibility).mockReturnValue({
       showOk: false,
@@ -43,6 +42,8 @@ describe("agent event handler", () => {
     });
     persistGatewaySessionLifecycleEventMock.mockReset().mockResolvedValue(undefined);
     resetAgentRunContextForTest();
+    vi.resetModules();
+    serverChatModule = await import("./server-chat.js");
   });
 
   afterEach(() => {
@@ -59,11 +60,11 @@ describe("agent event handler", () => {
     const broadcastToConnIds = vi.fn();
     const nodeSendToSession = vi.fn();
     const agentRunSeq = new Map<string, number>();
-    const chatRunState = createChatRunState();
-    const toolEventRecipients = createToolEventRecipientRegistry();
-    const sessionEventSubscribers = createSessionEventSubscriberRegistry();
+    const chatRunState = serverChatModule.createChatRunState();
+    const toolEventRecipients = serverChatModule.createToolEventRecipientRegistry();
+    const sessionEventSubscribers = serverChatModule.createSessionEventSubscriberRegistry();
 
-    const handler = createAgentEventHandler({
+    const handler = serverChatModule.createAgentEventHandler({
       broadcast,
       broadcastToConnIds,
       nodeSendToSession,
