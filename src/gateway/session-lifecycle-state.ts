@@ -4,6 +4,7 @@ import {
   PlatformRuntimeRunClosureSummarySchema,
   type PlatformRuntimeRunClosureSummary,
 } from "../platform/runtime/index.js";
+import { resolveSessionRunStatusFromClosureSummary } from "./session-closure-summary.js";
 import { loadSessionEntry } from "./session-utils.js";
 import type { GatewaySessionRow, SessionRunStatus } from "./session-utils.types.js";
 
@@ -34,7 +35,13 @@ type LifecycleSessionShape = Pick<
 
 type PersistedLifecycleSessionShape = Pick<
   SessionEntry,
-  "updatedAt" | "status" | "startedAt" | "endedAt" | "runtimeMs" | "abortedLastRun"
+  | "updatedAt"
+  | "status"
+  | "startedAt"
+  | "endedAt"
+  | "runtimeMs"
+  | "abortedLastRun"
+  | "runClosureSummary"
 >;
 
 export type GatewaySessionLifecycleSnapshot = Partial<LifecycleSessionShape>;
@@ -125,15 +132,9 @@ export function deriveGatewaySessionLifecycleSnapshot(params: {
   const runtimeClosureSummary = resolveRunClosureSummary(params.event);
   if (runtimeClosureSummary) {
     const updatedAt = runtimeClosureSummary.updatedAtMs;
-    const status: SessionRunStatus =
-      runtimeClosureSummary.action === "close"
-        ? "done"
-        : runtimeClosureSummary.action === "stop"
-          ? "failed"
-          : "blocked";
     return {
       updatedAt,
-      status,
+      status: resolveSessionRunStatusFromClosureSummary(runtimeClosureSummary),
       startedAt: params.session?.startedAt,
       endedAt: params.session?.endedAt,
       runtimeMs: params.session?.runtimeMs,
@@ -157,6 +158,7 @@ export function deriveGatewaySessionLifecycleSnapshot(params: {
       endedAt: undefined,
       runtimeMs: undefined,
       abortedLastRun: false,
+      runClosureSummary: undefined,
     };
   }
   if (phase === "blocked" || phase === "approved") {
@@ -169,6 +171,7 @@ export function deriveGatewaySessionLifecycleSnapshot(params: {
       endedAt: undefined,
       runtimeMs: existing?.runtimeMs,
       abortedLastRun: false,
+      runClosureSummary: undefined,
     };
   }
   if (phase === "resumed") {
@@ -183,6 +186,7 @@ export function deriveGatewaySessionLifecycleSnapshot(params: {
       endedAt: undefined,
       runtimeMs: existing?.runtimeMs,
       abortedLastRun: false,
+      runClosureSummary: undefined,
     };
   }
 
@@ -200,7 +204,7 @@ export function deriveGatewaySessionLifecycleSnapshot(params: {
       existingRuntimeMs: existing?.runtimeMs,
     }),
     abortedLastRun: resolveLifecycleTerminalStatus(params.event) === "killed",
-    runClosureSummary: existing?.runClosureSummary,
+    runClosureSummary: undefined,
   };
 }
 
@@ -223,28 +227,8 @@ export async function persistGatewaySessionLifecycleEvent(params: {
   event: SessionLifecycleEventLike;
 }): Promise<void> {
   const runtimeClosureSummary = resolveRunClosureSummary(params.event);
-  if (runtimeClosureSummary) {
-    const sessionEntry = loadSessionEntry(params.sessionKey);
-    if (!sessionEntry.entry) {
-      return;
-    }
-    await updateSessionStoreEntry({
-      storePath: sessionEntry.storePath,
-      sessionKey: sessionEntry.canonicalKey,
-      update: async () => ({
-        updatedAt: runtimeClosureSummary.updatedAtMs,
-        status:
-          runtimeClosureSummary.action === "close"
-            ? "done"
-            : runtimeClosureSummary.action === "stop"
-              ? "failed"
-              : "blocked",
-      }),
-    });
-    return;
-  }
   const phase = resolveLifecyclePhase(params.event);
-  if (!phase) {
+  if (!runtimeClosureSummary && !phase) {
     return;
   }
 

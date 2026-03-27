@@ -4,6 +4,7 @@ import { isVerbose } from "../globals.js";
 import { shouldLogSubsystemToConsole } from "../logging/console.js";
 import { getDefaultRedactPatterns, redactSensitiveText } from "../logging/redact.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { PlatformRuntimeRunClosureSummarySchema } from "../platform/runtime/index.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
 import { DEFAULT_WS_SLOW_MS, getGatewayWsLogStyle } from "./ws-logging.js";
 
@@ -245,6 +246,28 @@ export function summarizeAgentEventForWsLog(payload: unknown): Record<string, un
     const error = typeof data.error === "string" ? data.error : undefined;
     if (error?.trim()) {
       extra.error = compactPreview(error, 120);
+    }
+    return extra;
+  }
+
+  if (stream === "runtime") {
+    const phase = typeof data.phase === "string" ? data.phase : undefined;
+    if (phase) {
+      extra.phase = phase;
+    }
+    if (phase === "closure") {
+      const parsed = PlatformRuntimeRunClosureSummarySchema.safeParse(data.summary);
+      if (parsed.success) {
+        extra.action = parsed.data.action;
+        extra.code = parsed.data.reasonCode;
+        extra.outcome = parsed.data.outcomeStatus;
+        if (parsed.data.declaredIntent) {
+          extra.intent = parsed.data.declaredIntent;
+        }
+        if (parsed.data.declaredRecipeId) {
+          extra.recipe = parsed.data.declaredRecipeId;
+        }
+      }
     }
     return extra;
   }

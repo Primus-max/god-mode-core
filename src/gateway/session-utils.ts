@@ -48,6 +48,7 @@ import {
 } from "../shared/avatar-policy.js";
 import { normalizeSessionDeliveryFields } from "../utils/delivery-context.js";
 import { estimateUsageCost, resolveModelCostConfig } from "../utils/usage-format.js";
+import { resolveSessionRunStatusFromClosureSummary } from "./session-closure-summary.js";
 import {
   readLatestSessionUsageFromTranscript,
   readSessionTitleFieldsFromTranscript,
@@ -1155,7 +1156,11 @@ export function buildGatewaySessionRow(params: {
     totalTokens,
     totalTokensFresh,
     estimatedCostUsd,
-    status: subagentRun ? subagentStatus : entry?.status,
+    status: subagentRun
+      ? subagentStatus
+      : entry?.runClosureSummary
+        ? resolveSessionRunStatusFromClosureSummary(entry.runClosureSummary)
+        : entry?.status,
     startedAt: subagentRun ? subagentStartedAt : entry?.startedAt,
     endedAt: subagentRun ? subagentEndedAt : entry?.endedAt,
     runtimeMs: subagentRun ? subagentRuntimeMs : entry?.runtimeMs,
@@ -1169,6 +1174,7 @@ export function buildGatewaySessionRow(params: {
     lastChannel: deliveryFields.lastChannel ?? entry?.lastChannel,
     lastTo: deliveryFields.lastTo ?? entry?.lastTo,
     lastAccountId: deliveryFields.lastAccountId ?? entry?.lastAccountId,
+    runClosureSummary: entry?.runClosureSummary,
   };
 }
 
