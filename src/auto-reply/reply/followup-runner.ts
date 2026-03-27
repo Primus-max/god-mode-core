@@ -26,6 +26,8 @@ import {
   buildAcceptanceFallbackPayload,
   buildMessagingDeliveryReceipt,
   finalizeMessagingDeliveryClosure,
+  finalizeClosureRecoveryCheckpoint,
+  markClosureRecoveryCheckpointFailed,
   reevaluateMessagingDecisionForMessagingRun,
 } from "./agent-runner-helpers.js";
 import { resolvePlatformExecutionContextForTemplateRun } from "./agent-runner-utils.js";
@@ -393,6 +395,10 @@ export function createFollowupRunner(params: {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         defaultRuntime.error?.(`Followup agent failed before reply: ${message}`);
+        markClosureRecoveryCheckpointFailed({
+          sourceRun: queued,
+          error: message,
+        });
         return;
       }
 
@@ -515,6 +521,10 @@ export function createFollowupRunner(params: {
           },
         );
         if (!fallbackPayload) {
+          markClosureRecoveryCheckpointFailed({
+            sourceRun: queued,
+            error: "closure recovery produced no deliverable fallback payload",
+          });
           return;
         }
         finalPayloads = await applyFollowupReplyThreading([fallbackPayload]);
@@ -533,6 +543,12 @@ export function createFollowupRunner(params: {
       });
       acceptanceOutcome = closure.acceptanceOutcome ?? acceptanceOutcome;
       queuedSemanticRetry = closure.queuedSemanticRetry;
+      finalizeClosureRecoveryCheckpoint({
+        sourceRun: queued,
+        acceptance: acceptanceOutcome,
+        supervisorVerdict: closure.supervisorVerdict ?? supervisorVerdict,
+        queuedSemanticRetry,
+      });
       if (queuedSemanticRetry) {
         return;
       }

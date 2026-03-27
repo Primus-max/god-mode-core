@@ -1,6 +1,10 @@
 import type { ChatType } from "../channels/chat-type.js";
 import type { SessionEntry } from "../config/sessions.js";
-import type { PlatformRuntimeRunClosureSummary } from "../platform/runtime/index.js";
+import type {
+  PlatformRuntimeCheckpointStatus,
+  PlatformRuntimeContinuationState,
+  PlatformRuntimeRunClosureSummary,
+} from "../platform/runtime/index.js";
 import type {
   GatewayAgentRow as SharedGatewayAgentRow,
   SessionsListResultBase,
@@ -60,6 +64,13 @@ export type GatewaySessionRow = {
   lastTo?: string;
   lastAccountId?: string;
   runClosureSummary?: PlatformRuntimeRunClosureSummary;
+  recoveryCheckpointId?: string;
+  recoveryStatus?: PlatformRuntimeCheckpointStatus;
+  recoveryContinuationState?: PlatformRuntimeContinuationState;
+  recoveryOperation?: string;
+  recoveryBlockedReason?: string;
+  recoveryUpdatedAt?: number;
+  recoveryAttempts?: number;
 };
 
 export type GatewayAgentRow = SharedGatewayAgentRow;

@@ -23,6 +23,7 @@ export type FollowupAutomationMetadata = {
   source: "acceptance_retry" | "closure_recovery";
   retryCount: number;
   persisted?: boolean;
+  runtimeCheckpointId?: string;
   reasonCode?: string;
   reasonSummary?: string;
 };
