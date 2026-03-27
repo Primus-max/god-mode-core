@@ -44,6 +44,8 @@ import {
 import {
   createRuntimeCheckpointGetGatewayMethod,
   createRuntimeCheckpointListGatewayMethod,
+  createRuntimeClosureGetGatewayMethod,
+  createRuntimeClosureListGatewayMethod,
   getPlatformRuntimeCheckpointService,
 } from "./runtime/index.js";
 
@@ -207,6 +209,14 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   api.registerGatewayMethod(
     "platform.runtime.checkpoints.get",
     createRuntimeCheckpointGetGatewayMethod(runtimeCheckpointService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.closures.list",
+    createRuntimeClosureListGatewayMethod(runtimeCheckpointService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.closures.get",
+    createRuntimeClosureGetGatewayMethod(runtimeCheckpointService),
   );
   api.registerGatewayMethod(
     "platform.machine.status",

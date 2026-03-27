@@ -33,13 +33,17 @@ around `runEmbeddedAttempt`.
 - `before_prompt_build` — inject profile-specific system prompt sections
 - `llm_input` / `llm_output` — audit, policy enforcement, artifact extraction
 
-**Platform hooks (new, via plugin API):**
+**Platform hooks (recipe lifecycle seam):**
 
 - `before_recipe_execute` — validate recipe prerequisites
 - `after_recipe_execute` — artifact capture, publish triggers
 
-**How:** Register via `api.on("before_model_resolve", ...)` etc. in a
-platform plugin. The runner already calls these hooks; no fork needed.
+**How:** Register via `api.on("before_recipe_execute", ...)` and
+`api.on("after_recipe_execute", ...)` in a platform plugin. The runner now
+passes structured `executionIntent` into the pre-execution seam and a
+structured run closure into the post-execution seam, so plugins can validate
+prerequisites and inspect final supervisor truth without guessing from prompt
+or LLM hook timing.
 
 ## Seam 3 — Model Selection
 

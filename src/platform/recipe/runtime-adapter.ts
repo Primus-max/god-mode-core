@@ -34,6 +34,7 @@ export type RecipeRuntimePlan = {
   modelOverride?: string;
   fallbackModels?: string[];
   timeoutSeconds?: number;
+  artifactKinds?: string[];
   requestedToolNames?: string[];
   publishTargets?: string[];
   requiredCapabilities?: string[];
@@ -382,6 +383,7 @@ export function toPluginHookPlatformExecutionContext(
     ...(runtimePlan.requestedToolNames?.length
       ? { requestedToolNames: runtimePlan.requestedToolNames }
       : {}),
+    ...(runtimePlan.artifactKinds?.length ? { artifactKinds: runtimePlan.artifactKinds } : {}),
     ...(runtimePlan.publishTargets?.length ? { publishTargets: runtimePlan.publishTargets } : {}),
     ...(runtimePlan.requiredCapabilities?.length
       ? { requiredCapabilities: runtimePlan.requiredCapabilities }
@@ -435,6 +437,7 @@ export function adaptExecutionPlanToRuntime(
     ...(plan.plannerOutput.overrides?.timeoutSeconds
       ? { timeoutSeconds: plan.plannerOutput.overrides.timeoutSeconds }
       : {}),
+    ...(params?.input?.artifactKinds?.length ? { artifactKinds: params.input.artifactKinds } : {}),
     ...(params?.input?.requestedTools?.length
       ? { requestedToolNames: params.input.requestedTools }
       : {}),

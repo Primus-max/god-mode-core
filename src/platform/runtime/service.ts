@@ -12,9 +12,12 @@ import {
   PlatformRuntimeCheckpointStoreSchema,
   PlatformRuntimeCheckpointSummarySchema,
   PlatformRuntimeExecutionContractSchema,
+  PlatformRuntimeExecutionIntentSchema,
   PlatformRuntimeExecutionReceiptCountsSchema,
   PlatformRuntimeExecutionReceiptProofCountsSchema,
   PlatformRuntimeExecutionReceiptSchema,
+  PlatformRuntimeRunClosureSchema,
+  PlatformRuntimeRunClosureStoreSchema,
   PlatformRuntimeRecoveryPolicySchema,
   PlatformRuntimeExecutionSurfaceSchema,
   PlatformRuntimeExecutionVerificationSchema,
@@ -34,6 +37,7 @@ import {
   type PlatformRuntimeCheckpointStatus,
   type PlatformRuntimeCheckpointSummary,
   type PlatformRuntimeExecutionContract,
+  type PlatformRuntimeExecutionIntent,
   type PlatformRuntimeExecutionReceipt,
   type PlatformRuntimeExecutionReceiptCounts,
   type PlatformRuntimeExecutionReceiptKind,
@@ -45,6 +49,7 @@ import {
   type PlatformRuntimeRecoveryClass,
   type PlatformRuntimeRecoveryPolicy,
   type PlatformRuntimeRunOutcome,
+  type PlatformRuntimeRunClosure,
   type PlatformRuntimeSupervisorVerdict,
   type PlatformRuntimeTarget,
 } from "./contracts.js";
@@ -52,6 +57,7 @@ import {
 const PLATFORM_RUNTIME_SERVICE_KEY = Symbol.for("openclaw.platform.runtime.service");
 const PLATFORM_RUNTIME_CHECKPOINTS_FILENAME = "platform-runtime-checkpoints.json";
 const PLATFORM_RUNTIME_ACTIONS_FILENAME = "platform-runtime-actions.json";
+const PLATFORM_RUNTIME_CLOSURES_FILENAME = "platform-runtime-closures.json";
 
 export type PlatformRuntimeCheckpointService = {
   configure: (params: { stateDir?: string }) => void;
@@ -120,12 +126,33 @@ export type PlatformRuntimeCheckpointService = {
     evidence?: PlatformRuntimeAcceptanceEvidence;
     executionVerification?: PlatformRuntimeExecutionVerification;
     executionSurface?: PlatformRuntimeExecutionSurface;
+    executionIntent?: PlatformRuntimeExecutionIntent;
   }) => PlatformRuntimeAcceptanceEvidence;
+  buildExecutionIntent: (params: {
+    runId: string;
+    executionIntent?: Partial<PlatformRuntimeExecutionIntent>;
+  }) => PlatformRuntimeExecutionIntent;
+  buildExecutionContract: (params: {
+    runId: string;
+    outcome?: PlatformRuntimeRunOutcome;
+    receipts?: PlatformRuntimeExecutionReceipt[];
+    evidence?: PlatformRuntimeAcceptanceEvidence;
+    executionIntent?: PlatformRuntimeExecutionIntent;
+  }) => PlatformRuntimeExecutionContract;
   buildExecutionReceipts: (params: {
     runId: string;
     outcome?: PlatformRuntimeRunOutcome;
     receipts?: PlatformRuntimeExecutionReceipt[];
   }) => PlatformRuntimeExecutionReceipt[];
+  buildRunClosure: (params: {
+    runId: string;
+    sessionKey?: string;
+    outcome?: PlatformRuntimeRunOutcome;
+    receipts?: PlatformRuntimeExecutionReceipt[];
+    evidence?: PlatformRuntimeAcceptanceEvidence;
+    executionSurface?: PlatformRuntimeExecutionSurface;
+    executionIntent?: PlatformRuntimeExecutionIntent;
+  }) => PlatformRuntimeRunClosure;
   verifyExecutionContract: (params: {
     contract: PlatformRuntimeExecutionContract;
     outcome?: PlatformRuntimeRunOutcome;
@@ -142,6 +169,9 @@ export type PlatformRuntimeCheckpointService = {
     verification?: PlatformRuntimeExecutionVerification;
     surface?: PlatformRuntimeExecutionSurface;
   }) => PlatformRuntimeSupervisorVerdict;
+  recordRunClosure: (closure: PlatformRuntimeRunClosure) => PlatformRuntimeRunClosure;
+  getRunClosure: (runId: string) => PlatformRuntimeRunClosure | undefined;
+  listRunClosures: (params?: { sessionKey?: string }) => PlatformRuntimeRunClosure[];
   registerContinuationHandler: (
     kind: PlatformRuntimeContinuationKind,
     handler: (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void,
@@ -159,6 +189,10 @@ function resolveRuntimeActionStorePath(stateDir: string): string {
   return path.join(stateDir, PLATFORM_RUNTIME_ACTIONS_FILENAME);
 }
 
+function resolveRuntimeClosureStorePath(stateDir: string): string {
+  return path.join(stateDir, PLATFORM_RUNTIME_CLOSURES_FILENAME);
+}
+
 function buildStorePayload(checkpoints: Map<string, PlatformRuntimeCheckpoint>) {
   return PlatformRuntimeCheckpointStoreSchema.parse({
     version: 1,
@@ -174,6 +208,42 @@ function buildActionStorePayload(actions: Map<string, PlatformRuntimeAction>) {
     actions: Array.from(actions.values()).toSorted(
       (left, right) => right.updatedAtMs - left.updatedAtMs,
     ),
+  });
+}
+
+function buildClosureStorePayload(closures: Map<string, PlatformRuntimeRunClosure>) {
+  return PlatformRuntimeRunClosureStoreSchema.parse({
+    version: 1,
+    closures: Array.from(closures.values()).toSorted(
+      (left, right) => right.updatedAtMs - left.updatedAtMs,
+    ),
+  });
+}
+
+function normalizeRunOutcome(
+  outcome:
+    | PlatformRuntimeRunOutcome
+    | (PlatformRuntimeRunOutcome & Record<string, unknown>)
+    | undefined,
+): PlatformRuntimeRunOutcome | undefined {
+  if (!outcome) {
+    return undefined;
+  }
+  return PlatformRuntimeRunOutcomeSchema.parse({
+    runId: outcome.runId,
+    status: outcome.status,
+    checkpointIds: outcome.checkpointIds,
+    blockedCheckpointIds: outcome.blockedCheckpointIds,
+    completedCheckpointIds: outcome.completedCheckpointIds,
+    deniedCheckpointIds: outcome.deniedCheckpointIds,
+    pendingApprovalIds: outcome.pendingApprovalIds,
+    artifactIds: outcome.artifactIds,
+    bootstrapRequestIds: outcome.bootstrapRequestIds,
+    actionIds: outcome.actionIds,
+    attemptedActionIds: outcome.attemptedActionIds,
+    confirmedActionIds: outcome.confirmedActionIds,
+    failedActionIds: outcome.failedActionIds,
+    boundaries: outcome.boundaries,
   });
 }
 
@@ -476,6 +546,110 @@ function parseSupervisorVerdict(params: {
   });
 }
 
+function normalizeOptionalStringArray(values: string[] | undefined): string[] | undefined {
+  if (!values?.length) {
+    return undefined;
+  }
+  const normalized = values.map((value) => value.trim()).filter(Boolean);
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : undefined;
+}
+
+function deriveRequiredReceiptKinds(params: {
+  outcome: PlatformRuntimeRunOutcome;
+  evidence: PlatformRuntimeAcceptanceEvidence;
+}): PlatformRuntimeExecutionReceiptKind[] | undefined {
+  const kinds = new Set<PlatformRuntimeExecutionReceiptKind>();
+  const requiresMessagingDelivery =
+    params.evidence.didSendViaMessagingTool === true || (params.evidence.stagedReplyCount ?? 0) > 0;
+  if (requiresMessagingDelivery) {
+    kinds.add("messaging_delivery");
+  }
+  if (params.outcome.bootstrapRequestIds.length > 0) {
+    kinds.add("capability");
+  }
+  if (params.outcome.actionIds.length > 0) {
+    kinds.add("platform_action");
+  }
+  return kinds.size > 0 ? Array.from(kinds) : undefined;
+}
+
+function deriveExecutionContractExpectations(params: {
+  outcome: PlatformRuntimeRunOutcome;
+  evidence: PlatformRuntimeAcceptanceEvidence;
+  executionIntent?: PlatformRuntimeExecutionIntent;
+}): PlatformRuntimeExecutionContract["expectations"] {
+  const declared = params.executionIntent?.expectations ?? {};
+  const requiresMessagingDelivery =
+    declared.requiresMessagingDelivery ??
+    (params.evidence.didSendViaMessagingTool === true ||
+      (params.evidence.stagedReplyCount ?? 0) > 0);
+  const requiresStructuredReceipts =
+    declared.requireStructuredReceipts ??
+    (params.outcome.actionIds.length > 0 ||
+      params.outcome.artifactIds.length > 0 ||
+      params.outcome.bootstrapRequestIds.length > 0);
+  const requiredReceiptKinds = declared.requiredReceiptKinds ?? deriveRequiredReceiptKinds(params);
+  return PlatformRuntimeExecutionContractSchema.shape.expectations.parse({
+    requiresOutput:
+      declared.requiresOutput ??
+      (params.evidence.hasOutput === true || params.evidence.hasStructuredReplyPayload === true),
+    requiresMessagingDelivery,
+    requiresConfirmedAction:
+      declared.requiresConfirmedAction ?? params.outcome.actionIds.length > 0,
+    requireStructuredReceipts: requiresStructuredReceipts,
+    minimumVerifiedReceiptCount:
+      declared.minimumVerifiedReceiptCount ?? (requiresStructuredReceipts ? 1 : 0),
+    ...(requiredReceiptKinds?.length ? { requiredReceiptKinds } : {}),
+    allowStandaloneEvidence:
+      declared.allowStandaloneEvidence ??
+      (!requiresStructuredReceipts && !requiresMessagingDelivery),
+    allowWarnings: declared.allowWarnings ?? true,
+    ...(declared.allowPartial !== undefined ? { allowPartial: declared.allowPartial } : {}),
+  });
+}
+
+function buildIntentAwareEvidence(params: {
+  evidence: PlatformRuntimeAcceptanceEvidence;
+  executionIntent?: PlatformRuntimeExecutionIntent;
+}): PlatformRuntimeAcceptanceEvidence {
+  if (!params.executionIntent) {
+    return params.evidence;
+  }
+  const expectations = params.executionIntent.expectations;
+  return {
+    ...params.evidence,
+    ...(params.executionIntent.profileId
+      ? { declaredProfileId: params.executionIntent.profileId }
+      : {}),
+    ...(params.executionIntent.recipeId
+      ? { declaredRecipeId: params.executionIntent.recipeId }
+      : {}),
+    ...(params.executionIntent.intent ? { declaredIntent: params.executionIntent.intent } : {}),
+    ...(params.executionIntent.artifactKinds?.length
+      ? { declaredArtifactKinds: params.executionIntent.artifactKinds }
+      : {}),
+    ...(expectations.requiresOutput !== undefined
+      ? { declaredRequiresOutput: expectations.requiresOutput }
+      : {}),
+    ...(expectations.requiresMessagingDelivery !== undefined
+      ? { declaredRequiresMessagingDelivery: expectations.requiresMessagingDelivery }
+      : {}),
+    ...(expectations.requiresConfirmedAction !== undefined
+      ? { declaredRequiresConfirmedAction: expectations.requiresConfirmedAction }
+      : {}),
+  };
+}
+
+function describeDeclaredIntent(evidence: PlatformRuntimeAcceptanceEvidence): string | undefined {
+  if (evidence.declaredRecipeId) {
+    return `recipe ${evidence.declaredRecipeId}`;
+  }
+  if (evidence.declaredIntent) {
+    return `${evidence.declaredIntent} intent`;
+  }
+  return undefined;
+}
+
 function buildExecutionReceiptKey(receipt: PlatformRuntimeExecutionReceipt): string {
   const actionId =
     receipt.metadata && typeof receipt.metadata.actionId === "string"
@@ -622,6 +796,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
 }): PlatformRuntimeCheckpointService {
   const checkpoints = new Map<string, PlatformRuntimeCheckpoint>();
   const actions = new Map<string, PlatformRuntimeAction>();
+  const closures = new Map<string, PlatformRuntimeRunClosure>();
   const continuationHandlers = new Map<
     PlatformRuntimeContinuationKind,
     (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void
@@ -634,18 +809,26 @@ export function createPlatformRuntimeCheckpointService(params?: {
     }
     const filePath = resolveRuntimeCheckpointStorePath(stateDir);
     const actionPath = resolveRuntimeActionStorePath(stateDir);
+    const closurePath = resolveRuntimeClosureStorePath(stateDir);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     const tmpPath = `${filePath}.${process.pid}.tmp`;
     const actionTmpPath = `${actionPath}.${process.pid}.tmp`;
+    const closureTmpPath = `${closurePath}.${process.pid}.tmp`;
     const payload = buildStorePayload(checkpoints);
     const actionPayload = buildActionStorePayload(actions);
+    const closurePayload = buildClosureStorePayload(closures);
     fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), { encoding: "utf8", mode: 0o600 });
     fs.writeFileSync(actionTmpPath, JSON.stringify(actionPayload, null, 2), {
       encoding: "utf8",
       mode: 0o600,
     });
+    fs.writeFileSync(closureTmpPath, JSON.stringify(closurePayload, null, 2), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     fs.renameSync(tmpPath, filePath);
     fs.renameSync(actionTmpPath, actionPath);
+    fs.renameSync(closureTmpPath, closurePath);
   };
 
   const saveAction = (action: PlatformRuntimeAction) => {
@@ -670,6 +853,12 @@ export function createPlatformRuntimeCheckpointService(params?: {
       updatedAtMs: typeof patch.updatedAtMs === "number" ? patch.updatedAtMs : Date.now(),
     });
     return saveAction(next);
+  };
+
+  const saveClosure = (closure: PlatformRuntimeRunClosure) => {
+    closures.set(closure.runId, closure);
+    persist();
+    return closure;
   };
 
   return {
@@ -940,9 +1129,12 @@ export function createPlatformRuntimeCheckpointService(params?: {
       });
     },
     buildAcceptanceEvidence(params) {
-      const merged = {
-        ...params.evidence,
-      };
+      const merged = buildIntentAwareEvidence({
+        evidence: {
+          ...params.evidence,
+        },
+        executionIntent: params.executionIntent,
+      });
       if (params.executionVerification) {
         const receiptCounts = params.executionVerification.receiptCounts;
         const proofCounts = params.executionVerification.receiptProofCounts;
@@ -974,6 +1166,104 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       return merged;
     },
+    buildExecutionIntent(params) {
+      const seed = params.executionIntent ?? {};
+      return PlatformRuntimeExecutionIntentSchema.parse({
+        runId: params.runId.trim(),
+        ...(seed.profileId ? { profileId: seed.profileId } : {}),
+        ...(seed.recipeId ? { recipeId: seed.recipeId } : {}),
+        ...(seed.taskOverlayId ? { taskOverlayId: seed.taskOverlayId } : {}),
+        ...(seed.plannerReasoning ? { plannerReasoning: seed.plannerReasoning } : {}),
+        ...(seed.intent ? { intent: seed.intent } : {}),
+        ...(normalizeOptionalStringArray(seed.publishTargets)
+          ? { publishTargets: normalizeOptionalStringArray(seed.publishTargets) }
+          : {}),
+        ...(normalizeOptionalStringArray(seed.artifactKinds)
+          ? { artifactKinds: normalizeOptionalStringArray(seed.artifactKinds) }
+          : {}),
+        ...(normalizeOptionalStringArray(seed.requestedToolNames)
+          ? { requestedToolNames: normalizeOptionalStringArray(seed.requestedToolNames) }
+          : {}),
+        ...(normalizeOptionalStringArray(seed.requiredCapabilities)
+          ? { requiredCapabilities: normalizeOptionalStringArray(seed.requiredCapabilities) }
+          : {}),
+        ...(normalizeOptionalStringArray(seed.bootstrapRequiredCapabilities)
+          ? {
+              bootstrapRequiredCapabilities: normalizeOptionalStringArray(
+                seed.bootstrapRequiredCapabilities,
+              ),
+            }
+          : {}),
+        ...(seed.requireExplicitApproval !== undefined
+          ? { requireExplicitApproval: seed.requireExplicitApproval }
+          : {}),
+        ...(seed.policyAutonomy ? { policyAutonomy: seed.policyAutonomy } : {}),
+        expectations: PlatformRuntimeExecutionContractSchema.shape.expectations.parse(
+          seed.expectations ?? {},
+        ),
+      });
+    },
+    buildExecutionContract(params) {
+      const outcome = normalizeRunOutcome(params.outcome) ?? this.buildRunOutcome(params.runId);
+      const executionIntent = params.executionIntent
+        ? this.buildExecutionIntent({
+            runId: params.runId,
+            executionIntent: params.executionIntent,
+          })
+        : undefined;
+      const evidence = this.buildAcceptanceEvidence({
+        outcome:
+          outcome ??
+          PlatformRuntimeRunOutcomeSchema.parse({
+            runId: params.runId.trim(),
+            status: "partial",
+            checkpointIds: [],
+            blockedCheckpointIds: [],
+            completedCheckpointIds: [],
+            deniedCheckpointIds: [],
+            pendingApprovalIds: [],
+            artifactIds: [],
+            bootstrapRequestIds: [],
+            actionIds: [],
+            attemptedActionIds: [],
+            confirmedActionIds: [],
+            failedActionIds: [],
+            boundaries: [],
+          }),
+        evidence: params.evidence,
+        executionIntent,
+      });
+      return PlatformRuntimeExecutionContractSchema.parse({
+        runId: params.runId.trim(),
+        receipts: this.buildExecutionReceipts({
+          runId: params.runId,
+          outcome,
+          receipts: params.receipts,
+        }),
+        expectations: deriveExecutionContractExpectations({
+          outcome:
+            outcome ??
+            PlatformRuntimeRunOutcomeSchema.parse({
+              runId: params.runId.trim(),
+              status: "partial",
+              checkpointIds: [],
+              blockedCheckpointIds: [],
+              completedCheckpointIds: [],
+              deniedCheckpointIds: [],
+              pendingApprovalIds: [],
+              artifactIds: [],
+              bootstrapRequestIds: [],
+              actionIds: [],
+              attemptedActionIds: [],
+              confirmedActionIds: [],
+              failedActionIds: [],
+              boundaries: [],
+            }),
+          evidence,
+          executionIntent,
+        }),
+      });
+    },
     buildExecutionReceipts(params) {
       const normalizedRunId = params.runId.trim();
       if (!normalizedRunId) {
@@ -1003,6 +1293,72 @@ export function createPlatformRuntimeCheckpointService(params?: {
           }
           return buildExecutionReceiptKey(receipt) !== buildExecutionReceiptKey(all[index - 1]);
         });
+    },
+    buildRunClosure(params) {
+      const outcome =
+        normalizeRunOutcome(params.outcome) ??
+        this.buildRunOutcome(params.runId) ??
+        PlatformRuntimeRunOutcomeSchema.parse({
+          runId: params.runId.trim(),
+          status: "partial",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: [],
+        });
+      const executionIntent = this.buildExecutionIntent({
+        runId: params.runId,
+        executionIntent: params.executionIntent,
+      });
+      const contract = this.buildExecutionContract({
+        runId: params.runId,
+        outcome,
+        receipts: params.receipts,
+        evidence: params.evidence,
+        executionIntent,
+      });
+      const executionVerification = this.verifyExecutionContract({
+        contract,
+        outcome,
+        evidence: params.evidence,
+      });
+      const evidence = this.buildAcceptanceEvidence({
+        outcome,
+        evidence: params.evidence,
+        executionVerification,
+        executionSurface: params.executionSurface,
+        executionIntent,
+      });
+      const acceptanceOutcome = this.evaluateAcceptance({
+        runId: params.runId,
+        outcome,
+        evidence,
+      });
+      const supervisorVerdict = this.evaluateSupervisorVerdict({
+        runId: params.runId,
+        acceptance: acceptanceOutcome,
+        verification: executionVerification,
+        surface: params.executionSurface,
+      });
+      return PlatformRuntimeRunClosureSchema.parse({
+        runId: params.runId.trim(),
+        ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+        updatedAtMs: Date.now(),
+        outcome,
+        executionIntent,
+        ...(params.executionSurface ? { executionSurface: params.executionSurface } : {}),
+        executionVerification,
+        acceptanceOutcome,
+        supervisorVerdict,
+      });
     },
     verifyExecutionContract(params) {
       const contract = PlatformRuntimeExecutionContractSchema.parse(params.contract);
@@ -1036,6 +1392,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const confirmedDeliveryCount =
         evidence.confirmedDeliveryCount ?? evidence.deliveredReplyCount ?? 0;
       const hasOutput = evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
+      const declaredIntent = describeDeclaredIntent(evidence);
       const confirmedActionCount =
         evidence.confirmedActionCount ?? params.outcome?.confirmedActionIds.length ?? 0;
       const hasStandaloneOutcomeEvidence =
@@ -1054,15 +1411,23 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       if (expectations?.requiresMessagingDelivery && confirmedDeliveryCount === 0) {
         reasons.push(
-          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          declaredIntent
+            ? `Execution contract for ${declaredIntent} expected confirmed delivery, but no delivery receipt was verified.`
+            : "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
         );
       }
       if (expectations?.requiresOutput && !hasOutput) {
-        reasons.push("Execution contract expected output, but no output evidence was observed.");
+        reasons.push(
+          declaredIntent
+            ? `Execution contract for ${declaredIntent} expected output, but no output evidence was observed.`
+            : "Execution contract expected output, but no output evidence was observed.",
+        );
       }
       if (expectations?.requiresConfirmedAction && confirmedActionCount === 0) {
         reasons.push(
-          "Execution contract expected a confirmed runtime action, but none was observed.",
+          declaredIntent
+            ? `Execution contract for ${declaredIntent} expected a confirmed runtime action, but none was observed.`
+            : "Execution contract expected a confirmed runtime action, but none was observed.",
         );
       }
       if (expectations?.requireStructuredReceipts && proofCounts.derived === receipts.length) {
@@ -1155,6 +1520,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         outcome: params.outcome,
         evidence: params.evidence,
       });
+      const declaredIntent = describeDeclaredIntent(evidence);
       const reasons: string[] = [];
       if (params.outcome.pendingApprovalIds.length > 0) {
         reasons.push("Run still requires operator approval before the task can finish.");
@@ -1211,7 +1577,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       if (evidence.executionContractMismatch === true) {
         reasons.push(
-          "Run completed, but the verified execution contract does not match the requested outcome.",
+          declaredIntent
+            ? `Run completed, but the verified execution contract for ${declaredIntent} does not match the requested outcome.`
+            : "Run completed, but the verified execution contract does not match the requested outcome.",
         );
         return parseAcceptanceResult({
           runId: params.runId,
@@ -1346,7 +1714,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
         (evidence.verifiedExecutionReceiptCount ?? 0) === 0
       ) {
         reasons.push(
-          "Run completed on a non-messaging execution path, but no verified structured receipt proved the final closure.",
+          declaredIntent
+            ? `Run completed on a non-messaging execution path for ${declaredIntent}, but no verified structured receipt proved the final closure.`
+            : "Run completed on a non-messaging execution path, but no verified structured receipt proved the final closure.",
         );
         return parseAcceptanceResult({
           runId: params.runId,
@@ -1410,7 +1780,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
         });
       }
       if (hasDeliverableEvidence) {
-        reasons.push("Run completed with user-visible or automation-visible output.");
+        reasons.push(
+          declaredIntent
+            ? `Run completed with evidence matching the declared ${declaredIntent}.`
+            : "Run completed with user-visible or automation-visible output.",
+        );
         return parseAcceptanceResult({
           runId: params.runId,
           status: "satisfied",
@@ -1421,7 +1795,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
-      reasons.push("Run completed but no machine-checkable delivery evidence was observed.");
+      reasons.push(
+        declaredIntent
+          ? `Run completed for ${declaredIntent}, but no machine-checkable delivery evidence was observed.`
+          : "Run completed but no machine-checkable delivery evidence was observed.",
+      );
       return parseAcceptanceResult({
         runId: params.runId,
         status: "retryable",
@@ -1564,6 +1942,20 @@ export function createPlatformRuntimeCheckpointService(params?: {
         surface: params.surface,
       });
     },
+    recordRunClosure(closure) {
+      return saveClosure(PlatformRuntimeRunClosureSchema.parse(closure));
+    },
+    getRunClosure(runId) {
+      const normalized = runId.trim();
+      return normalized ? closures.get(normalized) : undefined;
+    },
+    listRunClosures(listParams) {
+      return Array.from(closures.values())
+        .filter((closure) =>
+          listParams?.sessionKey ? closure.sessionKey === listParams.sessionKey : true,
+        )
+        .toSorted((left, right) => right.updatedAtMs - left.updatedAtMs);
+    },
     registerContinuationHandler(kind, handler) {
       continuationHandlers.set(kind, handler);
     },
@@ -1640,11 +2032,23 @@ export function createPlatformRuntimeCheckpointService(params?: {
       } catch {
         actions.clear();
       }
+      try {
+        const closureRaw = fs.readFileSync(resolveRuntimeClosureStorePath(stateDir), "utf8");
+        const parsed = PlatformRuntimeRunClosureStoreSchema.parse(JSON.parse(closureRaw));
+        closures.clear();
+        for (const closure of parsed.closures) {
+          closures.set(closure.runId, closure);
+          loaded += 1;
+        }
+      } catch {
+        closures.clear();
+      }
       return loaded;
     },
     reset() {
       checkpoints.clear();
       actions.clear();
+      closures.clear();
       continuationHandlers.clear();
       if (stateDir) {
         try {
@@ -1654,6 +2058,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
         }
         try {
           fs.rmSync(resolveRuntimeActionStorePath(stateDir), { force: true });
+        } catch {
+          // Ignore reset cleanup failures in tests.
+        }
+        try {
+          fs.rmSync(resolveRuntimeClosureStorePath(stateDir), { force: true });
         } catch {
           // Ignore reset cleanup failures in tests.
         }

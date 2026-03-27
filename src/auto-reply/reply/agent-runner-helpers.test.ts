@@ -30,6 +30,7 @@ let buildAcceptanceFallbackPayload: typeof import("./agent-runner-helpers.js").b
 let enqueueSemanticRetryFollowup: typeof import("./agent-runner-helpers.js").enqueueSemanticRetryFollowup;
 let finalizeWithFollowup: typeof import("./agent-runner-helpers.js").finalizeWithFollowup;
 let isAudioPayload: typeof import("./agent-runner-helpers.js").isAudioPayload;
+let reevaluateAcceptanceForMessagingRun: typeof import("./agent-runner-helpers.js").reevaluateAcceptanceForMessagingRun;
 let signalTypingIfNeeded: typeof import("./agent-runner-helpers.js").signalTypingIfNeeded;
 
 describe("agent runner helpers", () => {
@@ -44,6 +45,7 @@ describe("agent runner helpers", () => {
       enqueueSemanticRetryFollowup,
       finalizeWithFollowup,
       isAudioPayload,
+      reevaluateAcceptanceForMessagingRun,
       signalTypingIfNeeded,
     } = await import("./agent-runner-helpers.js"));
   });
@@ -417,6 +419,88 @@ describe("agent runner helpers", () => {
       expect.objectContaining({
         isError: true,
         text: expect.stringContaining("exhausted the automatic recovery budget"),
+      }),
+    );
+  });
+
+  it("reuses declared execution intent when messaging closure is reevaluated", () => {
+    const acceptance = reevaluateAcceptanceForMessagingRun({
+      runResult: {
+        meta: {
+          completionOutcome: {
+            runId: "run-messaging-intent",
+            status: "completed",
+            checkpointIds: [],
+            blockedCheckpointIds: [],
+            completedCheckpointIds: [],
+            deniedCheckpointIds: [],
+            pendingApprovalIds: [],
+            artifactIds: [],
+            bootstrapRequestIds: [],
+            actionIds: [],
+            attemptedActionIds: [],
+            confirmedActionIds: [],
+            failedActionIds: [],
+            boundaries: [],
+            hadToolError: false,
+            deterministicApprovalPromptSent: false,
+          },
+          executionVerification: {
+            runId: "run-messaging-intent",
+            status: "verified",
+            reasons: [],
+            receipts: [
+              {
+                kind: "messaging_delivery",
+                name: "delivery.telegram",
+                status: "success",
+                proof: "verified",
+              },
+            ],
+            receiptCounts: {
+              success: 1,
+              warning: 0,
+              partial: 0,
+              degraded: 0,
+              failed: 0,
+              blocked: 0,
+            },
+            receiptProofCounts: {
+              derived: 0,
+              reported: 0,
+              verified: 1,
+            },
+            checkedAtMs: 1,
+          },
+          executionIntent: {
+            runId: "run-messaging-intent",
+            recipeId: "code_build_publish",
+            profileId: "developer",
+            intent: "publish",
+            artifactKinds: ["site"],
+            expectations: {
+              requiresOutput: true,
+            },
+          },
+        },
+      },
+      replyPayloads: [{ text: "Preview deployed." }],
+      deliveryReceipt: {
+        attemptedDeliveryCount: 1,
+        confirmedDeliveryCount: 1,
+        failedDeliveryCount: 0,
+      },
+    });
+
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        reasonCode: "completed_with_confirmed_delivery",
+        evidence: expect.objectContaining({
+          declaredRecipeId: "code_build_publish",
+          declaredIntent: "publish",
+          declaredRequiresOutput: true,
+        }),
       }),
     );
   });

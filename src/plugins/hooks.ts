@@ -8,6 +8,7 @@
 import { concatOptionalTextSegments } from "../shared/text/join-segments.js";
 import type { PluginRegistry } from "./registry.js";
 import type {
+  PluginHookAfterRecipeExecuteEvent,
   PluginHookAfterCompactionEvent,
   PluginHookAfterToolCallEvent,
   PluginHookAgentContext,
@@ -16,6 +17,8 @@ import type {
   PluginHookBeforeAgentStartResult,
   PluginHookBeforeModelResolveEvent,
   PluginHookBeforeModelResolveResult,
+  PluginHookBeforeRecipeExecuteEvent,
+  PluginHookBeforeRecipeExecuteResult,
   PluginHookBeforePromptBuildEvent,
   PluginHookBeforePromptBuildResult,
   PluginHookBeforeCompactionEvent,
@@ -62,10 +65,13 @@ export type {
   PluginHookBeforeAgentStartResult,
   PluginHookBeforeModelResolveEvent,
   PluginHookBeforeModelResolveResult,
+  PluginHookBeforeRecipeExecuteEvent,
+  PluginHookBeforeRecipeExecuteResult,
   PluginHookBeforePromptBuildEvent,
   PluginHookBeforePromptBuildResult,
   PluginHookLlmInputEvent,
   PluginHookLlmOutputEvent,
+  PluginHookAfterRecipeExecuteEvent,
   PluginHookAgentEndEvent,
   PluginHookBeforeCompactionEvent,
   PluginHookBeforeResetEvent,
@@ -186,6 +192,14 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
       left: acc?.appendSystemContext,
       right: next.appendSystemContext,
     }),
+  });
+
+  const mergeBeforeRecipeExecute = (
+    acc: PluginHookBeforeRecipeExecuteResult | undefined,
+    next: PluginHookBeforeRecipeExecuteResult,
+  ): PluginHookBeforeRecipeExecuteResult => ({
+    block: acc?.block ?? next.block,
+    blockReason: acc?.blockReason ?? next.blockReason,
   });
 
   const mergeSubagentSpawningResult = (
@@ -455,6 +469,22 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
   }
 
   /**
+   * Run before_recipe_execute hook.
+   * Allows plugins to validate recipe prerequisites before the attempt loop starts.
+   */
+  async function runBeforeRecipeExecute(
+    event: PluginHookBeforeRecipeExecuteEvent,
+    ctx: PluginHookAgentContext,
+  ): Promise<PluginHookBeforeRecipeExecuteResult | undefined> {
+    return runModifyingHook<"before_recipe_execute", PluginHookBeforeRecipeExecuteResult>(
+      "before_recipe_execute",
+      event,
+      ctx,
+      mergeBeforeRecipeExecute,
+    );
+  }
+
+  /**
    * Run before_agent_start hook.
    * Legacy compatibility hook that combines model resolve + prompt build phases.
    */
@@ -501,6 +531,17 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
    */
   async function runLlmOutput(event: PluginHookLlmOutputEvent, ctx: PluginHookAgentContext) {
     return runVoidHook("llm_output", event, ctx);
+  }
+
+  /**
+   * Run after_recipe_execute hook.
+   * Allows plugins to inspect the final structured closure after recipe execution.
+   */
+  async function runAfterRecipeExecute(
+    event: PluginHookAfterRecipeExecuteEvent,
+    ctx: PluginHookAgentContext,
+  ) {
+    return runVoidHook("after_recipe_execute", event, ctx);
   }
 
   /**
@@ -922,9 +963,11 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     // Agent hooks
     runBeforeModelResolve,
     runBeforePromptBuild,
+    runBeforeRecipeExecute,
     runBeforeAgentStart,
     runLlmInput,
     runLlmOutput,
+    runAfterRecipeExecute,
     runAgentEnd,
     runBeforeCompaction,
     runAfterCompaction,

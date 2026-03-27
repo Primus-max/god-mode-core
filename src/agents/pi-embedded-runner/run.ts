@@ -10,6 +10,7 @@ import { generateSecureToken } from "../../infra/secure-random.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import {
   getPlatformRuntimeCheckpointService,
+  type PlatformRuntimeExecutionIntent,
   PlatformRuntimeRunOutcomeSchema,
   type PlatformRuntimeExecutionReceipt,
   type PlatformRuntimeExecutionSurface,
@@ -298,8 +299,54 @@ function buildExecutionSurfaceFromRuntimePlan(
   };
 }
 
+function buildExecutionIntentFromRuntimePlan(params: {
+  runId?: string;
+  platformExecutionContext?: RunEmbeddedPiAgentParams["platformExecutionContext"];
+}): PlatformRuntimeExecutionIntent | undefined {
+  const runId = params.runId?.trim();
+  if (!runId) {
+    return undefined;
+  }
+  const runtimeService = getPlatformRuntimeCheckpointService();
+  const runtimePlan = params.platformExecutionContext;
+  if (!runtimePlan) {
+    return runtimeService.buildExecutionIntent({ runId });
+  }
+  const declaredRequiresOutput =
+    runtimePlan.intent !== "general" ||
+    (runtimePlan.publishTargets?.length ?? 0) > 0 ||
+    (runtimePlan.artifactKinds?.length ?? 0) > 0;
+  return runtimeService.buildExecutionIntent({
+    runId,
+    executionIntent: {
+      profileId: runtimePlan.selectedProfileId,
+      recipeId: runtimePlan.selectedRecipeId,
+      ...(runtimePlan.taskOverlayId ? { taskOverlayId: runtimePlan.taskOverlayId } : {}),
+      ...(runtimePlan.plannerReasoning ? { plannerReasoning: runtimePlan.plannerReasoning } : {}),
+      ...(runtimePlan.intent ? { intent: runtimePlan.intent } : {}),
+      ...(runtimePlan.publishTargets?.length ? { publishTargets: runtimePlan.publishTargets } : {}),
+      ...(runtimePlan.artifactKinds?.length ? { artifactKinds: runtimePlan.artifactKinds } : {}),
+      ...(runtimePlan.requestedToolNames?.length
+        ? { requestedToolNames: runtimePlan.requestedToolNames }
+        : {}),
+      ...(runtimePlan.requiredCapabilities?.length
+        ? { requiredCapabilities: runtimePlan.requiredCapabilities }
+        : {}),
+      ...(runtimePlan.bootstrapRequiredCapabilities?.length
+        ? { bootstrapRequiredCapabilities: runtimePlan.bootstrapRequiredCapabilities }
+        : {}),
+      ...(runtimePlan.requireExplicitApproval !== undefined
+        ? { requireExplicitApproval: runtimePlan.requireExplicitApproval }
+        : {}),
+      ...(runtimePlan.policyAutonomy ? { policyAutonomy: runtimePlan.policyAutonomy } : {}),
+      expectations: declaredRequiresOutput ? { requiresOutput: true } : {},
+    },
+  });
+}
+
 function buildCompletionArtifacts(params: {
   runId?: string;
+  sessionKey?: string;
   hadToolError?: boolean;
   deterministicApprovalPromptSent?: boolean;
   didSendViaMessagingTool?: boolean;
@@ -308,6 +355,7 @@ function buildCompletionArtifacts(params: {
   fallbackStatus?: "completed" | "failed";
   executionReceipts?: PlatformRuntimeExecutionReceipt[];
   executionSurface?: PlatformRuntimeExecutionSurface;
+  executionIntent?: PlatformRuntimeExecutionIntent;
   modelFallback?: EmbeddedPiRunMeta["modelFallback"];
 }) {
   const normalizedRunId = params.runId?.trim();
@@ -375,68 +423,24 @@ function buildCompletionArtifacts(params: {
         }
       : {}),
   };
-  const requiresStructuredReceipts =
-    outcome.actionIds.length > 0 ||
-    outcome.artifactIds.length > 0 ||
-    outcome.bootstrapRequestIds.length > 0;
-  const executionReceipts: PlatformRuntimeExecutionReceipt[] =
-    runtimeService.buildExecutionReceipts({
-      runId: normalizedRunId,
-      outcome,
-      receipts: params.executionReceipts,
-    });
-  const executionVerification = runtimeService.verifyExecutionContract({
-    contract: {
-      runId: normalizedRunId,
-      receipts: executionReceipts,
-      expectations: {
-        requiresOutput: params.hasOutput === true,
-        requiresMessagingDelivery: params.didSendViaMessagingTool === true,
-        requiresConfirmedAction: outcome.actionIds.length > 0,
-        requireStructuredReceipts: requiresStructuredReceipts,
-        minimumVerifiedReceiptCount: requiresStructuredReceipts ? 1 : 0,
-        requiredReceiptKinds: Array.from(
-          new Set([
-            ...(params.didSendViaMessagingTool === true ? (["messaging_delivery"] as const) : []),
-            ...(outcome.bootstrapRequestIds.length > 0 ? (["capability"] as const) : []),
-            ...(outcome.actionIds.length > 0 &&
-            outcome.bootstrapRequestIds.length === 0 &&
-            params.didSendViaMessagingTool !== true
-              ? (["platform_action"] as const)
-              : []),
-          ]),
-        ),
-        allowStandaloneEvidence:
-          params.didSendViaMessagingTool !== true && !requiresStructuredReceipts,
-        allowWarnings: true,
-      },
-    },
+  const runClosure = runtimeService.buildRunClosure({
+    runId: normalizedRunId,
+    sessionKey: params.sessionKey,
     outcome,
+    receipts: params.executionReceipts,
     evidence: baseEvidence,
-  });
-  const evidence = runtimeService.buildAcceptanceEvidence({
-    outcome,
-    evidence: baseEvidence,
-    executionVerification,
     executionSurface: params.executionSurface,
+    executionIntent: params.executionIntent,
   });
-  const acceptanceOutcome = runtimeService.evaluateAcceptance({
-    runId: normalizedRunId,
-    outcome,
-    evidence,
-  });
-  const supervisorVerdict = runtimeService.evaluateSupervisorVerdict({
-    runId: normalizedRunId,
-    acceptance: acceptanceOutcome,
-    verification: executionVerification,
-    surface: params.executionSurface,
-  });
+  runtimeService.recordRunClosure(runClosure);
   return {
     completionOutcome,
+    ...(runClosure.executionIntent ? { executionIntent: runClosure.executionIntent } : {}),
     ...(params.executionSurface ? { executionSurface: params.executionSurface } : {}),
-    acceptanceOutcome,
-    executionVerification,
-    supervisorVerdict,
+    acceptanceOutcome: runClosure.acceptanceOutcome,
+    executionVerification: runClosure.executionVerification,
+    supervisorVerdict: runClosure.supervisorVerdict,
+    runClosure,
     ...(params.modelFallback ? { modelFallback: params.modelFallback } : {}),
   };
 }
@@ -495,6 +499,10 @@ export async function runEmbeddedPiAgent(
       const executionSurface = buildExecutionSurfaceFromRuntimePlan(
         params.platformExecutionContext,
       );
+      const executionIntent = buildExecutionIntentFromRuntimePlan({
+        runId: params.runId,
+        platformExecutionContext: params.platformExecutionContext,
+      });
       await ensureOpenClawModelsJson(params.config, agentDir);
 
       // Run before_model_resolve hooks early so plugins can override the
@@ -521,6 +529,51 @@ export async function runEmbeddedPiAgent(
             }
           : {}),
       };
+      const finalizeRecipeResult = async (
+        result: EmbeddedPiRunResult,
+      ): Promise<EmbeddedPiRunResult> => {
+        const runClosure = result.meta.runClosure;
+        if (hookRunner?.hasHooks("after_recipe_execute") && runClosure) {
+          try {
+            await hookRunner.runAfterRecipeExecute({ closure: runClosure }, hookCtx);
+          } catch (hookErr) {
+            log.warn(`after_recipe_execute hook failed: ${String(hookErr)}`);
+          }
+        }
+        return result;
+      };
+      if (hookRunner?.hasHooks("before_recipe_execute") && executionIntent) {
+        try {
+          const recipeGate = await hookRunner.runBeforeRecipeExecute(
+            {
+              runId: executionIntent.runId,
+              prompt: params.prompt,
+              executionIntent,
+            },
+            hookCtx,
+          );
+          if (recipeGate?.block) {
+            const message =
+              recipeGate.blockReason?.trim() || "Recipe execution was blocked by a runtime hook.";
+            return finalizeRecipeResult({
+              payloads: [{ text: message, isError: true }],
+              meta: {
+                durationMs: Date.now() - started,
+                error: { kind: "retry_limit", message },
+                ...buildCompletionArtifacts({
+                  runId: params.runId,
+                  sessionKey: params.sessionKey,
+                  fallbackStatus: "failed",
+                  executionSurface,
+                  executionIntent,
+                }),
+              },
+            });
+          }
+        } catch (hookErr) {
+          log.warn(`before_recipe_execute hook failed: ${String(hookErr)}`);
+        }
+      }
       if (hookRunner?.hasHooks("before_model_resolve")) {
         try {
           modelResolveOverride = await hookRunner.runBeforeModelResolve(
@@ -1078,7 +1131,7 @@ export async function runEmbeddedPiAgent(
                 `provider=${provider}/${modelId} attempts=${runLoopIterations} ` +
                 `maxAttempts=${MAX_RUN_LOOP_ITERATIONS}`,
             );
-            return {
+            return finalizeRecipeResult({
               payloads: [
                 {
                   text:
@@ -1100,11 +1153,13 @@ export async function runEmbeddedPiAgent(
                 error: { kind: "retry_limit", message },
                 ...buildCompletionArtifacts({
                   runId: params.runId,
+                  sessionKey: params.sessionKey,
                   fallbackStatus: "failed",
                   executionSurface,
+                  executionIntent,
                 }),
               },
-            };
+            });
           }
           runLoopIterations += 1;
           const runtimeAuthRetry = authRetryPending;
@@ -1475,7 +1530,7 @@ export async function runEmbeddedPiAgent(
               );
             }
             const kind = isCompactionFailure ? "compaction_failure" : "context_overflow";
-            return {
+            return finalizeRecipeResult({
               payloads: [
                 {
                   text:
@@ -1499,14 +1554,16 @@ export async function runEmbeddedPiAgent(
                 error: { kind, message: errorText },
                 ...buildCompletionArtifacts({
                   runId: params.runId,
+                  sessionKey: params.sessionKey,
                   hadToolError: Boolean(attempt.lastToolError),
                   deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                   executionReceipts: attempt.executionReceipts,
                   fallbackStatus: "failed",
                   executionSurface,
+                  executionIntent,
                 }),
               },
-            };
+            });
           }
 
           if (promptError && !aborted) {
@@ -1527,7 +1584,7 @@ export async function runEmbeddedPiAgent(
             }
             // Handle role ordering errors with a user-friendly message
             if (/incorrect role information|roles must alternate/i.test(errorText)) {
-              return {
+              return finalizeRecipeResult({
                 payloads: [
                   {
                     text:
@@ -1551,14 +1608,16 @@ export async function runEmbeddedPiAgent(
                   error: { kind: "role_ordering", message: errorText },
                   ...buildCompletionArtifacts({
                     runId: params.runId,
+                    sessionKey: params.sessionKey,
                     hadToolError: Boolean(attempt.lastToolError),
                     deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                     executionReceipts: attempt.executionReceipts,
                     fallbackStatus: "failed",
                     executionSurface,
+                    executionIntent,
                   }),
                 },
-              };
+              });
             }
             // Handle image size errors with a user-friendly message (no retry needed)
             const imageSizeError = parseImageSizeError(errorText);
@@ -1567,7 +1626,7 @@ export async function runEmbeddedPiAgent(
               const maxMbLabel =
                 typeof maxMb === "number" && Number.isFinite(maxMb) ? `${maxMb}` : null;
               const maxBytesHint = maxMbLabel ? ` (max ${maxMbLabel}MB)` : "";
-              return {
+              return finalizeRecipeResult({
                 payloads: [
                   {
                     text:
@@ -1591,14 +1650,16 @@ export async function runEmbeddedPiAgent(
                   error: { kind: "image_size", message: errorText },
                   ...buildCompletionArtifacts({
                     runId: params.runId,
+                    sessionKey: params.sessionKey,
                     hadToolError: Boolean(attempt.lastToolError),
                     deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                     executionReceipts: attempt.executionReceipts,
                     fallbackStatus: "failed",
                     executionSurface,
+                    executionIntent,
                   }),
                 },
-              };
+              });
             }
             const promptFailoverReason =
               promptErrorDetails.reason ?? classifyFailoverReason(errorText);
@@ -1849,7 +1910,7 @@ export async function runEmbeddedPiAgent(
           // Emit an explicit timeout error instead of silently completing, so
           // callers do not lose the turn as an orphaned user message.
           if (timedOut && !timedOutDuringCompaction && payloads.length === 0) {
-            return {
+            return finalizeRecipeResult({
               payloads: [
                 {
                   text:
@@ -1865,6 +1926,7 @@ export async function runEmbeddedPiAgent(
                 systemPromptReport: attempt.systemPromptReport,
                 ...buildCompletionArtifacts({
                   runId: params.runId,
+                  sessionKey: params.sessionKey,
                   hadToolError: Boolean(attempt.lastToolError),
                   deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                   hasOutput: false,
@@ -1873,6 +1935,7 @@ export async function runEmbeddedPiAgent(
                   executionReceipts: attempt.executionReceipts,
                   fallbackStatus: "failed",
                   executionSurface,
+                  executionIntent,
                 }),
               },
               didSendViaMessagingTool: attempt.didSendViaMessagingTool,
@@ -1881,7 +1944,7 @@ export async function runEmbeddedPiAgent(
               messagingToolSentMediaUrls: attempt.messagingToolSentMediaUrls,
               messagingToolSentTargets: attempt.messagingToolSentTargets,
               successfulCronAdds: attempt.successfulCronAdds,
-            };
+            });
           }
 
           log.debug(
@@ -1900,7 +1963,7 @@ export async function runEmbeddedPiAgent(
               agentDir: params.agentDir,
             });
           }
-          return {
+          return finalizeRecipeResult({
             payloads: payloads.length ? payloads : undefined,
             meta: {
               durationMs: Date.now() - started,
@@ -1926,6 +1989,7 @@ export async function runEmbeddedPiAgent(
                 : undefined,
               ...buildCompletionArtifacts({
                 runId: params.runId,
+                sessionKey: params.sessionKey,
                 hadToolError: Boolean(attempt.lastToolError),
                 deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                 hasOutput: payloads.some((payload) => Boolean(payload.text?.trim())),
@@ -1934,6 +1998,7 @@ export async function runEmbeddedPiAgent(
                 executionReceipts: attempt.executionReceipts,
                 fallbackStatus: aborted ? "failed" : "completed",
                 executionSurface,
+                executionIntent,
               }),
             },
             didSendViaMessagingTool: attempt.didSendViaMessagingTool,
@@ -1942,7 +2007,7 @@ export async function runEmbeddedPiAgent(
             messagingToolSentMediaUrls: attempt.messagingToolSentMediaUrls,
             messagingToolSentTargets: attempt.messagingToolSentTargets,
             successfulCronAdds: attempt.successfulCronAdds,
-          };
+          });
         }
       } finally {
         await contextEngine.dispose?.();

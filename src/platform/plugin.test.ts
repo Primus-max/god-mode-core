@@ -170,6 +170,8 @@ describe("platform profile plugin", () => {
       "platform.bootstrap.run",
       "platform.runtime.checkpoints.list",
       "platform.runtime.checkpoints.get",
+      "platform.runtime.closures.list",
+      "platform.runtime.closures.get",
       "platform.machine.status",
       "platform.machine.link",
       "platform.machine.unlink",

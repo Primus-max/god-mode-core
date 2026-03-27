@@ -3,18 +3,24 @@ import { createHookRunner } from "./hooks.js";
 import { createEmptyPluginRegistry, type PluginRegistry } from "./registry.js";
 import type {
   PluginHookBeforeModelResolveResult,
+  PluginHookBeforeRecipeExecuteResult,
   PluginHookBeforePromptBuildResult,
   PluginHookRegistration,
 } from "./types.js";
 
 function addTypedHook(
   registry: PluginRegistry,
-  hookName: "before_model_resolve" | "before_prompt_build",
+  hookName: "before_model_resolve" | "before_prompt_build" | "before_recipe_execute",
   pluginId: string,
   handler: () =>
     | PluginHookBeforeModelResolveResult
+    | PluginHookBeforeRecipeExecuteResult
     | PluginHookBeforePromptBuildResult
-    | Promise<PluginHookBeforeModelResolveResult | PluginHookBeforePromptBuildResult>,
+    | Promise<
+        | PluginHookBeforeModelResolveResult
+        | PluginHookBeforeRecipeExecuteResult
+        | PluginHookBeforePromptBuildResult
+      >,
   priority?: number,
 ) {
   registry.typedHooks.push({
@@ -100,5 +106,41 @@ describe("phase hooks merger", () => {
 
     expect(result?.prependSystemContext).toBe("prepend A\n\nprepend B");
     expect(result?.appendSystemContext).toBe("append A\n\nappend B");
+  });
+
+  it("before_recipe_execute keeps the highest-priority block decision", async () => {
+    addTypedHook(
+      registry,
+      "before_recipe_execute",
+      "high",
+      () => ({ block: true, blockReason: "missing operator approval" }),
+      10,
+    );
+    addTypedHook(
+      registry,
+      "before_recipe_execute",
+      "low",
+      () => ({ block: false, blockReason: "ignored lower-priority reason" }),
+      1,
+    );
+
+    const runner = createHookRunner(registry);
+    const result = await runner.runBeforeRecipeExecute(
+      {
+        runId: "run-1",
+        prompt: "deploy this release",
+        executionIntent: {
+          runId: "run-1",
+          recipeId: "code_build_publish",
+          expectations: {},
+        },
+      },
+      {},
+    );
+
+    expect(result).toEqual({
+      block: true,
+      blockReason: "missing operator approval",
+    });
   });
 });

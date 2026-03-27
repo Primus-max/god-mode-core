@@ -1,9 +1,11 @@
 import type { SessionSystemPromptReport } from "../../config/sessions/types.js";
 import type {
   PlatformRuntimeAcceptanceResult,
+  PlatformRuntimeExecutionIntent,
   PlatformRuntimeExecutionSurface,
   PlatformRuntimeExecutionVerification,
   PlatformRuntimeRunOutcome,
+  PlatformRuntimeRunClosure,
   PlatformRuntimeSupervisorVerdict,
 } from "../../platform/runtime/index.js";
 import type { ModelFallbackSummary } from "../model-fallback.types.js";
@@ -64,10 +66,12 @@ export type EmbeddedPiRunMeta = {
     hadToolError?: boolean;
     deterministicApprovalPromptSent?: boolean;
   };
+  executionIntent?: PlatformRuntimeExecutionIntent;
   executionSurface?: PlatformRuntimeExecutionSurface;
   executionVerification?: PlatformRuntimeExecutionVerification;
   acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
   supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
+  runClosure?: PlatformRuntimeRunClosure;
   modelFallback?: ModelFallbackSummary;
 };
 
@@ -83,6 +87,7 @@ export type EmbeddedPiRunResult = {
   // True if a messaging tool (telegram, whatsapp, discord, slack, sessions_send)
   // successfully sent a message. Used to suppress agent's confirmation text.
   didSendViaMessagingTool?: boolean;
+  didSendDeterministicApprovalPrompt?: boolean;
   // Texts successfully sent via messaging tools during the run.
   messagingToolSentTexts?: string[];
   // Media URLs successfully sent via messaging tools during the run.

@@ -33,3 +33,32 @@ export function createRuntimeCheckpointGetGatewayMethod(
     respond(true, { checkpoint });
   };
 }
+
+export function createRuntimeClosureListGatewayMethod(
+  service: PlatformRuntimeCheckpointService,
+): GatewayRequestHandler {
+  return ({ params, respond }) => {
+    const sessionKey = typeof params.sessionKey === "string" ? params.sessionKey.trim() : undefined;
+    respond(true, {
+      closures: service.listRunClosures(sessionKey ? { sessionKey } : undefined),
+    });
+  };
+}
+
+export function createRuntimeClosureGetGatewayMethod(
+  service: PlatformRuntimeCheckpointService,
+): GatewayRequestHandler {
+  return ({ params, respond }) => {
+    const runId = typeof params.runId === "string" ? params.runId.trim() : "";
+    if (!runId) {
+      respond(false, { error: "runId required" });
+      return;
+    }
+    const closure = service.getRunClosure(runId);
+    if (!closure) {
+      respond(false, { error: "run closure not found" });
+      return;
+    }
+    respond(true, { closure });
+  };
+}

@@ -496,6 +496,26 @@ export const PlatformRuntimeRecoveryPolicySchema = z
   .strict();
 export type PlatformRuntimeRecoveryPolicy = z.infer<typeof PlatformRuntimeRecoveryPolicySchema>;
 
+export const PlatformRuntimeExecutionIntentSchema = z
+  .object({
+    runId: z.string().min(1),
+    profileId: z.string().min(1).optional(),
+    recipeId: z.string().min(1).optional(),
+    taskOverlayId: z.string().min(1).optional(),
+    plannerReasoning: z.string().min(1).optional(),
+    intent: z.enum(["general", "document", "code", "publish"]).optional(),
+    publishTargets: z.array(z.string().min(1)).optional(),
+    artifactKinds: z.array(z.string().min(1)).optional(),
+    requestedToolNames: z.array(z.string().min(1)).optional(),
+    requiredCapabilities: z.array(z.string().min(1)).optional(),
+    bootstrapRequiredCapabilities: z.array(z.string().min(1)).optional(),
+    requireExplicitApproval: z.boolean().optional(),
+    policyAutonomy: z.enum(["chat", "assist", "guarded"]).optional(),
+    expectations: PlatformRuntimeExecutionContractExpectationSchema,
+  })
+  .strict();
+export type PlatformRuntimeExecutionIntent = z.infer<typeof PlatformRuntimeExecutionIntentSchema>;
+
 export const PlatformRuntimeAcceptanceReasonCodeSchema = z.enum([
   "completed_with_output",
   "completed_with_artifacts",
@@ -558,6 +578,13 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     providerRateLimited: z.boolean().optional(),
     providerModelNotFound: z.boolean().optional(),
     successfulCronAdds: z.number().int().nonnegative().optional(),
+    declaredProfileId: z.string().min(1).optional(),
+    declaredRecipeId: z.string().min(1).optional(),
+    declaredIntent: z.enum(["general", "document", "code", "publish"]).optional(),
+    declaredArtifactKinds: z.array(z.string().min(1)).optional(),
+    declaredRequiresOutput: z.boolean().optional(),
+    declaredRequiresMessagingDelivery: z.boolean().optional(),
+    declaredRequiresConfirmedAction: z.boolean().optional(),
     recoveryAttemptCount: z.number().int().nonnegative().optional(),
     recoveryMaxAttempts: z.number().int().nonnegative().optional(),
     recoveryBudgetRemaining: z.number().int().nonnegative().optional(),
@@ -618,3 +645,26 @@ export const PlatformRuntimeSupervisorVerdictSchema = z
 export type PlatformRuntimeSupervisorVerdict = z.infer<
   typeof PlatformRuntimeSupervisorVerdictSchema
 >;
+
+export const PlatformRuntimeRunClosureSchema = z
+  .object({
+    runId: z.string().min(1),
+    sessionKey: z.string().min(1).optional(),
+    updatedAtMs: z.number().int().nonnegative(),
+    outcome: PlatformRuntimeRunOutcomeSchema,
+    executionIntent: PlatformRuntimeExecutionIntentSchema,
+    executionSurface: PlatformRuntimeExecutionSurfaceSchema.optional(),
+    executionVerification: PlatformRuntimeExecutionVerificationSchema,
+    acceptanceOutcome: PlatformRuntimeAcceptanceResultSchema,
+    supervisorVerdict: PlatformRuntimeSupervisorVerdictSchema,
+  })
+  .strict();
+export type PlatformRuntimeRunClosure = z.infer<typeof PlatformRuntimeRunClosureSchema>;
+
+export const PlatformRuntimeRunClosureStoreSchema = z
+  .object({
+    version: z.literal(1),
+    closures: z.array(PlatformRuntimeRunClosureSchema),
+  })
+  .strict();
+export type PlatformRuntimeRunClosureStore = z.infer<typeof PlatformRuntimeRunClosureStoreSchema>;
