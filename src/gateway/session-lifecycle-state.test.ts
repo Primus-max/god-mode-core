@@ -31,6 +31,7 @@ describe("session lifecycle state", () => {
       endedAt: undefined,
       runtimeMs: undefined,
       abortedLastRun: false,
+      runClosureSummary: undefined,
     });
   });
 
@@ -58,6 +59,7 @@ describe("session lifecycle state", () => {
       endedAt: 1_900,
       runtimeMs: 700,
       abortedLastRun: false,
+      runClosureSummary: undefined,
     });
   });
 
@@ -83,6 +85,7 @@ describe("session lifecycle state", () => {
       endedAt: undefined,
       runtimeMs: undefined,
       abortedLastRun: false,
+      runClosureSummary: undefined,
     });
   });
 
@@ -108,6 +111,7 @@ describe("session lifecycle state", () => {
       endedAt: undefined,
       runtimeMs: undefined,
       abortedLastRun: false,
+      runClosureSummary: undefined,
     });
   });
 
@@ -134,6 +138,7 @@ describe("session lifecycle state", () => {
       endedAt: 1_800,
       runtimeMs: 700,
       abortedLastRun: true,
+      runClosureSummary: undefined,
     });
   });
 
@@ -160,6 +165,7 @@ describe("session lifecycle state", () => {
       endedAt: 1_550,
       runtimeMs: 500,
       abortedLastRun: false,
+      runClosureSummary: undefined,
     });
   });
 
@@ -208,6 +214,95 @@ describe("session lifecycle state", () => {
         declaredIntent: "document",
         declaredRecipeId: "recipe.doc",
       }),
+    });
+  });
+
+  it("persists runtime closure summaries on the session patch", () => {
+    expect(
+      derivePersistedSessionLifecyclePatch({
+        entry: {
+          updatedAt: 1_700,
+          status: "done",
+          startedAt: 1_200,
+          endedAt: 1_700,
+          runtimeMs: 500,
+          abortedLastRun: false,
+        },
+        event: {
+          stream: "runtime",
+          ts: 2_000,
+          data: {
+            phase: "closure",
+            summary: {
+              runId: "run-close",
+              sessionKey: "session-1",
+              updatedAtMs: 1_950,
+              outcomeStatus: "completed",
+              verificationStatus: "verified",
+              acceptanceStatus: "satisfied",
+              action: "close",
+              remediation: "none",
+              reasonCode: "verified_execution",
+              reasons: ["Execution contract was verified before final closure."],
+              declaredIntent: "publish",
+            },
+          },
+        },
+      }),
+    ).toEqual({
+      updatedAt: 1_950,
+      status: "done",
+      startedAt: 1_200,
+      endedAt: 1_700,
+      runtimeMs: 500,
+      abortedLastRun: false,
+      runClosureSummary: expect.objectContaining({
+        action: "close",
+        reasonCode: "verified_execution",
+        declaredIntent: "publish",
+      }),
+    });
+  });
+
+  it("clears stale runtime closure summaries when a new lifecycle starts", () => {
+    expect(
+      deriveGatewaySessionLifecycleSnapshot({
+        session: {
+          updatedAt: 1_900,
+          status: "done",
+          startedAt: 1_200,
+          endedAt: 1_800,
+          runtimeMs: 600,
+          abortedLastRun: false,
+          runClosureSummary: {
+            runId: "run-old",
+            sessionKey: "session-1",
+            updatedAtMs: 1_850,
+            outcomeStatus: "completed",
+            verificationStatus: "verified",
+            acceptanceStatus: "satisfied",
+            action: "close",
+            remediation: "none",
+            reasonCode: "verified_execution",
+            reasons: ["done"],
+          },
+        },
+        event: {
+          ts: 2_100,
+          data: {
+            phase: "start",
+            startedAt: 2_000,
+          },
+        },
+      }),
+    ).toEqual({
+      updatedAt: 2_000,
+      status: "running",
+      startedAt: 2_000,
+      endedAt: undefined,
+      runtimeMs: undefined,
+      abortedLastRun: false,
+      runClosureSummary: undefined,
     });
   });
 });
