@@ -52,6 +52,7 @@ import {
 } from "../shared/avatar-policy.js";
 import { normalizeSessionDeliveryFields } from "../utils/delivery-context.js";
 import { estimateUsageCost, resolveModelCostConfig } from "../utils/usage-format.js";
+import { deriveRecoveryOperatorHint } from "../platform/runtime/recovery-operator-hint.js";
 import { resolveSessionRunStatusFromClosureSummary } from "./session-closure-summary.js";
 import {
   readLatestSessionUsageFromTranscript,
@@ -1239,6 +1240,7 @@ export function buildGatewaySessionRow(params: {
     recoveryBlockedReason: recoveryCheckpoint?.blockedReason,
     recoveryUpdatedAt: recoveryCheckpoint?.updatedAtMs,
     recoveryAttempts: recoveryCheckpoint?.continuation?.attempts,
+    recoveryOperatorHint: deriveRecoveryOperatorHint(recoveryCheckpoint),
   };
 }
 

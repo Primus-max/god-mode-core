@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
+import {
+  emitAgentEvent,
+  emitRuntimeRecoveryTelemetry,
+  registerAgentRunContext,
+} from "../../infra/agent-events.js";
 import { DEFAULT_EXEC_APPROVAL_TIMEOUT_MS } from "../../infra/exec-approvals.js";
 import {
   TRUSTED_CAPABILITY_CATALOG,
@@ -247,8 +251,19 @@ async function dispatchClosureRecoveryContinuation(
     defaultModel: payload.sourceRun.run.model,
   });
   scheduleFollowupDrain(payload.queueKey, runFollowup);
-  if (!queued) {
-    return;
+  if (queued) {
+    const cp = getPlatformRuntimeCheckpointService().get(checkpointId);
+    if (cp?.runId) {
+      emitRuntimeRecoveryTelemetry({
+        runId: cp.runId,
+        ...(cp.sessionKey ? { sessionKey: cp.sessionKey } : {}),
+        milestone: "followup_enqueued",
+        checkpointId,
+        continuationKind: "closure_recovery",
+        ...(cp.target?.approvalId ? { approvalId: cp.target.approvalId } : {}),
+        queueKey: payload.queueKey,
+      });
+    }
   }
 }
 
@@ -292,6 +307,17 @@ export function markClosureRecoveryCheckpointFailed(params: {
       lastCompletedAtMs: now,
     },
   });
+  emitRuntimeRecoveryTelemetry({
+    runId: checkpoint.runId,
+    ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),
+    milestone: "recovery_checkpoint_terminal",
+    checkpointId,
+    continuationKind: "closure_recovery",
+    terminalStatus: "cancelled",
+    continuationState: "failed",
+    error: params.error,
+    ...(checkpoint.target?.approvalId ? { approvalId: checkpoint.target.approvalId } : {}),
+  });
 }
 
 export function finalizeClosureRecoveryCheckpoint(params: {
@@ -319,6 +345,16 @@ export function finalizeClosureRecoveryCheckpoint(params: {
         lastError: undefined,
       },
     });
+    emitRuntimeRecoveryTelemetry({
+      runId: checkpoint.runId,
+      ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),
+      milestone: "recovery_checkpoint_resumed",
+      checkpointId,
+      continuationKind: "closure_recovery",
+      terminalStatus: "resumed",
+      continuationState: "idle",
+      ...(checkpoint.target?.approvalId ? { approvalId: checkpoint.target.approvalId } : {}),
+    });
     return;
   }
 
@@ -335,21 +371,43 @@ export function finalizeClosureRecoveryCheckpoint(params: {
         lastCompletedAtMs: now,
       },
     });
+    emitRuntimeRecoveryTelemetry({
+      runId: checkpoint.runId,
+      ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),
+      milestone: "recovery_checkpoint_terminal",
+      checkpointId,
+      continuationKind: "closure_recovery",
+      terminalStatus: "completed",
+      continuationState: "completed",
+      ...(checkpoint.target?.approvalId ? { approvalId: checkpoint.target.approvalId } : {}),
+    });
     return;
   }
 
+  const failMessage = resolveClosureRecoveryTerminalMessage(
+    decision,
+    "closure recovery finished without a terminal outcome",
+  );
   runtimeCheckpointService.updateCheckpoint(checkpointId, {
     status: "cancelled",
     completedAtMs: now,
     continuation: {
       ...(checkpoint.continuation ?? { kind: "closure_recovery" }),
       state: "failed",
-      lastError: resolveClosureRecoveryTerminalMessage(
-        decision,
-        "closure recovery finished without a terminal outcome",
-      ),
+      lastError: failMessage,
       lastCompletedAtMs: now,
     },
+  });
+  emitRuntimeRecoveryTelemetry({
+    runId: checkpoint.runId,
+    ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),
+    milestone: "recovery_checkpoint_terminal",
+    checkpointId,
+    continuationKind: "closure_recovery",
+    terminalStatus: "cancelled",
+    continuationState: "failed",
+    error: failMessage,
+    ...(checkpoint.target?.approvalId ? { approvalId: checkpoint.target.approvalId } : {}),
   });
 }
 

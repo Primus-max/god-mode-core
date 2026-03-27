@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { emitAgentEvent } from "../../infra/agent-events.js";
+import {
+  emitAgentEvent,
+  emitRunClosureSummary,
+  registerAgentRunContext,
+  resetAgentRunContextForTest,
+} from "../../infra/agent-events.js";
 import { formatZonedTimestamp } from "../../infra/format-time/format-datetime.js";
 import {
   buildSystemRunApprovalBinding,
@@ -137,6 +142,43 @@ describe("waitForAgentJob", () => {
     expect(fresh?.status).toBe("ok");
     expect(fresh?.startedAt).toBe(200);
     expect(fresh?.endedAt).toBe(210);
+  });
+
+  it("resolves waitForAgentJob from runtime closure when awaitingRunClosure defers lifecycle end", async () => {
+    resetAgentRunContextForTest();
+    const runId = `run-await-closure-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    registerAgentRunContext(runId, { awaitingRunClosure: true });
+    const waitPromise = waitForAgentJob({ runId, timeoutMs: 2_000 });
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: { phase: "start", startedAt: 100 },
+    });
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: { phase: "end", endedAt: 200 },
+    });
+    const early = await Promise.race([
+      waitPromise.then((s) => ({ kind: "done" as const, s })),
+      new Promise<{ kind: "pending" }>((resolve) => setTimeout(() => resolve({ kind: "pending" }), 40)),
+    ]);
+    expect(early.kind).toBe("pending");
+    emitRunClosureSummary({
+      runId,
+      updatedAtMs: 2_000,
+      outcomeStatus: "completed",
+      verificationStatus: "verified",
+      acceptanceStatus: "satisfied",
+      action: "close",
+      remediation: "none",
+      reasonCode: "verified_execution",
+      reasons: ["Execution contract was verified before final closure."],
+    });
+    const snapshot = await waitPromise;
+    expect(snapshot?.status).toBe("ok");
+    expect(snapshot?.startedAt).toBe(100);
+    expect(snapshot?.endedAt).toBe(2_000);
   });
 });
 

@@ -3,6 +3,7 @@ import {
   PlatformRuntimeRunClosureSummarySchema,
   type PlatformRuntimeRunClosureSummary,
 } from "../platform/runtime/contracts.js";
+import type { PlatformRuntimeContinuationKind } from "../platform/runtime/contracts.js";
 import type { PluginHookPlatformExecutionContext } from "../plugins/types.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { notifyListeners, registerListener } from "../shared/listeners.js";
@@ -123,6 +124,45 @@ export function emitAgentEvent(event: Omit<AgentEventPayload, "seq" | "ts">) {
 
 export function onAgentEvent(listener: (evt: AgentEventPayload) => void) {
   return registerListener(state.listeners, listener);
+}
+
+/** Milestones for `stream: runtime`, `data.phase: recovery` (closure_recovery pipeline). */
+export type RecoveryTelemetryMilestone =
+  | "continuation_dispatch_start"
+  | "continuation_dispatch_failed"
+  | "continuation_dispatch_handler_done"
+  | "followup_enqueued"
+  | "recovery_checkpoint_resumed"
+  | "recovery_checkpoint_terminal";
+
+export function emitRuntimeRecoveryTelemetry(params: {
+  runId: string;
+  sessionKey?: string;
+  milestone: RecoveryTelemetryMilestone;
+  checkpointId: string;
+  continuationKind: PlatformRuntimeContinuationKind;
+  approvalId?: string;
+  queueKey?: string;
+  error?: string;
+  terminalStatus?: string;
+  continuationState?: string;
+}): void {
+  emitAgentEvent({
+    runId: params.runId,
+    stream: "runtime",
+    ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+    data: {
+      phase: "recovery",
+      milestone: params.milestone,
+      checkpointId: params.checkpointId,
+      continuationKind: params.continuationKind,
+      ...(params.approvalId ? { approvalId: params.approvalId } : {}),
+      ...(params.queueKey ? { queueKey: params.queueKey } : {}),
+      ...(params.error ? { error: params.error } : {}),
+      ...(params.terminalStatus ? { terminalStatus: params.terminalStatus } : {}),
+      ...(params.continuationState ? { continuationState: params.continuationState } : {}),
+    },
+  });
 }
 
 export function emitRunClosureSummary(summary: PlatformRuntimeRunClosureSummary) {

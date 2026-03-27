@@ -53,6 +53,7 @@ describe("platform runtime gateway", () => {
       checkpoints: [
         expect.objectContaining({
           id: "checkpoint-1",
+          operatorHint: expect.stringContaining("Awaiting operator approval"),
           continuation: expect.objectContaining({
             kind: "closure_recovery",
             state: "idle",
@@ -64,6 +65,7 @@ describe("platform runtime gateway", () => {
     expect(fetched).toEqual({
       checkpoint: expect.objectContaining({
         id: "checkpoint-1",
+        operatorHint: expect.stringContaining("Awaiting operator approval"),
         continuation: expect.objectContaining({
           kind: "closure_recovery",
           state: "idle",

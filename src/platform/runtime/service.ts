@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveStateDir } from "../../config/paths.js";
-import { emitRunClosureSummary } from "../../infra/agent-events.js";
+import { emitRunClosureSummary, emitRuntimeRecoveryTelemetry } from "../../infra/agent-events.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import {
   PlatformRuntimeAcceptanceResultSchema,
@@ -2061,6 +2061,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         return checkpoint;
       }
       const currentContinuation = checkpoint.continuation;
+      const kind = checkpoint.continuation.kind;
       const running = this.updateCheckpoint(checkpointId, {
         continuation: {
           ...currentContinuation,
@@ -2070,9 +2071,46 @@ export function createPlatformRuntimeCheckpointService(params?: {
           lastDispatchedAtMs: Date.now(),
         },
       });
+      if (kind === "closure_recovery") {
+        emitRuntimeRecoveryTelemetry({
+          runId: checkpoint.runId,
+          ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),
+          milestone: "continuation_dispatch_start",
+          checkpointId,
+          continuationKind: kind,
+          ...(checkpoint.target?.approvalId
+            ? { approvalId: checkpoint.target.approvalId }
+            : {}),
+        });
+      }
       try {
         await handler(running ?? checkpoint);
+        if (kind === "closure_recovery") {
+          emitRuntimeRecoveryTelemetry({
+            runId: checkpoint.runId,
+            ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),
+            milestone: "continuation_dispatch_handler_done",
+            checkpointId,
+            continuationKind: kind,
+            ...(checkpoint.target?.approvalId
+              ? { approvalId: checkpoint.target.approvalId }
+              : {}),
+          });
+        }
       } catch (error) {
+        if (kind === "closure_recovery") {
+          emitRuntimeRecoveryTelemetry({
+            runId: checkpoint.runId,
+            ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),
+            milestone: "continuation_dispatch_failed",
+            checkpointId,
+            continuationKind: kind,
+            error: error instanceof Error ? error.message : String(error),
+            ...(checkpoint.target?.approvalId
+              ? { approvalId: checkpoint.target.approvalId }
+              : {}),
+          });
+        }
         return this.updateCheckpoint(checkpointId, {
           continuation: {
             ...(running?.continuation ?? currentContinuation),

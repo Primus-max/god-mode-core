@@ -158,4 +158,29 @@ describe("gateway ws log helpers", () => {
       recipe: "recipe.doc",
     });
   });
+
+  test("summarizeAgentEventForWsLog includes runtime recovery telemetry milestones", () => {
+    expect(
+      summarizeAgentEventForWsLog({
+        runId: "run-rec",
+        sessionKey: "agent:main:thread-1",
+        stream: "runtime",
+        data: {
+          phase: "recovery",
+          milestone: "followup_enqueued",
+          checkpointId: "checkpoint-uuid-12345678-abcd-ef00-123456789abc",
+          continuationKind: "closure_recovery",
+          queueKey: "queue/main/followup",
+          terminalStatus: "completed",
+        },
+      }),
+    ).toMatchObject({
+      stream: "runtime",
+      phase: "recovery",
+      milestone: "followup_enqueued",
+      kind: "closure_recovery",
+      terminal: "completed",
+      queue: "queue/main/followup",
+    });
+  });
 });
