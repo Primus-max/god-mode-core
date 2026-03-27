@@ -228,6 +228,7 @@ describe("platform runtime checkpoint service", () => {
       expect.objectContaining({
         status: "satisfied",
         action: "close",
+        remediation: "none",
         reasonCode: "completed_with_output",
       }),
     );
@@ -255,6 +256,7 @@ describe("platform runtime checkpoint service", () => {
       expect.objectContaining({
         status: "needs_human",
         action: "escalate",
+        remediation: "needs_human",
         reasonCode: "pending_approval",
       }),
     );
@@ -287,6 +289,7 @@ describe("platform runtime checkpoint service", () => {
       expect.objectContaining({
         status: "satisfied",
         action: "close",
+        remediation: "none",
         reasonCode: "completed_with_confirmed_delivery",
       }),
     );
@@ -320,6 +323,7 @@ describe("platform runtime checkpoint service", () => {
       expect.objectContaining({
         status: "retryable",
         action: "retry",
+        remediation: "delivery_retry",
         reasonCode: "delivery_failed",
       }),
     );
@@ -379,6 +383,7 @@ describe("platform runtime checkpoint service", () => {
       expect.objectContaining({
         status: "retryable",
         action: "retry",
+        remediation: "semantic_retry",
         reasonCode: "contract_mismatch",
       }),
     );
@@ -391,6 +396,7 @@ describe("platform runtime checkpoint service", () => {
       expect.objectContaining({
         status: "retryable",
         action: "retry",
+        remediation: "semantic_retry",
         reasonCode: "contract_mismatch",
       }),
     );
@@ -462,6 +468,7 @@ describe("platform runtime checkpoint service", () => {
       expect.objectContaining({
         status: "retryable",
         action: "retry",
+        remediation: "semantic_retry",
         reasonCode: "contract_mismatch",
       }),
     );
@@ -521,7 +528,110 @@ describe("platform runtime checkpoint service", () => {
       expect.objectContaining({
         status: "retryable",
         action: "retry",
+        remediation: "semantic_retry",
         reasonCode: "execution_no_progress",
+      }),
+    );
+  });
+
+  it("selects bootstrap remediation when readiness shows bootstrap_required", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-bootstrap-remediation",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: ["bootstrap-action"],
+      attemptedActionIds: ["bootstrap-action"],
+      confirmedActionIds: [],
+      failedActionIds: ["bootstrap-action"],
+      boundaries: ["bootstrap"],
+    };
+    const acceptance = service.evaluateAcceptance({
+      runId: outcome.runId,
+      outcome,
+      evidence: {
+        executionContractMismatch: true,
+        executionSurfaceStatus: "bootstrap_required",
+        executionUnattendedBoundary: "bootstrap",
+      },
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        action: "retry",
+        remediation: "bootstrap",
+        reasonCode: "bootstrap_required",
+      }),
+    );
+    const verdict = service.evaluateSupervisorVerdict({
+      runId: outcome.runId,
+      acceptance,
+      surface: {
+        status: "bootstrap_required",
+        ready: false,
+        checkedAtMs: Date.now(),
+        reasons: ["bootstrap still required"],
+        unattendedBoundary: "bootstrap",
+      },
+    });
+    expect(verdict).toEqual(
+      expect.objectContaining({
+        action: "retry",
+        remediation: "bootstrap",
+        reasonCode: "bootstrap_recovery",
+      }),
+    );
+  });
+
+  it("selects auth remediation when fallback evidence shows provider auth failure", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-auth-remediation",
+      status: "failed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const acceptance = service.evaluateAcceptance({
+      runId: outcome.runId,
+      outcome,
+      evidence: {
+        modelFallbackAttemptCount: 2,
+        modelFallbackExhausted: true,
+        modelFallbackFinalReason: "auth",
+        providerAuthFailed: true,
+      },
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        action: "stop",
+        remediation: "auth_refresh",
+        reasonCode: "provider_auth_required",
+      }),
+    );
+    const verdict = service.evaluateSupervisorVerdict({
+      runId: outcome.runId,
+      acceptance,
+    });
+    expect(verdict).toEqual(
+      expect.objectContaining({
+        action: "stop",
+        remediation: "auth_refresh",
+        reasonCode: "auth_recovery",
       }),
     );
   });

@@ -236,6 +236,7 @@ describe("runEmbeddedPiAgent usage reporting", () => {
       expect.objectContaining({
         status: "needs_human",
         action: "escalate",
+        remediation: "needs_human",
         reasonCode: "pending_approval",
       }),
     );
@@ -253,6 +254,7 @@ describe("runEmbeddedPiAgent usage reporting", () => {
       expect.objectContaining({
         status: "needs_human",
         action: "escalate",
+        remediation: "needs_human",
         reasonCode: "needs_human",
       }),
     );

@@ -398,6 +398,7 @@ export const PlatformRuntimeExecutionSurfaceSchema = z
     failingTools: z.array(z.string().min(1)).optional(),
     modelFallbackActive: z.boolean().optional(),
     approvalRequired: z.boolean().optional(),
+    unattendedBoundary: z.enum(["bootstrap", "exec_approval"]).optional(),
   })
   .strict();
 export type PlatformRuntimeExecutionSurface = z.infer<typeof PlatformRuntimeExecutionSurfaceSchema>;
@@ -442,6 +443,18 @@ export type PlatformRuntimeAcceptanceStatus = z.infer<typeof PlatformRuntimeAcce
 export const PlatformRuntimeAcceptanceActionSchema = z.enum(["close", "retry", "escalate", "stop"]);
 export type PlatformRuntimeAcceptanceAction = z.infer<typeof PlatformRuntimeAcceptanceActionSchema>;
 
+export const PlatformRuntimeRemediationSchema = z.enum([
+  "none",
+  "semantic_retry",
+  "delivery_retry",
+  "bootstrap",
+  "provider_fallback",
+  "auth_refresh",
+  "needs_human",
+  "stop",
+]);
+export type PlatformRuntimeRemediation = z.infer<typeof PlatformRuntimeRemediationSchema>;
+
 export const PlatformRuntimeAcceptanceReasonCodeSchema = z.enum([
   "completed_with_output",
   "completed_with_artifacts",
@@ -451,6 +464,9 @@ export const PlatformRuntimeAcceptanceReasonCodeSchema = z.enum([
   "contract_mismatch",
   "execution_no_progress",
   "execution_degraded",
+  "bootstrap_required",
+  "provider_fallback_exhausted",
+  "provider_auth_required",
   "delivery_failed",
   "delivery_partial",
   "pending_approval",
@@ -491,6 +507,15 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     noProgressSignals: z.number().int().nonnegative().optional(),
     executionSurfaceStatus: PlatformRuntimeExecutionSurfaceStatusSchema.optional(),
     executionSurfaceDegraded: z.boolean().optional(),
+    executionUnattendedBoundary: z.enum(["bootstrap", "exec_approval"]).optional(),
+    modelFallbackAttemptCount: z.number().int().nonnegative().optional(),
+    modelFallbackExhausted: z.boolean().optional(),
+    modelFallbackFinalReason: z.string().min(1).optional(),
+    modelFallbackFinalStatus: z.number().int().nonnegative().optional(),
+    modelFallbackFinalCode: z.string().min(1).optional(),
+    providerAuthFailed: z.boolean().optional(),
+    providerRateLimited: z.boolean().optional(),
+    providerModelNotFound: z.boolean().optional(),
     successfulCronAdds: z.number().int().nonnegative().optional(),
   })
   .strict();
@@ -503,6 +528,9 @@ export const PlatformRuntimeSupervisorVerdictReasonCodeSchema = z.enum([
   "contract_mismatch",
   "execution_no_progress",
   "execution_degraded",
+  "bootstrap_recovery",
+  "provider_recovery",
+  "auth_recovery",
   "transient_recoverable",
   "needs_human",
   "runtime_failed",
@@ -516,6 +544,7 @@ export const PlatformRuntimeAcceptanceResultSchema = z
     runId: z.string().min(1),
     status: PlatformRuntimeAcceptanceStatusSchema,
     action: PlatformRuntimeAcceptanceActionSchema,
+    remediation: PlatformRuntimeRemediationSchema,
     reasonCode: PlatformRuntimeAcceptanceReasonCodeSchema,
     reasons: z.array(z.string().min(1)),
     outcome: PlatformRuntimeRunOutcomeSchema,
@@ -529,6 +558,7 @@ export const PlatformRuntimeSupervisorVerdictSchema = z
     runId: z.string().min(1),
     status: PlatformRuntimeAcceptanceStatusSchema,
     action: PlatformRuntimeAcceptanceActionSchema,
+    remediation: PlatformRuntimeRemediationSchema,
     reasonCode: PlatformRuntimeSupervisorVerdictReasonCodeSchema,
     reasons: z.array(z.string().min(1)),
     acceptance: PlatformRuntimeAcceptanceResultSchema.optional(),

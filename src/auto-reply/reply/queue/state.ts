@@ -161,6 +161,11 @@ export function getExistingFollowupQueue(key: string): FollowupQueueState | unde
   return FOLLOWUP_QUEUES.get(cleaned);
 }
 
+export function listExistingFollowupQueues(): Array<{ key: string; queue: FollowupQueueState }> {
+  ensurePersistedQueuesRehydrated();
+  return Array.from(FOLLOWUP_QUEUES.entries()).map(([key, queue]) => ({ key, queue }));
+}
+
 export function getFollowupQueue(key: string, settings: QueueSettings): FollowupQueueState {
   ensurePersistedQueuesRehydrated();
   const existing = FOLLOWUP_QUEUES.get(key);

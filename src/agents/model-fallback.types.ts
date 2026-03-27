@@ -13,3 +13,17 @@ export type FallbackAttempt = {
   status?: number;
   code?: string;
 };
+
+export type ModelFallbackSummary = {
+  requestedProvider: string;
+  requestedModel: string;
+  selectedProvider: string;
+  selectedModel: string;
+  attempts: FallbackAttempt[];
+  attemptCount: number;
+  fallbackConfigured: boolean;
+  exhausted: boolean;
+  finalReason?: FailoverReason;
+  finalStatus?: number;
+  finalCode?: string;
+};

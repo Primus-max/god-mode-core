@@ -2,12 +2,14 @@ import {
   hasOutboundReplyContent,
   resolveSendableOutboundReplyParts,
 } from "openclaw/plugin-sdk/reply-payload";
+import type { ModelFallbackSummary } from "../../agents/model-fallback.types.js";
 import { loadSessionStore } from "../../config/sessions.js";
 import { isAudioFileName } from "../../media/mime.js";
 import {
   getPlatformRuntimeCheckpointService,
   type PlatformRuntimeAcceptanceEvidence,
   type PlatformRuntimeAcceptanceResult,
+  type PlatformRuntimeExecutionSurface,
   type PlatformRuntimeExecutionVerification,
   type PlatformRuntimeRunOutcome,
   type PlatformRuntimeSupervisorVerdict,
@@ -94,8 +96,10 @@ export type MessagingDeliveryClosureCandidate = {
         deterministicApprovalPromptSent?: boolean;
       };
       executionVerification?: PlatformRuntimeExecutionVerification;
+      executionSurface?: PlatformRuntimeExecutionSurface;
       acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
       supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
+      modelFallback?: ModelFallbackSummary;
     };
     didSendViaMessagingTool?: boolean;
     successfulCronAdds?: number;
@@ -171,6 +175,27 @@ export function buildMessagingAcceptanceEvidence(params: {
     confirmedDeliveryCount: deliveryReceipt.confirmedDeliveryCount,
     failedDeliveryCount: deliveryReceipt.failedDeliveryCount,
     partialDelivery: deliveryReceipt.partialDelivery,
+    ...(params.runResult.meta?.modelFallback
+      ? {
+          modelFallbackAttemptCount: params.runResult.meta.modelFallback.attemptCount,
+          modelFallbackExhausted: params.runResult.meta.modelFallback.exhausted,
+          ...(params.runResult.meta.modelFallback.finalReason
+            ? { modelFallbackFinalReason: params.runResult.meta.modelFallback.finalReason }
+            : {}),
+          ...(params.runResult.meta.modelFallback.finalStatus !== undefined
+            ? { modelFallbackFinalStatus: params.runResult.meta.modelFallback.finalStatus }
+            : {}),
+          ...(params.runResult.meta.modelFallback.finalCode
+            ? { modelFallbackFinalCode: params.runResult.meta.modelFallback.finalCode }
+            : {}),
+          providerAuthFailed: params.runResult.meta.modelFallback.finalReason === "auth",
+          providerRateLimited:
+            params.runResult.meta.modelFallback.finalReason === "rate_limit" ||
+            params.runResult.meta.modelFallback.finalReason === "overloaded",
+          providerModelNotFound:
+            params.runResult.meta.modelFallback.finalReason === "model_not_found",
+        }
+      : {}),
     ...(params.runResult.successfulCronAdds !== undefined
       ? { successfulCronAdds: params.runResult.successfulCronAdds }
       : {}),
@@ -231,6 +256,7 @@ function reevaluateMessagingDecision(params: {
     outcome: completionOutcome,
     evidence: baseEvidence,
     executionVerification,
+    executionSurface: params.runResult.meta?.executionSurface,
   });
   const acceptanceOutcome = runtimeService.evaluateAcceptance({
     runId: completionOutcome.runId,
@@ -241,6 +267,7 @@ function reevaluateMessagingDecision(params: {
     runId: completionOutcome.runId,
     acceptance: acceptanceOutcome,
     verification: executionVerification,
+    surface: params.runResult.meta?.executionSurface,
   });
   return { acceptanceOutcome, executionVerification, supervisorVerdict };
 }
@@ -260,6 +287,23 @@ export function buildAcceptanceFallbackPayload(
     return undefined;
   }
   const reason = acceptance.reasons[0] ?? "The task needs additional handling.";
+  if (acceptance.remediation === "bootstrap") {
+    return {
+      text: `Still working on this. I need to finish bootstrap recovery before I can complete it. ${reason}`.trim(),
+    };
+  }
+  if (acceptance.remediation === "auth_refresh") {
+    return {
+      text: `I could not finish because provider authentication needs attention. ${reason}`.trim(),
+      isError: true,
+    };
+  }
+  if (acceptance.remediation === "provider_fallback") {
+    return {
+      text: `I hit a provider/model execution problem and need a different runtime path before I can finish. ${reason}`.trim(),
+      isError: true,
+    };
+  }
   if (acceptance.action === "retry") {
     return {
       text: `Still working on this. I need one more pass to finish reliably. ${reason}`.trim(),
@@ -288,7 +332,11 @@ export function enqueueSemanticRetryFollowup(params: {
   supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
 }): boolean {
   const decision = params.supervisorVerdict ?? params.acceptance;
-  if (!params.queueKey || decision?.action !== "retry") {
+  if (
+    !params.queueKey ||
+    decision?.action !== "retry" ||
+    decision.remediation !== "semantic_retry"
+  ) {
     return false;
   }
   const retryCount = params.sourceRun.automation?.retryCount ?? 0;

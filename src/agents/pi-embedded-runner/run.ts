@@ -86,7 +86,7 @@ import {
   truncateOversizedToolResultsInSession,
   sessionLikelyHasOversizedToolResults,
 } from "./tool-result-truncation.js";
-import type { EmbeddedPiAgentMeta, EmbeddedPiRunResult } from "./types.js";
+import type { EmbeddedPiAgentMeta, EmbeddedPiRunMeta, EmbeddedPiRunResult } from "./types.js";
 import { describeUnknownError } from "./utils.js";
 
 type ApiKeyInfo = ResolvedProviderAuth;
@@ -272,6 +272,32 @@ function buildErrorAgentMeta(params: {
   };
 }
 
+function buildExecutionSurfaceFromRuntimePlan(
+  runtimePlan: RunEmbeddedPiAgentParams["platformExecutionContext"],
+): PlatformRuntimeExecutionSurface | undefined {
+  if (!runtimePlan?.readinessStatus) {
+    return undefined;
+  }
+  const bootstrapRequiredCapabilities = runtimePlan.bootstrapRequiredCapabilities ?? [];
+  const unresolvedCapabilities = runtimePlan.requiredCapabilities ?? [];
+  const unattendedBoundary =
+    runtimePlan.unattendedBoundary === "bootstrap" ? runtimePlan.unattendedBoundary : undefined;
+  return {
+    status: runtimePlan.readinessStatus,
+    ready: runtimePlan.readinessStatus === "ready",
+    checkedAtMs: Date.now(),
+    reasons: [...(runtimePlan.readinessReasons ?? [])],
+    ...(bootstrapRequiredCapabilities.length > 0
+      ? { bootstrapRequiredCapabilities: [...bootstrapRequiredCapabilities] }
+      : {}),
+    ...(unresolvedCapabilities.length > 0
+      ? { unresolvedCapabilities: [...unresolvedCapabilities] }
+      : {}),
+    ...(unattendedBoundary ? { unattendedBoundary } : {}),
+    approvalRequired: runtimePlan.readinessStatus === "approval_required",
+  };
+}
+
 function buildCompletionArtifacts(params: {
   runId?: string;
   hadToolError?: boolean;
@@ -282,6 +308,7 @@ function buildCompletionArtifacts(params: {
   fallbackStatus?: "completed" | "failed";
   executionReceipts?: PlatformRuntimeExecutionReceipt[];
   executionSurface?: PlatformRuntimeExecutionSurface;
+  modelFallback?: EmbeddedPiRunMeta["modelFallback"];
 }) {
   const normalizedRunId = params.runId?.trim();
   if (!normalizedRunId) {
@@ -326,6 +353,26 @@ function buildCompletionArtifacts(params: {
     bootstrapReceiptCount: outcome.bootstrapRequestIds.length,
     ...(params.successfulCronAdds !== undefined
       ? { successfulCronAdds: params.successfulCronAdds }
+      : {}),
+    ...(params.modelFallback
+      ? {
+          modelFallbackAttemptCount: params.modelFallback.attemptCount,
+          modelFallbackExhausted: params.modelFallback.exhausted,
+          ...(params.modelFallback.finalReason
+            ? { modelFallbackFinalReason: params.modelFallback.finalReason }
+            : {}),
+          ...(params.modelFallback.finalStatus !== undefined
+            ? { modelFallbackFinalStatus: params.modelFallback.finalStatus }
+            : {}),
+          ...(params.modelFallback.finalCode
+            ? { modelFallbackFinalCode: params.modelFallback.finalCode }
+            : {}),
+          providerAuthFailed: params.modelFallback.finalReason === "auth",
+          providerRateLimited:
+            params.modelFallback.finalReason === "rate_limit" ||
+            params.modelFallback.finalReason === "overloaded",
+          providerModelNotFound: params.modelFallback.finalReason === "model_not_found",
+        }
       : {}),
   };
   const requiresStructuredReceipts =
@@ -386,9 +433,11 @@ function buildCompletionArtifacts(params: {
   });
   return {
     completionOutcome,
+    ...(params.executionSurface ? { executionSurface: params.executionSurface } : {}),
     acceptanceOutcome,
     executionVerification,
     supervisorVerdict,
+    ...(params.modelFallback ? { modelFallback: params.modelFallback } : {}),
   };
 }
 
@@ -443,6 +492,9 @@ export async function runEmbeddedPiAgent(
         agentId: params.agentId,
         sessionKey: params.sessionKey,
       });
+      const executionSurface = buildExecutionSurfaceFromRuntimePlan(
+        params.platformExecutionContext,
+      );
       await ensureOpenClawModelsJson(params.config, agentDir);
 
       // Run before_model_resolve hooks early so plugins can override the
@@ -1049,6 +1101,7 @@ export async function runEmbeddedPiAgent(
                 ...buildCompletionArtifacts({
                   runId: params.runId,
                   fallbackStatus: "failed",
+                  executionSurface,
                 }),
               },
             };
@@ -1450,6 +1503,7 @@ export async function runEmbeddedPiAgent(
                   deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                   executionReceipts: attempt.executionReceipts,
                   fallbackStatus: "failed",
+                  executionSurface,
                 }),
               },
             };
@@ -1501,6 +1555,7 @@ export async function runEmbeddedPiAgent(
                     deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                     executionReceipts: attempt.executionReceipts,
                     fallbackStatus: "failed",
+                    executionSurface,
                   }),
                 },
               };
@@ -1540,6 +1595,7 @@ export async function runEmbeddedPiAgent(
                     deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                     executionReceipts: attempt.executionReceipts,
                     fallbackStatus: "failed",
+                    executionSurface,
                   }),
                 },
               };
@@ -1816,6 +1872,7 @@ export async function runEmbeddedPiAgent(
                   successfulCronAdds: attempt.successfulCronAdds,
                   executionReceipts: attempt.executionReceipts,
                   fallbackStatus: "failed",
+                  executionSurface,
                 }),
               },
               didSendViaMessagingTool: attempt.didSendViaMessagingTool,
@@ -1876,6 +1933,7 @@ export async function runEmbeddedPiAgent(
                 successfulCronAdds: attempt.successfulCronAdds,
                 executionReceipts: attempt.executionReceipts,
                 fallbackStatus: aborted ? "failed" : "completed",
+                executionSurface,
               }),
             },
             didSendViaMessagingTool: attempt.didSendViaMessagingTool,

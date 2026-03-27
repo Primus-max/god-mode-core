@@ -212,6 +212,140 @@ function buildExecutionReceiptProofCounts(
   return PlatformRuntimeExecutionReceiptProofCountsSchema.parse(counts);
 }
 
+function classifyProviderEvidence(
+  evidence: PlatformRuntimeAcceptanceEvidence,
+): "auth_refresh" | "provider_fallback" | undefined {
+  if (evidence.providerAuthFailed === true || evidence.modelFallbackFinalReason === "auth") {
+    return "auth_refresh";
+  }
+  if (
+    evidence.modelFallbackExhausted === true ||
+    evidence.providerRateLimited === true ||
+    evidence.providerModelNotFound === true
+  ) {
+    return "provider_fallback";
+  }
+  const finalReason = evidence.modelFallbackFinalReason;
+  if (
+    finalReason === "rate_limit" ||
+    finalReason === "overloaded" ||
+    finalReason === "model_not_found" ||
+    finalReason === "billing" ||
+    finalReason === "no_profiles_available"
+  ) {
+    return "provider_fallback";
+  }
+  return undefined;
+}
+
+function resolveAcceptanceRemediation(params: {
+  action: PlatformRuntimeAcceptanceResult["action"];
+  reasonCode: PlatformRuntimeAcceptanceResult["reasonCode"];
+  evidence: PlatformRuntimeAcceptanceEvidence;
+}): PlatformRuntimeAcceptanceResult["remediation"] {
+  if (
+    params.reasonCode === "pending_approval" ||
+    params.reasonCode === "runtime_blocked" ||
+    params.action === "escalate"
+  ) {
+    return "needs_human";
+  }
+  if (
+    params.reasonCode === "bootstrap_required" ||
+    params.evidence.executionSurfaceStatus === "bootstrap_required" ||
+    params.evidence.executionUnattendedBoundary === "bootstrap"
+  ) {
+    return "bootstrap";
+  }
+  const providerRecovery = classifyProviderEvidence(params.evidence);
+  if (providerRecovery) {
+    return providerRecovery;
+  }
+  if (params.reasonCode === "delivery_failed" || params.reasonCode === "delivery_partial") {
+    return "delivery_retry";
+  }
+  if (params.action === "stop") {
+    return "stop";
+  }
+  if (params.action === "close") {
+    return "none";
+  }
+  return "semantic_retry";
+}
+
+function parseAcceptanceResult(params: {
+  runId: string;
+  status: PlatformRuntimeAcceptanceResult["status"];
+  action: PlatformRuntimeAcceptanceResult["action"];
+  reasonCode: PlatformRuntimeAcceptanceResult["reasonCode"];
+  reasons: string[];
+  outcome: PlatformRuntimeRunOutcome;
+  evidence: PlatformRuntimeAcceptanceEvidence;
+}): PlatformRuntimeAcceptanceResult {
+  return PlatformRuntimeAcceptanceResultSchema.parse({
+    ...params,
+    remediation: resolveAcceptanceRemediation({
+      action: params.action,
+      reasonCode: params.reasonCode,
+      evidence: params.evidence,
+    }),
+  });
+}
+
+function resolveSupervisorReasonCode(params: {
+  acceptance?: PlatformRuntimeAcceptanceResult;
+  verification?: PlatformRuntimeExecutionVerification;
+  surface?: PlatformRuntimeExecutionSurface;
+  fallbackReasonCode:
+    | "verified_execution"
+    | "contract_mismatch"
+    | "execution_no_progress"
+    | "execution_degraded"
+    | "transient_recoverable"
+    | "needs_human"
+    | "runtime_failed";
+}): PlatformRuntimeSupervisorVerdict["reasonCode"] {
+  const remediation =
+    params.acceptance?.remediation ??
+    resolveAcceptanceRemediation({
+      action: params.acceptance?.action ?? "close",
+      reasonCode: params.acceptance?.reasonCode ?? "completed_with_output",
+      evidence: params.acceptance?.evidence ?? {},
+    });
+  if (remediation === "bootstrap") {
+    return "bootstrap_recovery";
+  }
+  if (remediation === "auth_refresh") {
+    return "auth_recovery";
+  }
+  if (remediation === "provider_fallback") {
+    return "provider_recovery";
+  }
+  return params.fallbackReasonCode;
+}
+
+function parseSupervisorVerdict(params: {
+  runId: string;
+  status: PlatformRuntimeSupervisorVerdict["status"];
+  action: PlatformRuntimeSupervisorVerdict["action"];
+  reasonCode: PlatformRuntimeSupervisorVerdict["reasonCode"];
+  reasons: string[];
+  acceptance?: PlatformRuntimeAcceptanceResult;
+  verification?: PlatformRuntimeExecutionVerification;
+  surface?: PlatformRuntimeExecutionSurface;
+}): PlatformRuntimeSupervisorVerdict {
+  return PlatformRuntimeSupervisorVerdictSchema.parse({
+    ...params,
+    remediation:
+      params.acceptance?.remediation ??
+      resolveAcceptanceRemediation({
+        action: params.action,
+        reasonCode: params.acceptance?.reasonCode ?? "completed_with_output",
+        evidence: params.acceptance?.evidence ?? {},
+      }),
+  });
+}
+
 function buildExecutionReceiptKey(receipt: PlatformRuntimeExecutionReceipt): string {
   const actionId =
     receipt.metadata && typeof receipt.metadata.actionId === "string"
@@ -704,6 +838,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
         merged.executionSurfaceDegraded =
           params.executionSurface.status === "degraded" ||
           params.executionSurface.status === "unavailable";
+        if (params.executionSurface.unattendedBoundary) {
+          merged.executionUnattendedBoundary = params.executionSurface.unattendedBoundary;
+        }
       }
       return merged;
     },
@@ -891,7 +1028,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const reasons: string[] = [];
       if (params.outcome.pendingApprovalIds.length > 0) {
         reasons.push("Run still requires operator approval before the task can finish.");
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "needs_human",
           action: "escalate",
@@ -903,7 +1040,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       if (params.outcome.status === "blocked") {
         reasons.push("Run is blocked on a runtime boundary and cannot safely auto-complete.");
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "needs_human",
           action: "escalate",
@@ -915,11 +1052,16 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       if (params.outcome.status === "failed") {
         reasons.push("Run reached a failed runtime outcome.");
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "failed",
           action: "stop",
-          reasonCode: "runtime_failed",
+          reasonCode:
+            classifyProviderEvidence(evidence) === "auth_refresh"
+              ? "provider_auth_required"
+              : classifyProviderEvidence(evidence) === "provider_fallback"
+                ? "provider_fallback_exhausted"
+                : "runtime_failed",
           reasons,
           outcome: params.outcome,
           evidence,
@@ -927,7 +1069,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       if (evidence.noProgressSignals && evidence.noProgressSignals > 0) {
         reasons.push("Run hit a bounded no-progress path and needs supervisor recovery.");
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "retryable",
           action: "retry",
@@ -941,11 +1083,19 @@ export function createPlatformRuntimeCheckpointService(params?: {
         reasons.push(
           "Run completed, but the verified execution contract does not match the requested outcome.",
         );
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "retryable",
           action: "retry",
-          reasonCode: "contract_mismatch",
+          reasonCode:
+            evidence.executionSurfaceStatus === "bootstrap_required" ||
+            evidence.executionUnattendedBoundary === "bootstrap"
+              ? "bootstrap_required"
+              : classifyProviderEvidence(evidence) === "auth_refresh"
+                ? "provider_auth_required"
+                : classifyProviderEvidence(evidence) === "provider_fallback"
+                  ? "provider_fallback_exhausted"
+                  : "contract_mismatch",
           reasons,
           outcome: params.outcome,
           evidence,
@@ -956,11 +1106,19 @@ export function createPlatformRuntimeCheckpointService(params?: {
         evidence.executionSurfaceDegraded === true
       ) {
         reasons.push("Run completed, but execution truth remained degraded.");
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "partial",
           action: "retry",
-          reasonCode: "execution_degraded",
+          reasonCode:
+            evidence.executionSurfaceStatus === "bootstrap_required" ||
+            evidence.executionUnattendedBoundary === "bootstrap"
+              ? "bootstrap_required"
+              : classifyProviderEvidence(evidence) === "auth_refresh"
+                ? "provider_auth_required"
+                : classifyProviderEvidence(evidence) === "provider_fallback"
+                  ? "provider_fallback_exhausted"
+                  : "execution_degraded",
           reasons,
           outcome: params.outcome,
           evidence,
@@ -968,7 +1126,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       if (params.outcome.status === "partial") {
         reasons.push("Run finished with only a partial runtime outcome.");
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "retryable",
           action: "retry",
@@ -991,7 +1149,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         reasons.push(
           "Run completed, but delivery attempts failed before any message was confirmed.",
         );
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "retryable",
           action: "retry",
@@ -1006,7 +1164,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         (confirmedDeliveryCount > 0 && failedDeliveryCount > 0)
       ) {
         reasons.push("Run completed, but delivery only partially succeeded.");
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "partial",
           action: "retry",
@@ -1043,7 +1201,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         reasons.push(
           "Run completed, but replay-sensitive actions failed before any receipt was confirmed.",
         );
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "retryable",
           action: "retry",
@@ -1060,11 +1218,19 @@ export function createPlatformRuntimeCheckpointService(params?: {
         reasons.push(
           "Run completed on a non-messaging execution path, but no verified structured receipt proved the final closure.",
         );
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "retryable",
           action: "retry",
-          reasonCode: "contract_mismatch",
+          reasonCode:
+            evidence.executionSurfaceStatus === "bootstrap_required" ||
+            evidence.executionUnattendedBoundary === "bootstrap"
+              ? "bootstrap_required"
+              : classifyProviderEvidence(evidence) === "auth_refresh"
+                ? "provider_auth_required"
+                : classifyProviderEvidence(evidence) === "provider_fallback"
+                  ? "provider_fallback_exhausted"
+                  : "contract_mismatch",
           reasons,
           outcome: params.outcome,
           evidence,
@@ -1074,7 +1240,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         reasons.push(
           "Run completed with deliverable evidence, but one or more tool errors were observed.",
         );
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "partial",
           action: "stop",
@@ -1091,7 +1257,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         reasons.push(
           "Run completed and produced structured platform artifacts or bootstrap output.",
         );
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "satisfied",
           action: "close",
@@ -1103,7 +1269,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       if (confirmedDeliveryCount > 0) {
         reasons.push("Run completed and delivery was confirmed by the outbound runtime.");
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "satisfied",
           action: "close",
@@ -1115,7 +1281,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       if (hasDeliverableEvidence) {
         reasons.push("Run completed with user-visible or automation-visible output.");
-        return PlatformRuntimeAcceptanceResultSchema.parse({
+        return parseAcceptanceResult({
           runId: params.runId,
           status: "satisfied",
           action: "close",
@@ -1126,7 +1292,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         });
       }
       reasons.push("Run completed but no machine-checkable delivery evidence was observed.");
-      return PlatformRuntimeAcceptanceResultSchema.parse({
+      return parseAcceptanceResult({
         runId: params.runId,
         status: "retryable",
         action: "retry",
@@ -1144,7 +1310,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const verification = params.verification;
       const reasons: string[] = [];
       if (acceptance?.status === "needs_human") {
-        return PlatformRuntimeSupervisorVerdictSchema.parse({
+        return parseSupervisorVerdict({
           runId: params.runId,
           status: "needs_human",
           action: "escalate",
@@ -1156,11 +1322,16 @@ export function createPlatformRuntimeCheckpointService(params?: {
         });
       }
       if (acceptance?.status === "failed") {
-        return PlatformRuntimeSupervisorVerdictSchema.parse({
+        return parseSupervisorVerdict({
           runId: params.runId,
           status: "failed",
           action: "stop",
-          reasonCode: "runtime_failed",
+          reasonCode: resolveSupervisorReasonCode({
+            acceptance,
+            verification,
+            surface: params.surface,
+            fallbackReasonCode: "runtime_failed",
+          }),
           reasons: acceptance.reasons,
           acceptance,
           verification,
@@ -1169,11 +1340,16 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       if (verification?.status === "no_progress") {
         reasons.push(...verification.reasons);
-        return PlatformRuntimeSupervisorVerdictSchema.parse({
+        return parseSupervisorVerdict({
           runId: params.runId,
           status: "retryable",
           action: "retry",
-          reasonCode: "execution_no_progress",
+          reasonCode: resolveSupervisorReasonCode({
+            acceptance,
+            verification,
+            surface: params.surface,
+            fallbackReasonCode: "execution_no_progress",
+          }),
           reasons: Array.from(new Set(reasons)),
           acceptance,
           verification,
@@ -1182,11 +1358,16 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       if (verification?.status === "mismatch" || verification?.status === "failed") {
         reasons.push(...verification.reasons);
-        return PlatformRuntimeSupervisorVerdictSchema.parse({
+        return parseSupervisorVerdict({
           runId: params.runId,
           status: acceptance?.status ?? "retryable",
           action: acceptance?.action === "escalate" ? "escalate" : "retry",
-          reasonCode: "contract_mismatch",
+          reasonCode: resolveSupervisorReasonCode({
+            acceptance,
+            verification,
+            surface: params.surface,
+            fallbackReasonCode: "contract_mismatch",
+          }),
           reasons: Array.from(new Set(reasons)),
           acceptance,
           verification,
@@ -1200,25 +1381,35 @@ export function createPlatformRuntimeCheckpointService(params?: {
       ) {
         reasons.push(...(verification?.reasons ?? []));
         reasons.push(...(params.surface?.reasons ?? []));
-        return PlatformRuntimeSupervisorVerdictSchema.parse({
+        return parseSupervisorVerdict({
           runId: params.runId,
           status: "retryable",
           action: acceptance?.action === "escalate" ? "escalate" : "retry",
-          reasonCode: "execution_degraded",
+          reasonCode: resolveSupervisorReasonCode({
+            acceptance,
+            verification,
+            surface: params.surface,
+            fallbackReasonCode: "execution_degraded",
+          }),
           reasons: Array.from(new Set(reasons)),
           acceptance,
           verification,
           surface: params.surface,
         });
       }
-      return PlatformRuntimeSupervisorVerdictSchema.parse({
+      return parseSupervisorVerdict({
         runId: params.runId,
         status: acceptance?.status ?? "satisfied",
         action: acceptance?.action ?? "close",
-        reasonCode:
-          acceptance && acceptance.action !== "close"
-            ? "transient_recoverable"
-            : "verified_execution",
+        reasonCode: resolveSupervisorReasonCode({
+          acceptance,
+          verification,
+          surface: params.surface,
+          fallbackReasonCode:
+            acceptance && acceptance.action !== "close"
+              ? "transient_recoverable"
+              : "verified_execution",
+        }),
         reasons: acceptance?.reasons ??
           verification?.reasons ?? ["Execution contract was verified before final closure."],
         acceptance,

@@ -15,6 +15,7 @@ import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { resolveFastModeState } from "../../agents/fast-mode.js";
 import { resolveNestedAgentLane } from "../../agents/lanes.js";
 import { loadModelCatalog } from "../../agents/model-catalog.js";
+import { buildModelFallbackSummary } from "../../agents/model-fallback-summary.js";
 import { runWithModelFallback } from "../../agents/model-fallback.js";
 import { isCliProvider, resolveThinkingDefault } from "../../agents/model-selection.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
@@ -561,6 +562,16 @@ export async function runCronIsolatedAgentTurn(params: {
       fallbackModel = fallbackResult.model;
       provider = fallbackResult.provider;
       model = fallbackResult.model;
+      runResult.meta = {
+        ...runResult.meta,
+        modelFallback: buildModelFallbackSummary({
+          requestedProvider: provider,
+          requestedModel: model,
+          selectedProvider: fallbackResult.provider,
+          selectedModel: fallbackResult.model,
+          attempts: fallbackResult.attempts,
+        }),
+      };
       runEndedAt = Date.now();
     };
     const hasDescendantsSinceRunStart = () =>
@@ -763,11 +774,33 @@ export async function runCronIsolatedAgentTurn(params: {
             hasOutput: Boolean(outputText?.trim()),
             hasStructuredReplyPayload: deliveryPayloadHasStructuredContent,
             deliveredReplyCount: deliveryPayloads.length,
+            ...(finalRunResult.meta?.modelFallback
+              ? {
+                  modelFallbackAttemptCount: finalRunResult.meta.modelFallback.attemptCount,
+                  modelFallbackExhausted: finalRunResult.meta.modelFallback.exhausted,
+                  ...(finalRunResult.meta.modelFallback.finalReason
+                    ? { modelFallbackFinalReason: finalRunResult.meta.modelFallback.finalReason }
+                    : {}),
+                  ...(finalRunResult.meta.modelFallback.finalStatus !== undefined
+                    ? { modelFallbackFinalStatus: finalRunResult.meta.modelFallback.finalStatus }
+                    : {}),
+                  ...(finalRunResult.meta.modelFallback.finalCode
+                    ? { modelFallbackFinalCode: finalRunResult.meta.modelFallback.finalCode }
+                    : {}),
+                  providerAuthFailed: finalRunResult.meta.modelFallback.finalReason === "auth",
+                  providerRateLimited:
+                    finalRunResult.meta.modelFallback.finalReason === "rate_limit" ||
+                    finalRunResult.meta.modelFallback.finalReason === "overloaded",
+                  providerModelNotFound:
+                    finalRunResult.meta.modelFallback.finalReason === "model_not_found",
+                }
+              : {}),
             ...(finalRunResult.successfulCronAdds !== undefined
               ? { successfulCronAdds: finalRunResult.successfulCronAdds }
               : {}),
           },
           executionVerification: finalRunResult.meta?.executionVerification,
+          executionSurface: finalRunResult.meta?.executionSurface,
         }),
       })
     : finalRunResult.meta?.acceptanceOutcome;

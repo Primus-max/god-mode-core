@@ -26,6 +26,7 @@ vi.mock("./queue.js", async (importOriginal) => {
 
 let createShouldEmitToolOutput: typeof import("./agent-runner-helpers.js").createShouldEmitToolOutput;
 let createShouldEmitToolResult: typeof import("./agent-runner-helpers.js").createShouldEmitToolResult;
+let buildAcceptanceFallbackPayload: typeof import("./agent-runner-helpers.js").buildAcceptanceFallbackPayload;
 let enqueueSemanticRetryFollowup: typeof import("./agent-runner-helpers.js").enqueueSemanticRetryFollowup;
 let finalizeWithFollowup: typeof import("./agent-runner-helpers.js").finalizeWithFollowup;
 let isAudioPayload: typeof import("./agent-runner-helpers.js").isAudioPayload;
@@ -39,6 +40,7 @@ describe("agent runner helpers", () => {
     ({
       createShouldEmitToolOutput,
       createShouldEmitToolResult,
+      buildAcceptanceFallbackPayload,
       enqueueSemanticRetryFollowup,
       finalizeWithFollowup,
       isAudioPayload,
@@ -144,6 +146,7 @@ describe("agent runner helpers", () => {
         runId: "run-1",
         status: "retryable",
         action: "retry",
+        remediation: "semantic_retry",
         reasonCode: "contract_mismatch",
         reasons: ["missing verified output"],
       },
@@ -179,10 +182,98 @@ describe("agent runner helpers", () => {
         runId: "run-1",
         status: "retryable",
         action: "retry",
+        remediation: "semantic_retry",
         reasonCode: "execution_no_progress",
         reasons: ["tool reported no progress"],
       },
     });
     expect(skipped).toBe(false);
+  });
+
+  it("does not queue semantic retry for bootstrap remediation and surfaces a specific fallback payload", () => {
+    const skipped = enqueueSemanticRetryFollowup({
+      queueKey: "queue-1",
+      sourceRun: {
+        prompt: "do work",
+        summaryLine: "original",
+        enqueuedAt: 1,
+        run: {
+          agentId: "agent",
+          agentDir: "/tmp/agent",
+          sessionId: "session",
+          sessionFile: "/tmp/session.json",
+          workspaceDir: "/tmp/workspace",
+          config: {},
+          provider: "openai",
+          model: "gpt-5.4",
+          timeoutMs: 30_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+      settings: {} as never,
+      acceptance: {
+        runId: "run-bootstrap",
+        status: "retryable",
+        action: "retry",
+        remediation: "bootstrap",
+        reasonCode: "bootstrap_required",
+        reasons: ["bootstrap still required"],
+        outcome: {
+          runId: "run-bootstrap",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: [],
+        },
+        evidence: {
+          executionSurfaceStatus: "bootstrap_required",
+          executionUnattendedBoundary: "bootstrap",
+        },
+      },
+    });
+    expect(skipped).toBe(false);
+    expect(
+      buildAcceptanceFallbackPayload({
+        runId: "run-bootstrap",
+        status: "retryable",
+        action: "retry",
+        remediation: "bootstrap",
+        reasonCode: "bootstrap_required",
+        reasons: ["bootstrap still required"],
+        outcome: {
+          runId: "run-bootstrap",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: [],
+        },
+        evidence: {
+          executionSurfaceStatus: "bootstrap_required",
+          executionUnattendedBoundary: "bootstrap",
+        },
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        text: expect.stringContaining("bootstrap recovery"),
+      }),
+    );
   });
 });
