@@ -552,7 +552,9 @@ export async function runReplyAgent(params: {
         queueKey,
         settings: resolvedQueue,
       });
-      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict);
+      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict, {
+        channel: replyToChannel,
+      });
       if (fallbackPayload && !queuedSemanticRetry) {
         return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
       }
@@ -608,7 +610,9 @@ export async function runReplyAgent(params: {
         queueKey,
         settings: resolvedQueue,
       });
-      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict);
+      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict, {
+        channel: replyToChannel,
+      });
       if (fallbackPayload && !queuedSemanticRetry) {
         return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
       }
@@ -869,6 +873,9 @@ export async function runReplyAgent(params: {
       const fallbackPayload = buildAcceptanceFallbackPayload(
         acceptanceOutcome,
         supervisorVerdict,
+        {
+          channel: replyToChannel,
+        },
       );
       if (fallbackPayload && !queuedSemanticRetry) {
         finalPayloads = [fallbackPayload];

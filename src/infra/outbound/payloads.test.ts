@@ -161,6 +161,33 @@ describe("normalizeOutboundPayloads", () => {
     ]);
   });
 
+  it("keeps structured interactive payloads alongside portable text", () => {
+    expect(
+      normalizeOutboundPayloads([
+        {
+          text: "I need human input before I can finish this.",
+          interactive: {
+            blocks: [
+              { type: "text", text: "Approval or input required" },
+              { type: "text", text: "Reason: A human must confirm the deployment." },
+            ],
+          },
+        },
+      ]),
+    ).toEqual([
+      {
+        text: "I need human input before I can finish this.",
+        mediaUrls: [],
+        interactive: {
+          blocks: [
+            { type: "text", text: "Approval or input required" },
+            { type: "text", text: "Reason: A human must confirm the deployment." },
+          ],
+        },
+      },
+    ]);
+  });
+
   it("suppresses reasoning payloads", () => {
     expect(
       normalizeOutboundPayloads([

@@ -510,6 +510,9 @@ export function createFollowupRunner(params: {
         const fallbackPayload = buildAcceptanceFallbackPayload(
           acceptanceOutcome,
           supervisorVerdict,
+          {
+            channel: replyToChannel,
+          },
         );
         if (!fallbackPayload) {
           return;

@@ -16,6 +16,7 @@ import {
   type PlatformRuntimeRunClosure,
   type PlatformRuntimeSupervisorVerdict,
 } from "../../platform/runtime/index.js";
+import { normalizeMessageChannel } from "../../utils/message-channel.js";
 import { normalizeVerboseLevel, type VerboseLevel } from "../thinking.js";
 import type { ReplyPayload } from "../types.js";
 import {
@@ -114,6 +115,15 @@ export type MessagingDeliveryClosureCandidate = {
 type MessagingClosureDecision =
   | PlatformRuntimeAcceptanceResult
   | PlatformRuntimeSupervisorVerdict;
+
+type MessagingClosurePresentation = {
+  title: string;
+  text: string;
+  details: string[];
+  isError?: boolean;
+};
+
+const STRUCTURED_CLOSURE_CHANNELS = new Set(["discord", "slack"]);
 
 function hasStructuredReplyPayload(payload: ReplyPayload): boolean {
   const parts = resolveSendableOutboundReplyParts(payload);
@@ -291,61 +301,150 @@ function resolveMessagingClosureDecision(params: {
   return params.supervisorVerdict ?? params.acceptance;
 }
 
-export function buildAcceptanceFallbackPayload(
-  acceptance: PlatformRuntimeAcceptanceResult | undefined,
-  supervisorVerdict?: PlatformRuntimeSupervisorVerdict,
-): ReplyPayload | undefined {
-  const decision = resolveMessagingClosureDecision({ acceptance, supervisorVerdict });
+function shouldAttachStructuredClosurePresentation(channel?: string): boolean {
+  const normalized = normalizeMessageChannel(channel);
+  return normalized ? STRUCTURED_CLOSURE_CHANNELS.has(normalized) : false;
+}
+
+function resolveMessagingClosureTitle(decision: MessagingClosureDecision): string {
+  if (decision.recoveryPolicy.exhausted) {
+    return decision.recoveryPolicy.exhaustedAction === "escalate"
+      ? "Human intervention required"
+      : "Automatic recovery exhausted";
+  }
+  if (decision.remediation === "bootstrap") {
+    return "Bootstrap recovery in progress";
+  }
+  if (decision.remediation === "auth_refresh") {
+    return "Authentication attention required";
+  }
+  if (decision.remediation === "provider_fallback") {
+    return "Alternate runtime path required";
+  }
+  if (decision.action === "retry") {
+    return "Automatic recovery continuing";
+  }
+  if (decision.action === "escalate") {
+    return "Approval or input required";
+  }
+  if (decision.action === "stop") {
+    return "Task could not be completed";
+  }
+  return "Task needs additional handling";
+}
+
+function resolveMessagingClosureNextStep(decision: MessagingClosureDecision): string | undefined {
+  if (decision.recoveryPolicy.exhausted) {
+    return decision.recoveryPolicy.exhaustedAction === "escalate"
+      ? "Waiting for human intervention before continuing."
+      : "No further automatic recovery will be attempted.";
+  }
+  if (decision.remediation === "bootstrap") {
+    return "Bootstrap recovery must finish before the task can complete.";
+  }
+  if (decision.remediation === "auth_refresh") {
+    return "Provider authentication must be refreshed before retrying.";
+  }
+  if (decision.remediation === "provider_fallback") {
+    return "A different provider or model path is needed before retrying.";
+  }
+  if (decision.action === "retry") {
+    return "One more automatic pass is required to finish reliably.";
+  }
+  if (decision.action === "escalate") {
+    return "Waiting for human approval or guidance before continuing.";
+  }
+  if (decision.action === "stop") {
+    return "The task has stopped without another automatic retry.";
+  }
+  return undefined;
+}
+
+function buildMessagingClosurePresentation(
+  decision: MessagingClosureDecision,
+): MessagingClosurePresentation | undefined {
+  const reason = decision.reasons[0] ?? "The task needs additional handling.";
+  const text =
+    decision.recoveryPolicy.exhausted
+      ? decision.recoveryPolicy.exhaustedAction === "escalate"
+        ? `I could not finish automatically and now need human intervention. ${reason}`.trim()
+        : `I exhausted the automatic recovery budget and could not complete this task. ${reason}`.trim()
+      : decision.remediation === "bootstrap"
+        ? `Still working on this. I need to finish bootstrap recovery before I can complete it. ${reason}`.trim()
+        : decision.remediation === "auth_refresh"
+          ? `I could not finish because provider authentication needs attention. ${reason}`.trim()
+          : decision.remediation === "provider_fallback"
+            ? `I hit a provider/model execution problem and need a different runtime path before I can finish. ${reason}`.trim()
+            : decision.action === "retry"
+              ? `Still working on this. I need one more pass to finish reliably. ${reason}`.trim()
+              : decision.action === "escalate"
+                ? `I need human input or approval before I can finish this. ${reason}`.trim()
+                : decision.action === "stop"
+                  ? `I could not complete this task. ${reason}`.trim()
+                  : undefined;
+  if (!text) {
+    return undefined;
+  }
+  const additionalReasons =
+    decision.reasons.length > 1
+      ? `Additional details:\n- ${decision.reasons.slice(1).join("\n- ")}`
+      : undefined;
+  const nextStep = resolveMessagingClosureNextStep(decision);
+  return {
+    title: resolveMessagingClosureTitle(decision),
+    text,
+    details: [
+      `Reason: ${reason}`,
+      ...(additionalReasons ? [additionalReasons] : []),
+      ...(nextStep ? [`Next step: ${nextStep}`] : []),
+    ],
+    isError:
+      decision.recoveryPolicy.exhausted ||
+      decision.remediation === "auth_refresh" ||
+      decision.remediation === "provider_fallback" ||
+      decision.action === "escalate" ||
+      decision.action === "stop"
+        ? true
+        : undefined,
+  };
+}
+
+export function buildMessagingClosurePresentationPayload(params: {
+  acceptance: PlatformRuntimeAcceptanceResult | undefined;
+  supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
+  channel?: string;
+}): ReplyPayload | undefined {
+  const decision = resolveMessagingClosureDecision(params);
   if (!decision) {
     return undefined;
   }
-  const reason = decision.reasons[0] ?? "The task needs additional handling.";
-  if (decision.recoveryPolicy.exhausted) {
-    return decision.recoveryPolicy.exhaustedAction === "escalate"
-      ? {
-          text: `I could not finish automatically and now need human intervention. ${reason}`.trim(),
-          isError: true,
-        }
-      : {
-          text: `I exhausted the automatic recovery budget and could not complete this task. ${reason}`.trim(),
-          isError: true,
-        };
+  const presentation = buildMessagingClosurePresentation(decision);
+  if (!presentation) {
+    return undefined;
   }
-  if (decision.remediation === "bootstrap") {
-    return {
-      text: `Still working on this. I need to finish bootstrap recovery before I can complete it. ${reason}`.trim(),
-    };
-  }
-  if (decision.remediation === "auth_refresh") {
-    return {
-      text: `I could not finish because provider authentication needs attention. ${reason}`.trim(),
-      isError: true,
-    };
-  }
-  if (decision.remediation === "provider_fallback") {
-    return {
-      text: `I hit a provider/model execution problem and need a different runtime path before I can finish. ${reason}`.trim(),
-      isError: true,
-    };
-  }
-  if (decision.action === "retry") {
-    return {
-      text: `Still working on this. I need one more pass to finish reliably. ${reason}`.trim(),
-    };
-  }
-  if (decision.action === "escalate") {
-    return {
-      text: `I need human input or approval before I can finish this. ${reason}`.trim(),
-      isError: true,
-    };
-  }
-  if (decision.action === "stop") {
-    return {
-      text: `I could not complete this task. ${reason}`.trim(),
-      isError: true,
-    };
-  }
-  return undefined;
+  const blocks = shouldAttachStructuredClosurePresentation(params.channel)
+    ? [
+        { type: "text" as const, text: presentation.title },
+        ...presentation.details.map((text) => ({ type: "text" as const, text })),
+      ]
+    : undefined;
+  return {
+    text: presentation.text,
+    ...(presentation.isError ? { isError: true } : {}),
+    ...(blocks?.length ? { interactive: { blocks } } : {}),
+  };
+}
+
+export function buildAcceptanceFallbackPayload(
+  acceptance: PlatformRuntimeAcceptanceResult | undefined,
+  supervisorVerdict?: PlatformRuntimeSupervisorVerdict,
+  options?: { channel?: string },
+): ReplyPayload | undefined {
+  return buildMessagingClosurePresentationPayload({
+    acceptance,
+    supervisorVerdict,
+    channel: options?.channel,
+  });
 }
 
 export function enqueueSemanticRetryFollowup(params: {
