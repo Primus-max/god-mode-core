@@ -423,6 +423,74 @@ describe("agent runner helpers", () => {
     );
   });
 
+  it("prefers supervisor verdict semantics when building fallback payloads", () => {
+    expect(
+      buildAcceptanceFallbackPayload(
+        {
+          runId: "run-supervisor-fallback",
+          status: "retryable",
+          action: "retry",
+          remediation: "semantic_retry",
+          recoveryPolicy: {
+            remediation: "semantic_retry",
+            recoveryClass: "semantic",
+            cadence: "immediate",
+            continuous: false,
+            attemptCount: 0,
+            maxAttempts: 2,
+            remainingAttempts: 2,
+            exhausted: false,
+            exhaustedAction: "stop",
+            nextAttemptDelayMs: 0,
+          },
+          reasonCode: "runtime_partial",
+          reasons: ["delivery still pending"],
+          outcome: {
+            runId: "run-supervisor-fallback",
+            status: "completed",
+            checkpointIds: [],
+            blockedCheckpointIds: [],
+            completedCheckpointIds: [],
+            deniedCheckpointIds: [],
+            pendingApprovalIds: [],
+            artifactIds: [],
+            bootstrapRequestIds: [],
+            actionIds: [],
+            attemptedActionIds: [],
+            confirmedActionIds: [],
+            failedActionIds: [],
+            boundaries: [],
+          },
+          evidence: {},
+        },
+        {
+          runId: "run-supervisor-fallback",
+          status: "failed",
+          action: "escalate",
+          remediation: "none",
+          reasonCode: "needs_human",
+          reasons: ["A human needs to confirm the irreversible step."],
+          recoveryPolicy: {
+            remediation: "none",
+            recoveryClass: "none",
+            cadence: "manual",
+            continuous: false,
+            attemptCount: 0,
+            maxAttempts: 0,
+            remainingAttempts: 0,
+            exhausted: false,
+            exhaustedAction: "escalate",
+          },
+        },
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        isError: true,
+        text: expect.stringContaining("human input or approval"),
+      }),
+    );
+  });
+
   it("reuses declared execution intent when messaging closure is reevaluated", () => {
     const acceptance = reevaluateAcceptanceForMessagingRun({
       runResult: {

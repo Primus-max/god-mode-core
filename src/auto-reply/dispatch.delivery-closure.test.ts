@@ -28,6 +28,7 @@ describe("dispatchInboundMessage delivery closure", () => {
     dispatchReplyFromConfigMock.mockResolvedValue({
       queuedFinal: true,
       counts: { tool: 0, block: 0, final: 1 },
+      finalReplyPayloads: [{ text: "final reply delivered" }],
       deliveryCandidate: {
         runResult: {
           meta: {
@@ -104,6 +105,7 @@ describe("dispatchInboundMessage delivery closure", () => {
         candidate: expect.objectContaining({
           queueKey: "main",
         }),
+        replyPayloads: [{ text: "final reply delivered" }],
         deliveryReceipt: expect.objectContaining({
           attemptedDeliveryCount: 1,
           confirmedDeliveryCount: 0,

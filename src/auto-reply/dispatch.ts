@@ -60,7 +60,7 @@ export async function dispatchInboundMessage(params: {
   const routedReceipt = result.routedDeliveryReceipt;
   finalizeMessagingDeliveryClosure({
     candidate: result.deliveryCandidate,
-    replyPayloads: [],
+    replyPayloads: result.finalReplyPayloads ?? [],
     deliveryReceipt: {
       stagedReplyCount: routedReceipt?.stagedReplyCount ?? 0,
       attemptedDeliveryCount:

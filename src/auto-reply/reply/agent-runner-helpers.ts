@@ -111,6 +111,10 @@ export type MessagingDeliveryClosureCandidate = {
   settings: QueueSettings;
 };
 
+type MessagingClosureDecision =
+  | PlatformRuntimeAcceptanceResult
+  | PlatformRuntimeSupervisorVerdict;
+
 function hasStructuredReplyPayload(payload: ReplyPayload): boolean {
   const parts = resolveSendableOutboundReplyParts(payload);
   return (
@@ -253,6 +257,22 @@ function reevaluateMessagingDecision(params: {
   };
 }
 
+export function reevaluateMessagingDecisionForMessagingRun(params: {
+  runResult: MessagingDeliveryClosureCandidate["runResult"];
+  replyPayloads: ReplyPayload[];
+  deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
+  recoveryAttemptCount?: number;
+}):
+  | {
+      runClosure?: PlatformRuntimeRunClosure;
+      acceptanceOutcome?: PlatformRuntimeAcceptanceResult;
+      executionVerification?: PlatformRuntimeExecutionVerification;
+      supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
+    }
+  | undefined {
+  return reevaluateMessagingDecision(params);
+}
+
 export function reevaluateAcceptanceForMessagingRun(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads: ReplyPayload[];
@@ -262,15 +282,26 @@ export function reevaluateAcceptanceForMessagingRun(params: {
   return reevaluateMessagingDecision(params)?.acceptanceOutcome;
 }
 
+function resolveMessagingClosureDecision(params: {
+  acceptance: PlatformRuntimeAcceptanceResult | undefined;
+  supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
+}): MessagingClosureDecision | undefined {
+  // Supervisor verdict is the final closure truth when present, so user-facing
+  // fallback copy should align with the same decision used by durable summaries.
+  return params.supervisorVerdict ?? params.acceptance;
+}
+
 export function buildAcceptanceFallbackPayload(
   acceptance: PlatformRuntimeAcceptanceResult | undefined,
+  supervisorVerdict?: PlatformRuntimeSupervisorVerdict,
 ): ReplyPayload | undefined {
-  if (!acceptance) {
+  const decision = resolveMessagingClosureDecision({ acceptance, supervisorVerdict });
+  if (!decision) {
     return undefined;
   }
-  const reason = acceptance.reasons[0] ?? "The task needs additional handling.";
-  if (acceptance.recoveryPolicy.exhausted) {
-    return acceptance.recoveryPolicy.exhaustedAction === "escalate"
+  const reason = decision.reasons[0] ?? "The task needs additional handling.";
+  if (decision.recoveryPolicy.exhausted) {
+    return decision.recoveryPolicy.exhaustedAction === "escalate"
       ? {
           text: `I could not finish automatically and now need human intervention. ${reason}`.trim(),
           isError: true,
@@ -280,35 +311,35 @@ export function buildAcceptanceFallbackPayload(
           isError: true,
         };
   }
-  if (acceptance.remediation === "bootstrap") {
+  if (decision.remediation === "bootstrap") {
     return {
       text: `Still working on this. I need to finish bootstrap recovery before I can complete it. ${reason}`.trim(),
     };
   }
-  if (acceptance.remediation === "auth_refresh") {
+  if (decision.remediation === "auth_refresh") {
     return {
       text: `I could not finish because provider authentication needs attention. ${reason}`.trim(),
       isError: true,
     };
   }
-  if (acceptance.remediation === "provider_fallback") {
+  if (decision.remediation === "provider_fallback") {
     return {
       text: `I hit a provider/model execution problem and need a different runtime path before I can finish. ${reason}`.trim(),
       isError: true,
     };
   }
-  if (acceptance.action === "retry") {
+  if (decision.action === "retry") {
     return {
       text: `Still working on this. I need one more pass to finish reliably. ${reason}`.trim(),
     };
   }
-  if (acceptance.action === "escalate") {
+  if (decision.action === "escalate") {
     return {
       text: `I need human input or approval before I can finish this. ${reason}`.trim(),
       isError: true,
     };
   }
-  if (acceptance.action === "stop") {
+  if (decision.action === "stop") {
     return {
       text: `I could not complete this task. ${reason}`.trim(),
       isError: true,

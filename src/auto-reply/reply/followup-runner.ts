@@ -26,7 +26,7 @@ import {
   buildAcceptanceFallbackPayload,
   buildMessagingDeliveryReceipt,
   finalizeMessagingDeliveryClosure,
-  reevaluateAcceptanceForMessagingRun,
+  reevaluateMessagingDecisionForMessagingRun,
 } from "./agent-runner-helpers.js";
 import { resolvePlatformExecutionContextForTemplateRun } from "./agent-runner-utils.js";
 import {
@@ -470,11 +470,13 @@ export function createFollowupRunner(params: {
         }),
       });
       let finalPayloads = suppressMessagingToolReplies ? [] : mediaFilteredPayloads;
-      let acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
+      const closureDecision = reevaluateMessagingDecisionForMessagingRun({
         runResult,
         replyPayloads: finalPayloads,
         recoveryAttemptCount: queued.automation?.retryCount ?? 0,
       });
+      let acceptanceOutcome = closureDecision?.acceptanceOutcome;
+      const supervisorVerdict = closureDecision?.supervisorVerdict;
       let queuedSemanticRetry = false;
 
       if (autoCompactionCount > 0) {
@@ -505,7 +507,10 @@ export function createFollowupRunner(params: {
       }
 
       if (finalPayloads.length === 0) {
-        const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome);
+        const fallbackPayload = buildAcceptanceFallbackPayload(
+          acceptanceOutcome,
+          supervisorVerdict,
+        );
         if (!fallbackPayload) {
           return;
         }

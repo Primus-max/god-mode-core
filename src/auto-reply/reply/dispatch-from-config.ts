@@ -150,6 +150,7 @@ export type DispatchFromConfigResult = {
   counts: Record<ReplyDispatchKind, number>;
   deliveryCandidate?: MessagingDeliveryClosureCandidate;
   routedDeliveryReceipt?: MessagingDeliveryReceipt;
+  finalReplyPayloads?: ReplyPayload[];
 };
 
 export async function dispatchReplyFromConfig(params: {
@@ -589,6 +590,7 @@ export async function dispatchReplyFromConfig(params: {
     let attemptedDeliveryCount = 0;
     let confirmedDeliveryCount = 0;
     let failedDeliveryCount = 0;
+    const finalReplyPayloads: ReplyPayload[] = [];
     const replyResult = await replyResolver(
       ctx,
       {
@@ -710,6 +712,7 @@ export async function dispatchReplyFromConfig(params: {
         inboundAudio,
         ttsAuto: sessionTtsAuto,
       });
+      finalReplyPayloads.push(ttsReply);
       if (shouldRouteToOriginating && originatingChannel && originatingTo) {
         // Route final reply to originating channel.
         const result = await routeReplyRuntime.routeReply({
@@ -766,6 +769,7 @@ export async function dispatchReplyFromConfig(params: {
             mediaUrl: ttsSyntheticReply.mediaUrl,
             audioAsVoice: ttsSyntheticReply.audioAsVoice,
           };
+          finalReplyPayloads.push(ttsOnlyPayload);
           if (shouldRouteToOriginating && originatingChannel && originatingTo) {
             const result = await routeReplyRuntime.routeReply({
               payload: ttsOnlyPayload,
@@ -813,6 +817,7 @@ export async function dispatchReplyFromConfig(params: {
       queuedFinal,
       counts,
       deliveryCandidate,
+      finalReplyPayloads,
       routedDeliveryReceipt: {
         stagedReplyCount: counts.tool + counts.block + counts.final,
         attemptedDeliveryCount,

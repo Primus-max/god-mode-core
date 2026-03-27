@@ -35,7 +35,7 @@ import {
   enqueueSemanticRetryFollowup,
   finalizeWithFollowup,
   isAudioPayload,
-  reevaluateAcceptanceForMessagingRun,
+  reevaluateMessagingDecisionForMessagingRun,
   signalTypingIfNeeded,
 } from "./agent-runner-helpers.js";
 import { runMemoryFlushIfNeeded } from "./agent-runner-memory.runtime.js";
@@ -529,10 +529,12 @@ export async function runReplyAgent(params: {
     // Otherwise, a late typing trigger (e.g. from a tool callback) can outlive the run and
     // keep the typing indicator stuck.
     if (payloadArray.length === 0) {
-      const acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
+      const closureDecision = reevaluateMessagingDecisionForMessagingRun({
         runResult,
         replyPayloads: [],
       });
+      const acceptanceOutcome = closureDecision?.acceptanceOutcome;
+      const supervisorVerdict = closureDecision?.supervisorVerdict;
       const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
       const queuedSemanticRetry = deferDeliveryClosure
         ? false
@@ -541,6 +543,7 @@ export async function runReplyAgent(params: {
             sourceRun: followupRun,
             settings: resolvedQueue,
             acceptance: acceptanceOutcome,
+            supervisorVerdict,
           });
       captureMessagingDeliveryClosureCandidate({
         onCandidate: opts?.onDeliveryClosureCandidate,
@@ -549,7 +552,7 @@ export async function runReplyAgent(params: {
         queueKey,
         settings: resolvedQueue,
       });
-      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome);
+      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict);
       if (fallbackPayload && !queuedSemanticRetry) {
         return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
       }
@@ -582,10 +585,12 @@ export async function runReplyAgent(params: {
     didLogHeartbeatStrip = payloadResult.didLogHeartbeatStrip;
 
     if (replyPayloads.length === 0) {
-      const acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
+      const closureDecision = reevaluateMessagingDecisionForMessagingRun({
         runResult,
         replyPayloads: [],
       });
+      const acceptanceOutcome = closureDecision?.acceptanceOutcome;
+      const supervisorVerdict = closureDecision?.supervisorVerdict;
       const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
       const queuedSemanticRetry = deferDeliveryClosure
         ? false
@@ -594,6 +599,7 @@ export async function runReplyAgent(params: {
             sourceRun: followupRun,
             settings: resolvedQueue,
             acceptance: acceptanceOutcome,
+            supervisorVerdict,
           });
       captureMessagingDeliveryClosureCandidate({
         onCandidate: opts?.onDeliveryClosureCandidate,
@@ -602,7 +608,7 @@ export async function runReplyAgent(params: {
         queueKey,
         settings: resolvedQueue,
       });
-      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome);
+      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict);
       if (fallbackPayload && !queuedSemanticRetry) {
         return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
       }
@@ -629,10 +635,12 @@ export async function runReplyAgent(params: {
       hasReminderCommitment && successfulCronAdds === 0 && !coveredByExistingCron
         ? appendUnscheduledReminderNote(replyPayloads)
         : replyPayloads;
-    const acceptanceOutcome = reevaluateAcceptanceForMessagingRun({
+    const closureDecision = reevaluateMessagingDecisionForMessagingRun({
       runResult,
       replyPayloads: guardedReplyPayloads,
     });
+    const acceptanceOutcome = closureDecision?.acceptanceOutcome;
+    const supervisorVerdict = closureDecision?.supervisorVerdict;
     const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
     const queuedSemanticRetry = deferDeliveryClosure
       ? false
@@ -641,6 +649,7 @@ export async function runReplyAgent(params: {
           sourceRun: followupRun,
           settings: resolvedQueue,
           acceptance: acceptanceOutcome,
+          supervisorVerdict,
         });
     captureMessagingDeliveryClosureCandidate({
       onCandidate: opts?.onDeliveryClosureCandidate,
@@ -857,7 +866,10 @@ export async function runReplyAgent(params: {
       finalPayloads = appendUsageLine(finalPayloads, responseUsageLine);
     }
     if (finalPayloads.length === 0) {
-      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome);
+      const fallbackPayload = buildAcceptanceFallbackPayload(
+        acceptanceOutcome,
+        supervisorVerdict,
+      );
       if (fallbackPayload && !queuedSemanticRetry) {
         finalPayloads = [fallbackPayload];
       }
