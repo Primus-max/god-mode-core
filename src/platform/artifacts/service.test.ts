@@ -110,6 +110,34 @@ describe("artifact service", () => {
     expect(nextService.get("artifact-release")?.lifecycle).toBe("published");
   });
 
+  it("returns the existing artifact when a confirmed transition is replayed", () => {
+    const stateDir = createTempStateDir();
+    tempDirs.push(stateDir);
+    const service = createArtifactService({
+      stateDir,
+      gatewayBaseUrl: "http://127.0.0.1:18789",
+    });
+
+    service.register(buildDescriptor({ id: "artifact-replay", label: "Artifact Replay" }));
+    expect(service.transition("artifact-replay", "publish")).toEqual({
+      ok: true,
+      descriptor: expect.objectContaining({ lifecycle: "published" }),
+    });
+
+    const replay = service.transition("artifact-replay", "publish");
+    expect(replay).toEqual({
+      ok: true,
+      descriptor: expect.objectContaining({ lifecycle: "published" }),
+    });
+    expect(
+      getPlatformRuntimeCheckpointService().getAction("artifact:artifact-replay:publish"),
+    ).toEqual(
+      expect.objectContaining({
+        state: "confirmed",
+      }),
+    );
+  });
+
   it("denies publish transitions when the frozen decision posture does not allow publish", () => {
     const stateDir = createTempStateDir();
     tempDirs.push(stateDir);

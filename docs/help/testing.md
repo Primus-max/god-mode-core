@@ -64,6 +64,9 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
 - Verified delivery note:
   - When you touch outbound closure or acceptance evidence, keep one scenario where `staged` output is not treated as delivered truth after send failure and one where post-send receipts close the run only after confirmed delivery evidence.
   - Current reference coverage lives in `src/platform/runtime/service.test.ts`, `src/auto-reply/reply/route-reply.test.ts`, and `src/auto-reply/dispatch.delivery-closure.test.ts`.
+- Idempotent recovery note:
+  - When you touch replay-sensitive side effects, keep at least one deterministic scenario where a `confirmed` action survives restart/recovery without a second external send and one non-messaging continuation scenario where a confirmed bootstrap/artifact action does not execute twice on resume.
+  - Current reference coverage lives in `src/infra/outbound/delivery-queue.recovery.test.ts`, `src/platform/bootstrap/service.test.ts`, `src/platform/artifacts/service.test.ts`, and `src/platform/runtime/service.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.
   - Shared unit coverage now defaults to `threads`, while the manifest keeps the measured fork-only exceptions and heavy singleton lanes explicit.

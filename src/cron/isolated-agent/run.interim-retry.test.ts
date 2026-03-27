@@ -113,6 +113,10 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
               pendingApprovalIds: [],
               artifactIds: [],
               bootstrapRequestIds: [],
+              actionIds: [],
+              attemptedActionIds: [],
+              confirmedActionIds: [],
+              failedActionIds: [],
               boundaries: [],
             },
             evidence: {
@@ -155,6 +159,10 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
             pendingApprovalIds: ["approval-human"],
             artifactIds: [],
             bootstrapRequestIds: [],
+            actionIds: [],
+            attemptedActionIds: [],
+            confirmedActionIds: [],
+            failedActionIds: [],
             boundaries: ["exec_approval"],
           },
           evidence: {

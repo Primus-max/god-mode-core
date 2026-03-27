@@ -120,6 +120,130 @@ export const PlatformRuntimeCheckpointStoreSchema = z
   .strict();
 export type PlatformRuntimeCheckpointStore = z.infer<typeof PlatformRuntimeCheckpointStoreSchema>;
 
+export const PlatformRuntimeActionKindSchema = z.enum([
+  "messaging_delivery",
+  "bootstrap",
+  "artifact_publish",
+  "machine_control",
+  "privileged_tool",
+  "node_invoke",
+]);
+export type PlatformRuntimeActionKind = z.infer<typeof PlatformRuntimeActionKindSchema>;
+
+export const PlatformRuntimeActionStateSchema = z.enum([
+  "staged",
+  "attempted",
+  "confirmed",
+  "partial",
+  "failed",
+]);
+export type PlatformRuntimeActionState = z.infer<typeof PlatformRuntimeActionStateSchema>;
+
+export const PlatformRuntimeActionDeliveryResultSchema = z
+  .object({
+    channel: z.string().min(1),
+    messageId: z.string().min(1),
+    chatId: z.string().min(1).optional(),
+    channelId: z.string().min(1).optional(),
+    roomId: z.string().min(1).optional(),
+    conversationId: z.string().min(1).optional(),
+    timestamp: z.number().int().nonnegative().optional(),
+    toJid: z.string().min(1).optional(),
+    pollId: z.string().min(1).optional(),
+    meta: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+export type PlatformRuntimeActionDeliveryResult = z.infer<
+  typeof PlatformRuntimeActionDeliveryResultSchema
+>;
+
+export const PlatformRuntimeNodeInvokeReceiptSchema = z
+  .object({
+    ok: z.boolean(),
+    payload: z.unknown().optional(),
+    payloadJSON: z.string().nullable().optional(),
+    error: z
+      .object({
+        code: z.string().min(1).optional(),
+        message: z.string().min(1).optional(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
+  })
+  .strict();
+export type PlatformRuntimeNodeInvokeReceipt = z.infer<
+  typeof PlatformRuntimeNodeInvokeReceiptSchema
+>;
+
+export const PlatformRuntimeActionReceiptSchema = z
+  .object({
+    deliveryResults: z.array(PlatformRuntimeActionDeliveryResultSchema).optional(),
+    bootstrapRequestId: z.string().min(1).optional(),
+    artifactId: z.string().min(1).optional(),
+    nodeId: z.string().min(1).optional(),
+    command: z.string().min(1).optional(),
+    operation: z.string().min(1).optional(),
+    resultStatus: z.string().min(1).optional(),
+    nodeInvokeResult: PlatformRuntimeNodeInvokeReceiptSchema.optional(),
+  })
+  .strict();
+export type PlatformRuntimeActionReceipt = z.infer<typeof PlatformRuntimeActionReceiptSchema>;
+
+export const PlatformRuntimeActionSchema = z
+  .object({
+    actionId: z.string().min(1),
+    runId: z.string().min(1).optional(),
+    sessionKey: z.string().min(1).optional(),
+    kind: PlatformRuntimeActionKindSchema,
+    state: PlatformRuntimeActionStateSchema,
+    boundary: PlatformRuntimeBoundarySchema.optional(),
+    checkpointId: z.string().min(1).optional(),
+    idempotencyKey: z.string().min(1).optional(),
+    target: PlatformRuntimeTargetSchema.optional(),
+    receipt: PlatformRuntimeActionReceiptSchema.optional(),
+    attemptCount: z.number().int().nonnegative(),
+    retryable: z.boolean().optional(),
+    lastError: z.string().min(1).optional(),
+    createdAtMs: z.number().int().nonnegative(),
+    updatedAtMs: z.number().int().nonnegative(),
+    stagedAtMs: z.number().int().nonnegative().optional(),
+    attemptedAtMs: z.number().int().nonnegative().optional(),
+    confirmedAtMs: z.number().int().nonnegative().optional(),
+    failedAtMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export type PlatformRuntimeAction = z.infer<typeof PlatformRuntimeActionSchema>;
+
+export const PlatformRuntimeActionSummarySchema = PlatformRuntimeActionSchema.pick({
+  actionId: true,
+  runId: true,
+  sessionKey: true,
+  kind: true,
+  state: true,
+  boundary: true,
+  checkpointId: true,
+  target: true,
+  attemptCount: true,
+  retryable: true,
+  lastError: true,
+  createdAtMs: true,
+  updatedAtMs: true,
+  stagedAtMs: true,
+  attemptedAtMs: true,
+  confirmedAtMs: true,
+  failedAtMs: true,
+});
+export type PlatformRuntimeActionSummary = z.infer<typeof PlatformRuntimeActionSummarySchema>;
+
+export const PlatformRuntimeActionStoreSchema = z
+  .object({
+    version: z.literal(1),
+    actions: z.array(PlatformRuntimeActionSchema),
+  })
+  .strict();
+export type PlatformRuntimeActionStore = z.infer<typeof PlatformRuntimeActionStoreSchema>;
+
 export const PlatformRuntimeRunOutcomeStatusSchema = z.enum([
   "completed",
   "blocked",
@@ -139,6 +263,10 @@ export const PlatformRuntimeRunOutcomeSchema = z
     pendingApprovalIds: z.array(z.string().min(1)),
     artifactIds: z.array(z.string().min(1)),
     bootstrapRequestIds: z.array(z.string().min(1)),
+    actionIds: z.array(z.string().min(1)),
+    attemptedActionIds: z.array(z.string().min(1)),
+    confirmedActionIds: z.array(z.string().min(1)),
+    failedActionIds: z.array(z.string().min(1)),
     boundaries: z.array(PlatformRuntimeBoundarySchema),
   })
   .strict();
@@ -188,6 +316,9 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     partialDelivery: z.boolean().optional(),
     artifactReceiptCount: z.number().int().nonnegative().optional(),
     bootstrapReceiptCount: z.number().int().nonnegative().optional(),
+    attemptedActionCount: z.number().int().nonnegative().optional(),
+    confirmedActionCount: z.number().int().nonnegative().optional(),
+    failedActionCount: z.number().int().nonnegative().optional(),
     successfulCronAdds: z.number().int().nonnegative().optional(),
   })
   .strict();

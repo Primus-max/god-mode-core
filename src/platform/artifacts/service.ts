@@ -406,6 +406,21 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
         opts?.explicitApproval ?? (operation === "publish" || operation === "approve"),
       );
       const checkpointId = resolveArtifactCheckpointId(artifactId, operation);
+      const actionId = `artifact:${checkpointId}`;
+      const existingAction = runtimeCheckpointService.getAction(actionId);
+      if (existingAction?.state === "confirmed") {
+        const descriptor = store.get(artifactId);
+        if (descriptor) {
+          runtimeCheckpointService.updateCheckpoint(checkpointId, {
+            status: "completed",
+            completedAtMs: existingAction.confirmedAtMs ?? Date.now(),
+          });
+          return {
+            ok: true,
+            descriptor: upsertRecord(descriptor),
+          };
+        }
+      }
       if (policy.executionContext && (operation === "publish" || operation === "approve")) {
         if ((policy.executionContext.publishTargets?.length ?? 0) === 0) {
           runtimeCheckpointService.createCheckpoint({
@@ -486,8 +501,28 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
           };
         }
       }
+      runtimeCheckpointService.stageAction({
+        actionId,
+        runId: resolveArtifactRunId(existing) ?? checkpointId,
+        kind: "artifact_publish",
+        boundary: "artifact_publish",
+        checkpointId,
+        target: {
+          artifactId,
+          operation,
+        },
+      });
+      runtimeCheckpointService.markActionAttempted(actionId, { retryable: true });
       const transitioned = store.transition(artifactId, operation);
       if (!transitioned) {
+        runtimeCheckpointService.markActionFailed(actionId, {
+          lastError: "artifact not found",
+          retryable: false,
+          receipt: {
+            artifactId,
+            operation,
+          },
+        });
         return {
           ok: false,
           code: "not_found",
@@ -500,6 +535,13 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
           completedAtMs: Date.now(),
         });
       }
+      runtimeCheckpointService.markActionConfirmed(actionId, {
+        receipt: {
+          artifactId,
+          operation,
+          resultStatus: transitioned.lifecycle,
+        },
+      });
       return {
         ok: true,
         descriptor: upsertRecord(transitioned),

@@ -5,12 +5,20 @@ import { resolveStateDir } from "../../config/paths.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import {
   PlatformRuntimeAcceptanceResultSchema,
+  PlatformRuntimeActionSchema,
+  PlatformRuntimeActionStoreSchema,
+  PlatformRuntimeActionSummarySchema,
   PlatformRuntimeCheckpointSchema,
   PlatformRuntimeCheckpointStoreSchema,
   PlatformRuntimeCheckpointSummarySchema,
   PlatformRuntimeRunOutcomeSchema,
   type PlatformRuntimeAcceptanceEvidence,
   type PlatformRuntimeAcceptanceResult,
+  type PlatformRuntimeAction,
+  type PlatformRuntimeActionKind,
+  type PlatformRuntimeActionReceipt,
+  type PlatformRuntimeActionState,
+  type PlatformRuntimeActionSummary,
   type PlatformRuntimeBoundary,
   type PlatformRuntimeCheckpoint,
   type PlatformRuntimeContinuation,
@@ -24,6 +32,7 @@ import {
 
 const PLATFORM_RUNTIME_SERVICE_KEY = Symbol.for("openclaw.platform.runtime.service");
 const PLATFORM_RUNTIME_CHECKPOINTS_FILENAME = "platform-runtime-checkpoints.json";
+const PLATFORM_RUNTIME_ACTIONS_FILENAME = "platform-runtime-actions.json";
 
 export type PlatformRuntimeCheckpointService = {
   configure: (params: { stateDir?: string }) => void;
@@ -45,6 +54,41 @@ export type PlatformRuntimeCheckpointService = {
     patch: Partial<Omit<PlatformRuntimeCheckpoint, "id" | "createdAtMs">>,
   ) => PlatformRuntimeCheckpoint | undefined;
   get: (id: string) => PlatformRuntimeCheckpoint | undefined;
+  stageAction: (params: {
+    actionId: string;
+    runId?: string;
+    sessionKey?: string;
+    kind: PlatformRuntimeActionKind;
+    boundary?: PlatformRuntimeBoundary;
+    checkpointId?: string;
+    idempotencyKey?: string;
+    target?: PlatformRuntimeTarget;
+    receipt?: PlatformRuntimeActionReceipt;
+  }) => PlatformRuntimeAction;
+  updateAction: (
+    actionId: string,
+    patch: Partial<Omit<PlatformRuntimeAction, "actionId" | "createdAtMs">>,
+  ) => PlatformRuntimeAction | undefined;
+  markActionAttempted: (
+    actionId: string,
+    patch?: Partial<Pick<PlatformRuntimeAction, "receipt" | "lastError" | "retryable">>,
+  ) => PlatformRuntimeAction | undefined;
+  markActionConfirmed: (
+    actionId: string,
+    patch?: Partial<Pick<PlatformRuntimeAction, "receipt" | "lastError" | "retryable">>,
+  ) => PlatformRuntimeAction | undefined;
+  markActionFailed: (
+    actionId: string,
+    patch?: Partial<Pick<PlatformRuntimeAction, "receipt" | "lastError" | "retryable">>,
+  ) => PlatformRuntimeAction | undefined;
+  getAction: (actionId: string) => PlatformRuntimeAction | undefined;
+  listActions: (params?: {
+    runId?: string;
+    sessionKey?: string;
+    kind?: PlatformRuntimeActionKind;
+    state?: PlatformRuntimeActionState;
+    checkpointId?: string;
+  }) => PlatformRuntimeActionSummary[];
   findByApprovalId: (approvalId: string) => PlatformRuntimeCheckpoint | undefined;
   list: (params?: {
     sessionKey?: string;
@@ -70,6 +114,10 @@ function resolveRuntimeCheckpointStorePath(stateDir: string): string {
   return path.join(stateDir, PLATFORM_RUNTIME_CHECKPOINTS_FILENAME);
 }
 
+function resolveRuntimeActionStorePath(stateDir: string): string {
+  return path.join(stateDir, PLATFORM_RUNTIME_ACTIONS_FILENAME);
+}
+
 function buildStorePayload(checkpoints: Map<string, PlatformRuntimeCheckpoint>) {
   return PlatformRuntimeCheckpointStoreSchema.parse({
     version: 1,
@@ -79,10 +127,20 @@ function buildStorePayload(checkpoints: Map<string, PlatformRuntimeCheckpoint>) 
   });
 }
 
+function buildActionStorePayload(actions: Map<string, PlatformRuntimeAction>) {
+  return PlatformRuntimeActionStoreSchema.parse({
+    version: 1,
+    actions: Array.from(actions.values()).toSorted(
+      (left, right) => right.updatedAtMs - left.updatedAtMs,
+    ),
+  });
+}
+
 export function createPlatformRuntimeCheckpointService(params?: {
   stateDir?: string;
 }): PlatformRuntimeCheckpointService {
   const checkpoints = new Map<string, PlatformRuntimeCheckpoint>();
+  const actions = new Map<string, PlatformRuntimeAction>();
   const continuationHandlers = new Map<
     PlatformRuntimeContinuationKind,
     (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void
@@ -94,11 +152,43 @@ export function createPlatformRuntimeCheckpointService(params?: {
       return;
     }
     const filePath = resolveRuntimeCheckpointStorePath(stateDir);
+    const actionPath = resolveRuntimeActionStorePath(stateDir);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     const tmpPath = `${filePath}.${process.pid}.tmp`;
+    const actionTmpPath = `${actionPath}.${process.pid}.tmp`;
     const payload = buildStorePayload(checkpoints);
+    const actionPayload = buildActionStorePayload(actions);
     fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), { encoding: "utf8", mode: 0o600 });
+    fs.writeFileSync(actionTmpPath, JSON.stringify(actionPayload, null, 2), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     fs.renameSync(tmpPath, filePath);
+    fs.renameSync(actionTmpPath, actionPath);
+  };
+
+  const saveAction = (action: PlatformRuntimeAction) => {
+    actions.set(action.actionId, action);
+    persist();
+    return action;
+  };
+
+  const mergeAction = (
+    actionId: string,
+    patch: Partial<Omit<PlatformRuntimeAction, "actionId" | "createdAtMs">>,
+  ): PlatformRuntimeAction | undefined => {
+    const existing = actions.get(actionId);
+    if (!existing) {
+      return undefined;
+    }
+    const next = PlatformRuntimeActionSchema.parse({
+      ...existing,
+      ...patch,
+      actionId: existing.actionId,
+      createdAtMs: existing.createdAtMs,
+      updatedAtMs: typeof patch.updatedAtMs === "number" ? patch.updatedAtMs : Date.now(),
+    });
+    return saveAction(next);
   };
 
   return {
@@ -166,6 +256,106 @@ export function createPlatformRuntimeCheckpointService(params?: {
     get(id) {
       return checkpoints.get(id);
     },
+    stageAction(actionParams) {
+      const now = Date.now();
+      const existing = actions.get(actionParams.actionId);
+      const action = PlatformRuntimeActionSchema.parse({
+        actionId: actionParams.actionId,
+        ...(actionParams.runId ? { runId: actionParams.runId } : {}),
+        ...(actionParams.sessionKey ? { sessionKey: actionParams.sessionKey } : {}),
+        kind: actionParams.kind,
+        state: existing?.state ?? "staged",
+        ...(actionParams.boundary ? { boundary: actionParams.boundary } : {}),
+        ...(actionParams.checkpointId ? { checkpointId: actionParams.checkpointId } : {}),
+        ...(actionParams.idempotencyKey ? { idempotencyKey: actionParams.idempotencyKey } : {}),
+        ...(actionParams.target ? { target: actionParams.target } : {}),
+        ...((actionParams.receipt ?? existing?.receipt)
+          ? { receipt: actionParams.receipt ?? existing?.receipt }
+          : {}),
+        attemptCount: existing?.attemptCount ?? 0,
+        retryable: existing?.retryable,
+        lastError: existing?.lastError,
+        createdAtMs: existing?.createdAtMs ?? now,
+        updatedAtMs: now,
+        stagedAtMs: existing?.stagedAtMs ?? now,
+        attemptedAtMs: existing?.attemptedAtMs,
+        confirmedAtMs: existing?.confirmedAtMs,
+        failedAtMs: existing?.failedAtMs,
+      });
+      return saveAction(action);
+    },
+    updateAction(actionId, patch) {
+      return mergeAction(actionId, patch);
+    },
+    markActionAttempted(actionId, patch) {
+      const existing = actions.get(actionId);
+      if (!existing) {
+        return undefined;
+      }
+      return mergeAction(actionId, {
+        state: "attempted",
+        attemptCount: existing.attemptCount + 1,
+        attemptedAtMs: Date.now(),
+        lastError: patch?.lastError,
+        retryable: patch?.retryable,
+        ...(patch?.receipt ? { receipt: patch.receipt } : {}),
+      });
+    },
+    markActionConfirmed(actionId, patch) {
+      return mergeAction(actionId, {
+        state: "confirmed",
+        confirmedAtMs: Date.now(),
+        retryable: false,
+        lastError: patch?.lastError,
+        ...(patch?.receipt ? { receipt: patch.receipt } : {}),
+      });
+    },
+    markActionFailed(actionId, patch) {
+      return mergeAction(actionId, {
+        state: "failed",
+        failedAtMs: Date.now(),
+        retryable: patch?.retryable,
+        lastError: patch?.lastError,
+        ...(patch?.receipt ? { receipt: patch.receipt } : {}),
+      });
+    },
+    getAction(actionId) {
+      return actions.get(actionId);
+    },
+    listActions(listParams) {
+      return Array.from(actions.values())
+        .filter((action) => (listParams?.runId ? action.runId === listParams.runId : true))
+        .filter((action) =>
+          listParams?.sessionKey ? action.sessionKey === listParams.sessionKey : true,
+        )
+        .filter((action) => (listParams?.kind ? action.kind === listParams.kind : true))
+        .filter((action) => (listParams?.state ? action.state === listParams.state : true))
+        .filter((action) =>
+          listParams?.checkpointId ? action.checkpointId === listParams.checkpointId : true,
+        )
+        .toSorted((left, right) => right.updatedAtMs - left.updatedAtMs)
+        .map((action) =>
+          PlatformRuntimeActionSummarySchema.parse({
+            actionId: action.actionId,
+            runId: action.runId,
+            sessionKey: action.sessionKey,
+            kind: action.kind,
+            state: action.state,
+            boundary: action.boundary,
+            checkpointId: action.checkpointId,
+            target: action.target,
+            attemptCount: action.attemptCount,
+            retryable: action.retryable,
+            lastError: action.lastError,
+            createdAtMs: action.createdAtMs,
+            updatedAtMs: action.updatedAtMs,
+            stagedAtMs: action.stagedAtMs,
+            attemptedAtMs: action.attemptedAtMs,
+            confirmedAtMs: action.confirmedAtMs,
+            failedAtMs: action.failedAtMs,
+          }),
+        );
+    },
     findByApprovalId(approvalId) {
       const normalized = approvalId.trim();
       if (!normalized) {
@@ -198,7 +388,10 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const runCheckpoints = Array.from(checkpoints.values()).filter(
         (checkpoint) => checkpoint.runId === normalized,
       );
-      if (runCheckpoints.length === 0) {
+      const runActions = Array.from(actions.values()).filter(
+        (action) => action.runId === normalized,
+      );
+      if (runCheckpoints.length === 0 && runActions.length === 0) {
         return undefined;
       }
       const blockedCheckpointIds = runCheckpoints
@@ -230,12 +423,22 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const bootstrapRequestIds = runCheckpoints
         .map((checkpoint) => checkpoint.target?.bootstrapRequestId)
         .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+      const actionIds = runActions.map((action) => action.actionId);
+      const attemptedActionIds = runActions
+        .filter((action) => action.state === "attempted" || action.state === "partial")
+        .map((action) => action.actionId);
+      const confirmedActionIds = runActions
+        .filter((action) => action.state === "confirmed")
+        .map((action) => action.actionId);
+      const failedActionIds = runActions
+        .filter((action) => action.state === "failed")
+        .map((action) => action.actionId);
       const status =
         blockedCheckpointIds.length > 0
           ? "blocked"
           : deniedCheckpointIds.length > 0
             ? "failed"
-            : completedCheckpointIds.length > 0
+            : completedCheckpointIds.length > 0 || confirmedActionIds.length > 0
               ? "completed"
               : "partial";
       return PlatformRuntimeRunOutcomeSchema.parse({
@@ -248,6 +451,10 @@ export function createPlatformRuntimeCheckpointService(params?: {
         pendingApprovalIds: Array.from(new Set(pendingApprovalIds)),
         artifactIds: Array.from(new Set(artifactIds)),
         bootstrapRequestIds: Array.from(new Set(bootstrapRequestIds)),
+        actionIds: Array.from(new Set(actionIds)),
+        attemptedActionIds: Array.from(new Set(attemptedActionIds)),
+        confirmedActionIds: Array.from(new Set(confirmedActionIds)),
+        failedActionIds: Array.from(new Set(failedActionIds)),
         boundaries: Array.from(new Set(runCheckpoints.map((checkpoint) => checkpoint.boundary))),
       });
     },
@@ -306,6 +513,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
         evidence.confirmedDeliveryCount ?? evidence.deliveredReplyCount ?? 0;
       const attemptedDeliveryCount = evidence.attemptedDeliveryCount ?? 0;
       const failedDeliveryCount = evidence.failedDeliveryCount ?? 0;
+      const attemptedActionCount =
+        evidence.attemptedActionCount ?? params.outcome.attemptedActionIds.length;
+      const confirmedActionCount =
+        evidence.confirmedActionCount ?? params.outcome.confirmedActionIds.length;
+      const failedActionCount = evidence.failedActionCount ?? params.outcome.failedActionIds.length;
       if (attemptedDeliveryCount > 0 && confirmedDeliveryCount === 0 && failedDeliveryCount > 0) {
         reasons.push(
           "Run completed, but delivery attempts failed before any message was confirmed.",
@@ -342,7 +554,28 @@ export function createPlatformRuntimeCheckpointService(params?: {
         evidence.hasOutput === true ||
         evidence.hasStructuredReplyPayload === true ||
         confirmedDeliveryCount > 0 ||
+        confirmedActionCount > 0 ||
         (evidence.successfulCronAdds ?? 0) > 0;
+      if (
+        attemptedDeliveryCount === 0 &&
+        confirmedDeliveryCount === 0 &&
+        attemptedActionCount > 0 &&
+        confirmedActionCount === 0 &&
+        failedActionCount > 0
+      ) {
+        reasons.push(
+          "Run completed, but replay-sensitive actions failed before any receipt was confirmed.",
+        );
+        return PlatformRuntimeAcceptanceResultSchema.parse({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode: "completed_without_evidence",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
       if (evidence.hadToolError === true && hasDeliverableEvidence) {
         reasons.push(
           "Run completed with deliverable evidence, but one or more tool errors were observed.",
@@ -462,27 +695,43 @@ export function createPlatformRuntimeCheckpointService(params?: {
       if (!stateDir) {
         return 0;
       }
-      const filePath = resolveRuntimeCheckpointStorePath(stateDir);
       let loaded = 0;
       try {
-        const raw = fs.readFileSync(filePath, "utf8");
-        const parsed = PlatformRuntimeCheckpointStoreSchema.parse(JSON.parse(raw));
+        const checkpointRaw = fs.readFileSync(resolveRuntimeCheckpointStorePath(stateDir), "utf8");
+        const parsed = PlatformRuntimeCheckpointStoreSchema.parse(JSON.parse(checkpointRaw));
         checkpoints.clear();
         for (const checkpoint of parsed.checkpoints) {
           checkpoints.set(checkpoint.id, checkpoint);
           loaded += 1;
         }
       } catch {
-        return 0;
+        checkpoints.clear();
+      }
+      try {
+        const actionRaw = fs.readFileSync(resolveRuntimeActionStorePath(stateDir), "utf8");
+        const parsed = PlatformRuntimeActionStoreSchema.parse(JSON.parse(actionRaw));
+        actions.clear();
+        for (const action of parsed.actions) {
+          actions.set(action.actionId, action);
+          loaded += 1;
+        }
+      } catch {
+        actions.clear();
       }
       return loaded;
     },
     reset() {
       checkpoints.clear();
+      actions.clear();
       continuationHandlers.clear();
       if (stateDir) {
         try {
           fs.rmSync(resolveRuntimeCheckpointStorePath(stateDir), { force: true });
+        } catch {
+          // Ignore reset cleanup failures in tests.
+        }
+        try {
+          fs.rmSync(resolveRuntimeActionStorePath(stateDir), { force: true });
         } catch {
           // Ignore reset cleanup failures in tests.
         }
