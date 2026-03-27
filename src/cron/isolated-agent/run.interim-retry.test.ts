@@ -102,6 +102,18 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
             status: "retryable",
             action: "retry",
             remediation: "semantic_retry",
+            recoveryPolicy: {
+              remediation: "semantic_retry",
+              recoveryClass: "semantic",
+              cadence: "immediate",
+              continuous: false,
+              attemptCount: 0,
+              maxAttempts: 1,
+              remainingAttempts: 1,
+              exhausted: false,
+              exhaustedAction: "stop",
+              nextAttemptDelayMs: 0,
+            },
             reasonCode: "completed_without_evidence",
             reasons: ["Run completed but no machine-checkable delivery evidence was observed."],
             outcome: {
@@ -149,6 +161,17 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
           status: "needs_human",
           action: "escalate",
           remediation: "needs_human",
+          recoveryPolicy: {
+            remediation: "needs_human",
+            recoveryClass: "human",
+            cadence: "manual",
+            continuous: false,
+            attemptCount: 0,
+            maxAttempts: 0,
+            remainingAttempts: 0,
+            exhausted: false,
+            exhaustedAction: "escalate",
+          },
           reasonCode: "pending_approval",
           reasons: ["Run still requires operator approval before the task can finish."],
           outcome: {
@@ -186,5 +209,70 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
       }),
     );
     expect(runEmbeddedPiAgentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry when the shared recovery policy is already exhausted", async () => {
+    usePayloadTextExtraction();
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "Done." }],
+      meta: {
+        acceptanceOutcome: {
+          runId: "run-exhausted",
+          status: "retryable",
+          action: "retry",
+          remediation: "semantic_retry",
+          recoveryPolicy: {
+            remediation: "semantic_retry",
+            recoveryClass: "semantic",
+            cadence: "immediate",
+            continuous: false,
+            attemptCount: 1,
+            maxAttempts: 1,
+            remainingAttempts: 0,
+            exhausted: true,
+            exhaustedAction: "stop",
+            nextAttemptDelayMs: 0,
+          },
+          reasonCode: "contract_mismatch",
+          reasons: ["Recovery budget already exhausted."],
+          outcome: {
+            runId: "run-exhausted",
+            status: "completed",
+            checkpointIds: [],
+            blockedCheckpointIds: [],
+            completedCheckpointIds: [],
+            deniedCheckpointIds: [],
+            pendingApprovalIds: [],
+            artifactIds: [],
+            bootstrapRequestIds: [],
+            actionIds: [],
+            attemptedActionIds: [],
+            confirmedActionIds: [],
+            failedActionIds: [],
+            boundaries: [],
+          },
+          evidence: {
+            hasOutput: false,
+            recoveryAttemptCount: 1,
+            recoveryMaxAttempts: 1,
+            recoveryBudgetExhausted: true,
+          },
+        },
+        agentMeta: { usage: { input: 10, output: 20 } },
+      },
+    });
+
+    mockRunCronFallbackPassthrough();
+    const result = await runCronIsolatedAgentTurn(makeIsolatedAgentTurnParams());
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "error",
+        acceptanceStatus: "retryable",
+        acceptanceAction: "retry",
+        acceptanceReasonCode: "contract_mismatch",
+      }),
+    );
+    expect(runEmbeddedPiAgentMock).toHaveBeenCalledTimes(1);
+    expect(runWithModelFallbackMock).toHaveBeenCalledTimes(1);
   });
 });

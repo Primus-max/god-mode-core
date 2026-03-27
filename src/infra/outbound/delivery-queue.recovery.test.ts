@@ -10,6 +10,7 @@ import {
   loadPendingDeliveries,
   MAX_RETRIES,
   recoverPendingDeliveries,
+  startContinuousDeliveryRecovery,
 } from "./delivery-queue.js";
 import {
   asDeliverFn,
@@ -24,6 +25,7 @@ describe("delivery-queue recovery", () => {
 
   afterEach(() => {
     resetPlatformRuntimeCheckpointService();
+    vi.useRealTimers();
   });
 
   const enqueueCrashRecoveryEntries = async () => {
@@ -336,5 +338,69 @@ describe("delivery-queue recovery", () => {
       deferredBackoff: 0,
     });
     expect(deliver).not.toHaveBeenCalled();
+  });
+
+  it("continuously drains deferred backlog once backoff elapses without a restart", async () => {
+    vi.useFakeTimers();
+    const start = new Date("2026-01-01T00:00:00.000Z");
+    vi.setSystemTime(start);
+    const id = await enqueueDelivery(
+      { channel: "whatsapp", to: "+1", payloads: [{ text: "live-drain" }] },
+      tmpDir(),
+    );
+    setQueuedEntryState(tmpDir(), id, { retryCount: 3, lastAttemptAt: start.getTime() });
+    const deliver = vi.fn().mockResolvedValue([]);
+    const loop = startContinuousDeliveryRecovery({
+      deliver: asDeliverFn(deliver),
+      log: createRecoveryLog(),
+      cfg: baseCfg,
+      stateDir: tmpDir(),
+      idlePollMs: 60_000,
+    });
+
+    await vi.runOnlyPendingTimersAsync();
+    await loop.waitForIdle();
+    expect(deliver).not.toHaveBeenCalled();
+    expect(await loadPendingDeliveries(tmpDir())).toHaveLength(1);
+
+    vi.setSystemTime(new Date(start.getTime() + 600_000 + 1));
+    await vi.advanceTimersByTimeAsync(600_001);
+    await vi.runOnlyPendingTimersAsync();
+    await loop.waitForIdle();
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(await loadPendingDeliveries(tmpDir())).toHaveLength(0);
+    loop.stop();
+  });
+
+  it("stops continuous delivery retry after max retries are exhausted", async () => {
+    vi.useFakeTimers();
+    const id = await enqueueDelivery(
+      { channel: "slack", to: "#budget", payloads: [{ text: "bounded" }] },
+      tmpDir(),
+    );
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    setQueuedEntryState(tmpDir(), id, {
+      retryCount: MAX_RETRIES - 1,
+      lastAttemptAt: Date.now() - 700_000,
+    });
+    const deliver = vi.fn().mockRejectedValue(new Error("network still down"));
+    const loop = startContinuousDeliveryRecovery({
+      deliver: asDeliverFn(deliver),
+      log: createRecoveryLog(),
+      cfg: baseCfg,
+      stateDir: tmpDir(),
+      idlePollMs: 60_000,
+    });
+
+    await vi.runOnlyPendingTimersAsync();
+    await loop.waitForIdle();
+    await vi.runOnlyPendingTimersAsync();
+    await loop.waitForIdle();
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(await loadPendingDeliveries(tmpDir())).toHaveLength(0);
+    expect(fs.existsSync(path.join(tmpDir(), "delivery-queue", "failed", `${id}.json`))).toBe(true);
+    loop.stop();
   });
 });

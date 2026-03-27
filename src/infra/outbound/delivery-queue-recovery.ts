@@ -30,6 +30,12 @@ export interface RecoveryLogger {
   error(msg: string): void;
 }
 
+export interface ContinuousRecoveryHandle {
+  stop(): void;
+  triggerNow(): void;
+  waitForIdle(): Promise<void>;
+}
+
 const MAX_RETRIES = 5;
 
 /** Backoff delays in milliseconds indexed by retry count (1-based). */
@@ -120,6 +126,29 @@ async function deferRemainingEntriesForBudget(
   await Promise.allSettled(
     entries.map((entry) => failDelivery(entry.id, "recovery time budget exceeded", stateDir)),
   );
+}
+
+async function resolveNextContinuousRecoveryDelayMs(params: {
+  stateDir?: string;
+  idlePollMs: number;
+}): Promise<number> {
+  const pending = await loadPendingDeliveries(params.stateDir);
+  if (pending.length === 0) {
+    return params.idlePollMs;
+  }
+  const now = Date.now();
+  let shortestDelay = params.idlePollMs;
+  for (const entry of pending) {
+    if (entry.retryCount >= MAX_RETRIES) {
+      return 0;
+    }
+    const eligibility = isEntryEligibleForRecoveryRetry(entry, now);
+    if (eligibility.eligible) {
+      return 0;
+    }
+    shortestDelay = Math.min(shortestDelay, eligibility.remainingBackoffMs);
+  }
+  return shortestDelay;
 }
 
 /** Compute the backoff delay in ms for a given retry count. */
@@ -251,6 +280,91 @@ export async function recoverPendingDeliveries(opts: {
     `Delivery recovery complete: ${summary.recovered} recovered, ${summary.failed} failed, ${summary.skippedMaxRetries} skipped (max retries), ${summary.deferredBackoff} deferred (backoff)`,
   );
   return summary;
+}
+
+export function startContinuousDeliveryRecovery(opts: {
+  deliver: DeliverFn;
+  log: RecoveryLogger;
+  cfg: OpenClawConfig;
+  stateDir?: string;
+  maxRecoveryMs?: number;
+  idlePollMs?: number;
+}): ContinuousRecoveryHandle {
+  const idlePollMs = Math.max(opts.idlePollMs ?? 30_000, 1_000);
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let running = false;
+  let activePass: Promise<void> | null = null;
+
+  const clearScheduled = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+
+  const schedule = (delayMs: number) => {
+    if (stopped) {
+      return;
+    }
+    clearScheduled();
+    timer = setTimeout(
+      () => {
+        activePass = runPass();
+      },
+      Math.max(0, delayMs),
+    );
+    timer.unref?.();
+  };
+
+  const runPass = async () => {
+    if (stopped || running) {
+      return;
+    }
+    running = true;
+    try {
+      await recoverPendingDeliveries({
+        deliver: opts.deliver,
+        log: opts.log,
+        cfg: opts.cfg,
+        stateDir: opts.stateDir,
+        maxRecoveryMs: opts.maxRecoveryMs,
+      });
+    } catch (err) {
+      opts.log.error(`Delivery recovery pass failed: ${String(err)}`);
+    } finally {
+      running = false;
+    }
+    if (stopped) {
+      return;
+    }
+    const delayMs = await resolveNextContinuousRecoveryDelayMs({
+      stateDir: opts.stateDir,
+      idlePollMs,
+    }).catch((err) => {
+      opts.log.error(`Failed to schedule next delivery recovery pass: ${String(err)}`);
+      return idlePollMs;
+    });
+    schedule(delayMs);
+  };
+
+  schedule(0);
+
+  return {
+    stop() {
+      stopped = true;
+      clearScheduled();
+    },
+    triggerNow() {
+      if (stopped) {
+        return;
+      }
+      schedule(0);
+    },
+    async waitForIdle() {
+      await activePass;
+    },
+  };
 }
 
 export { MAX_RETRIES };

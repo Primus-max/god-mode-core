@@ -455,6 +455,47 @@ export const PlatformRuntimeRemediationSchema = z.enum([
 ]);
 export type PlatformRuntimeRemediation = z.infer<typeof PlatformRuntimeRemediationSchema>;
 
+export const PlatformRuntimeRecoveryCadenceSchema = z.enum([
+  "none",
+  "immediate",
+  "backoff",
+  "manual",
+]);
+export type PlatformRuntimeRecoveryCadence = z.infer<typeof PlatformRuntimeRecoveryCadenceSchema>;
+
+export const PlatformRuntimeRecoveryExhaustedActionSchema = z.enum(["escalate", "stop"]);
+export type PlatformRuntimeRecoveryExhaustedAction = z.infer<
+  typeof PlatformRuntimeRecoveryExhaustedActionSchema
+>;
+
+export const PlatformRuntimeRecoveryClassSchema = z.enum([
+  "none",
+  "semantic",
+  "delivery",
+  "bootstrap",
+  "provider",
+  "auth",
+  "human",
+  "stop",
+]);
+export type PlatformRuntimeRecoveryClass = z.infer<typeof PlatformRuntimeRecoveryClassSchema>;
+
+export const PlatformRuntimeRecoveryPolicySchema = z
+  .object({
+    remediation: PlatformRuntimeRemediationSchema,
+    recoveryClass: PlatformRuntimeRecoveryClassSchema,
+    cadence: PlatformRuntimeRecoveryCadenceSchema,
+    continuous: z.boolean(),
+    attemptCount: z.number().int().nonnegative(),
+    maxAttempts: z.number().int().nonnegative(),
+    remainingAttempts: z.number().int().nonnegative(),
+    exhausted: z.boolean(),
+    exhaustedAction: PlatformRuntimeRecoveryExhaustedActionSchema,
+    nextAttemptDelayMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export type PlatformRuntimeRecoveryPolicy = z.infer<typeof PlatformRuntimeRecoveryPolicySchema>;
+
 export const PlatformRuntimeAcceptanceReasonCodeSchema = z.enum([
   "completed_with_output",
   "completed_with_artifacts",
@@ -517,6 +558,11 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     providerRateLimited: z.boolean().optional(),
     providerModelNotFound: z.boolean().optional(),
     successfulCronAdds: z.number().int().nonnegative().optional(),
+    recoveryAttemptCount: z.number().int().nonnegative().optional(),
+    recoveryMaxAttempts: z.number().int().nonnegative().optional(),
+    recoveryBudgetRemaining: z.number().int().nonnegative().optional(),
+    recoveryBudgetExhausted: z.boolean().optional(),
+    recoveryNextAttemptDelayMs: z.number().int().nonnegative().optional(),
   })
   .strict();
 export type PlatformRuntimeAcceptanceEvidence = z.infer<
@@ -528,6 +574,7 @@ export const PlatformRuntimeSupervisorVerdictReasonCodeSchema = z.enum([
   "contract_mismatch",
   "execution_no_progress",
   "execution_degraded",
+  "recovery_budget_exhausted",
   "bootstrap_recovery",
   "provider_recovery",
   "auth_recovery",
@@ -549,6 +596,7 @@ export const PlatformRuntimeAcceptanceResultSchema = z
     reasons: z.array(z.string().min(1)),
     outcome: PlatformRuntimeRunOutcomeSchema,
     evidence: PlatformRuntimeAcceptanceEvidenceSchema,
+    recoveryPolicy: PlatformRuntimeRecoveryPolicySchema,
   })
   .strict();
 export type PlatformRuntimeAcceptanceResult = z.infer<typeof PlatformRuntimeAcceptanceResultSchema>;
@@ -564,6 +612,7 @@ export const PlatformRuntimeSupervisorVerdictSchema = z
     acceptance: PlatformRuntimeAcceptanceResultSchema.optional(),
     verification: PlatformRuntimeExecutionVerificationSchema.optional(),
     surface: PlatformRuntimeExecutionSurfaceSchema.optional(),
+    recoveryPolicy: PlatformRuntimeRecoveryPolicySchema,
   })
   .strict();
 export type PlatformRuntimeSupervisorVerdict = z.infer<

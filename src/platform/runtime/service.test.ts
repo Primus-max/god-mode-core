@@ -324,6 +324,15 @@ describe("platform runtime checkpoint service", () => {
         status: "retryable",
         action: "retry",
         remediation: "delivery_retry",
+        recoveryPolicy: expect.objectContaining({
+          recoveryClass: "delivery",
+          cadence: "backoff",
+          continuous: true,
+          maxAttempts: 5,
+          remainingAttempts: 5,
+          exhausted: false,
+          exhaustedAction: "stop",
+        }),
         reasonCode: "delivery_failed",
       }),
     );
@@ -529,7 +538,71 @@ describe("platform runtime checkpoint service", () => {
         status: "retryable",
         action: "retry",
         remediation: "semantic_retry",
+        recoveryPolicy: expect.objectContaining({
+          recoveryClass: "semantic",
+          exhausted: false,
+          remainingAttempts: 1,
+        }),
         reasonCode: "execution_no_progress",
+      }),
+    );
+  });
+
+  it("stops semantic recovery after the retry budget is exhausted", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-semantic-budget",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const acceptance = service.evaluateAcceptance({
+      runId: outcome.runId,
+      outcome,
+      evidence: {
+        executionContractMismatch: true,
+        recoveryAttemptCount: 1,
+        recoveryMaxAttempts: 1,
+      },
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        action: "retry",
+        remediation: "semantic_retry",
+        recoveryPolicy: expect.objectContaining({
+          recoveryClass: "semantic",
+          attemptCount: 1,
+          maxAttempts: 1,
+          remainingAttempts: 0,
+          exhausted: true,
+          exhaustedAction: "stop",
+        }),
+      }),
+    );
+    const verdict = service.evaluateSupervisorVerdict({
+      runId: outcome.runId,
+      acceptance,
+    });
+    expect(verdict).toEqual(
+      expect.objectContaining({
+        status: "failed",
+        action: "stop",
+        remediation: "semantic_retry",
+        reasonCode: "recovery_budget_exhausted",
+        recoveryPolicy: expect.objectContaining({
+          exhausted: true,
+          exhaustedAction: "stop",
+        }),
       }),
     );
   });
@@ -584,6 +657,70 @@ describe("platform runtime checkpoint service", () => {
         action: "retry",
         remediation: "bootstrap",
         reasonCode: "bootstrap_recovery",
+      }),
+    );
+  });
+
+  it("escalates bootstrap recovery after the manual budget is exhausted", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-bootstrap-exhausted",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: ["bootstrap-action"],
+      attemptedActionIds: ["bootstrap-action"],
+      confirmedActionIds: [],
+      failedActionIds: ["bootstrap-action"],
+      boundaries: ["bootstrap"],
+    };
+    const acceptance = service.evaluateAcceptance({
+      runId: outcome.runId,
+      outcome,
+      evidence: {
+        executionContractMismatch: true,
+        executionSurfaceStatus: "bootstrap_required",
+        executionUnattendedBoundary: "bootstrap",
+        recoveryAttemptCount: 2,
+        recoveryMaxAttempts: 2,
+      },
+    });
+    expect(acceptance.recoveryPolicy).toEqual(
+      expect.objectContaining({
+        recoveryClass: "bootstrap",
+        attemptCount: 2,
+        maxAttempts: 2,
+        remainingAttempts: 0,
+        exhausted: true,
+        exhaustedAction: "escalate",
+      }),
+    );
+    const verdict = service.evaluateSupervisorVerdict({
+      runId: outcome.runId,
+      acceptance,
+      surface: {
+        status: "bootstrap_required",
+        ready: false,
+        checkedAtMs: Date.now(),
+        reasons: ["bootstrap still required"],
+        unattendedBoundary: "bootstrap",
+      },
+    });
+    expect(verdict).toEqual(
+      expect.objectContaining({
+        status: "needs_human",
+        action: "escalate",
+        remediation: "bootstrap",
+        reasonCode: "recovery_budget_exhausted",
+        recoveryPolicy: expect.objectContaining({
+          exhausted: true,
+          exhaustedAction: "escalate",
+        }),
       }),
     );
   });
