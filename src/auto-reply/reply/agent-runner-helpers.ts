@@ -23,7 +23,11 @@ import { dispatchMessagingClosureOutcome } from "./closure-outcome-dispatcher.js
 import { scheduleFollowupDrain, type FollowupRun, type QueueSettings } from "./queue.js";
 import type { TypingSignaler } from "./typing-mode.js";
 
-export { enqueueSemanticRetryFollowup } from "./closure-outcome-dispatcher.js";
+export {
+  enqueueSemanticRetryFollowup,
+  finalizeClosureRecoveryCheckpoint,
+  markClosureRecoveryCheckpointFailed,
+} from "./closure-outcome-dispatcher.js";
 
 const hasAudioMedia = (urls?: string[]): boolean =>
   Boolean(urls?.some((url) => isAudioFileName(url)));

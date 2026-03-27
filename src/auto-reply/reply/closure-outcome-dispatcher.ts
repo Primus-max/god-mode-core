@@ -44,6 +44,7 @@ const FollowupAutomationMetadataSchema = z
     source: z.enum(["acceptance_retry", "closure_recovery"]),
     retryCount: z.number().int().nonnegative(),
     persisted: z.boolean().optional(),
+    runtimeCheckpointId: z.string().min(1).optional(),
     reasonCode: z.string().min(1).optional(),
     reasonSummary: z.string().min(1).optional(),
   })
@@ -137,10 +138,54 @@ export type MessagingClosureOutcomeDispatchResult = {
   bootstrapRequestIds?: string[];
 };
 
+export type ClosureRecoveryStartupReconcileResult = {
+  restoredApprovalCount: number;
+  redispatchedContinuationCount: number;
+  staleCheckpointCount: number;
+};
+
 const CLOSURE_APPROVAL_TIMEOUT_MS = Math.max(
   DEFAULT_EXEC_APPROVAL_TIMEOUT_MS,
   24 * 60 * 60 * 1000,
 );
+
+function isClosureRecoveryCheckpoint(checkpoint: {
+  target?: { operation?: string };
+  continuation?: { kind?: string };
+}): boolean {
+  return (
+    checkpoint.target?.operation === "closure.recovery" &&
+    checkpoint.continuation?.kind === "closure_recovery"
+  );
+}
+
+function buildClosureApprovalRequestPayload(params: {
+  approvalId: string;
+  blockedReason: string;
+  runId: string;
+  sourceRun: FollowupRun;
+}) {
+  return {
+    command: `Review closure outcome for run ${params.runId}`,
+    commandPreview: params.blockedReason,
+    cwd: params.sourceRun.run.workspaceDir,
+    host: "gateway",
+    security: "deny",
+    ask: "always",
+    agentId: params.sourceRun.run.agentId,
+    sessionKey: params.sourceRun.run.sessionKey ?? null,
+    turnSourceChannel:
+      params.sourceRun.originatingChannel ?? params.sourceRun.run.messageProvider ?? null,
+    turnSourceTo: params.sourceRun.originatingTo ?? null,
+    turnSourceAccountId:
+      params.sourceRun.originatingAccountId ?? params.sourceRun.run.agentAccountId ?? null,
+    turnSourceThreadId: params.sourceRun.originatingThreadId ?? null,
+    runtimeRunId: params.runId,
+    runtimeCheckpointId: params.approvalId,
+    runtimeBoundary: "exec_approval",
+    blockedReason: params.blockedReason,
+  };
+}
 
 function buildClosureRecoveryContinuationPayload(params: {
   queueKey?: string;
@@ -178,6 +223,7 @@ async function dispatchClosureRecoveryContinuation(
         source: "closure_recovery",
         retryCount: payload.sourceRun.automation?.retryCount ?? 0,
         persisted: true,
+        runtimeCheckpointId: checkpointId,
         ...(payload.sourceRun.automation?.reasonCode
           ? { reasonCode: payload.sourceRun.automation.reasonCode }
           : {}),
@@ -201,13 +247,110 @@ async function dispatchClosureRecoveryContinuation(
     defaultModel: payload.sourceRun.run.model,
   });
   scheduleFollowupDrain(payload.queueKey, runFollowup);
-  getPlatformRuntimeCheckpointService().updateCheckpoint(checkpointId, {
-    status: "completed",
-    completedAtMs: Date.now(),
-  });
   if (!queued) {
     return;
   }
+}
+
+function resolveClosureRecoveryCheckpointId(run: FollowupRun): string | undefined {
+  const checkpointId = run.automation?.runtimeCheckpointId?.trim();
+  return checkpointId ? checkpointId : undefined;
+}
+
+function resolveClosureRecoveryTerminalMessage(
+  decision: MessagingClosureDecision | undefined,
+  fallback: string,
+): string {
+  if (!decision) {
+    return fallback;
+  }
+  return decision.reasons[0] ?? `${decision.action}:${decision.remediation}`;
+}
+
+export function markClosureRecoveryCheckpointFailed(params: {
+  sourceRun?: FollowupRun;
+  checkpointId?: string;
+  error: string;
+}): void {
+  const checkpointId = params.checkpointId ?? (params.sourceRun ? resolveClosureRecoveryCheckpointId(params.sourceRun) : undefined);
+  if (!checkpointId) {
+    return;
+  }
+  const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
+  const checkpoint = runtimeCheckpointService.get(checkpointId);
+  if (!checkpoint || !isClosureRecoveryCheckpoint(checkpoint)) {
+    return;
+  }
+  const now = Date.now();
+  runtimeCheckpointService.updateCheckpoint(checkpointId, {
+    status: "cancelled",
+    completedAtMs: now,
+    continuation: {
+      ...(checkpoint.continuation ?? { kind: "closure_recovery" }),
+      state: "failed",
+      lastError: params.error,
+      lastCompletedAtMs: now,
+    },
+  });
+}
+
+export function finalizeClosureRecoveryCheckpoint(params: {
+  sourceRun: FollowupRun;
+  acceptance: PlatformRuntimeAcceptanceResult | undefined;
+  supervisorVerdict?: PlatformRuntimeSupervisorVerdict;
+  queuedSemanticRetry: boolean;
+}): void {
+  const checkpointId = resolveClosureRecoveryCheckpointId(params.sourceRun);
+  if (!checkpointId) {
+    return;
+  }
+  const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
+  const checkpoint = runtimeCheckpointService.get(checkpointId);
+  if (!checkpoint || !isClosureRecoveryCheckpoint(checkpoint)) {
+    return;
+  }
+
+  if (params.queuedSemanticRetry) {
+    runtimeCheckpointService.updateCheckpoint(checkpointId, {
+      status: "resumed",
+      continuation: {
+        ...(checkpoint.continuation ?? { kind: "closure_recovery" }),
+        state: "idle",
+        lastError: undefined,
+      },
+    });
+    return;
+  }
+
+  const decision = params.supervisorVerdict ?? params.acceptance;
+  const now = Date.now();
+  if (decision?.action === "close") {
+    runtimeCheckpointService.updateCheckpoint(checkpointId, {
+      status: "completed",
+      completedAtMs: now,
+      continuation: {
+        ...(checkpoint.continuation ?? { kind: "closure_recovery" }),
+        state: "completed",
+        lastError: undefined,
+        lastCompletedAtMs: now,
+      },
+    });
+    return;
+  }
+
+  runtimeCheckpointService.updateCheckpoint(checkpointId, {
+    status: "cancelled",
+    completedAtMs: now,
+    continuation: {
+      ...(checkpoint.continuation ?? { kind: "closure_recovery" }),
+      state: "failed",
+      lastError: resolveClosureRecoveryTerminalMessage(
+        decision,
+        "closure recovery finished without a terminal outcome",
+      ),
+      lastCompletedAtMs: now,
+    },
+  });
 }
 
 function resolveMessagingClosureDecision(params: {
@@ -318,25 +461,12 @@ function ensureClosureApprovalRequest(params: {
     sourceRun: params.sourceRun,
   });
   if (!existing || existing.resolvedAtMs !== undefined) {
-    const request = {
-      command: `Review closure outcome for run ${params.decision.runId}`,
-      commandPreview: params.decision.reasons[0] ?? null,
-      cwd: params.sourceRun.run.workspaceDir,
-      host: "gateway",
-      security: "deny",
-      ask: "always",
-      agentId: params.sourceRun.run.agentId,
-      sessionKey: params.sourceRun.run.sessionKey ?? null,
-      turnSourceChannel: params.sourceRun.originatingChannel ?? params.sourceRun.run.messageProvider ?? null,
-      turnSourceTo: params.sourceRun.originatingTo ?? null,
-      turnSourceAccountId:
-        params.sourceRun.originatingAccountId ?? params.sourceRun.run.agentAccountId ?? null,
-      turnSourceThreadId: params.sourceRun.originatingThreadId ?? null,
-      runtimeRunId: params.decision.runId,
-      runtimeCheckpointId: approvalId,
-      runtimeBoundary: "exec_approval",
+    const request = buildClosureApprovalRequestPayload({
+      approvalId,
       blockedReason: resolveApprovalBlockedReason(params.decision),
-    };
+      runId: params.decision.runId,
+      sourceRun: params.sourceRun,
+    });
     const record = manager.create(request, CLOSURE_APPROVAL_TIMEOUT_MS, approvalId);
     void manager.register(record, CLOSURE_APPROVAL_TIMEOUT_MS).catch(() => {});
   }
@@ -515,6 +645,88 @@ export function dispatchMessagingClosureOutcome(params: {
     queuedSemanticRetry: false,
     ...(approvalId ? { approvalId } : {}),
     ...(bootstrapRequestIds.length > 0 ? { bootstrapRequestIds } : {}),
+  };
+}
+
+export async function reconcileClosureRecoveryOnStartup(): Promise<ClosureRecoveryStartupReconcileResult> {
+  const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
+  const manager = getSharedExecApprovalManager();
+  let restoredApprovalCount = 0;
+  let redispatchedContinuationCount = 0;
+  let staleCheckpointCount = 0;
+
+  for (const summary of runtimeCheckpointService.list()) {
+    const checkpoint = runtimeCheckpointService.get(summary.id);
+    if (!checkpoint || !isClosureRecoveryCheckpoint(checkpoint)) {
+      continue;
+    }
+
+    const approvalId = checkpoint.target?.approvalId?.trim();
+    const payload = parseClosureRecoveryContinuationPayload(checkpoint.continuation?.input);
+    if (checkpoint.status === "blocked") {
+      if (!approvalId || !payload) {
+        staleCheckpointCount += 1;
+        markClosureRecoveryCheckpointFailed({
+          checkpointId: checkpoint.id,
+          error: "closure recovery approval could not be restored after restart",
+        });
+        continue;
+      }
+      if (!manager.getSnapshot(approvalId)) {
+        const request = buildClosureApprovalRequestPayload({
+          approvalId,
+          blockedReason: checkpoint.blockedReason ?? "closure outcome requires operator review",
+          runId: checkpoint.runId,
+          sourceRun: payload.sourceRun,
+        });
+        const record = manager.create(request, CLOSURE_APPROVAL_TIMEOUT_MS, approvalId);
+        record.createdAtMs = checkpoint.createdAtMs;
+        record.expiresAtMs = Date.now() + CLOSURE_APPROVAL_TIMEOUT_MS;
+        void manager.register(record, CLOSURE_APPROVAL_TIMEOUT_MS).catch(() => {});
+        restoredApprovalCount += 1;
+      }
+      continue;
+    }
+
+    if (
+      (checkpoint.status === "approved" || checkpoint.status === "resumed") &&
+      payload &&
+      checkpoint.continuation?.state !== "completed"
+    ) {
+      const resumedCheckpoint =
+        checkpoint.status === "approved"
+          ? runtimeCheckpointService.updateCheckpoint(checkpoint.id, {
+              status: "resumed",
+              resumedAtMs: checkpoint.resumedAtMs ?? Date.now(),
+            })
+          : checkpoint;
+      if (resumedCheckpoint) {
+        registerAgentRunContext(resumedCheckpoint.runId, {
+          ...(resumedCheckpoint.sessionKey ? { sessionKey: resumedCheckpoint.sessionKey } : {}),
+          runtimeState: "resumed",
+          runtimeCheckpointId: resumedCheckpoint.id,
+          runtimeBoundary: resumedCheckpoint.boundary,
+        });
+        emitAgentEvent({
+          runId: resumedCheckpoint.runId,
+          ...(resumedCheckpoint.sessionKey ? { sessionKey: resumedCheckpoint.sessionKey } : {}),
+          stream: "lifecycle",
+          data: {
+            phase: "resumed",
+            checkpointId: resumedCheckpoint.id,
+            boundary: resumedCheckpoint.boundary,
+          },
+        });
+        await runtimeCheckpointService.dispatchContinuation(resumedCheckpoint.id);
+        redispatchedContinuationCount += 1;
+      }
+    }
+  }
+
+  return {
+    restoredApprovalCount,
+    redispatchedContinuationCount,
+    staleCheckpointCount,
   };
 }
 

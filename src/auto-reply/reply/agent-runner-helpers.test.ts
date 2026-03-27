@@ -36,11 +36,13 @@ let createShouldEmitToolOutput: typeof import("./agent-runner-helpers.js").creat
 let createShouldEmitToolResult: typeof import("./agent-runner-helpers.js").createShouldEmitToolResult;
 let buildAcceptanceFallbackPayload: typeof import("./agent-runner-helpers.js").buildAcceptanceFallbackPayload;
 let enqueueSemanticRetryFollowup: typeof import("./agent-runner-helpers.js").enqueueSemanticRetryFollowup;
+let finalizeClosureRecoveryCheckpoint: typeof import("./agent-runner-helpers.js").finalizeClosureRecoveryCheckpoint;
 let finalizeMessagingDeliveryClosure: typeof import("./agent-runner-helpers.js").finalizeMessagingDeliveryClosure;
 let finalizeWithFollowup: typeof import("./agent-runner-helpers.js").finalizeWithFollowup;
 let getPlatformBootstrapService: typeof import("../../platform/bootstrap/index.js").getPlatformBootstrapService;
 let resetPlatformBootstrapService: typeof import("../../platform/bootstrap/index.js").resetPlatformBootstrapService;
 let isAudioPayload: typeof import("./agent-runner-helpers.js").isAudioPayload;
+let reconcileClosureRecoveryOnStartup: typeof import("./closure-outcome-dispatcher.js").reconcileClosureRecoveryOnStartup;
 let reevaluateAcceptanceForMessagingRun: typeof import("./agent-runner-helpers.js").reevaluateAcceptanceForMessagingRun;
 let signalTypingIfNeeded: typeof import("./agent-runner-helpers.js").signalTypingIfNeeded;
 
@@ -60,12 +62,14 @@ describe("agent runner helpers", () => {
       createShouldEmitToolResult,
       buildAcceptanceFallbackPayload,
       enqueueSemanticRetryFollowup,
+      finalizeClosureRecoveryCheckpoint,
       finalizeMessagingDeliveryClosure,
       finalizeWithFollowup,
       isAudioPayload,
       reevaluateAcceptanceForMessagingRun,
       signalTypingIfNeeded,
     } = await import("./agent-runner-helpers.js"));
+    ({ reconcileClosureRecoveryOnStartup } = await import("./closure-outcome-dispatcher.js"));
   });
 
   it("detects audio payloads from mediaUrl/mediaUrls", () => {
@@ -852,11 +856,268 @@ describe("agent runner helpers", () => {
       getPlatformRuntimeCheckpointService().get("closure:run-auth-resume:auth_refresh:escalate"),
     ).toEqual(
       expect.objectContaining({
+        status: "blocked",
+        continuation: expect.objectContaining({
+          kind: "closure_recovery",
+          state: "idle",
+          attempts: 1,
+        }),
+      }),
+    );
+  });
+
+  it("restores blocked closure recovery approvals on startup reconcile", async () => {
+    finalizeMessagingDeliveryClosure({
+      candidate: {
+        runResult: {
+          meta: {
+            acceptanceOutcome: {
+              runId: "run-auth-restart",
+              status: "retryable",
+              action: "escalate",
+              remediation: "auth_refresh",
+              reasonCode: "provider_auth_required",
+              reasons: ["Provider authentication expired."],
+              recoveryPolicy: {
+                remediation: "auth_refresh",
+                recoveryClass: "human",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 1,
+                remainingAttempts: 1,
+                exhausted: false,
+                exhaustedAction: "stop",
+              },
+              outcome: {
+                runId: "run-auth-restart",
+                status: "blocked",
+                checkpointIds: [],
+                blockedCheckpointIds: [],
+                completedCheckpointIds: [],
+                deniedCheckpointIds: [],
+                pendingApprovalIds: [],
+                artifactIds: [],
+                bootstrapRequestIds: [],
+                actionIds: [],
+                attemptedActionIds: [],
+                confirmedActionIds: [],
+                failedActionIds: [],
+                boundaries: [],
+              },
+              evidence: {
+                providerAuthFailed: true,
+              },
+            },
+            supervisorVerdict: {
+              runId: "run-auth-restart",
+              status: "retryable",
+              action: "escalate",
+              remediation: "auth_refresh",
+              reasonCode: "auth_recovery",
+              reasons: ["Provider authentication expired."],
+              recoveryPolicy: {
+                remediation: "auth_refresh",
+                recoveryClass: "human",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 1,
+                remainingAttempts: 1,
+                exhausted: false,
+                exhaustedAction: "stop",
+              },
+            },
+          },
+        },
+        sourceRun: {
+          prompt: "resume after restart",
+          enqueuedAt: 1,
+          originatingChannel: "slack",
+          originatingTo: "C123",
+          run: {
+            agentId: "agent",
+            agentDir: "/tmp/agent",
+            sessionId: "session",
+            sessionKey: "agent:main:main",
+            messageProvider: "slack",
+            sessionFile: "/tmp/session.json",
+            workspaceDir: "/tmp/workspace",
+            config: {},
+            provider: "openai",
+            model: "gpt-5.4",
+            timeoutMs: 30_000,
+            blockReplyBreak: "message_end",
+          },
+        },
+        queueKey: "queue-auth-restart",
+        settings: { mode: "followup", debounceMs: 0, cap: 20 },
+      },
+      replyPayloads: [{ text: "Please re-authenticate." }],
+      deliveryReceipt: {},
+    });
+
+    resetSharedExecApprovalManager();
+
+    const reconciled = await reconcileClosureRecoveryOnStartup();
+
+    expect(reconciled.restoredApprovalCount).toBe(1);
+    expect(
+      getSharedExecApprovalManager().getSnapshot("closure:run-auth-restart:auth_refresh:escalate"),
+    ).toEqual(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          runtimeCheckpointId: "closure:run-auth-restart:auth_refresh:escalate",
+          blockedReason: "provider authentication refresh requires operator attention",
+        }),
+      }),
+    );
+  });
+
+  it("completes closure recovery checkpoints only after a successful resumed outcome", () => {
+    finalizeMessagingDeliveryClosure({
+      candidate: {
+        runResult: {
+          meta: {
+            acceptanceOutcome: {
+              runId: "run-auth-complete",
+              status: "retryable",
+              action: "escalate",
+              remediation: "auth_refresh",
+              reasonCode: "provider_auth_required",
+              reasons: ["Provider authentication expired."],
+              recoveryPolicy: {
+                remediation: "auth_refresh",
+                recoveryClass: "human",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 1,
+                remainingAttempts: 1,
+                exhausted: false,
+                exhaustedAction: "stop",
+              },
+              outcome: {
+                runId: "run-auth-complete",
+                status: "blocked",
+                checkpointIds: [],
+                blockedCheckpointIds: [],
+                completedCheckpointIds: [],
+                deniedCheckpointIds: [],
+                pendingApprovalIds: [],
+                artifactIds: [],
+                bootstrapRequestIds: [],
+                actionIds: [],
+                attemptedActionIds: [],
+                confirmedActionIds: [],
+                failedActionIds: [],
+                boundaries: [],
+              },
+              evidence: {
+                providerAuthFailed: true,
+              },
+            },
+            supervisorVerdict: {
+              runId: "run-auth-complete",
+              status: "retryable",
+              action: "escalate",
+              remediation: "auth_refresh",
+              reasonCode: "auth_recovery",
+              reasons: ["Provider authentication expired."],
+              recoveryPolicy: {
+                remediation: "auth_refresh",
+                recoveryClass: "human",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 1,
+                remainingAttempts: 1,
+                exhausted: false,
+                exhaustedAction: "stop",
+              },
+            },
+          },
+        },
+        sourceRun: {
+          prompt: "finish task",
+          enqueuedAt: 1,
+          run: {
+            agentId: "agent",
+            agentDir: "/tmp/agent",
+            sessionId: "session",
+            sessionKey: "agent:main:main",
+            sessionFile: "/tmp/session.json",
+            workspaceDir: "/tmp/workspace",
+            config: {},
+            provider: "openai",
+            model: "gpt-5.4",
+            timeoutMs: 30_000,
+            blockReplyBreak: "message_end",
+          },
+        },
+        queueKey: "queue-auth-complete",
+        settings: { mode: "followup", debounceMs: 0, cap: 20 },
+      },
+      replyPayloads: [{ text: "Please re-authenticate." }],
+      deliveryReceipt: {},
+    });
+
+    const checkpointId = "closure:run-auth-complete:auth_refresh:escalate";
+    expect(getPlatformRuntimeCheckpointService().get(checkpointId)?.status).toBe("blocked");
+
+    finalizeClosureRecoveryCheckpoint({
+      sourceRun: {
+        prompt: "finish task",
+        enqueuedAt: 2,
+        automation: {
+          source: "closure_recovery",
+          retryCount: 0,
+          persisted: true,
+          runtimeCheckpointId: checkpointId,
+        },
+        run: {
+          agentId: "agent",
+          agentDir: "/tmp/agent",
+          sessionId: "session",
+          sessionKey: "agent:main:main",
+          sessionFile: "/tmp/session.json",
+          workspaceDir: "/tmp/workspace",
+          config: {},
+          provider: "openai",
+          model: "gpt-5.4",
+          timeoutMs: 30_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+      acceptance: undefined,
+      supervisorVerdict: {
+        runId: "run-auth-complete-followup",
+        status: "satisfied",
+        action: "close",
+        remediation: "none",
+        reasonCode: "verified_execution",
+        reasons: ["Recovered successfully."],
+        recoveryPolicy: {
+          remediation: "none",
+          recoveryClass: "none",
+          cadence: "manual",
+          continuous: false,
+          attemptCount: 0,
+          maxAttempts: 0,
+          remainingAttempts: 0,
+          exhausted: false,
+          exhaustedAction: "stop",
+        },
+      },
+      queuedSemanticRetry: false,
+    });
+
+    expect(getPlatformRuntimeCheckpointService().get(checkpointId)).toEqual(
+      expect.objectContaining({
         status: "completed",
         continuation: expect.objectContaining({
           kind: "closure_recovery",
           state: "completed",
-          attempts: 1,
         }),
       }),
     );

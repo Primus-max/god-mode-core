@@ -4,6 +4,7 @@ import { getActiveEmbeddedRunCount } from "../agents/pi-embedded-runner/runs.js"
 import { registerSkillsChangeListener } from "../agents/skills/refresh.js";
 import { initSubagentRegistry } from "../agents/subagent-registry.js";
 import { getTotalPendingReplies } from "../auto-reply/reply/dispatcher-registry.js";
+import { reconcileClosureRecoveryOnStartup } from "../auto-reply/reply/closure-outcome-dispatcher.js";
 import { resumePersistedFollowupDrains } from "../auto-reply/reply/followup-runner.js";
 import type { CanvasHostServer } from "../canvas-host/server.js";
 import { type ChannelId, listChannelPlugins } from "../channels/plugins/index.js";
@@ -1213,6 +1214,22 @@ export async function startGatewayServer(
     const resumedFollowupDrains = resumePersistedFollowupDrains();
     if (resumedFollowupDrains > 0) {
       log.info(`resumed ${String(resumedFollowupDrains)} persisted followup queue drain(s)`);
+    }
+    const reconciledRecovery = await reconcileClosureRecoveryOnStartup();
+    if (reconciledRecovery.restoredApprovalCount > 0) {
+      log.info(
+        `restored ${String(reconciledRecovery.restoredApprovalCount)} closure recovery approval(s)`,
+      );
+    }
+    if (reconciledRecovery.redispatchedContinuationCount > 0) {
+      log.info(
+        `redispatched ${String(reconciledRecovery.redispatchedContinuationCount)} closure recovery continuation(s)`,
+      );
+    }
+    if (reconciledRecovery.staleCheckpointCount > 0) {
+      log.warn(
+        `cancelled ${String(reconciledRecovery.staleCheckpointCount)} stale closure recovery checkpoint(s) during startup reconcile`,
+      );
     }
   }
 
