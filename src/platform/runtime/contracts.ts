@@ -32,6 +32,7 @@ export type PlatformRuntimeNextAction = z.infer<typeof PlatformRuntimeNextAction
 export const PlatformRuntimeContinuationKindSchema = z.enum([
   "bootstrap_run",
   "artifact_transition",
+  "closure_recovery",
 ]);
 export type PlatformRuntimeContinuationKind = z.infer<typeof PlatformRuntimeContinuationKindSchema>;
 
@@ -49,6 +50,7 @@ export const PlatformRuntimeContinuationSchema = z
   .object({
     kind: PlatformRuntimeContinuationKindSchema,
     autoDispatch: z.boolean().optional(),
+    input: z.unknown().optional(),
     state: PlatformRuntimeContinuationStateSchema.optional(),
     attempts: z.number().int().nonnegative().optional(),
     lastError: z.string().min(1).optional(),
@@ -57,6 +59,13 @@ export const PlatformRuntimeContinuationSchema = z
   })
   .strict();
 export type PlatformRuntimeContinuation = z.infer<typeof PlatformRuntimeContinuationSchema>;
+
+export const PlatformRuntimeContinuationSummarySchema = PlatformRuntimeContinuationSchema.omit({
+  input: true,
+});
+export type PlatformRuntimeContinuationSummary = z.infer<
+  typeof PlatformRuntimeContinuationSummarySchema
+>;
 
 export const PlatformRuntimeTargetSchema = z
   .object({
@@ -93,21 +102,24 @@ export const PlatformRuntimeCheckpointSchema = z
   .strict();
 export type PlatformRuntimeCheckpoint = z.infer<typeof PlatformRuntimeCheckpointSchema>;
 
-export const PlatformRuntimeCheckpointSummarySchema = PlatformRuntimeCheckpointSchema.pick({
-  id: true,
-  runId: true,
-  sessionKey: true,
-  boundary: true,
-  status: true,
-  blockedReason: true,
-  nextActions: true,
-  target: true,
-  createdAtMs: true,
-  updatedAtMs: true,
-  approvedAtMs: true,
-  resumedAtMs: true,
-  completedAtMs: true,
-});
+export const PlatformRuntimeCheckpointSummarySchema = z
+  .object({
+    id: z.string().min(1),
+    runId: z.string().min(1),
+    sessionKey: z.string().min(1).optional(),
+    boundary: PlatformRuntimeBoundarySchema,
+    status: PlatformRuntimeCheckpointStatusSchema,
+    blockedReason: z.string().min(1).optional(),
+    nextActions: z.array(PlatformRuntimeNextActionSchema).optional(),
+    target: PlatformRuntimeTargetSchema.optional(),
+    continuation: PlatformRuntimeContinuationSummarySchema.optional(),
+    createdAtMs: z.number().int().nonnegative(),
+    updatedAtMs: z.number().int().nonnegative(),
+    approvedAtMs: z.number().int().nonnegative().optional(),
+    resumedAtMs: z.number().int().nonnegative().optional(),
+    completedAtMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
 export type PlatformRuntimeCheckpointSummary = z.infer<
   typeof PlatformRuntimeCheckpointSummarySchema
 >;

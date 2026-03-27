@@ -738,6 +738,126 @@ describe("agent runner helpers", () => {
           approvalId: "closure:run-auth-closure:auth_refresh:escalate",
           operation: "closure.recovery",
         }),
+        continuation: expect.objectContaining({
+          kind: "closure_recovery",
+          state: "idle",
+          attempts: 0,
+        }),
+      }),
+    );
+  });
+
+  it("dispatches closure recovery continuations through the followup queue", async () => {
+    finalizeMessagingDeliveryClosure({
+      candidate: {
+        runResult: {
+          meta: {
+            acceptanceOutcome: {
+              runId: "run-auth-resume",
+              status: "retryable",
+              action: "escalate",
+              remediation: "auth_refresh",
+              reasonCode: "provider_auth_required",
+              reasons: ["Provider authentication expired."],
+              recoveryPolicy: {
+                remediation: "auth_refresh",
+                recoveryClass: "human",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 1,
+                remainingAttempts: 1,
+                exhausted: false,
+                exhaustedAction: "stop",
+              },
+              outcome: {
+                runId: "run-auth-resume",
+                status: "blocked",
+                checkpointIds: [],
+                blockedCheckpointIds: [],
+                completedCheckpointIds: [],
+                deniedCheckpointIds: [],
+                pendingApprovalIds: [],
+                artifactIds: [],
+                bootstrapRequestIds: [],
+                actionIds: [],
+                attemptedActionIds: [],
+                confirmedActionIds: [],
+                failedActionIds: [],
+                boundaries: [],
+              },
+              evidence: {
+                providerAuthFailed: true,
+                deliveredReplyCount: 1,
+              },
+            },
+            supervisorVerdict: {
+              runId: "run-auth-resume",
+              status: "retryable",
+              action: "escalate",
+              remediation: "auth_refresh",
+              reasonCode: "auth_recovery",
+              reasons: ["Provider authentication expired."],
+              recoveryPolicy: {
+                remediation: "auth_refresh",
+                recoveryClass: "human",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 1,
+                remainingAttempts: 1,
+                exhausted: false,
+                exhaustedAction: "stop",
+              },
+            },
+          },
+        },
+        sourceRun: {
+          prompt: "finish the task after auth refresh",
+          enqueuedAt: 1,
+          originatingChannel: "slack",
+          originatingTo: "C123",
+          originatingThreadId: "thread-1",
+          run: {
+            agentId: "agent",
+            agentDir: "/tmp/agent",
+            sessionId: "session",
+            sessionKey: "agent:main:main",
+            messageProvider: "slack",
+            sessionFile: "/tmp/session.json",
+            workspaceDir: "/tmp/workspace",
+            config: {},
+            provider: "openai",
+            model: "gpt-5.4",
+            timeoutMs: 30_000,
+            blockReplyBreak: "message_end",
+          },
+        },
+        queueKey: "queue-auth-resume",
+        settings: { mode: "followup", debounceMs: 0, cap: 20 },
+      },
+      replyPayloads: [{ text: "Please refresh auth." }],
+      deliveryReceipt: {},
+    });
+
+    await getPlatformRuntimeCheckpointService().dispatchContinuation(
+      "closure:run-auth-resume:auth_refresh:escalate",
+    );
+
+    expect(hoisted.scheduleFollowupDrainMock).toHaveBeenCalledWith(
+      "queue-auth-resume",
+      expect.any(Function),
+    );
+    expect(
+      getPlatformRuntimeCheckpointService().get("closure:run-auth-resume:auth_refresh:escalate"),
+    ).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        continuation: expect.objectContaining({
+          kind: "closure_recovery",
+          state: "completed",
+          attempts: 1,
+        }),
       }),
     );
   });
