@@ -1,5 +1,6 @@
 import type { ChatType } from "../channels/chat-type.js";
 import type { SessionEntry } from "../config/sessions.js";
+import type { PlatformRuntimeRunClosureSummary } from "../platform/runtime/index.js";
 import type {
   GatewayAgentRow as SharedGatewayAgentRow,
   SessionsListResultBase,
@@ -58,6 +59,7 @@ export type GatewaySessionRow = {
   lastChannel?: SessionEntry["lastChannel"];
   lastTo?: string;
   lastAccountId?: string;
+  runClosureSummary?: PlatformRuntimeRunClosureSummary;
 };
 
 export type GatewayAgentRow = SharedGatewayAgentRow;

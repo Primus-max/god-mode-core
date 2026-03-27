@@ -450,6 +450,7 @@ export async function runCronIsolatedAgentTurn(params: {
       sessionKey: agentSessionKey,
       verboseLevel: resolvedVerboseLevel,
       platformExecution: toPluginHookPlatformExecutionContext(platformExecutionContext),
+      awaitingRunClosure: true,
     });
     // Per-job payload.fallbacks takes priority over agent-level fallbacks.
     const payloadFallbacks =

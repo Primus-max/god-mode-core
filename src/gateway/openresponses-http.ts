@@ -29,6 +29,10 @@ import {
   type InputImageLimits,
   type InputImageSource,
 } from "../media/input-files.js";
+import {
+  PlatformRuntimeRunClosureSummarySchema,
+  type PlatformRuntimeRunClosureSummary,
+} from "../platform/runtime/contracts.js";
 import { defaultRuntime } from "../runtime.js";
 import { resolveAssistantStreamDeltaText } from "./agent-event-assistant-text.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
@@ -195,6 +199,12 @@ export const __testing = {
 function writeSseEvent(res: ServerResponse, event: StreamingEvent) {
   res.write(`event: ${event.type}\n`);
   res.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function resolveResponseStatusFromClosureSummary(
+  summary: PlatformRuntimeRunClosureSummary,
+): ResponseResource["status"] {
+  return summary.action === "close" ? "completed" : "failed";
 }
 
 type ResolvedResponsesLimits = {
@@ -881,13 +891,13 @@ export async function handleOpenResponsesHttpRequest(
       return;
     }
 
-    if (evt.stream === "lifecycle") {
-      const phase = evt.data?.phase;
-      if (phase === "end" || phase === "error") {
-        const finalText = accumulatedText || "No response from OpenClaw.";
-        const finalStatus = phase === "error" ? "failed" : "completed";
-        requestFinalize(finalStatus, finalText);
+    if (evt.stream === "runtime" && evt.data?.phase === "closure") {
+      const parsed = PlatformRuntimeRunClosureSummarySchema.safeParse(evt.data?.summary);
+      if (!parsed.success) {
+        return;
       }
+      const finalText = accumulatedText || "No response from OpenClaw.";
+      requestFinalize(resolveResponseStatusFromClosureSummary(parsed.data), finalText);
     }
   });
 
@@ -1030,6 +1040,9 @@ export async function handleOpenResponsesHttpRequest(
           delta: content,
         });
       }
+
+      const finalText = accumulatedText || "No response from OpenClaw.";
+      requestFinalize("completed", finalText);
     } catch (err) {
       logWarn(`openresponses: streaming response failed: ${String(err)}`);
       if (closed) {

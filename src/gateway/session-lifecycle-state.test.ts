@@ -162,4 +162,52 @@ describe("session lifecycle state", () => {
       abortedLastRun: false,
     });
   });
+
+  it("maps runtime closure retries to blocked sessions with summary attached", () => {
+    expect(
+      deriveGatewaySessionLifecycleSnapshot({
+        session: {
+          updatedAt: 1_700,
+          status: "done",
+          startedAt: 1_200,
+          endedAt: 1_700,
+          runtimeMs: 500,
+          abortedLastRun: false,
+        },
+        event: {
+          stream: "runtime",
+          ts: 2_000,
+          data: {
+            phase: "closure",
+            summary: {
+              runId: "run-closure",
+              sessionKey: "session-1",
+              updatedAtMs: 1_950,
+              outcomeStatus: "partial",
+              verificationStatus: "mismatch",
+              acceptanceStatus: "retryable",
+              action: "retry",
+              remediation: "semantic_retry",
+              reasonCode: "contract_mismatch",
+              reasons: ["Execution contract did not match the declared intent."],
+              declaredIntent: "document",
+              declaredRecipeId: "recipe.doc",
+            },
+          },
+        },
+      }),
+    ).toEqual({
+      updatedAt: 1_950,
+      status: "blocked",
+      startedAt: 1_200,
+      endedAt: 1_700,
+      runtimeMs: 500,
+      abortedLastRun: false,
+      runClosureSummary: expect.objectContaining({
+        action: "retry",
+        declaredIntent: "document",
+        declaredRecipeId: "recipe.doc",
+      }),
+    });
+  });
 });

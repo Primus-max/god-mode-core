@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadConfig } from "../config/config.js";
 import { registerAgentRunContext, resetAgentRunContextForTest } from "../infra/agent-events.js";
 import { resolveHeartbeatVisibility } from "../infra/heartbeat-visibility.js";
 
 const persistGatewaySessionLifecycleEventMock = vi.fn();
+const configState = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 
 vi.mock("./session-lifecycle-state.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./session-lifecycle-state.js")>();
@@ -22,7 +22,7 @@ import {
 } from "./server-chat.js";
 
 vi.mock("../config/config.js", () => ({
-  loadConfig: vi.fn(() => ({})),
+  loadConfig: vi.fn(() => configState.value),
 }));
 
 vi.mock("../infra/heartbeat-visibility.js", () => ({
@@ -35,7 +35,7 @@ vi.mock("../infra/heartbeat-visibility.js", () => ({
 
 describe("agent event handler", () => {
   beforeEach(() => {
-    vi.mocked(loadConfig).mockReturnValue({});
+    configState.value = {};
     vi.mocked(resolveHeartbeatVisibility).mockReturnValue({
       showOk: false,
       showAlerts: true,
@@ -133,6 +133,36 @@ describe("agent event handler", () => {
       stream: "lifecycle",
       ts: Date.now(),
       data: { phase: "end" },
+    });
+  }
+
+  function emitRuntimeClosure(
+    handler: ReturnType<typeof createHarness>["handler"],
+    runId: string,
+    seq = 3,
+    overrides?: Partial<Record<string, unknown>>,
+  ) {
+    handler({
+      runId,
+      seq,
+      stream: "runtime",
+      ts: Date.now(),
+      data: {
+        phase: "closure",
+        summary: {
+          runId,
+          sessionKey: "session-closure",
+          updatedAtMs: 2_000,
+          outcomeStatus: "completed",
+          verificationStatus: "verified",
+          acceptanceStatus: "satisfied",
+          action: "close",
+          remediation: "none",
+          reasonCode: "verified_execution",
+          reasons: ["Execution contract was verified before final closure."],
+          ...overrides,
+        },
+      },
     });
   }
 
@@ -731,14 +761,68 @@ describe("agent event handler", () => {
         abortedLastRun: false,
       }),
     );
-    expect(persistGatewaySessionLifecycleEventMock).toHaveBeenCalledWith({
-      sessionKey: "session-finished",
-      event: expect.objectContaining({
-        runId: "run-finished",
-        data: expect.objectContaining({ phase: "end" }),
-      }),
-    });
     resetAgentRunContextForTest();
+  });
+
+  it("waits for runtime closure before finalizing chat when the run expects closure truth", () => {
+    const {
+      broadcast,
+      broadcastToConnIds,
+      nodeSendToSession,
+      chatRunState,
+      handler,
+      sessionEventSubscribers,
+    } = createHarness({
+      now: 2_000,
+      resolveSessionKeyForRun: () => "session-closure",
+    });
+    sessionEventSubscribers.subscribe("conn-session");
+    chatRunState.registry.add("run-closure", {
+      sessionKey: "session-closure",
+      clientRunId: "client-closure",
+    });
+    registerAgentRunContext("run-closure", {
+      sessionKey: "session-closure",
+      awaitingRunClosure: true,
+    });
+
+    handler({
+      runId: "run-closure",
+      seq: 1,
+      stream: "assistant",
+      ts: Date.now(),
+      data: { text: "hello" },
+    });
+    emitLifecycleEnd(handler, "run-closure");
+
+    expect(chatBroadcastCalls(broadcast)).toHaveLength(1);
+
+    emitRuntimeClosure(handler, "run-closure");
+
+    const chatCalls = chatBroadcastCalls(broadcast);
+    expect(chatCalls).toHaveLength(2);
+    const finalPayload = chatCalls[1]?.[1] as {
+      state?: string;
+      message?: { content?: Array<{ text?: string }> };
+    };
+    expect(finalPayload.state).toBe("final");
+    expect(finalPayload.message?.content?.[0]?.text).toBe("hello");
+
+    const sessionsChangedCalls = broadcastToConnIds.mock.calls.filter(
+      ([event]) => event === "sessions.changed",
+    );
+    expect(sessionsChangedCalls.at(-1)?.[1]).toEqual(
+      expect.objectContaining({
+        sessionKey: "session-closure",
+        phase: "closure",
+        status: "done",
+        runClosureSummary: expect.objectContaining({
+          action: "close",
+          reasonCode: "verified_execution",
+        }),
+      }),
+    );
+    expect(sessionChatCalls(nodeSendToSession)).toHaveLength(2);
   });
 
   it("strips tool output when verbose is on", () => {
@@ -945,9 +1029,9 @@ describe("agent event handler", () => {
   });
 
   it("keeps heartbeat alert text in final chat output when remainder exceeds ackMaxChars", () => {
-    vi.mocked(loadConfig).mockReturnValue({
+    configState.value = {
       agents: { defaults: { heartbeat: { ackMaxChars: 10 } } },
-    });
+    };
 
     const { broadcast, chatRunState, handler } = createHarness({ now: 3_000 });
     chatRunState.registry.add("run-heartbeat-alert", {

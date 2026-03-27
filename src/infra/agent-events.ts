@@ -1,4 +1,8 @@
 import type { VerboseLevel } from "../auto-reply/thinking.js";
+import {
+  PlatformRuntimeRunClosureSummarySchema,
+  type PlatformRuntimeRunClosureSummary,
+} from "../platform/runtime/contracts.js";
 import type { PluginHookPlatformExecutionContext } from "../plugins/types.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { notifyListeners, registerListener } from "../shared/listeners.js";
@@ -21,6 +25,8 @@ export type AgentRunContext = {
   runtimeState?: "queued" | "running" | "blocked" | "approved" | "resumed" | "completed" | "failed";
   runtimeCheckpointId?: string;
   runtimeBoundary?: string;
+  awaitingRunClosure?: boolean;
+  runClosureSummary?: PlatformRuntimeRunClosureSummary;
   isHeartbeat?: boolean;
   /** Whether control UI clients should receive chat/agent updates for this run. */
   isControlUiVisible?: boolean;
@@ -70,6 +76,14 @@ export function registerAgentRunContext(runId: string, context: AgentRunContext)
   if (context.runtimeBoundary && existing.runtimeBoundary !== context.runtimeBoundary) {
     existing.runtimeBoundary = context.runtimeBoundary;
   }
+  if (context.awaitingRunClosure !== undefined) {
+    existing.awaitingRunClosure = context.awaitingRunClosure;
+  }
+  if (context.runClosureSummary) {
+    existing.runClosureSummary = PlatformRuntimeRunClosureSummarySchema.parse(
+      context.runClosureSummary,
+    );
+  }
   if (context.isControlUiVisible !== undefined) {
     existing.isControlUiVisible = context.isControlUiVisible;
   }
@@ -109,6 +123,25 @@ export function emitAgentEvent(event: Omit<AgentEventPayload, "seq" | "ts">) {
 
 export function onAgentEvent(listener: (evt: AgentEventPayload) => void) {
   return registerListener(state.listeners, listener);
+}
+
+export function emitRunClosureSummary(summary: PlatformRuntimeRunClosureSummary) {
+  const parsed = PlatformRuntimeRunClosureSummarySchema.parse(summary);
+  registerAgentRunContext(parsed.runId, {
+    ...(parsed.sessionKey ? { sessionKey: parsed.sessionKey } : {}),
+    awaitingRunClosure: false,
+    runClosureSummary: parsed,
+    runtimeState: parsed.action === "close" ? "completed" : "failed",
+  });
+  emitAgentEvent({
+    runId: parsed.runId,
+    stream: "runtime",
+    ...(parsed.sessionKey ? { sessionKey: parsed.sessionKey } : {}),
+    data: {
+      phase: "closure",
+      summary: parsed,
+    },
+  });
 }
 
 export function resetAgentEventsForTest() {
