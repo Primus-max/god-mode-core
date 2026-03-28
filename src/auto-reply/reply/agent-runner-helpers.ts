@@ -7,6 +7,7 @@ import { loadSessionStore } from "../../config/sessions.js";
 import { isAudioFileName } from "../../media/mime.js";
 import {
   getPlatformRuntimeCheckpointService,
+  PlatformRuntimeRunOutcomeSchema,
   type PlatformRuntimeAcceptanceEvidence,
   type PlatformRuntimeAcceptanceResult,
   type PlatformRuntimeExecutionIntent,
@@ -90,6 +91,78 @@ export type MessagingDeliveryReceipt = {
   failedDeliveryCount: number;
   partialDelivery: boolean;
 };
+
+type CompletionOutcome = PlatformRuntimeRunOutcome & {
+  hadToolError?: boolean;
+  deterministicApprovalPromptSent?: boolean;
+};
+
+function mergeCompletionOutcomeWithRuntimeOutcome(params: {
+  completionOutcome: CompletionOutcome;
+  runtimeOutcome?: PlatformRuntimeRunOutcome;
+}): PlatformRuntimeRunOutcome {
+  const completionOutcome = params.completionOutcome;
+  const baseOutcome = PlatformRuntimeRunOutcomeSchema.parse({
+    runId: completionOutcome?.runId ?? "",
+    status: completionOutcome?.status ?? "partial",
+    checkpointIds: completionOutcome?.checkpointIds ?? [],
+    blockedCheckpointIds: completionOutcome?.blockedCheckpointIds ?? [],
+    completedCheckpointIds: completionOutcome?.completedCheckpointIds ?? [],
+    deniedCheckpointIds: completionOutcome?.deniedCheckpointIds ?? [],
+    pendingApprovalIds: completionOutcome?.pendingApprovalIds ?? [],
+    artifactIds: completionOutcome?.artifactIds ?? [],
+    bootstrapRequestIds: completionOutcome?.bootstrapRequestIds ?? [],
+    actionIds: completionOutcome?.actionIds ?? [],
+    attemptedActionIds: completionOutcome?.attemptedActionIds ?? [],
+    confirmedActionIds: completionOutcome?.confirmedActionIds ?? [],
+    failedActionIds: completionOutcome?.failedActionIds ?? [],
+    boundaries: completionOutcome?.boundaries ?? [],
+  });
+  const runtimeOutcome = params.runtimeOutcome;
+  if (!runtimeOutcome) {
+    return baseOutcome;
+  }
+  const status =
+    baseOutcome.status === "blocked" || runtimeOutcome.status === "blocked"
+      ? "blocked"
+      : baseOutcome.status === "failed" || runtimeOutcome.status === "failed"
+        ? "failed"
+        : baseOutcome.status === "completed" || runtimeOutcome.status === "completed"
+          ? "completed"
+          : "partial";
+  return PlatformRuntimeRunOutcomeSchema.parse({
+    runId: baseOutcome.runId,
+    status,
+    checkpointIds: Array.from(new Set([...baseOutcome.checkpointIds, ...runtimeOutcome.checkpointIds])),
+    blockedCheckpointIds: Array.from(
+      new Set([...baseOutcome.blockedCheckpointIds, ...runtimeOutcome.blockedCheckpointIds]),
+    ),
+    completedCheckpointIds: Array.from(
+      new Set([...baseOutcome.completedCheckpointIds, ...runtimeOutcome.completedCheckpointIds]),
+    ),
+    deniedCheckpointIds: Array.from(
+      new Set([...baseOutcome.deniedCheckpointIds, ...runtimeOutcome.deniedCheckpointIds]),
+    ),
+    pendingApprovalIds: Array.from(
+      new Set([...baseOutcome.pendingApprovalIds, ...runtimeOutcome.pendingApprovalIds]),
+    ),
+    artifactIds: Array.from(new Set([...baseOutcome.artifactIds, ...runtimeOutcome.artifactIds])),
+    bootstrapRequestIds: Array.from(
+      new Set([...baseOutcome.bootstrapRequestIds, ...runtimeOutcome.bootstrapRequestIds]),
+    ),
+    actionIds: Array.from(new Set([...baseOutcome.actionIds, ...runtimeOutcome.actionIds])),
+    attemptedActionIds: Array.from(
+      new Set([...baseOutcome.attemptedActionIds, ...runtimeOutcome.attemptedActionIds]),
+    ),
+    confirmedActionIds: Array.from(
+      new Set([...baseOutcome.confirmedActionIds, ...runtimeOutcome.confirmedActionIds]),
+    ),
+    failedActionIds: Array.from(
+      new Set([...baseOutcome.failedActionIds, ...runtimeOutcome.failedActionIds]),
+    ),
+    boundaries: Array.from(new Set([...baseOutcome.boundaries, ...runtimeOutcome.boundaries])),
+  });
+}
 
 type MessagingDeliveryReceiptInput = Partial<MessagingDeliveryReceipt> | undefined;
 
@@ -283,6 +356,10 @@ function reevaluateMessagingDecision(params: {
     };
   }
   const runtimeService = getPlatformRuntimeCheckpointService();
+  const outcome = mergeCompletionOutcomeWithRuntimeOutcome({
+    completionOutcome,
+    runtimeOutcome: runtimeService.buildRunOutcome(completionOutcome.runId),
+  });
   const baseEvidence = buildMessagingAcceptanceEvidence({
     runResult: params.runResult,
     replyPayloads: params.replyPayloads,
@@ -290,8 +367,8 @@ function reevaluateMessagingDecision(params: {
     recoveryAttemptCount: params.recoveryAttemptCount,
   });
   const runClosure = runtimeService.buildRunClosure({
-    runId: completionOutcome.runId,
-    outcome: completionOutcome,
+    runId: outcome.runId,
+    outcome,
     receipts: params.runResult.meta?.executionVerification?.receipts,
     evidence: baseEvidence,
     executionSurface: params.runResult.meta?.executionSurface,

@@ -1,3 +1,7 @@
+import {
+  reevaluateMessagingDecisionForMessagingRun,
+  type MessagingDeliveryClosureCandidate,
+} from "../../auto-reply/reply/agent-runner-helpers.js";
 import { getChannelPlugin, normalizeChannelId } from "../../channels/plugins/index.js";
 import { createOutboundSendDeps, type CliDeps } from "../../cli/outbound-send-deps.js";
 import type { OpenClawConfig } from "../../config/config.js";
@@ -22,6 +26,7 @@ import { AGENT_LANE_NESTED } from "../lanes.js";
 import type { AgentCommandOpts } from "./types.js";
 
 type RunResult = Awaited<ReturnType<(typeof import("../pi-embedded.js"))["runEmbeddedPiAgent"]>>;
+type AgentReplyPayloads = NonNullable<RunResult["payloads"]>;
 
 const NESTED_LOG_PREFIX = "[agent:nested]";
 
@@ -60,6 +65,30 @@ function logNestedOutput(
     }
     runtime.log(`${prefix} ${line}`);
   }
+}
+
+function mergePostDeliveryRuntimeMeta(params: {
+  result: RunResult;
+  replyPayloads: AgentReplyPayloads;
+}): RunResult["meta"] {
+  const reevaluated = reevaluateMessagingDecisionForMessagingRun({
+    runResult: params.result as MessagingDeliveryClosureCandidate["runResult"],
+    replyPayloads: params.replyPayloads ?? [],
+  });
+  if (!reevaluated) {
+    return params.result.meta;
+  }
+  return {
+    ...params.result.meta,
+    ...(reevaluated.runClosure ? { runClosure: reevaluated.runClosure } : {}),
+    ...(reevaluated.acceptanceOutcome
+      ? { acceptanceOutcome: reevaluated.acceptanceOutcome }
+      : {}),
+    ...(reevaluated.executionVerification
+      ? { executionVerification: reevaluated.executionVerification }
+      : {}),
+    ...(reevaluated.supervisorVerdict ? { supervisorVerdict: reevaluated.supervisorVerdict } : {}),
+  };
 }
 
 export async function deliverAgentCommandResult(params: {
@@ -218,6 +247,7 @@ export async function deliverAgentCommandResult(params: {
   if (deliver && deliveryChannel && !isInternalMessageChannel(deliveryChannel)) {
     if (deliveryTarget) {
       await deliverOutboundPayloads({
+        ...(opts.runId ? { actionRunId: opts.runId } : {}),
         cfg,
         channel: deliveryChannel,
         to: deliveryTarget,
@@ -231,6 +261,13 @@ export async function deliverAgentCommandResult(params: {
         onPayload: logPayload,
         deps: createOutboundSendDeps(deps),
       });
+      return {
+        payloads: normalizedPayloads,
+        meta: mergePostDeliveryRuntimeMeta({
+          result,
+          replyPayloads: payloads,
+        }),
+      };
     }
   }
 
