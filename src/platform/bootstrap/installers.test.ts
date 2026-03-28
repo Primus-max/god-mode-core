@@ -1,39 +1,36 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import * as installFlow from "../../infra/install-flow.js";
+import * as installFromNpmSpec from "../../infra/install-from-npm-spec.js";
+import * as installPackageDir from "../../infra/install-package-dir.js";
+import * as downloadFetch from "./download-fetch.js";
+import type { BootstrapRequest } from "./contracts.js";
+import { installCapabilityRequest } from "./installers.js";
 import {
   resolvePlatformBootstrapDownloadCapabilityInstallDir,
   resolvePlatformBootstrapDownloadCapabilityStageDir,
   resolvePlatformBootstrapNodeCapabilityInstallDir,
 } from "./paths.js";
 
-const installFromValidatedNpmSpecArchiveMock = vi.hoisted(() => vi.fn());
-const fetchBootstrapDownloadArtifactMock = vi.hoisted(() => vi.fn());
-const withExtractedArchiveRootMock = vi.hoisted(() => vi.fn());
-const installPackageDirWithManifestDepsMock = vi.hoisted(() => vi.fn());
+const installFromValidatedNpmSpecArchiveMock = vi.spyOn(
+  installFromNpmSpec,
+  "installFromValidatedNpmSpecArchive",
+);
+const fetchBootstrapDownloadArtifactMock = vi.spyOn(downloadFetch, "fetchBootstrapDownloadArtifact");
+const withExtractedArchiveRootMock = vi.spyOn(installFlow, "withExtractedArchiveRoot");
+const installPackageDirWithManifestDepsMock = vi.spyOn(
+  installPackageDir,
+  "installPackageDirWithManifestDeps",
+);
 
-vi.mock("../../infra/install-from-npm-spec.js", () => ({
-  installFromValidatedNpmSpecArchive: (...args: unknown[]) =>
-    installFromValidatedNpmSpecArchiveMock(...args),
-}));
-
-vi.mock("./download-fetch.js", () => ({
-  fetchBootstrapDownloadArtifact: (...args: unknown[]) =>
-    fetchBootstrapDownloadArtifactMock(...args),
-}));
-
-vi.mock("../../infra/install-flow.js", () => ({
-  withExtractedArchiveRoot: (...args: unknown[]) => withExtractedArchiveRootMock(...args),
-}));
-
-vi.mock("../../infra/install-package-dir.js", () => ({
-  installPackageDirWithManifestDeps: (...args: unknown[]) =>
-    installPackageDirWithManifestDepsMock(...args),
-}));
-
-import type { BootstrapRequest } from "./contracts.js";
-import { installCapabilityRequest } from "./installers.js";
+afterAll(() => {
+  installFromValidatedNpmSpecArchiveMock.mockRestore();
+  fetchBootstrapDownloadArtifactMock.mockRestore();
+  withExtractedArchiveRootMock.mockRestore();
+  installPackageDirWithManifestDepsMock.mockRestore();
+});
 
 function buildNodeRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapRequest {
   return {

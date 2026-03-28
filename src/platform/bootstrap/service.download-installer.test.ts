@@ -1,32 +1,29 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import * as installFlow from "../../infra/install-flow.js";
+import * as installPackageDir from "../../infra/install-package-dir.js";
 import {
   getPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,
 } from "../runtime/index.js";
-
-const fetchBootstrapDownloadArtifactMock = vi.hoisted(() => vi.fn());
-const withExtractedArchiveRootMock = vi.hoisted(() => vi.fn());
-const installPackageDirWithManifestDepsMock = vi.hoisted(() => vi.fn());
-
-vi.mock("./download-fetch.js", () => ({
-  fetchBootstrapDownloadArtifact: (...args: unknown[]) =>
-    fetchBootstrapDownloadArtifactMock(...args),
-}));
-
-vi.mock("../../infra/install-flow.js", () => ({
-  withExtractedArchiveRoot: (...args: unknown[]) => withExtractedArchiveRootMock(...args),
-}));
-
-vi.mock("../../infra/install-package-dir.js", () => ({
-  installPackageDirWithManifestDeps: (...args: unknown[]) =>
-    installPackageDirWithManifestDepsMock(...args),
-}));
-
 import type { BootstrapRequest } from "./contracts.js";
+import * as downloadFetch from "./download-fetch.js";
 import { createBootstrapRequestService } from "./service.js";
+
+const fetchBootstrapDownloadArtifactMock = vi.spyOn(downloadFetch, "fetchBootstrapDownloadArtifact");
+const withExtractedArchiveRootMock = vi.spyOn(installFlow, "withExtractedArchiveRoot");
+const installPackageDirWithManifestDepsMock = vi.spyOn(
+  installPackageDir,
+  "installPackageDirWithManifestDeps",
+);
+
+afterAll(() => {
+  fetchBootstrapDownloadArtifactMock.mockRestore();
+  withExtractedArchiveRootMock.mockRestore();
+  installPackageDirWithManifestDepsMock.mockRestore();
+});
 
 function installBootstrapContinuationNoop() {
   getPlatformRuntimeCheckpointService().registerContinuationHandler(

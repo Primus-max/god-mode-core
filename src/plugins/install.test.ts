@@ -3,7 +3,7 @@ import path from "node:path";
 import * as tar from "tar";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { safePathSegmentHashed } from "../infra/install-safe-path.js";
-import { runCommandWithTimeout } from "../process/exec.js";
+import * as execModule from "../process/exec.js";
 import {
   expectSingleNpmInstallIgnoreScriptsCall,
   expectSingleNpmPackIgnoreScriptsCall,
@@ -23,9 +23,7 @@ import {
   resolvePluginInstallDir,
 } from "./install.js";
 
-vi.mock("../process/exec.js", () => ({
-  runCommandWithTimeout: vi.fn(),
-}));
+const runCommandWithTimeout = vi.spyOn(execModule, "runCommandWithTimeout");
 
 let suiteTempRoot = "";
 let suiteFixtureRoot = "";
@@ -434,6 +432,7 @@ async function ensureDynamicArchiveTemplate(params: {
 }
 
 afterAll(() => {
+  runCommandWithTimeout.mockRestore();
   if (!suiteTempRoot) {
     return;
   }
