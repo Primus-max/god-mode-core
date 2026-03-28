@@ -100,6 +100,10 @@ export type RunEmbeddedPiAgentParams = {
   bashElevated?: ExecElevatedDefaults;
   timeoutMs: number;
   runId: string;
+  /** Stable request/idempotency anchor that may span continuation runs. */
+  requestRunId?: string;
+  /** Immediate predecessor runId when this execution continues a prior run. */
+  parentRunId?: string;
   abortSignal?: AbortSignal;
   shouldEmitToolResult?: () => boolean;
   shouldEmitToolOutput?: () => boolean;

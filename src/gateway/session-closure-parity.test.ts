@@ -18,6 +18,8 @@ describe("gateway session closure parity", () => {
       runtimeMs: 400,
       runClosureSummary: {
         runId: "run-closure",
+        requestRunId: "request-closure",
+        parentRunId: "run-previous",
         sessionKey: "agent:main:main",
         updatedAtMs: 1_950,
         outcomeStatus: "partial",
@@ -44,6 +46,8 @@ describe("gateway session closure parity", () => {
     expect(row.runClosureSummary).toEqual(
       expect.objectContaining({
         action: "retry",
+        requestRunId: "request-closure",
+        parentRunId: "run-previous",
         declaredIntent: "document",
         declaredRecipeId: "recipe.doc",
       }),
@@ -62,6 +66,7 @@ describe("gateway session closure parity", () => {
         status: "done",
         runClosureSummary: {
           runId: "run-closure",
+          requestRunId: "request-closure",
           sessionKey: "agent:main:main",
           updatedAtMs: 1_950,
           outcomeStatus: "completed",
@@ -88,6 +93,7 @@ describe("gateway session closure parity", () => {
     expect(row?.runClosureSummary).toEqual(
       expect.objectContaining({
         action: "close",
+        requestRunId: "request-closure",
         reasonCode: "verified_execution",
         declaredIntent: "publish",
       }),

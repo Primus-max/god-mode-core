@@ -339,6 +339,7 @@ function reevaluateMessagingDecision(params: {
   replyPayloads: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
+  sourceRun?: FollowupRun;
 }):
   | {
       runClosure?: PlatformRuntimeRunClosure;
@@ -368,6 +369,8 @@ function reevaluateMessagingDecision(params: {
   });
   const runClosure = runtimeService.buildRunClosure({
     runId: outcome.runId,
+    requestRunId: params.sourceRun?.requestRunId ?? outcome.runId,
+    ...(params.sourceRun?.parentRunId ? { parentRunId: params.sourceRun.parentRunId } : {}),
     outcome,
     receipts: params.runResult.meta?.executionVerification?.receipts,
     evidence: baseEvidence,
@@ -388,6 +391,7 @@ export function reevaluateMessagingDecisionForMessagingRun(params: {
   replyPayloads: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
+  sourceRun?: FollowupRun;
 }):
   | {
       runClosure?: PlatformRuntimeRunClosure;
@@ -404,6 +408,7 @@ export function reevaluateAcceptanceForMessagingRun(params: {
   replyPayloads: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
+  sourceRun?: FollowupRun;
 }): PlatformRuntimeAcceptanceResult | undefined {
   return reevaluateMessagingDecision(params)?.acceptanceOutcome;
 }

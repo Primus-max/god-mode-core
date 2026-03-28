@@ -116,6 +116,7 @@ export type PlatformRuntimeCheckpointService = {
     kind?: PlatformRuntimeActionKind;
     state?: PlatformRuntimeActionState;
     checkpointId?: string;
+    idempotencyKey?: string;
   }) => PlatformRuntimeActionSummary[];
   findByApprovalId: (approvalId: string) => PlatformRuntimeCheckpoint | undefined;
   list: (params?: {
@@ -149,6 +150,8 @@ export type PlatformRuntimeCheckpointService = {
   }) => PlatformRuntimeExecutionReceipt[];
   buildRunClosure: (params: {
     runId: string;
+    requestRunId?: string;
+    parentRunId?: string;
     sessionKey?: string;
     outcome?: PlatformRuntimeRunOutcome;
     receipts?: PlatformRuntimeExecutionReceipt[];
@@ -174,7 +177,7 @@ export type PlatformRuntimeCheckpointService = {
   }) => PlatformRuntimeSupervisorVerdict;
   recordRunClosure: (closure: PlatformRuntimeRunClosure) => PlatformRuntimeRunClosure;
   getRunClosure: (runId: string) => PlatformRuntimeRunClosure | undefined;
-  listRunClosures: (params?: { sessionKey?: string }) => PlatformRuntimeRunClosure[];
+  listRunClosures: (params?: { sessionKey?: string; requestRunId?: string }) => PlatformRuntimeRunClosure[];
   registerContinuationHandler: (
     kind: PlatformRuntimeContinuationKind,
     handler: (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void,
@@ -228,6 +231,8 @@ function buildRunClosureSummary(
 ): PlatformRuntimeRunClosureSummary {
   return PlatformRuntimeRunClosureSummarySchema.parse({
     runId: closure.runId,
+    ...(closure.requestRunId ? { requestRunId: closure.requestRunId } : {}),
+    ...(closure.parentRunId ? { parentRunId: closure.parentRunId } : {}),
     ...(closure.sessionKey ? { sessionKey: closure.sessionKey } : {}),
     updatedAtMs: closure.updatedAtMs,
     outcomeStatus: closure.outcome.status,
@@ -1044,6 +1049,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
         .filter((action) =>
           listParams?.checkpointId ? action.checkpointId === listParams.checkpointId : true,
         )
+        .filter((action) =>
+          listParams?.idempotencyKey ? action.idempotencyKey === listParams.idempotencyKey : true,
+        )
         .toSorted((left, right) => right.updatedAtMs - left.updatedAtMs)
         .map((action) =>
           PlatformRuntimeActionSummarySchema.parse({
@@ -1054,6 +1062,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
             state: action.state,
             boundary: action.boundary,
             checkpointId: action.checkpointId,
+            idempotencyKey: action.idempotencyKey,
             target: action.target,
             attemptCount: action.attemptCount,
             retryable: action.retryable,
@@ -1440,6 +1449,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
       });
       return PlatformRuntimeRunClosureSchema.parse({
         runId: params.runId.trim(),
+        ...(params.requestRunId ? { requestRunId: params.requestRunId } : {}),
+        ...(params.parentRunId ? { parentRunId: params.parentRunId } : {}),
         ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
         updatedAtMs: Date.now(),
         outcome,
@@ -2051,6 +2062,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
       return Array.from(closures.values())
         .filter((closure) =>
           listParams?.sessionKey ? closure.sessionKey === listParams.sessionKey : true,
+        )
+        .filter((closure) =>
+          listParams?.requestRunId ? closure.requestRunId === listParams.requestRunId : true,
         )
         .toSorted((left, right) => right.updatedAtMs - left.updatedAtMs);
     },

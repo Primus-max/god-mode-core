@@ -347,6 +347,8 @@ function buildExecutionIntentFromRuntimePlan(params: {
 function buildCompletionArtifacts(params: {
   runId?: string;
   sessionKey?: string;
+  requestRunId?: string;
+  parentRunId?: string;
   hadToolError?: boolean;
   deterministicApprovalPromptSent?: boolean;
   didSendViaMessagingTool?: boolean;
@@ -425,6 +427,8 @@ function buildCompletionArtifacts(params: {
   };
   const runClosure = runtimeService.buildRunClosure({
     runId: normalizedRunId,
+    requestRunId: params.requestRunId ?? normalizedRunId,
+    ...(params.parentRunId ? { parentRunId: params.parentRunId } : {}),
     sessionKey: params.sessionKey,
     outcome,
     receipts: params.executionReceipts,
@@ -563,6 +567,8 @@ export async function runEmbeddedPiAgent(
                 ...buildCompletionArtifacts({
                   runId: params.runId,
                   sessionKey: params.sessionKey,
+                  requestRunId: params.requestRunId,
+                  parentRunId: params.parentRunId,
                   fallbackStatus: "failed",
                   executionSurface,
                   executionIntent,
@@ -1154,6 +1160,8 @@ export async function runEmbeddedPiAgent(
                 ...buildCompletionArtifacts({
                   runId: params.runId,
                   sessionKey: params.sessionKey,
+                  requestRunId: params.requestRunId,
+                  parentRunId: params.parentRunId,
                   fallbackStatus: "failed",
                   executionSurface,
                   executionIntent,
@@ -1555,6 +1563,8 @@ export async function runEmbeddedPiAgent(
                 ...buildCompletionArtifacts({
                   runId: params.runId,
                   sessionKey: params.sessionKey,
+                  requestRunId: params.requestRunId,
+                  parentRunId: params.parentRunId,
                   hadToolError: Boolean(attempt.lastToolError),
                   deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                   executionReceipts: attempt.executionReceipts,
@@ -1609,6 +1619,8 @@ export async function runEmbeddedPiAgent(
                   ...buildCompletionArtifacts({
                     runId: params.runId,
                     sessionKey: params.sessionKey,
+                    requestRunId: params.requestRunId,
+                    parentRunId: params.parentRunId,
                     hadToolError: Boolean(attempt.lastToolError),
                     deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                     executionReceipts: attempt.executionReceipts,
@@ -1651,6 +1663,8 @@ export async function runEmbeddedPiAgent(
                   ...buildCompletionArtifacts({
                     runId: params.runId,
                     sessionKey: params.sessionKey,
+                    requestRunId: params.requestRunId,
+                    parentRunId: params.parentRunId,
                     hadToolError: Boolean(attempt.lastToolError),
                     deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                     executionReceipts: attempt.executionReceipts,
@@ -1927,6 +1941,8 @@ export async function runEmbeddedPiAgent(
                 ...buildCompletionArtifacts({
                   runId: params.runId,
                   sessionKey: params.sessionKey,
+                  requestRunId: params.requestRunId,
+                  parentRunId: params.parentRunId,
                   hadToolError: Boolean(attempt.lastToolError),
                   deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                   hasOutput: false,
@@ -1990,6 +2006,8 @@ export async function runEmbeddedPiAgent(
               ...buildCompletionArtifacts({
                 runId: params.runId,
                 sessionKey: params.sessionKey,
+                requestRunId: params.requestRunId,
+                parentRunId: params.parentRunId,
                 hadToolError: Boolean(attempt.lastToolError),
                 deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
                 hasOutput: payloads.some((payload) => Boolean(payload.text?.trim())),

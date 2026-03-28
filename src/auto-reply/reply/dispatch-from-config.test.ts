@@ -452,6 +452,77 @@ describe("dispatchReplyFromConfig", () => {
         channel: "telegram",
         to: "telegram:999",
         actionRunId: "run-direct-route",
+        idempotencyKey: "run-direct-route",
+      }),
+    );
+  });
+
+  it("preserves requestRunId for routed delivery handoff after continuation candidate appears", async () => {
+    setNoAbort();
+    mocks.routeReply.mockClear();
+    const cfg = emptyConfig;
+    const dispatcher = createDispatcher();
+    const ctx = buildTestCtx({
+      Provider: "webchat",
+      Surface: "webchat",
+      OriginatingChannel: "telegram",
+      OriginatingTo: "telegram:999",
+      ExplicitDeliverRoute: true,
+    });
+
+    const replyResolver = async (
+      _ctx: MsgContext,
+      opts?: GetReplyOptions,
+      _cfg?: OpenClawConfig,
+    ) => {
+      await opts?.onDeliveryClosureCandidate?.({
+        runResult: {
+          meta: {
+            completionOutcome: {
+              runId: "run-continued-final",
+              status: "completed",
+              checkpointIds: [],
+              blockedCheckpointIds: [],
+              completedCheckpointIds: [],
+              deniedCheckpointIds: [],
+              pendingApprovalIds: [],
+              artifactIds: [],
+              bootstrapRequestIds: [],
+              actionIds: [],
+              attemptedActionIds: [],
+              confirmedActionIds: [],
+              failedActionIds: [],
+              boundaries: [],
+            },
+          },
+        },
+        sourceRun: {
+          prompt: "hi",
+          enqueuedAt: 1,
+          requestRunId: "request-stable-1",
+          parentRunId: "run-direct-route",
+        },
+        settings: { mode: "queue" },
+      } as never);
+      return { text: "hi" } satisfies ReplyPayload;
+    };
+
+    await dispatchReplyFromConfig({
+      ctx,
+      cfg,
+      dispatcher,
+      replyResolver,
+      replyOptions: {
+        runId: "run-direct-route",
+      },
+    });
+
+    expect(mocks.routeReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "telegram",
+        to: "telegram:999",
+        actionRunId: "run-continued-final",
+        idempotencyKey: "request-stable-1",
       }),
     );
   });

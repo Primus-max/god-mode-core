@@ -390,6 +390,8 @@ describe("platform runtime checkpoint service", () => {
     };
     const closure = service.buildRunClosure({
       runId: outcome.runId,
+      requestRunId: "request-closure",
+      parentRunId: "run-closure-parent",
       sessionKey: "session-closure",
       outcome,
       evidence: {
@@ -409,6 +411,8 @@ describe("platform runtime checkpoint service", () => {
     expect(closure).toEqual(
       expect.objectContaining({
         runId: "run-closure",
+        requestRunId: "request-closure",
+        parentRunId: "run-closure-parent",
         sessionKey: "session-closure",
         executionIntent: expect.objectContaining({
           recipeId: "code_build_publish",
@@ -430,12 +434,20 @@ describe("platform runtime checkpoint service", () => {
     expect(next.rehydrate()).toBe(1);
     expect(next.getRunClosure("run-closure")).toEqual(
       expect.objectContaining({
+        requestRunId: "request-closure",
+        parentRunId: "run-closure-parent",
         sessionKey: "session-closure",
         executionIntent: expect.objectContaining({
           recipeId: "code_build_publish",
         }),
       }),
     );
+    expect(next.listRunClosures({ requestRunId: "request-closure" })).toEqual([
+      expect.objectContaining({
+        runId: "run-closure",
+        requestRunId: "request-closure",
+      }),
+    ]);
   });
 
   it("treats contract mismatches as retryable instead of closing the run", () => {
