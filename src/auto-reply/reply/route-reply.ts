@@ -48,6 +48,8 @@ export type RouteReplyParams = {
   cfg: OpenClawConfig;
   /** Optional abort signal for cooperative cancellation. */
   abortSignal?: AbortSignal;
+  /** Optional runtime run id to correlate durable messaging_delivery actions. */
+  actionRunId?: string;
   /** Mirror reply into session transcript (default: true when sessionKey is set). */
   mirror?: boolean;
   /** Whether this message is being sent in a group/channel context */
@@ -216,6 +218,7 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
       sessionKey: params.sessionKey,
     });
     const results = await deliverOutboundPayloads({
+      ...(params.actionRunId ? { actionRunId: params.actionRunId } : {}),
       cfg,
       channel: channelId,
       to,
@@ -242,7 +245,7 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
     return {
       ok: true,
       messageId: last?.messageId,
-      attemptedDeliveryCount: 1,
+      attemptedDeliveryCount: results.length,
       confirmedDeliveryCount: results.length,
       failedDeliveryCount: 0,
     };

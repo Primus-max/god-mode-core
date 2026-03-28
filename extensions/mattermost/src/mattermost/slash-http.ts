@@ -508,7 +508,7 @@ async function handleSlashCommandAsync(params: {
       onReplyStart: typingCallbacks?.onReplyStart,
     });
 
-  await core.channel.reply.withReplyDispatcher({
+  const result = await core.channel.reply.withReplyDispatcher({
     dispatcher,
     onSettled: () => {
       markDispatchIdle();
@@ -525,5 +525,9 @@ async function handleSlashCommandAsync(params: {
           onModelSelected,
         },
       }),
+  });
+  core.channel.reply.finalizeDispatchDeliveryClosure({
+    dispatcher,
+    result,
   });
 }

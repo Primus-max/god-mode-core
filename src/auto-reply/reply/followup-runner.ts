@@ -130,7 +130,11 @@ export function createFollowupRunner(params: {
    * session's current dispatcher. This ensures replies go back to
    * where the message originated.
    */
-  const sendFollowupPayloads = async (payloads: ReplyPayload[], queued: FollowupRun) => {
+  const sendFollowupPayloads = async (
+    payloads: ReplyPayload[],
+    queued: FollowupRun,
+    actionRunId?: string,
+  ) => {
     let attemptedDeliveryCount = 0;
     let confirmedDeliveryCount = 0;
     let failedDeliveryCount = 0;
@@ -158,7 +162,6 @@ export function createFollowupRunner(params: {
 
       // Route to originating channel if set, otherwise fall back to dispatcher.
       if (shouldRouteToOriginating) {
-        attemptedDeliveryCount += 1;
         const result = await routeReply({
           payload,
           channel: originatingChannel,
@@ -167,9 +170,12 @@ export function createFollowupRunner(params: {
           accountId: queued.originatingAccountId,
           threadId: queued.originatingThreadId,
           cfg: queued.run.config,
+          actionRunId,
         });
+        attemptedDeliveryCount += result.attemptedDeliveryCount ?? 0;
+        confirmedDeliveryCount += result.confirmedDeliveryCount ?? 0;
+        failedDeliveryCount += result.failedDeliveryCount ?? 0;
         if (!result.ok) {
-          failedDeliveryCount += 1;
           const errorMsg = result.error ?? "unknown error";
           logVerbose(`followup queue: route-reply failed: ${errorMsg}`);
           // Fall back to the caller-provided dispatcher only when the
@@ -186,10 +192,9 @@ export function createFollowupRunner(params: {
           });
           if (opts?.onBlockReply && origin && origin === provider) {
             await opts.onBlockReply(payload);
+            attemptedDeliveryCount += 1;
             confirmedDeliveryCount += 1;
           }
-        } else {
-          confirmedDeliveryCount += Math.max(result.confirmedDeliveryCount ?? 1, 1);
         }
       } else if (opts?.onBlockReply) {
         attemptedDeliveryCount += 1;
@@ -476,13 +481,8 @@ export function createFollowupRunner(params: {
         }),
       });
       let finalPayloads = suppressMessagingToolReplies ? [] : mediaFilteredPayloads;
-      const closureDecision = reevaluateMessagingDecisionForMessagingRun({
-        runResult,
-        replyPayloads: finalPayloads,
-        recoveryAttemptCount: queued.automation?.retryCount ?? 0,
-      });
-      let acceptanceOutcome = closureDecision?.acceptanceOutcome;
-      const supervisorVerdict = closureDecision?.supervisorVerdict;
+      let acceptanceOutcome = runResult.meta?.acceptanceOutcome;
+      let supervisorVerdict = runResult.meta?.supervisorVerdict;
       let queuedSemanticRetry = false;
 
       if (autoCompactionCount > 0) {
@@ -513,6 +513,13 @@ export function createFollowupRunner(params: {
       }
 
       if (finalPayloads.length === 0) {
+        const closureDecision = reevaluateMessagingDecisionForMessagingRun({
+          runResult,
+          replyPayloads: finalPayloads,
+          recoveryAttemptCount: queued.automation?.retryCount ?? 0,
+        });
+        acceptanceOutcome = closureDecision?.acceptanceOutcome ?? acceptanceOutcome;
+        supervisorVerdict = closureDecision?.supervisorVerdict ?? supervisorVerdict;
         const fallbackPayload = buildAcceptanceFallbackPayload(
           acceptanceOutcome,
           supervisorVerdict,
@@ -530,7 +537,11 @@ export function createFollowupRunner(params: {
         finalPayloads = await applyFollowupReplyThreading([fallbackPayload]);
       }
 
-      const deliveryReceipt = await sendFollowupPayloads(finalPayloads, queued);
+      const deliveryReceipt = await sendFollowupPayloads(
+        finalPayloads,
+        queued,
+        runResult.meta?.completionOutcome?.runId,
+      );
       const closure = finalizeMessagingDeliveryClosure({
         candidate: {
           runResult,

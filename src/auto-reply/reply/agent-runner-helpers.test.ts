@@ -35,6 +35,7 @@ vi.mock("./queue.js", async (importOriginal) => {
 let createShouldEmitToolOutput: typeof import("./agent-runner-helpers.js").createShouldEmitToolOutput;
 let createShouldEmitToolResult: typeof import("./agent-runner-helpers.js").createShouldEmitToolResult;
 let buildAcceptanceFallbackPayload: typeof import("./agent-runner-helpers.js").buildAcceptanceFallbackPayload;
+let buildCanonicalMessagingDeliveryReceipt: typeof import("./agent-runner-helpers.js").buildCanonicalMessagingDeliveryReceipt;
 let enqueueSemanticRetryFollowup: typeof import("./agent-runner-helpers.js").enqueueSemanticRetryFollowup;
 let finalizeClosureRecoveryCheckpoint: typeof import("./agent-runner-helpers.js").finalizeClosureRecoveryCheckpoint;
 let finalizeMessagingDeliveryClosure: typeof import("./agent-runner-helpers.js").finalizeMessagingDeliveryClosure;
@@ -61,6 +62,7 @@ describe("agent runner helpers", () => {
       createShouldEmitToolOutput,
       createShouldEmitToolResult,
       buildAcceptanceFallbackPayload,
+      buildCanonicalMessagingDeliveryReceipt,
       enqueueSemanticRetryFollowup,
       finalizeClosureRecoveryCheckpoint,
       finalizeMessagingDeliveryClosure,
@@ -131,6 +133,33 @@ describe("agent runner helpers", () => {
     const value = { ok: true };
     expect(finalizeWithFollowup(value, "queue-key", runFollowupTurn)).toBe(value);
     expect(hoisted.scheduleFollowupDrainMock).toHaveBeenCalledWith("queue-key", runFollowupTurn);
+  });
+
+  it("builds canonical delivery receipts from payload truth plus merged counters", () => {
+    expect(
+      buildCanonicalMessagingDeliveryReceipt({
+        replyPayloads: [{ text: "final" }, { text: "   " }],
+        receipts: [
+          {
+            stagedReplyCount: 99,
+            attemptedDeliveryCount: 1,
+            confirmedDeliveryCount: 0,
+            failedDeliveryCount: 1,
+          },
+          {
+            attemptedDeliveryCount: 2,
+            confirmedDeliveryCount: 2,
+            failedDeliveryCount: 0,
+          },
+        ],
+      }),
+    ).toEqual({
+      stagedReplyCount: 1,
+      attemptedDeliveryCount: 3,
+      confirmedDeliveryCount: 2,
+      failedDeliveryCount: 1,
+      partialDelivery: true,
+    });
   });
 
   it("signals typing only when any payload has text or media", async () => {

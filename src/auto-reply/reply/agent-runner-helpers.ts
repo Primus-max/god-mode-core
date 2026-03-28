@@ -91,6 +91,8 @@ export type MessagingDeliveryReceipt = {
   partialDelivery: boolean;
 };
 
+type MessagingDeliveryReceiptInput = Partial<MessagingDeliveryReceipt> | undefined;
+
 export type MessagingDeliveryClosureCandidate = {
   runResult: {
     meta?: {
@@ -140,6 +142,10 @@ function isDeliverableReplyPayload(payload: ReplyPayload): boolean {
   return hasOutboundReplyContent(payload, { trimText: true }) || hasStructuredReplyPayload(payload);
 }
 
+export function countDeliverableReplyPayloads(payloads: ReplyPayload[] | undefined): number {
+  return (payloads ?? []).filter(isDeliverableReplyPayload).length;
+}
+
 export function buildMessagingDeliveryReceipt(params: {
   stagedReplyPayloads?: ReplyPayload[];
   attemptedDeliveries?: number;
@@ -161,17 +167,48 @@ export function buildMessagingDeliveryReceipt(params: {
   };
 }
 
+export function buildCanonicalMessagingDeliveryReceipt(params: {
+  replyPayloads?: ReplyPayload[];
+  receipts?: MessagingDeliveryReceiptInput[];
+}): MessagingDeliveryReceipt {
+  const receipts = params.receipts ?? [];
+  const stagedReplyCount =
+    params.replyPayloads !== undefined
+      ? countDeliverableReplyPayloads(params.replyPayloads)
+      : receipts.reduce(
+          (max, receipt) => Math.max(max, Math.max(receipt?.stagedReplyCount ?? 0, 0)),
+          0,
+        );
+  const attemptedDeliveryCount = receipts.reduce(
+    (sum, receipt) => sum + Math.max(receipt?.attemptedDeliveryCount ?? 0, 0),
+    0,
+  );
+  const confirmedDeliveryCount = receipts.reduce(
+    (sum, receipt) => sum + Math.max(receipt?.confirmedDeliveryCount ?? 0, 0),
+    0,
+  );
+  const failedDeliveryCount = receipts.reduce(
+    (sum, receipt) => sum + Math.max(receipt?.failedDeliveryCount ?? 0, 0),
+    0,
+  );
+  return {
+    stagedReplyCount,
+    attemptedDeliveryCount,
+    confirmedDeliveryCount,
+    failedDeliveryCount,
+    partialDelivery: confirmedDeliveryCount > 0 && failedDeliveryCount > 0,
+  };
+}
+
 export function buildMessagingAcceptanceEvidence(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads?: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
 }): PlatformRuntimeAcceptanceEvidence {
-  const deliveryReceipt = buildMessagingDeliveryReceipt({
-    stagedReplyPayloads: params.replyPayloads,
-    attemptedDeliveries: params.deliveryReceipt?.attemptedDeliveryCount,
-    confirmedDeliveries: params.deliveryReceipt?.confirmedDeliveryCount,
-    failedDeliveries: params.deliveryReceipt?.failedDeliveryCount,
+  const deliveryReceipt = buildCanonicalMessagingDeliveryReceipt({
+    replyPayloads: params.replyPayloads,
+    receipts: [params.deliveryReceipt],
   });
   return {
     ...(params.runResult.meta?.completionOutcome?.hadToolError !== undefined

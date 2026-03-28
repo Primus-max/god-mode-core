@@ -506,18 +506,30 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
             onReplyStart: typingCallbacks?.onReplyStart,
           });
 
-        await core.channel.reply.dispatchReplyFromConfig({
-          ctx: ctxPayload,
-          cfg,
+        const result = await core.channel.reply.withReplyDispatcher({
           dispatcher,
-          replyOptions: {
-            ...replyOptions,
-            disableBlockStreaming:
-              typeof account.blockStreaming === "boolean" ? !account.blockStreaming : undefined,
-            onModelSelected,
+          onSettled: () => {
+            markDispatchIdle();
           },
+          run: () =>
+            core.channel.reply.dispatchReplyFromConfig({
+              ctx: ctxPayload,
+              cfg,
+              dispatcher,
+              replyOptions: {
+                ...replyOptions,
+                disableBlockStreaming:
+                  typeof account.blockStreaming === "boolean"
+                    ? !account.blockStreaming
+                    : undefined,
+                onModelSelected,
+              },
+            }),
         });
-        markDispatchIdle();
+        core.channel.reply.finalizeDispatchDeliveryClosure({
+          dispatcher,
+          result,
+        });
       },
       log: (msg) => runtime.log?.(msg),
     }),
@@ -713,7 +725,7 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
         onReplyStart: typingCallbacks?.onReplyStart,
       });
 
-    await core.channel.reply.withReplyDispatcher({
+    const result = await core.channel.reply.withReplyDispatcher({
       dispatcher,
       onSettled: () => {
         markDispatchIdle();
@@ -730,6 +742,10 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
             onModelSelected,
           },
         }),
+    });
+    core.channel.reply.finalizeDispatchDeliveryClosure({
+      dispatcher,
+      result,
     });
 
     return capturedTexts.join("\n\n").trim();
@@ -1423,7 +1439,7 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
         },
       });
 
-    await core.channel.reply.withReplyDispatcher({
+    const result = await core.channel.reply.withReplyDispatcher({
       dispatcher,
       onSettled: () => {
         markDispatchIdle();
@@ -1440,6 +1456,10 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
             onModelSelected,
           },
         }),
+    });
+    core.channel.reply.finalizeDispatchDeliveryClosure({
+      dispatcher,
+      result,
     });
     if (historyKey) {
       clearHistoryEntriesIfEnabled({

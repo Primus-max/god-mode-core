@@ -14,6 +14,7 @@ export {
   dispatchInboundMessage,
   dispatchInboundMessageWithBufferedDispatcher,
   dispatchInboundMessageWithDispatcher,
+  finalizeDispatchDeliveryClosure,
 } from "../auto-reply/dispatch.js";
 export {
   normalizeGroupActivation,

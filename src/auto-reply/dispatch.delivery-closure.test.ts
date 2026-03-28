@@ -71,7 +71,7 @@ describe("dispatchInboundMessage delivery closure", () => {
         settings: { mode: "followup", debounceMs: 0, cap: 20 },
       },
       routedDeliveryReceipt: {
-        stagedReplyCount: 1,
+        stagedReplyCount: 99,
         attemptedDeliveryCount: 0,
         confirmedDeliveryCount: 0,
         failedDeliveryCount: 0,
@@ -107,6 +107,7 @@ describe("dispatchInboundMessage delivery closure", () => {
         }),
         replyPayloads: [{ text: "final reply delivered" }],
         deliveryReceipt: expect.objectContaining({
+          stagedReplyCount: 1,
           attemptedDeliveryCount: 1,
           confirmedDeliveryCount: 0,
           failedDeliveryCount: 1,

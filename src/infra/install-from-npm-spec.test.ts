@@ -1,24 +1,30 @@
-import { describe, expect, it, vi } from "vitest";
-
-const validateRegistryNpmSpecMock = vi.hoisted(() => vi.fn());
-const installFromNpmSpecArchiveWithInstallerMock = vi.hoisted(() => vi.fn());
-const finalizeNpmSpecArchiveInstallMock = vi.hoisted(() => vi.fn());
-
-vi.mock("./npm-registry-spec.js", () => ({
-  validateRegistryNpmSpec: (...args: unknown[]) => validateRegistryNpmSpecMock(...args),
-}));
-
-vi.mock("./npm-pack-install.js", () => ({
-  installFromNpmSpecArchiveWithInstaller: (...args: unknown[]) =>
-    installFromNpmSpecArchiveWithInstallerMock(...args),
-  finalizeNpmSpecArchiveInstall: (...args: unknown[]) => finalizeNpmSpecArchiveInstallMock(...args),
-}));
-
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import * as npmPackInstall from "./npm-pack-install.js";
+import * as npmRegistrySpec from "./npm-registry-spec.js";
 import { installFromValidatedNpmSpecArchive } from "./install-from-npm-spec.js";
+
+const validateSpy = vi.spyOn(npmRegistrySpec, "validateRegistryNpmSpec");
+const installFromNpmSpecArchiveWithInstallerSpy = vi.spyOn(
+  npmPackInstall,
+  "installFromNpmSpecArchiveWithInstaller",
+);
+const finalizeNpmSpecArchiveInstallSpy = vi.spyOn(npmPackInstall, "finalizeNpmSpecArchiveInstall");
+
+beforeEach(() => {
+  validateSpy.mockReset();
+  installFromNpmSpecArchiveWithInstallerSpy.mockReset();
+  finalizeNpmSpecArchiveInstallSpy.mockReset();
+});
+
+afterAll(() => {
+  validateSpy.mockRestore();
+  installFromNpmSpecArchiveWithInstallerSpy.mockRestore();
+  finalizeNpmSpecArchiveInstallSpy.mockRestore();
+});
 
 describe("installFromValidatedNpmSpecArchive", () => {
   it("trims the spec and returns validation errors before running the installer", async () => {
-    validateRegistryNpmSpecMock.mockReturnValueOnce("unsupported npm spec");
+    validateSpy.mockReturnValueOnce("unsupported npm spec");
 
     await expect(
       installFromValidatedNpmSpecArchive({
@@ -30,9 +36,9 @@ describe("installFromValidatedNpmSpecArchive", () => {
       }),
     ).resolves.toEqual({ ok: false, error: "unsupported npm spec" });
 
-    expect(validateRegistryNpmSpecMock).toHaveBeenCalledWith("nope");
-    expect(installFromNpmSpecArchiveWithInstallerMock).not.toHaveBeenCalled();
-    expect(finalizeNpmSpecArchiveInstallMock).not.toHaveBeenCalled();
+    expect(validateSpy).toHaveBeenCalledWith("nope");
+    expect(installFromNpmSpecArchiveWithInstallerSpy).not.toHaveBeenCalled();
+    expect(finalizeNpmSpecArchiveInstallSpy).not.toHaveBeenCalled();
   });
 
   it("passes the trimmed spec through the archive installer and finalizer", async () => {
@@ -45,9 +51,9 @@ describe("installFromValidatedNpmSpecArchive", () => {
       npmResolution: { version: "1.2.3" },
     };
     const finalized = { ok: true, archivePath: "/tmp/pkg.tgz" };
-    validateRegistryNpmSpecMock.mockReturnValueOnce(null);
-    installFromNpmSpecArchiveWithInstallerMock.mockResolvedValueOnce(flowResult);
-    finalizeNpmSpecArchiveInstallMock.mockReturnValueOnce(finalized);
+    validateSpy.mockReturnValueOnce(null);
+    installFromNpmSpecArchiveWithInstallerSpy.mockResolvedValueOnce(flowResult);
+    finalizeNpmSpecArchiveInstallSpy.mockReturnValueOnce(finalized);
 
     await expect(
       installFromValidatedNpmSpecArchive({
@@ -62,7 +68,7 @@ describe("installFromValidatedNpmSpecArchive", () => {
       }),
     ).resolves.toBe(finalized);
 
-    expect(installFromNpmSpecArchiveWithInstallerMock).toHaveBeenCalledWith({
+    expect(installFromNpmSpecArchiveWithInstallerSpy).toHaveBeenCalledWith({
       tempDirPrefix: "openclaw-npm-",
       spec: "@openclaw/demo@beta",
       timeoutMs: 45_000,
@@ -72,6 +78,6 @@ describe("installFromValidatedNpmSpecArchive", () => {
       installFromArchive,
       archiveInstallParams: { destination: "/tmp/demo" },
     });
-    expect(finalizeNpmSpecArchiveInstallMock).toHaveBeenCalledWith(flowResult);
+    expect(finalizeNpmSpecArchiveInstallSpy).toHaveBeenCalledWith(flowResult);
   });
 });
