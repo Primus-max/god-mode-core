@@ -42,6 +42,8 @@ import {
   toPluginHookPlatformExecutionContext,
 } from "./recipe/runtime-adapter.js";
 import {
+  createRuntimeActionGetGatewayMethod,
+  createRuntimeActionListGatewayMethod,
   createRuntimeCheckpointGetGatewayMethod,
   createRuntimeCheckpointListGatewayMethod,
   createRuntimeClosureGetGatewayMethod,
@@ -201,6 +203,14 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   api.registerGatewayMethod(
     "platform.bootstrap.run",
     createBootstrapRunGatewayMethod(bootstrapService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.actions.list",
+    createRuntimeActionListGatewayMethod(runtimeCheckpointService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.actions.get",
+    createRuntimeActionGetGatewayMethod(runtimeCheckpointService),
   );
   api.registerGatewayMethod(
     "platform.runtime.checkpoints.list",

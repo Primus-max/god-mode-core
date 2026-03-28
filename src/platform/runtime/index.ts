@@ -103,6 +103,8 @@ export {
 } from "./service.js";
 
 export {
+  createRuntimeActionGetGatewayMethod,
+  createRuntimeActionListGatewayMethod,
   createRuntimeCheckpointGetGatewayMethod,
   createRuntimeCheckpointListGatewayMethod,
   createRuntimeClosureGetGatewayMethod,

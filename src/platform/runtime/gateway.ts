@@ -1,6 +1,9 @@
-import { deriveRecoveryOperatorHint } from "./recovery-operator-hint.js";
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
-import { PlatformRuntimeCheckpointSummarySchema } from "./contracts.js";
+import {
+  PlatformRuntimeActionSchema,
+  PlatformRuntimeCheckpointSummarySchema,
+} from "./contracts.js";
+import { deriveRecoveryOperatorHint } from "./recovery-operator-hint.js";
 import type { PlatformRuntimeCheckpointService } from "./service.js";
 
 function toRuntimeCheckpointSummary(
@@ -42,9 +45,7 @@ function toRuntimeCheckpointSummary(
     updatedAtMs: checkpoint.updatedAtMs,
     ...(checkpoint.approvedAtMs !== undefined ? { approvedAtMs: checkpoint.approvedAtMs } : {}),
     ...(checkpoint.resumedAtMs !== undefined ? { resumedAtMs: checkpoint.resumedAtMs } : {}),
-    ...(checkpoint.completedAtMs !== undefined
-      ? { completedAtMs: checkpoint.completedAtMs }
-      : {}),
+    ...(checkpoint.completedAtMs !== undefined ? { completedAtMs: checkpoint.completedAtMs } : {}),
   });
 }
 
@@ -89,6 +90,48 @@ export function createRuntimeCheckpointGetGatewayMethod(
         ...summary,
         operatorHint: deriveRecoveryOperatorHint(summary),
       },
+    });
+  };
+}
+
+export function createRuntimeActionListGatewayMethod(
+  service: PlatformRuntimeCheckpointService,
+): GatewayRequestHandler {
+  return ({ params, respond }) => {
+    const sessionKey = typeof params.sessionKey === "string" ? params.sessionKey.trim() : undefined;
+    const runId = typeof params.runId === "string" ? params.runId.trim() : undefined;
+    const kind = typeof params.kind === "string" ? params.kind.trim() : undefined;
+    const state = typeof params.state === "string" ? params.state.trim() : undefined;
+    const checkpointId =
+      typeof params.checkpointId === "string" ? params.checkpointId.trim() : undefined;
+    respond(true, {
+      actions: service.listActions({
+        ...(sessionKey ? { sessionKey } : {}),
+        ...(runId ? { runId } : {}),
+        ...(kind ? { kind: kind as never } : {}),
+        ...(state ? { state: state as never } : {}),
+        ...(checkpointId ? { checkpointId } : {}),
+      }),
+    });
+  };
+}
+
+export function createRuntimeActionGetGatewayMethod(
+  service: PlatformRuntimeCheckpointService,
+): GatewayRequestHandler {
+  return ({ params, respond }) => {
+    const actionId = typeof params.actionId === "string" ? params.actionId.trim() : "";
+    if (!actionId) {
+      respond(false, { error: "actionId required" });
+      return;
+    }
+    const action = service.getAction(actionId);
+    if (!action) {
+      respond(false, { error: "action not found" });
+      return;
+    }
+    respond(true, {
+      action: PlatformRuntimeActionSchema.parse(action),
     });
   };
 }
