@@ -65,7 +65,7 @@ import {
 } from "../session-utils.js";
 import { applySessionsPatchToStore } from "../sessions-patch.js";
 import { resolveSessionKeyFromResolveParams } from "../sessions-resolve.js";
-import { chatHandlers } from "./chat.js";
+import { chatHandlers, resolveChatSendOriginatingRoute } from "./chat.js";
 import type {
   GatewayClient,
   GatewayRequestContext,
@@ -370,7 +370,7 @@ async function handleSessionSend(params: {
   if (!key) {
     return;
   }
-  const { entry, canonicalKey, storePath } = loadSessionEntry(key);
+  const { cfg, entry, canonicalKey, storePath } = loadSessionEntry(key);
   if (!entry?.sessionId) {
     params.respond(
       false,
@@ -408,6 +408,14 @@ async function handleSessionSend(params: {
     typeof rawIdempotencyKey === "string" && rawIdempotencyKey.trim()
       ? rawIdempotencyKey.trim()
       : randomUUID();
+  const shouldDeliverExternally = resolveChatSendOriginatingRoute({
+    client: params.client?.connect?.client,
+    deliver: true,
+    entry,
+    hasConnectedClient: params.client?.connect !== undefined,
+    mainKey: cfg.session?.mainKey,
+    sessionKey: canonicalKey,
+  }).explicitDeliverRoute;
   await chatHandlers["chat.send"]({
     req: params.req,
     params: {
@@ -416,6 +424,7 @@ async function handleSessionSend(params: {
       thinking: (p as { thinking?: string }).thinking,
       attachments: (p as { attachments?: unknown[] }).attachments,
       timeoutMs: (p as { timeoutMs?: number }).timeoutMs,
+      ...(shouldDeliverExternally ? { deliver: true } : {}),
       idempotencyKey,
     },
     respond: (ok, payload, error, meta) => {
