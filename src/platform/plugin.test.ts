@@ -168,6 +168,8 @@ describe("platform profile plugin", () => {
       "platform.bootstrap.get",
       "platform.bootstrap.resolve",
       "platform.bootstrap.run",
+      "platform.runtime.actions.list",
+      "platform.runtime.actions.get",
       "platform.runtime.checkpoints.list",
       "platform.runtime.checkpoints.get",
       "platform.runtime.closures.list",

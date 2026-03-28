@@ -175,6 +175,8 @@ Low-level RPC helper.
 ```bash
 openclaw gateway call status
 openclaw gateway call logs.tail --params '{"sinceMs": 60000}'
+openclaw gateway call platform.runtime.actions.list --params '{"sessionKey":"agent:dev:main","kind":"messaging_delivery"}'
+openclaw gateway call platform.runtime.actions.get --params '{"actionId":"action-123"}'
 ```
 
 ## Manage the Gateway service

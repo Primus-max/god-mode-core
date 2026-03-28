@@ -275,7 +275,10 @@ export async function dispatchReplyFromConfig(params: {
   const ttsChannel = shouldRouteToOriginating ? originatingChannel : currentSurface;
   let deliveryCandidate: MessagingDeliveryClosureCandidate | undefined;
   const resolveDeliveryActionRunId = () =>
-    deliveryCandidate?.runResult.meta?.completionOutcome?.runId;
+    deliveryCandidate?.runResult.meta?.completionOutcome?.runId ??
+    (typeof params.replyOptions?.runId === "string" && params.replyOptions.runId.trim()
+      ? params.replyOptions.runId.trim()
+      : undefined);
 
   /**
    * Helper to send a payload via route-reply (async).

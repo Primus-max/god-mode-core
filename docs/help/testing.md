@@ -178,6 +178,77 @@ Use this decision table:
 - Touching gateway networking / WS protocol / pairing: add `pnpm test:e2e`
 - Debugging “my bot is down” / provider-specific failures / tool calling: run a narrowed `pnpm test:live`
 
+## Local runtime recovery smoke
+
+Run this after changes that touch delivery truth, closure truth, restart/recovery behavior, or operator inspection surfaces.
+
+Acceptance criteria:
+
+- A successful send shows the same story in runtime actions and runtime closures.
+- A `partial` or `failed` delivery does not get reported as clean delivered closure truth.
+- After restart/recovery, previously confirmed delivery actions are still visible and are not duplicated by resume logic.
+- The operator surfaces are enough to correlate `messaging_delivery` actions, closure receipts, and recovery checkpoints without guessing from logs alone.
+
+Recommended flow:
+
+1. Run the default backend gate first.
+
+```bash
+pnpm build
+pnpm check
+OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+```
+
+2. If the change touched gateway orchestration, pairing, or cross-process recovery, add:
+
+```bash
+pnpm test:e2e
+```
+
+3. Start or restart the local gateway and confirm the control plane is healthy.
+
+```bash
+openclaw gateway status --deep
+openclaw channels status --probe
+```
+
+4. Exercise one real messaging or local delivery scenario, then inspect the runtime ledgers directly through gateway RPC.
+
+```bash
+openclaw gateway call platform.runtime.actions.list --params '{"sessionKey":"agent:dev:main","kind":"messaging_delivery"}'
+openclaw gateway call platform.runtime.closures.list --params '{"sessionKey":"agent:dev:main"}'
+openclaw gateway call platform.runtime.closures.get --params '{"runId":"<run-id>"}'
+openclaw gateway call platform.runtime.checkpoints.list --params '{"sessionKey":"agent:dev:main"}'
+```
+
+5. For one concrete delivery action, fetch the full action receipt and compare it with the closure receipts and recovery state.
+
+```bash
+openclaw gateway call platform.runtime.actions.get --params '{"actionId":"<action-id>"}'
+```
+
+What to verify during the smoke:
+
+- `platform.runtime.actions.list` shows the expected `messaging_delivery` action state (`confirmed`, `partial`, or `failed`) for the run under test.
+- `platform.runtime.actions.get` returns the receipt payload you expect for that action, including `deliveryResults` when the channel produced confirmed delivery evidence.
+- `platform.runtime.closures.get` reports closure outcome, `executionVerification.receipts`, and acceptance/remediation data that agree with the action ledger.
+- `platform.runtime.checkpoints.list` shows the recovery checkpoint lifecycle when a restart or continuation path is involved.
+- If a restart/recovery path is part of the smoke, the resumed run reuses durable action truth instead of sending a second confirmed delivery for the same action.
+
+Targeted references while debugging:
+
+- Delivery truth and queue recovery: `src/infra/outbound/delivery-queue.recovery.test.ts`
+- Delivery-aware closure parity: `src/auto-reply/dispatch.delivery-closure.test.ts`
+- Reply-path delivery parity: `src/auto-reply/reply/route-reply.test.ts`
+- Runtime closure and receipt evaluation: `src/platform/runtime/service.test.ts`
+
+Before a limited internal deploy or manual shared-host run, capture and keep:
+
+- The exact `runId` and at least one inspected `actionId`
+- The `platform.runtime.closures.get` output for the smoke run
+- The matching `platform.runtime.actions.get` output for the delivery action you validated
+- The relevant `platform.runtime.checkpoints.list` slice if recovery/resume was part of the scenario
+
 ## Live: Android node capability sweep
 
 - Test: `src/gateway/android-node.capabilities.live.test.ts`

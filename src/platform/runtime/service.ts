@@ -608,7 +608,7 @@ function deriveRequiredReceiptKinds(params: {
   if (params.outcome.bootstrapRequestIds.length > 0) {
     kinds.add("capability");
   }
-  if (params.outcome.actionIds.length > 0) {
+  if (params.outcome.actionIds.length > 0 && !requiresMessagingDelivery) {
     kinds.add("platform_action");
   }
   return kinds.size > 0 ? Array.from(kinds) : undefined;
@@ -1479,8 +1479,14 @@ export function createPlatformRuntimeCheckpointService(params?: {
         ),
       );
       const allowStandaloneEvidence = expectations?.allowStandaloneEvidence === true;
-      const confirmedDeliveryCount =
-        evidence.confirmedDeliveryCount ?? evidence.deliveredReplyCount ?? 0;
+      const verifiedConfirmedDeliveryCount = receipts.filter(
+        (receipt) => receipt.kind === "messaging_delivery" && receipt.proof === "verified",
+      ).length;
+      const confirmedDeliveryCount = Math.max(
+        evidence.confirmedDeliveryCount ?? 0,
+        evidence.deliveredReplyCount ?? 0,
+        verifiedConfirmedDeliveryCount,
+      );
       const hasOutput = evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
       const declaredIntent = describeDeclaredIntent(evidence);
       const confirmedActionCount =

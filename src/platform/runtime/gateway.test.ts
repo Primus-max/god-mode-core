@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  createRuntimeActionGetGatewayMethod,
+  createRuntimeActionListGatewayMethod,
   createRuntimeCheckpointGetGatewayMethod,
   createRuntimeCheckpointListGatewayMethod,
 } from "./gateway.js";
@@ -73,7 +75,86 @@ describe("platform runtime gateway", () => {
         }),
       }),
     });
-    expect((fetched as { checkpoint: { continuation?: { input?: unknown } } }).checkpoint.continuation?.input)
-      .toBeUndefined();
+    expect(
+      (fetched as { checkpoint: { continuation?: { input?: unknown } } }).checkpoint.continuation
+        ?.input,
+    ).toBeUndefined();
+  });
+
+  it("lists runtime actions with summary filters and fetches full action receipts", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    service.stageAction({
+      actionId: "action-1",
+      runId: "run-1",
+      sessionKey: "agent:main:main",
+      kind: "messaging_delivery",
+      checkpointId: "checkpoint-1",
+      target: {
+        operation: "reply.send",
+      },
+    });
+    service.markActionAttempted("action-1", {
+      retryable: true,
+    });
+    service.markActionConfirmed("action-1", {
+      receipt: {
+        operation: "reply.send",
+        resultStatus: "confirmed",
+        deliveryResults: [
+          {
+            channel: "telegram",
+            messageId: "msg-1",
+            chatId: "chat-1",
+          },
+        ],
+      },
+    });
+
+    const listHandler = createRuntimeActionListGatewayMethod(service);
+    const getHandler = createRuntimeActionGetGatewayMethod(service);
+
+    let listed: unknown;
+    let fetched: unknown;
+    listHandler({
+      params: { runId: "run-1", kind: "messaging_delivery", state: "confirmed" },
+      respond: (_ok: boolean, result: unknown) => {
+        listed = result;
+      },
+    } as never);
+    getHandler({
+      params: { actionId: "action-1" },
+      respond: (_ok: boolean, result: unknown) => {
+        fetched = result;
+      },
+    } as never);
+
+    expect(listed).toEqual({
+      actions: [
+        expect.objectContaining({
+          actionId: "action-1",
+          runId: "run-1",
+          kind: "messaging_delivery",
+          state: "confirmed",
+          checkpointId: "checkpoint-1",
+          attemptCount: 1,
+          retryable: false,
+        }),
+      ],
+    });
+    expect(fetched).toEqual({
+      action: expect.objectContaining({
+        actionId: "action-1",
+        state: "confirmed",
+        receipt: expect.objectContaining({
+          resultStatus: "confirmed",
+          deliveryResults: [
+            expect.objectContaining({
+              channel: "telegram",
+              messageId: "msg-1",
+            }),
+          ],
+        }),
+      }),
+    });
   });
 });
