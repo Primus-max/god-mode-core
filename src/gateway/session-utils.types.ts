@@ -19,6 +19,7 @@ export type GatewaySessionsDefaults = {
 };
 
 export type SessionRunStatus = "running" | "blocked" | "done" | "failed" | "killed" | "timeout";
+export type SessionHandoffTruthSource = "closure" | "recovery";
 
 export type GatewaySessionRow = {
   key: string;
@@ -64,6 +65,14 @@ export type GatewaySessionRow = {
   lastTo?: string;
   lastAccountId?: string;
   runClosureSummary?: PlatformRuntimeRunClosureSummary;
+  /** Stable request anchor operators should use first for handoff. */
+  handoffRequestRunId?: string;
+  /** Runtime run id operators should inspect next for the current session truth. */
+  handoffRunId?: string;
+  /** Whether handoff truth currently comes from durable closure history or active recovery. */
+  handoffTruthSource?: SessionHandoffTruthSource;
+  /** Short operator-facing explanation when in-flight truth overrides stale durable closure data. */
+  handoffHint?: string;
   recoveryCheckpointId?: string;
   recoveryStatus?: PlatformRuntimeCheckpointStatus;
   recoveryContinuationState?: PlatformRuntimeContinuationState;

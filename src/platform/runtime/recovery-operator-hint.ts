@@ -10,22 +10,23 @@ export function deriveRecoveryOperatorHint(
   if (!checkpoint || checkpoint.target?.operation !== "closure.recovery") {
     return undefined;
   }
+  const runRef = checkpoint.runId.trim();
   const st = checkpoint.status;
   const cont = checkpoint.continuation?.state;
   if (st === "blocked" || st === "approved") {
-    return "Awaiting operator approval to resume messaging recovery.";
+    return `Awaiting operator approval to resume messaging recovery for run ${runRef}.`;
   }
   if (st === "resumed" && cont === "running") {
-    return "Recovery continuation is dispatching.";
+    return `Recovery continuation for run ${runRef} is dispatching.`;
   }
   if (st === "resumed" && (cont === "idle" || cont === undefined)) {
-    return "Recovery followup is in progress or queued.";
+    return `Recovery followup for run ${runRef} is in progress or queued.`;
   }
   if (st === "completed") {
-    return "Recovery completed successfully.";
+    return `Recovery for run ${runRef} completed successfully.`;
   }
   if (st === "denied") {
-    return "Recovery was denied by the operator.";
+    return `Recovery for run ${runRef} was denied by the operator.`;
   }
   if (st === "cancelled") {
     const err = checkpoint.continuation?.lastError?.trim();

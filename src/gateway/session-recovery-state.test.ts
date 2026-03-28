@@ -56,6 +56,10 @@ describe("gateway session recovery state", () => {
     expect(row.recoveryAttempts).toBe(1);
     expect(row.recoveryBlockedReason).toContain("authentication refresh");
     expect(row.recoveryOperatorHint).toContain("Awaiting operator approval");
+    expect(row.handoffTruthSource).toBe("recovery");
+    expect(row.handoffRequestRunId).toBe("run-recovery");
+    expect(row.handoffRunId).toBe("run-recovery");
+    expect(row.handoffHint).toContain("current handoff truth");
   });
 
   test("listSessionsFromStore treats resumed closure recovery as running session truth", () => {
@@ -70,6 +74,7 @@ describe("gateway session recovery state", () => {
         status: "blocked",
         runClosureSummary: {
           runId: "run-old",
+          requestRunId: "request-old",
           sessionKey: "agent:main:main",
           updatedAtMs: 1_900,
           outcomeStatus: "partial",
@@ -115,5 +120,10 @@ describe("gateway session recovery state", () => {
     expect(row?.recoveryContinuationState).toBe("running");
     expect(row?.recoveryAttempts).toBe(2);
     expect(row?.recoveryOperatorHint).toContain("dispatching");
+    expect(row?.runClosureSummary?.runId).toBe("run-old");
+    expect(row?.handoffTruthSource).toBe("recovery");
+    expect(row?.handoffRequestRunId).toBe("request-old");
+    expect(row?.handoffRunId).toBe("run-recovery");
+    expect(row?.handoffHint).toContain("overrides durable closure run run-old");
   });
 });

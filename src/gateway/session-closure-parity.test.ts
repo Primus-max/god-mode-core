@@ -52,6 +52,10 @@ describe("gateway session closure parity", () => {
         declaredRecipeId: "recipe.doc",
       }),
     );
+    expect(row.handoffTruthSource).toBe("closure");
+    expect(row.handoffRequestRunId).toBe("request-closure");
+    expect(row.handoffRunId).toBe("run-closure");
+    expect(row.handoffHint).toBeUndefined();
   });
 
   test("listSessionsFromStore preserves run closure summaries for reload parity", () => {
@@ -98,5 +102,8 @@ describe("gateway session closure parity", () => {
         declaredIntent: "publish",
       }),
     );
+    expect(row?.handoffTruthSource).toBe("closure");
+    expect(row?.handoffRequestRunId).toBe("request-closure");
+    expect(row?.handoffRunId).toBe("run-closure");
   });
 });

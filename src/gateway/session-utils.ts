@@ -131,6 +131,46 @@ function buildRecoveryCheckpointMap(
   return bySessionKey;
 }
 
+function deriveSessionHandoffProjection(params: {
+  runClosureSummary?: SessionEntry["runClosureSummary"];
+  recoveryCheckpoint?: PlatformRuntimeCheckpointSummary;
+}): Pick<
+  GatewaySessionRow,
+  "handoffRequestRunId" | "handoffRunId" | "handoffTruthSource" | "handoffHint"
+> {
+  const closureSummary = params.runClosureSummary;
+  const recoveryCheckpoint = params.recoveryCheckpoint;
+  const activeRecovery =
+    recoveryCheckpoint && isActiveRecoveryCheckpoint(recoveryCheckpoint)
+      ? recoveryCheckpoint
+      : undefined;
+
+  if (activeRecovery) {
+    const handoffRequestRunId = closureSummary?.requestRunId ?? activeRecovery.runId;
+    const handoffRunId = activeRecovery.runId;
+    const handoffHint =
+      closureSummary?.runId && closureSummary.runId !== activeRecovery.runId
+        ? `Active recovery run ${activeRecovery.runId} overrides durable closure run ${closureSummary.runId} for handoff.`
+        : `Active recovery run ${activeRecovery.runId} is the current handoff truth.`;
+    return {
+      handoffRequestRunId,
+      handoffRunId,
+      handoffTruthSource: "recovery",
+      handoffHint,
+    };
+  }
+
+  if (closureSummary?.runId) {
+    return {
+      handoffRequestRunId: closureSummary.requestRunId ?? closureSummary.runId,
+      handoffRunId: closureSummary.runId,
+      handoffTruthSource: "closure",
+    };
+  }
+
+  return {};
+}
+
 function tryResolveExistingPath(value: string): string | null {
   try {
     return fs.realpathSync(value);
@@ -1183,6 +1223,10 @@ export function buildGatewaySessionRow(params: {
           (recoveryCheckpoint.status === "blocked" || recoveryCheckpoint.status === "approved")
         ? "blocked"
         : undefined;
+  const handoffProjection = deriveSessionHandoffProjection({
+    runClosureSummary: entry?.runClosureSummary,
+    recoveryCheckpoint,
+  });
 
   return {
     key,
@@ -1233,6 +1277,7 @@ export function buildGatewaySessionRow(params: {
     lastTo: deliveryFields.lastTo ?? entry?.lastTo,
     lastAccountId: deliveryFields.lastAccountId ?? entry?.lastAccountId,
     runClosureSummary: entry?.runClosureSummary,
+    ...handoffProjection,
     recoveryCheckpointId: recoveryCheckpoint?.id,
     recoveryStatus: recoveryCheckpoint?.status,
     recoveryContinuationState: recoveryCheckpoint?.continuation?.state,

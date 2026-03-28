@@ -228,6 +228,9 @@ Continuation-aware handoff rules:
 
 - Treat `sessions.send.idempotencyKey` as the stable request anchor for the entire handoff.
 - Treat runtime `runId` as execution-local. A continuation, retry, or resumed run may produce a different final `runId`.
+- Treat `sessions.list` / `sessions.get` handoff fields as the operator-facing summary:
+  `handoffRequestRunId` is the stable request anchor, `handoffRunId` is the current runtime target, and `handoffTruthSource` tells you whether the row is currently following durable closure history or active recovery.
+- If `handoffTruthSource` is `recovery`, trust the handoff fields over the persisted `runClosureSummary.runId`; the closure summary remains useful as durable history, but the in-flight recovery run is the current handoff truth.
 - Start handoff inspection with `platform.runtime.closures.list --params '{"requestRunId":"<request-id>"}'` and `platform.runtime.actions.list --params '{"idempotencyKey":"<request-id>","kind":"messaging_delivery"}'`.
 - Use the final closure returned by that request anchor to identify the final runtime `runId`, then fetch the full closure via `platform.runtime.closures.get`.
 - If compaction or retry changed what the session row shows, prefer the request-anchored runtime ledgers over manual session transcript correlation.
@@ -240,6 +243,7 @@ openclaw gateway call platform.runtime.actions.get --params '{"actionId":"<actio
 
 What to verify during the smoke:
 
+- `sessions.get` or `sessions.list` exposes `handoffRequestRunId`, `handoffRunId`, and `handoffTruthSource` that agree with the runtime ledger for the scenario under test.
 - `platform.runtime.closures.list --params '{"requestRunId":"<request-id>"}'` returns the final closure chain for the original request, even if the final `runId` differs from the `idempotencyKey`.
 - `platform.runtime.actions.list --params '{"idempotencyKey":"<request-id>","kind":"messaging_delivery"}'` returns at least one delivery action you can hand off without guessing.
 - `platform.runtime.actions.list` shows the expected `messaging_delivery` action state (`confirmed`, `partial`, or `failed`) for the run under test.
