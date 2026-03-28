@@ -4,6 +4,7 @@ import {
   createRuntimeActionListGatewayMethod,
   createRuntimeCheckpointGetGatewayMethod,
   createRuntimeCheckpointListGatewayMethod,
+  createRuntimeClosureListGatewayMethod,
 } from "./gateway.js";
 import { createPlatformRuntimeCheckpointService } from "./service.js";
 
@@ -89,6 +90,7 @@ describe("platform runtime gateway", () => {
       sessionKey: "agent:main:main",
       kind: "messaging_delivery",
       checkpointId: "checkpoint-1",
+      idempotencyKey: "request-1",
       target: {
         operation: "reply.send",
       },
@@ -116,7 +118,12 @@ describe("platform runtime gateway", () => {
     let listed: unknown;
     let fetched: unknown;
     listHandler({
-      params: { runId: "run-1", kind: "messaging_delivery", state: "confirmed" },
+      params: {
+        runId: "run-1",
+        kind: "messaging_delivery",
+        state: "confirmed",
+        idempotencyKey: "request-1",
+      },
       respond: (_ok: boolean, result: unknown) => {
         listed = result;
       },
@@ -136,6 +143,7 @@ describe("platform runtime gateway", () => {
           kind: "messaging_delivery",
           state: "confirmed",
           checkpointId: "checkpoint-1",
+          idempotencyKey: "request-1",
           attemptCount: 1,
           retryable: false,
         }),
@@ -155,6 +163,54 @@ describe("platform runtime gateway", () => {
           ],
         }),
       }),
+    });
+  });
+
+  it("filters runtime closure lists by request run id", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    service.recordRunClosure(
+      service.buildRunClosure({
+        runId: "run-final",
+        requestRunId: "request-1",
+        parentRunId: "run-initial",
+        sessionKey: "agent:main:main",
+        outcome: {
+          runId: "run-final",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: [],
+        },
+        evidence: { hasOutput: true },
+      }),
+    );
+
+    const listHandler = createRuntimeClosureListGatewayMethod(service);
+    let listed: unknown;
+    listHandler({
+      params: { requestRunId: "request-1" },
+      respond: (_ok: boolean, result: unknown) => {
+        listed = result;
+      },
+    } as never);
+
+    expect(listed).toEqual({
+      closures: [
+        expect.objectContaining({
+          runId: "run-final",
+          requestRunId: "request-1",
+          parentRunId: "run-initial",
+        }),
+      ],
     });
   });
 });

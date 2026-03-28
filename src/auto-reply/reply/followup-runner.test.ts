@@ -520,6 +520,7 @@ describe("createFollowupRunner semantic acceptance", () => {
 
     await runner(
       createQueuedRun({
+        requestRunId: "request-telegram-1",
         originatingChannel: "telegram",
         originatingTo: "chat:1",
       }),
@@ -528,6 +529,7 @@ describe("createFollowupRunner semantic acceptance", () => {
     expect(routeReplyMock).toHaveBeenCalledWith(
       expect.objectContaining({
         actionRunId: "followup-correlated-run",
+        idempotencyKey: "request-telegram-1",
       }),
     );
   });

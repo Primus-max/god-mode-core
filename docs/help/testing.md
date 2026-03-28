@@ -215,11 +215,22 @@ openclaw channels status --probe
 4. Exercise one real messaging or local delivery scenario, then inspect the runtime ledgers directly through gateway RPC.
 
 ```bash
+openclaw gateway call sessions.send --params '{"key":"agent:dev:main","message":"stage smoke","idempotencyKey":"request-123"}'
+openclaw gateway call platform.runtime.actions.list --params '{"idempotencyKey":"request-123","kind":"messaging_delivery"}'
+openclaw gateway call platform.runtime.closures.list --params '{"requestRunId":"request-123"}'
 openclaw gateway call platform.runtime.actions.list --params '{"sessionKey":"agent:dev:main","kind":"messaging_delivery"}'
 openclaw gateway call platform.runtime.closures.list --params '{"sessionKey":"agent:dev:main"}'
 openclaw gateway call platform.runtime.closures.get --params '{"runId":"<run-id>"}'
 openclaw gateway call platform.runtime.checkpoints.list --params '{"sessionKey":"agent:dev:main"}'
 ```
+
+Continuation-aware handoff rules:
+
+- Treat `sessions.send.idempotencyKey` as the stable request anchor for the entire handoff.
+- Treat runtime `runId` as execution-local. A continuation, retry, or resumed run may produce a different final `runId`.
+- Start handoff inspection with `platform.runtime.closures.list --params '{"requestRunId":"<request-id>"}'` and `platform.runtime.actions.list --params '{"idempotencyKey":"<request-id>","kind":"messaging_delivery"}'`.
+- Use the final closure returned by that request anchor to identify the final runtime `runId`, then fetch the full closure via `platform.runtime.closures.get`.
+- If compaction or retry changed what the session row shows, prefer the request-anchored runtime ledgers over manual session transcript correlation.
 
 5. For one concrete delivery action, fetch the full action receipt and compare it with the closure receipts and recovery state.
 
@@ -229,6 +240,8 @@ openclaw gateway call platform.runtime.actions.get --params '{"actionId":"<actio
 
 What to verify during the smoke:
 
+- `platform.runtime.closures.list --params '{"requestRunId":"<request-id>"}'` returns the final closure chain for the original request, even if the final `runId` differs from the `idempotencyKey`.
+- `platform.runtime.actions.list --params '{"idempotencyKey":"<request-id>","kind":"messaging_delivery"}'` returns at least one delivery action you can hand off without guessing.
 - `platform.runtime.actions.list` shows the expected `messaging_delivery` action state (`confirmed`, `partial`, or `failed`) for the run under test.
 - `platform.runtime.actions.get` returns the receipt payload you expect for that action, including `deliveryResults` when the channel produced confirmed delivery evidence.
 - `platform.runtime.closures.get` reports closure outcome, `executionVerification.receipts`, and acceptance/remediation data that agree with the action ledger.
@@ -244,6 +257,7 @@ Targeted references while debugging:
 
 Before a limited internal deploy or manual shared-host run, capture and keep:
 
+- The original request anchor (`sessions.send.idempotencyKey`)
 - The exact `runId` and at least one inspected `actionId`
 - The `platform.runtime.closures.get` output for the smoke run
 - The matching `platform.runtime.actions.get` output for the delivery action you validated

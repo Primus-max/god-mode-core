@@ -50,6 +50,8 @@ export type RouteReplyParams = {
   abortSignal?: AbortSignal;
   /** Optional runtime run id to correlate durable messaging_delivery actions. */
   actionRunId?: string;
+  /** Stable request/idempotency anchor for continuation-aware delivery handoff. */
+  idempotencyKey?: string;
   /** Mirror reply into session transcript (default: true when sessionKey is set). */
   mirror?: boolean;
   /** Whether this message is being sent in a group/channel context */
@@ -235,6 +237,7 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
               agentId: resolvedAgentId,
               text,
               mediaUrls,
+              ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
               ...(params.isGroup != null ? { isGroup: params.isGroup } : {}),
               ...(params.groupId ? { groupId: params.groupId } : {}),
             }

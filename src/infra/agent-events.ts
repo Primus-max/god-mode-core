@@ -23,6 +23,8 @@ export type AgentRunContext = {
   sessionKey?: string;
   verboseLevel?: VerboseLevel;
   platformExecution?: PluginHookPlatformExecutionContext;
+  requestRunId?: string;
+  parentRunId?: string;
   runtimeState?: "queued" | "running" | "blocked" | "approved" | "resumed" | "completed" | "failed";
   runtimeCheckpointId?: string;
   runtimeBoundary?: string;
@@ -67,6 +69,12 @@ export function registerAgentRunContext(runId: string, context: AgentRunContext)
       ...existing.platformExecution,
       ...context.platformExecution,
     };
+  }
+  if (context.requestRunId && existing.requestRunId !== context.requestRunId) {
+    existing.requestRunId = context.requestRunId;
+  }
+  if (context.parentRunId && existing.parentRunId !== context.parentRunId) {
+    existing.parentRunId = context.parentRunId;
   }
   if (context.runtimeState && existing.runtimeState !== context.runtimeState) {
     existing.runtimeState = context.runtimeState;
@@ -169,6 +177,8 @@ export function emitRunClosureSummary(summary: PlatformRuntimeRunClosureSummary)
   const parsed = PlatformRuntimeRunClosureSummarySchema.parse(summary);
   registerAgentRunContext(parsed.runId, {
     ...(parsed.sessionKey ? { sessionKey: parsed.sessionKey } : {}),
+    ...(parsed.requestRunId ? { requestRunId: parsed.requestRunId } : {}),
+    ...(parsed.parentRunId ? { parentRunId: parsed.parentRunId } : {}),
     awaitingRunClosure: false,
     runClosureSummary: parsed,
     runtimeState: parsed.action === "close" ? "completed" : "failed",

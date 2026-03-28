@@ -34,6 +34,10 @@ export type FollowupRun = {
   messageId?: string;
   summaryLine?: string;
   enqueuedAt: number;
+  /** Stable request/idempotency anchor that started the continuation chain. */
+  requestRunId?: string;
+  /** Immediate predecessor runtime runId when this run is a continuation. */
+  parentRunId?: string;
   automation?: FollowupAutomationMetadata;
   /**
    * Originating channel for reply routing.

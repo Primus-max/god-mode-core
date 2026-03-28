@@ -510,11 +510,14 @@ export async function runPreparedReply(
     isNewSession,
   });
   const authProfileIdSource = sessionEntry?.authProfileOverrideSource;
+  const requestRunId =
+    typeof opts?.runId === "string" && opts.runId.trim() ? opts.runId.trim() : undefined;
   const followupRun = {
     prompt: queuedBody,
     messageId: sessionCtx.MessageSidFull ?? sessionCtx.MessageSid,
     summaryLine: baseBodyTrimmedRaw,
     enqueuedAt: Date.now(),
+    ...(requestRunId ? { requestRunId } : {}),
     // Originating channel for reply routing.
     originatingChannel: ctx.OriginatingChannel,
     originatingTo: ctx.OriginatingTo,

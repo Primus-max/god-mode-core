@@ -236,6 +236,7 @@ export const PlatformRuntimeActionSummarySchema = PlatformRuntimeActionSchema.pi
   state: true,
   boundary: true,
   checkpointId: true,
+  idempotencyKey: true,
   target: true,
   attemptCount: true,
   retryable: true,
@@ -661,6 +662,8 @@ export type PlatformRuntimeSupervisorVerdict = z.infer<
 export const PlatformRuntimeRunClosureSchema = z
   .object({
     runId: z.string().min(1),
+    requestRunId: z.string().min(1).optional(),
+    parentRunId: z.string().min(1).optional(),
     sessionKey: z.string().min(1).optional(),
     updatedAtMs: z.number().int().nonnegative(),
     outcome: PlatformRuntimeRunOutcomeSchema,
@@ -676,6 +679,8 @@ export type PlatformRuntimeRunClosure = z.infer<typeof PlatformRuntimeRunClosure
 export const PlatformRuntimeRunClosureSummarySchema = z
   .object({
     runId: z.string().min(1),
+    requestRunId: z.string().min(1).optional(),
+    parentRunId: z.string().min(1).optional(),
     sessionKey: z.string().min(1).optional(),
     updatedAtMs: z.number().int().nonnegative(),
     outcomeStatus: PlatformRuntimeRunOutcomeStatusSchema,

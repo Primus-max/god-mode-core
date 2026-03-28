@@ -171,6 +171,7 @@ export function createFollowupRunner(params: {
           threadId: queued.originatingThreadId,
           cfg: queued.run.config,
           actionRunId,
+          idempotencyKey: queued.requestRunId ?? actionRunId,
         });
         attemptedDeliveryCount += result.attemptedDeliveryCount ?? 0;
         confirmedDeliveryCount += result.confirmedDeliveryCount ?? 0;
@@ -238,6 +239,8 @@ export function createFollowupRunner(params: {
           sessionKey: queued.run.sessionKey,
           verboseLevel: queued.run.verboseLevel,
           platformExecution: toPluginHookPlatformExecutionContext(platformExecutionContext),
+          requestRunId: queued.requestRunId ?? runId,
+          parentRunId: queued.parentRunId,
           isControlUiVisible: shouldSurfaceToControlUi,
         });
       }
@@ -349,6 +352,8 @@ export function createFollowupRunner(params: {
                 bashElevated: queued.run.bashElevated,
                 timeoutMs: queued.run.timeoutMs,
                 runId,
+                requestRunId: queued.requestRunId ?? runId,
+                parentRunId: queued.parentRunId,
                 allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
                 blockReplyBreak: queued.run.blockReplyBreak,
                 bootstrapPromptWarningSignaturesSeen,
@@ -516,6 +521,7 @@ export function createFollowupRunner(params: {
         const closureDecision = reevaluateMessagingDecisionForMessagingRun({
           runResult,
           replyPayloads: finalPayloads,
+          sourceRun: queued,
           recoveryAttemptCount: queued.automation?.retryCount ?? 0,
         });
         acceptanceOutcome = closureDecision?.acceptanceOutcome ?? acceptanceOutcome;

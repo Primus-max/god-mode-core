@@ -104,6 +104,8 @@ export function createRuntimeActionListGatewayMethod(
     const state = typeof params.state === "string" ? params.state.trim() : undefined;
     const checkpointId =
       typeof params.checkpointId === "string" ? params.checkpointId.trim() : undefined;
+    const idempotencyKey =
+      typeof params.idempotencyKey === "string" ? params.idempotencyKey.trim() : undefined;
     respond(true, {
       actions: service.listActions({
         ...(sessionKey ? { sessionKey } : {}),
@@ -111,6 +113,7 @@ export function createRuntimeActionListGatewayMethod(
         ...(kind ? { kind: kind as never } : {}),
         ...(state ? { state: state as never } : {}),
         ...(checkpointId ? { checkpointId } : {}),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
       }),
     });
   };
@@ -141,8 +144,13 @@ export function createRuntimeClosureListGatewayMethod(
 ): GatewayRequestHandler {
   return ({ params, respond }) => {
     const sessionKey = typeof params.sessionKey === "string" ? params.sessionKey.trim() : undefined;
+    const requestRunId =
+      typeof params.requestRunId === "string" ? params.requestRunId.trim() : undefined;
     respond(true, {
-      closures: service.listRunClosures(sessionKey ? { sessionKey } : undefined),
+      closures: service.listRunClosures({
+        ...(sessionKey ? { sessionKey } : {}),
+        ...(requestRunId ? { requestRunId } : {}),
+      }),
     });
   };
 }

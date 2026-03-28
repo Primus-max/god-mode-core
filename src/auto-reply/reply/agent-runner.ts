@@ -145,6 +145,13 @@ export async function runReplyAgent(params: {
   let activeSessionEntry = sessionEntry;
   const activeSessionStore = sessionStore;
   let activeIsNewSession = isNewSession;
+  const requestRunId =
+    followupRun.requestRunId ??
+    (typeof opts?.runId === "string" && opts.runId.trim() ? opts.runId.trim() : undefined);
+  const correlationSourceRun =
+    requestRunId && followupRun.requestRunId !== requestRunId
+      ? { ...followupRun, requestRunId }
+      : followupRun;
 
   const isHeartbeat = opts?.isHeartbeat === true;
   const typingSignals = createTypingSignaler({
@@ -532,6 +539,7 @@ export async function runReplyAgent(params: {
       const closureDecision = reevaluateMessagingDecisionForMessagingRun({
         runResult,
         replyPayloads: [],
+        sourceRun: followupRun,
       });
       const acceptanceOutcome = closureDecision?.acceptanceOutcome;
       const supervisorVerdict = closureDecision?.supervisorVerdict;
@@ -540,7 +548,7 @@ export async function runReplyAgent(params: {
         ? false
         : enqueueSemanticRetryFollowup({
             queueKey,
-            sourceRun: followupRun,
+            sourceRun: correlationSourceRun,
             settings: resolvedQueue,
             acceptance: acceptanceOutcome,
             supervisorVerdict,
@@ -548,7 +556,7 @@ export async function runReplyAgent(params: {
       captureMessagingDeliveryClosureCandidate({
         onCandidate: opts?.onDeliveryClosureCandidate,
         runResult,
-        sourceRun: followupRun,
+        sourceRun: correlationSourceRun,
         queueKey,
         settings: resolvedQueue,
       });
@@ -590,6 +598,7 @@ export async function runReplyAgent(params: {
       const closureDecision = reevaluateMessagingDecisionForMessagingRun({
         runResult,
         replyPayloads: [],
+        sourceRun: correlationSourceRun,
       });
       const acceptanceOutcome = closureDecision?.acceptanceOutcome;
       const supervisorVerdict = closureDecision?.supervisorVerdict;
@@ -598,7 +607,7 @@ export async function runReplyAgent(params: {
         ? false
         : enqueueSemanticRetryFollowup({
             queueKey,
-            sourceRun: followupRun,
+            sourceRun: correlationSourceRun,
             settings: resolvedQueue,
             acceptance: acceptanceOutcome,
             supervisorVerdict,
@@ -606,7 +615,7 @@ export async function runReplyAgent(params: {
       captureMessagingDeliveryClosureCandidate({
         onCandidate: opts?.onDeliveryClosureCandidate,
         runResult,
-        sourceRun: followupRun,
+        sourceRun: correlationSourceRun,
         queueKey,
         settings: resolvedQueue,
       });
@@ -642,6 +651,7 @@ export async function runReplyAgent(params: {
     const closureDecision = reevaluateMessagingDecisionForMessagingRun({
       runResult,
       replyPayloads: guardedReplyPayloads,
+      sourceRun: correlationSourceRun,
     });
     const acceptanceOutcome = closureDecision?.acceptanceOutcome;
     const supervisorVerdict = closureDecision?.supervisorVerdict;
@@ -650,7 +660,7 @@ export async function runReplyAgent(params: {
       ? false
       : enqueueSemanticRetryFollowup({
           queueKey,
-          sourceRun: followupRun,
+          sourceRun: correlationSourceRun,
           settings: resolvedQueue,
           acceptance: acceptanceOutcome,
           supervisorVerdict,
@@ -658,7 +668,7 @@ export async function runReplyAgent(params: {
     captureMessagingDeliveryClosureCandidate({
       onCandidate: opts?.onDeliveryClosureCandidate,
       runResult,
-      sourceRun: followupRun,
+      sourceRun: correlationSourceRun,
       queueKey,
       settings: resolvedQueue,
     });

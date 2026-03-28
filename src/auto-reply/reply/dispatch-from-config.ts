@@ -279,6 +279,11 @@ export async function dispatchReplyFromConfig(params: {
     (typeof params.replyOptions?.runId === "string" && params.replyOptions.runId.trim()
       ? params.replyOptions.runId.trim()
       : undefined);
+  const resolveDeliveryRequestRunId = () =>
+    deliveryCandidate?.sourceRun.requestRunId ??
+    (typeof params.replyOptions?.runId === "string" && params.replyOptions.runId.trim()
+      ? params.replyOptions.runId.trim()
+      : undefined);
 
   /**
    * Helper to send a payload via route-reply (async).
@@ -304,6 +309,9 @@ export async function dispatchReplyFromConfig(params: {
       channel: originatingChannel,
       to: originatingTo,
       ...(resolveDeliveryActionRunId() ? { actionRunId: resolveDeliveryActionRunId() } : {}),
+      ...(resolveDeliveryRequestRunId()
+        ? { idempotencyKey: resolveDeliveryRequestRunId() }
+        : {}),
       sessionKey: ctx.SessionKey,
       accountId: ctx.AccountId,
       threadId: routeThreadId,
@@ -329,6 +337,9 @@ export async function dispatchReplyFromConfig(params: {
         channel: originatingChannel,
         to: originatingTo,
         ...(resolveDeliveryActionRunId() ? { actionRunId: resolveDeliveryActionRunId() } : {}),
+        ...(resolveDeliveryRequestRunId()
+          ? { idempotencyKey: resolveDeliveryRequestRunId() }
+          : {}),
         sessionKey: ctx.SessionKey,
         accountId: ctx.AccountId,
         threadId: routeThreadId,
@@ -475,6 +486,9 @@ export async function dispatchReplyFromConfig(params: {
           channel: originatingChannel,
           to: originatingTo,
           ...(resolveDeliveryActionRunId() ? { actionRunId: resolveDeliveryActionRunId() } : {}),
+          ...(resolveDeliveryRequestRunId()
+            ? { idempotencyKey: resolveDeliveryRequestRunId() }
+            : {}),
           sessionKey: ctx.SessionKey,
           accountId: ctx.AccountId,
           threadId: routeThreadId,
@@ -729,6 +743,9 @@ export async function dispatchReplyFromConfig(params: {
           channel: originatingChannel,
           to: originatingTo,
           ...(resolveDeliveryActionRunId() ? { actionRunId: resolveDeliveryActionRunId() } : {}),
+          ...(resolveDeliveryRequestRunId()
+            ? { idempotencyKey: resolveDeliveryRequestRunId() }
+            : {}),
           sessionKey: ctx.SessionKey,
           accountId: ctx.AccountId,
           threadId: routeThreadId,
@@ -787,6 +804,9 @@ export async function dispatchReplyFromConfig(params: {
               to: originatingTo,
               ...(resolveDeliveryActionRunId()
                 ? { actionRunId: resolveDeliveryActionRunId() }
+                : {}),
+              ...(resolveDeliveryRequestRunId()
+                ? { idempotencyKey: resolveDeliveryRequestRunId() }
                 : {}),
               sessionKey: ctx.SessionKey,
               accountId: ctx.AccountId,

@@ -60,6 +60,8 @@ const FollowupRunSnapshotSchema = z
     messageId: z.string().min(1).optional(),
     summaryLine: z.string().min(1).optional(),
     enqueuedAt: z.number().int().nonnegative(),
+    requestRunId: z.string().min(1).optional(),
+    parentRunId: z.string().min(1).optional(),
     automation: FollowupAutomationMetadataSchema.optional(),
     originatingChannel: z.string().min(1).optional(),
     originatingTo: z.string().min(1).optional(),
@@ -218,11 +220,14 @@ async function dispatchClosureRecoveryContinuation(
   checkpointId: string,
   payload: ClosureRecoveryContinuationPayload,
 ): Promise<void> {
+  const checkpoint = getPlatformRuntimeCheckpointService().get(checkpointId);
   const queued = enqueueFollowupRun(
     payload.queueKey,
     {
       ...payload.sourceRun,
       enqueuedAt: Date.now(),
+      requestRunId: payload.sourceRun.requestRunId ?? checkpoint?.runId,
+      parentRunId: checkpoint?.runId ?? payload.sourceRun.parentRunId,
       automation: {
         source: "closure_recovery",
         retryCount: payload.sourceRun.automation?.retryCount ?? 0,
@@ -647,6 +652,8 @@ export function enqueueSemanticRetryFollowup(params: {
     params.queueKey,
     {
       ...params.sourceRun,
+      requestRunId: params.sourceRun.requestRunId ?? decision.runId,
+      parentRunId: decision.runId,
       prompt,
       messageId: undefined,
       summaryLine: decision.reasons[0] ?? "semantic retry",
