@@ -21,7 +21,14 @@ import {
   createBootstrapResolveGatewayMethod,
   createBootstrapRunGatewayMethod,
   getPlatformBootstrapService,
+  TRUSTED_CAPABILITY_CATALOG,
 } from "./bootstrap/index.js";
+import {
+  createCapabilityCatalogGetGatewayMethod,
+  createCapabilityCatalogListGatewayMethod,
+  createRecipeCatalogGetGatewayMethod,
+  createRecipeCatalogListGatewayMethod,
+} from "./catalog/index.js";
 import { buildExecutionDecisionInput } from "./decision/input.js";
 import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
@@ -35,6 +42,7 @@ import {
 import { evaluatePolicy } from "./policy/engine.js";
 import { getInitialProfile, getTaskOverlay } from "./profile/defaults.js";
 import { createProfileResolveGatewayMethod } from "./profile/index.js";
+import { createCapabilityRegistry } from "./registry/index.js";
 import {
   buildPolicyContextFromExecutionContext,
   resolvePlatformRuntimePlan,
@@ -140,8 +148,10 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   const artifactService = getPlatformArtifactService({
     config: api.config,
   });
+  const capabilityRegistry = createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
   const bootstrapService = getPlatformBootstrapService({
     stateDir: resolveStateDir(process.env),
+    registry: capabilityRegistry,
   });
   const runtimeCheckpointService = getPlatformRuntimeCheckpointService({
     stateDir: resolveStateDir(process.env),
@@ -187,6 +197,16 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   api.registerGatewayMethod(
     "platform.bootstrap.run",
     createBootstrapRunGatewayMethod(bootstrapService),
+  );
+  api.registerGatewayMethod("platform.recipes.list", createRecipeCatalogListGatewayMethod());
+  api.registerGatewayMethod("platform.recipes.get", createRecipeCatalogGetGatewayMethod());
+  api.registerGatewayMethod(
+    "platform.capabilities.list",
+    createCapabilityCatalogListGatewayMethod(capabilityRegistry),
+  );
+  api.registerGatewayMethod(
+    "platform.capabilities.get",
+    createCapabilityCatalogGetGatewayMethod(capabilityRegistry),
   );
   api.registerGatewayMethod(
     "platform.runtime.actions.list",

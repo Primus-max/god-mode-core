@@ -14,6 +14,10 @@ import type {
   MachineControlLinkRecord as PlatformMachineControlLinkRecord,
 } from "../../../src/platform/machine/contracts.js";
 import type {
+  CapabilityCatalogSummary as PlatformCapabilityCatalogSummary,
+  RecipeCatalogSummary as PlatformRecipeCatalogSummary,
+} from "../../../src/platform/catalog/contracts.js";
+import type {
   PlatformRuntimeCheckpointStatus,
   PlatformRuntimeContinuationState,
   PlatformRuntimeRunClosureSummary,
@@ -466,6 +470,8 @@ export type MachineControlStatus = {
   currentDevice?: MachineControlCurrentDevice;
 };
 export type SpecialistRuntimeSnapshot = PlatformSpecialistRuntimeSnapshot;
+export type RecipeCatalogSummary = PlatformRecipeCatalogSummary;
+export type CapabilityCatalogSummary = PlatformCapabilityCatalogSummary;
 
 export type SessionsPatchResult = SessionsPatchResultBase<{
   sessionId: string;

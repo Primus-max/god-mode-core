@@ -19,6 +19,7 @@ import type {
   ArtifactRecordSummary,
   BootstrapRequestRecordDetail,
   BootstrapRequestRecordSummary,
+  CapabilityCatalogSummary,
   AttentionItem,
   ChannelsStatusSnapshot,
   ConfigSnapshot,
@@ -34,6 +35,7 @@ import type {
   CostUsageSummary,
   SessionUsageTimeSeries,
   SessionsListResult,
+  RecipeCatalogSummary,
   SkillStatusReport,
   SpecialistRuntimeSnapshot,
   StatusSummary,
@@ -217,6 +219,10 @@ export type AppViewState = {
   bootstrapDetail: BootstrapRequestRecordDetail | null;
   bootstrapDetailError: string | null;
   bootstrapActionBusy: boolean;
+  catalogLoading: boolean;
+  catalogError: string | null;
+  recipeCatalog: RecipeCatalogSummary[];
+  capabilityCatalog: CapabilityCatalogSummary[];
   machineLoading: boolean;
   machineError: string | null;
   machineActionBusy: boolean;

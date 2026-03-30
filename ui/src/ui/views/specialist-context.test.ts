@@ -3,7 +3,11 @@
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
-import type { SpecialistRuntimeSnapshot } from "../types.ts";
+import type {
+  CapabilityCatalogSummary,
+  RecipeCatalogSummary,
+  SpecialistRuntimeSnapshot,
+} from "../types.ts";
 import { renderChat, type ChatProps } from "./chat.ts";
 import { renderOverview, type OverviewProps } from "./overview.ts";
 
@@ -173,6 +177,10 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     specialistSaving: false,
     specialistError: null,
     specialistSnapshot: null,
+    catalogLoading: false,
+    catalogError: null,
+    recipeCatalog: [],
+    capabilityCatalog: [],
     showGatewayToken: false,
     showGatewayPassword: false,
     onSettingsChange: () => undefined,
@@ -187,6 +195,48 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     onSpecialistOverrideChange: () => undefined,
     ...overrides,
   };
+}
+
+function createRecipeCatalog(): RecipeCatalogSummary[] {
+  return [
+    {
+      id: "doc_ingest",
+      purpose: "Extract, summarize, and audit document payloads",
+      summary: "Bootstrap trusted document tooling when necessary.",
+      riskLevel: "low",
+      allowedProfiles: [{ id: "builder", label: "Builder" }],
+      requiredCapabilities: ["pdf-renderer"],
+      publishTargets: [],
+      producedArtifacts: [{ type: "report", description: "Document summary" }],
+      timeoutSeconds: 180,
+    },
+  ];
+}
+
+function createCapabilityCatalog(): CapabilityCatalogSummary[] {
+  return [
+    {
+      id: "pdf-renderer",
+      label: "PDF Renderer",
+      description: "Trusted renderer for PDF workflows",
+      status: "missing",
+      source: "catalog",
+      trusted: true,
+      installMethod: "download",
+      sandboxed: true,
+      requiredBins: ["playwright"],
+      requiredEnv: [],
+      healthCheckCommand: "playwright --version",
+      tags: ["pdf"],
+      requiredByRecipes: [
+        {
+          id: "doc_ingest",
+          purpose: "Extract, summarize, and audit document payloads",
+        },
+      ],
+      requiredByRecipeCount: 1,
+    },
+  ];
 }
 
 describe("specialist context views", () => {
@@ -317,5 +367,31 @@ describe("specialist context views", () => {
     expect(optionLabels).toContain("Integrator");
     expect(optionLabels).toContain("Operator");
     expect(optionLabels).toContain("Media Creator");
+  });
+
+  it("renders platform catalog context inside the overview panel", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderOverview(
+        createOverviewProps({
+          specialistSnapshot: {
+            ...createSnapshot(),
+            recipeId: "doc_ingest",
+            recipePurpose: "Extract, summarize, and audit document payloads",
+            bootstrapRequiredCapabilities: ["pdf-renderer"],
+          },
+          recipeCatalog: createRecipeCatalog(),
+          capabilityCatalog: createCapabilityCatalog(),
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Platform catalog");
+    expect(container.textContent).toContain("doc_ingest");
+    expect(container.textContent).toContain("PDF Renderer");
+    expect(container.textContent).toContain("Bootstrap required");
   });
 });

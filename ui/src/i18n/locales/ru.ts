@@ -180,6 +180,22 @@ export const ru: TranslationMap = {
         session: "Session profile",
       },
     },
+    catalog: {
+      title: "Каталог платформы",
+      subtitle:
+        "Read-only витрина recipe-маршрутов и capability inventory для текущего operator-контекста.",
+      loading: "Загрузка каталога платформы…",
+      recipeRoutes: "Recipe-маршруты",
+      capabilities: "Capabilities",
+      activeRecipe: "Активный recipe",
+      bootstrapRequired: "Нужен bootstrap",
+      requiredCapabilities: "Требует",
+      usedBy: "Используется в",
+      risk: "Риск",
+      status: "Статус",
+      source: "Источник",
+      installMethod: "Установка",
+    },
   },
   overview: {
     access: {

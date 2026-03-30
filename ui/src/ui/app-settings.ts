@@ -20,6 +20,7 @@ import { loadAgents } from "./controllers/agents.ts";
 import { loadArtifacts } from "./controllers/artifacts.ts";
 import { loadBootstrapRequests } from "./controllers/bootstrap.ts";
 import { loadChannels } from "./controllers/channels.ts";
+import { loadPlatformCatalog } from "./controllers/catalog.ts";
 import { loadConfig, loadConfigSchema } from "./controllers/config.ts";
 import { loadCronJobs, loadCronRuns, loadCronStatus } from "./controllers/cron.ts";
 import { loadDebug } from "./controllers/debug.ts";
@@ -544,6 +545,7 @@ export async function loadOverview(host: SettingsHost) {
     loadSkills(app),
     loadUsage(app),
     loadBootstrapRequests(app),
+    loadPlatformCatalog(app),
     loadMachineControl(app),
     loadSpecialistContext(app, { draft: app.chatMessage }),
     loadOverviewLogs(app),

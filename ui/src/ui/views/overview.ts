@@ -8,8 +8,10 @@ import { icons } from "../icons.ts";
 import type { UiSettings } from "../storage.ts";
 import type {
   AttentionItem,
+  CapabilityCatalogSummary,
   CronJob,
   CronStatus,
+  RecipeCatalogSummary,
   SessionsListResult,
   SpecialistRuntimeSnapshot,
   SessionsUsageResult,
@@ -51,6 +53,10 @@ export type OverviewProps = {
   specialistSaving: boolean;
   specialistError: string | null;
   specialistSnapshot: SpecialistRuntimeSnapshot | null;
+  catalogLoading: boolean;
+  catalogError: string | null;
+  recipeCatalog: RecipeCatalogSummary[];
+  capabilityCatalog: CapabilityCatalogSummary[];
   showGatewayToken: boolean;
   showGatewayPassword: boolean;
   onSettingsChange: (next: UiSettings) => void;
@@ -398,6 +404,10 @@ export function renderOverview(props: OverviewProps) {
       saving: props.specialistSaving,
       error: props.specialistError,
       snapshot: props.specialistSnapshot,
+      catalogLoading: props.catalogLoading,
+      catalogError: props.catalogError,
+      recipeCatalog: props.recipeCatalog,
+      capabilityCatalog: props.capabilityCatalog,
       onOverrideChange: props.onSpecialistOverrideChange,
     })}
 

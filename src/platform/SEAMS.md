@@ -96,8 +96,8 @@ All via `OpenClawPluginApi` methods: `registerTool`, `registerService`,
 
 - `/platform/profiles` — list/switch profiles
 - `/platform/artifacts` — artifact CRUD
-- `/platform/capabilities` — capability status
-- `/platform/recipes` — recipe catalog
+- `/platform/capabilities` / `platform.capabilities.list|get` — capability catalog and status
+- `/platform/recipes` / `platform.recipes.list|get` — recipe catalog
 
 ## Seam 6 — Security Audit
 
