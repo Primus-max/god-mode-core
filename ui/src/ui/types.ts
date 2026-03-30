@@ -18,6 +18,10 @@ import type {
   RecipeCatalogSummary as PlatformRecipeCatalogSummary,
 } from "../../../src/platform/catalog/contracts.js";
 import type {
+  PlatformRuntimeAction,
+  PlatformRuntimeActionSummary,
+  PlatformRuntimeCheckpointSummary,
+  PlatformRuntimeRunClosure,
   PlatformRuntimeCheckpointStatus,
   PlatformRuntimeContinuationState,
   PlatformRuntimeRunClosureSummary,
@@ -472,6 +476,13 @@ export type MachineControlStatus = {
 export type SpecialistRuntimeSnapshot = PlatformSpecialistRuntimeSnapshot;
 export type RecipeCatalogSummary = PlatformRecipeCatalogSummary;
 export type CapabilityCatalogSummary = PlatformCapabilityCatalogSummary;
+export type RuntimeCheckpointSummary = PlatformRuntimeCheckpointSummary & {
+  operatorHint?: string;
+};
+export type RuntimeActionSummary = PlatformRuntimeActionSummary;
+export type RuntimeActionDetail = PlatformRuntimeAction;
+export type RuntimeClosureSummary = PlatformRuntimeRunClosureSummary;
+export type RuntimeClosureDetail = PlatformRuntimeRunClosure;
 
 export type SessionsPatchResult = SessionsPatchResultBase<{
   sessionId: string;

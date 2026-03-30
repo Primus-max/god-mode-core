@@ -1,19 +1,26 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
 import { formatRelativeTimestamp } from "../format.ts";
-import type { BootstrapRequestRecordDetail, BootstrapRequestRecordSummary } from "../types.ts";
+import type {
+  BootstrapRequestRecordDetail,
+  BootstrapRequestRecordSummary,
+  RuntimeCheckpointSummary,
+} from "../types.ts";
 
 export type BootstrapProps = {
   loading: boolean;
   detailLoading: boolean;
   actionBusy: boolean;
+  runtimeLoading?: boolean;
   error: string | null;
   detailError: string | null;
+  runtimeError?: string | null;
   requests: BootstrapRequestRecordSummary[];
   pendingCount: number;
   filterQuery: string;
   selectedId: string | null;
   detail: BootstrapRequestRecordDetail | null;
+  runtimeCheckpoints?: RuntimeCheckpointSummary[];
   onRefresh: () => void | Promise<void>;
   onSelect: (requestId: string) => void | Promise<void>;
   onFilterChange: (value: string) => void;
@@ -86,6 +93,54 @@ function formatRelativeIsoTimestamp(timestamp?: string) {
   return formatRelativeTimestamp(Number.isFinite(parsed) ? parsed : null);
 }
 
+function renderRuntimeCheckpointPanel(
+  detail: BootstrapRequestRecordDetail | null,
+  checkpoints: RuntimeCheckpointSummary[],
+  runtimeLoading?: boolean,
+  runtimeError?: string | null,
+) {
+  if (!detail) {
+    return nothing;
+  }
+  if (runtimeError) {
+    return html`<div class="callout danger" style="margin-top:16px;">${runtimeError}</div>`;
+  }
+  if (runtimeLoading && checkpoints.length === 0) {
+    return html`<div class="muted" style="margin-top:16px;">${t("bootstrap.runtime.loading")}</div>`;
+  }
+  const checkpoint = checkpoints.find(
+    (entry) =>
+      entry.target?.bootstrapRequestId === detail.id ||
+      (entry.boundary === "bootstrap" && entry.id === detail.id),
+  );
+  if (!checkpoint) {
+    return nothing;
+  }
+  return html`
+    <div class="callout" style="margin-top:16px;">
+      <strong>${t("bootstrap.runtime.title")}</strong>
+      <div class="chip-row" style="margin-top:8px;">
+        <span class="chip">${checkpoint.status}</span>
+        ${checkpoint.continuation?.state ? html`<span class="chip">${checkpoint.continuation.state}</span>` : nothing}
+      </div>
+      ${
+        checkpoint.operatorHint
+          ? html`<div class="muted" style="margin-top:8px;">${checkpoint.operatorHint}</div>`
+          : nothing
+      }
+      ${
+        checkpoint.nextActions?.length
+          ? html`
+              <ul style="margin:8px 0 0 18px;">
+                ${checkpoint.nextActions.map((action) => html`<li>${action.label}</li>`)}
+              </ul>
+            `
+          : nothing
+      }
+    </div>
+  `;
+}
+
 export function renderBootstrap(props: BootstrapProps) {
   const filteredRequests = props.requests.filter((entry) =>
     matchesBootstrapQuery(entry, props.filterQuery),
@@ -93,6 +148,7 @@ export function renderBootstrap(props: BootstrapProps) {
   const detail = props.detail;
   const request = detail?.request;
   const result = detail?.result;
+  const runtimeCheckpoints = props.runtimeCheckpoints ?? [];
   const showApprove = detail?.state === "pending";
   const showRun = detail?.state === "approved";
 
@@ -176,6 +232,12 @@ export function renderBootstrap(props: BootstrapProps) {
                   </dl>
                   ${renderReasonList(t("bootstrap.reasonLists.record"), detail.reasons)}
                   ${renderReasonList(t("bootstrap.reasonLists.result"), result?.reasons)}
+                  ${renderRuntimeCheckpointPanel(
+                    detail,
+                    runtimeCheckpoints,
+                    props.runtimeLoading,
+                    props.runtimeError,
+                  )}
                   <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:16px;">
                     ${
                       showApprove

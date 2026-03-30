@@ -181,6 +181,11 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     catalogError: null,
     recipeCatalog: [],
     capabilityCatalog: [],
+    runtimeLoading: false,
+    runtimeError: null,
+    runtimeSessionKey: null,
+    runtimeCheckpoints: [],
+    runtimeCheckpointDetail: null,
     showGatewayToken: false,
     showGatewayPassword: false,
     onSettingsChange: () => undefined,
@@ -235,6 +240,21 @@ function createCapabilityCatalog(): CapabilityCatalogSummary[] {
         },
       ],
       requiredByRecipeCount: 1,
+    },
+  ];
+}
+
+function createRuntimeCheckpoints() {
+  return [
+    {
+      id: "cp-1",
+      runId: "run-1",
+      sessionKey: "main",
+      boundary: "bootstrap" as const,
+      status: "blocked" as const,
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      operatorHint: "Awaiting operator approval to resume messaging recovery.",
     },
   ];
 }
@@ -383,6 +403,7 @@ describe("specialist context views", () => {
           },
           recipeCatalog: createRecipeCatalog(),
           capabilityCatalog: createCapabilityCatalog(),
+          runtimeCheckpoints: createRuntimeCheckpoints(),
         }),
       ),
       container,
@@ -393,5 +414,6 @@ describe("specialist context views", () => {
     expect(container.textContent).toContain("doc_ingest");
     expect(container.textContent).toContain("PDF Renderer");
     expect(container.textContent).toContain("Bootstrap required");
+    expect(container.textContent).toContain("Runtime queue");
   });
 });

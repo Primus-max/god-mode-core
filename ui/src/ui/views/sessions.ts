@@ -4,12 +4,23 @@ import { formatRelativeTimestamp } from "../format.ts";
 import { icons } from "../icons.ts";
 import { pathForTab } from "../navigation.ts";
 import { formatSessionTokens } from "../presenter.ts";
-import type { GatewaySessionRow, SessionsListResult } from "../types.ts";
+import type {
+  GatewaySessionRow,
+  RuntimeActionDetail,
+  RuntimeActionSummary,
+  RuntimeCheckpointSummary,
+  RuntimeClosureDetail,
+  RuntimeClosureSummary,
+  SessionsListResult,
+} from "../types.ts";
 
 export type SessionsProps = {
   loading: boolean;
+  runtimeLoading: boolean;
+  runtimeDetailLoading: boolean;
   result: SessionsListResult | null;
   error: string | null;
+  runtimeError: string | null;
   activeMinutes: string;
   limit: string;
   includeGlobal: boolean;
@@ -21,6 +32,17 @@ export type SessionsProps = {
   page: number;
   pageSize: number;
   selectedKeys: Set<string>;
+  runtimeSessionKey: string | null;
+  runtimeRunId: string | null;
+  runtimeCheckpoints: RuntimeCheckpointSummary[];
+  runtimeSelectedCheckpointId: string | null;
+  runtimeCheckpointDetail: RuntimeCheckpointSummary | null;
+  runtimeActions: RuntimeActionSummary[];
+  runtimeSelectedActionId: string | null;
+  runtimeActionDetail: RuntimeActionDetail | null;
+  runtimeClosures: RuntimeClosureSummary[];
+  runtimeSelectedClosureRunId: string | null;
+  runtimeClosureDetail: RuntimeClosureDetail | null;
   onFiltersChange: (next: {
     activeMinutes: string;
     limit: string;
@@ -32,6 +54,11 @@ export type SessionsProps = {
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
   onRefresh: () => void;
+  onInspectRuntimeSession: (sessionKey: string, runId?: string) => void;
+  onSelectRuntimeCheckpoint: (checkpointId: string) => void;
+  onSelectRuntimeAction: (actionId: string) => void;
+  onSelectRuntimeClosure: (runId: string) => void;
+  onClearRuntimeScope: () => void;
   onPatch: (
     key: string,
     patch: {
@@ -54,6 +81,266 @@ const THINK_LEVELS = ["", "off", "minimal", "low", "medium", "high", "xhigh"] as
 const BINARY_THINK_LEVELS = ["", "off", "on"] as const;
 const REASONING_LEVELS = ["", "off", "on", "stream"] as const;
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+
+function formatMsTimestamp(timestamp?: number | null): string {
+  return typeof timestamp === "number" ? formatRelativeTimestamp(timestamp) : t("common.na");
+}
+
+function renderRuntimeStatusChip(label: string) {
+  return html`<span class="chip">${label}</span>`;
+}
+
+function renderRuntimeInspector(props: SessionsProps) {
+  const checkpoints = props.runtimeCheckpoints;
+  const selectedCheckpoint = props.runtimeCheckpointDetail;
+  const selectedAction = props.runtimeActionDetail;
+  const selectedClosure = props.runtimeClosureDetail;
+  return html`
+    <section class="card" style="margin-top: 16px;">
+      <div class="row" style="justify-content: space-between; gap: 12px; align-items: center;">
+        <div>
+          <div class="card-title">${t("sessions.runtime.title")}</div>
+          <div class="card-sub">
+            ${props.runtimeSessionKey
+              ? t("sessions.runtime.scopeSession", { sessionKey: props.runtimeSessionKey })
+              : t("sessions.runtime.scopeGlobal")}
+          </div>
+        </div>
+        <div class="row" style="gap: 8px; flex-wrap: wrap;">
+          <button class="btn" type="button" ?disabled=${props.runtimeLoading} @click=${props.onRefresh}>
+            ${t("common.refresh")}
+          </button>
+          ${
+            props.runtimeSessionKey || props.runtimeRunId
+              ? html`
+                  <button class="btn" type="button" @click=${props.onClearRuntimeScope}>
+                    ${t("sessions.runtime.clearScope")}
+                  </button>
+                `
+              : nothing
+          }
+        </div>
+      </div>
+      ${
+        props.runtimeError
+          ? html`<div class="callout danger" style="margin-top: 12px;">${props.runtimeError}</div>`
+          : nothing
+      }
+      ${
+        props.runtimeLoading && checkpoints.length === 0
+          ? html`<div class="muted" style="margin-top: 12px;">${t("sessions.runtime.loading")}</div>`
+          : nothing
+      }
+      ${
+        !props.runtimeLoading && checkpoints.length === 0
+          ? html`<div class="muted" style="margin-top: 12px;">${t("sessions.runtime.empty")}</div>`
+          : nothing
+      }
+      ${
+        checkpoints.length > 0
+          ? html`
+              <div
+                style="display:grid; grid-template-columns:minmax(260px, 320px) minmax(0, 1fr); gap:16px; margin-top:16px;"
+              >
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                  ${checkpoints.map(
+                    (checkpoint) => html`
+                      <button
+                        class="btn"
+                        type="button"
+                        ?disabled=${checkpoint.id === props.runtimeSelectedCheckpointId}
+                        @click=${() => props.onSelectRuntimeCheckpoint(checkpoint.id)}
+                        style="display:flex; width:100%; text-align:left; justify-content:space-between; gap:12px;"
+                      >
+                        <span>
+                          <strong>${checkpoint.boundary}</strong>
+                          <span style="display:block; opacity:0.75;">
+                            ${checkpoint.status}
+                            ${checkpoint.operatorHint ? html`· ${checkpoint.operatorHint}` : nothing}
+                          </span>
+                        </span>
+                        <span style="opacity:0.75;">${formatMsTimestamp(checkpoint.updatedAtMs)}</span>
+                      </button>
+                    `,
+                  )}
+                </div>
+                <div class="card" style="padding:16px;">
+                  ${
+                    props.runtimeDetailLoading && !selectedCheckpoint
+                      ? html`<div>${t("sessions.runtime.loadingDetail")}</div>`
+                      : selectedCheckpoint
+                        ? html`
+                            <div class="row" style="justify-content:space-between; gap:12px; align-items:flex-start;">
+                              <div>
+                                <h3 style="margin:0;">${selectedCheckpoint.boundary}</h3>
+                                <div class="muted" style="margin-top: 2px;">
+                                  ${selectedCheckpoint.operatorHint ?? t("sessions.runtime.noHint")}
+                                </div>
+                              </div>
+                              ${renderRuntimeStatusChip(selectedCheckpoint.status)}
+                            </div>
+                            <dl
+                              style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:16px 0;"
+                            >
+                              <dt>${t("sessions.runtime.fields.checkpointId")}</dt>
+                              <dd>${selectedCheckpoint.id}</dd>
+                              <dt>${t("sessions.runtime.fields.runId")}</dt>
+                              <dd>${selectedCheckpoint.runId}</dd>
+                              <dt>${t("sessions.runtime.fields.sessionKey")}</dt>
+                              <dd>${selectedCheckpoint.sessionKey ?? t("common.na")}</dd>
+                              <dt>${t("sessions.runtime.fields.updated")}</dt>
+                              <dd>${formatMsTimestamp(selectedCheckpoint.updatedAtMs)}</dd>
+                              <dt>${t("sessions.runtime.fields.blockedReason")}</dt>
+                              <dd>${selectedCheckpoint.blockedReason ?? t("common.na")}</dd>
+                            </dl>
+                            ${
+                              selectedCheckpoint.nextActions?.length
+                                ? html`
+                                    <div style="margin-top: 12px;">
+                                      <strong>${t("sessions.runtime.nextActions")}</strong>
+                                      <ul style="margin:8px 0 0 18px;">
+                                        ${selectedCheckpoint.nextActions.map(
+                                          (action) =>
+                                            html`<li>${action.label} (${action.method})</li>`,
+                                        )}
+                                      </ul>
+                                    </div>
+                                  `
+                                : nothing
+                            }
+                            ${
+                              selectedCheckpoint.continuation
+                                ? html`
+                                    <div style="margin-top: 12px;">
+                                      <strong>${t("sessions.runtime.continuation")}</strong>
+                                      <div class="chip-row" style="margin-top: 8px;">
+                                        <span class="chip">${selectedCheckpoint.continuation.kind}</span>
+                                        ${
+                                          selectedCheckpoint.continuation.state
+                                            ? html`<span class="chip"
+                                                >${selectedCheckpoint.continuation.state}</span
+                                              >`
+                                            : nothing
+                                        }
+                                        ${
+                                          selectedCheckpoint.continuation.attempts !== undefined
+                                            ? html`<span class="chip"
+                                                >${t("sessions.runtime.attempts")}: ${selectedCheckpoint
+                                                  .continuation.attempts}</span
+                                              >`
+                                            : nothing
+                                        }
+                                      </div>
+                                    </div>
+                                  `
+                                : nothing
+                            }
+                            <div
+                              style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-top:16px;"
+                            >
+                              <div>
+                                <strong>${t("sessions.runtime.actionsTitle")}</strong>
+                                <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+                                  ${
+                                    props.runtimeActions.length === 0
+                                      ? html`<div class="muted">${t("sessions.runtime.noActions")}</div>`
+                                      : props.runtimeActions.map(
+                                          (action) => html`
+                                            <button
+                                              class="btn"
+                                              type="button"
+                                              ?disabled=${action.actionId === props.runtimeSelectedActionId}
+                                              @click=${() => props.onSelectRuntimeAction(action.actionId)}
+                                              style="justify-content:space-between;"
+                                            >
+                                              <span>${action.kind}</span>
+                                              <span style="opacity:0.75;">${action.state}</span>
+                                            </button>
+                                          `,
+                                        )
+                                  }
+                                </div>
+                                ${
+                                  selectedAction
+                                    ? html`
+                                        <div class="callout" style="margin-top:12px;">
+                                          <strong>${selectedAction.actionId}</strong>
+                                          <div class="muted" style="margin-top:4px;">
+                                            ${selectedAction.kind} · ${selectedAction.state}
+                                          </div>
+                                          ${
+                                            selectedAction.receipt?.resultStatus
+                                              ? html`<div style="margin-top:8px;">
+                                                  ${t("sessions.runtime.fields.resultStatus")}: ${selectedAction
+                                                    .receipt.resultStatus}
+                                                </div>`
+                                              : nothing
+                                          }
+                                          ${
+                                            selectedAction.lastError
+                                              ? html`<div style="margin-top:8px;">
+                                                  ${selectedAction.lastError}
+                                                </div>`
+                                              : nothing
+                                          }
+                                        </div>
+                                      `
+                                    : nothing
+                                }
+                              </div>
+                              <div>
+                                <strong>${t("sessions.runtime.closuresTitle")}</strong>
+                                <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+                                  ${
+                                    props.runtimeClosures.length === 0
+                                      ? html`<div class="muted">${t("sessions.runtime.noClosures")}</div>`
+                                      : props.runtimeClosures.map(
+                                          (closure) => html`
+                                            <button
+                                              class="btn"
+                                              type="button"
+                                              ?disabled=${closure.runId === props.runtimeSelectedClosureRunId}
+                                              @click=${() => props.onSelectRuntimeClosure(closure.runId)}
+                                              style="justify-content:space-between;"
+                                            >
+                                              <span>${closure.runId}</span>
+                                              <span style="opacity:0.75;">${closure.outcomeStatus}</span>
+                                            </button>
+                                          `,
+                                        )
+                                  }
+                                </div>
+                                ${
+                                  selectedClosure
+                                    ? html`
+                                        <div class="callout" style="margin-top:12px;">
+                                          <strong>${selectedClosure.runId}</strong>
+                                          <div class="muted" style="margin-top:4px;">
+                                            ${selectedClosure.acceptanceOutcome.status} · ${selectedClosure
+                                              .supervisorVerdict.action}
+                                          </div>
+                                          <div style="margin-top:8px;">
+                                            ${t("sessions.runtime.fields.updated")}: ${formatMsTimestamp(
+                                              selectedClosure.updatedAtMs,
+                                            )}
+                                          </div>
+                                        </div>
+                                      `
+                                    : nothing
+                                }
+                              </div>
+                            </div>
+                          `
+                        : html`<div class="muted">${t("sessions.runtime.selectHint")}</div>`
+                  }
+                </div>
+              </div>
+            `
+          : nothing
+      }
+    </section>
+  `;
+}
 
 function buildVerboseLevels(): Array<{ value: string; label: string }> {
   return [
@@ -376,6 +663,7 @@ export function renderSessions(props: SessionsProps) {
                 ${sortHeader("kind", t("sessions.table.kind"))}
                 ${sortHeader("updated", t("sessions.table.updated"))}
                 ${sortHeader("tokens", t("sessions.table.tokens"))}
+                <th>${t("sessions.table.runtime")}</th>
                 <th>${t("sessions.table.thinking")}</th>
                 <th>${t("sessions.table.fast")}</th>
                 <th>${t("sessions.table.verbose")}</th>
@@ -387,7 +675,7 @@ export function renderSessions(props: SessionsProps) {
                 paginated.length === 0
                   ? html`
                       <tr>
-                        <td colspan="10" style="text-align: center; padding: 48px 16px; color: var(--muted)">
+                        <td colspan="11" style="text-align: center; padding: 48px 16px; color: var(--muted)">
                           ${t("sessions.table.empty")}
                         </td>
                       </tr>
@@ -400,6 +688,7 @@ export function renderSessions(props: SessionsProps) {
                         props.selectedKeys.has(row.key),
                         props.onToggleSelect,
                         props.loading,
+                        props.onInspectRuntimeSession,
                         props.onNavigateToChat,
                       ),
                     )
@@ -453,6 +742,7 @@ export function renderSessions(props: SessionsProps) {
             : nothing
         }
       </div>
+      ${renderRuntimeInspector(props)}
     </section>
   `;
 }
@@ -464,6 +754,7 @@ function renderRow(
   selected: boolean,
   onToggleSelect: SessionsProps["onToggleSelect"],
   disabled: boolean,
+  onInspectRuntimeSession: SessionsProps["onInspectRuntimeSession"],
   onNavigateToChat?: (sessionKey: string) => void,
 ) {
   const updated = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : t("common.na");
@@ -559,6 +850,33 @@ function renderRow(
       </td>
       <td>${updated}</td>
       <td>${formatSessionTokens(row)}</td>
+      <td>
+        <div style="display:flex; flex-direction:column; gap:6px; min-width: 180px;">
+          ${
+            row.recoveryStatus
+              ? renderRuntimeStatusChip(row.recoveryStatus)
+              : row.runClosureSummary?.outcomeStatus
+                ? renderRuntimeStatusChip(row.runClosureSummary.outcomeStatus)
+                : html`<span class="muted">${t("common.na")}</span>`
+          }
+          ${
+            row.recoveryOperatorHint
+              ? html`<div class="muted" style="font-size:12px;">${row.recoveryOperatorHint}</div>`
+              : nothing
+          }
+          <button
+            class="btn btn--sm"
+            type="button"
+            @click=${() =>
+              onInspectRuntimeSession(
+                row.key,
+                row.runClosureSummary?.runId ?? row.handoffRunId ?? row.handoffRequestRunId,
+              )}
+          >
+            ${t("sessions.runtime.inspect")}
+          </button>
+        </div>
+      </td>
       <td>
         <select
           ?disabled=${disabled}

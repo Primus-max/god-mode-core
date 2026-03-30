@@ -3,6 +3,7 @@ import { t } from "../../i18n/index.ts";
 import type {
   CapabilityCatalogSummary,
   RecipeCatalogSummary,
+  RuntimeCheckpointSummary,
   SpecialistRuntimeSnapshot,
 } from "../types.ts";
 
@@ -15,6 +16,11 @@ type SpecialistContextProps = {
   catalogError?: string | null;
   recipeCatalog?: RecipeCatalogSummary[];
   capabilityCatalog?: CapabilityCatalogSummary[];
+  runtimeLoading?: boolean;
+  runtimeError?: string | null;
+  runtimeSessionKey?: string | null;
+  runtimeCheckpoints?: RuntimeCheckpointSummary[];
+  runtimeCheckpointDetail?: RuntimeCheckpointSummary | null;
   onOverrideChange?: (
     next:
       | { mode: "auto" }
@@ -233,6 +239,47 @@ function renderCatalogPanel(props: SpecialistContextProps) {
   `;
 }
 
+function renderRuntimeQueuePanel(props: SpecialistContextProps) {
+  const checkpoints = (props.runtimeCheckpoints ?? []).slice(0, 3);
+  if (props.runtimeLoading && checkpoints.length === 0) {
+    return html`<div class="muted" style="margin-top: 12px;">${t("specialist.runtime.loading")}</div>`;
+  }
+  if (props.runtimeError) {
+    return html`<div class="callout danger" style="margin-top: 12px;">${props.runtimeError}</div>`;
+  }
+  if (checkpoints.length === 0) {
+    return nothing;
+  }
+  return html`
+    <div style="margin-top: 16px;">
+      <div class="card-sub">${t("specialist.runtime.title")}</div>
+      <div class="muted" style="margin-top: 4px;">
+        ${props.runtimeSessionKey
+          ? t("specialist.runtime.scopeSession", { sessionKey: props.runtimeSessionKey })
+          : t("specialist.runtime.scopeGlobal")}
+      </div>
+      ${checkpoints.map(
+        (checkpoint) => html`
+          <div class="callout" style="margin-top: 8px;">
+            <strong>${checkpoint.boundary}</strong>
+            <div class="chip-row" style="margin-top: 8px;">
+              <span class="chip">${checkpoint.status}</span>
+              ${checkpoint.continuation?.state
+                ? html`<span class="chip">${checkpoint.continuation.state}</span>`
+                : nothing}
+            </div>
+            ${
+              checkpoint.operatorHint
+                ? html`<div class="muted" style="margin-top: 8px;">${checkpoint.operatorHint}</div>`
+                : nothing
+            }
+          </div>
+        `,
+      )}
+    </div>
+  `;
+}
+
 function renderSignalList(snapshot: SpecialistRuntimeSnapshot) {
   const signals = [...snapshot.signals]
     .toSorted((left, right) => right.weight - left.weight)
@@ -369,6 +416,7 @@ export function renderSpecialistOverviewPanel(props: SpecialistContextProps) {
               ${renderRuntimeChips(props.snapshot)}
               ${renderOperationalPosture(props.snapshot)}
               ${renderCatalogPanel(props)}
+              ${renderRuntimeQueuePanel(props)}
 
               <div style="margin-top: 14px;">
                 <div class="muted">${t("specialist.signals")}</div>

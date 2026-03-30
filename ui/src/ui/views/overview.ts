@@ -12,6 +12,7 @@ import type {
   CronJob,
   CronStatus,
   RecipeCatalogSummary,
+  RuntimeCheckpointSummary,
   SessionsListResult,
   SpecialistRuntimeSnapshot,
   SessionsUsageResult,
@@ -57,6 +58,11 @@ export type OverviewProps = {
   catalogError: string | null;
   recipeCatalog: RecipeCatalogSummary[];
   capabilityCatalog: CapabilityCatalogSummary[];
+  runtimeLoading: boolean;
+  runtimeError: string | null;
+  runtimeSessionKey: string | null;
+  runtimeCheckpoints: RuntimeCheckpointSummary[];
+  runtimeCheckpointDetail: RuntimeCheckpointSummary | null;
   showGatewayToken: boolean;
   showGatewayPassword: boolean;
   onSettingsChange: (next: UiSettings) => void;
@@ -408,6 +414,11 @@ export function renderOverview(props: OverviewProps) {
       catalogError: props.catalogError,
       recipeCatalog: props.recipeCatalog,
       capabilityCatalog: props.capabilityCatalog,
+      runtimeLoading: props.runtimeLoading,
+      runtimeError: props.runtimeError,
+      runtimeSessionKey: props.runtimeSessionKey,
+      runtimeCheckpoints: props.runtimeCheckpoints,
+      runtimeCheckpointDetail: props.runtimeCheckpointDetail,
       onOverrideChange: props.onSpecialistOverrideChange,
     })}
 
