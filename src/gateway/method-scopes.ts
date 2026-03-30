@@ -36,6 +36,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "exec.approval.resolve",
     "platform.bootstrap.resolve",
     "platform.bootstrap.run",
+    "platform.runtime.checkpoints.dispatch",
     "platform.machine.link",
     "platform.machine.unlink",
   ],

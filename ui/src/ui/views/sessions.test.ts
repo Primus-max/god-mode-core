@@ -42,6 +42,7 @@ function buildProps(result: SessionsListResult): SessionsProps {
     loading: false,
     runtimeLoading: false,
     runtimeDetailLoading: false,
+    runtimeActionBusy: false,
     result,
     error: null,
     runtimeError: null,
@@ -78,6 +79,7 @@ function buildProps(result: SessionsListResult): SessionsProps {
     onSelectRuntimeAction: () => undefined,
     onSelectRuntimeClosure: () => undefined,
     onClearRuntimeScope: () => undefined,
+    onExecuteRuntimeRecoveryAction: () => undefined,
     onPatch: () => undefined,
     onToggleSelect: () => undefined,
     onSelectPage: () => undefined,
@@ -262,5 +264,69 @@ describe("sessions view", () => {
     );
     inspectButton?.dispatchEvent(new Event("click"));
     expect(onInspectRuntimeSession).toHaveBeenCalledWith("agent:main:main", undefined);
+  });
+
+  it("turns runtime next actions into operator controls", async () => {
+    const onExecuteRuntimeRecoveryAction = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(buildResult(buildSession())),
+        runtimeSelectedCheckpointId: "cp-1",
+        runtimeCheckpointDetail: {
+          id: "cp-1",
+          runId: "run-1",
+          sessionKey: "agent:main:main",
+          boundary: "exec_approval",
+          status: "blocked",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+          operatorHint: "Awaiting operator approval to resume messaging recovery.",
+          nextActions: [
+            {
+              method: "exec.approval.resolve",
+              label: "Approve or deny closure recovery",
+              phase: "approve",
+            },
+          ],
+          target: {
+            approvalId: "approval-1",
+            operation: "closure.recovery",
+          },
+          continuation: {
+            kind: "closure_recovery",
+            state: "idle",
+            attempts: 0,
+          },
+        },
+        runtimeCheckpoints: [
+          {
+            id: "cp-1",
+            runId: "run-1",
+            sessionKey: "agent:main:main",
+            boundary: "exec_approval",
+            status: "blocked",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+        onExecuteRuntimeRecoveryAction,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const approveButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Approve recovery"),
+    );
+    approveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(onExecuteRuntimeRecoveryAction).toHaveBeenCalledWith({
+      kind: "exec-approval-resolve",
+      checkpointId: "cp-1",
+      approvalId: "approval-1",
+      decision: "allow-once",
+    });
   });
 });

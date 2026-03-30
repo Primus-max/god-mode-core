@@ -389,6 +389,16 @@ export const ru: TranslationMap = {
       closuresTitle: "Closures",
       noActions: "Связанных actions нет.",
       noClosures: "Связанных closures нет.",
+      controls: {
+        approveRecovery: "Одобрить recovery",
+        denyRecovery: "Отклонить recovery",
+        approveBootstrap: "Одобрить bootstrap",
+        denyBootstrap: "Отклонить bootstrap",
+        runBootstrap: "Запустить bootstrap",
+        retryArtifact: "Повторить transition",
+        dispatchContinuation: "Запустить continuation",
+        retryDispatch: "Повторить continuation",
+      },
       fields: {
         checkpointId: "Checkpoint",
         runId: "Run",

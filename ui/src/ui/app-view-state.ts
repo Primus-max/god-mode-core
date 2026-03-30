@@ -226,6 +226,7 @@ export type AppViewState = {
   bootstrapActionBusy: boolean;
   runtimeLoading: boolean;
   runtimeDetailLoading: boolean;
+  runtimeActionBusy: boolean;
   runtimeError: string | null;
   runtimeSessionKey: string | null;
   runtimeRunId: string | null;

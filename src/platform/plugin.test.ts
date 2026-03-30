@@ -176,6 +176,7 @@ describe("platform profile plugin", () => {
       "platform.runtime.actions.get",
       "platform.runtime.checkpoints.list",
       "platform.runtime.checkpoints.get",
+      "platform.runtime.checkpoints.dispatch",
       "platform.runtime.closures.list",
       "platform.runtime.closures.get",
       "platform.machine.status",

@@ -1,4 +1,5 @@
 import type { GatewayBrowserClient } from "../gateway.ts";
+import type { ArtifactOperation } from "../../../../src/platform/schemas/artifact.js";
 import type {
   RuntimeActionDetail,
   RuntimeActionSummary,
@@ -36,6 +37,7 @@ export type RuntimeInspectorState = {
   connected: boolean;
   runtimeLoading: boolean;
   runtimeDetailLoading: boolean;
+  runtimeActionBusy: boolean;
   runtimeError: string | null;
   runtimeSessionKey: string | null;
   runtimeRunId: string | null;
@@ -51,8 +53,27 @@ export type RuntimeInspectorState = {
   runtimeClosureDetail: RuntimeClosureDetail | null;
 };
 
+export type RuntimeRecoveryAction =
+  | { kind: "exec-approval-resolve"; checkpointId: string; approvalId: string; decision: "allow-once" | "deny" }
+  | { kind: "bootstrap-resolve"; checkpointId: string; requestId: string; decision: "approve" | "deny" }
+  | { kind: "bootstrap-run"; checkpointId: string; requestId: string }
+  | { kind: "artifact-transition"; checkpointId: string; artifactId: string; operation: ArtifactOperation }
+  | { kind: "dispatch-continuation"; checkpointId: string };
+
 function asArray<T>(value: T[] | undefined): T[] {
   return Array.isArray(value) ? value : [];
+}
+
+function getRuntimeScope(state: RuntimeInspectorState): {
+  sessionKey?: string | null;
+  runId?: string | null;
+  checkpointId?: string | null;
+} {
+  return {
+    ...(state.runtimeSessionKey ? { sessionKey: state.runtimeSessionKey } : {}),
+    ...(state.runtimeRunId ? { runId: state.runtimeRunId } : {}),
+    ...(state.runtimeSelectedCheckpointId ? { checkpointId: state.runtimeSelectedCheckpointId } : {}),
+  };
 }
 
 export async function loadRuntimeInspector(
@@ -233,6 +254,57 @@ export async function loadRuntimeClosureDetail(
   } catch (err) {
     state.runtimeClosureDetail = null;
     state.runtimeError = String(err);
+  }
+}
+
+export async function executeRuntimeRecoveryAction(
+  state: RuntimeInspectorState,
+  action: RuntimeRecoveryAction,
+): Promise<void> {
+  if (!state.client || !state.connected || state.runtimeActionBusy) {
+    return;
+  }
+  state.runtimeActionBusy = true;
+  state.runtimeError = null;
+  try {
+    switch (action.kind) {
+      case "exec-approval-resolve":
+        await state.client.request("exec.approval.resolve", {
+          id: action.approvalId,
+          decision: action.decision,
+        });
+        break;
+      case "bootstrap-resolve":
+        await state.client.request("platform.bootstrap.resolve", {
+          requestId: action.requestId,
+          decision: action.decision,
+        });
+        break;
+      case "bootstrap-run":
+        await state.client.request("platform.bootstrap.run", {
+          requestId: action.requestId,
+        });
+        break;
+      case "artifact-transition":
+        await state.client.request("platform.artifacts.transition", {
+          artifactId: action.artifactId,
+          operation: action.operation,
+        });
+        break;
+      case "dispatch-continuation":
+        await state.client.request("platform.runtime.checkpoints.dispatch", {
+          checkpointId: action.checkpointId,
+        });
+        break;
+    }
+    await loadRuntimeInspector(state, {
+      ...getRuntimeScope(state),
+      checkpointId: action.checkpointId,
+    });
+  } catch (err) {
+    state.runtimeError = String(err);
+  } finally {
+    state.runtimeActionBusy = false;
   }
 }
 

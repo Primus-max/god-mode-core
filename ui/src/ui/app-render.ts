@@ -83,6 +83,7 @@ import {
 } from "./controllers/machine.ts";
 import {
   clearRuntimeInspectorScope,
+  executeRuntimeRecoveryAction,
   loadRuntimeActionDetail,
   loadRuntimeCheckpointDetail,
   loadRuntimeClosureDetail,
@@ -770,6 +771,7 @@ export function renderApp(state: AppViewState) {
                   loading: state.sessionsLoading,
                   runtimeLoading: state.runtimeLoading,
                   runtimeDetailLoading: state.runtimeDetailLoading,
+                  runtimeActionBusy: state.runtimeActionBusy,
                   result: state.sessionsResult,
                   error: state.sessionsError,
                   runtimeError: state.runtimeError,
@@ -828,6 +830,10 @@ export function renderApp(state: AppViewState) {
                   onSelectRuntimeAction: (actionId) => loadRuntimeActionDetail(state, actionId),
                   onSelectRuntimeClosure: (runId) => loadRuntimeClosureDetail(state, runId),
                   onClearRuntimeScope: () => clearRuntimeInspectorScope(state),
+                  onExecuteRuntimeRecoveryAction: async (action) => {
+                    await executeRuntimeRecoveryAction(state, action);
+                    await loadSessions(state);
+                  },
                   onToggleSelect: (key) => {
                     const next = new Set(state.sessionsSelectedKeys);
                     if (next.has(key)) {

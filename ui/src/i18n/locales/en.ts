@@ -256,6 +256,16 @@ export const en: TranslationMap = {
       closuresTitle: "Closures",
       noActions: "No related actions.",
       noClosures: "No related closures.",
+      controls: {
+        approveRecovery: "Approve recovery",
+        denyRecovery: "Deny recovery",
+        approveBootstrap: "Approve bootstrap",
+        denyBootstrap: "Deny bootstrap",
+        runBootstrap: "Run bootstrap",
+        retryArtifact: "Retry transition",
+        dispatchContinuation: "Dispatch continuation",
+        retryDispatch: "Retry continuation",
+      },
       fields: {
         checkpointId: "Checkpoint",
         runId: "Run",

@@ -325,6 +325,7 @@ export class OpenClawApp extends LitElement {
   @state() bootstrapActionBusy = false;
   @state() runtimeLoading = false;
   @state() runtimeDetailLoading = false;
+  @state() runtimeActionBusy = false;
   @state() runtimeError: string | null = null;
   @state() runtimeSessionKey: string | null = null;
   @state() runtimeRunId: string | null = null;
