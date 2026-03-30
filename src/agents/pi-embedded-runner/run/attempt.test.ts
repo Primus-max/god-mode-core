@@ -4,6 +4,7 @@ import { appendBootstrapPromptWarning } from "../../bootstrap-budget.js";
 import { resolveOllamaBaseUrlForRun } from "../../ollama-stream.js";
 import { buildAgentSystemPrompt } from "../../system-prompt.js";
 import {
+  buildAttemptHookContext,
   buildAfterTurnRuntimeContext,
   buildSessionsYieldContextMessage,
   composeSystemPromptWithHookContext,
@@ -143,6 +144,50 @@ describe("resolvePromptBuildHookResult", () => {
     expect(result.prependContext).toBe("prompt context\n\nlegacy context");
     expect(result.prependSystemContext).toBe("prompt prepend\n\nlegacy prepend");
     expect(result.appendSystemContext).toBe("prompt append\n\nlegacy append");
+  });
+});
+
+describe("buildAttemptHookContext", () => {
+  it("includes structured platform execution context for prompt and llm hooks", () => {
+    expect(
+      buildAttemptHookContext({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        sessionId: "session-1",
+        workspaceDir: "/tmp/workspace",
+        messageProvider: "webchat",
+        messageChannel: "webchat",
+        trigger: "user",
+        platformExecutionContext: {
+          selectedRecipeId: "doc_ingest",
+          selectedProfileId: "builder",
+          taskOverlayId: "document_first",
+          plannerReasoning: "doc_ingest matched the document-heavy prompt.",
+          timeoutSeconds: 180,
+          prependContext: "Profile: Builder.\nPlanner reasoning: doc_ingest.",
+          prependSystemContext: "Execution recipe: doc_ingest.",
+        },
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        sessionId: "session-1",
+        workspaceDir: "/tmp/workspace",
+        messageProvider: "webchat",
+        channelId: "webchat",
+        trigger: "user",
+        platformExecution: expect.objectContaining({
+          profileId: "builder",
+          recipeId: "doc_ingest",
+          taskOverlayId: "document_first",
+          plannerReasoning: "doc_ingest matched the document-heavy prompt.",
+          timeoutSeconds: 180,
+          prependContext: "Profile: Builder.\nPlanner reasoning: doc_ingest.",
+          prependSystemContext: "Execution recipe: doc_ingest.",
+        }),
+      }),
+    );
   });
 });
 

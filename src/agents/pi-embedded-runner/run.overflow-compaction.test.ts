@@ -114,6 +114,8 @@ describe("runEmbeddedPiAgent overflow compaction trigger routing", () => {
         plannerReasoning: "doc_ingest matched the document-heavy prompt.",
         timeoutSeconds: 180,
         fallbackModels: ["anthropic/claude-sonnet-4.6"],
+        prependContext: "Profile: Builder.\nPlanner reasoning: doc_ingest.",
+        prependSystemContext: "Execution recipe: doc_ingest.",
       },
     });
 
@@ -127,6 +129,8 @@ describe("runEmbeddedPiAgent overflow compaction trigger routing", () => {
           plannerReasoning: "doc_ingest matched the document-heavy prompt.",
           timeoutSeconds: 180,
           fallbackModels: ["anthropic/claude-sonnet-4.6"],
+          prependContext: "Profile: Builder.\nPlanner reasoning: doc_ingest.",
+          prependSystemContext: "Execution recipe: doc_ingest.",
         },
       }),
     );

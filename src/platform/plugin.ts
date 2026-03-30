@@ -35,7 +35,6 @@ import {
 import { evaluatePolicy } from "./policy/engine.js";
 import { getInitialProfile, getTaskOverlay } from "./profile/defaults.js";
 import { createProfileResolveGatewayMethod } from "./profile/index.js";
-import { getInitialRecipe } from "./recipe/defaults.js";
 import {
   buildPolicyContextFromExecutionContext,
   resolvePlatformRuntimePlan,
@@ -78,33 +77,31 @@ function resolveExecutionLabels(execution: PluginHookPlatformExecutionContext): 
   };
 }
 
+function joinPromptContextSegments(...segments: Array<string | undefined>): string | undefined {
+  const parts = segments.map((segment) => segment?.trim()).filter(Boolean);
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
 function buildProfilePromptSection(
   prompt: string,
   ctx?: Pick<PluginHookAgentContext, "platformExecution">,
 ): PluginHookBeforePromptBuildResult | void {
   const execution = resolveHookExecution(prompt, ctx);
   const labels = resolveExecutionLabels(execution);
-  const recipe = getInitialRecipe(execution.recipeId);
   return {
-    prependSystemContext: [
-      `Active specialist profile: ${labels.profileLabel}.`,
-      labels.overlayLabel ? `Task overlay: ${labels.overlayLabel}.` : undefined,
-      execution.requestedToolNames?.length
-        ? `Planned tools: ${execution.requestedToolNames.join(", ")}.`
-        : undefined,
-      `Execution recipe: ${execution.recipeId}.`,
-      recipe?.summary ? `Recipe summary: ${recipe.summary}` : undefined,
-      recipe?.systemPrompt,
-      execution.requiredCapabilities?.length
-        ? `Required capabilities: ${execution.requiredCapabilities.join(", ")}.`
-        : undefined,
-      execution.bootstrapRequiredCapabilities?.length
-        ? `Bootstrap required: ${execution.bootstrapRequiredCapabilities.join(", ")}.`
-        : undefined,
-      "Profile selection narrows preferences only; it does not grant hidden permissions.",
-    ]
-      .filter(Boolean)
-      .join("\n"),
+    prependSystemContext: joinPromptContextSegments(
+      execution.prependSystemContext,
+      [
+        `Active specialist profile: ${labels.profileLabel}.`,
+        labels.overlayLabel ? `Task overlay: ${labels.overlayLabel}.` : undefined,
+        execution.requestedToolNames?.length
+          ? `Planned tools: ${execution.requestedToolNames.join(", ")}.`
+          : undefined,
+        "Profile selection narrows preferences only; it does not grant hidden permissions.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    ),
   };
 }
 
@@ -113,21 +110,8 @@ function buildAgentStartResult(
   ctx?: Pick<PluginHookAgentContext, "platformExecution">,
 ): PluginHookBeforeAgentStartResult | void {
   const execution = resolveHookExecution(prompt, ctx);
-  const labels = resolveExecutionLabels(execution);
   return {
-    prependContext: [
-      `Profile hint: ${labels.profileLabel}.`,
-      `Recipe hint: ${execution.recipeId}.`,
-      execution.plannerReasoning ? `Planner reasoning: ${execution.plannerReasoning}` : undefined,
-      execution.bootstrapRequiredCapabilities?.length
-        ? `Pending bootstrap: ${execution.bootstrapRequiredCapabilities.join(", ")}.`
-        : undefined,
-      execution.requireExplicitApproval
-        ? `Policy posture: explicit approval required (${execution.policyAutonomy ?? "guarded"}).`
-        : undefined,
-    ]
-      .filter(Boolean)
-      .join("\n"),
+    prependContext: execution.prependContext,
   };
 }
 

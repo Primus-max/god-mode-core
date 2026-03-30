@@ -241,9 +241,24 @@ describe("platform profile plugin", () => {
               profileId: string;
               recipeId: string;
               requestedToolNames?: string[];
+              prependSystemContext?: string;
             };
           },
         ) => { prependSystemContext?: string } | void)
+      | undefined;
+    const beforeAgentStart = (api.on as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call) => call[0] === "before_agent_start",
+    )?.[1] as
+      | ((
+          event: { prompt: string; messages?: unknown[] },
+          ctx: {
+            platformExecution?: {
+              profileId: string;
+              recipeId: string;
+              prependContext?: string;
+            };
+          },
+        ) => { prependContext?: string } | void)
       | undefined;
 
     expect(
@@ -270,10 +285,38 @@ describe("platform profile plugin", () => {
             profileId: "developer",
             recipeId: "code_build_publish",
             requestedToolNames: ["exec", "apply_patch"],
+            prependSystemContext: "Execution recipe: code_build_publish.",
+          },
+        },
+      )?.prependSystemContext,
+    ).toContain("Execution recipe: code_build_publish.");
+    expect(
+      beforePromptBuild?.(
+        { prompt: "Tell me a joke.", messages: [] },
+        {
+          platformExecution: {
+            profileId: "developer",
+            recipeId: "code_build_publish",
+            requestedToolNames: ["exec", "apply_patch"],
+            prependSystemContext: "Execution recipe: code_build_publish.",
           },
         },
       )?.prependSystemContext,
     ).toContain("Planned tools: exec, apply_patch.");
+    expect(
+      beforeAgentStart?.(
+        { prompt: "Tell me a joke.", messages: [] },
+        {
+          platformExecution: {
+            profileId: "developer",
+            recipeId: "code_build_publish",
+            prependContext: "Profile: Developer.\nPlanner reasoning: repo-first.",
+          },
+        },
+      ),
+    ).toEqual({
+      prependContext: "Profile: Developer.\nPlanner reasoning: repo-first.",
+    });
   });
 
   it("records llm_input runs and blocks machine exec when kill switch is on", () => {
