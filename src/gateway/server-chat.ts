@@ -10,12 +10,9 @@ import {
   type PlatformRuntimeRunClosureSummary,
 } from "../platform/runtime/contracts.js";
 import { stripInlineDirectiveTagsForDisplay } from "../utils/directive-tags.js";
-import {
-  deriveGatewaySessionLifecycleSnapshot,
-  persistGatewaySessionLifecycleEvent,
-} from "./session-lifecycle-state.js";
-import { buildGatewaySessionBroadcastSnapshot } from "./session-broadcast-snapshot.js";
-import { loadGatewaySessionRow, loadSessionEntry } from "./session-utils.js";
+import { persistGatewaySessionLifecycleEvent } from "./session-lifecycle-state.js";
+import { buildSessionsChangedLifecycleEvent } from "./session-event-hub.js";
+import { loadSessionEntry } from "./session-utils.js";
 import { formatForLog } from "./ws-log.js";
 
 const sessionLifecyclePersistLog = createSubsystemLogger("gateway/session-lifecycle-persist");
@@ -471,33 +468,6 @@ export function createAgentEventHandler({
   toolEventRecipients,
   sessionEventSubscribers,
 }: AgentEventHandlerOptions) {
-  const buildSessionEventSnapshot = (sessionKey: string, evt?: AgentEventPayload) => {
-    const row = loadGatewaySessionRow(sessionKey);
-    const lifecyclePatch = evt
-      ? deriveGatewaySessionLifecycleSnapshot({
-          session: row
-            ? {
-                updatedAt: row.updatedAt ?? undefined,
-                status: row.status,
-                startedAt: row.startedAt,
-                endedAt: row.endedAt,
-                runtimeMs: row.runtimeMs,
-                abortedLastRun: row.abortedLastRun,
-              }
-            : undefined,
-          event: evt,
-        })
-      : {};
-    if (row) {
-      const session = { ...row, ...lifecyclePatch };
-      return buildGatewaySessionBroadcastSnapshot(session, { includeFullSession: true });
-    }
-    if (Object.keys(lifecyclePatch).length > 0) {
-      return { ...lifecyclePatch };
-    }
-    return {};
-  };
-
   const resolveRuntimeClosureSummary = (
     evt: AgentEventPayload | undefined,
   ): PlatformRuntimeRunClosureSummary | undefined => {
@@ -880,13 +850,13 @@ export function createAgentEventHandler({
       if (sessionEventConnIds.size > 0) {
         broadcastToConnIds(
           "sessions.changed",
-          {
+          buildSessionsChangedLifecycleEvent({
             sessionKey,
             phase: runtimeClosureSummary ? "closure" : lifecyclePhase,
             runId: evt.runId,
             ts: evt.ts,
-            ...buildSessionEventSnapshot(sessionKey, evt),
-          },
+            lifecycleEvent: evt,
+          }),
           sessionEventConnIds,
           { dropIfSlow: true },
         );

@@ -126,7 +126,11 @@ import {
 import { resolveHookClientIpConfig } from "./server/hooks.js";
 import { createReadinessChecker } from "./server/readiness.js";
 import { loadGatewayTlsRuntime } from "./server/tls.js";
-import { buildGatewaySessionBroadcastSnapshot } from "./session-broadcast-snapshot.js";
+import {
+  buildSessionMessageSnapshot,
+  buildSessionsChangedLifecycleEvent,
+  buildSessionsChangedTranscriptEvent,
+} from "./session-event-hub.js";
 import { resolveSessionKeyForTranscriptFile } from "./session-transcript-key.js";
 import {
   attachOpenClawTranscriptMeta,
@@ -873,22 +877,19 @@ export async function startGatewayServer(
           ? readSessionMessages(entry.sessionId, storePath, entry.sessionFile).length
           : undefined;
         const sessionRow = loadGatewaySessionRow(sessionKey);
-        const sessionSnapshot = buildGatewaySessionBroadcastSnapshot(sessionRow, {
-          includeFullSession: true,
-        });
         const message = attachOpenClawTranscriptMeta(update.message, {
           ...(typeof update.messageId === "string" ? { id: update.messageId } : {}),
           ...(typeof messageSeq === "number" ? { seq: messageSeq } : {}),
         });
         broadcastToConnIds(
           "session.message",
-          {
+          buildSessionMessageSnapshot({
             sessionKey,
             message,
-            ...(typeof update.messageId === "string" ? { messageId: update.messageId } : {}),
-            ...(typeof messageSeq === "number" ? { messageSeq } : {}),
-            ...sessionSnapshot,
-          },
+            messageId: typeof update.messageId === "string" ? update.messageId : undefined,
+            messageSeq,
+            row: sessionRow,
+          }),
           connIds,
           { dropIfSlow: true },
         );
@@ -897,14 +898,13 @@ export async function startGatewayServer(
         if (sessionEventConnIds.size > 0) {
           broadcastToConnIds(
             "sessions.changed",
-            {
+            buildSessionsChangedTranscriptEvent({
               sessionKey,
-              phase: "message",
               ts: Date.now(),
-              ...(typeof update.messageId === "string" ? { messageId: update.messageId } : {}),
-              ...(typeof messageSeq === "number" ? { messageSeq } : {}),
-              ...sessionSnapshot,
-            },
+              messageId: typeof update.messageId === "string" ? update.messageId : undefined,
+              messageSeq,
+              row: sessionRow,
+            }),
             sessionEventConnIds,
             { dropIfSlow: true },
           );
@@ -921,25 +921,17 @@ export async function startGatewayServer(
         const sessionRow = loadGatewaySessionRow(event.sessionKey);
         broadcastToConnIds(
           "sessions.changed",
-          {
+          buildSessionsChangedLifecycleEvent({
             sessionKey: event.sessionKey,
             reason: event.reason,
-            parentSessionKey: event.parentSessionKey,
-            label: event.label,
-            displayName: event.displayName,
             ts: Date.now(),
-            ...buildGatewaySessionBroadcastSnapshot(
-              sessionRow
-                ? {
-                    ...sessionRow,
-                    parentSessionKey: event.parentSessionKey ?? sessionRow.parentSessionKey,
-                    label: event.label ?? sessionRow.label,
-                    displayName: event.displayName ?? sessionRow.displayName,
-                  }
-                : null,
-              { includeFullSession: false },
-            ),
-          },
+            row: sessionRow,
+            overrides: {
+              parentSessionKey: event.parentSessionKey,
+              label: event.label,
+              displayName: event.displayName,
+            },
+          }),
           connIds,
           { dropIfSlow: true },
         );

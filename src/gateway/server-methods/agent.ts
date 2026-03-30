@@ -48,10 +48,9 @@ import {
 } from "../protocol/index.js";
 import { performGatewaySessionReset } from "../session-reset-service.js";
 import { reactivateCompletedSubagentSession } from "../session-subagent-reactivation.js";
-import { buildGatewaySessionBroadcastSnapshot } from "../session-broadcast-snapshot.js";
+import { broadcastSessionsChangedMutationEvent } from "../session-event-hub.js";
 import {
   canonicalizeSpawnedByForAgent,
-  loadGatewaySessionRow,
   loadSessionEntry,
   migrateAndPruneGatewaySessionStoreKey,
 } from "../session-utils.js";
@@ -100,30 +99,6 @@ async function runSessionResetFromAgent(params: {
     key: result.key,
     sessionId: result.entry.sessionId,
   };
-}
-
-function emitSessionsChanged(
-  context: Pick<
-    GatewayRequestHandlerOptions["context"],
-    "broadcastToConnIds" | "getSessionEventSubscriberConnIds"
-  >,
-  payload: { sessionKey?: string; reason: string },
-) {
-  const connIds = context.getSessionEventSubscriberConnIds();
-  if (connIds.size === 0) {
-    return;
-  }
-  const sessionRow = payload.sessionKey ? loadGatewaySessionRow(payload.sessionKey) : null;
-  context.broadcastToConnIds(
-    "sessions.changed",
-    {
-      ...payload,
-      ts: Date.now(),
-      ...buildGatewaySessionBroadcastSnapshot(sessionRow, { includeFullSession: false }),
-    },
-    connIds,
-    { dropIfSlow: true },
-  );
 }
 
 function dispatchAgentRunFromGateway(params: {
@@ -638,13 +613,15 @@ export const agentHandlers: GatewayRequestHandlers = {
     }
 
     if (requestedSessionKey && resolvedSessionKey && isNewSession) {
-      emitSessionsChanged(context, {
+      broadcastSessionsChangedMutationEvent({
+        context,
         sessionKey: resolvedSessionKey,
         reason: "create",
       });
     }
     if (resolvedSessionKey) {
-      emitSessionsChanged(context, {
+      broadcastSessionsChangedMutationEvent({
+        context,
         sessionKey: resolvedSessionKey,
         reason: "send",
       });
