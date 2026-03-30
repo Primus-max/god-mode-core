@@ -178,9 +178,15 @@ Use this decision table:
 - Touching gateway networking / WS protocol / pairing: add `pnpm test:e2e`
 - Debugging “my bot is down” / provider-specific failures / tool calling: run a narrowed `pnpm test:live`
 
-WebSocket `sessions.changed` payloads intentionally mirror the gateway session row model (including `runClosureSummary`, recovery fields, and handoff projection) at the **top level**, not only inside nested `session`, so thin clients stay aligned with `sessions.list` without re-implementing field lists. Reference: `src/gateway/session-broadcast-snapshot.ts` and `src/gateway/session-broadcast-snapshot.test.ts`.
+WebSocket `sessions.changed` payloads intentionally mirror the gateway session row model (including `runClosureSummary`, recovery fields, and handoff projection) at the **top level**, not only inside nested `session`, so thin clients stay aligned with `sessions.list` without re-implementing field lists. Reference: `src/gateway/session-broadcast-snapshot.ts`, `src/gateway/session-event-hub.ts`, and their focused tests.
 
 When validating consumer behavior, remember that `JSON.stringify()` drops keys whose value is `undefined`. For Stage 29 consumer adoption this means a missing optional `handoff*`, recovery, or `runClosureSummary` key on the wire should be interpreted as "field currently unset"; consumer-side caches/tests must not require those keys to be present with an explicit `undefined`.
+
+When you change producer-side session event behavior, keep the regression matrix split by variant:
+
+- `buildGatewaySessionBroadcastSnapshot()` remains the only lower-level field enumerator for session row broadcast data.
+- `src/gateway/session-event-hub.test.ts` should lock the policy differences between mutation, lifecycle, transcript, and `session.message` surfaces.
+- Gateway integration coverage should still prove the real emit paths stay wired through the same hub (`src/gateway/server.sessions.gateway-server-sessions-a.test.ts`, `src/gateway/session-message-events.test.ts`, `src/gateway/server-chat.agent-events.test.ts`).
 
 ## Local runtime recovery smoke
 

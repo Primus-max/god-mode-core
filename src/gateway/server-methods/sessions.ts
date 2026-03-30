@@ -47,12 +47,11 @@ import {
   performGatewaySessionReset,
 } from "../session-reset-service.js";
 import { reactivateCompletedSubagentSession } from "../session-subagent-reactivation.js";
-import { buildGatewaySessionBroadcastSnapshot } from "../session-broadcast-snapshot.js";
+import { broadcastSessionsChangedMutationEvent } from "../session-event-hub.js";
 import {
   archiveFileOnDisk,
   listSessionsFromStore,
   loadCombinedSessionStoreForGateway,
-  loadGatewaySessionRow,
   loadSessionEntry,
   migrateAndPruneGatewaySessionStoreKey,
   readSessionPreviewItemsFromTranscript,
@@ -121,27 +120,6 @@ function shouldAttachPendingMessageSeq(params: { payload: unknown; cached?: bool
       ? (params.payload as { status?: unknown }).status
       : undefined;
   return status === "started";
-}
-
-function emitSessionsChanged(
-  context: Pick<GatewayRequestContext, "broadcastToConnIds" | "getSessionEventSubscriberConnIds">,
-  payload: { sessionKey?: string; reason: string; compacted?: boolean },
-) {
-  const connIds = context.getSessionEventSubscriberConnIds();
-  if (connIds.size === 0) {
-    return;
-  }
-  const sessionRow = payload.sessionKey ? loadGatewaySessionRow(payload.sessionKey) : null;
-  context.broadcastToConnIds(
-    "sessions.changed",
-    {
-      ...payload,
-      ts: Date.now(),
-      ...buildGatewaySessionBroadcastSnapshot(sessionRow, { includeFullSession: false }),
-    },
-    connIds,
-    { dropIfSlow: true },
-  );
 }
 
 function rejectWebchatSessionMutation(params: {
@@ -446,7 +424,8 @@ async function handleSessionSend(params: {
         runId: startedRunId,
       });
     }
-    emitSessionsChanged(params.context, {
+    broadcastSessionsChangedMutationEvent({
+      context: params.context,
       sessionKey: canonicalKey,
       reason: interruptedActiveRun ? "steer" : "send",
     });
@@ -752,12 +731,14 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       },
       undefined,
     );
-    emitSessionsChanged(context, {
+    broadcastSessionsChangedMutationEvent({
+      context,
       sessionKey: target.canonicalKey,
       reason: "create",
     });
     if (runStarted) {
-      emitSessionsChanged(context, {
+      broadcastSessionsChangedMutationEvent({
+        context,
         sessionKey: target.canonicalKey,
         reason: "send",
       });
@@ -840,7 +821,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       isWebchatConnect,
     });
     if (abortedRunId) {
-      emitSessionsChanged(context, {
+      broadcastSessionsChangedMutationEvent({
+        context,
         sessionKey: canonicalKey,
         reason: "abort",
       });
@@ -888,7 +870,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       },
     };
     respond(true, result, undefined);
-    emitSessionsChanged(context, {
+    broadcastSessionsChangedMutationEvent({
+      context,
       sessionKey: target.canonicalKey,
       reason: "patch",
     });
@@ -914,7 +897,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
     respond(true, { ok: true, key: result.key, entry: result.entry }, undefined);
-    emitSessionsChanged(context, {
+    broadcastSessionsChangedMutationEvent({
+      context,
       sessionKey: result.key,
       reason,
     });
@@ -990,7 +974,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
 
     respond(true, { ok: true, key: target.canonicalKey, deleted, archived }, undefined);
     if (deleted) {
-      emitSessionsChanged(context, {
+      broadcastSessionsChangedMutationEvent({
+        context,
         sessionKey: target.canonicalKey,
         reason: "delete",
       });
@@ -1119,7 +1104,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       },
       undefined,
     );
-    emitSessionsChanged(context, {
+    broadcastSessionsChangedMutationEvent({
+      context,
       sessionKey: target.canonicalKey,
       reason: "compact",
       compacted: true,

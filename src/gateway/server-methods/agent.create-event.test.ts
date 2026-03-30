@@ -3,17 +3,29 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testState, writeSessionStore } from "../test-helpers.js";
-import { agentHandlers } from "./agent.js";
+
+const mocks = vi.hoisted(() => ({
+  agentCommandFromIngress: vi.fn(),
+}));
+
+vi.mock("../../commands/agent.js", () => ({
+  agentCommandFromIngress: mocks.agentCommandFromIngress,
+}));
+
+type AgentModule = typeof import("./agent.js");
 
 describe("agent handler session create events", () => {
   let tempDir: string;
   let storePath: string;
+  let agentHandlers: AgentModule["agentHandlers"];
 
   beforeEach(async () => {
+    vi.resetModules();
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-agent-create-event-"));
     storePath = path.join(tempDir, "sessions.json");
     testState.sessionStorePath = storePath;
     await writeSessionStore({ entries: {} });
+    ({ agentHandlers } = await import("./agent.js"));
   });
 
   afterEach(async () => {
@@ -22,6 +34,10 @@ describe("agent handler session create events", () => {
   });
 
   it("emits sessions.changed with reason create for new agent sessions", async () => {
+    mocks.agentCommandFromIngress.mockResolvedValue({
+      payloads: [{ text: "ok" }],
+      meta: { durationMs: 1 },
+    });
     const broadcastToConnIds = vi.fn();
     const respond = vi.fn();
 
