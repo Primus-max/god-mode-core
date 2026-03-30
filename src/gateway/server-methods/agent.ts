@@ -48,6 +48,7 @@ import {
 } from "../protocol/index.js";
 import { performGatewaySessionReset } from "../session-reset-service.js";
 import { reactivateCompletedSubagentSession } from "../session-subagent-reactivation.js";
+import { buildGatewaySessionBroadcastSnapshot } from "../session-broadcast-snapshot.js";
 import {
   canonicalizeSpawnedByForAgent,
   loadGatewaySessionRow,
@@ -118,20 +119,7 @@ function emitSessionsChanged(
     {
       ...payload,
       ts: Date.now(),
-      ...(sessionRow
-        ? {
-            totalTokens: sessionRow.totalTokens,
-            totalTokensFresh: sessionRow.totalTokensFresh,
-            contextTokens: sessionRow.contextTokens,
-            estimatedCostUsd: sessionRow.estimatedCostUsd,
-            modelProvider: sessionRow.modelProvider,
-            model: sessionRow.model,
-            status: sessionRow.status,
-            startedAt: sessionRow.startedAt,
-            endedAt: sessionRow.endedAt,
-            runtimeMs: sessionRow.runtimeMs,
-          }
-        : {}),
+      ...buildGatewaySessionBroadcastSnapshot(sessionRow, { includeFullSession: false }),
     },
     connIds,
     { dropIfSlow: true },

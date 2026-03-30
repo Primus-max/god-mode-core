@@ -203,24 +203,21 @@ describe("resolveProviderAuths key normalization", () => {
     expected: Awaited<ReturnType<typeof resolveProviderAuths>>;
     env: Record<string, string | undefined>;
   }) {
-    await withSuiteHome(
-      async (home) => {
-        const agentDir = path.join(home, ".openclaw", "agents", "main", "agent");
-        await fs.mkdir(agentDir, { recursive: true });
-        const auths = await resolveProviderAuths({
-          providers: params.providers,
-          env: {
-            ...process.env,
-            ...EMPTY_PROVIDER_ENV,
-            ...params.env,
-          },
-          config: {} as OpenClawConfig,
-          agentDir,
-        });
-        expect(auths).toEqual(params.expected);
-      },
-      {},
-    );
+    await withSuiteHome(async (home) => {
+      const agentDir = path.join(home, ".openclaw", "agents", "main", "agent");
+      await fs.mkdir(agentDir, { recursive: true });
+      const auths = await resolveProviderAuths({
+        providers: params.providers,
+        env: {
+          ...process.env,
+          ...EMPTY_PROVIDER_ENV,
+          ...params.env,
+        },
+        config: {} as OpenClawConfig,
+        agentDir,
+      });
+      expect(auths).toEqual(params.expected);
+    }, {});
   }
 
   it.each([

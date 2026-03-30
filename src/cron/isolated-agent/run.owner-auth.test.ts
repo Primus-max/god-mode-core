@@ -56,8 +56,15 @@ describe("runCronIsolatedAgentTurn owner auth", () => {
     await runCronIsolatedAgentTurn(makeParams());
 
     expect(runEmbeddedPiAgentMock).toHaveBeenCalledTimes(1);
-    const senderIsOwner = runEmbeddedPiAgentMock.mock.calls[0]?.[0]?.senderIsOwner;
+    const firstCall = runEmbeddedPiAgentMock.mock.calls[0]?.[0];
+    const senderIsOwner = firstCall?.senderIsOwner;
     expect(senderIsOwner).toBe(true);
+    expect(firstCall?.platformExecutionContext).toEqual(
+      expect.objectContaining({
+        selectedRecipeId: expect.any(String),
+        selectedProfileId: expect.any(String),
+      }),
+    );
 
     const toolNames = createOpenClawCodingTools({ senderIsOwner }).map((tool) => tool.name);
     expect(toolNames).toContain("cron");

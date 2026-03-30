@@ -1,6 +1,11 @@
 import type { ChatType } from "../channels/chat-type.js";
 import type { SessionEntry } from "../config/sessions.js";
 import type {
+  PlatformRuntimeCheckpointStatus,
+  PlatformRuntimeContinuationState,
+  PlatformRuntimeRunClosureSummary,
+} from "../platform/runtime/index.js";
+import type {
   GatewayAgentRow as SharedGatewayAgentRow,
   SessionsListResultBase,
   SessionsPatchResultBase,
@@ -13,7 +18,8 @@ export type GatewaySessionsDefaults = {
   contextTokens: number | null;
 };
 
-export type SessionRunStatus = "running" | "done" | "failed" | "killed" | "timeout";
+export type SessionRunStatus = "running" | "blocked" | "done" | "failed" | "killed" | "timeout";
+export type SessionHandoffTruthSource = "closure" | "recovery";
 
 export type GatewaySessionRow = {
   key: string;
@@ -58,6 +64,24 @@ export type GatewaySessionRow = {
   lastChannel?: SessionEntry["lastChannel"];
   lastTo?: string;
   lastAccountId?: string;
+  runClosureSummary?: PlatformRuntimeRunClosureSummary;
+  /** Stable request anchor operators should use first for handoff. */
+  handoffRequestRunId?: string;
+  /** Runtime run id operators should inspect next for the current session truth. */
+  handoffRunId?: string;
+  /** Whether handoff truth currently comes from durable closure history or active recovery. */
+  handoffTruthSource?: SessionHandoffTruthSource;
+  /** Short operator-facing explanation when in-flight truth overrides stale durable closure data. */
+  handoffHint?: string;
+  recoveryCheckpointId?: string;
+  recoveryStatus?: PlatformRuntimeCheckpointStatus;
+  recoveryContinuationState?: PlatformRuntimeContinuationState;
+  recoveryOperation?: string;
+  recoveryBlockedReason?: string;
+  recoveryUpdatedAt?: number;
+  recoveryAttempts?: number;
+  /** Derived operator-facing recovery narrative (closure.recovery checkpoints only). */
+  recoveryOperatorHint?: string;
 };
 
 export type GatewayAgentRow = SharedGatewayAgentRow;

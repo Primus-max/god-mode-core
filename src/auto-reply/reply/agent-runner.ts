@@ -28,10 +28,14 @@ import { resolveResponseUsageMode, type VerboseLevel } from "../thinking.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { runAgentTurnWithFallback } from "./agent-runner-execution.runtime.js";
 import {
+  buildAcceptanceFallbackPayload,
+  captureMessagingDeliveryClosureCandidate,
   createShouldEmitToolOutput,
   createShouldEmitToolResult,
+  enqueueSemanticRetryFollowup,
   finalizeWithFollowup,
   isAudioPayload,
+  reevaluateMessagingDecisionForMessagingRun,
   signalTypingIfNeeded,
 } from "./agent-runner-helpers.js";
 import { runMemoryFlushIfNeeded } from "./agent-runner-memory.runtime.js";
@@ -141,6 +145,13 @@ export async function runReplyAgent(params: {
   let activeSessionEntry = sessionEntry;
   const activeSessionStore = sessionStore;
   let activeIsNewSession = isNewSession;
+  const requestRunId =
+    followupRun.requestRunId ??
+    (typeof opts?.runId === "string" && opts.runId.trim() ? opts.runId.trim() : undefined);
+  const correlationSourceRun =
+    requestRunId && followupRun.requestRunId !== requestRunId
+      ? { ...followupRun, requestRunId }
+      : followupRun;
 
   const isHeartbeat = opts?.isHeartbeat === true;
   const typingSignals = createTypingSignaler({
@@ -266,6 +277,8 @@ export async function runReplyAgent(params: {
     opts,
     typing,
     typingMode,
+    queueKey,
+    resolvedQueue,
     sessionEntry: activeSessionEntry,
     sessionStore: activeSessionStore,
     sessionKey,
@@ -523,6 +536,36 @@ export async function runReplyAgent(params: {
     // Otherwise, a late typing trigger (e.g. from a tool callback) can outlive the run and
     // keep the typing indicator stuck.
     if (payloadArray.length === 0) {
+      const closureDecision = reevaluateMessagingDecisionForMessagingRun({
+        runResult,
+        replyPayloads: [],
+        sourceRun: followupRun,
+      });
+      const acceptanceOutcome = closureDecision?.acceptanceOutcome;
+      const supervisorVerdict = closureDecision?.supervisorVerdict;
+      const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
+      const queuedSemanticRetry = deferDeliveryClosure
+        ? false
+        : enqueueSemanticRetryFollowup({
+            queueKey,
+            sourceRun: correlationSourceRun,
+            settings: resolvedQueue,
+            acceptance: acceptanceOutcome,
+            supervisorVerdict,
+          });
+      captureMessagingDeliveryClosureCandidate({
+        onCandidate: opts?.onDeliveryClosureCandidate,
+        runResult,
+        sourceRun: correlationSourceRun,
+        queueKey,
+        settings: resolvedQueue,
+      });
+      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict, {
+        channel: replyToChannel,
+      });
+      if (fallbackPayload && !queuedSemanticRetry) {
+        return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
+      }
       return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
     }
 
@@ -552,6 +595,36 @@ export async function runReplyAgent(params: {
     didLogHeartbeatStrip = payloadResult.didLogHeartbeatStrip;
 
     if (replyPayloads.length === 0) {
+      const closureDecision = reevaluateMessagingDecisionForMessagingRun({
+        runResult,
+        replyPayloads: [],
+        sourceRun: correlationSourceRun,
+      });
+      const acceptanceOutcome = closureDecision?.acceptanceOutcome;
+      const supervisorVerdict = closureDecision?.supervisorVerdict;
+      const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
+      const queuedSemanticRetry = deferDeliveryClosure
+        ? false
+        : enqueueSemanticRetryFollowup({
+            queueKey,
+            sourceRun: correlationSourceRun,
+            settings: resolvedQueue,
+            acceptance: acceptanceOutcome,
+            supervisorVerdict,
+          });
+      captureMessagingDeliveryClosureCandidate({
+        onCandidate: opts?.onDeliveryClosureCandidate,
+        runResult,
+        sourceRun: correlationSourceRun,
+        queueKey,
+        settings: resolvedQueue,
+      });
+      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict, {
+        channel: replyToChannel,
+      });
+      if (fallbackPayload && !queuedSemanticRetry) {
+        return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
+      }
       return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
     }
 
@@ -575,6 +648,30 @@ export async function runReplyAgent(params: {
       hasReminderCommitment && successfulCronAdds === 0 && !coveredByExistingCron
         ? appendUnscheduledReminderNote(replyPayloads)
         : replyPayloads;
+    const closureDecision = reevaluateMessagingDecisionForMessagingRun({
+      runResult,
+      replyPayloads: guardedReplyPayloads,
+      sourceRun: correlationSourceRun,
+    });
+    const acceptanceOutcome = closureDecision?.acceptanceOutcome;
+    const supervisorVerdict = closureDecision?.supervisorVerdict;
+    const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
+    const queuedSemanticRetry = deferDeliveryClosure
+      ? false
+      : enqueueSemanticRetryFollowup({
+          queueKey,
+          sourceRun: correlationSourceRun,
+          settings: resolvedQueue,
+          acceptance: acceptanceOutcome,
+          supervisorVerdict,
+        });
+    captureMessagingDeliveryClosureCandidate({
+      onCandidate: opts?.onDeliveryClosureCandidate,
+      runResult,
+      sourceRun: correlationSourceRun,
+      queueKey,
+      settings: resolvedQueue,
+    });
 
     await signalTypingIfNeeded(guardedReplyPayloads, typingSignals);
 
@@ -782,9 +879,25 @@ export async function runReplyAgent(params: {
     if (responseUsageLine) {
       finalPayloads = appendUsageLine(finalPayloads, responseUsageLine);
     }
+    if (finalPayloads.length === 0) {
+      const fallbackPayload = buildAcceptanceFallbackPayload(
+        acceptanceOutcome,
+        supervisorVerdict,
+        {
+          channel: replyToChannel,
+        },
+      );
+      if (fallbackPayload && !queuedSemanticRetry) {
+        finalPayloads = [fallbackPayload];
+      }
+    }
 
     return finalizeWithFollowup(
-      finalPayloads.length === 1 ? finalPayloads[0] : finalPayloads,
+      finalPayloads.length === 0
+        ? undefined
+        : finalPayloads.length === 1
+          ? finalPayloads[0]
+          : finalPayloads,
       queueKey,
       runFollowupTurn,
     );

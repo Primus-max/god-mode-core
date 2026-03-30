@@ -24,6 +24,7 @@ import {
 } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
+import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { defaultRuntime } from "../../runtime.js";
 import {
   isMarkdownCapableMessageChannel,
@@ -42,6 +43,7 @@ import {
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import {
   buildEmbeddedRunExecutionParams,
+  resolvePlatformExecutionContextForTemplateRun,
   resolveModelFallbackOptions,
 } from "./agent-runner-utils.js";
 import { type BlockReplyPipeline } from "./block-reply-pipeline.js";
@@ -109,6 +111,19 @@ export async function runAgentTurnWithFallback(params: {
   const directlySentBlockKeys = new Set<string>();
 
   const runId = params.opts?.runId ?? crypto.randomUUID();
+  const requestRunId =
+    params.followupRun.requestRunId ??
+    (typeof params.opts?.runId === "string" && params.opts.runId.trim()
+      ? params.opts.runId.trim()
+      : undefined) ??
+    runId;
+  const platformExecutionContext = resolvePlatformExecutionContextForTemplateRun({
+    prompt: params.commandBody,
+    run: params.followupRun.run,
+    sessionCtx: params.sessionCtx,
+    storePath: params.storePath,
+    sessionEntry: params.getActiveSessionEntry(),
+  });
   const normalizeReplyMediaPaths = createReplyMediaPathNormalizer({
     cfg: params.followupRun.run.config,
     sessionKey: params.sessionKey,
@@ -132,7 +147,9 @@ export async function runAgentTurnWithFallback(params: {
       sessionKey: params.sessionKey,
       verboseLevel: params.resolvedVerboseLevel,
       isHeartbeat: params.isHeartbeat,
+      platformExecution: toPluginHookPlatformExecutionContext(platformExecutionContext),
       isControlUiVisible: shouldSurfaceToControlUi,
+      awaitingRunClosure: true,
     });
   }
   let runResult: Awaited<ReturnType<typeof runEmbeddedPiAgent>>;
@@ -246,7 +263,7 @@ export async function runAgentTurnWithFallback(params: {
               try {
                 const result = await runCliAgent({
                   sessionId: params.followupRun.run.sessionId,
-                  sessionKey: params.sessionKey,
+                  sessionKey: params.sessionKey ?? params.followupRun.run.sessionKey,
                   agentId: params.followupRun.run.agentId,
                   sessionFile: params.followupRun.run.sessionFile,
                   workspaceDir: params.followupRun.run.workspaceDir,
@@ -350,6 +367,10 @@ export async function runAgentTurnWithFallback(params: {
                 groupSpace: params.sessionCtx.GroupSpace?.trim() ?? undefined,
                 ...senderContext,
                 ...runBaseParams,
+                sessionKey: params.sessionKey ?? params.followupRun.run.sessionKey,
+                requestRunId,
+                parentRunId: params.followupRun.parentRunId,
+                platformExecutionContext,
                 prompt: params.commandBody,
                 extraSystemPrompt: params.followupRun.run.extraSystemPrompt,
                 toolResultFormat: (() => {

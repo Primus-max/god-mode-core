@@ -49,9 +49,7 @@ describe("resolveBundledPluginsDir", () => {
           { cwd: repoRoot },
         ) ?? "",
       ),
-    ).toBe(
-      fs.realpathSync(path.join(repoRoot, "dist-runtime", "extensions")),
-    );
+    ).toBe(fs.realpathSync(path.join(repoRoot, "dist-runtime", "extensions")));
   });
 
   it("falls back to built dist/extensions in installed package roots", () => {
@@ -70,9 +68,7 @@ describe("resolveBundledPluginsDir", () => {
           { cwd: repoRoot },
         ) ?? "",
       ),
-    ).toBe(
-      fs.realpathSync(path.join(repoRoot, "dist", "extensions")),
-    );
+    ).toBe(fs.realpathSync(path.join(repoRoot, "dist", "extensions")));
   });
 
   it("prefers source extensions under vitest to avoid stale staged plugins", () => {
@@ -93,9 +89,7 @@ describe("resolveBundledPluginsDir", () => {
           { cwd: repoRoot },
         ) ?? "",
       ),
-    ).toBe(
-      fs.realpathSync(path.join(repoRoot, "extensions")),
-    );
+    ).toBe(fs.realpathSync(path.join(repoRoot, "extensions")));
   });
 
   it("prefers source extensions in a git checkout even without vitest env", () => {
@@ -118,8 +112,6 @@ describe("resolveBundledPluginsDir", () => {
           { cwd: repoRoot },
         ) ?? "",
       ),
-    ).toBe(
-      fs.realpathSync(path.join(repoRoot, "extensions")),
-    );
+    ).toBe(fs.realpathSync(path.join(repoRoot, "extensions")));
   });
 });

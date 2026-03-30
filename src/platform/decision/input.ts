@@ -1,7 +1,12 @@
 import path from "node:path";
 import type { SessionEntry } from "../../config/sessions.js";
+import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
+import {
+  resolvePlatformRuntimePlan,
+  type ResolvedPlatformRuntimePlan,
+} from "../recipe/runtime-adapter.js";
 
 const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
 const DEVELOPER_EXECUTION_KEYWORDS =
@@ -26,6 +31,23 @@ export type BuildExecutionDecisionInputParams = {
   sessionEntry?: Pick<
     SessionEntry,
     "specialistOverrideMode" | "specialistBaseProfileId" | "specialistSessionProfileId"
+  > | null;
+};
+
+export type BuildSessionBackedExecutionDecisionInputParams = Omit<
+  BuildExecutionDecisionInputParams,
+  "prompt" | "fileNames"
+> & {
+  draftPrompt?: string;
+  fileNames?: string[];
+  storePath?: string;
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
   > | null;
 };
 
@@ -118,6 +140,45 @@ export function buildExecutionDecisionInput(
   );
 }
 
+export function resolveExecutionRuntimePlan(
+  params: BuildExecutionDecisionInputParams,
+): ResolvedPlatformRuntimePlan {
+  return resolvePlatformRuntimePlan(buildExecutionDecisionInput(params));
+}
+
+export function buildSessionBackedExecutionDecisionInput(
+  params: BuildSessionBackedExecutionDecisionInputParams,
+): BuildExecutionDecisionInputParams {
+  const messages =
+    params.sessionEntry?.sessionId && params.storePath
+      ? readSessionMessages(
+          params.sessionEntry.sessionId,
+          params.storePath,
+          params.sessionEntry.sessionFile,
+        )
+      : [];
+  const sessionContext = resolveSessionDecisionInputContext(messages);
+  const prompt = [sessionContext.prompt, params.draftPrompt?.trim()].filter(Boolean).join("\n\n");
+  const fileNames = Array.from(new Set([...sessionContext.fileNames, ...(params.fileNames ?? [])]));
+  return {
+    prompt,
+    ...(fileNames.length > 0 ? { fileNames } : {}),
+    ...(params.artifactKinds?.length ? { artifactKinds: params.artifactKinds } : {}),
+    ...(params.intent ? { intent: params.intent } : {}),
+    ...(params.publishTargets?.length ? { publishTargets: params.publishTargets } : {}),
+    ...(params.integrations?.length ? { integrations: params.integrations } : {}),
+    ...(params.requestedTools?.length ? { requestedTools: params.requestedTools } : {}),
+    ...(params.channelHints ? { channelHints: params.channelHints } : {}),
+    ...(params.sessionEntry ? { sessionEntry: params.sessionEntry } : {}),
+  };
+}
+
+export function resolveSessionBackedExecutionRuntimePlan(
+  params: BuildSessionBackedExecutionDecisionInputParams,
+): ResolvedPlatformRuntimePlan {
+  return resolveExecutionRuntimePlan(buildSessionBackedExecutionDecisionInput(params));
+}
+
 function extractTranscriptUserText(content: unknown): string | undefined {
   if (typeof content === "string") {
     return content;
@@ -127,7 +188,9 @@ function extractTranscriptUserText(content: unknown): string | undefined {
   }
   const textBlocks = content
     .map((block) =>
-      block && typeof block === "object" && "text" in block ? (block as { text?: unknown }).text : undefined,
+      block && typeof block === "object" && "text" in block
+        ? (block as { text?: unknown }).text
+        : undefined,
     )
     .filter((text): text is string => typeof text === "string");
   return textBlocks.length > 0 ? textBlocks.join("") : undefined;
@@ -140,9 +203,10 @@ function pushMediaPath(value: unknown, into: Set<string>) {
   into.add(path.basename(value.trim()));
 }
 
-export function resolveSessionDecisionInputContext(
-  messages: unknown[],
-): { prompt: string; fileNames: string[] } {
+export function resolveSessionDecisionInputContext(messages: unknown[]): {
+  prompt: string;
+  fileNames: string[];
+} {
   const recentTexts: string[] = [];
   const fileNames = new Set<string>();
   for (const raw of messages.slice(-24)) {

@@ -8,13 +8,26 @@ export const PlatformExecutionContextIntentSchema = z.enum([
 ]);
 export type PlatformExecutionContextIntent = z.infer<typeof PlatformExecutionContextIntentSchema>;
 
-export const PlatformExecutionContextPolicyAutonomySchema = z.enum([
-  "chat",
-  "assist",
-  "guarded",
-]);
+export const PlatformExecutionContextPolicyAutonomySchema = z.enum(["chat", "assist", "guarded"]);
 export type PlatformExecutionContextPolicyAutonomy = z.infer<
   typeof PlatformExecutionContextPolicyAutonomySchema
+>;
+
+export const PlatformExecutionContextReadinessStatusSchema = z.enum([
+  "ready",
+  "bootstrap_required",
+  "approval_required",
+]);
+export type PlatformExecutionContextReadinessStatus = z.infer<
+  typeof PlatformExecutionContextReadinessStatusSchema
+>;
+
+export const PlatformExecutionContextUnattendedBoundarySchema = z.enum([
+  "bootstrap",
+  "artifact_publish",
+]);
+export type PlatformExecutionContextUnattendedBoundary = z.infer<
+  typeof PlatformExecutionContextUnattendedBoundarySchema
 >;
 
 export const PlatformExecutionContextSnapshotSchema = z
@@ -34,6 +47,11 @@ export const PlatformExecutionContextSnapshotSchema = z
     bootstrapRequiredCapabilities: z.array(z.string().min(1)).optional(),
     requireExplicitApproval: z.boolean().optional(),
     policyAutonomy: PlatformExecutionContextPolicyAutonomySchema.optional(),
+    readinessStatus: PlatformExecutionContextReadinessStatusSchema.optional(),
+    readinessReasons: z.array(z.string().min(1)).optional(),
+    unattendedBoundary: PlatformExecutionContextUnattendedBoundarySchema.optional(),
   })
   .strict();
-export type PlatformExecutionContextSnapshot = z.infer<typeof PlatformExecutionContextSnapshotSchema>;
+export type PlatformExecutionContextSnapshot = z.infer<
+  typeof PlatformExecutionContextSnapshotSchema
+>;

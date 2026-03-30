@@ -36,6 +36,10 @@ export function renderExecApprovalPrompt(state: AppViewState) {
   const remaining = remainingMs > 0 ? `expires in ${formatRemaining(remainingMs)}` : "expired";
   const queueCount = state.execApprovalQueue.length;
   const machineControl = request.machineControl?.required === true;
+  const boundary =
+    typeof request.runtimeBoundary === "string" && request.runtimeBoundary.trim()
+      ? request.runtimeBoundary.replaceAll("_", " ")
+      : null;
   return html`
     <div class="exec-approval-overlay" role="dialog" aria-live="polite">
       <div class="exec-approval-card">
@@ -58,6 +62,7 @@ export function renderExecApprovalPrompt(state: AppViewState) {
           ${machineControl ? renderMetaRow("Device", request.machineControl?.requestedByDeviceId ?? null) : nothing}
           ${machineControl ? renderMetaRow("Linked at", formatTimestamp(request.machineControl?.linkedAtMs)) : nothing}
           ${renderMetaRow("Host", request.host)}
+          ${renderMetaRow("Boundary", boundary)}
           ${renderMetaRow("Node", request.nodeId)}
           ${renderMetaRow("Env", request.envKeys?.join(", ") ?? null)}
           ${renderMetaRow("Agent", request.agentId)}
@@ -66,6 +71,7 @@ export function renderExecApprovalPrompt(state: AppViewState) {
           ${renderMetaRow("Resolved", request.resolvedPath)}
           ${renderMetaRow("Security", request.security)}
           ${renderMetaRow("Ask", request.ask)}
+          ${renderMetaRow("Reason", request.blockedReason)}
         </div>
         ${
           state.execApprovalError

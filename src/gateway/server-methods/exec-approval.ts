@@ -1,3 +1,4 @@
+import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import { sanitizeExecApprovalDisplayText } from "../../infra/exec-approval-command-display.js";
 import type { ExecApprovalForwarder } from "../../infra/exec-approval-forwarder.js";
 import {
@@ -8,8 +9,9 @@ import {
   buildSystemRunApprovalBinding,
   buildSystemRunApprovalEnvBinding,
 } from "../../infra/system-run-approval-binding.js";
-import { getPlatformMachineControlService } from "../../platform/machine/index.js";
 import { resolveSystemRunApprovalRequestContext } from "../../infra/system-run-approval-context.js";
+import { getPlatformMachineControlService } from "../../platform/machine/index.js";
+import { getPlatformRuntimeCheckpointService } from "../../platform/runtime/index.js";
 import type { ExecApprovalManager } from "../exec-approval-manager.js";
 import {
   ErrorCodes,
@@ -19,6 +21,22 @@ import {
   validateExecApprovalResolveParams,
 } from "../protocol/index.js";
 import type { GatewayRequestHandlers } from "./types.js";
+
+function normalizeRuntimeBoundary(value: unknown, machineControlRequired: boolean): string {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  return machineControlRequired ? "machine_control" : "exec_approval";
+}
+
+function isClosureRecoveryCheckpoint(
+  checkpoint: ReturnType<ReturnType<typeof getPlatformRuntimeCheckpointService>["get"]>,
+): boolean {
+  return (
+    checkpoint?.target?.operation === "closure.recovery" &&
+    checkpoint.continuation?.kind === "closure_recovery"
+  );
+}
 
 export function createExecApprovalHandlers(
   manager: ExecApprovalManager,
@@ -57,6 +75,10 @@ export function createExecApprovalHandlers(
         turnSourceTo?: string;
         turnSourceAccountId?: string;
         turnSourceThreadId?: string | number;
+        runtimeRunId?: string;
+        runtimeCheckpointId?: string;
+        runtimeBoundary?: string;
+        blockedReason?: string;
         timeoutMs?: number;
         twoPhase?: boolean;
       };
@@ -174,11 +196,64 @@ export function createExecApprovalHandlers(
                 linkedAtMs: machineControlAccess?.link?.linkedAtMs ?? null,
               }
             : null,
+        runtimeRunId: typeof p.runtimeRunId === "string" ? p.runtimeRunId.trim() || null : null,
+        runtimeCheckpointId:
+          typeof p.runtimeCheckpointId === "string" ? p.runtimeCheckpointId.trim() || null : null,
+        runtimeBoundary: normalizeRuntimeBoundary(p.runtimeBoundary, host === "node"),
+        blockedReason:
+          typeof p.blockedReason === "string"
+            ? p.blockedReason.trim() || null
+            : "approval required",
       };
       const record = manager.create(request, timeoutMs, explicitId);
+      const runtimeRunId = request.runtimeRunId ?? record.id;
+      const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
+      const checkpoint = runtimeCheckpointService.createCheckpoint({
+        id: request.runtimeCheckpointId ?? record.id,
+        runId: runtimeRunId,
+        ...(request.sessionKey ? { sessionKey: request.sessionKey } : {}),
+        boundary:
+          request.runtimeBoundary === "machine_control" ? "machine_control" : "exec_approval",
+        blockedReason: request.blockedReason ?? undefined,
+        nextActions: [
+          {
+            method: "exec.approval.resolve",
+            label: "Approve or deny exec request",
+            phase: "approve",
+          },
+          {
+            method: "exec.approval.waitDecision",
+            label: "Inspect pending exec decision",
+            phase: "inspect",
+          },
+        ],
+        target: {
+          approvalId: record.id,
+          ...(request.nodeId ? { nodeId: request.nodeId } : {}),
+          operation: "system.run",
+        },
+      });
       record.requestedByConnId = client?.connId ?? null;
       record.requestedByDeviceId = client?.connect?.device?.id ?? null;
       record.requestedByClientId = client?.connect?.client?.id ?? null;
+      registerAgentRunContext(runtimeRunId, {
+        ...(request.sessionKey ? { sessionKey: request.sessionKey } : {}),
+        runtimeState: "blocked",
+        runtimeCheckpointId: checkpoint.id,
+        runtimeBoundary: checkpoint.boundary,
+      });
+      emitAgentEvent({
+        runId: runtimeRunId,
+        stream: "lifecycle",
+        ...(request.sessionKey ? { sessionKey: request.sessionKey } : {}),
+        data: {
+          phase: "blocked",
+          checkpointId: checkpoint.id,
+          boundary: checkpoint.boundary,
+          startedAt: record.createdAtMs,
+          blockedReason: checkpoint.blockedReason,
+        },
+      });
       // Use register() to synchronously add to pending map before sending any response.
       // This ensures the approval ID is valid immediately after the "accepted" response.
       let decisionPromise: Promise<
@@ -347,6 +422,54 @@ export function createExecApprovalHandlers(
         );
         return;
       }
+      const runtimeRunId = snapshot?.request.runtimeRunId ?? approvalId;
+      const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
+      const checkpoint = snapshot
+        ? runtimeCheckpointService.updateCheckpoint(
+            snapshot.request.runtimeCheckpointId ?? approvalId,
+            {
+              status: decision === "deny" ? "denied" : "approved",
+              approvedAtMs: decision === "deny" ? undefined : Date.now(),
+              completedAtMs: decision === "deny" ? Date.now() : undefined,
+            },
+          )
+        : undefined;
+      const resumedCheckpoint =
+        decision !== "deny" && checkpoint && isClosureRecoveryCheckpoint(checkpoint)
+          ? runtimeCheckpointService.updateCheckpoint(checkpoint.id, {
+              status: "resumed",
+              approvedAtMs: checkpoint.approvedAtMs ?? Date.now(),
+              resumedAtMs: Date.now(),
+            })
+          : checkpoint;
+      registerAgentRunContext(runtimeRunId, {
+        ...(snapshot?.request.sessionKey ? { sessionKey: snapshot.request.sessionKey } : {}),
+        runtimeState:
+          decision === "deny"
+            ? "failed"
+            : isClosureRecoveryCheckpoint(resumedCheckpoint)
+              ? "resumed"
+              : "approved",
+        runtimeCheckpointId:
+          resumedCheckpoint?.id ?? snapshot?.request.runtimeCheckpointId ?? approvalId,
+        runtimeBoundary: resumedCheckpoint?.boundary ?? snapshot?.request.runtimeBoundary ?? undefined,
+      });
+      emitAgentEvent({
+        runId: runtimeRunId,
+        stream: "lifecycle",
+        ...(snapshot?.request.sessionKey ? { sessionKey: snapshot.request.sessionKey } : {}),
+        data: {
+          phase:
+            decision === "deny"
+              ? "error"
+              : isClosureRecoveryCheckpoint(resumedCheckpoint)
+                ? "resumed"
+                : "approved",
+          checkpointId: resumedCheckpoint?.id ?? snapshot?.request.runtimeCheckpointId ?? approvalId,
+          boundary: resumedCheckpoint?.boundary ?? snapshot?.request.runtimeBoundary ?? undefined,
+          ...(decision === "deny" ? { error: "approval denied by operator" } : {}),
+        },
+      });
       context.broadcast(
         "exec.approval.resolved",
         { id: approvalId, decision, resolvedBy, ts: Date.now(), request: snapshot?.request },
@@ -363,6 +486,10 @@ export function createExecApprovalHandlers(
         .catch((err) => {
           context.logGateway?.error?.(`exec approvals: forward resolve failed: ${String(err)}`);
         });
+      if (decision !== "deny" && resumedCheckpoint && isClosureRecoveryCheckpoint(resumedCheckpoint)) {
+        await import("../../auto-reply/reply/closure-outcome-dispatcher.js");
+        await runtimeCheckpointService.dispatchContinuation(resumedCheckpoint.id);
+      }
       respond(true, { ok: true }, undefined);
     },
   };

@@ -277,6 +277,7 @@ describe("session.message websocket events", () => {
           estimatedCostUsd: 0.0042,
           modelProvider: "openai",
           model: "gpt-5.4",
+          session: expect.objectContaining({ key: "agent:main:main" }),
         });
       } finally {
         ws.close();

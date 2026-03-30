@@ -2,17 +2,11 @@ import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { runCommandWithTimeout } from "../process/exec.js";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import * as execModule from "../process/exec.js";
 import { installPackageDir } from "./install-package-dir.js";
 
-vi.mock("../process/exec.js", async () => {
-  const actual = await vi.importActual<typeof import("../process/exec.js")>("../process/exec.js");
-  return {
-    ...actual,
-    runCommandWithTimeout: vi.fn(actual.runCommandWithTimeout),
-  };
-});
+const runCommandSpy = vi.spyOn(execModule, "runCommandWithTimeout");
 
 async function listMatchingDirs(root: string, prefix: string): Promise<string[]> {
   const entries = await fs.readdir(root, { withFileTypes: true });
@@ -91,11 +85,15 @@ describe("installPackageDir", () => {
   let fixtureRoot = "";
 
   afterEach(async () => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
     if (fixtureRoot) {
       await fs.rm(fixtureRoot, { recursive: true, force: true });
       fixtureRoot = "";
     }
+  });
+
+  afterAll(() => {
+    runCommandSpy.mockRestore();
   });
 
   it("keeps the existing install in place when staged validation fails", async () => {
@@ -150,13 +148,15 @@ describe("installPackageDir", () => {
 
     const realRename = fs.rename.bind(fs);
     let renameCalls = 0;
-    vi.spyOn(fs, "rename").mockImplementation(async (...args: Parameters<typeof fs.rename>) => {
-      renameCalls += 1;
-      if (renameCalls === 2) {
-        throw new Error("publish boom");
-      }
-      return await realRename(...args);
-    });
+    const renameSpy = vi
+      .spyOn(fs, "rename")
+      .mockImplementation(async (...args: Parameters<typeof fs.rename>) => {
+        renameCalls += 1;
+        if (renameCalls === 2) {
+          throw new Error("publish boom");
+        }
+        return await realRename(...args);
+      });
 
     const result = await installPackageDir({
       sourceDir,
@@ -178,6 +178,7 @@ describe("installPackageDir", () => {
     ).resolves.toHaveLength(0);
     const backupRoot = path.join(installBaseDir, ".openclaw-install-backups");
     await expect(fs.readdir(backupRoot)).resolves.toHaveLength(0);
+    renameSpy.mockRestore();
   });
 
   it("aborts without outside writes when the install base is rebound before publish", async () => {
@@ -290,7 +291,7 @@ describe("installPackageDir", () => {
       "utf-8",
     );
 
-    vi.mocked(runCommandWithTimeout).mockResolvedValue({
+    runCommandSpy.mockResolvedValue({
       stdout: "",
       stderr: "",
       code: 0,
@@ -310,7 +311,7 @@ describe("installPackageDir", () => {
     });
 
     expect(result).toEqual({ ok: true });
-    expect(vi.mocked(runCommandWithTimeout)).toHaveBeenCalledWith(
+    expect(runCommandSpy).toHaveBeenCalledWith(
       ["npm", "install", "--omit=dev", "--silent", "--ignore-scripts"],
       expect.objectContaining({
         cwd: expect.stringContaining(".openclaw-install-stage-"),

@@ -48,6 +48,10 @@ export type RouteReplyParams = {
   cfg: OpenClawConfig;
   /** Optional abort signal for cooperative cancellation. */
   abortSignal?: AbortSignal;
+  /** Optional runtime run id to correlate durable messaging_delivery actions. */
+  actionRunId?: string;
+  /** Stable request/idempotency anchor for continuation-aware delivery handoff. */
+  idempotencyKey?: string;
   /** Mirror reply into session transcript (default: true when sessionKey is set). */
   mirror?: boolean;
   /** Whether this message is being sent in a group/channel context */
@@ -63,6 +67,12 @@ export type RouteReplyResult = {
   messageId?: string;
   /** Error message if the send failed. */
   error?: string;
+  /** Number of external delivery attempts represented by this routed payload. */
+  attemptedDeliveryCount?: number;
+  /** Number of trusted successful outbound receipts returned by the runtime. */
+  confirmedDeliveryCount?: number;
+  /** Number of failed deliveries represented by this result. */
+  failedDeliveryCount?: number;
 };
 
 /**
@@ -76,7 +86,12 @@ export type RouteReplyResult = {
 export async function routeReply(params: RouteReplyParams): Promise<RouteReplyResult> {
   const { payload, channel, to, accountId, threadId, cfg, abortSignal } = params;
   if (shouldSuppressReasoningPayload(payload)) {
-    return { ok: true };
+    return {
+      ok: true,
+      attemptedDeliveryCount: 0,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 0,
+    };
   }
   const normalizedChannel = normalizeMessageChannel(channel);
   const channelId = normalizeChannelId(channel) ?? null;
@@ -106,7 +121,12 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
     }),
   });
   if (!normalized) {
-    return { ok: true };
+    return {
+      ok: true,
+      attemptedDeliveryCount: 0,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 0,
+    };
   }
   const externalPayload: ReplyPayload = {
     ...normalized,
@@ -137,21 +157,41 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
       },
     )
   ) {
-    return { ok: true };
+    return {
+      ok: true,
+      attemptedDeliveryCount: 0,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 0,
+    };
   }
 
   if (channel === INTERNAL_MESSAGE_CHANNEL) {
     return {
       ok: false,
+      attemptedDeliveryCount: 0,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 0,
       error: "Webchat routing not supported for queued replies",
     };
   }
 
   if (!channelId) {
-    return { ok: false, error: `Unknown channel: ${String(channel)}` };
+    return {
+      ok: false,
+      attemptedDeliveryCount: 0,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 0,
+      error: `Unknown channel: ${String(channel)}`,
+    };
   }
   if (abortSignal?.aborted) {
-    return { ok: false, error: "Reply routing aborted" };
+    return {
+      ok: false,
+      attemptedDeliveryCount: 0,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 0,
+      error: "Reply routing aborted",
+    };
   }
 
   const replyTransport =
@@ -180,6 +220,7 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
       sessionKey: params.sessionKey,
     });
     const results = await deliverOutboundPayloads({
+      ...(params.actionRunId ? { actionRunId: params.actionRunId } : {}),
       cfg,
       channel: channelId,
       to,
@@ -196,6 +237,7 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
               agentId: resolvedAgentId,
               text,
               mediaUrls,
+              ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
               ...(params.isGroup != null ? { isGroup: params.isGroup } : {}),
               ...(params.groupId ? { groupId: params.groupId } : {}),
             }
@@ -203,11 +245,20 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
     });
 
     const last = results.at(-1);
-    return { ok: true, messageId: last?.messageId };
+    return {
+      ok: true,
+      messageId: last?.messageId,
+      attemptedDeliveryCount: results.length,
+      confirmedDeliveryCount: results.length,
+      failedDeliveryCount: 0,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
       ok: false,
+      attemptedDeliveryCount: 1,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 1,
       error: `Failed to route reply to ${channel}: ${message}`,
     };
   }

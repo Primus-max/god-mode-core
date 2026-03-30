@@ -3,8 +3,13 @@ import fsPromises from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { emitAgentEvent } from "../../infra/agent-events.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  emitAgentEvent,
+  emitRunClosureSummary,
+  registerAgentRunContext,
+  resetAgentRunContextForTest,
+} from "../../infra/agent-events.js";
 import { formatZonedTimestamp } from "../../infra/format-time/format-datetime.js";
 import {
   buildSystemRunApprovalBinding,
@@ -15,6 +20,10 @@ import {
   getPlatformMachineControlService,
   resetPlatformMachineControlService,
 } from "../../platform/machine/index.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../../platform/runtime/index.js";
 import { ExecApprovalManager } from "../exec-approval-manager.js";
 import { validateExecApprovalRequestParams } from "../protocol/index.js";
 import { waitForAgentJob } from "./agent-job.js";
@@ -77,6 +86,27 @@ describe("waitForAgentJob", () => {
     expect(snapshot?.endedAt).toBe(400);
   });
 
+  it("returns blocked snapshots for resumable lifecycle boundaries", async () => {
+    const runId = `run-blocked-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const waitPromise = waitForAgentJob({ runId, timeoutMs: 1_000 });
+
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: { phase: "start", startedAt: 500 },
+    });
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: { phase: "blocked", startedAt: 500 },
+    });
+
+    const snapshot = await waitPromise;
+    expect(snapshot?.status).toBe("blocked");
+    expect(snapshot?.startedAt).toBe(500);
+    expect(snapshot?.endedAt).toBeUndefined();
+  });
+
   it("can ignore cached snapshots and wait for fresh lifecycle events", async () => {
     const runId = `run-ignore-cache-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     emitAgentEvent({
@@ -112,6 +142,43 @@ describe("waitForAgentJob", () => {
     expect(fresh?.status).toBe("ok");
     expect(fresh?.startedAt).toBe(200);
     expect(fresh?.endedAt).toBe(210);
+  });
+
+  it("resolves waitForAgentJob from runtime closure when awaitingRunClosure defers lifecycle end", async () => {
+    resetAgentRunContextForTest();
+    const runId = `run-await-closure-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    registerAgentRunContext(runId, { awaitingRunClosure: true });
+    const waitPromise = waitForAgentJob({ runId, timeoutMs: 2_000 });
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: { phase: "start", startedAt: 100 },
+    });
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: { phase: "end", endedAt: 200 },
+    });
+    const early = await Promise.race([
+      waitPromise.then((s) => ({ kind: "done" as const, s })),
+      new Promise<{ kind: "pending" }>((resolve) => setTimeout(() => resolve({ kind: "pending" }), 40)),
+    ]);
+    expect(early.kind).toBe("pending");
+    emitRunClosureSummary({
+      runId,
+      updatedAtMs: 2_000,
+      outcomeStatus: "completed",
+      verificationStatus: "verified",
+      acceptanceStatus: "satisfied",
+      action: "close",
+      remediation: "none",
+      reasonCode: "verified_execution",
+      reasons: ["Execution contract was verified before final closure."],
+    });
+    const snapshot = await waitPromise;
+    expect(snapshot?.status).toBe("ok");
+    expect(snapshot?.startedAt).toBe(100);
+    expect(snapshot?.endedAt).toBe(2_000);
   });
 });
 
@@ -341,6 +408,7 @@ describe("exec approval handlers", () => {
 
   afterEach(() => {
     resetPlatformMachineControlService();
+    resetPlatformRuntimeCheckpointService();
     delete process.env.OPENCLAW_STATE_DIR;
     for (const tempDir of tempStateDirs.splice(0)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -547,6 +615,117 @@ describe("exec approval handlers", () => {
     });
   });
 
+  it("creates and advances runtime checkpoints for exec approvals", async () => {
+    const fixture = createExecApprovalFixture();
+
+    const requestPromise = requestExecApproval({
+      handlers: fixture.handlers,
+      respond: fixture.respond,
+      context: fixture.context,
+      params: {
+        id: "checkpoint-runtime-checkpoint",
+        twoPhase: true,
+        runtimeRunId: "run-runtime-checkpoint",
+        runtimeCheckpointId: "checkpoint-runtime-checkpoint",
+        blockedReason: "approval required for privileged system.run",
+      },
+    });
+
+    expect(getPlatformRuntimeCheckpointService().get("checkpoint-runtime-checkpoint")).toEqual(
+      expect.objectContaining({
+        runId: "run-runtime-checkpoint",
+        status: "blocked",
+        boundary: "machine_control",
+      }),
+    );
+
+    await resolveExecApproval({
+      handlers: fixture.handlers,
+      id: "checkpoint-runtime-checkpoint",
+      respond: fixture.respond,
+      context: fixture.context,
+    });
+    await requestPromise;
+
+    expect(getPlatformRuntimeCheckpointService().get("checkpoint-runtime-checkpoint")).toEqual(
+      expect.objectContaining({
+        status: "approved",
+      }),
+    );
+  });
+
+  it("resumes closure recovery approvals instead of leaving them approved", async () => {
+    const manager = new ExecApprovalManager();
+    const handlers = createExecApprovalHandlers(manager);
+    const broadcasts: Array<{ event: string; payload: unknown }> = [];
+    const context = {
+      broadcast: (event: string, payload: unknown) => {
+        broadcasts.push({ event, payload });
+      },
+    };
+    const respond = vi.fn();
+
+    const record = manager.create(
+      {
+        command: "Review closure outcome for run run-closure-recovery",
+        host: "gateway",
+        runtimeRunId: "run-closure-recovery",
+        runtimeCheckpointId: "closure-approval",
+        runtimeBoundary: "exec_approval",
+        sessionKey: "agent:main:main",
+        blockedReason: "provider authentication refresh requires operator attention",
+      },
+      60_000,
+      "closure-approval",
+    );
+    void manager.register(record, 60_000);
+    getPlatformRuntimeCheckpointService().createCheckpoint({
+      id: "closure-approval",
+      runId: "run-closure-recovery",
+      sessionKey: "agent:main:main",
+      boundary: "exec_approval",
+      blockedReason: "provider authentication refresh requires operator attention",
+      nextActions: [
+        {
+          method: "exec.approval.resolve",
+          label: "Approve or deny closure recovery",
+          phase: "approve",
+        },
+      ],
+      target: {
+        approvalId: "closure-approval",
+        operation: "closure.recovery",
+      },
+      continuation: {
+        kind: "closure_recovery",
+        state: "idle",
+        attempts: 0,
+        input: {},
+      },
+    });
+
+    await resolveExecApproval({
+      handlers,
+      id: "closure-approval",
+      respond,
+      context,
+    });
+
+    expect(respond).toHaveBeenCalledWith(true, { ok: true }, undefined);
+    expect(getPlatformRuntimeCheckpointService().get("closure-approval")).toEqual(
+      expect.objectContaining({
+        status: "resumed",
+        approvedAtMs: expect.any(Number),
+        resumedAtMs: expect.any(Number),
+        continuation: expect.objectContaining({
+          kind: "closure_recovery",
+          state: "idle",
+        }),
+      }),
+    );
+    expect(broadcasts.some((entry) => entry.event === "exec.approval.resolved")).toBe(true);
+  });
+
   it("rejects host=node approval requests without nodeId", async () => {
     const { handlers, respond, context } = createExecApprovalFixture();
     await requestExecApproval({
@@ -658,8 +837,11 @@ describe("exec approval handlers", () => {
     } as unknown as ExecApprovalRequestArgs["context"];
     const respond = vi.fn();
     const service = getPlatformMachineControlService();
-    const { createMachineKillSwitchGatewayMethod, createMachineLinkGatewayMethod, createMachineUnlinkGatewayMethod } =
-      await import("../../platform/machine/gateway.js");
+    const {
+      createMachineKillSwitchGatewayMethod,
+      createMachineLinkGatewayMethod,
+      createMachineUnlinkGatewayMethod,
+    } = await import("../../platform/machine/gateway.js");
     const client = {
       connId: "conn-1",
       connect: {
@@ -669,7 +851,7 @@ describe("exec approval handlers", () => {
       },
     } as unknown as ExecApprovalRequestArgs["client"];
 
-    createMachineLinkGatewayMethod(service)({
+    await createMachineLinkGatewayMethod(service)({
       params: { deviceId: "dev-1" },
       respond: respond as never,
       context: context as never,
@@ -677,7 +859,7 @@ describe("exec approval handlers", () => {
       req: { id: "req-machine-link", type: "req", method: "platform.machine.link" },
       isWebchatConnect: execApprovalNoop,
     });
-    createMachineKillSwitchGatewayMethod(service)({
+    await createMachineKillSwitchGatewayMethod(service)({
       params: { enabled: true, reason: "test" },
       respond: respond as never,
       context: context as never,
@@ -685,7 +867,7 @@ describe("exec approval handlers", () => {
       req: { id: "req-machine-kill", type: "req", method: "platform.machine.setKillSwitch" },
       isWebchatConnect: execApprovalNoop,
     });
-    createMachineUnlinkGatewayMethod(service)({
+    await createMachineUnlinkGatewayMethod(service)({
       params: { deviceId: "dev-1" },
       respond: respond as never,
       context: context as never,

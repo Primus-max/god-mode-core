@@ -28,11 +28,16 @@ vi.mock("../../agents/subagent-registry.js", async (importOriginal) => {
   };
 });
 
-vi.mock("./chat.js", () => ({
-  chatHandlers: {
-    "chat.send": (...args: unknown[]) => chatSendMock(...args),
-  },
-}));
+vi.mock("./chat.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./chat.js")>();
+  return {
+    ...actual,
+    chatHandlers: {
+      ...actual.chatHandlers,
+      "chat.send": (...args: unknown[]) => chatSendMock(...args),
+    },
+  };
+});
 
 import { sessionsHandlers } from "./sessions.js";
 
@@ -63,6 +68,7 @@ describe("sessions.send completed subagent follow-up status", () => {
     };
 
     loadSessionEntryMock.mockReturnValue({
+      cfg: { session: { mainKey: "main" } },
       canonicalKey: childSessionKey,
       storePath: "/tmp/sessions.json",
       entry: { sessionId: "sess-followup" },
@@ -128,6 +134,66 @@ describe("sessions.send completed subagent follow-up status", () => {
       }),
       new Set(["conn-1"]),
       { dropIfSlow: true },
+    );
+  });
+
+  it("inherits external delivery for channel-scoped sessions", async () => {
+    const sessionKey = "agent:main:telegram:direct:6812765697";
+    loadSessionEntryMock.mockReturnValue({
+      cfg: { session: { mainKey: "main" } },
+      canonicalKey: sessionKey,
+      storePath: "/tmp/sessions.json",
+      entry: {
+        sessionId: "sess-telegram-direct",
+        deliveryContext: {
+          channel: "telegram",
+          to: "telegram:6812765697",
+          accountId: "default",
+        },
+        lastChannel: "telegram",
+        lastTo: "telegram:6812765697",
+        lastAccountId: "default",
+      },
+    });
+    readSessionMessagesMock.mockReturnValue([]);
+    loadGatewaySessionRowMock.mockReturnValue({
+      status: "running",
+      startedAt: 123,
+      endedAt: undefined,
+      runtimeMs: 10,
+    });
+    chatSendMock.mockImplementation(async ({ respond }: { respond: RespondFn }) => {
+      respond(true, { runId: "run-direct-send", status: "started" }, undefined, undefined);
+    });
+
+    const respond = vi.fn() as unknown as RespondFn;
+    const context = {
+      chatAbortControllers: new Map(),
+      broadcastToConnIds: vi.fn(),
+      getSessionEventSubscriberConnIds: () => new Set(["conn-1"]),
+    } as unknown as GatewayRequestContext;
+
+    await sessionsHandlers["sessions.send"]({
+      req: { id: "req-2" } as never,
+      params: {
+        key: sessionKey,
+        message: "hello",
+        idempotencyKey: "run-direct-send",
+      },
+      respond,
+      context,
+      client: null,
+      isWebchatConnect: () => false,
+    });
+
+    expect(chatSendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({
+          sessionKey,
+          deliver: true,
+          idempotencyKey: "run-direct-send",
+        }),
+      }),
     );
   });
 });

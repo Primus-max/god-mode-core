@@ -992,6 +992,7 @@ async function agentCommandInternal(
       ...(sessionKey ? { sessionKey } : {}),
       ...(resolvedVerboseLevel ? { verboseLevel: resolvedVerboseLevel } : {}),
       platformExecution: toPluginHookPlatformExecutionContext(platformRuntimePlan.runtime),
+      awaitingRunClosure: true,
     });
 
     const needsSkillsSnapshot = isNewSession || !sessionEntry?.skillsSnapshot;

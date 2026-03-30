@@ -1,4 +1,8 @@
 import type { OpenClawConfig } from "../config/config.js";
+import {
+  buildCanonicalMessagingDeliveryReceipt,
+  finalizeMessagingDeliveryClosure,
+} from "./reply/agent-runner-helpers.js";
 import type { DispatchFromConfigResult } from "./reply/dispatch-from-config.js";
 import { dispatchReplyFromConfig } from "./reply/dispatch-from-config.js";
 import { finalizeInboundContext } from "./reply/inbound-context.js";
@@ -13,6 +17,26 @@ import type { FinalizedMsgContext, MsgContext } from "./templating.js";
 import type { GetReplyOptions } from "./types.js";
 
 export type DispatchInboundResult = DispatchFromConfigResult;
+
+export function finalizeDispatchDeliveryClosure(params: {
+  dispatcher: ReplyDispatcher;
+  result: DispatchFromConfigResult;
+}): void {
+  const dispatcherDeliveryStats = params.dispatcher.getDeliveryStats?.() ?? {
+    attemptedDeliveryCount: 0,
+    confirmedDeliveryCount: 0,
+    failedDeliveryCount: 0,
+  };
+  const canonicalReceipt = buildCanonicalMessagingDeliveryReceipt({
+    replyPayloads: params.result.finalReplyPayloads ?? [],
+    receipts: [params.result.routedDeliveryReceipt, dispatcherDeliveryStats],
+  });
+  finalizeMessagingDeliveryClosure({
+    candidate: params.result.deliveryCandidate,
+    replyPayloads: params.result.finalReplyPayloads ?? [],
+    deliveryReceipt: canonicalReceipt,
+  });
+}
 
 export async function withReplyDispatcher<T>(params: {
   dispatcher: ReplyDispatcher;
@@ -40,7 +64,7 @@ export async function dispatchInboundMessage(params: {
   replyResolver?: typeof import("./reply.js").getReplyFromConfig;
 }): Promise<DispatchInboundResult> {
   const finalized = finalizeInboundContext(params.ctx);
-  return await withReplyDispatcher({
+  const result = await withReplyDispatcher({
     dispatcher: params.dispatcher,
     run: () =>
       dispatchReplyFromConfig({
@@ -51,6 +75,11 @@ export async function dispatchInboundMessage(params: {
         replyResolver: params.replyResolver,
       }),
   });
+  finalizeDispatchDeliveryClosure({
+    dispatcher: params.dispatcher,
+    result,
+  });
+  return result;
 }
 
 export async function dispatchInboundMessageWithBufferedDispatcher(params: {

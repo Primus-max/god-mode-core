@@ -74,7 +74,8 @@ export function resolveProfile(input: ProfileResolverInput): ProfileResolution {
   const ranked = rankProfiles(scores, allowedIds);
 
   const inferredBaseProfile = input.baseProfile ?? ranked[0] ?? "general";
-  const inferredSessionProfile = input.sessionProfile ?? input.baseProfile ?? ranked[0] ?? inferredBaseProfile;
+  const inferredSessionProfile =
+    input.sessionProfile ?? input.baseProfile ?? ranked[0] ?? inferredBaseProfile;
   const selectedProfileId = input.sessionProfile ?? input.baseProfile ?? inferredSessionProfile;
   const selectedProfile =
     profiles.find((profile) => profile.id === selectedProfileId) ??

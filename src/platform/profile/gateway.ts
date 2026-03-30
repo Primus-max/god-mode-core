@@ -1,14 +1,9 @@
 import { z } from "zod";
-import { loadSessionEntry } from "../../gateway/session-entry.js";
-import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
-import {
-  buildExecutionDecisionInput,
-  resolveSessionDecisionInputContext,
-} from "../decision/input.js";
-import { resolvePlatformRuntimePlan } from "../recipe/runtime-adapter.js";
-import { getInitialProfile, getTaskOverlay, INITIAL_PROFILES } from "./defaults.js";
+import { loadSessionEntry } from "../../gateway/session-entry.js";
+import { resolveSessionBackedExecutionRuntimePlan } from "../decision/input.js";
 import { SpecialistRuntimeSnapshotSchema } from "./contracts.js";
+import { getInitialProfile, getTaskOverlay, INITIAL_PROFILES } from "./defaults.js";
 import { resolveSessionSpecialistOverride } from "./session-overrides.js";
 
 const SpecialistResolveParamsSchema = z.object({
@@ -27,18 +22,12 @@ export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
     const sessionKey = parsed.data.sessionKey.trim();
     const draft = parsed.data.draft?.trim() ?? "";
     const { entry, storePath } = loadSessionEntry(sessionKey);
-    const messages =
-      entry?.sessionId && storePath ? readSessionMessages(entry.sessionId, storePath, entry.sessionFile) : [];
-    const sessionContext = resolveSessionDecisionInputContext(messages);
-    const prompt = [sessionContext.prompt, draft].filter(Boolean).join("\n\n");
     const override = resolveSessionSpecialistOverride(entry);
-    const resolved = resolvePlatformRuntimePlan(
-      buildExecutionDecisionInput({
-        prompt,
-        fileNames: sessionContext.fileNames,
-        sessionEntry: entry,
-      }),
-    );
+    const resolved = resolveSessionBackedExecutionRuntimePlan({
+      draftPrompt: draft,
+      storePath,
+      sessionEntry: entry,
+    });
     const selectedProfile = resolved.profile.selectedProfile;
     const activeProfileId = resolved.profile.activeProfile.sessionProfile ?? selectedProfile.id;
     const activeProfile = getInitialProfile(activeProfileId) ?? selectedProfile;
@@ -58,7 +47,9 @@ export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
         selectedProfileLabel: selectedProfile.label,
         activeProfileId,
         activeProfileLabel: activeProfile.label,
-        ...(activeProfile.description ? { activeProfileDescription: activeProfile.description } : {}),
+        ...(activeProfile.description
+          ? { activeProfileDescription: activeProfile.description }
+          : {}),
         baseProfileId: resolved.profile.activeProfile.baseProfile,
         ...(resolved.profile.activeProfile.sessionProfile
           ? { sessionProfileId: resolved.profile.activeProfile.sessionProfile }
@@ -100,9 +91,15 @@ export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
         confidence: resolved.profile.activeProfile.confidence,
         preferredTools: resolved.profile.effective.preferredTools,
         publishTargets: resolved.profile.effective.preferredPublishTargets,
-        ...(resolved.runtime.providerOverride ? { providerOverride: resolved.runtime.providerOverride } : {}),
-        ...(resolved.runtime.modelOverride ? { modelOverride: resolved.runtime.modelOverride } : {}),
-        ...(resolved.runtime.timeoutSeconds ? { timeoutSeconds: resolved.runtime.timeoutSeconds } : {}),
+        ...(resolved.runtime.providerOverride
+          ? { providerOverride: resolved.runtime.providerOverride }
+          : {}),
+        ...(resolved.runtime.modelOverride
+          ? { modelOverride: resolved.runtime.modelOverride }
+          : {}),
+        ...(resolved.runtime.timeoutSeconds
+          ? { timeoutSeconds: resolved.runtime.timeoutSeconds }
+          : {}),
         draftApplied: draft.length > 0,
         signals: resolved.profile.signals.map((signal) => ({
           source: signal.source,

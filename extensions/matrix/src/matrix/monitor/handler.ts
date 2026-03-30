@@ -906,7 +906,7 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
           onIdle: typingCallbacks.onIdle,
         });
 
-      const { queuedFinal, counts } = await core.channel.reply.withReplyDispatcher({
+      const result = await core.channel.reply.withReplyDispatcher({
         dispatcher,
         onSettled: () => {
           markDispatchIdle();
@@ -928,6 +928,11 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
           }
         },
       });
+      core.channel.reply.finalizeDispatchDeliveryClosure({
+        dispatcher,
+        result,
+      });
+      const { queuedFinal, counts } = result;
       if (finalReplyDeliveryFailed) {
         logVerboseMessage(
           `matrix: final reply delivery failed room=${roomId} id=${_messageId}; leaving event uncommitted`,

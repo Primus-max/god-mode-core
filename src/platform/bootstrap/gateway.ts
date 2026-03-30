@@ -1,8 +1,5 @@
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
-import {
-  BootstrapRequestDecisionSchema,
-  type BootstrapRequestService,
-} from "./index.js";
+import { BootstrapRequestDecisionSchema, type BootstrapRequestService } from "./index.js";
 
 export function createBootstrapListGatewayMethod(
   service: BootstrapRequestService,

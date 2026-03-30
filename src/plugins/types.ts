@@ -28,6 +28,10 @@ import type { HookEntry } from "../hooks/types.js";
 import type { ImageGenerationProvider } from "../image-generation/types.js";
 import type { ProviderUsageSnapshot } from "../infra/provider-usage.types.js";
 import type { MediaUnderstandingProvider } from "../media-understanding/types.js";
+import type {
+  PlatformRuntimeExecutionIntent,
+  PlatformRuntimeRunClosure,
+} from "../platform/runtime/index.js";
 import type { RuntimeEnv } from "../runtime.js";
 import type { RuntimeWebSearchMetadata } from "../secrets/runtime-web-tools.types.js";
 import type {
@@ -1402,9 +1406,11 @@ export type PluginDiagnostic = {
 export type PluginHookName =
   | "before_model_resolve"
   | "before_prompt_build"
+  | "before_recipe_execute"
   | "before_agent_start"
   | "llm_input"
   | "llm_output"
+  | "after_recipe_execute"
   | "agent_end"
   | "before_compaction"
   | "after_compaction"
@@ -1429,9 +1435,11 @@ export type PluginHookName =
 export const PLUGIN_HOOK_NAMES = [
   "before_model_resolve",
   "before_prompt_build",
+  "before_recipe_execute",
   "before_agent_start",
   "llm_input",
   "llm_output",
+  "after_recipe_execute",
   "agent_end",
   "before_compaction",
   "after_compaction",
@@ -1487,12 +1495,16 @@ export type PluginHookPlatformExecutionContext = {
   modelOverride?: string;
   timeoutSeconds?: number;
   fallbackModels?: string[];
+  artifactKinds?: string[];
   requestedToolNames?: string[];
   publishTargets?: string[];
   requiredCapabilities?: string[];
   bootstrapRequiredCapabilities?: string[];
   requireExplicitApproval?: boolean;
   policyAutonomy?: "chat" | "assist" | "guarded";
+  readinessStatus?: "ready" | "bootstrap_required" | "approval_required";
+  readinessReasons?: string[];
+  unattendedBoundary?: "bootstrap" | "artifact_publish";
 };
 
 export type PluginHookAgentContext = {
@@ -1542,6 +1554,18 @@ export type PluginHookBeforePromptBuildResult = {
    * Use for static plugin guidance instead of prependContext to avoid per-turn token cost.
    */
   appendSystemContext?: string;
+};
+
+// before_recipe_execute hook
+export type PluginHookBeforeRecipeExecuteEvent = {
+  runId: string;
+  prompt: string;
+  executionIntent: PlatformRuntimeExecutionIntent;
+};
+
+export type PluginHookBeforeRecipeExecuteResult = {
+  block?: boolean;
+  blockReason?: string;
 };
 
 export const PLUGIN_PROMPT_MUTATION_RESULT_FIELDS = [
@@ -1617,6 +1641,11 @@ export type PluginHookLlmOutputEvent = {
     cacheWrite?: number;
     total?: number;
   };
+};
+
+// after_recipe_execute hook
+export type PluginHookAfterRecipeExecuteEvent = {
+  closure: PlatformRuntimeRunClosure;
 };
 
 // agent_end hook
@@ -1930,6 +1959,13 @@ export type PluginHookHandlerMap = {
     event: PluginHookBeforePromptBuildEvent,
     ctx: PluginHookAgentContext,
   ) => Promise<PluginHookBeforePromptBuildResult | void> | PluginHookBeforePromptBuildResult | void;
+  before_recipe_execute: (
+    event: PluginHookBeforeRecipeExecuteEvent,
+    ctx: PluginHookAgentContext,
+  ) =>
+    | Promise<PluginHookBeforeRecipeExecuteResult | void>
+    | PluginHookBeforeRecipeExecuteResult
+    | void;
   before_agent_start: (
     event: PluginHookBeforeAgentStartEvent,
     ctx: PluginHookAgentContext,
@@ -1937,6 +1973,10 @@ export type PluginHookHandlerMap = {
   llm_input: (event: PluginHookLlmInputEvent, ctx: PluginHookAgentContext) => Promise<void> | void;
   llm_output: (
     event: PluginHookLlmOutputEvent,
+    ctx: PluginHookAgentContext,
+  ) => Promise<void> | void;
+  after_recipe_execute: (
+    event: PluginHookAfterRecipeExecuteEvent,
     ctx: PluginHookAgentContext,
   ) => Promise<void> | void;
   agent_end: (event: PluginHookAgentEndEvent, ctx: PluginHookAgentContext) => Promise<void> | void;

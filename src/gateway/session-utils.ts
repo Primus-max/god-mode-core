@@ -33,6 +33,10 @@ import {
 } from "../config/sessions.js";
 import { openBoundaryFileSync } from "../infra/boundary-file-read.js";
 import {
+  getPlatformRuntimeCheckpointService,
+  type PlatformRuntimeCheckpointSummary,
+} from "../platform/runtime/index.js";
+import {
   normalizeAgentId,
   normalizeMainKey,
   parseAgentSessionKey,
@@ -48,6 +52,8 @@ import {
 } from "../shared/avatar-policy.js";
 import { normalizeSessionDeliveryFields } from "../utils/delivery-context.js";
 import { estimateUsageCost, resolveModelCostConfig } from "../utils/usage-format.js";
+import { deriveRecoveryOperatorHint } from "../platform/runtime/recovery-operator-hint.js";
+import { resolveSessionRunStatusFromClosureSummary } from "./session-closure-summary.js";
 import {
   readLatestSessionUsageFromTranscript,
   readSessionTitleFieldsFromTranscript,
@@ -83,6 +89,87 @@ export type {
 } from "./session-utils.types.js";
 
 const DERIVED_TITLE_MAX_LEN = 60;
+
+function isActiveRecoveryCheckpoint(summary: PlatformRuntimeCheckpointSummary): boolean {
+  return (
+    summary.target?.operation === "closure.recovery" &&
+    (summary.status === "blocked" ||
+      summary.status === "approved" ||
+      summary.status === "resumed" ||
+      summary.continuation?.state === "running")
+  );
+}
+
+function pickPreferredRecoveryCheckpoint(
+  current: PlatformRuntimeCheckpointSummary | undefined,
+  candidate: PlatformRuntimeCheckpointSummary,
+): PlatformRuntimeCheckpointSummary {
+  if (!current) {
+    return candidate;
+  }
+  const currentActive = isActiveRecoveryCheckpoint(current);
+  const candidateActive = isActiveRecoveryCheckpoint(candidate);
+  if (candidateActive !== currentActive) {
+    return candidateActive ? candidate : current;
+  }
+  return candidate.updatedAtMs >= current.updatedAtMs ? candidate : current;
+}
+
+function buildRecoveryCheckpointMap(
+  checkpoints: PlatformRuntimeCheckpointSummary[],
+): Map<string, PlatformRuntimeCheckpointSummary> {
+  const bySessionKey = new Map<string, PlatformRuntimeCheckpointSummary>();
+  for (const checkpoint of checkpoints) {
+    if (checkpoint.target?.operation !== "closure.recovery" || !checkpoint.sessionKey) {
+      continue;
+    }
+    bySessionKey.set(
+      checkpoint.sessionKey,
+      pickPreferredRecoveryCheckpoint(bySessionKey.get(checkpoint.sessionKey), checkpoint),
+    );
+  }
+  return bySessionKey;
+}
+
+function deriveSessionHandoffProjection(params: {
+  runClosureSummary?: SessionEntry["runClosureSummary"];
+  recoveryCheckpoint?: PlatformRuntimeCheckpointSummary;
+}): Pick<
+  GatewaySessionRow,
+  "handoffRequestRunId" | "handoffRunId" | "handoffTruthSource" | "handoffHint"
+> {
+  const closureSummary = params.runClosureSummary;
+  const recoveryCheckpoint = params.recoveryCheckpoint;
+  const activeRecovery =
+    recoveryCheckpoint && isActiveRecoveryCheckpoint(recoveryCheckpoint)
+      ? recoveryCheckpoint
+      : undefined;
+
+  if (activeRecovery) {
+    const handoffRequestRunId = closureSummary?.requestRunId ?? activeRecovery.runId;
+    const handoffRunId = activeRecovery.runId;
+    const handoffHint =
+      closureSummary?.runId && closureSummary.runId !== activeRecovery.runId
+        ? `Active recovery run ${activeRecovery.runId} overrides durable closure run ${closureSummary.runId} for handoff.`
+        : `Active recovery run ${activeRecovery.runId} is the current handoff truth.`;
+    return {
+      handoffRequestRunId,
+      handoffRunId,
+      handoffTruthSource: "recovery",
+      handoffHint,
+    };
+  }
+
+  if (closureSummary?.runId) {
+    return {
+      handoffRequestRunId: closureSummary.requestRunId ?? closureSummary.runId,
+      handoffRunId: closureSummary.runId,
+      handoffTruthSource: "closure",
+    };
+  }
+
+  return {};
+}
 
 function tryResolveExistingPath(value: string): string | null {
   try {
@@ -1024,6 +1111,7 @@ export function buildGatewaySessionRow(params: {
   now?: number;
   includeDerivedTitles?: boolean;
   includeLastMessage?: boolean;
+  recoveryCheckpoint?: PlatformRuntimeCheckpointSummary;
 }): GatewaySessionRow {
   const { cfg, storePath, store, key, entry } = params;
   const now = params.now ?? Date.now();
@@ -1127,6 +1215,19 @@ export function buildGatewaySessionRow(params: {
     }
   }
 
+  const recoveryCheckpoint = params.recoveryCheckpoint;
+  const recoveryDerivedStatus =
+    recoveryCheckpoint?.status === "resumed"
+      ? "running"
+      : recoveryCheckpoint &&
+          (recoveryCheckpoint.status === "blocked" || recoveryCheckpoint.status === "approved")
+        ? "blocked"
+        : undefined;
+  const handoffProjection = deriveSessionHandoffProjection({
+    runClosureSummary: entry?.runClosureSummary,
+    recoveryCheckpoint,
+  });
+
   return {
     key,
     spawnedBy: entry?.spawnedBy,
@@ -1155,7 +1256,13 @@ export function buildGatewaySessionRow(params: {
     totalTokens,
     totalTokensFresh,
     estimatedCostUsd,
-    status: subagentRun ? subagentStatus : entry?.status,
+    status: subagentRun
+      ? subagentStatus
+      : recoveryDerivedStatus
+        ? recoveryDerivedStatus
+      : entry?.runClosureSummary
+        ? resolveSessionRunStatusFromClosureSummary(entry.runClosureSummary)
+        : entry?.status,
     startedAt: subagentRun ? subagentStartedAt : entry?.startedAt,
     endedAt: subagentRun ? subagentEndedAt : entry?.endedAt,
     runtimeMs: subagentRun ? subagentRuntimeMs : entry?.runtimeMs,
@@ -1169,6 +1276,16 @@ export function buildGatewaySessionRow(params: {
     lastChannel: deliveryFields.lastChannel ?? entry?.lastChannel,
     lastTo: deliveryFields.lastTo ?? entry?.lastTo,
     lastAccountId: deliveryFields.lastAccountId ?? entry?.lastAccountId,
+    runClosureSummary: entry?.runClosureSummary,
+    ...handoffProjection,
+    recoveryCheckpointId: recoveryCheckpoint?.id,
+    recoveryStatus: recoveryCheckpoint?.status,
+    recoveryContinuationState: recoveryCheckpoint?.continuation?.state,
+    recoveryOperation: recoveryCheckpoint?.target?.operation,
+    recoveryBlockedReason: recoveryCheckpoint?.blockedReason,
+    recoveryUpdatedAt: recoveryCheckpoint?.updatedAtMs,
+    recoveryAttempts: recoveryCheckpoint?.continuation?.attempts,
+    recoveryOperatorHint: deriveRecoveryOperatorHint(recoveryCheckpoint),
   };
 }
 
@@ -1180,6 +1297,9 @@ export function loadGatewaySessionRow(
   if (!entry) {
     return null;
   }
+  const recoveryCheckpoint = buildRecoveryCheckpointMap(
+    getPlatformRuntimeCheckpointService().list({ sessionKey: canonicalKey }),
+  ).get(canonicalKey);
   return buildGatewaySessionRow({
     cfg,
     storePath,
@@ -1189,6 +1309,7 @@ export function loadGatewaySessionRow(
     now: options?.now,
     includeDerivedTitles: options?.includeDerivedTitles,
     includeLastMessage: options?.includeLastMessage,
+    recoveryCheckpoint,
   });
 }
 
@@ -1205,6 +1326,7 @@ export function listSessionsFromStore(params: {
   const includeUnknown = opts.includeUnknown === true;
   const includeDerivedTitles = opts.includeDerivedTitles === true;
   const includeLastMessage = opts.includeLastMessage === true;
+  const recoveryCheckpoints = buildRecoveryCheckpointMap(getPlatformRuntimeCheckpointService().list());
   const spawnedBy = typeof opts.spawnedBy === "string" ? opts.spawnedBy : "";
   const label = typeof opts.label === "string" ? opts.label.trim() : "";
   const agentId = typeof opts.agentId === "string" ? normalizeAgentId(opts.agentId) : "";
@@ -1262,6 +1384,7 @@ export function listSessionsFromStore(params: {
         now,
         includeDerivedTitles,
         includeLastMessage,
+        recoveryCheckpoint: recoveryCheckpoints.get(key),
       }),
     )
     .toSorted((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));

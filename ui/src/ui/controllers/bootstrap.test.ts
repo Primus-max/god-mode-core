@@ -208,7 +208,9 @@ describe("bootstrap controller", () => {
               state: runInvoked ? "available" : "approved",
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
-              ...(runInvoked ? { lastResultStatus: "bootstrapped", hasResult: true } : { hasResult: false }),
+              ...(runInvoked
+                ? { lastResultStatus: "bootstrapped", hasResult: true }
+                : { hasResult: false }),
             },
           ],
         };

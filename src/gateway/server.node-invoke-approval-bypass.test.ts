@@ -7,7 +7,14 @@ import {
   publicKeyRawBase64UrlFromPem,
   signDevicePayload,
 } from "../infra/device-identity.js";
-import { getPlatformMachineControlService, resetPlatformMachineControlService } from "../platform/machine/index.js";
+import {
+  getPlatformMachineControlService,
+  resetPlatformMachineControlService,
+} from "../platform/machine/index.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../platform/runtime/index.js";
 import { sleep } from "../utils.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { GatewayClient } from "./client.js";
@@ -110,6 +117,7 @@ describe("node.invoke approval bypass", () => {
 
   beforeAll(async () => {
     resetPlatformMachineControlService();
+    resetPlatformRuntimeCheckpointService();
     const started = await startServerWithClient("secret", { controlUiEnabled: true });
     server = started.server;
     port = started.port;
@@ -118,6 +126,7 @@ describe("node.invoke approval bypass", () => {
 
   afterAll(async () => {
     resetPlatformMachineControlService();
+    resetPlatformRuntimeCheckpointService();
     await server.close();
   });
 
@@ -417,6 +426,91 @@ describe("node.invoke approval bypass", () => {
       wsCaller.close();
       wsOtherDevice.close();
       node.stop();
+    }
+  });
+
+  test("tracks blocked to approved to resumed to completed checkpoint flow", async () => {
+    let invokeCount = 0;
+    const node = await connectLinuxNode(() => {
+      invokeCount += 1;
+    });
+    const wsApprover = await connectOperator(["operator.write", "operator.approvals"]);
+    const wsCaller = await connectOperator(["operator.write"]);
+
+    try {
+      const nodeId = await getConnectedNodeId(wsApprover);
+      const deviceId = operatorDeviceIds.get(wsApprover) ?? "";
+      expect(deviceId).toBeTruthy();
+      getPlatformMachineControlService().linkDevice({ deviceId });
+      const approvalId = crypto.randomUUID();
+      const requestPromise = rpcReq(wsApprover, "exec.approval.request", {
+        id: approvalId,
+        command: "echo hi",
+        commandArgv: ["echo", "hi"],
+        systemRunPlan: {
+          argv: ["echo", "hi"],
+          cwd: null,
+          commandText: "echo hi",
+          agentId: null,
+          sessionKey: null,
+        },
+        nodeId,
+        cwd: null,
+        host: "node",
+        timeoutMs: 30_000,
+      });
+
+      await expect
+        .poll(() => getPlatformRuntimeCheckpointService().get(approvalId)?.status, {
+          timeout: 3_000,
+          interval: 50,
+        })
+        .toBe("blocked");
+
+      await rpcReq(wsApprover, "exec.approval.resolve", { id: approvalId, decision: "allow-once" });
+      await requestPromise;
+
+      await expect
+        .poll(() => getPlatformRuntimeCheckpointService().get(approvalId)?.status, {
+          timeout: 3_000,
+          interval: 50,
+        })
+        .toBe("approved");
+
+      const invoke = await rpcReq(wsCaller, "node.invoke", {
+        nodeId,
+        command: "system.run",
+        params: {
+          command: ["echo", "hi"],
+          rawCommand: "echo hi",
+          runId: approvalId,
+          approved: true,
+          approvalDecision: "allow-once",
+        },
+        idempotencyKey: crypto.randomUUID(),
+      });
+      expect(invoke.ok).toBe(true);
+      expect(invokeCount).toBeGreaterThan(0);
+
+      await expect
+        .poll(() => getPlatformRuntimeCheckpointService().get(approvalId)?.status, {
+          timeout: 3_000,
+          interval: 50,
+        })
+        .toBe("completed");
+      expect(getPlatformRuntimeCheckpointService().buildRunOutcome(approvalId)).toEqual(
+        expect.objectContaining({
+          status: "completed",
+          checkpointIds: [approvalId],
+          completedCheckpointIds: [approvalId],
+          pendingApprovalIds: [],
+        }),
+      );
+    } finally {
+      wsApprover.close();
+      wsCaller.close();
+      node.stop();
+      resetPlatformRuntimeCheckpointService();
     }
   });
 

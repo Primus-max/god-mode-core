@@ -2,15 +2,23 @@ import { DEFAULT_HEARTBEAT_ACK_MAX_CHARS, stripHeartbeatToken } from "../auto-re
 import { normalizeVerboseLevel } from "../auto-reply/thinking.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { loadConfig } from "../config/config.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { type AgentEventPayload, getAgentRunContext } from "../infra/agent-events.js";
 import { resolveHeartbeatVisibility } from "../infra/heartbeat-visibility.js";
+import {
+  PlatformRuntimeRunClosureSummarySchema,
+  type PlatformRuntimeRunClosureSummary,
+} from "../platform/runtime/contracts.js";
 import { stripInlineDirectiveTagsForDisplay } from "../utils/directive-tags.js";
 import {
   deriveGatewaySessionLifecycleSnapshot,
   persistGatewaySessionLifecycleEvent,
 } from "./session-lifecycle-state.js";
+import { buildGatewaySessionBroadcastSnapshot } from "./session-broadcast-snapshot.js";
 import { loadGatewaySessionRow, loadSessionEntry } from "./session-utils.js";
 import { formatForLog } from "./ws-log.js";
+
+const sessionLifecyclePersistLog = createSubsystemLogger("gateway/session-lifecycle-persist");
 
 function resolveHeartbeatAckMaxChars(): number {
   try {
@@ -480,24 +488,29 @@ export function createAgentEventHandler({
           event: evt,
         })
       : {};
-    const session = row ? { ...row, ...lifecyclePatch } : undefined;
-    const snapshotSource = session ?? lifecyclePatch;
-    return {
-      ...(session ? { session } : {}),
-      totalTokens: row?.totalTokens,
-      totalTokensFresh: row?.totalTokensFresh,
-      contextTokens: row?.contextTokens,
-      estimatedCostUsd: row?.estimatedCostUsd,
-      modelProvider: row?.modelProvider,
-      model: row?.model,
-      status: snapshotSource.status,
-      startedAt: snapshotSource.startedAt,
-      endedAt: snapshotSource.endedAt,
-      runtimeMs: snapshotSource.runtimeMs,
-      updatedAt: snapshotSource.updatedAt,
-      abortedLastRun: snapshotSource.abortedLastRun,
-    };
+    if (row) {
+      const session = { ...row, ...lifecyclePatch };
+      return buildGatewaySessionBroadcastSnapshot(session, { includeFullSession: true });
+    }
+    if (Object.keys(lifecyclePatch).length > 0) {
+      return { ...lifecyclePatch };
+    }
+    return {};
   };
+
+  const resolveRuntimeClosureSummary = (
+    evt: AgentEventPayload | undefined,
+  ): PlatformRuntimeRunClosureSummary | undefined => {
+    if (evt?.stream !== "runtime" || evt.data?.phase !== "closure") {
+      return undefined;
+    }
+    const parsed = PlatformRuntimeRunClosureSummarySchema.safeParse(evt.data?.summary);
+    return parsed.success ? parsed.data : undefined;
+  };
+
+  const resolveFinalStateFromClosure = (
+    closureSummary: PlatformRuntimeRunClosureSummary,
+  ): "done" | "error" => (closureSummary.action === "close" ? "done" : "error");
 
   const emitChatDelta = (
     sessionKey: string,
@@ -552,9 +565,11 @@ export function createAgentEventHandler({
   };
 
   const resolveBufferedChatTextState = (clientRunId: string, sourceRunId: string) => {
-    const bufferedText = stripInlineDirectiveTagsForDisplay(
-      chatRunState.buffers.get(clientRunId) ?? "",
-    ).text.trim();
+    const bufferedSourceText =
+      chatRunState.buffers.get(clientRunId) ??
+      (sourceRunId !== clientRunId ? chatRunState.buffers.get(sourceRunId) : undefined) ??
+      "";
+    const bufferedText = stripInlineDirectiveTagsForDisplay(bufferedSourceText).text.trim();
     const normalizedHeartbeatText = normalizeHeartbeatChatFinalText({
       runId: clientRunId,
       sourceRunId,
@@ -756,6 +771,10 @@ export function createAgentEventHandler({
 
     const lifecyclePhase =
       evt.stream === "lifecycle" && typeof evt.data?.phase === "string" ? evt.data.phase : null;
+    const runtimeClosureSummary = resolveRuntimeClosureSummary(evt);
+    const awaitsRunClosure = getAgentRunContext(evt.runId)?.awaitingRunClosure === true;
+    const evtStopReason =
+      typeof evt.data?.stopReason === "string" ? evt.data.stopReason : undefined;
 
     if (isControlUiVisible && sessionKey) {
       // Send tool events to node/channel subscribers only when verbose is enabled;
@@ -765,10 +784,38 @@ export function createAgentEventHandler({
       }
       if (!isAborted && evt.stream === "assistant" && typeof evt.data?.text === "string") {
         emitChatDelta(sessionKey, clientRunId, evt.runId, evt.seq, evt.data.text, evt.data.delta);
-      } else if (!isAborted && (lifecyclePhase === "end" || lifecyclePhase === "error")) {
-        const evtStopReason =
-          typeof evt.data?.stopReason === "string" ? evt.data.stopReason : undefined;
+      } else if (!isAborted && runtimeClosureSummary) {
         if (chatLink) {
+          const finished = chatRunState.registry.shift(evt.runId);
+          if (!finished) {
+            clearAgentRunContext(evt.runId);
+            return;
+          }
+          emitChatFinal(
+            finished.sessionKey,
+            finished.clientRunId,
+            evt.runId,
+            evt.seq,
+            resolveFinalStateFromClosure(runtimeClosureSummary),
+            runtimeClosureSummary.reasons[0],
+            undefined,
+          );
+        } else {
+          emitChatFinal(
+            sessionKey,
+            eventRunId,
+            evt.runId,
+            evt.seq,
+            resolveFinalStateFromClosure(runtimeClosureSummary),
+            runtimeClosureSummary.reasons[0],
+            undefined,
+          );
+        }
+      } else if (!isAborted && (lifecyclePhase === "end" || lifecyclePhase === "error")) {
+        if (awaitsRunClosure) {
+          // Embedded runtime runs emit a separate structured closure event after
+          // lifecycle end/error. Wait for that final truth before flushing chat.
+        } else if (chatLink) {
           const finished = chatRunState.registry.shift(evt.runId);
           if (!finished) {
             clearAgentRunContext(evt.runId);
@@ -805,7 +852,12 @@ export function createAgentEventHandler({
       }
     }
 
-    if (lifecyclePhase === "end" || lifecyclePhase === "error") {
+    if (runtimeClosureSummary) {
+      toolEventRecipients.markFinal(evt.runId);
+      clearAgentRunContext(evt.runId);
+      agentRunSeq.delete(evt.runId);
+      agentRunSeq.delete(clientRunId);
+    } else if ((lifecyclePhase === "end" || lifecyclePhase === "error") && !awaitsRunClosure) {
       toolEventRecipients.markFinal(evt.runId);
       clearAgentRunContext(evt.runId);
       agentRunSeq.delete(evt.runId);
@@ -814,16 +866,23 @@ export function createAgentEventHandler({
 
     if (
       sessionKey &&
-      (lifecyclePhase === "start" || lifecyclePhase === "end" || lifecyclePhase === "error")
+      (lifecyclePhase === "start" ||
+        lifecyclePhase === "end" ||
+        lifecyclePhase === "error" ||
+        Boolean(runtimeClosureSummary))
     ) {
-      void persistGatewaySessionLifecycleEvent({ sessionKey, event: evt }).catch(() => undefined);
+      void persistGatewaySessionLifecycleEvent({ sessionKey, event: evt }).catch((err) => {
+        sessionLifecyclePersistLog.warn(
+          `persist session lifecycle failed: ${formatForLog(err instanceof Error ? err.message : err)}`,
+        );
+      });
       const sessionEventConnIds = sessionEventSubscribers.getAll();
       if (sessionEventConnIds.size > 0) {
         broadcastToConnIds(
           "sessions.changed",
           {
             sessionKey,
-            phase: lifecyclePhase,
+            phase: runtimeClosureSummary ? "closure" : lifecyclePhase,
             runId: evt.runId,
             ts: evt.ts,
             ...buildSessionEventSnapshot(sessionKey, evt),

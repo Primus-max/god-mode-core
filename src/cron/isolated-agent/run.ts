@@ -15,6 +15,7 @@ import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { resolveFastModeState } from "../../agents/fast-mode.js";
 import { resolveNestedAgentLane } from "../../agents/lanes.js";
 import { loadModelCatalog } from "../../agents/model-catalog.js";
+import { buildModelFallbackSummary } from "../../agents/model-fallback-summary.js";
 import { runWithModelFallback } from "../../agents/model-fallback.js";
 import { isCliProvider, resolveThinkingDefault } from "../../agents/model-selection.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
@@ -39,6 +40,9 @@ import {
 } from "../../config/sessions.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
 import { logWarn } from "../../logger.js";
+import { resolveExecutionRuntimePlan } from "../../platform/decision/input.js";
+import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
+import { getPlatformRuntimeCheckpointService } from "../../platform/runtime/index.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
 import {
   buildSafeExternalPrompt,
@@ -434,11 +438,20 @@ export async function runCronIsolatedAgentTurn(params: {
       normalizeVerboseLevel(cronSession.sessionEntry.verboseLevel) ??
       normalizeVerboseLevel(agentCfg?.verboseDefault) ??
       "off";
+    const messageChannel = resolvedDelivery.channel;
+    const platformExecutionContext = resolveExecutionRuntimePlan({
+      prompt: commandBody,
+      sessionEntry: cronSession.sessionEntry,
+      channelHints: {
+        messageChannel,
+      },
+    }).runtime;
     registerAgentRunContext(cronSession.sessionEntry.sessionId, {
       sessionKey: agentSessionKey,
       verboseLevel: resolvedVerboseLevel,
+      platformExecution: toPluginHookPlatformExecutionContext(platformExecutionContext),
+      awaitingRunClosure: true,
     });
-    const messageChannel = resolvedDelivery.channel;
     // Per-job payload.fallbacks takes priority over agent-level fallbacks.
     const payloadFallbacks =
       params.job.payload.kind === "agentTurn" && Array.isArray(params.job.payload.fallbacks)
@@ -531,6 +544,7 @@ export async function runCronIsolatedAgentTurn(params: {
             bootstrapContextMode: agentPayload?.lightContext ? "lightweight" : undefined,
             bootstrapContextRunKind: "cron",
             runId: cronSession.sessionEntry.sessionId,
+            platformExecutionContext,
             requireExplicitMessageTarget: toolPolicy.requireExplicitMessageTarget,
             disableMessageTool: toolPolicy.disableMessageTool,
             allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
@@ -549,8 +563,35 @@ export async function runCronIsolatedAgentTurn(params: {
       fallbackModel = fallbackResult.model;
       provider = fallbackResult.provider;
       model = fallbackResult.model;
+      runResult.meta = {
+        ...runResult.meta,
+        modelFallback: buildModelFallbackSummary({
+          requestedProvider: provider,
+          requestedModel: model,
+          selectedProvider: fallbackResult.provider,
+          selectedModel: fallbackResult.model,
+          attempts: fallbackResult.attempts,
+        }),
+      };
       runEndedAt = Date.now();
     };
+    const hasDescendantsSinceRunStart = () =>
+      listDescendantRunsForRequester(agentSessionKey).some((entry) => {
+        const descendantStartedAt =
+          typeof entry.startedAt === "number" ? entry.startedAt : entry.createdAt;
+        return typeof descendantStartedAt === "number" && descendantStartedAt >= runStartedAt;
+      });
+    const buildSemanticRetryPrompt = (reasons: string[]) =>
+      [
+        "The previous cron attempt did not satisfy the task well enough.",
+        reasons.length > 0 ? `Observed issues: ${reasons.join(" ")}` : undefined,
+        "Retry the original cron task now and produce the final completed result.",
+        "Do not send an acknowledgement-only update.",
+        "Use tools when needed, including sessions_spawn for parallel subtasks, wait for spawned subagents to finish, then return only the final summary.",
+      ]
+        .filter(Boolean)
+        .join(" ");
+    let semanticRetryAttempted = false;
 
     await runPrompt(commandBody);
     if (!runResult) {
@@ -571,20 +612,13 @@ export async function runCronIsolatedAgentTurn(params: {
         runLevelError: interimRunResult.meta?.error,
       });
       const interimText = interimOutputText?.trim() ?? "";
-      const hasDescendantsSinceRunStart = listDescendantRunsForRequester(agentSessionKey).some(
-        (entry) => {
-          const descendantStartedAt =
-            typeof entry.startedAt === "number" ? entry.startedAt : entry.createdAt;
-          return typeof descendantStartedAt === "number" && descendantStartedAt >= runStartedAt;
-        },
-      );
       const shouldRetryInterimAck =
         !interimRunResult.meta?.error &&
         !interimRunResult.didSendViaMessagingTool &&
         !interimPayloadHasStructuredContent &&
         !interimPayloads.some((payload) => payload?.isError === true) &&
         countActiveDescendantRuns(agentSessionKey) === 0 &&
-        !hasDescendantsSinceRunStart &&
+        !hasDescendantsSinceRunStart() &&
         isLikelyInterimCronMessage(interimText);
 
       if (shouldRetryInterimAck) {
@@ -595,6 +629,19 @@ export async function runCronIsolatedAgentTurn(params: {
           "Use tools when needed, including sessions_spawn for parallel subtasks, wait for spawned subagents to finish, then return only the final summary.",
         ].join(" ");
         await runPrompt(continuationPrompt);
+      }
+      const acceptance = runResult?.meta?.acceptanceOutcome;
+      const shouldRetryFromAcceptance =
+        !semanticRetryAttempted &&
+        acceptance?.action === "retry" &&
+        !acceptance.recoveryPolicy.exhausted &&
+        acceptance.recoveryPolicy.remainingAttempts > 0 &&
+        !interimRunResult.meta?.error &&
+        countActiveDescendantRuns(agentSessionKey) === 0 &&
+        !hasDescendantsSinceRunStart();
+      if (shouldRetryFromAcceptance) {
+        semanticRetryAttempted = true;
+        await runPrompt(buildSemanticRetryPrompt(acceptance.reasons));
       }
     }
   } catch (err) {
@@ -706,12 +753,78 @@ export async function runCronIsolatedAgentTurn(params: {
     payloads,
     runLevelError: finalRunResult.meta?.error,
   });
+  const completionOutcome = finalRunResult.meta?.completionOutcome;
+  const runtimeService = getPlatformRuntimeCheckpointService();
+  const acceptanceOutcome = completionOutcome?.runId
+    ? runtimeService.evaluateAcceptance({
+        runId: completionOutcome.runId,
+        outcome: completionOutcome,
+        evidence: runtimeService.buildAcceptanceEvidence({
+          outcome: completionOutcome,
+          evidence: {
+            ...(completionOutcome.hadToolError !== undefined
+              ? { hadToolError: completionOutcome.hadToolError }
+              : {}),
+            ...(completionOutcome.deterministicApprovalPromptSent !== undefined
+              ? {
+                  deterministicApprovalPromptSent:
+                    completionOutcome.deterministicApprovalPromptSent,
+                }
+              : {}),
+            ...(finalRunResult.didSendViaMessagingTool !== undefined
+              ? { didSendViaMessagingTool: finalRunResult.didSendViaMessagingTool }
+              : {}),
+            hasOutput: Boolean(outputText?.trim()),
+            hasStructuredReplyPayload: deliveryPayloadHasStructuredContent,
+            deliveredReplyCount: deliveryPayloads.length,
+            ...(finalRunResult.meta?.modelFallback
+              ? {
+                  modelFallbackAttemptCount: finalRunResult.meta.modelFallback.attemptCount,
+                  modelFallbackExhausted: finalRunResult.meta.modelFallback.exhausted,
+                  ...(finalRunResult.meta.modelFallback.finalReason
+                    ? { modelFallbackFinalReason: finalRunResult.meta.modelFallback.finalReason }
+                    : {}),
+                  ...(finalRunResult.meta.modelFallback.finalStatus !== undefined
+                    ? { modelFallbackFinalStatus: finalRunResult.meta.modelFallback.finalStatus }
+                    : {}),
+                  ...(finalRunResult.meta.modelFallback.finalCode
+                    ? { modelFallbackFinalCode: finalRunResult.meta.modelFallback.finalCode }
+                    : {}),
+                  providerAuthFailed: finalRunResult.meta.modelFallback.finalReason === "auth",
+                  providerRateLimited:
+                    finalRunResult.meta.modelFallback.finalReason === "rate_limit" ||
+                    finalRunResult.meta.modelFallback.finalReason === "overloaded",
+                  providerModelNotFound:
+                    finalRunResult.meta.modelFallback.finalReason === "model_not_found",
+                }
+              : {}),
+            ...(finalRunResult.successfulCronAdds !== undefined
+              ? { successfulCronAdds: finalRunResult.successfulCronAdds }
+              : {}),
+          },
+          executionVerification: finalRunResult.meta?.executionVerification,
+          executionSurface: finalRunResult.meta?.executionSurface,
+        }),
+      })
+    : finalRunResult.meta?.acceptanceOutcome;
   const deliveryBestEffort = resolveCronDeliveryBestEffort(params.job);
   const resolveRunOutcome = (params?: { delivered?: boolean; deliveryAttempted?: boolean }) =>
     withRunSession({
-      status: hasFatalErrorPayload ? "error" : "ok",
+      status:
+        hasFatalErrorPayload || (acceptanceOutcome && acceptanceOutcome.status !== "satisfied")
+          ? "error"
+          : "ok",
       ...(hasFatalErrorPayload
         ? { error: embeddedRunError ?? "cron isolated run returned an error payload" }
+        : acceptanceOutcome && acceptanceOutcome.status !== "satisfied"
+          ? { error: acceptanceOutcome.reasons.join(" ") }
+          : {}),
+      ...(acceptanceOutcome
+        ? {
+            acceptanceStatus: acceptanceOutcome.status,
+            acceptanceAction: acceptanceOutcome.action,
+            acceptanceReasonCode: acceptanceOutcome.reasonCode,
+          }
         : {}),
       summary,
       outputText,

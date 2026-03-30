@@ -63,7 +63,10 @@ function buildRollbackCapability(params: {
   request: BootstrapRequest;
   previous?: CapabilityDescriptor;
   failedCapability: CapabilityDescriptor;
-}): { capability: CapabilityDescriptor; rollbackStatus: "restore_previous" | "disable" | "keep_failed" } {
+}): {
+  capability: CapabilityDescriptor;
+  rollbackStatus: "restore_previous" | "disable" | "keep_failed";
+} {
   const rollbackStatus = resolveRollbackStatus({
     request: params.request,
     previous: params.previous,

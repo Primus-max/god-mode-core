@@ -54,8 +54,13 @@ describe("bootstrap health checks", () => {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-bootstrap-health-"));
     const binDir = path.join(tempRoot, "bin");
     await fs.mkdir(binDir, { recursive: true });
-    const shimName = process.platform === "win32" ? "bootstrap-node-smoke.cmd" : "bootstrap-node-smoke";
-    await fs.writeFile(path.join(binDir, shimName), process.platform === "win32" ? "@echo off\n" : "", "utf-8");
+    const shimName =
+      process.platform === "win32" ? "bootstrap-node-smoke.cmd" : "bootstrap-node-smoke";
+    await fs.writeFile(
+      path.join(binDir, shimName),
+      process.platform === "win32" ? "@echo off\n" : "",
+      "utf-8",
+    );
     const originalPath = process.env.PATH;
     process.env.PATH = [binDir, originalPath].filter(Boolean).join(path.delimiter);
 

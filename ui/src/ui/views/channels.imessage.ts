@@ -3,8 +3,8 @@ import { t } from "../../i18n/index.ts";
 import { formatRelativeTimestamp } from "../format.ts";
 import type { IMessageStatus } from "../types.ts";
 import { renderChannelConfigSection } from "./channels.config.ts";
-import type { ChannelsProps } from "./channels.types.ts";
 import { channelProbeSummary, formatChannelOptionalBool } from "./channels.shared.ts";
+import type { ChannelsProps } from "./channels.types.ts";
 
 export function renderIMessageCard(params: {
   props: ChannelsProps;

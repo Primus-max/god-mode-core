@@ -1,7 +1,12 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../../platform/runtime/index.js";
 import {
   loadRunOverflowCompactionHarness,
   mockedEnsureRuntimePluginsLoaded,
+  mockedGlobalHookRunner,
   mockedRunEmbeddedAttempt,
 } from "./run.overflow-compaction.harness.js";
 
@@ -15,6 +20,10 @@ describe("runEmbeddedPiAgent usage reporting", () => {
   beforeEach(() => {
     mockedEnsureRuntimePluginsLoaded.mockReset();
     mockedRunEmbeddedAttempt.mockReset();
+  });
+
+  afterEach(() => {
+    resetPlatformRuntimeCheckpointService();
   });
 
   it("bootstraps runtime plugins with the resolved workspace before running", async () => {
@@ -187,5 +196,132 @@ describe("runEmbeddedPiAgent usage reporting", () => {
     // Check if total matches the last turn's total (200)
     // If the bug exists, it will likely be 350
     expect(usage?.total).toBe(200);
+  });
+
+  it("attaches machine-checkable completion outcome from runtime checkpoints", async () => {
+    getPlatformRuntimeCheckpointService().createCheckpoint({
+      id: "checkpoint-run-outcome",
+      runId: "run-outcome",
+      boundary: "exec_approval",
+      target: { approvalId: "approval-run-outcome", operation: "system.run" },
+    });
+    mockedRunEmbeddedAttempt.mockResolvedValueOnce({
+      aborted: false,
+      promptError: null,
+      timedOut: false,
+      sessionIdUsed: "test-session",
+      assistantTexts: ["Response 1"],
+      didSendDeterministicApprovalPrompt: true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    const result = await runEmbeddedPiAgent({
+      sessionId: "test-session",
+      sessionKey: "test-key",
+      sessionFile: "/tmp/session.json",
+      workspaceDir: "/tmp/workspace",
+      prompt: "hello",
+      timeoutMs: 30000,
+      runId: "run-outcome",
+    });
+
+    expect(result.meta.completionOutcome).toEqual(
+      expect.objectContaining({
+        status: "blocked",
+        checkpointIds: ["checkpoint-run-outcome"],
+        pendingApprovalIds: ["approval-run-outcome"],
+        deterministicApprovalPromptSent: true,
+      }),
+    );
+    expect(result.meta.acceptanceOutcome).toEqual(
+      expect.objectContaining({
+        status: "needs_human",
+        action: "escalate",
+        remediation: "needs_human",
+        reasonCode: "pending_approval",
+      }),
+    );
+    expect(result.meta.executionVerification).toEqual(
+      expect.objectContaining({
+        status: "mismatch",
+        receiptProofCounts: expect.objectContaining({
+          derived: 0,
+          reported: 0,
+          verified: 0,
+        }),
+      }),
+    );
+    expect(result.meta.supervisorVerdict).toEqual(
+      expect.objectContaining({
+        status: "needs_human",
+        action: "escalate",
+        remediation: "needs_human",
+        reasonCode: "needs_human",
+      }),
+    );
+  });
+
+  it("emits recipe lifecycle hooks with structured execution intent and closure", async () => {
+    mockedGlobalHookRunner.hasHooks.mockImplementation(
+      (hookName: string) =>
+        hookName === "before_recipe_execute" || hookName === "after_recipe_execute",
+    );
+    mockedRunEmbeddedAttempt.mockResolvedValueOnce({
+      aborted: false,
+      promptError: null,
+      timedOut: false,
+      sessionIdUsed: "test-session",
+      assistantTexts: ["done"],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    await runEmbeddedPiAgent({
+      sessionId: "test-session",
+      sessionKey: "test-key",
+      sessionFile: "/tmp/session.json",
+      workspaceDir: "/tmp/workspace",
+      prompt: "publish the preview build",
+      timeoutMs: 30_000,
+      runId: "run-recipe-hooks",
+      platformExecutionContext: {
+        selectedRecipeId: "code_build_publish",
+        selectedProfileId: "developer",
+        intent: "publish",
+        publishTargets: ["vercel"],
+        artifactKinds: ["site"],
+      },
+    });
+
+    expect(mockedGlobalHookRunner.runBeforeRecipeExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-recipe-hooks",
+        executionIntent: expect.objectContaining({
+          recipeId: "code_build_publish",
+          intent: "publish",
+          artifactKinds: ["site"],
+          expectations: expect.objectContaining({
+            requiresOutput: true,
+          }),
+        }),
+      }),
+      expect.any(Object),
+    );
+    expect(mockedGlobalHookRunner.runAfterRecipeExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        closure: expect.objectContaining({
+          runId: "run-recipe-hooks",
+          executionIntent: expect.objectContaining({
+            recipeId: "code_build_publish",
+          }),
+          acceptanceOutcome: expect.objectContaining({
+            evidence: expect.objectContaining({
+              declaredRecipeId: "code_build_publish",
+              declaredIntent: "publish",
+            }),
+          }),
+        }),
+      }),
+      expect.any(Object),
+    );
   });
 });

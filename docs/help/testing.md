@@ -52,6 +52,28 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
   - Runs in CI
   - No real keys required
   - Should be fast and stable
+- Runtime closure loop note:
+  - When you touch checkpoint-driven continuation, keep at least one deterministic backend scenario that proves `blocked -> approved -> resumed -> completed` plus a machine-checkable outcome assertion.
+  - Current reference coverage lives in `src/gateway/server.node-invoke-approval-bypass.test.ts`, `src/platform/bootstrap/service.test.ts`, and `src/agents/pi-embedded-runner/usage-reporting.test.ts`.
+- Semantic outcome note:
+  - When you touch unattended orchestration, keep at least one deterministic scenario where `completionOutcome` and `acceptanceOutcome` directly drive the backend decision (`close`, `retry`, or `escalate`) rather than asserting only on assistant text.
+  - Current reference coverage lives in `src/platform/runtime/service.test.ts`, `src/cron/isolated-agent/run.interim-retry.test.ts`, and `src/agents/pi-embedded-runner/usage-reporting.test.ts`.
+- Messaging ingress parity note:
+  - When you touch main reply or followup orchestration, keep at least one deterministic scenario where the messaging path re-evaluates acceptance from real reply payload evidence and another where a persisted semantic retry rehydrates after in-memory reset.
+  - Current reference coverage lives in `src/platform/decision/input.test.ts`, `src/auto-reply/reply/agent-runner.misc.runreplyagent.test.ts`, `src/auto-reply/reply/followup-runner.test.ts`, and `src/auto-reply/reply/reply-flow.test.ts`.
+- Verified delivery note:
+  - When you touch outbound closure or acceptance evidence, keep one scenario where `staged` output is not treated as delivered truth after send failure and one where post-send receipts close the run only after confirmed delivery evidence.
+  - Current reference coverage lives in `src/platform/runtime/service.test.ts`, `src/auto-reply/reply/route-reply.test.ts`, and `src/auto-reply/dispatch.delivery-closure.test.ts`.
+- Idempotent recovery note:
+  - When you touch replay-sensitive side effects, keep at least one deterministic scenario where a `confirmed` action survives restart/recovery without a second external send and one non-messaging continuation scenario where a confirmed bootstrap/artifact action does not execute twice on resume.
+  - Current reference coverage lives in `src/infra/outbound/delivery-queue.recovery.test.ts`, `src/platform/bootstrap/service.test.ts`, `src/platform/artifacts/service.test.ts`, and `src/platform/runtime/service.test.ts`.
+- Contract verification note:
+  - When you touch execution truth, keep one deterministic scenario where a formally successful tool/result path still produces `contract_mismatch` until verified output or confirmed delivery appears, and one scenario where `no_progress` drives a bounded supervisor retry instead of a close or infinite loop.
+  - For non-messaging closure, keep one deterministic scenario where `derived` runtime evidence is not enough to close a bootstrap/artifact-heavy run, and one scenario where a verified structured receipt does allow the close path.
+  - When you touch remediation selection, keep one scenario where `retry` still means `semantic_retry`, one where the same coarse `retry` resolves to `bootstrap`, `provider_fallback`, or `auth_refresh`, and one post-restart scenario where a persisted semantic followup queue drains again without a fresh enqueue.
+  - For Stage 15-style recovery changes, keep one deterministic scenario where delivery backlog drains after backoff without a gateway restart, one where a recovery budget flips the supervisor from `retry` to explicit `stop` or `escalate`, and one cross-surface scenario where cron/messaging both honor the same `recoveryPolicy` exhaustion semantics.
+  - For Stage 16-style intent changes, keep one parity scenario where embedded and messaging closure both reuse the same declared `executionIntent`, one lifecycle scenario where `before_recipe_execute` and `after_recipe_execute` carry structured intent/closure truth across the plugin boundary, and one durable closure scenario where the final acceptance/supervisor outcome can be rehydrated from the runtime closure store.
+  - Current reference coverage lives in `src/platform/runtime/service.test.ts`, `src/auto-reply/reply/agent-runner-helpers.test.ts`, `src/agents/pi-embedded-runner/usage-reporting.test.ts`, `src/plugins/hooks.phase-hooks.test.ts`, and `src/gateway/server/readiness.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.
   - Shared unit coverage now defaults to `threads`, while the manifest keeps the measured fork-only exceptions and heavy singleton lanes explicit.
@@ -155,6 +177,97 @@ Use this decision table:
 - Editing logic/tests: run `pnpm test` (and `pnpm test:coverage` if you changed a lot)
 - Touching gateway networking / WS protocol / pairing: add `pnpm test:e2e`
 - Debugging “my bot is down” / provider-specific failures / tool calling: run a narrowed `pnpm test:live`
+
+WebSocket `sessions.changed` payloads intentionally mirror the gateway session row model (including `runClosureSummary`, recovery fields, and handoff projection) at the **top level**, not only inside nested `session`, so thin clients stay aligned with `sessions.list` without re-implementing field lists. Reference: `src/gateway/session-broadcast-snapshot.ts` and `src/gateway/session-broadcast-snapshot.test.ts`.
+
+## Local runtime recovery smoke
+
+Run this after changes that touch delivery truth, closure truth, restart/recovery behavior, or operator inspection surfaces.
+
+Acceptance criteria:
+
+- A successful send shows the same story in runtime actions and runtime closures.
+- A `partial` or `failed` delivery does not get reported as clean delivered closure truth.
+- After restart/recovery, previously confirmed delivery actions are still visible and are not duplicated by resume logic.
+- The operator surfaces are enough to correlate `messaging_delivery` actions, closure receipts, and recovery checkpoints without guessing from logs alone.
+
+Recommended flow:
+
+1. Run the default backend gate first.
+
+```bash
+pnpm build
+pnpm check
+OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+```
+
+2. If the change touched gateway orchestration, pairing, or cross-process recovery, add:
+
+```bash
+pnpm test:e2e
+```
+
+3. Start or restart the local gateway and confirm the control plane is healthy.
+
+```bash
+openclaw gateway status --deep
+openclaw channels status --probe
+```
+
+4. Exercise one real messaging or local delivery scenario, then inspect the runtime ledgers directly through gateway RPC.
+
+```bash
+openclaw gateway call sessions.send --params '{"key":"agent:dev:main","message":"stage smoke","idempotencyKey":"request-123"}'
+openclaw gateway call platform.runtime.actions.list --params '{"idempotencyKey":"request-123","kind":"messaging_delivery"}'
+openclaw gateway call platform.runtime.closures.list --params '{"requestRunId":"request-123"}'
+openclaw gateway call platform.runtime.actions.list --params '{"sessionKey":"agent:dev:main","kind":"messaging_delivery"}'
+openclaw gateway call platform.runtime.closures.list --params '{"sessionKey":"agent:dev:main"}'
+openclaw gateway call platform.runtime.closures.get --params '{"runId":"<run-id>"}'
+openclaw gateway call platform.runtime.checkpoints.list --params '{"sessionKey":"agent:dev:main"}'
+```
+
+Continuation-aware handoff rules:
+
+- Treat `sessions.send.idempotencyKey` as the stable request anchor for the entire handoff.
+- Treat runtime `runId` as execution-local. A continuation, retry, or resumed run may produce a different final `runId`.
+- Treat `sessions.list` / `sessions.get` handoff fields as the operator-facing summary:
+  `handoffRequestRunId` is the stable request anchor, `handoffRunId` is the current runtime target, and `handoffTruthSource` tells you whether the row is currently following durable closure history or active recovery.
+- If `handoffTruthSource` is `recovery`, trust the handoff fields over the persisted `runClosureSummary.runId`; the closure summary remains useful as durable history, but the in-flight recovery run is the current handoff truth.
+- Start handoff inspection with `platform.runtime.closures.list --params '{"requestRunId":"<request-id>"}'` and `platform.runtime.actions.list --params '{"idempotencyKey":"<request-id>","kind":"messaging_delivery"}'`.
+- Use the final closure returned by that request anchor to identify the final runtime `runId`, then fetch the full closure via `platform.runtime.closures.get`.
+- If compaction or retry changed what the session row shows, prefer the request-anchored runtime ledgers over manual session transcript correlation.
+
+5. For one concrete delivery action, fetch the full action receipt and compare it with the closure receipts and recovery state.
+
+```bash
+openclaw gateway call platform.runtime.actions.get --params '{"actionId":"<action-id>"}'
+```
+
+What to verify during the smoke:
+
+- `sessions.get` or `sessions.list` exposes `handoffRequestRunId`, `handoffRunId`, and `handoffTruthSource` that agree with the runtime ledger for the scenario under test.
+- `platform.runtime.closures.list --params '{"requestRunId":"<request-id>"}'` returns the final closure chain for the original request, even if the final `runId` differs from the `idempotencyKey`.
+- `platform.runtime.actions.list --params '{"idempotencyKey":"<request-id>","kind":"messaging_delivery"}'` returns at least one delivery action you can hand off without guessing.
+- `platform.runtime.actions.list` shows the expected `messaging_delivery` action state (`confirmed`, `partial`, or `failed`) for the run under test.
+- `platform.runtime.actions.get` returns the receipt payload you expect for that action, including `deliveryResults` when the channel produced confirmed delivery evidence.
+- `platform.runtime.closures.get` reports closure outcome, `executionVerification.receipts`, and acceptance/remediation data that agree with the action ledger.
+- `platform.runtime.checkpoints.list` shows the recovery checkpoint lifecycle when a restart or continuation path is involved.
+- If a restart/recovery path is part of the smoke, the resumed run reuses durable action truth instead of sending a second confirmed delivery for the same action.
+
+Targeted references while debugging:
+
+- Delivery truth and queue recovery: `src/infra/outbound/delivery-queue.recovery.test.ts`
+- Delivery-aware closure parity: `src/auto-reply/dispatch.delivery-closure.test.ts`
+- Reply-path delivery parity: `src/auto-reply/reply/route-reply.test.ts`
+- Runtime closure and receipt evaluation: `src/platform/runtime/service.test.ts`
+
+Before a limited internal deploy or manual shared-host run, capture and keep:
+
+- The original request anchor (`sessions.send.idempotencyKey`)
+- The exact `runId` and at least one inspected `actionId`
+- The `platform.runtime.closures.get` output for the smoke run
+- The matching `platform.runtime.actions.get` output for the delivery action you validated
+- The relevant `platform.runtime.checkpoints.list` slice if recovery/resume was part of the scenario
 
 ## Live: Android node capability sweep
 

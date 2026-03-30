@@ -3,7 +3,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadSessionStore, saveSessionStore, type SessionEntry } from "../../config/sessions.js";
-import type { FollowupRun } from "./queue.js";
+import {
+  clearSessionQueues,
+  enqueueFollowupRun,
+  getFollowupQueueDepth,
+  resetInMemoryFollowupQueuesForTests,
+  resetPersistedFollowupQueuesForTests,
+  resetRecentQueuedMessageIdDedupe,
+  type FollowupRun,
+} from "./queue.js";
 import * as sessionRunAccounting from "./session-run-accounting.js";
 import { createMockFollowupRun, createMockTypingController } from "./test-helpers.js";
 
@@ -25,7 +33,7 @@ vi.mock("./route-reply.runtime.js", () => ({
   routeReply: (...args: unknown[]) => routeReplyMock(...args),
 }));
 
-import { createFollowupRunner } from "./followup-runner.js";
+import { createFollowupRunner, resumePersistedFollowupDrains } from "./followup-runner.js";
 
 const ROUTABLE_TEST_CHANNELS = new Set([
   "telegram",
@@ -39,7 +47,12 @@ const ROUTABLE_TEST_CHANNELS = new Set([
 
 beforeEach(() => {
   routeReplyMock.mockReset();
-  routeReplyMock.mockResolvedValue({ ok: true });
+  routeReplyMock.mockResolvedValue({
+    ok: true,
+    attemptedDeliveryCount: 1,
+    confirmedDeliveryCount: 1,
+    failedDeliveryCount: 0,
+  });
   isRoutableChannelMock.mockReset();
   isRoutableChannelMock.mockImplementation((ch: string | undefined) =>
     Boolean(ch?.trim() && ROUTABLE_TEST_CHANNELS.has(ch.trim().toLowerCase())),
@@ -377,6 +390,151 @@ describe("createFollowupRunner bootstrap warning dedupe", () => {
   });
 });
 
+describe("createFollowupRunner semantic acceptance", () => {
+  it("emits a human-required fallback payload when acceptance requires escalation", async () => {
+    const onBlockReply = vi.fn(async () => {});
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [],
+      meta: {
+        completionOutcome: {
+          runId: "followup-human",
+          status: "blocked",
+          checkpointIds: ["checkpoint-human"],
+          blockedCheckpointIds: ["checkpoint-human"],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: ["approval-human"],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: ["exec_approval"],
+        },
+      },
+    });
+
+    const runner = createFollowupRunner({
+      opts: { onBlockReply },
+      typing: createMockTypingController(),
+      typingMode: "instant",
+      queueKey: "main",
+      resolvedQueue: { mode: "followup", debounceMs: 0, cap: 20 },
+      defaultModel: "anthropic/claude-opus-4-5",
+    });
+
+    await runner(createQueuedRun());
+
+    expect(onBlockReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("human input or approval"),
+        isError: true,
+      }),
+    );
+  });
+
+  it("queues a persisted semantic retry when delivery fails after followup completion", async () => {
+    resetRecentQueuedMessageIdDedupe();
+    routeReplyMock.mockResolvedValueOnce({
+      ok: false,
+      attemptedDeliveryCount: 1,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 1,
+      error: "send failed",
+    });
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "final" }],
+      meta: {
+        completionOutcome: {
+          runId: "followup-delivery-failed",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: [],
+        },
+      },
+    });
+
+    const queueKey = "main";
+    const runner = createFollowupRunner({
+      typing: createMockTypingController(),
+      typingMode: "instant",
+      queueKey,
+      resolvedQueue: { mode: "followup", debounceMs: 0, cap: 20 },
+      defaultModel: "anthropic/claude-opus-4-5",
+    });
+
+    try {
+      await runner(
+        createQueuedRun({
+          originatingChannel: "telegram",
+          originatingTo: "chat:1",
+        }),
+      );
+
+      expect(getFollowupQueueDepth(queueKey)).toBe(1);
+    } finally {
+      clearSessionQueues([queueKey]);
+      resetRecentQueuedMessageIdDedupe();
+    }
+  });
+
+  it("routes followup deliveries with completion runId for action correlation", async () => {
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "final" }],
+      meta: {
+        completionOutcome: {
+          runId: "followup-correlated-run",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: [],
+        },
+      },
+    });
+
+    const runner = createFollowupRunner({
+      typing: createMockTypingController(),
+      typingMode: "instant",
+      defaultModel: "anthropic/claude-opus-4-5",
+    });
+
+    await runner(
+      createQueuedRun({
+        requestRunId: "request-telegram-1",
+        originatingChannel: "telegram",
+        originatingTo: "chat:1",
+      }),
+    );
+
+    expect(routeReplyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionRunId: "followup-correlated-run",
+        idempotencyKey: "request-telegram-1",
+      }),
+    );
+  });
+});
+
 describe("createFollowupRunner messaging tool dedupe", () => {
   function createMessagingDedupeRunner(
     onBlockReply: (payload: unknown) => Promise<void>,
@@ -681,6 +839,65 @@ describe("createFollowupRunner messaging tool dedupe", () => {
       }),
     );
     expect(onBlockReply).not.toHaveBeenCalled();
+  });
+});
+
+describe("resumePersistedFollowupDrains", () => {
+  it("drains persisted semantic followups after restart without manual reattach", async () => {
+    const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+    const tempStateDir = await fs.mkdtemp(path.join(tmpdir(), "openclaw-followup-resume-"));
+    process.env.OPENCLAW_STATE_DIR = tempStateDir;
+    resetInMemoryFollowupQueuesForTests();
+    resetPersistedFollowupQueuesForTests();
+    resetRecentQueuedMessageIdDedupe();
+    const key = `resume-${Date.now()}`;
+    try {
+      runEmbeddedPiAgentMock.mockResolvedValueOnce({
+        payloads: [{ text: "Recovered after restart." }],
+        meta: {},
+      });
+      enqueueFollowupRun(
+        key,
+        createQueuedRun({
+          prompt: "retry after restart",
+          automation: {
+            source: "acceptance_retry",
+            retryCount: 1,
+            persisted: true,
+            reasonCode: "contract_mismatch",
+            reasonSummary: "missing verified receipt",
+          },
+          originatingChannel: "discord",
+          originatingTo: "channel:C1",
+        }),
+        { mode: "followup", debounceMs: 0, cap: 5 },
+        "prompt",
+      );
+      expect(getFollowupQueueDepth(key)).toBe(1);
+
+      resetInMemoryFollowupQueuesForTests({ keepPersisted: true });
+      expect(getFollowupQueueDepth(key)).toBe(1);
+
+      expect(resumePersistedFollowupDrains()).toBe(1);
+
+      await vi.waitFor(() => {
+        expect(routeReplyMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            channel: "discord",
+            to: "channel:C1",
+          }),
+        );
+      });
+    } finally {
+      resetInMemoryFollowupQueuesForTests();
+      resetPersistedFollowupQueuesForTests();
+      resetRecentQueuedMessageIdDedupe();
+      if (previousStateDir === undefined) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = previousStateDir;
+      }
+    }
   });
 });
 

@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { applyMaterializationToDescriptor, materializeArtifact } from "../materialization/index.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../runtime/index.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import { createArtifactService } from "./service.js";
 
@@ -25,6 +29,7 @@ function buildDescriptor(overrides: Partial<ArtifactDescriptor> = {}): ArtifactD
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  resetPlatformRuntimeCheckpointService();
   for (const tempDir of tempDirs.splice(0)) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -96,6 +101,23 @@ describe("artifact service", () => {
       ok: true,
       descriptor: expect.objectContaining({ lifecycle: "published" }),
     });
+    expect(
+      getPlatformRuntimeCheckpointService().buildExecutionReceipts({
+        runId: "artifact-release:publish",
+        outcome: getPlatformRuntimeCheckpointService().buildRunOutcome("artifact-release:publish"),
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        kind: "platform_action",
+        name: "artifact.publish",
+        status: "success",
+        proof: "verified",
+        metadata: expect.objectContaining({
+          artifactId: "artifact-release",
+          operation: "publish",
+        }),
+      }),
+    ]);
 
     const nextService = createArtifactService({
       stateDir,
@@ -103,6 +125,34 @@ describe("artifact service", () => {
     });
     nextService.rehydrate();
     expect(nextService.get("artifact-release")?.lifecycle).toBe("published");
+  });
+
+  it("returns the existing artifact when a confirmed transition is replayed", () => {
+    const stateDir = createTempStateDir();
+    tempDirs.push(stateDir);
+    const service = createArtifactService({
+      stateDir,
+      gatewayBaseUrl: "http://127.0.0.1:18789",
+    });
+
+    service.register(buildDescriptor({ id: "artifact-replay", label: "Artifact Replay" }));
+    expect(service.transition("artifact-replay", "publish")).toEqual({
+      ok: true,
+      descriptor: expect.objectContaining({ lifecycle: "published" }),
+    });
+
+    const replay = service.transition("artifact-replay", "publish");
+    expect(replay).toEqual({
+      ok: true,
+      descriptor: expect.objectContaining({ lifecycle: "published" }),
+    });
+    expect(
+      getPlatformRuntimeCheckpointService().getAction("artifact:artifact-replay:publish"),
+    ).toEqual(
+      expect.objectContaining({
+        state: "confirmed",
+      }),
+    );
   });
 
   it("denies publish transitions when the frozen decision posture does not allow publish", () => {
@@ -134,6 +184,12 @@ describe("artifact service", () => {
       code: "denied",
       reason: expect.stringContaining("requires publish intent"),
     });
+    expect(getPlatformRuntimeCheckpointService().get("artifact-report:publish")).toEqual(
+      expect.objectContaining({
+        status: "blocked",
+        boundary: "artifact_publish",
+      }),
+    );
   });
 
   it("skips corrupt persisted records during rehydration", () => {

@@ -47,6 +47,7 @@ import {
   performGatewaySessionReset,
 } from "../session-reset-service.js";
 import { reactivateCompletedSubagentSession } from "../session-subagent-reactivation.js";
+import { buildGatewaySessionBroadcastSnapshot } from "../session-broadcast-snapshot.js";
 import {
   archiveFileOnDisk,
   listSessionsFromStore,
@@ -65,7 +66,7 @@ import {
 } from "../session-utils.js";
 import { applySessionsPatchToStore } from "../sessions-patch.js";
 import { resolveSessionKeyFromResolveParams } from "../sessions-resolve.js";
-import { chatHandlers } from "./chat.js";
+import { chatHandlers, resolveChatSendOriginatingRoute } from "./chat.js";
 import type {
   GatewayClient,
   GatewayRequestContext,
@@ -136,35 +137,7 @@ function emitSessionsChanged(
     {
       ...payload,
       ts: Date.now(),
-      ...(sessionRow
-        ? {
-            updatedAt: sessionRow.updatedAt ?? undefined,
-            sessionId: sessionRow.sessionId,
-            kind: sessionRow.kind,
-            channel: sessionRow.channel,
-            label: sessionRow.label,
-            displayName: sessionRow.displayName,
-            deliveryContext: sessionRow.deliveryContext,
-            parentSessionKey: sessionRow.parentSessionKey,
-            childSessions: sessionRow.childSessions,
-            thinkingLevel: sessionRow.thinkingLevel,
-            systemSent: sessionRow.systemSent,
-            abortedLastRun: sessionRow.abortedLastRun,
-            lastChannel: sessionRow.lastChannel,
-            lastTo: sessionRow.lastTo,
-            lastAccountId: sessionRow.lastAccountId,
-            totalTokens: sessionRow.totalTokens,
-            totalTokensFresh: sessionRow.totalTokensFresh,
-            contextTokens: sessionRow.contextTokens,
-            estimatedCostUsd: sessionRow.estimatedCostUsd,
-            modelProvider: sessionRow.modelProvider,
-            model: sessionRow.model,
-            status: sessionRow.status,
-            startedAt: sessionRow.startedAt,
-            endedAt: sessionRow.endedAt,
-            runtimeMs: sessionRow.runtimeMs,
-          }
-        : {}),
+      ...buildGatewaySessionBroadcastSnapshot(sessionRow, { includeFullSession: false }),
     },
     connIds,
     { dropIfSlow: true },
@@ -370,7 +343,7 @@ async function handleSessionSend(params: {
   if (!key) {
     return;
   }
-  const { entry, canonicalKey, storePath } = loadSessionEntry(key);
+  const { cfg, entry, canonicalKey, storePath } = loadSessionEntry(key);
   if (!entry?.sessionId) {
     params.respond(
       false,
@@ -408,6 +381,14 @@ async function handleSessionSend(params: {
     typeof rawIdempotencyKey === "string" && rawIdempotencyKey.trim()
       ? rawIdempotencyKey.trim()
       : randomUUID();
+  const shouldDeliverExternally = resolveChatSendOriginatingRoute({
+    client: params.client?.connect?.client,
+    deliver: true,
+    entry,
+    hasConnectedClient: params.client?.connect !== undefined,
+    mainKey: cfg.session?.mainKey,
+    sessionKey: canonicalKey,
+  }).explicitDeliverRoute;
   await chatHandlers["chat.send"]({
     req: params.req,
     params: {
@@ -416,6 +397,7 @@ async function handleSessionSend(params: {
       thinking: (p as { thinking?: string }).thinking,
       attachments: (p as { attachments?: unknown[] }).attachments,
       timeoutMs: (p as { timeoutMs?: number }).timeoutMs,
+      ...(shouldDeliverExternally ? { deliver: true } : {}),
       idempotencyKey,
     },
     respond: (ok, payload, error, meta) => {

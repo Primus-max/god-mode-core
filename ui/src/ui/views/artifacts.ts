@@ -153,32 +153,36 @@ export function renderArtifacts(props: ArtifactsProps) {
           type="search"
           placeholder=${t("artifacts.filterPlaceholder")}
           .value=${props.filterQuery}
-          @input=${(event: Event) =>
-            props.onFilterChange((event.target as HTMLInputElement).value)}
+          @input=${(event: Event) => props.onFilterChange((event.target as HTMLInputElement).value)}
         />
       </div>
-      ${props.error
-        ? html`<p role="alert" style="color:var(--color-danger, #d44);">${props.error}</p>`
-        : nothing}
+      ${
+        props.error
+          ? html`<p role="alert" style="color:var(--color-danger, #d44);">${props.error}</p>`
+          : nothing
+      }
       <div
         style="display:grid; grid-template-columns:minmax(280px, 360px) minmax(0, 1fr); gap:16px; margin-top:16px;"
       >
         <div style="display:flex; flex-direction:column; gap:8px;">
-          ${filteredArtifacts.length === 0
-            ? html`<div style="opacity:0.75;">${t("artifacts.empty")}</div>`
-            : filteredArtifacts.map((artifact) =>
-                renderArtifactListItem({
-                  artifact,
-                  selected: artifact.id === props.selectedId,
-                  onSelect: props.onSelect,
-                }),
-              )}
+          ${
+            filteredArtifacts.length === 0
+              ? html`<div style="opacity:0.75;">${t("artifacts.empty")}</div>`
+              : filteredArtifacts.map((artifact) =>
+                  renderArtifactListItem({
+                    artifact,
+                    selected: artifact.id === props.selectedId,
+                    onSelect: props.onSelect,
+                  }),
+                )
+          }
         </div>
         <div class="card" style="padding:16px;">
-          ${props.detailLoading
-            ? html`<div>${t("artifacts.loadingDetail")}</div>`
-            : detail && descriptor
-              ? html`
+          ${
+            props.detailLoading
+              ? html`<div>${t("artifacts.loadingDetail")}</div>`
+              : detail && descriptor
+                ? html`
                   <div class="row" style="justify-content:space-between; align-items:flex-start;">
                     <div>
                       <h3 style="margin:0;">${descriptor.label}</h3>
@@ -186,11 +190,13 @@ export function renderArtifacts(props: ArtifactsProps) {
                     </div>
                     <div style="opacity:0.75;">${descriptor.lifecycle}</div>
                   </div>
-                  ${props.detailError
-                    ? html`<p role="alert" style="color:var(--color-danger, #d44);">
+                  ${
+                    props.detailError
+                      ? html`<p role="alert" style="color:var(--color-danger, #d44);">
                         ${props.detailError}
                       </p>`
-                    : nothing}
+                      : nothing
+                  }
                   <dl
                     style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:16px 0;"
                   >
@@ -213,8 +219,9 @@ export function renderArtifacts(props: ArtifactsProps) {
                     <dt>${t("artifacts.fields.updated")}</dt>
                     <dd>${formatRelativeIsoTimestamp(descriptor.updatedAt ?? descriptor.createdAt)}</dd>
                   </dl>
-                  ${detail.warnings?.length
-                    ? html`
+                  ${
+                    detail.warnings?.length
+                      ? html`
                         <div style="margin-bottom:16px;">
                           <strong>${t("artifacts.warnings")}</strong>
                           <ul>
@@ -222,10 +229,12 @@ export function renderArtifacts(props: ArtifactsProps) {
                           </ul>
                         </div>
                       `
-                    : nothing}
+                      : nothing
+                  }
                   <div class="row" style="gap:8px; flex-wrap:wrap;">
-                    ${detail.previewUrl
-                      ? html`
+                    ${
+                      detail.previewUrl
+                        ? html`
                           <a
                             class="btn"
                             href=${detail.previewUrl}
@@ -235,9 +244,11 @@ export function renderArtifacts(props: ArtifactsProps) {
                             ${t("artifacts.openPreview")}
                           </a>
                         `
-                      : nothing}
-                    ${detail.contentUrl
-                      ? html`
+                        : nothing
+                    }
+                    ${
+                      detail.contentUrl
+                        ? html`
                           <a
                             class="btn"
                             href=${detail.contentUrl}
@@ -247,7 +258,8 @@ export function renderArtifacts(props: ArtifactsProps) {
                             ${t("artifacts.openContent")}
                           </a>
                         `
-                      : nothing}
+                        : nothing
+                    }
                     ${actions.map(
                       (operation) => html`
                         <button
@@ -262,7 +274,8 @@ export function renderArtifacts(props: ArtifactsProps) {
                     )}
                   </div>
                 `
-              : html`<div style="opacity:0.75;">${t("artifacts.selectHint")}</div>`}
+                : html`<div style="opacity:0.75;">${t("artifacts.selectHint")}</div>`
+          }
         </div>
       </div>
     </section>

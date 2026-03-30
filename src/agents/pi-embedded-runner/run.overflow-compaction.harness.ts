@@ -4,6 +4,7 @@ import type {
   PluginHookAgentContext,
   PluginHookBeforeAgentStartResult,
   PluginHookBeforeModelResolveResult,
+  PluginHookBeforeRecipeExecuteResult,
   PluginHookBeforePromptBuildResult,
 } from "../../plugins/types.js";
 import type { EmbeddedRunAttemptResult } from "./run/types.js";
@@ -47,7 +48,11 @@ export const mockedGlobalHookRunner = {
       _ctx: PluginHookAgentContext,
     ): Promise<PluginHookBeforeModelResolveResult | undefined> => undefined,
   ),
+  runBeforeRecipeExecute: vi.fn(
+    async (): Promise<PluginHookBeforeRecipeExecuteResult | undefined> => undefined,
+  ),
   runBeforeCompaction: vi.fn(async () => undefined),
+  runAfterRecipeExecute: vi.fn(async () => undefined),
   runAfterCompaction: vi.fn(async () => undefined),
 };
 
@@ -157,8 +162,12 @@ export function resetRunOverflowCompactionHarnessMocks(): void {
   mockedGlobalHookRunner.runBeforePromptBuild.mockResolvedValue(undefined);
   mockedGlobalHookRunner.runBeforeModelResolve.mockReset();
   mockedGlobalHookRunner.runBeforeModelResolve.mockResolvedValue(undefined);
+  mockedGlobalHookRunner.runBeforeRecipeExecute.mockReset();
+  mockedGlobalHookRunner.runBeforeRecipeExecute.mockResolvedValue(undefined);
   mockedGlobalHookRunner.runBeforeCompaction.mockReset();
   mockedGlobalHookRunner.runBeforeCompaction.mockResolvedValue(undefined);
+  mockedGlobalHookRunner.runAfterRecipeExecute.mockReset();
+  mockedGlobalHookRunner.runAfterRecipeExecute.mockResolvedValue(undefined);
   mockedGlobalHookRunner.runAfterCompaction.mockReset();
   mockedGlobalHookRunner.runAfterCompaction.mockResolvedValue(undefined);
 

@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import type { ChannelsStatusSnapshot } from "../types.ts";
 import { createNostrProfileFormState } from "./channels.nostr-profile-form.ts";
-import type { ChannelsProps } from "./channels.types.ts";
 import { renderChannels } from "./channels.ts";
+import type { ChannelsProps } from "./channels.types.ts";
 
 function buildSnapshot(overrides: Partial<ChannelsStatusSnapshot> = {}): ChannelsStatusSnapshot {
   return {

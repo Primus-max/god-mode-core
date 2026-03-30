@@ -1,4 +1,8 @@
-import { onAgentEvent } from "../../infra/agent-events.js";
+import { getAgentRunContext, onAgentEvent } from "../../infra/agent-events.js";
+import {
+  PlatformRuntimeRunClosureSummarySchema,
+  type PlatformRuntimeRunClosureSummary,
+} from "../../platform/runtime/contracts.js";
 
 const AGENT_RUN_CACHE_TTL_MS = 10 * 60_000;
 /**
@@ -15,7 +19,7 @@ let agentRunListenerStarted = false;
 
 type AgentRunSnapshot = {
   runId: string;
-  status: "ok" | "error" | "timeout";
+  status: "ok" | "error" | "timeout" | "blocked";
   startedAt?: number;
   endedAt?: number;
   error?: string;
@@ -76,9 +80,35 @@ function getPendingAgentRunError(runId: string) {
   };
 }
 
+function parseRuntimeClosureSummary(
+  data: Record<string, unknown> | undefined,
+): PlatformRuntimeRunClosureSummary | undefined {
+  if (!data || data.phase !== "closure") {
+    return undefined;
+  }
+  const parsed = PlatformRuntimeRunClosureSummarySchema.safeParse(data.summary);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function createSnapshotFromRuntimeClosureSummary(params: {
+  runId: string;
+  summary: PlatformRuntimeRunClosureSummary;
+}): AgentRunSnapshot {
+  const { runId, summary } = params;
+  const closed = summary.action === "close";
+  return {
+    runId,
+    status: closed ? "ok" : "error",
+    startedAt: agentRunStarts.get(runId),
+    endedAt: summary.updatedAtMs,
+    error: closed ? undefined : summary.reasons[0],
+    ts: Date.now(),
+  };
+}
+
 function createSnapshotFromLifecycleEvent(params: {
   runId: string;
-  phase: "end" | "error";
+  phase: "blocked" | "end" | "error";
   data?: Record<string, unknown>;
 }): AgentRunSnapshot {
   const { runId, phase, data } = params;
@@ -88,7 +118,14 @@ function createSnapshotFromLifecycleEvent(params: {
   const error = typeof data?.error === "string" ? data.error : undefined;
   return {
     runId,
-    status: phase === "error" ? "error" : data?.aborted ? "timeout" : "ok",
+    status:
+      phase === "blocked"
+        ? "blocked"
+        : phase === "error"
+          ? "error"
+          : data?.aborted
+            ? "timeout"
+            : "ok",
     startedAt,
     endedAt,
     error,
@@ -105,6 +142,20 @@ function ensureAgentRunListener() {
     if (!evt) {
       return;
     }
+    if (evt.stream === "runtime") {
+      const data = evt.data as Record<string, unknown> | undefined;
+      const summary = parseRuntimeClosureSummary(data);
+      if (summary) {
+        const snapshot = createSnapshotFromRuntimeClosureSummary({
+          runId: evt.runId,
+          summary,
+        });
+        clearPendingAgentRunError(evt.runId);
+        agentRunStarts.delete(evt.runId);
+        recordAgentRunSnapshot(snapshot);
+      }
+      return;
+    }
     if (evt.stream !== "lifecycle") {
       return;
     }
@@ -118,7 +169,11 @@ function ensureAgentRunListener() {
       agentRunCache.delete(evt.runId);
       return;
     }
-    if (phase !== "end" && phase !== "error") {
+    if (phase === "approved" || phase === "resumed") {
+      agentRunCache.delete(evt.runId);
+      return;
+    }
+    if (phase !== "blocked" && phase !== "end" && phase !== "error") {
       return;
     }
     const snapshot = createSnapshotFromLifecycleEvent({
@@ -126,6 +181,18 @@ function ensureAgentRunListener() {
       phase,
       data: evt.data,
     });
+    if (phase === "blocked") {
+      agentRunStarts.delete(evt.runId);
+      clearPendingAgentRunError(evt.runId);
+      recordAgentRunSnapshot(snapshot);
+      return;
+    }
+    if (
+      (phase === "end" || phase === "error") &&
+      getAgentRunContext(evt.runId)?.awaitingRunClosure === true
+    ) {
+      return;
+    }
     agentRunStarts.delete(evt.runId);
     if (phase === "error") {
       schedulePendingAgentRunError(snapshot);
@@ -210,10 +277,23 @@ export async function waitForAgentJob(params: {
     }
 
     const unsubscribe = onAgentEvent((evt) => {
-      if (!evt || evt.stream !== "lifecycle") {
+      if (!evt || evt.runId !== runId) {
         return;
       }
-      if (evt.runId !== runId) {
+      if (evt.stream === "runtime") {
+        const data = evt.data as Record<string, unknown> | undefined;
+        const summary = parseRuntimeClosureSummary(data);
+        if (summary) {
+          clearPendingErrorTimer();
+          const snapshot =
+            (ignoreCachedSnapshot ? undefined : getCachedAgentRun(runId)) ??
+            createSnapshotFromRuntimeClosureSummary({ runId, summary });
+          recordAgentRunSnapshot(snapshot);
+          finish(snapshot);
+        }
+        return;
+      }
+      if (evt.stream !== "lifecycle") {
         return;
       }
       const phase = evt.data?.phase;
@@ -221,7 +301,11 @@ export async function waitForAgentJob(params: {
         clearPendingErrorTimer();
         return;
       }
-      if (phase !== "end" && phase !== "error") {
+      if (phase === "approved" || phase === "resumed") {
+        clearPendingErrorTimer();
+        return;
+      }
+      if (phase !== "blocked" && phase !== "end" && phase !== "error") {
         return;
       }
       const latest = ignoreCachedSnapshot ? undefined : getCachedAgentRun(runId);
@@ -234,6 +318,17 @@ export async function waitForAgentJob(params: {
         phase,
         data: evt.data,
       });
+      if (phase === "blocked") {
+        recordAgentRunSnapshot(snapshot);
+        finish(snapshot);
+        return;
+      }
+      if (
+        (phase === "end" || phase === "error") &&
+        getAgentRunContext(runId)?.awaitingRunClosure === true
+      ) {
+        return;
+      }
       if (phase === "error") {
         scheduleErrorFinish(snapshot);
         return;

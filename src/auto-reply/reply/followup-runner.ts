@@ -7,12 +7,14 @@ import { resolveRunModelFallbacksOverride } from "../../agents/agent-scope.js";
 import { resolveBootstrapWarningSignaturesSeen } from "../../agents/bootstrap-budget.js";
 import { lookupCachedContextTokens } from "../../agents/context-cache.js";
 import { lookupContextTokens } from "../../agents/context.js";
-import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
+import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL } from "../../agents/defaults.js";
+import { buildModelFallbackSummary } from "../../agents/model-fallback-summary.js";
 import { runWithModelFallback } from "../../agents/model-fallback.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import type { TypingMode } from "../../config/types.js";
 import { logVerbose } from "../../globals.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
+import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { defaultRuntime } from "../../runtime.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
 import { stripHeartbeatToken } from "../heartbeat.js";
@@ -21,15 +23,26 @@ import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { resolveRunAuthProfile } from "./agent-runner-auth-profile.js";
 import {
+  buildAcceptanceFallbackPayload,
+  buildMessagingDeliveryReceipt,
+  finalizeMessagingDeliveryClosure,
+  finalizeClosureRecoveryCheckpoint,
+  markClosureRecoveryCheckpointFailed,
+  reevaluateMessagingDecisionForMessagingRun,
+} from "./agent-runner-helpers.js";
+import { resolvePlatformExecutionContextForTemplateRun } from "./agent-runner-utils.js";
+import {
   resolveOriginAccountId,
   resolveOriginMessageProvider,
   resolveOriginMessageTo,
 } from "./origin-routing.js";
+import type { QueueSettings } from "./queue.js";
 import type { FollowupRun } from "./queue.js";
+import { listExistingFollowupQueues, scheduleFollowupDrain } from "./queue.js";
 import { resolveReplyToMode } from "./reply-threading.js";
 import { incrementRunCompactionCount, persistRunSessionUsage } from "./session-run-accounting.js";
 import { createTypingSignaler } from "./typing-mode.js";
-import type { TypingController } from "./typing.js";
+import { createTypingController, type TypingController } from "./typing.js";
 
 let piEmbeddedRuntimePromise: Promise<typeof import("../../agents/pi-embedded.runtime.js")> | null =
   null;
@@ -51,10 +64,38 @@ function loadReplyPayloadsRuntime() {
   replyPayloadsRuntimePromise ??= import("./reply-payloads.runtime.js");
   return replyPayloadsRuntimePromise;
 }
+
+export function resumePersistedFollowupDrains(): number {
+  let resumed = 0;
+  for (const { key, queue } of listExistingFollowupQueues()) {
+    if (queue.items.length === 0) {
+      continue;
+    }
+    const defaultModel = queue.lastRun?.model ?? queue.items.at(-1)?.run.model ?? DEFAULT_MODEL;
+    const runFollowup = createFollowupRunner({
+      typing: createTypingController({}),
+      typingMode: "never",
+      queueKey: key,
+      resolvedQueue: {
+        mode: queue.mode,
+        debounceMs: queue.debounceMs,
+        cap: queue.cap,
+        dropPolicy: queue.dropPolicy,
+      },
+      defaultModel,
+    });
+    scheduleFollowupDrain(key, runFollowup);
+    resumed += 1;
+  }
+  return resumed;
+}
+
 export function createFollowupRunner(params: {
   opts?: GetReplyOptions;
   typing: TypingController;
   typingMode: TypingMode;
+  queueKey?: string;
+  resolvedQueue?: QueueSettings;
   sessionEntry?: SessionEntry;
   sessionStore?: Record<string, SessionEntry>;
   sessionKey?: string;
@@ -66,6 +107,8 @@ export function createFollowupRunner(params: {
     opts,
     typing,
     typingMode,
+    queueKey,
+    resolvedQueue = { mode: "followup", debounceMs: 0, cap: 20 },
     sessionEntry,
     sessionStore,
     sessionKey,
@@ -87,7 +130,14 @@ export function createFollowupRunner(params: {
    * session's current dispatcher. This ensures replies go back to
    * where the message originated.
    */
-  const sendFollowupPayloads = async (payloads: ReplyPayload[], queued: FollowupRun) => {
+  const sendFollowupPayloads = async (
+    payloads: ReplyPayload[],
+    queued: FollowupRun,
+    actionRunId?: string,
+  ) => {
+    let attemptedDeliveryCount = 0;
+    let confirmedDeliveryCount = 0;
+    let failedDeliveryCount = 0;
     // Check if we should route to originating channel.
     const { originatingChannel, originatingTo } = queued;
     const { isRoutableChannel, routeReply } = await loadRouteReplyRuntime();
@@ -120,7 +170,12 @@ export function createFollowupRunner(params: {
           accountId: queued.originatingAccountId,
           threadId: queued.originatingThreadId,
           cfg: queued.run.config,
+          actionRunId,
+          idempotencyKey: queued.requestRunId ?? actionRunId,
         });
+        attemptedDeliveryCount += result.attemptedDeliveryCount ?? 0;
+        confirmedDeliveryCount += result.confirmedDeliveryCount ?? 0;
+        failedDeliveryCount += result.failedDeliveryCount ?? 0;
         if (!result.ok) {
           const errorMsg = result.error ?? "unknown error";
           logVerbose(`followup queue: route-reply failed: ${errorMsg}`);
@@ -138,17 +193,41 @@ export function createFollowupRunner(params: {
           });
           if (opts?.onBlockReply && origin && origin === provider) {
             await opts.onBlockReply(payload);
+            attemptedDeliveryCount += 1;
+            confirmedDeliveryCount += 1;
           }
         }
       } else if (opts?.onBlockReply) {
+        attemptedDeliveryCount += 1;
         await opts.onBlockReply(payload);
+        confirmedDeliveryCount += 1;
       }
     }
+    return buildMessagingDeliveryReceipt({
+      stagedReplyPayloads: payloads,
+      attemptedDeliveries: attemptedDeliveryCount,
+      confirmedDeliveries: confirmedDeliveryCount,
+      failedDeliveries: failedDeliveryCount,
+    });
   };
 
   return async (queued: FollowupRun) => {
     try {
       const runId = crypto.randomUUID();
+      const activeSessionEntry =
+        (sessionKey ? sessionStore?.[sessionKey] : undefined) ?? sessionEntry;
+      const syntheticSessionCtx = {
+        OriginatingChannel: queued.originatingChannel,
+        Provider: queued.run.messageProvider,
+        Surface: queued.originatingChannel ?? queued.run.messageProvider,
+      } as const;
+      const platformExecutionContext = resolvePlatformExecutionContextForTemplateRun({
+        prompt: queued.prompt,
+        run: queued.run,
+        sessionCtx: syntheticSessionCtx,
+        storePath,
+        sessionEntry: activeSessionEntry,
+      });
       const shouldSurfaceToControlUi = isInternalMessageChannel(
         resolveOriginMessageProvider({
           originatingChannel: queued.originatingChannel,
@@ -159,6 +238,9 @@ export function createFollowupRunner(params: {
         registerAgentRunContext(runId, {
           sessionKey: queued.run.sessionKey,
           verboseLevel: queued.run.verboseLevel,
+          platformExecution: toPluginHookPlatformExecutionContext(platformExecutionContext),
+          requestRunId: queued.requestRunId ?? runId,
+          parentRunId: queued.parentRunId,
           isControlUiVisible: shouldSurfaceToControlUi,
         });
       }
@@ -205,8 +287,6 @@ export function createFollowupRunner(params: {
       >;
       let fallbackProvider = queued.run.provider;
       let fallbackModel = queued.run.model;
-      const activeSessionEntry =
-        (sessionKey ? sessionStore?.[sessionKey] : undefined) ?? sessionEntry;
       let bootstrapPromptWarningSignaturesSeen = resolveBootstrapWarningSignaturesSeen(
         activeSessionEntry?.systemPromptReport,
       );
@@ -266,11 +346,14 @@ export function createFollowupRunner(params: {
                 thinkLevel: queued.run.thinkLevel,
                 verboseLevel: queued.run.verboseLevel,
                 reasoningLevel: queued.run.reasoningLevel,
+                platformExecutionContext,
                 suppressToolErrorWarnings: opts?.suppressToolErrorWarnings,
                 execOverrides: queued.run.execOverrides,
                 bashElevated: queued.run.bashElevated,
                 timeoutMs: queued.run.timeoutMs,
                 runId,
+                requestRunId: queued.requestRunId ?? runId,
+                parentRunId: queued.parentRunId,
                 allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
                 blockReplyBreak: queued.run.blockReplyBreak,
                 bootstrapPromptWarningSignaturesSeen,
@@ -309,9 +392,23 @@ export function createFollowupRunner(params: {
         runResult = fallbackResult.result;
         fallbackProvider = fallbackResult.provider;
         fallbackModel = fallbackResult.model;
+        runResult.meta = {
+          ...runResult.meta,
+          modelFallback: buildModelFallbackSummary({
+            requestedProvider: queued.run.provider,
+            requestedModel: queued.run.model,
+            selectedProvider: fallbackResult.provider,
+            selectedModel: fallbackResult.model,
+            attempts: fallbackResult.attempts,
+          }),
+        };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         defaultRuntime.error?.(`Followup agent failed before reply: ${message}`);
+        markClosureRecoveryCheckpointFailed({
+          sourceRun: queued,
+          error: message,
+        });
         return;
       }
 
@@ -389,6 +486,9 @@ export function createFollowupRunner(params: {
         }),
       });
       let finalPayloads = suppressMessagingToolReplies ? [] : mediaFilteredPayloads;
+      let acceptanceOutcome = runResult.meta?.acceptanceOutcome;
+      let supervisorVerdict = runResult.meta?.supervisorVerdict;
+      let queuedSemanticRetry = false;
 
       if (autoCompactionCount > 0) {
         const count = await incrementRunCompactionCount({
@@ -418,10 +518,57 @@ export function createFollowupRunner(params: {
       }
 
       if (finalPayloads.length === 0) {
-        return;
+        const closureDecision = reevaluateMessagingDecisionForMessagingRun({
+          runResult,
+          replyPayloads: finalPayloads,
+          sourceRun: queued,
+          recoveryAttemptCount: queued.automation?.retryCount ?? 0,
+        });
+        acceptanceOutcome = closureDecision?.acceptanceOutcome ?? acceptanceOutcome;
+        supervisorVerdict = closureDecision?.supervisorVerdict ?? supervisorVerdict;
+        const fallbackPayload = buildAcceptanceFallbackPayload(
+          acceptanceOutcome,
+          supervisorVerdict,
+          {
+            channel: replyToChannel,
+          },
+        );
+        if (!fallbackPayload) {
+          markClosureRecoveryCheckpointFailed({
+            sourceRun: queued,
+            error: "closure recovery produced no deliverable fallback payload",
+          });
+          return;
+        }
+        finalPayloads = await applyFollowupReplyThreading([fallbackPayload]);
       }
 
-      await sendFollowupPayloads(finalPayloads, queued);
+      const deliveryReceipt = await sendFollowupPayloads(
+        finalPayloads,
+        queued,
+        runResult.meta?.completionOutcome?.runId,
+      );
+      const closure = finalizeMessagingDeliveryClosure({
+        candidate: {
+          runResult,
+          sourceRun: queued,
+          queueKey,
+          settings: resolvedQueue,
+        },
+        replyPayloads: finalPayloads,
+        deliveryReceipt: deliveryReceipt ?? {},
+      });
+      acceptanceOutcome = closure.acceptanceOutcome ?? acceptanceOutcome;
+      queuedSemanticRetry = closure.queuedSemanticRetry;
+      finalizeClosureRecoveryCheckpoint({
+        sourceRun: queued,
+        acceptance: acceptanceOutcome,
+        supervisorVerdict: closure.supervisorVerdict ?? supervisorVerdict,
+        queuedSemanticRetry,
+      });
+      if (queuedSemanticRetry) {
+        return;
+      }
     } finally {
       // Both signals are required for the typing controller to clean up.
       // The main inbound dispatch path calls markDispatchIdle() from the

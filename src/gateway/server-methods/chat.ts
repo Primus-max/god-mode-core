@@ -144,7 +144,7 @@ type SideResultPayload = {
   ts: number;
 };
 
-function resolveChatSendOriginatingRoute(params: {
+export function resolveChatSendOriginatingRoute(params: {
   client?: { mode?: string | null; id?: string | null } | null;
   deliver?: boolean;
   entry?: ChatSendDeliveryEntry;

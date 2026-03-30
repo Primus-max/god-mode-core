@@ -15,6 +15,7 @@ import type {
   ChannelOutboundContext,
 } from "../../channels/plugins/types.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import { resolveStateDir } from "../../config/paths.js";
 import {
   appendAssistantMessageToSessionTranscript,
   resolveMirroredTranscriptText,
@@ -30,7 +31,12 @@ import {
 import { hasReplyPayloadContent } from "../../interactive/payload.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { getAgentScopedMediaLocalRoots } from "../../media/local-roots.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  type PlatformRuntimeAction,
+} from "../../platform/runtime/index.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
+import { generateSecureUuid } from "../secure-random.js";
 import { throwIfAborted } from "./abort.js";
 import { resolveOutboundChannelPlugin } from "./channel-resolution.js";
 import { ackDelivery, enqueueDelivery, failDelivery } from "./delivery-queue.js";
@@ -255,7 +261,63 @@ function createChannelOutboundContextBase(
 
 const isAbortError = (err: unknown): boolean => err instanceof Error && err.name === "AbortError";
 
+function resolveDeliveryActionId(params: DeliverOutboundPayloadsParams): string {
+  if (typeof params.actionId === "string" && params.actionId.trim()) {
+    return params.actionId.trim();
+  }
+  if (typeof params.mirror?.idempotencyKey === "string" && params.mirror.idempotencyKey.trim()) {
+    return `messaging:${params.mirror.idempotencyKey.trim()}`;
+  }
+  return `messaging:${generateSecureUuid()}`;
+}
+
+function resolveRuntimeReceiptMessageId(result: OutboundDeliveryResult): string {
+  const candidate =
+    result.messageId ??
+    (result as unknown as { messageTs?: unknown; ts?: unknown }).messageTs ??
+    (result as unknown as { messageTs?: unknown; ts?: unknown }).ts;
+  return typeof candidate === "string" && candidate.trim().length > 0 ? candidate : "unknown";
+}
+
+function toRuntimeDeliveryReceipt(results: OutboundDeliveryResult[]) {
+  return results.map((result) => ({
+    channel: result.channel,
+    messageId: resolveRuntimeReceiptMessageId(result),
+    ...(result.chatId ? { chatId: result.chatId } : {}),
+    ...(result.channelId ? { channelId: result.channelId } : {}),
+    ...(result.roomId ? { roomId: result.roomId } : {}),
+    ...(result.conversationId ? { conversationId: result.conversationId } : {}),
+    ...(typeof result.timestamp === "number" ? { timestamp: result.timestamp } : {}),
+    ...(result.toJid ? { toJid: result.toJid } : {}),
+    ...(result.pollId ? { pollId: result.pollId } : {}),
+    ...(result.meta ? { meta: result.meta } : {}),
+  }));
+}
+
+function fromRuntimeDeliveryReceipt(
+  action: PlatformRuntimeAction | undefined,
+): OutboundDeliveryResult[] {
+  const receipt = action?.receipt?.deliveryResults;
+  if (!receipt?.length) {
+    return [];
+  }
+  return receipt.map((result) => ({
+    channel: result.channel as Exclude<OutboundChannel, "none">,
+    messageId: result.messageId,
+    ...(result.chatId ? { chatId: result.chatId } : {}),
+    ...(result.channelId ? { channelId: result.channelId } : {}),
+    ...(result.roomId ? { roomId: result.roomId } : {}),
+    ...(result.conversationId ? { conversationId: result.conversationId } : {}),
+    ...(typeof result.timestamp === "number" ? { timestamp: result.timestamp } : {}),
+    ...(result.toJid ? { toJid: result.toJid } : {}),
+    ...(result.pollId ? { pollId: result.pollId } : {}),
+    ...(result.meta ? { meta: result.meta } : {}),
+  }));
+}
+
 type DeliverOutboundPayloadsCoreParams = {
+  actionId?: string;
+  actionRunId?: string;
   cfg: OpenClawConfig;
   channel: Exclude<OutboundChannel, "none">;
   to: string;
@@ -484,11 +546,32 @@ export async function deliverOutboundPayloads(
   params: DeliverOutboundPayloadsParams,
 ): Promise<OutboundDeliveryResult[]> {
   const { channel, to, payloads } = params;
+  const actionId = resolveDeliveryActionId(params);
+  const runtimeService = getPlatformRuntimeCheckpointService({
+    stateDir: resolveStateDir(process.env),
+  });
+  runtimeService.stageAction({
+    actionId,
+    ...(params.actionRunId ? { runId: params.actionRunId } : {}),
+    ...(params.mirror?.sessionKey ? { sessionKey: params.mirror.sessionKey } : {}),
+    kind: "messaging_delivery",
+    ...(typeof params.mirror?.idempotencyKey === "string" && params.mirror.idempotencyKey.trim()
+      ? { idempotencyKey: params.mirror.idempotencyKey.trim() }
+      : {}),
+    target: {
+      operation: "deliver",
+    },
+  });
+  const existingAction = runtimeService.getAction(actionId);
+  if (existingAction?.state === "confirmed") {
+    return fromRuntimeDeliveryReceipt(existingAction);
+  }
 
   // Write-ahead delivery queue: persist before sending, remove after success.
   const queueId = params.skipQueue
     ? null
     : await enqueueDelivery({
+        actionId,
         channel,
         to,
         accountId: params.accountId,
@@ -500,7 +583,12 @@ export async function deliverOutboundPayloads(
         forceDocument: params.forceDocument,
         silent: params.silent,
         mirror: params.mirror,
-      }).catch(() => null); // Best-effort — don't block delivery if queue write fails.
+      }).catch((error) => {
+        log.warn(
+          `Failed to persist outbound delivery ${actionId} to the recovery queue before send: ${String(error)}`,
+        );
+        return null;
+      });
 
   // Wrap onError to detect partial failures under bestEffort mode.
   // When bestEffort is true, per-payload errors are caught and passed to onError
@@ -518,13 +606,35 @@ export async function deliverOutboundPayloads(
     : params;
 
   try {
-    const results = await deliverOutboundPayloadsCore(wrappedParams);
+    runtimeService.markActionAttempted(actionId, { retryable: true });
+    const results = await deliverOutboundPayloadsCore({
+      ...wrappedParams,
+      actionId,
+    });
     if (queueId) {
       if (hadPartialFailure) {
         await failDelivery(queueId, "partial delivery failure (bestEffort)").catch(() => {});
       } else {
         await ackDelivery(queueId).catch(() => {}); // Best-effort cleanup.
       }
+    }
+    if (hadPartialFailure) {
+      runtimeService.updateAction(actionId, {
+        state: "partial",
+        retryable: true,
+        lastError: "partial delivery failure (bestEffort)",
+        receipt: {
+          deliveryResults: toRuntimeDeliveryReceipt(results),
+          operation: "deliver",
+        },
+      });
+    } else {
+      runtimeService.markActionConfirmed(actionId, {
+        receipt: {
+          deliveryResults: toRuntimeDeliveryReceipt(results),
+          operation: "deliver",
+        },
+      });
     }
     return results;
   } catch (err) {
@@ -537,6 +647,10 @@ export async function deliverOutboundPayloads(
         );
       }
     }
+    runtimeService.markActionFailed(actionId, {
+      lastError: err instanceof Error ? err.message : String(err),
+      retryable: !isAbortError(err),
+    });
     throw err;
   }
 }

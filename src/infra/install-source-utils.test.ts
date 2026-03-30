@@ -1,19 +1,21 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as execModule from "../process/exec.js";
 import {
   packNpmSpecToArchive,
   resolveArchiveSourcePath,
   withTempDir,
 } from "./install-source-utils.js";
 
-const runCommandWithTimeoutMock = vi.fn();
 const TEMP_DIR_PREFIX = "openclaw-install-source-utils-";
 
-vi.mock("../process/exec.js", () => ({
-  runCommandWithTimeout: (...args: unknown[]) => runCommandWithTimeoutMock(...args),
-}));
+const runCommandSpy = vi.spyOn(execModule, "runCommandWithTimeout");
+
+afterAll(() => {
+  runCommandSpy.mockRestore();
+});
 
 const tempDirs: string[] = [];
 
@@ -39,12 +41,13 @@ async function createFixtureFile(params: {
 }
 
 function mockPackCommandResult(params: { stdout: string; stderr?: string; code?: number }) {
-  runCommandWithTimeoutMock.mockResolvedValue({
+  runCommandSpy.mockResolvedValue({
     stdout: params.stdout,
     stderr: params.stderr ?? "",
     code: params.code ?? 0,
     signal: null,
     killed: false,
+    termination: "exit",
   });
 }
 
@@ -63,12 +66,13 @@ async function expectPackFallsBackToDetectedArchive(params: {
   const cwd = await createTempDir("openclaw-install-source-utils-");
   const archivePath = path.join(cwd, "openclaw-plugin-1.2.3.tgz");
   await fs.writeFile(archivePath, "", "utf-8");
-  runCommandWithTimeoutMock.mockResolvedValue({
+  runCommandSpy.mockResolvedValue({
     stdout: params.stdout,
     stderr: "",
     code: 0,
     signal: null,
     killed: false,
+    termination: "exit",
   });
 
   const result = await packNpmSpecToArchive({
@@ -85,7 +89,7 @@ async function expectPackFallsBackToDetectedArchive(params: {
 }
 
 beforeEach(() => {
-  runCommandWithTimeoutMock.mockClear();
+  runCommandSpy.mockClear();
 });
 
 afterEach(async () => {
@@ -182,7 +186,7 @@ describe("packNpmSpecToArchive", () => {
         shasum: "abc123",
       },
     });
-    expect(runCommandWithTimeoutMock).toHaveBeenCalledWith(
+    expect(runCommandSpy).toHaveBeenCalledWith(
       ["npm", "pack", "openclaw-plugin@1.2.3", "--ignore-scripts", "--json"],
       expect.objectContaining({
         cwd,

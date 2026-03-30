@@ -24,7 +24,6 @@ import {
   channelEnabled,
   deriveChannelConnectedState,
   deriveChannelRunningState,
-  formatChannelBool,
   formatChannelConnectedDisplay,
   formatChannelOptionalBool,
   formatChannelRunDisplay,

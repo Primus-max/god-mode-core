@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { Skill } from "@mariozechner/pi-coding-agent";
 import type { ChatType } from "../../channels/chat-type.js";
 import type { ChannelId } from "../../channels/plugins/types.js";
+import type { PlatformRuntimeRunClosureSummary } from "../../platform/runtime/index.js";
 import { PROFILE_IDS, type ProfileId } from "../../platform/schemas/profile.js";
 import type { DeliveryContext } from "../../utils/delivery-context.js";
 import type { TtsAutoMode } from "../types.tts.js";
@@ -100,7 +101,9 @@ export type SessionEntry = {
   /** Accumulated runtime across subagent follow-up runs, persisted after completion. */
   runtimeMs?: number;
   /** Final persisted subagent run status, used after in-memory run archival. */
-  status?: "running" | "done" | "failed" | "killed" | "timeout";
+  status?: "running" | "blocked" | "done" | "failed" | "killed" | "timeout";
+  /** Compact structured closure summary persisted for reload-stable session truth. */
+  runClosureSummary?: PlatformRuntimeRunClosureSummary;
   /**
    * Session-level stop cutoff captured when /stop is received.
    * Messages at/before this boundary are skipped to avoid replaying
@@ -208,8 +211,7 @@ function normalizeSessionSpecialistOverrideFields(entry: SessionEntry): SessionE
     : undefined;
 
   const inferredMode =
-    normalizedMode ??
-    (normalizedSession ? "session" : normalizedBase ? "base" : undefined);
+    normalizedMode ?? (normalizedSession ? "session" : normalizedBase ? "base" : undefined);
 
   let next = entry;
   const ensureClone = () => {

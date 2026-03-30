@@ -23,11 +23,13 @@ import {
 } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
+import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import type { TemplateContext } from "../templating.js";
 import type { VerboseLevel } from "../thinking.js";
 import type { GetReplyOptions } from "../types.js";
 import {
   buildEmbeddedRunExecutionParams,
+  resolvePlatformExecutionContextForTemplateRun,
   resolveModelFallbackOptions,
 } from "./agent-runner-utils.js";
 import {
@@ -500,15 +502,28 @@ export async function runMemoryFlushIfNeeded(params: {
       (params.sessionKey ? activeSessionStore?.[params.sessionKey]?.systemPromptReport : undefined),
   );
   const flushRunId = crypto.randomUUID();
+  const memoryFlushNowMs = Date.now();
+  const memoryFlushPrompt = resolveMemoryFlushPromptForRun({
+    prompt: memoryFlushSettings.prompt,
+    cfg: params.cfg,
+    nowMs: memoryFlushNowMs,
+  });
+  const platformExecutionContext = resolvePlatformExecutionContextForTemplateRun({
+    prompt: memoryFlushPrompt,
+    run: params.followupRun.run,
+    sessionCtx: params.sessionCtx,
+    storePath: params.storePath,
+    sessionEntry: activeSessionEntry,
+  });
   if (params.sessionKey) {
     registerAgentRunContext(flushRunId, {
       sessionKey: params.sessionKey,
       verboseLevel: params.resolvedVerboseLevel,
+      platformExecution: toPluginHookPlatformExecutionContext(platformExecutionContext),
     });
   }
   let memoryCompactionCompleted = false;
   let fallbackFlushAttemptedForCurrentHash = false;
-  const memoryFlushNowMs = Date.now();
   const memoryFlushWritePath = resolveMemoryFlushRelativePathForRun({
     cfg: params.cfg,
     nowMs: memoryFlushNowMs,
@@ -547,14 +562,11 @@ export async function runMemoryFlushIfNeeded(params: {
           ...embeddedContext,
           ...senderContext,
           ...runBaseParams,
+          platformExecutionContext,
           allowGatewaySubagentBinding: true,
           trigger: "memory",
           memoryFlushWritePath,
-          prompt: resolveMemoryFlushPromptForRun({
-            prompt: memoryFlushSettings.prompt,
-            cfg: params.cfg,
-            nowMs: memoryFlushNowMs,
-          }),
+          prompt: memoryFlushPrompt,
           extraSystemPrompt: flushSystemPrompt,
           bootstrapPromptWarningSignaturesSeen,
           bootstrapPromptWarningSignature:

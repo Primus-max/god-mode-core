@@ -2,6 +2,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { markdownToSignalTextChunks } from "../../../extensions/signal/src/format.js";
 import {
+  slackOutbound,
   signalOutbound,
   telegramOutbound,
   whatsappOutbound,
@@ -1057,6 +1058,53 @@ describe("deliverOutboundPayloads", () => {
       expect.objectContaining({ to: "!room:1", content: "payload text", success: true }),
       expect.objectContaining({ channelId: "matrix" }),
     );
+  });
+
+  it("delivers structured closure payloads through slack sendPayload while keeping text fallback", async () => {
+    const sendSlack = vi.fn().mockResolvedValue({ messageId: "sl-1", channelId: "C123" });
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "slack",
+          source: "test",
+          plugin: createOutboundTestPlugin({
+            id: "slack",
+            outbound: slackOutbound,
+          }),
+        },
+      ]),
+    );
+
+    const results = await deliverOutboundPayloads({
+      cfg: { channels: { slack: {} } },
+      channel: "slack",
+      to: "C123",
+      payloads: [
+        {
+          text: "I need human input or approval before I can finish this. A human must confirm the deployment.",
+          interactive: {
+            blocks: [
+              { type: "text", text: "Approval or input required" },
+              { type: "text", text: "Reason: A human must confirm the deployment." },
+              { type: "text", text: "Next step: Waiting for human approval or guidance before continuing." },
+            ],
+          },
+        },
+      ],
+      deps: { sendSlack },
+    });
+
+    expect(sendSlack).toHaveBeenCalledTimes(1);
+    expect(sendSlack).toHaveBeenCalledWith(
+      "C123",
+      "I need human input or approval before I can finish this. A human must confirm the deployment.",
+      expect.objectContaining({
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ type: "section" }),
+        ]),
+      }),
+    );
+    expect(results).toEqual([{ channel: "slack", messageId: "sl-1", channelId: "C123" }]);
   });
 
   it("preserves channelData-only payloads with empty text for non-WhatsApp sendPayload channels", async () => {

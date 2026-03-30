@@ -1,4 +1,8 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveSessionTranscriptPathInDir } from "../../config/sessions/paths.js";
 import type { FollowupRun } from "./queue.js";
 
 const hoisted = vi.hoisted(() => {
@@ -15,6 +19,7 @@ const {
   buildThreadingToolContext,
   buildEmbeddedRunBaseParams,
   buildEmbeddedRunContexts,
+  resolvePlatformExecutionContextForTemplateRun,
   resolveModelFallbackOptions,
   resolveProviderScopedAuthProfile,
 } = await import("./agent-runner-utils.js");
@@ -213,5 +218,65 @@ describe("agent-runner-utils", () => {
       currentChannelId: "channel:123456789012345678",
       currentMessageId: "msg-9",
     });
+  });
+
+  it("resolves a frozen platform execution context for template runs", () => {
+    const run = makeRun({ messageProvider: "telegram" });
+
+    const resolved = resolvePlatformExecutionContextForTemplateRun({
+      prompt: "Build the repo and publish the release to GitHub",
+      run,
+      sessionCtx: {
+        Provider: "telegram",
+        OriginatingChannel: "telegram",
+        Surface: "telegram",
+      },
+      sessionEntry: {
+        sessionId: "session-override",
+        specialistOverrideMode: "session",
+        specialistSessionProfileId: "developer",
+      },
+    });
+
+    expect(resolved.selectedProfileId).toBe("developer");
+    expect(resolved.readinessStatus).toBe("approval_required");
+    expect(resolved.requestedToolNames).toEqual(expect.arrayContaining(["exec", "process"]));
+  });
+
+  it("uses transcript-derived prompt and file names when store context exists", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-stage9-input-"));
+    const storePath = path.join(tmp, "sessions.json");
+    const transcriptPath = resolveSessionTranscriptPathInDir("session-1", tmp);
+    await fs.writeFile(
+      transcriptPath,
+      `${JSON.stringify({
+        id: "msg-1",
+        message: {
+          role: "user",
+          content: "Please inspect the attached build log and fix the CI failure",
+          MediaPaths: ["/tmp/build.log"],
+        },
+      })}\n`,
+      "utf8",
+    );
+    const run = makeRun({ messageProvider: "telegram" });
+
+    const resolved = resolvePlatformExecutionContextForTemplateRun({
+      prompt: "Then ship the patch.",
+      run,
+      sessionCtx: {
+        Provider: "telegram",
+        OriginatingChannel: "telegram",
+        Surface: "telegram",
+      },
+      storePath,
+      sessionEntry: {
+        sessionId: "session-1",
+        sessionFile: "session-1.jsonl",
+      },
+    });
+
+    expect(resolved.requestedToolNames).toEqual(expect.arrayContaining(["exec", "process"]));
+    expect(resolved.prependContext).toContain("Planner reasoning");
   });
 });

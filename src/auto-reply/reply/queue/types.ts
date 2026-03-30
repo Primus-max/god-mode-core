@@ -19,12 +19,26 @@ export type QueueSettings = {
 
 export type QueueDedupeMode = "message-id" | "prompt" | "none";
 
+export type FollowupAutomationMetadata = {
+  source: "acceptance_retry" | "closure_recovery";
+  retryCount: number;
+  persisted?: boolean;
+  runtimeCheckpointId?: string;
+  reasonCode?: string;
+  reasonSummary?: string;
+};
+
 export type FollowupRun = {
   prompt: string;
   /** Provider message ID, when available (for deduplication). */
   messageId?: string;
   summaryLine?: string;
   enqueuedAt: number;
+  /** Stable request/idempotency anchor that started the continuation chain. */
+  requestRunId?: string;
+  /** Immediate predecessor runtime runId when this run is a continuation. */
+  parentRunId?: string;
+  automation?: FollowupAutomationMetadata;
   /**
    * Originating channel for reply routing.
    * When set, replies should be routed back to this provider

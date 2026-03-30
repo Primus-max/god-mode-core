@@ -120,4 +120,67 @@ describe("gateway ws log helpers", () => {
       reason: "dropped",
     });
   });
+
+  test("summarizeAgentEventForWsLog includes runtime closure summaries", () => {
+    expect(
+      summarizeAgentEventForWsLog({
+        runId: "run-closure",
+        sessionKey: "agent:main:thread-1",
+        stream: "runtime",
+        data: {
+          phase: "closure",
+          summary: {
+            runId: "run-closure",
+            sessionKey: "agent:main:thread-1",
+            updatedAtMs: 2_000,
+            outcomeStatus: "partial",
+            verificationStatus: "mismatch",
+            acceptanceStatus: "retryable",
+            action: "retry",
+            remediation: "semantic_retry",
+            reasonCode: "contract_mismatch",
+            reasons: ["Execution contract did not match the declared intent."],
+            declaredIntent: "document",
+            declaredRecipeId: "recipe.doc",
+          },
+        },
+      }),
+    ).toMatchObject({
+      run: "run-closure",
+      agent: "main",
+      session: "thread-1",
+      stream: "runtime",
+      phase: "closure",
+      action: "retry",
+      code: "contract_mismatch",
+      outcome: "partial",
+      intent: "document",
+      recipe: "recipe.doc",
+    });
+  });
+
+  test("summarizeAgentEventForWsLog includes runtime recovery telemetry milestones", () => {
+    expect(
+      summarizeAgentEventForWsLog({
+        runId: "run-rec",
+        sessionKey: "agent:main:thread-1",
+        stream: "runtime",
+        data: {
+          phase: "recovery",
+          milestone: "followup_enqueued",
+          checkpointId: "checkpoint-uuid-12345678-abcd-ef00-123456789abc",
+          continuationKind: "closure_recovery",
+          queueKey: "queue/main/followup",
+          terminalStatus: "completed",
+        },
+      }),
+    ).toMatchObject({
+      stream: "runtime",
+      phase: "recovery",
+      milestone: "followup_enqueued",
+      kind: "closure_recovery",
+      terminal: "completed",
+      queue: "queue/main/followup",
+    });
+  });
 });

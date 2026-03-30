@@ -270,6 +270,57 @@ describe("routeReply", () => {
     );
   });
 
+  it("returns confirmed delivery receipt counts on success", async () => {
+    mocks.sendMessageSlack.mockClear();
+    const res = await routeReply({
+      payload: { text: "hello" },
+      channel: "slack",
+      to: "channel:C123",
+      cfg: {} as never,
+    });
+
+    expect(res).toMatchObject({
+      ok: true,
+      attemptedDeliveryCount: 1,
+      confirmedDeliveryCount: 1,
+      failedDeliveryCount: 0,
+    });
+  });
+
+  it("forwards actionRunId to durable outbound delivery", async () => {
+    mocks.deliverOutboundPayloads.mockResolvedValue([{ channel: "slack", messageId: "m1" }]);
+    await routeReply({
+      payload: { text: "hello" },
+      channel: "slack",
+      to: "channel:C123",
+      actionRunId: "run-route-1",
+      cfg: {} as never,
+    });
+
+    expect(mocks.deliverOutboundPayloads).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionRunId: "run-route-1",
+      }),
+    );
+  });
+
+  it("returns failed delivery receipt counts on error", async () => {
+    mocks.deliverOutboundPayloads.mockRejectedValueOnce(new Error("send failed"));
+    const res = await routeReply({
+      payload: { text: "hello" },
+      channel: "slack",
+      to: "channel:C123",
+      cfg: {} as never,
+    });
+
+    expect(res).toMatchObject({
+      ok: false,
+      attemptedDeliveryCount: 1,
+      confirmedDeliveryCount: 0,
+      failedDeliveryCount: 1,
+    });
+  });
+
   it("routes directive-only Slack replies when interactive replies are enabled", async () => {
     mocks.sendMessageSlack.mockClear();
     const cfg = {
@@ -499,11 +550,17 @@ describe("routeReply", () => {
 
   it("sends multiple mediaUrls (caption only on first)", async () => {
     mocks.sendMessageSlack.mockClear();
-    await routeReply({
+    const res = await routeReply({
       payload: { text: "caption", mediaUrls: ["a", "b"] },
       channel: "slack",
       to: "channel:C123",
       cfg: {} as never,
+    });
+    expect(res).toMatchObject({
+      ok: true,
+      attemptedDeliveryCount: 2,
+      confirmedDeliveryCount: 2,
+      failedDeliveryCount: 0,
     });
     expect(mocks.sendMessageSlack).toHaveBeenCalledTimes(2);
     expect(mocks.sendMessageSlack).toHaveBeenNthCalledWith(

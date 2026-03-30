@@ -1,3 +1,4 @@
+import { resolveStateDir } from "../config/paths.js";
 import type {
   OpenClawPluginApi,
   OpenClawPluginDefinition,
@@ -7,7 +8,6 @@ import type {
   PluginHookBeforePromptBuildResult,
   PluginHookPlatformExecutionContext,
 } from "../plugins/types.js";
-import { resolveStateDir } from "../config/paths.js";
 import {
   createArtifactGetGatewayMethod,
   createArtifactHttpHandler,
@@ -22,6 +22,9 @@ import {
   createBootstrapRunGatewayMethod,
   getPlatformBootstrapService,
 } from "./bootstrap/index.js";
+import { buildExecutionDecisionInput } from "./decision/input.js";
+import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
+import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
 import {
   createMachineKillSwitchGatewayMethod,
   createMachineLinkGatewayMethod,
@@ -29,18 +32,24 @@ import {
   createMachineUnlinkGatewayMethod,
   getPlatformMachineControlService,
 } from "./machine/index.js";
-import { buildExecutionDecisionInput } from "./decision/input.js";
-import { createProfileResolveGatewayMethod } from "./profile/index.js";
-import { getInitialProfile, getTaskOverlay } from "./profile/defaults.js";
 import { evaluatePolicy } from "./policy/engine.js";
-import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
-import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
+import { getInitialProfile, getTaskOverlay } from "./profile/defaults.js";
+import { createProfileResolveGatewayMethod } from "./profile/index.js";
+import { getInitialRecipe } from "./recipe/defaults.js";
 import {
   buildPolicyContextFromExecutionContext,
   resolvePlatformRuntimePlan,
   toPluginHookPlatformExecutionContext,
 } from "./recipe/runtime-adapter.js";
-import { getInitialRecipe } from "./recipe/defaults.js";
+import {
+  createRuntimeActionGetGatewayMethod,
+  createRuntimeActionListGatewayMethod,
+  createRuntimeCheckpointGetGatewayMethod,
+  createRuntimeCheckpointListGatewayMethod,
+  createRuntimeClosureGetGatewayMethod,
+  createRuntimeClosureListGatewayMethod,
+  getPlatformRuntimeCheckpointService,
+} from "./runtime/index.js";
 
 function resolveHookExecution(
   prompt: string,
@@ -61,7 +70,7 @@ function resolveExecutionLabels(execution: PluginHookPlatformExecutionContext): 
   const profile = getInitialProfile(execution.profileId as Parameters<typeof getInitialProfile>[0]);
   const overlayLabel =
     profile && execution.taskOverlayId
-      ? getTaskOverlay(profile, execution.taskOverlayId)?.label ?? execution.taskOverlayId
+      ? (getTaskOverlay(profile, execution.taskOverlayId)?.label ?? execution.taskOverlayId)
       : execution.taskOverlayId;
   return {
     profileLabel: profile?.label ?? execution.profileId,
@@ -150,9 +159,13 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   const bootstrapService = getPlatformBootstrapService({
     stateDir: resolveStateDir(process.env),
   });
+  const runtimeCheckpointService = getPlatformRuntimeCheckpointService({
+    stateDir: resolveStateDir(process.env),
+  });
   const machineControlService = getPlatformMachineControlService();
   artifactService.rehydrate();
   bootstrapService.rehydrate();
+  runtimeCheckpointService.rehydrate();
 
   api.registerHttpRoute({
     path: "/platform/artifacts",
@@ -192,6 +205,30 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
     createBootstrapRunGatewayMethod(bootstrapService),
   );
   api.registerGatewayMethod(
+    "platform.runtime.actions.list",
+    createRuntimeActionListGatewayMethod(runtimeCheckpointService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.actions.get",
+    createRuntimeActionGetGatewayMethod(runtimeCheckpointService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.checkpoints.list",
+    createRuntimeCheckpointListGatewayMethod(runtimeCheckpointService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.checkpoints.get",
+    createRuntimeCheckpointGetGatewayMethod(runtimeCheckpointService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.closures.list",
+    createRuntimeClosureListGatewayMethod(runtimeCheckpointService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.closures.get",
+    createRuntimeClosureGetGatewayMethod(runtimeCheckpointService),
+  );
+  api.registerGatewayMethod(
     "platform.machine.status",
     createMachineStatusGatewayMethod(machineControlService),
   );
@@ -208,7 +245,9 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
     createMachineKillSwitchGatewayMethod(machineControlService),
   );
   api.registerGatewayMethod("platform.profile.resolve", createProfileResolveGatewayMethod());
-  api.on("before_agent_start", (event, ctx) => buildAgentStartResult(event.prompt, ctx), { priority: 20 });
+  api.on("before_agent_start", (event, ctx) => buildAgentStartResult(event.prompt, ctx), {
+    priority: 20,
+  });
   api.on("before_model_resolve", (event, ctx) => buildModelResolveResult(event.prompt, ctx), {
     priority: 20,
   });
@@ -249,26 +288,24 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
     (event, ctx) => {
       const params =
         event.params && typeof event.params === "object" && !Array.isArray(event.params)
-          ? (event.params as Record<string, unknown>)
+          ? event.params
           : {};
       if (!isMachineControlToolCall(event.toolName, params)) {
         return undefined;
       }
       const runSnapshot = ctx.runId ? machineControlService.getRunSnapshot(ctx.runId) : undefined;
-      const policyContext =
-        runSnapshot?.platformExecution
-          ? buildPolicyContextFromExecutionContext(
-              runSnapshot.platformExecution,
-              {
-                requestedMachineControl: true,
-                machineControlLinked: true,
-                machineControlKillSwitchEnabled: machineControlService.getSnapshot().killSwitch.enabled,
-                explicitApproval: false,
-              },
-            )
-          : undefined;
+      const policyContext = runSnapshot?.platformExecution
+        ? buildPolicyContextFromExecutionContext(runSnapshot.platformExecution, {
+            requestedMachineControl: true,
+            machineControlLinked: true,
+            machineControlKillSwitchEnabled: machineControlService.getSnapshot().killSwitch.enabled,
+            explicitApproval: false,
+          })
+        : undefined;
       const fallbackDecision = !policyContext
-        ? resolvePlatformRuntimePlan(buildExecutionDecisionInput({ prompt: runSnapshot?.prompt ?? "" }))
+        ? resolvePlatformRuntimePlan(
+            buildExecutionDecisionInput({ prompt: runSnapshot?.prompt ?? "" }),
+          )
         : undefined;
       const policy = evaluatePolicy(
         policyContext ?? {
@@ -281,7 +318,9 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
         },
       );
       if (!policy.allowMachineControl && policy.deniedReasons.length > 0) {
-        const blockingReason = policy.deniedReasons.find((reason) => reason.includes("kill switch"));
+        const blockingReason = policy.deniedReasons.find((reason) =>
+          reason.includes("kill switch"),
+        );
         if (blockingReason) {
           return {
             block: true,

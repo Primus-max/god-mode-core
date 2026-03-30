@@ -1,16 +1,24 @@
 import { DEFAULT_PROVIDER } from "../../agents/defaults.js";
 import { parseModelRef } from "../../agents/model-selection.js";
 import type { PluginHookPlatformExecutionContext } from "../../plugins/types.js";
-import type { PlatformExecutionContextSnapshot } from "../decision/contracts.js";
-import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import type { BootstrapResolution } from "../bootstrap/contracts.js";
+import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import { resolveBootstrapRequests } from "../bootstrap/resolver.js";
+import type {
+  PlatformExecutionContextSnapshot,
+  PlatformExecutionContextReadinessStatus,
+  PlatformExecutionContextUnattendedBoundary,
+} from "../decision/contracts.js";
 import { evaluatePolicy } from "../policy/engine.js";
 import type { PolicyContext, PolicyDecision } from "../policy/types.js";
 import { getInitialProfile, getTaskOverlay } from "../profile/defaults.js";
 import { applyTaskOverlay } from "../profile/overlay.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { CapabilityRegistry } from "../registry/types.js";
+import {
+  PlatformRuntimeExecutionSurfaceSchema,
+  type PlatformRuntimeExecutionSurface,
+} from "../runtime/index.js";
 import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 import type { ProfileId } from "../schemas/profile.js";
 import type { RecipePlannerInput } from "./planner.js";
@@ -26,12 +34,16 @@ export type RecipeRuntimePlan = {
   modelOverride?: string;
   fallbackModels?: string[];
   timeoutSeconds?: number;
+  artifactKinds?: string[];
   requestedToolNames?: string[];
   publishTargets?: string[];
   requiredCapabilities?: string[];
   bootstrapRequiredCapabilities?: string[];
   requireExplicitApproval?: boolean;
   policyAutonomy?: PolicyDecision["autonomy"];
+  readinessStatus?: PlatformExecutionContextReadinessStatus;
+  readinessReasons?: string[];
+  unattendedBoundary?: PlatformExecutionContextUnattendedBoundary;
   prependSystemContext?: string;
   prependContext?: string;
 };
@@ -76,6 +88,40 @@ export type ResolvePlatformExecutionDecisionOptions = {
   >;
 };
 
+export type PlatformExecutionReadiness = {
+  status: PlatformExecutionContextReadinessStatus;
+  reasons: string[];
+  unattendedBoundary?: PlatformExecutionContextUnattendedBoundary;
+};
+
+export function buildExecutionSurfaceSnapshot(params: {
+  readiness: PlatformExecutionReadiness;
+  capabilitySummary: PlatformCapabilitySummary;
+  checkedAtMs?: number;
+  cacheTtlMs?: number;
+  modelFallbackActive?: boolean;
+}): PlatformRuntimeExecutionSurface {
+  const status =
+    params.readiness.status === "ready"
+      ? "ready"
+      : params.readiness.status === "bootstrap_required"
+        ? "bootstrap_required"
+        : params.readiness.status === "approval_required"
+          ? "approval_required"
+          : "degraded";
+  return PlatformRuntimeExecutionSurfaceSchema.parse({
+    status,
+    ready: status === "ready",
+    checkedAtMs: params.checkedAtMs ?? Date.now(),
+    cacheTtlMs: params.cacheTtlMs,
+    reasons: params.readiness.reasons,
+    bootstrapRequiredCapabilities: params.capabilitySummary.bootstrapRequiredCapabilities,
+    unresolvedCapabilities: params.capabilitySummary.unresolvedCapabilities,
+    modelFallbackActive: params.modelFallbackActive,
+    approvalRequired: status === "approval_required",
+  });
+}
+
 function buildSystemContext(
   plan: ExecutionPlan,
   capabilitySummary?: PlatformCapabilitySummary,
@@ -97,6 +143,7 @@ function buildPrependContext(
   params?: {
     capabilitySummary?: PlatformCapabilitySummary;
     policyPreview?: PolicyDecision;
+    readiness?: PlatformExecutionReadiness;
   },
 ): string {
   return [
@@ -111,9 +158,47 @@ function buildPrependContext(
     params?.policyPreview?.requireExplicitApproval
       ? `Policy posture: explicit approval required (${params.policyPreview.autonomy}).`
       : undefined,
+    params?.readiness && params.readiness.status !== "ready"
+      ? `Preflight readiness: ${params.readiness.status.replaceAll("_", " ")}. ${params.readiness.reasons.join(" ")}`
+      : undefined,
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function buildExecutionReadiness(params: {
+  input: RecipePlannerInput;
+  capabilitySummary: PlatformCapabilitySummary;
+  policyPreview: PolicyDecision;
+}): PlatformExecutionReadiness {
+  const reasons: string[] = [];
+  if (params.capabilitySummary.bootstrapRequiredCapabilities.length > 0) {
+    reasons.push(
+      `Bootstrap required for capabilities: ${params.capabilitySummary.bootstrapRequiredCapabilities.join(", ")}.`,
+    );
+    const canAutoContinueBootstrap =
+      params.policyPreview.autonomy === "assist" &&
+      (params.input.intent === "document" || params.input.intent === "code");
+    return {
+      status: "bootstrap_required",
+      reasons,
+      ...(canAutoContinueBootstrap ? { unattendedBoundary: "bootstrap" } : {}),
+    };
+  }
+  const requestsPrivilegedAction =
+    (params.input.requestedTools?.some((tool) => tool === "exec" || tool === "process") ?? false) ||
+    (params.input.publishTargets?.length ?? 0) > 0;
+  if (params.policyPreview.requireExplicitApproval && requestsPrivilegedAction) {
+    reasons.push("Explicit approval is required before privileged execution can continue.");
+    return {
+      status: "approval_required",
+      reasons,
+    };
+  }
+  return {
+    status: "ready",
+    reasons: [],
+  };
 }
 
 function resolveBootstrapSourceDomain(
@@ -163,7 +248,8 @@ function buildCapabilitySummary(params: {
       "unknown-capability";
     return {
       capabilityId,
-      capabilityLabel: resolution.request?.catalogEntry.capability.label ?? resolution.capability?.label,
+      capabilityLabel:
+        resolution.request?.catalogEntry.capability.label ?? resolution.capability?.label,
       status: resolution.status,
       requiresBootstrap: resolution.status === "request",
       ...(resolution.reasons?.length ? { reasons: resolution.reasons } : {}),
@@ -228,7 +314,7 @@ export function buildPolicyContextFromRuntimePlan(
   }
   const overlay =
     runtimePlan.taskOverlayId && profile
-      ? getTaskOverlay(profile, runtimePlan.taskOverlayId) ?? undefined
+      ? (getTaskOverlay(profile, runtimePlan.taskOverlayId) ?? undefined)
       : undefined;
   return {
     activeProfileId: profile.id,
@@ -297,6 +383,7 @@ export function toPluginHookPlatformExecutionContext(
     ...(runtimePlan.requestedToolNames?.length
       ? { requestedToolNames: runtimePlan.requestedToolNames }
       : {}),
+    ...(runtimePlan.artifactKinds?.length ? { artifactKinds: runtimePlan.artifactKinds } : {}),
     ...(runtimePlan.publishTargets?.length ? { publishTargets: runtimePlan.publishTargets } : {}),
     ...(runtimePlan.requiredCapabilities?.length
       ? { requiredCapabilities: runtimePlan.requiredCapabilities }
@@ -308,6 +395,13 @@ export function toPluginHookPlatformExecutionContext(
       ? { requireExplicitApproval: runtimePlan.requireExplicitApproval }
       : {}),
     ...(runtimePlan.policyAutonomy ? { policyAutonomy: runtimePlan.policyAutonomy } : {}),
+    ...(runtimePlan.readinessStatus ? { readinessStatus: runtimePlan.readinessStatus } : {}),
+    ...(runtimePlan.readinessReasons?.length
+      ? { readinessReasons: runtimePlan.readinessReasons }
+      : {}),
+    ...(runtimePlan.unattendedBoundary
+      ? { unattendedBoundary: runtimePlan.unattendedBoundary }
+      : {}),
   };
 }
 
@@ -317,6 +411,7 @@ export function adaptExecutionPlanToRuntime(
     input?: RecipePlannerInput;
     capabilitySummary?: PlatformCapabilitySummary;
     policyPreview?: PolicyDecision;
+    readiness?: PlatformExecutionReadiness;
   },
 ): RecipeRuntimePlan {
   const overrideModel = plan.plannerOutput.overrides?.model;
@@ -325,6 +420,7 @@ export function adaptExecutionPlanToRuntime(
   const prependContext = buildPrependContext(plan, {
     capabilitySummary: params?.capabilitySummary,
     policyPreview: params?.policyPreview,
+    readiness: params?.readiness,
   });
 
   return {
@@ -341,8 +437,13 @@ export function adaptExecutionPlanToRuntime(
     ...(plan.plannerOutput.overrides?.timeoutSeconds
       ? { timeoutSeconds: plan.plannerOutput.overrides.timeoutSeconds }
       : {}),
-    ...(params?.input?.requestedTools?.length ? { requestedToolNames: params.input.requestedTools } : {}),
-    ...(params?.input?.publishTargets?.length ? { publishTargets: params.input.publishTargets } : {}),
+    ...(params?.input?.artifactKinds?.length ? { artifactKinds: params.input.artifactKinds } : {}),
+    ...(params?.input?.requestedTools?.length
+      ? { requestedToolNames: params.input.requestedTools }
+      : {}),
+    ...(params?.input?.publishTargets?.length
+      ? { publishTargets: params.input.publishTargets }
+      : {}),
     ...(params?.capabilitySummary?.requiredCapabilities.length
       ? { requiredCapabilities: params.capabilitySummary.requiredCapabilities }
       : {}),
@@ -353,6 +454,17 @@ export function adaptExecutionPlanToRuntime(
       ? {
           requireExplicitApproval: params.policyPreview.requireExplicitApproval,
           policyAutonomy: params.policyPreview.autonomy,
+        }
+      : {}),
+    ...(params?.readiness
+      ? {
+          readinessStatus: params.readiness.status,
+          ...(params.readiness.reasons.length
+            ? { readinessReasons: params.readiness.reasons }
+            : {}),
+          ...(params.readiness.unattendedBoundary
+            ? { unattendedBoundary: params.readiness.unattendedBoundary }
+            : {}),
         }
       : {}),
     ...(prependSystemContext ? { prependSystemContext } : {}),
@@ -392,10 +504,16 @@ export function resolvePlatformExecutionDecision(
     }),
   } satisfies PolicyContext;
   const policyPreview = evaluatePolicy(policyContext);
+  const readiness = buildExecutionReadiness({
+    input,
+    capabilitySummary: baseCapabilitySummary,
+    policyPreview,
+  });
   const runtime = adaptExecutionPlanToRuntime(plan, {
     input,
     capabilitySummary: baseCapabilitySummary,
     policyPreview,
+    readiness,
   });
   const executionContext = toPluginHookPlatformExecutionContext(runtime);
   const capabilitySummary = attachExecutionContextToCapabilitySummary(

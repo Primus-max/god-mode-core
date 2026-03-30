@@ -3,6 +3,9 @@ import { getChannelPlugin } from "../../channels/plugins/index.js";
 import type { ChannelId, ChannelThreadingToolContext } from "../../channels/plugins/types.js";
 import { normalizeAnyChannelId, normalizeChannelId } from "../../channels/registry.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { SessionEntry } from "../../config/sessions.js";
+import { resolveSessionBackedExecutionRuntimePlan } from "../../platform/decision/input.js";
+import type { RecipeRuntimePlan } from "../../platform/recipe/runtime-adapter.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import type { TemplateContext } from "../templating.js";
 import {
@@ -25,6 +28,10 @@ export function buildThreadingToolContext(params: {
 }): ChannelThreadingToolContext {
   const { sessionCtx, config, hasRepliedRef } = params;
   const currentMessageId = sessionCtx.MessageSidFull ?? sessionCtx.MessageSid;
+  const currentThreadTs =
+    sessionCtx.MessageThreadId != null
+      ? String(sessionCtx.MessageThreadId).trim() || undefined
+      : undefined;
   const originProvider = resolveOriginMessageProvider({
     originatingChannel: sessionCtx.OriginatingChannel,
     provider: sessionCtx.Provider,
@@ -51,6 +58,7 @@ export function buildThreadingToolContext(params: {
     return {
       currentChannelId: originTo?.trim() || undefined,
       currentChannelProvider: provider ?? (rawProvider as ChannelId),
+      currentThreadTs,
       currentMessageId,
       hasRepliedRef,
     };
@@ -218,4 +226,33 @@ export function buildEmbeddedRunExecutionParams(params: {
     senderContext,
     runBaseParams,
   };
+}
+
+export function resolvePlatformExecutionContextForTemplateRun(params: {
+  prompt: string;
+  run: FollowupRun["run"];
+  sessionCtx: Pick<TemplateContext, "OriginatingChannel" | "Provider" | "Surface">;
+  storePath?: string;
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
+  > | null;
+}): RecipeRuntimePlan {
+  return resolveSessionBackedExecutionRuntimePlan({
+    draftPrompt: params.prompt,
+    storePath: params.storePath,
+    sessionEntry: params.sessionEntry,
+    channelHints: {
+      messageChannel: resolveOriginMessageProvider({
+        originatingChannel: params.sessionCtx.OriginatingChannel,
+        provider: params.sessionCtx.Provider,
+      }),
+      channel: params.sessionCtx.Surface,
+      replyChannel: params.run.messageProvider,
+    },
+  }).runtime;
 }

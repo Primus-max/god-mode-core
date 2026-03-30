@@ -47,7 +47,10 @@ describe("git-hooks/pre-commit (integration)", () => {
     mkdirSync(path.join(dir, "git-hooks"), { recursive: true });
     mkdirSync(path.join(dir, "scripts", "pre-commit"), { recursive: true });
     try {
-      symlinkSync(path.join(process.cwd(), "git-hooks", "pre-commit"), path.join(dir, "git-hooks", "pre-commit"));
+      symlinkSync(
+        path.join(process.cwd(), "git-hooks", "pre-commit"),
+        path.join(dir, "git-hooks", "pre-commit"),
+      );
     } catch {
       // Some Windows environments disallow symlink creation without Developer Mode/elevation.
       return;

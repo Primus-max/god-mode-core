@@ -1,4 +1,5 @@
 import type { ChannelAccountSnapshot } from "../../channels/plugins/types.js";
+import type { PlatformRuntimeExecutionSurface } from "../../platform/runtime/index.js";
 import {
   DEFAULT_CHANNEL_CONNECT_GRACE_MS,
   DEFAULT_CHANNEL_STALE_EVENT_THRESHOLD_MS,
@@ -12,6 +13,7 @@ export type ReadinessResult = {
   ready: boolean;
   failing: string[];
   uptimeMs: number;
+  surface?: PlatformRuntimeExecutionSurface;
 };
 
 export type ReadinessChecker = () => ReadinessResult;
@@ -29,6 +31,25 @@ function shouldIgnoreReadinessFailure(
   // lifecycle re-enters startup grace. Keep readiness green during that handoff
   // window, but still surface hard failures once restart attempts are exhausted.
   return health.reason === "not-running" && accountSnapshot.restartPending === true;
+}
+
+function buildReadinessExecutionSurface(params: {
+  ready: boolean;
+  failing: string[];
+  now: number;
+  cacheTtlMs: number;
+}): PlatformRuntimeExecutionSurface {
+  return {
+    status: params.ready ? "ready" : "degraded",
+    ready: params.ready,
+    checkedAtMs: params.now,
+    cacheTtlMs: params.cacheTtlMs,
+    reasons:
+      params.failing.length > 0
+        ? [`Channel readiness degraded: ${params.failing.join(", ")}.`]
+        : ["Gateway readiness snapshot is healthy."],
+    ...(params.failing.length > 0 ? { failingChannels: params.failing } : {}),
+  };
 }
 
 export function createReadinessChecker(deps: {
@@ -74,7 +95,16 @@ export function createReadinessChecker(deps: {
     }
 
     cachedAt = now;
-    cachedState = { ready: failing.length === 0, failing };
+    cachedState = {
+      ready: failing.length === 0,
+      failing,
+      surface: buildReadinessExecutionSurface({
+        ready: failing.length === 0,
+        failing,
+        now,
+        cacheTtlMs,
+      }),
+    };
     return { ...cachedState, uptimeMs };
   };
 }

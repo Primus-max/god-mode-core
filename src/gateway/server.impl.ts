@@ -4,6 +4,8 @@ import { getActiveEmbeddedRunCount } from "../agents/pi-embedded-runner/runs.js"
 import { registerSkillsChangeListener } from "../agents/skills/refresh.js";
 import { initSubagentRegistry } from "../agents/subagent-registry.js";
 import { getTotalPendingReplies } from "../auto-reply/reply/dispatcher-registry.js";
+import { reconcileClosureRecoveryOnStartup } from "../auto-reply/reply/closure-outcome-dispatcher.js";
+import { resumePersistedFollowupDrains } from "../auto-reply/reply/followup-runner.js";
 import type { CanvasHostServer } from "../canvas-host/server.js";
 import { type ChannelId, listChannelPlugins } from "../channels/plugins/index.js";
 import { formatCliCommand } from "../cli/command-format.js";
@@ -80,7 +82,7 @@ import {
   GATEWAY_EVENT_UPDATE_AVAILABLE,
   type GatewayUpdateAvailableEventPayload,
 } from "./events.js";
-import { ExecApprovalManager } from "./exec-approval-manager.js";
+import { getSharedExecApprovalManager } from "./exec-approval-manager.js";
 import { startGatewayModelPricingRefresh } from "./model-pricing-cache.js";
 import { NodeRegistry } from "./node-registry.js";
 import type { startBrowserControlServerIfEnabled } from "./server-browser.js";
@@ -124,6 +126,7 @@ import {
 import { resolveHookClientIpConfig } from "./server/hooks.js";
 import { createReadinessChecker } from "./server/readiness.js";
 import { loadGatewayTlsRuntime } from "./server/tls.js";
+import { buildGatewaySessionBroadcastSnapshot } from "./session-broadcast-snapshot.js";
 import { resolveSessionKeyForTranscriptFile } from "./session-transcript-key.js";
 import {
   attachOpenClawTranscriptMeta,
@@ -870,36 +873,9 @@ export async function startGatewayServer(
           ? readSessionMessages(entry.sessionId, storePath, entry.sessionFile).length
           : undefined;
         const sessionRow = loadGatewaySessionRow(sessionKey);
-        const sessionSnapshot = sessionRow
-          ? {
-              session: sessionRow,
-              updatedAt: sessionRow.updatedAt ?? undefined,
-              sessionId: sessionRow.sessionId,
-              kind: sessionRow.kind,
-              channel: sessionRow.channel,
-              label: sessionRow.label,
-              displayName: sessionRow.displayName,
-              deliveryContext: sessionRow.deliveryContext,
-              parentSessionKey: sessionRow.parentSessionKey,
-              childSessions: sessionRow.childSessions,
-              thinkingLevel: sessionRow.thinkingLevel,
-              systemSent: sessionRow.systemSent,
-              abortedLastRun: sessionRow.abortedLastRun,
-              lastChannel: sessionRow.lastChannel,
-              lastTo: sessionRow.lastTo,
-              lastAccountId: sessionRow.lastAccountId,
-              totalTokens: sessionRow.totalTokens,
-              totalTokensFresh: sessionRow.totalTokensFresh,
-              contextTokens: sessionRow.contextTokens,
-              estimatedCostUsd: sessionRow.estimatedCostUsd,
-              modelProvider: sessionRow.modelProvider,
-              model: sessionRow.model,
-              status: sessionRow.status,
-              startedAt: sessionRow.startedAt,
-              endedAt: sessionRow.endedAt,
-              runtimeMs: sessionRow.runtimeMs,
-            }
-          : {};
+        const sessionSnapshot = buildGatewaySessionBroadcastSnapshot(sessionRow, {
+          includeFullSession: true,
+        });
         const message = attachOpenClawTranscriptMeta(update.message, {
           ...(typeof update.messageId === "string" ? { id: update.messageId } : {}),
           ...(typeof messageSeq === "number" ? { seq: messageSeq } : {}),
@@ -952,35 +928,17 @@ export async function startGatewayServer(
             label: event.label,
             displayName: event.displayName,
             ts: Date.now(),
-            ...(sessionRow
-              ? {
-                  updatedAt: sessionRow.updatedAt ?? undefined,
-                  sessionId: sessionRow.sessionId,
-                  kind: sessionRow.kind,
-                  channel: sessionRow.channel,
-                  label: event.label ?? sessionRow.label,
-                  displayName: event.displayName ?? sessionRow.displayName,
-                  deliveryContext: sessionRow.deliveryContext,
-                  parentSessionKey: event.parentSessionKey ?? sessionRow.parentSessionKey,
-                  childSessions: sessionRow.childSessions,
-                  thinkingLevel: sessionRow.thinkingLevel,
-                  systemSent: sessionRow.systemSent,
-                  abortedLastRun: sessionRow.abortedLastRun,
-                  lastChannel: sessionRow.lastChannel,
-                  lastTo: sessionRow.lastTo,
-                  lastAccountId: sessionRow.lastAccountId,
-                  totalTokens: sessionRow.totalTokens,
-                  totalTokensFresh: sessionRow.totalTokensFresh,
-                  contextTokens: sessionRow.contextTokens,
-                  estimatedCostUsd: sessionRow.estimatedCostUsd,
-                  modelProvider: sessionRow.modelProvider,
-                  model: sessionRow.model,
-                  status: sessionRow.status,
-                  startedAt: sessionRow.startedAt,
-                  endedAt: sessionRow.endedAt,
-                  runtimeMs: sessionRow.runtimeMs,
-                }
-              : {}),
+            ...buildGatewaySessionBroadcastSnapshot(
+              sessionRow
+                ? {
+                    ...sessionRow,
+                    parentSessionKey: event.parentSessionKey ?? sessionRow.parentSessionKey,
+                    label: event.label ?? sessionRow.label,
+                    displayName: event.displayName ?? sessionRow.displayName,
+                  }
+                : null,
+              { includeFullSession: false },
+            ),
           },
           connIds,
           { dropIfSlow: true },
@@ -1021,18 +979,20 @@ export async function startGatewayServer(
   // Recover pending outbound deliveries from previous crash/restart.
   if (!minimalTestGateway) {
     void (async () => {
-      const { recoverPendingDeliveries } = await import("../infra/outbound/delivery-queue.js");
+      const { startContinuousDeliveryRecovery } =
+        await import("../infra/outbound/delivery-queue.js");
       const { deliverOutboundPayloads } = await import("../infra/outbound/deliver.js");
       const logRecovery = log.child("delivery-recovery");
-      await recoverPendingDeliveries({
+      startContinuousDeliveryRecovery({
         deliver: deliverOutboundPayloads,
         log: logRecovery,
         cfg: cfgAtStart,
+        maxRecoveryMs: 60_000,
       });
-    })().catch((err) => log.error(`Delivery recovery failed: ${String(err)}`));
+    })().catch((err) => log.error(`Delivery recovery startup failed: ${String(err)}`));
   }
 
-  const execApprovalManager = new ExecApprovalManager();
+  const execApprovalManager = getSharedExecApprovalManager();
   const execApprovalForwarder = createExecApprovalForwarder();
   const execApprovalHandlers = createExecApprovalHandlers(execApprovalManager, {
     forwarder: execApprovalForwarder,
@@ -1207,6 +1167,26 @@ export async function startGatewayServer(
       logChannels,
       logBrowser,
     }));
+    const resumedFollowupDrains = resumePersistedFollowupDrains();
+    if (resumedFollowupDrains > 0) {
+      log.info(`resumed ${String(resumedFollowupDrains)} persisted followup queue drain(s)`);
+    }
+    const reconciledRecovery = await reconcileClosureRecoveryOnStartup();
+    if (reconciledRecovery.restoredApprovalCount > 0) {
+      log.info(
+        `restored ${String(reconciledRecovery.restoredApprovalCount)} closure recovery approval(s)`,
+      );
+    }
+    if (reconciledRecovery.redispatchedContinuationCount > 0) {
+      log.info(
+        `redispatched ${String(reconciledRecovery.redispatchedContinuationCount)} closure recovery continuation(s)`,
+      );
+    }
+    if (reconciledRecovery.staleCheckpointCount > 0) {
+      log.warn(
+        `cancelled ${String(reconciledRecovery.staleCheckpointCount)} stale closure recovery checkpoint(s) during startup reconcile`,
+      );
+    }
   }
 
   // Run gateway_start plugin hook (fire-and-forget)

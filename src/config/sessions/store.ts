@@ -8,6 +8,7 @@ import {
 } from "../../gateway/session-archive.fs.js";
 import { writeTextAtomic } from "../../infra/json-files.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { PlatformRuntimeRunClosureSummarySchema } from "../../platform/runtime/index.js";
 import {
   deliveryContextFromSession,
   mergeDeliveryContext,
@@ -83,6 +84,24 @@ function normalizeSessionEntryDelivery(entry: SessionEntry): SessionEntry {
   };
 }
 
+function normalizeSessionEntryRunClosureSummary(entry: SessionEntry): SessionEntry {
+  const parsed = PlatformRuntimeRunClosureSummarySchema.safeParse(entry.runClosureSummary);
+  if (parsed.success) {
+    return parsed.data === entry.runClosureSummary
+      ? entry
+      : {
+          ...entry,
+          runClosureSummary: parsed.data,
+        };
+  }
+  if (entry.runClosureSummary === undefined) {
+    return entry;
+  }
+  const next = { ...entry };
+  delete next.runClosureSummary;
+  return next;
+}
+
 function removeThreadFromDeliveryContext(context?: DeliveryContext): DeliveryContext | undefined {
   if (!context || context.threadId == null) {
     return context;
@@ -142,7 +161,9 @@ function normalizeSessionStore(store: Record<string, SessionEntry>): void {
     if (!entry) {
       continue;
     }
-    const normalized = normalizeSessionEntryDelivery(normalizeSessionRuntimeModelFields(entry));
+    const normalized = normalizeSessionEntryRunClosureSummary(
+      normalizeSessionEntryDelivery(normalizeSessionRuntimeModelFields(entry)),
+    );
     if (normalized !== entry) {
       store[key] = normalized;
     }

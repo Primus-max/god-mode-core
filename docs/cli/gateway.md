@@ -65,6 +65,8 @@ Notes:
 
 All query commands use WebSocket RPC.
 
+The gateway also pushes events (for example `sessions.changed`). For session rows, the **flat** fields on those events match the same closure, recovery, and handoff surface as `sessions.list` / session row RPCs (`handoffRequestRunId`, `handoffRunId`, `handoffTruthSource`, `handoffHint`, plus recovery and `runClosureSummary` when present). Some payloads also include a nested `session` object for backward compatibility; prefer treating the flat keys as the stable contract for UI consumers.
+
 Output modes:
 
 - Default: human-readable (colored in TTY).
@@ -175,7 +177,18 @@ Low-level RPC helper.
 ```bash
 openclaw gateway call status
 openclaw gateway call logs.tail --params '{"sinceMs": 60000}'
+openclaw gateway call sessions.send --params '{"key":"agent:dev:main","message":"hello","idempotencyKey":"request-123"}'
+openclaw gateway call platform.runtime.closures.list --params '{"requestRunId":"request-123"}'
+openclaw gateway call platform.runtime.actions.list --params '{"idempotencyKey":"request-123","kind":"messaging_delivery"}'
+openclaw gateway call platform.runtime.actions.list --params '{"sessionKey":"agent:dev:main","kind":"messaging_delivery"}'
+openclaw gateway call platform.runtime.actions.get --params '{"actionId":"action-123"}'
 ```
+
+Handoff note:
+
+- For `sessions.send`, treat `idempotencyKey` as the stable request identifier.
+- A continuation or retry may finish on a different runtime `runId`, so use `platform.runtime.closures.list` filtered by `requestRunId` to find the final run before fetching `platform.runtime.closures.get`.
+- Use `platform.runtime.actions.list` filtered by `idempotencyKey` to locate the delivery `actionId` that belongs to the original request.
 
 ## Manage the Gateway service
 
