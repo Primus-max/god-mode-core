@@ -85,6 +85,11 @@ import type {
   ModelCatalogEntry,
   PresenceEntry,
   RecipeCatalogSummary,
+  RuntimeActionDetail,
+  RuntimeActionSummary,
+  RuntimeCheckpointSummary,
+  RuntimeClosureDetail,
+  RuntimeClosureSummary,
   ChannelsStatusSnapshot,
   SessionsListResult,
   SkillStatusReport,
@@ -318,6 +323,21 @@ export class OpenClawApp extends LitElement {
   @state() bootstrapDetail: BootstrapRequestRecordDetail | null = null;
   @state() bootstrapDetailError: string | null = null;
   @state() bootstrapActionBusy = false;
+  @state() runtimeLoading = false;
+  @state() runtimeDetailLoading = false;
+  @state() runtimeError: string | null = null;
+  @state() runtimeSessionKey: string | null = null;
+  @state() runtimeRunId: string | null = null;
+  @state() runtimeStatus = "";
+  @state() runtimeCheckpoints: RuntimeCheckpointSummary[] = [];
+  @state() runtimeSelectedCheckpointId: string | null = null;
+  @state() runtimeCheckpointDetail: RuntimeCheckpointSummary | null = null;
+  @state() runtimeActions: RuntimeActionSummary[] = [];
+  @state() runtimeSelectedActionId: string | null = null;
+  @state() runtimeActionDetail: RuntimeActionDetail | null = null;
+  @state() runtimeClosures: RuntimeClosureSummary[] = [];
+  @state() runtimeSelectedClosureRunId: string | null = null;
+  @state() runtimeClosureDetail: RuntimeClosureDetail | null = null;
   @state() catalogLoading = false;
   @state() catalogError: string | null = null;
   @state() recipeCatalog: RecipeCatalogSummary[] = [];

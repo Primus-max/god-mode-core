@@ -81,6 +81,13 @@ import {
   setMachineKillSwitch,
   unlinkMachineDevice,
 } from "./controllers/machine.ts";
+import {
+  clearRuntimeInspectorScope,
+  loadRuntimeActionDetail,
+  loadRuntimeCheckpointDetail,
+  loadRuntimeClosureDetail,
+  loadRuntimeInspector,
+} from "./controllers/runtime-inspector.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionsAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
@@ -665,6 +672,11 @@ export function renderApp(state: AppViewState) {
                 catalogError: state.catalogError,
                 recipeCatalog: state.recipeCatalog,
                 capabilityCatalog: state.capabilityCatalog,
+                runtimeLoading: state.runtimeLoading,
+                runtimeError: state.runtimeError,
+                runtimeSessionKey: state.runtimeSessionKey,
+                runtimeCheckpoints: state.runtimeCheckpoints,
+                runtimeCheckpointDetail: state.runtimeCheckpointDetail,
                 showGatewayToken: state.overviewShowGatewayToken,
                 showGatewayPassword: state.overviewShowGatewayPassword,
                 onSettingsChange: (next) => state.applySettings(next),
@@ -756,8 +768,11 @@ export function renderApp(state: AppViewState) {
             ? lazyRender(lazySessions, (m) =>
                 m.renderSessions({
                   loading: state.sessionsLoading,
+                  runtimeLoading: state.runtimeLoading,
+                  runtimeDetailLoading: state.runtimeDetailLoading,
                   result: state.sessionsResult,
                   error: state.sessionsError,
+                  runtimeError: state.runtimeError,
                   activeMinutes: state.sessionsFilterActive,
                   limit: state.sessionsFilterLimit,
                   includeGlobal: state.sessionsIncludeGlobal,
@@ -769,6 +784,17 @@ export function renderApp(state: AppViewState) {
                   page: state.sessionsPage,
                   pageSize: state.sessionsPageSize,
                   selectedKeys: state.sessionsSelectedKeys,
+                  runtimeSessionKey: state.runtimeSessionKey,
+                  runtimeRunId: state.runtimeRunId,
+                  runtimeCheckpoints: state.runtimeCheckpoints,
+                  runtimeSelectedCheckpointId: state.runtimeSelectedCheckpointId,
+                  runtimeCheckpointDetail: state.runtimeCheckpointDetail,
+                  runtimeActions: state.runtimeActions,
+                  runtimeSelectedActionId: state.runtimeSelectedActionId,
+                  runtimeActionDetail: state.runtimeActionDetail,
+                  runtimeClosures: state.runtimeClosures,
+                  runtimeSelectedClosureRunId: state.runtimeSelectedClosureRunId,
+                  runtimeClosureDetail: state.runtimeClosureDetail,
                   onFiltersChange: (next) => {
                     state.sessionsFilterActive = next.activeMinutes;
                     state.sessionsFilterLimit = next.limit;
@@ -791,8 +817,17 @@ export function renderApp(state: AppViewState) {
                     state.sessionsPageSize = s;
                     state.sessionsPage = 0;
                   },
-                  onRefresh: () => loadSessions(state),
+                  onRefresh: async () => {
+                    await Promise.allSettled([loadSessions(state), loadRuntimeInspector(state)]);
+                  },
                   onPatch: (key, patch) => patchSession(state, key, patch),
+                  onInspectRuntimeSession: (sessionKey, runId) =>
+                    loadRuntimeInspector(state, { sessionKey, runId }),
+                  onSelectRuntimeCheckpoint: (checkpointId) =>
+                    loadRuntimeCheckpointDetail(state, checkpointId),
+                  onSelectRuntimeAction: (actionId) => loadRuntimeActionDetail(state, actionId),
+                  onSelectRuntimeClosure: (runId) => loadRuntimeClosureDetail(state, runId),
+                  onClearRuntimeScope: () => clearRuntimeInspectorScope(state),
                   onToggleSelect: (key) => {
                     const next = new Set(state.sessionsSelectedKeys);
                     if (next.has(key)) {
@@ -873,21 +908,34 @@ export function renderApp(state: AppViewState) {
                   loading: state.bootstrapLoading,
                   detailLoading: state.bootstrapDetailLoading,
                   actionBusy: state.bootstrapActionBusy,
+                  runtimeLoading: state.runtimeLoading,
                   error: state.bootstrapError,
                   detailError: state.bootstrapDetailError,
+                  runtimeError: state.runtimeError,
                   requests: state.bootstrapList,
                   pendingCount: state.bootstrapPendingCount,
                   filterQuery: state.bootstrapFilterQuery,
                   selectedId: state.bootstrapSelectedId,
                   detail: state.bootstrapDetail,
-                  onRefresh: () => loadBootstrapRequests(state),
+                  runtimeCheckpoints: state.runtimeCheckpoints,
+                  onRefresh: async () => {
+                    await Promise.allSettled([
+                      loadBootstrapRequests(state),
+                      loadRuntimeInspector(state, { sessionKey: null, runId: null }),
+                    ]);
+                  },
                   onSelect: (requestId) => loadBootstrapDetail(state, requestId),
                   onFilterChange: (value) => {
                     state.bootstrapFilterQuery = value;
                   },
-                  onResolve: (requestId, decision) =>
-                    resolveBootstrapRequest(state, requestId, decision),
-                  onRun: (requestId) => runBootstrapRequest(state, requestId),
+                  onResolve: async (requestId, decision) => {
+                    await resolveBootstrapRequest(state, requestId, decision);
+                    await loadRuntimeInspector(state, { sessionKey: null, runId: null });
+                  },
+                  onRun: async (requestId) => {
+                    await runBootstrapRequest(state, requestId);
+                    await loadRuntimeInspector(state, { sessionKey: null, runId: null });
+                  },
                 }),
               )
             : nothing

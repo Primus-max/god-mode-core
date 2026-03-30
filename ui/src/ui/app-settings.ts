@@ -30,6 +30,7 @@ import { loadLogs } from "./controllers/logs.ts";
 import { loadMachineControl } from "./controllers/machine.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
+import { loadRuntimeInspector } from "./controllers/runtime-inspector.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSkills } from "./controllers/skills.ts";
 import { loadSpecialistContext } from "./controllers/specialist.ts";
@@ -242,7 +243,10 @@ export async function refreshActiveTab(host: SettingsHost) {
     await loadUsage(host as unknown as OpenClawApp);
   }
   if (host.tab === "sessions") {
-    await loadSessions(host as unknown as OpenClawApp);
+    await Promise.allSettled([
+      loadSessions(host as unknown as OpenClawApp),
+      loadRuntimeInspector(host as unknown as OpenClawApp),
+    ]);
   }
   if (host.tab === "cron") {
     await loadCron(host);
@@ -251,7 +255,13 @@ export async function refreshActiveTab(host: SettingsHost) {
     await loadArtifacts(host as unknown as OpenClawApp);
   }
   if (host.tab === "bootstrap") {
-    await loadBootstrapRequests(host as unknown as OpenClawApp);
+    await Promise.allSettled([
+      loadBootstrapRequests(host as unknown as OpenClawApp),
+      loadRuntimeInspector(host as unknown as OpenClawApp, {
+        sessionKey: null,
+        runId: null,
+      }),
+    ]);
   }
   if (host.tab === "machine") {
     await loadMachineControl(host as unknown as OpenClawApp);
@@ -545,6 +555,7 @@ export async function loadOverview(host: SettingsHost) {
     loadSkills(app),
     loadUsage(app),
     loadBootstrapRequests(app),
+    loadRuntimeInspector(app, { sessionKey: null, runId: null }),
     loadPlatformCatalog(app),
     loadMachineControl(app),
     loadSpecialistContext(app, { draft: app.chatMessage }),

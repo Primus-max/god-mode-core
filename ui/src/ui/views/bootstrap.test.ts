@@ -10,8 +10,10 @@ function createProps(overrides: Partial<BootstrapProps> = {}): BootstrapProps {
     loading: false,
     detailLoading: false,
     actionBusy: false,
+    runtimeLoading: false,
     error: null,
     detailError: null,
+    runtimeError: null,
     requests: [
       {
         id: "bootstrap-1",
@@ -51,14 +53,17 @@ function createProps(overrides: Partial<BootstrapProps> = {}): BootstrapProps {
           },
           install: {
             method: "download",
-            packageRef: "@openclaw/pdf-renderer",
-            sandboxed: true,
-            rollbackStrategy: "restore_previous",
+            packageRef: "playwright-pdf-renderer@1.0.0",
+            integrity:
+              "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            downloadUrl: "https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.0.0.tgz",
+            archiveKind: "tar",
           },
           source: "catalog",
         },
       },
     },
+    runtimeCheckpoints: [],
     onRefresh: () => undefined,
     onSelect: () => undefined,
     onFilterChange: () => undefined,
@@ -118,6 +123,34 @@ describe("bootstrap view", () => {
     expect(runButton).toBeTruthy();
     runButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onRun).toHaveBeenCalledWith("bootstrap-1");
+  });
+
+  it("renders linked runtime checkpoint details when available", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderBootstrap(
+        createProps({
+          runtimeCheckpoints: [
+            {
+              id: "checkpoint-1",
+              runId: "run-1",
+              boundary: "bootstrap",
+              status: "blocked",
+              createdAtMs: 1,
+              updatedAtMs: 2,
+              target: { bootstrapRequestId: "bootstrap-1", operation: "bootstrap.run" },
+              operatorHint: "Awaiting operator approval to resume messaging recovery.",
+            },
+          ],
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Runtime checkpoint");
+    expect(container.textContent).toContain("Awaiting operator approval");
   });
 
   it("renders localized Russian bootstrap controls", async () => {

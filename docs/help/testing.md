@@ -85,6 +85,9 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
 - Platform catalog note:
   - When you touch platform catalog surfaces, keep one plugin regression proving `platform.recipes.*` and `platform.capabilities.*` are actually registered, one gateway regression proving recipe/capability payloads stay read-only and reference shared registry data, and one UI regression proving the overview specialist surface renders the catalog without bypassing gateway methods.
   - Current reference coverage lives in `src/platform/plugin.test.ts`, `src/platform/catalog/gateway.test.ts`, `ui/src/ui/controllers/catalog.test.ts`, and `ui/src/ui/views/specialist-context.test.ts`.
+- Runtime operator note:
+  - When you touch operator-facing runtime surfaces, keep one regression where checkpoint/operator hints remain derived from canonical runtime checkpoint data, one controller regression where `platform.runtime.checkpoints/actions/closures` are loaded together as a single inspector flow, and one UI regression where sessions or adjacent operator surfaces render that runtime state without inventing a second source of truth.
+  - Current reference coverage lives in `src/platform/runtime/gateway.test.ts`, `src/platform/runtime/recovery-operator-hint.test.ts`, `ui/src/ui/controllers/runtime-inspector.test.ts`, `ui/src/ui/views/sessions.test.ts`, `ui/src/ui/views/specialist-context.test.ts`, and `ui/src/ui/views/bootstrap.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.
   - Shared unit coverage now defaults to `threads`, while the manifest keeps the measured fork-only exceptions and heavy singleton lanes explicit.

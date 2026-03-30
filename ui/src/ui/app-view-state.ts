@@ -36,6 +36,11 @@ import type {
   SessionUsageTimeSeries,
   SessionsListResult,
   RecipeCatalogSummary,
+  RuntimeActionDetail,
+  RuntimeActionSummary,
+  RuntimeCheckpointSummary,
+  RuntimeClosureDetail,
+  RuntimeClosureSummary,
   SkillStatusReport,
   SpecialistRuntimeSnapshot,
   StatusSummary,
@@ -219,6 +224,21 @@ export type AppViewState = {
   bootstrapDetail: BootstrapRequestRecordDetail | null;
   bootstrapDetailError: string | null;
   bootstrapActionBusy: boolean;
+  runtimeLoading: boolean;
+  runtimeDetailLoading: boolean;
+  runtimeError: string | null;
+  runtimeSessionKey: string | null;
+  runtimeRunId: string | null;
+  runtimeStatus: string;
+  runtimeCheckpoints: RuntimeCheckpointSummary[];
+  runtimeSelectedCheckpointId: string | null;
+  runtimeCheckpointDetail: RuntimeCheckpointSummary | null;
+  runtimeActions: RuntimeActionSummary[];
+  runtimeSelectedActionId: string | null;
+  runtimeActionDetail: RuntimeActionDetail | null;
+  runtimeClosures: RuntimeClosureSummary[];
+  runtimeSelectedClosureRunId: string | null;
+  runtimeClosureDetail: RuntimeClosureDetail | null;
   catalogLoading: boolean;
   catalogError: string | null;
   recipeCatalog: RecipeCatalogSummary[];

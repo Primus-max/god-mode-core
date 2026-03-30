@@ -40,8 +40,11 @@ function buildSession(
 function buildProps(result: SessionsListResult): SessionsProps {
   return {
     loading: false,
+    runtimeLoading: false,
+    runtimeDetailLoading: false,
     result,
     error: null,
+    runtimeError: null,
     activeMinutes: "",
     limit: "120",
     includeGlobal: false,
@@ -53,12 +56,28 @@ function buildProps(result: SessionsListResult): SessionsProps {
     page: 0,
     pageSize: 10,
     selectedKeys: new Set<string>(),
+    runtimeSessionKey: null,
+    runtimeRunId: null,
+    runtimeCheckpoints: [],
+    runtimeSelectedCheckpointId: null,
+    runtimeCheckpointDetail: null,
+    runtimeActions: [],
+    runtimeSelectedActionId: null,
+    runtimeActionDetail: null,
+    runtimeClosures: [],
+    runtimeSelectedClosureRunId: null,
+    runtimeClosureDetail: null,
     onFiltersChange: () => undefined,
     onSearchChange: () => undefined,
     onSortChange: () => undefined,
     onPageChange: () => undefined,
     onPageSizeChange: () => undefined,
     onRefresh: () => undefined,
+    onInspectRuntimeSession: () => undefined,
+    onSelectRuntimeCheckpoint: () => undefined,
+    onSelectRuntimeAction: () => undefined,
+    onSelectRuntimeClosure: () => undefined,
+    onClearRuntimeScope: () => undefined,
     onPatch: () => undefined,
     onToggleSelect: () => undefined,
     onSelectPage: () => undefined,
@@ -188,5 +207,60 @@ describe("sessions view", () => {
     expect(container.textContent).toContain("Сессионные настройки");
 
     await i18n.setLocale("en");
+  });
+
+  it("renders recovery hints and runtime inspector panel", async () => {
+    const onInspectRuntimeSession = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(
+          buildResult({
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: Date.now(),
+            recoveryStatus: "blocked",
+            recoveryOperatorHint: "Awaiting operator approval to resume messaging recovery.",
+          }),
+        ),
+        runtimeCheckpoints: [
+          {
+            id: "cp-1",
+            runId: "run-1",
+            sessionKey: "agent:main:main",
+            boundary: "exec_approval",
+            status: "blocked",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+            operatorHint: "Awaiting operator approval to resume messaging recovery.",
+          },
+        ],
+        runtimeSelectedCheckpointId: "cp-1",
+        runtimeCheckpointDetail: {
+          id: "cp-1",
+          runId: "run-1",
+          sessionKey: "agent:main:main",
+          boundary: "exec_approval",
+          status: "blocked",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+          operatorHint: "Awaiting operator approval to resume messaging recovery.",
+        },
+        onInspectRuntimeSession,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Awaiting operator approval");
+    expect(container.textContent).toContain("Runtime Inspector");
+    expect(container.textContent).toContain("exec_approval");
+
+    const inspectButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Inspect runtime"),
+    );
+    inspectButton?.dispatchEvent(new Event("click"));
+    expect(onInspectRuntimeSession).toHaveBeenCalledWith("agent:main:main", undefined);
   });
 });

@@ -196,6 +196,12 @@ export const ru: TranslationMap = {
       source: "Источник",
       installMethod: "Установка",
     },
+    runtime: {
+      title: "Runtime queue",
+      loading: "Загрузка runtime operator queue…",
+      scopeGlobal: "Последние runtime checkpoint'ы, видимые оператору.",
+      scopeSession: "Runtime scope: {sessionKey}",
+    },
   },
   overview: {
     access: {
@@ -335,6 +341,7 @@ export const ru: TranslationMap = {
       kind: "Тип",
       updated: "Обновлено",
       tokens: "Токены",
+      runtime: "Runtime",
       thinking: "Размышления",
       fast: "Быстрый",
       verbose: "Подробность",
@@ -363,6 +370,34 @@ export const ru: TranslationMap = {
     fastLevels: {
       on: "вкл",
       off: "выкл",
+    },
+    runtime: {
+      title: "Runtime Inspector",
+      scopeGlobal: "Последние runtime checkpoint'ы на operator-visible surfaces.",
+      scopeSession: "Фильтр по сессии {sessionKey}.",
+      clearScope: "Сбросить фильтр",
+      loading: "Загрузка runtime checkpoint'ов…",
+      loadingDetail: "Загрузка runtime detail…",
+      empty: "Для текущего фильтра runtime checkpoint'ов нет.",
+      selectHint: "Выберите checkpoint, чтобы посмотреть closures, actions и recovery state.",
+      inspect: "Открыть runtime",
+      noHint: "Operator hint недоступен.",
+      nextActions: "Следующие действия",
+      continuation: "Continuation",
+      attempts: "Попытки",
+      actionsTitle: "Actions",
+      closuresTitle: "Closures",
+      noActions: "Связанных actions нет.",
+      noClosures: "Связанных closures нет.",
+      fields: {
+        checkpointId: "Checkpoint",
+        runId: "Run",
+        sessionKey: "Сессия",
+        updated: "Обновлено",
+        blockedReason: "Причина блокировки",
+        resultStatus: "Статус результата",
+        recipe: "Recipe",
+      },
     },
   },
   channels: {
@@ -647,6 +682,10 @@ export const ru: TranslationMap = {
       approve: "Одобрить",
       deny: "Отклонить",
       run: "Запустить bootstrap",
+    },
+    runtime: {
+      title: "Runtime checkpoint",
+      loading: "Загрузка runtime checkpoint…",
     },
     fields: {
       id: "ID",
