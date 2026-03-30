@@ -14,6 +14,7 @@ import {
   deriveGatewaySessionLifecycleSnapshot,
   persistGatewaySessionLifecycleEvent,
 } from "./session-lifecycle-state.js";
+import { buildGatewaySessionBroadcastSnapshot } from "./session-broadcast-snapshot.js";
 import { loadGatewaySessionRow, loadSessionEntry } from "./session-utils.js";
 import { formatForLog } from "./ws-log.js";
 
@@ -487,24 +488,14 @@ export function createAgentEventHandler({
           event: evt,
         })
       : {};
-    const session = row ? { ...row, ...lifecyclePatch } : undefined;
-    const snapshotSource = session ?? lifecyclePatch;
-    return {
-      ...(session ? { session } : {}),
-      totalTokens: row?.totalTokens,
-      totalTokensFresh: row?.totalTokensFresh,
-      contextTokens: row?.contextTokens,
-      estimatedCostUsd: row?.estimatedCostUsd,
-      modelProvider: row?.modelProvider,
-      model: row?.model,
-      status: snapshotSource.status,
-      startedAt: snapshotSource.startedAt,
-      endedAt: snapshotSource.endedAt,
-      runtimeMs: snapshotSource.runtimeMs,
-      updatedAt: snapshotSource.updatedAt,
-      abortedLastRun: snapshotSource.abortedLastRun,
-      runClosureSummary: snapshotSource.runClosureSummary,
-    };
+    if (row) {
+      const session = { ...row, ...lifecyclePatch };
+      return buildGatewaySessionBroadcastSnapshot(session, { includeFullSession: true });
+    }
+    if (Object.keys(lifecyclePatch).length > 0) {
+      return { ...lifecyclePatch };
+    }
+    return {};
   };
 
   const resolveRuntimeClosureSummary = (
