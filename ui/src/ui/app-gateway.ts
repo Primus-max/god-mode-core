@@ -29,7 +29,7 @@ import {
 import { loadHealthState } from "./controllers/health.ts";
 import { loadMachineControl } from "./controllers/machine.ts";
 import { loadNodes } from "./controllers/nodes.ts";
-import { loadSessions, subscribeSessions } from "./controllers/sessions.ts";
+import { applySessionsChangedEvent, loadSessions, subscribeSessions } from "./controllers/sessions.ts";
 import {
   resolveGatewayErrorDetailCode,
   type GatewayEventFrame,
@@ -375,7 +375,13 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
   }
 
   if (evt.event === "sessions.changed") {
-    void loadSessions(host as unknown as OpenClawApp);
+    const { shouldReload } = applySessionsChangedEvent(
+      host as unknown as Parameters<typeof applySessionsChangedEvent>[0],
+      evt.payload as Parameters<typeof applySessionsChangedEvent>[1],
+    );
+    if (shouldReload) {
+      void loadSessions(host as unknown as OpenClawApp);
+    }
     return;
   }
 

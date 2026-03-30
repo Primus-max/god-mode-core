@@ -13,6 +13,11 @@ import type {
   MachineControlKillSwitch as PlatformMachineControlKillSwitch,
   MachineControlLinkRecord as PlatformMachineControlLinkRecord,
 } from "../../../src/platform/machine/contracts.js";
+import type {
+  PlatformRuntimeCheckpointStatus,
+  PlatformRuntimeContinuationState,
+  PlatformRuntimeRunClosureSummary,
+} from "../../../src/platform/runtime/index.js";
 import type { SpecialistRuntimeSnapshot as PlatformSpecialistRuntimeSnapshot } from "../../../src/platform/profile/contracts.js";
 import type { ConfigUiHints } from "../../../src/shared/config-ui-hints-types.js";
 import type {
@@ -381,7 +386,8 @@ export type AgentsFilesSetResult = {
   file: AgentFileEntry;
 };
 
-export type SessionRunStatus = "running" | "done" | "failed" | "killed" | "timeout";
+export type SessionRunStatus = "running" | "blocked" | "done" | "failed" | "killed" | "timeout";
+export type SessionHandoffTruthSource = "closure" | "recovery";
 
 export type GatewaySessionRow = {
   key: string;
@@ -410,13 +416,38 @@ export type GatewaySessionRow = {
   startedAt?: number;
   endedAt?: number;
   runtimeMs?: number;
+  parentSessionKey?: string;
   childSessions?: string[];
   model?: string;
   modelProvider?: string;
   contextTokens?: number;
+  runClosureSummary?: PlatformRuntimeRunClosureSummary;
+  handoffRequestRunId?: string;
+  handoffRunId?: string;
+  handoffTruthSource?: SessionHandoffTruthSource;
+  handoffHint?: string;
+  recoveryCheckpointId?: string;
+  recoveryStatus?: PlatformRuntimeCheckpointStatus;
+  recoveryContinuationState?: PlatformRuntimeContinuationState;
+  recoveryOperation?: string;
+  recoveryBlockedReason?: string;
+  recoveryUpdatedAt?: number;
+  recoveryAttempts?: number;
+  recoveryOperatorHint?: string;
 };
 
 export type SessionsListResult = SessionsListResultBase<GatewaySessionsDefaults, GatewaySessionRow>;
+
+export type GatewaySessionChangedPayload = Partial<Omit<GatewaySessionRow, "key">> & {
+  sessionKey?: string;
+  reason?: string;
+  phase?: string;
+  ts?: number;
+  messageId?: string;
+  messageSeq?: number;
+  compacted?: boolean;
+  session?: Partial<GatewaySessionRow> & { key?: string };
+};
 
 export type ArtifactRecordSummary = PlatformArtifactRecordSummary;
 export type ArtifactRecordDetail = PlatformArtifactRecordDetail;
