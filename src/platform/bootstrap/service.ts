@@ -456,10 +456,12 @@ let sharedBootstrapRequestService: BootstrapRequestService | null = null;
 
 export function getPlatformBootstrapService(config?: {
   stateDir?: string;
+  registry?: CapabilityRegistry;
 }): BootstrapRequestService {
   if (!sharedBootstrapRequestService) {
     sharedBootstrapRequestService = createBootstrapRequestService({
       stateDir: config?.stateDir ?? resolveStateDir(process.env),
+      registry: config?.registry,
     });
   } else if (config) {
     sharedBootstrapRequestService.configure(config);

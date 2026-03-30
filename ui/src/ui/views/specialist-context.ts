@@ -1,12 +1,20 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
-import type { SpecialistRuntimeSnapshot } from "../types.ts";
+import type {
+  CapabilityCatalogSummary,
+  RecipeCatalogSummary,
+  SpecialistRuntimeSnapshot,
+} from "../types.ts";
 
 type SpecialistContextProps = {
   loading: boolean;
   saving?: boolean;
   error: string | null;
   snapshot: SpecialistRuntimeSnapshot | null;
+  catalogLoading?: boolean;
+  catalogError?: string | null;
+  recipeCatalog?: RecipeCatalogSummary[];
+  capabilityCatalog?: CapabilityCatalogSummary[];
   onOverrideChange?: (
     next:
       | { mode: "auto" }
@@ -101,6 +109,122 @@ function renderOperationalPosture(snapshot: SpecialistRuntimeSnapshot) {
               <div style="margin-top: 10px;">
                 <div class="muted">${t("specialist.operational.blocks")}</div>
                 ${deniedReasons.map((reason) => html`<div>${reason}</div>`)}
+              </div>
+            `
+          : nothing
+      }
+    </div>
+  `;
+}
+
+function renderCatalogRecipeItem(recipe: RecipeCatalogSummary, isActive: boolean) {
+  return html`
+    <div class="callout" style="margin-top: 8px;">
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+        <div>
+          <strong>${recipe.id}</strong>
+          <div class="muted" style="margin-top: 2px;">${recipe.purpose}</div>
+        </div>
+        ${isActive ? html`<span class="chip">${t("specialist.catalog.activeRecipe")}</span>` : nothing}
+      </div>
+      <div class="chip-row" style="margin-top: 8px;">
+        <span class="chip">${t("specialist.catalog.risk")}: ${recipe.riskLevel}</span>
+        ${
+          recipe.timeoutSeconds
+            ? html`<span class="chip">${t("specialist.timeout")}: ${recipe.timeoutSeconds}s</span>`
+            : nothing
+        }
+        ${
+          recipe.requiredCapabilities.length > 0
+            ? html`<span class="chip"
+                >${t("specialist.catalog.requiredCapabilities")}: ${recipe.requiredCapabilities.join(", ")}</span
+              >`
+            : nothing
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderCatalogCapabilityItem(
+  capability: CapabilityCatalogSummary,
+  bootstrapRequired: boolean,
+) {
+  return html`
+    <div class="callout" style="margin-top: 8px;">
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+        <div>
+          <strong>${capability.label}</strong>
+          <div class="muted" style="margin-top: 2px;">${capability.id}</div>
+        </div>
+        ${
+          bootstrapRequired
+            ? html`<span class="chip">${t("specialist.catalog.bootstrapRequired")}</span>`
+            : nothing
+        }
+      </div>
+      <div class="chip-row" style="margin-top: 8px;">
+        <span class="chip">${t("specialist.catalog.status")}: ${capability.status}</span>
+        <span class="chip">${t("specialist.catalog.source")}: ${capability.source}</span>
+        ${
+          capability.installMethod
+            ? html`<span class="chip"
+                >${t("specialist.catalog.installMethod")}: ${capability.installMethod}</span
+              >`
+            : nothing
+        }
+      </div>
+      ${
+        capability.requiredByRecipes.length > 0
+          ? html`
+              <div class="muted" style="margin-top: 8px;">
+                ${t("specialist.catalog.usedBy")}: ${capability.requiredByRecipes
+                  .map((recipe) => recipe.id)
+                  .join(", ")}
+              </div>
+            `
+          : nothing
+      }
+    </div>
+  `;
+}
+
+function renderCatalogPanel(props: SpecialistContextProps) {
+  const recipes = props.recipeCatalog ?? [];
+  const capabilities = props.capabilityCatalog ?? [];
+  if (props.catalogLoading && recipes.length === 0 && capabilities.length === 0) {
+    return html`<div class="muted" style="margin-top: 12px;">${t("specialist.catalog.loading")}</div>`;
+  }
+  if (props.catalogError) {
+    return html`<div class="callout danger" style="margin-top: 12px;">${props.catalogError}</div>`;
+  }
+  if (recipes.length === 0 && capabilities.length === 0) {
+    return nothing;
+  }
+  const activeRecipeId = props.snapshot?.recipeId;
+  const bootstrapRequired = new Set(props.snapshot?.bootstrapRequiredCapabilities ?? []);
+  return html`
+    <div style="margin-top: 16px;">
+      <div class="card-sub">${t("specialist.catalog.title")}</div>
+      <div class="muted" style="margin-top: 4px;">${t("specialist.catalog.subtitle")}</div>
+      ${
+        recipes.length > 0
+          ? html`
+              <div style="margin-top: 12px;">
+                <div class="muted">${t("specialist.catalog.recipeRoutes")}</div>
+                ${recipes.map((recipe) => renderCatalogRecipeItem(recipe, recipe.id === activeRecipeId))}
+              </div>
+            `
+          : nothing
+      }
+      ${
+        capabilities.length > 0
+          ? html`
+              <div style="margin-top: 12px;">
+                <div class="muted">${t("specialist.catalog.capabilities")}</div>
+                ${capabilities.map((capability) =>
+                  renderCatalogCapabilityItem(capability, bootstrapRequired.has(capability.id)),
+                )}
               </div>
             `
           : nothing
@@ -244,6 +368,7 @@ export function renderSpecialistOverviewPanel(props: SpecialistContextProps) {
 
               ${renderRuntimeChips(props.snapshot)}
               ${renderOperationalPosture(props.snapshot)}
+              ${renderCatalogPanel(props)}
 
               <div style="margin-top: 14px;">
                 <div class="muted">${t("specialist.signals")}</div>

@@ -71,6 +71,7 @@ import type {
   ArtifactRecordSummary,
   BootstrapRequestRecordDetail,
   BootstrapRequestRecordSummary,
+  CapabilityCatalogSummary,
   ConfigSnapshot,
   ConfigUiHints,
   ChatModelOverride,
@@ -83,6 +84,7 @@ import type {
   MachineControlStatus,
   ModelCatalogEntry,
   PresenceEntry,
+  RecipeCatalogSummary,
   ChannelsStatusSnapshot,
   SessionsListResult,
   SkillStatusReport,
@@ -316,6 +318,10 @@ export class OpenClawApp extends LitElement {
   @state() bootstrapDetail: BootstrapRequestRecordDetail | null = null;
   @state() bootstrapDetailError: string | null = null;
   @state() bootstrapActionBusy = false;
+  @state() catalogLoading = false;
+  @state() catalogError: string | null = null;
+  @state() recipeCatalog: RecipeCatalogSummary[] = [];
+  @state() capabilityCatalog: CapabilityCatalogSummary[] = [];
   @state() machineLoading = false;
   @state() machineError: string | null = null;
   @state() machineActionBusy = false;
