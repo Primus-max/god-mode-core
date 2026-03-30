@@ -1505,6 +1505,10 @@ export type PluginHookPlatformExecutionContext = {
   readinessStatus?: "ready" | "bootstrap_required" | "approval_required";
   readinessReasons?: string[];
   unattendedBoundary?: "bootstrap" | "artifact_publish";
+  /** Precomputed runtime prompt context for prompt/system hooks. */
+  prependContext?: string;
+  /** Precomputed runtime system prompt context for prompt/system hooks. */
+  prependSystemContext?: string;
 };
 
 export type PluginHookAgentContext = {

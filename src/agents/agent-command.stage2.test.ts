@@ -37,6 +37,8 @@ describe("agent-command Stage 2 wiring helpers", () => {
       taskOverlayId: "document_first",
       plannerReasoning: "doc_ingest matched the document-heavy prompt.",
       timeoutSeconds: 180,
+      prependContext: "Profile: Builder.\nPlanner reasoning: doc_ingest.",
+      prependSystemContext: "Execution recipe: doc_ingest.",
     });
 
     const params = buildEmbeddedAgentRunParams({
@@ -84,6 +86,8 @@ describe("agent-command Stage 2 wiring helpers", () => {
       taskOverlayId: "document_first",
       plannerReasoning: "doc_ingest matched the document-heavy prompt.",
       timeoutSeconds: 180,
+      prependContext: "Profile: Builder.\nPlanner reasoning: doc_ingest.",
+      prependSystemContext: "Execution recipe: doc_ingest.",
     });
     expect(params.prompt).toBe("Parse this PDF estimate into a report");
   });

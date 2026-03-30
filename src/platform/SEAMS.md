@@ -45,6 +45,12 @@ structured run closure into the post-execution seam, so plugins can validate
 prerequisites and inspect final supervisor truth without guessing from prompt
 or LLM hook timing.
 
+**Canonical context rule:** when a hook receives `ctx.platformExecution`, that
+object is the source of truth for the already-selected profile/recipe/runtime
+path. It now also carries precomputed `prependContext` and
+`prependSystemContext` values, so plugins should reuse that context instead of
+re-planning from raw prompt text on the real execution path.
+
 ## Seam 3 — Model Selection
 
 **Core file:** `src/agents/model-selection.ts`, `src/agents/model-fallback.ts`

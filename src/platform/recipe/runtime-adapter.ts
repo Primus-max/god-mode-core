@@ -402,6 +402,10 @@ export function toPluginHookPlatformExecutionContext(
     ...(runtimePlan.unattendedBoundary
       ? { unattendedBoundary: runtimePlan.unattendedBoundary }
       : {}),
+    ...(runtimePlan.prependContext ? { prependContext: runtimePlan.prependContext } : {}),
+    ...(runtimePlan.prependSystemContext
+      ? { prependSystemContext: runtimePlan.prependSystemContext }
+      : {}),
   };
 }
 

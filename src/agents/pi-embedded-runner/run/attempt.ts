@@ -1502,6 +1502,35 @@ export async function resolvePromptBuildHookResult(params: {
   };
 }
 
+export function buildAttemptHookContext(
+  params: Pick<
+    EmbeddedRunAttemptParams,
+    | "agentId"
+    | "sessionKey"
+    | "sessionId"
+    | "workspaceDir"
+    | "messageProvider"
+    | "trigger"
+    | "messageChannel"
+    | "platformExecutionContext"
+  >,
+): PluginHookAgentContext {
+  return {
+    agentId: params.agentId,
+    sessionKey: params.sessionKey,
+    sessionId: params.sessionId,
+    workspaceDir: params.workspaceDir,
+    messageProvider: params.messageProvider ?? undefined,
+    trigger: params.trigger,
+    channelId: params.messageChannel ?? params.messageProvider ?? undefined,
+    ...(params.platformExecutionContext
+      ? {
+          platformExecution: toPluginHookPlatformExecutionContext(params.platformExecutionContext),
+        }
+      : {}),
+  };
+}
+
 export function composeSystemPromptWithHookContext(params: {
   baseSystemPrompt?: string;
   prependSystemContext?: string;
@@ -2718,15 +2747,16 @@ export async function runEmbeddedAttempt(
             preserveExactPrompt: heartbeatPrompt,
           },
         );
-        const hookCtx = {
+        const hookCtx = buildAttemptHookContext({
           agentId: hookAgentId,
           sessionKey: params.sessionKey,
           sessionId: params.sessionId,
           workspaceDir: params.workspaceDir,
-          messageProvider: params.messageProvider ?? undefined,
+          messageProvider: params.messageProvider,
           trigger: params.trigger,
-          channelId: params.messageChannel ?? params.messageProvider ?? undefined,
-        };
+          messageChannel: params.messageChannel,
+          platformExecutionContext: params.platformExecutionContext,
+        });
         const hookResult = await resolvePromptBuildHookResult({
           prompt: params.prompt,
           messages: activeSession.messages,
@@ -2850,15 +2880,16 @@ export async function runEmbeddedAttempt(
                   historyMessages: activeSession.messages,
                   imagesCount: imageResult.images.length,
                 },
-                {
+                buildAttemptHookContext({
                   agentId: hookAgentId,
                   sessionKey: params.sessionKey,
                   sessionId: params.sessionId,
                   workspaceDir: params.workspaceDir,
-                  messageProvider: params.messageProvider ?? undefined,
+                  messageProvider: params.messageProvider,
                   trigger: params.trigger,
-                  channelId: params.messageChannel ?? params.messageProvider ?? undefined,
-                },
+                  messageChannel: params.messageChannel,
+                  platformExecutionContext: params.platformExecutionContext,
+                }),
               )
               .catch((err) => {
                 log.warn(`llm_input hook failed: ${String(err)}`);
@@ -3181,20 +3212,16 @@ export async function runEmbeddedAttempt(
               usage: getUsageTotals(),
             },
             {
-              agentId: hookAgentId,
-              sessionKey: params.sessionKey,
-              sessionId: params.sessionId,
-              workspaceDir: params.workspaceDir,
-              messageProvider: params.messageProvider ?? undefined,
-              trigger: params.trigger,
-              channelId: params.messageChannel ?? params.messageProvider ?? undefined,
-              ...(params.platformExecutionContext
-                ? {
-                    platformExecution: toPluginHookPlatformExecutionContext(
-                      params.platformExecutionContext,
-                    ),
-                  }
-                : {}),
+              ...buildAttemptHookContext({
+                agentId: hookAgentId,
+                sessionKey: params.sessionKey,
+                sessionId: params.sessionId,
+                workspaceDir: params.workspaceDir,
+                messageProvider: params.messageProvider,
+                trigger: params.trigger,
+                messageChannel: params.messageChannel,
+                platformExecutionContext: params.platformExecutionContext,
+              }),
             },
           )
           .catch((err) => {
