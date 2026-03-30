@@ -20,6 +20,10 @@ import { runWithModelFallback } from "../../agents/model-fallback.js";
 import { isCliProvider, resolveThinkingDefault } from "../../agents/model-selection.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
 import {
+  resolveRuntimePlanFallbackOverride,
+  resolveRuntimePlanTimeoutSeconds,
+} from "../../agents/runtime-plan-policy.js";
+import {
   countActiveDescendantRuns,
   listDescendantRunsForRequester,
 } from "../../agents/subagent-registry.js";
@@ -326,12 +330,6 @@ export async function runCronIsolatedAgentTurn(params: {
     thinkLevel = "high";
   }
 
-  const timeoutMs = resolveAgentTimeoutMs({
-    cfg: cfgWithAgentDefaults,
-    overrideSeconds:
-      params.job.payload.kind === "agentTurn" ? params.job.payload.timeoutSeconds : undefined,
-  });
-
   const agentPayload = params.job.payload.kind === "agentTurn" ? params.job.payload : null;
   const { deliveryRequested, resolvedDelivery, toolPolicy } = await resolveCronDeliveryContext({
     cfg: cfgWithAgentDefaults,
@@ -381,6 +379,21 @@ export async function runCronIsolatedAgentTurn(params: {
     commandBody = `${base}\n${timeLine}`.trim();
   }
   commandBody = appendCronDeliveryInstruction({ commandBody, deliveryRequested });
+  const messageChannel = resolvedDelivery.channel;
+  const platformExecutionContext = resolveExecutionRuntimePlan({
+    prompt: commandBody,
+    sessionEntry: cronSession.sessionEntry,
+    channelHints: {
+      messageChannel,
+    },
+  }).runtime;
+  const timeoutMs = resolveAgentTimeoutMs({
+    cfg: cfgWithAgentDefaults,
+    overrideSeconds: resolveRuntimePlanTimeoutSeconds({
+      runtimePlan: platformExecutionContext,
+      explicitTimeoutSeconds: agentPayload?.timeoutSeconds,
+    }),
+  });
 
   const existingSkillsSnapshot = cronSession.sessionEntry.skillsSnapshot;
   const skillsSnapshot = resolveCronSkillsSnapshot({
@@ -438,14 +451,6 @@ export async function runCronIsolatedAgentTurn(params: {
       normalizeVerboseLevel(cronSession.sessionEntry.verboseLevel) ??
       normalizeVerboseLevel(agentCfg?.verboseDefault) ??
       "off";
-    const messageChannel = resolvedDelivery.channel;
-    const platformExecutionContext = resolveExecutionRuntimePlan({
-      prompt: commandBody,
-      sessionEntry: cronSession.sessionEntry,
-      channelHints: {
-        messageChannel,
-      },
-    }).runtime;
     registerAgentRunContext(cronSession.sessionEntry.sessionId, {
       sessionKey: agentSessionKey,
       verboseLevel: resolvedVerboseLevel,
@@ -457,6 +462,12 @@ export async function runCronIsolatedAgentTurn(params: {
       params.job.payload.kind === "agentTurn" && Array.isArray(params.job.payload.fallbacks)
         ? params.job.payload.fallbacks
         : undefined;
+    const fallbackOverride =
+      payloadFallbacks ??
+      resolveRuntimePlanFallbackOverride({
+        runtimePlan: platformExecutionContext,
+        configuredFallbacks: resolveAgentModelFallbacksOverride(params.cfg, agentId),
+      });
     let bootstrapPromptWarningSignaturesSeen = resolveBootstrapWarningSignaturesSeen(
       cronSession.sessionEntry.systemPromptReport,
     );
@@ -468,8 +479,7 @@ export async function runCronIsolatedAgentTurn(params: {
         model,
         runId: cronSession.sessionEntry.sessionId,
         agentDir,
-        fallbacksOverride:
-          payloadFallbacks ?? resolveAgentModelFallbacksOverride(params.cfg, agentId),
+        fallbacksOverride: fallbackOverride,
         run: async (providerOverride, modelOverride, runOptions) => {
           if (abortSignal?.aborted) {
             throw new Error(abortReason());
@@ -498,6 +508,7 @@ export async function runCronIsolatedAgentTurn(params: {
               thinkLevel,
               timeoutMs,
               runId: cronSession.sessionEntry.sessionId,
+              platformExecutionContext,
               cliSessionId,
               bootstrapPromptWarningSignaturesSeen,
               bootstrapPromptWarningSignature,

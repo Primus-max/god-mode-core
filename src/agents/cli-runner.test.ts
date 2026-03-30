@@ -2,8 +2,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
-import { runCliAgent } from "./cli-runner.js";
 import { resolveCliNoOutputTimeoutMs } from "./cli-runner/helpers.js";
 import type { EmbeddedContextFile } from "./pi-embedded-helpers.js";
 import type { WorkspaceBootstrapFile } from "./workspace.js";
@@ -25,28 +23,29 @@ const hoisted = vi.hoisted(() => {
   };
 });
 
-vi.mock("../process/supervisor/index.js", () => ({
-  getProcessSupervisor: () => ({
-    spawn: (...args: unknown[]) => supervisorSpawnMock(...args),
-    cancel: vi.fn(),
-    cancelScope: vi.fn(),
-    reconcileOrphans: vi.fn(),
-    getRecord: vi.fn(),
-  }),
-}));
-
-vi.mock("../infra/system-events.js", () => ({
-  enqueueSystemEvent: (...args: unknown[]) => enqueueSystemEventMock(...args),
-}));
-
-vi.mock("../infra/heartbeat-wake.js", () => ({
-  requestHeartbeatNow: (...args: unknown[]) => requestHeartbeatNowMock(...args),
-}));
-
 vi.mock("./bootstrap-files.js", () => ({
   makeBootstrapWarn: () => () => {},
   resolveBootstrapContextForRun: hoisted.resolveBootstrapContextForRunMock,
 }));
+
+const supervisorModule = await import("../process/supervisor/index.js");
+const systemEventsModule = await import("../infra/system-events.js");
+const heartbeatWakeModule = await import("../infra/heartbeat-wake.js");
+vi.spyOn(supervisorModule, "getProcessSupervisor").mockReturnValue({
+  spawn: (...args: unknown[]) => supervisorSpawnMock(...args),
+  cancel: vi.fn(),
+  cancelScope: vi.fn(),
+  reconcileOrphans: vi.fn(),
+  getRecord: vi.fn(),
+});
+vi.spyOn(systemEventsModule, "enqueueSystemEvent").mockImplementation((...args: unknown[]) =>
+  enqueueSystemEventMock(...args),
+);
+vi.spyOn(heartbeatWakeModule, "requestHeartbeatNow").mockImplementation((...args: unknown[]) =>
+  requestHeartbeatNowMock(...args),
+);
+
+const { runCliAgent } = await import("./cli-runner.js");
 
 type MockRunExit = {
   reason:
@@ -131,7 +130,7 @@ describe("runCliAgent with process supervisor", () => {
     expect(input.scopeKey).toContain("thread-123");
   });
 
-  it("prepends bootstrap warnings to the CLI prompt body", async () => {
+  it("reuses canonical runtime prompt context on the CLI path", async () => {
     supervisorSpawnMock.mockResolvedValueOnce(
       createManagedRun({
         reason: "exit",
@@ -144,47 +143,33 @@ describe("runCliAgent with process supervisor", () => {
         noOutputTimedOut: false,
       }),
     );
-    hoisted.resolveBootstrapContextForRunMock.mockResolvedValueOnce({
-      bootstrapFiles: [
-        {
-          name: "AGENTS.md",
-          path: "/tmp/AGENTS.md",
-          content: "A".repeat(200),
-          missing: false,
-        },
-      ],
-      contextFiles: [{ path: "AGENTS.md", content: "A".repeat(20) }],
-    });
 
     await runCliAgent({
       sessionId: "s1",
       sessionFile: "/tmp/session.jsonl",
       workspaceDir: "/tmp",
-      config: {
-        agents: {
-          defaults: {
-            bootstrapMaxChars: 50,
-            bootstrapTotalMaxChars: 50,
-          },
-        },
-      } satisfies OpenClawConfig,
-      prompt: "hi",
+      prompt: "finish the task",
       provider: "codex-cli",
       model: "gpt-5.2-codex",
       timeoutMs: 1_000,
-      runId: "run-warning",
-      cliSessionId: "thread-123",
+      runId: "run-runtime-plan",
+      platformExecutionContext: {
+        selectedRecipeId: "code_build_publish",
+        selectedProfileId: "developer",
+        prependContext: "Profile: Developer.\nPlanner reasoning: publish path.",
+        prependSystemContext: "Execution recipe: code_build_publish.",
+      },
     });
 
     const input = supervisorSpawnMock.mock.calls[0]?.[0] as {
       argv?: string[];
       input?: string;
     };
-    const promptCarrier = [input.input ?? "", ...(input.argv ?? [])].join("\n");
+    const serializedInvocation = [input.input ?? "", ...(input.argv ?? [])].join("\n");
 
-    expect(promptCarrier).toContain("[Bootstrap truncation warning]");
-    expect(promptCarrier).toContain("- AGENTS.md: 200 raw -> 20 injected");
-    expect(promptCarrier).toContain("hi");
+    expect(serializedInvocation).toContain("Profile: Developer.");
+    expect(serializedInvocation).toContain("Execution recipe: code_build_publish.");
+    expect(serializedInvocation).toContain("finish the task");
   });
 
   it("fails with timeout when no-output watchdog trips", async () => {

@@ -94,6 +94,7 @@ import {
   resolveDefaultModelForAgent,
   resolveThinkingDefault,
 } from "./model-selection.js";
+import { resolveRuntimePlanFallbackOverride } from "./runtime-plan-policy.js";
 import { prepareSessionManagerForRun } from "./pi-embedded-runner/session-manager-init.js";
 import { runEmbeddedPiAgent } from "./pi-embedded.js";
 import { buildWorkspaceSkillSnapshot } from "./skills.js";
@@ -421,7 +422,10 @@ export function resolveAgentCommandFallbackOverride(params: {
   platformRuntimePlan: ResolvedPlatformRuntimePlan;
   configuredFallbacks?: string[];
 }): string[] | undefined {
-  return params.platformRuntimePlan.runtime.fallbackModels ?? params.configuredFallbacks;
+  return resolveRuntimePlanFallbackOverride({
+    runtimePlan: params.platformRuntimePlan.runtime,
+    configuredFallbacks: params.configuredFallbacks,
+  });
 }
 
 export function buildEmbeddedAgentRunParams(
@@ -518,6 +522,7 @@ function runAgentAttempt(params: RunAgentAttemptParams) {
         timeoutMs: params.timeoutMs,
         runId: params.runId,
         extraSystemPrompt: params.opts.extraSystemPrompt,
+        platformExecutionContext: params.platformRuntimePlan.runtime,
         cliSessionId: nextCliSessionId,
         bootstrapPromptWarningSignaturesSeen,
         bootstrapPromptWarningSignature,

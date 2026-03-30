@@ -284,6 +284,7 @@ describe("runCronIsolatedAgentTurn — skill filter", () => {
       expect(runCliAgentMock).toHaveBeenCalledOnce();
       // Fresh session: cliSessionId must be undefined, not the stored value.
       expect(runCliAgentMock.mock.calls[0][0]).toHaveProperty("cliSessionId", undefined);
+      expect(runCliAgentMock.mock.calls[0][0]).toHaveProperty("platformExecutionContext");
     });
 
     it("reuses stored cliSessionId on continuation runs (isNewSession=false)", async () => {
@@ -318,6 +319,7 @@ describe("runCronIsolatedAgentTurn — skill filter", () => {
         "cliSessionId",
         "existing-cli-session-def",
       );
+      expect(runCliAgentMock.mock.calls[0][0]).toHaveProperty("platformExecutionContext");
     });
   });
 });

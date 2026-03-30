@@ -38,6 +38,10 @@ import {
 import { resolveOpenClawDocsPath } from "./docs-path.js";
 import { FailoverError, resolveFailoverStatus } from "./failover-error.js";
 import {
+  joinRuntimePlanSystemPrompt,
+  prependRuntimePlanContextToPrompt,
+} from "./runtime-plan-policy.js";
+import {
   classifyFailoverReason,
   isFailoverErrorMessage,
   resolveBootstrapMaxChars,
@@ -47,6 +51,7 @@ import {
 import type { EmbeddedPiRunResult } from "./pi-embedded-runner.js";
 import { buildSystemPromptReport } from "./system-prompt-report.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "./workspace-run.js";
+import type { RecipeRuntimePlan } from "../platform/recipe/runtime-adapter.js";
 
 const log = createSubsystemLogger("agent/claude-cli");
 
@@ -64,6 +69,7 @@ export async function runCliAgent(params: {
   timeoutMs: number;
   runId: string;
   extraSystemPrompt?: string;
+  platformExecutionContext?: RecipeRuntimePlan;
   streamParams?: import("./command/types.js").AgentStreamParams;
   ownerNumbers?: string[];
   cliSessionId?: string;
@@ -105,13 +111,21 @@ export async function runCliAgent(params: {
   const modelId = (params.model ?? "default").trim() || "default";
   const normalizedModel = normalizeCliModel(modelId, backend);
   const modelDisplay = `${params.provider}/${modelId}`;
+  const runtimeSystemPrompt = joinRuntimePlanSystemPrompt({
+    runtimePlan: params.platformExecutionContext,
+    extraSystemPrompt: params.extraSystemPrompt,
+  });
 
   const extraSystemPrompt = [
-    params.extraSystemPrompt?.trim(),
+    runtimeSystemPrompt,
     "Tools are disabled in this session. Do not call tools.",
   ]
     .filter(Boolean)
     .join("\n");
+  const runtimeAwarePrompt = prependRuntimePlanContextToPrompt({
+    runtimePlan: params.platformExecutionContext,
+    prompt: params.prompt,
+  });
 
   const sessionLabel = params.sessionKey ?? params.sessionId;
   const { bootstrapFiles, contextFiles } = await resolveBootstrapContextForRun({
@@ -215,10 +229,14 @@ export async function runCliAgent(params: {
       isNewSession: isNew,
       systemPrompt,
     });
+    const promptWithRuntimeSystemContext =
+      !systemPromptArg && runtimeSystemPrompt
+        ? [runtimeSystemPrompt, runtimeAwarePrompt].filter(Boolean).join("\n\n")
+        : runtimeAwarePrompt;
 
     let imagePaths: string[] | undefined;
     let cleanupImages: (() => Promise<void>) | undefined;
-    let prompt = prependBootstrapPromptWarning(params.prompt, bootstrapPromptWarning.lines, {
+    let prompt = prependBootstrapPromptWarning(promptWithRuntimeSystemContext, bootstrapPromptWarning.lines, {
       preserveExactPrompt: heartbeatPrompt,
     });
     if (params.images && params.images.length > 0) {
@@ -499,6 +517,7 @@ export async function runClaudeCliAgent(params: {
   timeoutMs: number;
   runId: string;
   extraSystemPrompt?: string;
+  platformExecutionContext?: RecipeRuntimePlan;
   ownerNumbers?: string[];
   claudeSessionId?: string;
   images?: ImageContent[];
@@ -517,6 +536,7 @@ export async function runClaudeCliAgent(params: {
     timeoutMs: params.timeoutMs,
     runId: params.runId,
     extraSystemPrompt: params.extraSystemPrompt,
+    platformExecutionContext: params.platformExecutionContext,
     ownerNumbers: params.ownerNumbers,
     cliSessionId: params.claudeSessionId,
     images: params.images,
