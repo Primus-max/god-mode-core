@@ -65,6 +65,8 @@ Notes:
 
 All query commands use WebSocket RPC.
 
+The gateway also pushes events (for example `sessions.changed`). For session rows, the **flat** fields on those events match the same closure, recovery, and handoff surface as `sessions.list` / session row RPCs (`handoffRequestRunId`, `handoffRunId`, `handoffTruthSource`, `handoffHint`, plus recovery and `runClosureSummary` when present). Some payloads also include a nested `session` object for backward compatibility; prefer treating the flat keys as the stable contract for UI consumers.
+
 Output modes:
 
 - Default: human-readable (colored in TTY).

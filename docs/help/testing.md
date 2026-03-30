@@ -178,6 +178,8 @@ Use this decision table:
 - Touching gateway networking / WS protocol / pairing: add `pnpm test:e2e`
 - Debugging “my bot is down” / provider-specific failures / tool calling: run a narrowed `pnpm test:live`
 
+WebSocket `sessions.changed` payloads intentionally mirror the gateway session row model (including `runClosureSummary`, recovery fields, and handoff projection) at the **top level**, not only inside nested `session`, so thin clients stay aligned with `sessions.list` without re-implementing field lists. Reference: `src/gateway/session-broadcast-snapshot.ts` and `src/gateway/session-broadcast-snapshot.test.ts`.
+
 ## Local runtime recovery smoke
 
 Run this after changes that touch delivery truth, closure truth, restart/recovery behavior, or operator inspection surfaces.
