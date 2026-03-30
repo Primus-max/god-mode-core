@@ -180,6 +180,8 @@ Use this decision table:
 
 WebSocket `sessions.changed` payloads intentionally mirror the gateway session row model (including `runClosureSummary`, recovery fields, and handoff projection) at the **top level**, not only inside nested `session`, so thin clients stay aligned with `sessions.list` without re-implementing field lists. Reference: `src/gateway/session-broadcast-snapshot.ts` and `src/gateway/session-broadcast-snapshot.test.ts`.
 
+When validating consumer behavior, remember that `JSON.stringify()` drops keys whose value is `undefined`. For Stage 29 consumer adoption this means a missing optional `handoff*`, recovery, or `runClosureSummary` key on the wire should be interpreted as "field currently unset"; consumer-side caches/tests must not require those keys to be present with an explicit `undefined`.
+
 ## Local runtime recovery smoke
 
 Run this after changes that touch delivery truth, closure truth, restart/recovery behavior, or operator inspection surfaces.

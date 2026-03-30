@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deleteSessionsAndRefresh, subscribeSessions, type SessionsState } from "./sessions.ts";
+import {
+  applySessionsChangedEvent,
+  deleteSessionsAndRefresh,
+  subscribeSessions,
+  type SessionsState,
+} from "./sessions.ts";
 
 type RequestFn = (method: string, params?: unknown) => Promise<unknown>;
 
@@ -118,5 +123,151 @@ describe("deleteSessionsAndRefresh", () => {
 
     expect(deleted).toEqual([]);
     expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe("applySessionsChangedEvent", () => {
+  it("patches an existing row from the flat sessions.changed snapshot", () => {
+    const request = vi.fn(async () => undefined);
+    const state = createState(request, {
+      sessionsResult: {
+        ts: 1,
+        path: "sessions.json",
+        count: 1,
+        defaults: { model: null, modelProvider: null, contextTokens: null },
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 10,
+            status: "running",
+            totalTokens: 100,
+          },
+        ],
+      },
+    });
+
+    const result = applySessionsChangedEvent(state, {
+      sessionKey: "agent:main:main",
+      reason: "patch",
+      kind: "direct",
+      updatedAt: 20,
+      status: "blocked",
+      totalTokens: 250,
+      handoffTruthSource: "recovery",
+      recoveryStatus: "approved",
+    });
+
+    expect(result).toEqual({ applied: true, shouldReload: false });
+    expect(state.sessionsResult?.sessions[0]).toMatchObject({
+      key: "agent:main:main",
+      kind: "direct",
+      updatedAt: 20,
+      status: "blocked",
+      totalTokens: 250,
+      handoffTruthSource: "recovery",
+      recoveryStatus: "approved",
+    });
+  });
+
+  it("falls back to nested session for backward compatibility", () => {
+    const request = vi.fn(async () => undefined);
+    const state = createState(request, {
+      sessionsResult: {
+        ts: 1,
+        path: "sessions.json",
+        count: 1,
+        defaults: { model: null, modelProvider: null, contextTokens: null },
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 10,
+          },
+        ],
+      },
+    });
+
+    const result = applySessionsChangedEvent(state, {
+      sessionKey: "agent:main:main",
+      reason: "patch",
+      session: {
+        key: "agent:main:main",
+        kind: "direct",
+        updatedAt: 30,
+        handoffRunId: "run-2",
+      },
+    });
+
+    expect(result).toEqual({ applied: true, shouldReload: false });
+    expect(state.sessionsResult?.sessions[0]).toMatchObject({
+      updatedAt: 30,
+      handoffRunId: "run-2",
+    });
+  });
+
+  it("treats omitted optional fields as cleared in authoritative snapshots", () => {
+    const request = vi.fn(async () => undefined);
+    const state = createState(request, {
+      sessionsResult: {
+        ts: 1,
+        path: "sessions.json",
+        count: 1,
+        defaults: { model: null, modelProvider: null, contextTokens: null },
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 10,
+            runClosureSummary: {
+              runId: "run-1",
+              updatedAtMs: 10,
+              outcomeStatus: "completed",
+              verificationStatus: "verified",
+              acceptanceStatus: "satisfied",
+              action: "close",
+              remediation: "none",
+              reasonCode: "completed_with_output",
+              reasons: ["ok"],
+            },
+            handoffTruthSource: "recovery",
+            handoffRunId: "run-1",
+            recoveryStatus: "blocked",
+          },
+        ],
+      },
+    });
+
+    const result = applySessionsChangedEvent(state, {
+      sessionKey: "agent:main:main",
+      reason: "patch",
+      kind: "direct",
+      updatedAt: 40,
+      status: "done",
+    });
+
+    expect(result).toEqual({ applied: true, shouldReload: false });
+    expect(state.sessionsResult?.sessions[0]).toMatchObject({
+      updatedAt: 40,
+      status: "done",
+    });
+    expect(state.sessionsResult?.sessions[0]?.runClosureSummary).toBeUndefined();
+    expect(state.sessionsResult?.sessions[0]?.handoffTruthSource).toBeUndefined();
+    expect(state.sessionsResult?.sessions[0]?.handoffRunId).toBeUndefined();
+    expect(state.sessionsResult?.sessions[0]?.recoveryStatus).toBeUndefined();
+  });
+
+  it("requests a reload for create/delete style events", () => {
+    const request = vi.fn(async () => undefined);
+    const state = createState(request);
+
+    expect(
+      applySessionsChangedEvent(state, {
+        sessionKey: "agent:main:main",
+        reason: "create",
+        kind: "direct",
+        updatedAt: 10,
+      }),
+    ).toEqual({ applied: false, shouldReload: true });
   });
 });
