@@ -6,6 +6,7 @@ import {
   loadRunCronIsolatedAgentTurn,
   resetRunCronIsolatedAgentTurnHarness,
   resolveDeliveryTargetMock,
+  resolveAgentTimeoutMsMock,
   restoreFastTestEnv,
   runEmbeddedPiAgentMock,
   runWithModelFallbackMock,
@@ -69,5 +70,20 @@ describe("runCronIsolatedAgentTurn owner auth", () => {
     const toolNames = createOpenClawCodingTools({ senderIsOwner }).map((tool) => tool.name);
     expect(toolNames).toContain("cron");
     expect(toolNames).toContain("gateway");
+  });
+
+  it("uses platform runtime timeout policy when payload timeout is absent", async () => {
+    await runCronIsolatedAgentTurn(makeParams());
+
+    expect(runEmbeddedPiAgentMock).toHaveBeenCalledTimes(1);
+    expect(resolveAgentTimeoutMsMock).toHaveBeenCalledTimes(1);
+    const timeoutCall = resolveAgentTimeoutMsMock.mock.calls[0]?.[0] as
+      | { overrideSeconds?: number }
+      | undefined;
+    const embeddedCall = runEmbeddedPiAgentMock.mock.calls[0]?.[0] as
+      | { platformExecutionContext?: { timeoutSeconds?: number } }
+      | undefined;
+
+    expect(timeoutCall?.overrideSeconds).toBe(embeddedCall?.platformExecutionContext?.timeoutSeconds);
   });
 });

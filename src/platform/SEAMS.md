@@ -51,6 +51,13 @@ path. It now also carries precomputed `prependContext` and
 `prependSystemContext` values, so plugins should reuse that context instead of
 re-planning from raw prompt text on the real execution path.
 
+**Surface parity rule:** the same resolved runtime plan should also remain the
+source of truth when execution leaves the embedded runner. CLI-backed runs may
+adapt that context to backend limitations, but they should still reuse the
+already-resolved runtime prompt/system context instead of silently dropping it.
+Cron outer loops should derive timeout/fallback defaults from the same runtime
+plan unless an explicit job payload override intentionally wins.
+
 ## Seam 3 — Model Selection
 
 **Core file:** `src/agents/model-selection.ts`, `src/agents/model-fallback.ts`

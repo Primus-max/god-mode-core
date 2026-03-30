@@ -78,6 +78,10 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
   - When you touch planner/recipe activation on the agent path, keep one regression that proves `platformExecutionContext` reaches embedded runner hook evaluation with the selected recipe/profile/runtime hints, and one regression that proves prompt/LLM hook contexts receive the same structured `ctx.platformExecution` instead of recomputing from raw prompt text.
   - Keep at least one plugin-side regression where pre-resolved `prependContext` / `prependSystemContext` are reused by the platform hook layer instead of rebuilding the route contract ad hoc.
   - Current reference coverage lives in `src/agents/agent-command.stage2.test.ts`, `src/agents/pi-embedded-runner/run.overflow-compaction.test.ts`, `src/agents/pi-embedded-runner/run/attempt.test.ts`, and `src/platform/plugin.test.ts`.
+- Surface parity note:
+  - When you touch secondary execution surfaces, keep one regression where a CLI-backed path reuses canonical runtime prompt/system context from the already-resolved `platformExecutionContext`, and one regression where cron timeout/fallback defaults are derived from the same runtime plan rather than hand-maintained side policy.
+  - Also keep at least one cron regression that proves the same structured runtime context reaches the actual runner call (`embedded` or `CLI`) instead of being recomputed deeper in the surface-specific branch.
+  - Current reference coverage lives in `src/agents/cli-runner.test.ts`, `src/cron/isolated-agent/run.owner-auth.test.ts`, `src/cron/isolated-agent/run.skill-filter.test.ts`, and `src/cron/isolated-agent/run.payload-fallbacks.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.
   - Shared unit coverage now defaults to `threads`, while the manifest keeps the measured fork-only exceptions and heavy singleton lanes explicit.
