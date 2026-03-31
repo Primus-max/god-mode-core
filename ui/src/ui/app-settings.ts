@@ -43,6 +43,7 @@ import {
   tabFromPath,
   type Tab,
 } from "./navigation.ts";
+import { resolveSessionRuntimeInspectRunId } from "./session-runtime.ts";
 import { saveSettings, type UiSettings } from "./storage.ts";
 import { startThemeTransition, type ThemeTransitionContext } from "./theme-transition.ts";
 import { resolveTheme, type ResolvedTheme, type ThemeMode, type ThemeName } from "./theme.ts";
@@ -638,6 +639,8 @@ export function syncUrlWithSessionKey(host: SettingsHost, sessionKey: string, re
 
 export async function loadOverview(host: SettingsHost) {
   const app = host as unknown as OpenClawApp;
+  const activeSession = app.sessionsResult?.sessions.find((session) => session.key === app.sessionKey);
+  const runtimeRunId = resolveSessionRuntimeInspectRunId(activeSession) ?? null;
   await Promise.allSettled([
     loadChannels(app, false),
     loadPresence(app),
@@ -648,7 +651,7 @@ export async function loadOverview(host: SettingsHost) {
     loadSkills(app),
     loadUsage(app),
     loadBootstrapRequests(app),
-    loadRuntimeInspector(app, { sessionKey: app.sessionKey || null, runId: null }),
+    loadRuntimeInspector(app, { sessionKey: app.sessionKey || null, runId: runtimeRunId }),
     loadPlatformCatalog(app),
     loadMachineControl(app),
     loadSpecialistContext(app, { draft: app.chatMessage }),
@@ -715,6 +718,20 @@ function resolveRecoveryAttentionSeverity(status?: string | null): AttentionItem
   return "warning";
 }
 
+function matchesRuntimeScope(
+  checkpoint: { sessionKey?: string; runId?: string },
+  sessionKey: string,
+  runId?: string | null,
+): boolean {
+  if (checkpoint.sessionKey !== sessionKey) {
+    return false;
+  }
+  if (!runId) {
+    return true;
+  }
+  return checkpoint.runId === runId;
+}
+
 export function buildAttentionItems(host: AttentionHost) {
   const items: AttentionItem[] = [];
 
@@ -742,10 +759,16 @@ export function buildAttentionItems(host: AttentionHost) {
   }
 
   const activeSession = host.sessionsResult?.sessions.find((session) => session.key === host.sessionKey);
+  const activeRunId = resolveSessionRuntimeInspectRunId(activeSession);
+  const fallbackCheckpoint =
+    host.runtimeCheckpoints.find((checkpoint) => checkpoint.sessionKey === host.sessionKey) ?? null;
   const scopedCheckpoint =
-    host.runtimeCheckpointDetail?.sessionKey === host.sessionKey
+    host.runtimeCheckpointDetail &&
+    matchesRuntimeScope(host.runtimeCheckpointDetail, host.sessionKey, activeRunId)
       ? host.runtimeCheckpointDetail
-      : host.runtimeCheckpoints.find((checkpoint) => checkpoint.sessionKey === host.sessionKey) ?? null;
+      : host.runtimeCheckpoints.find((checkpoint) =>
+            matchesRuntimeScope(checkpoint, host.sessionKey, activeRunId),
+          ) ?? fallbackCheckpoint;
   const recoveryDescription =
     activeSession?.recoveryOperatorHint ??
     scopedCheckpoint?.operatorHint ??
@@ -761,6 +784,7 @@ export function buildAttentionItems(host: AttentionHost) {
       href: buildTabHref(host, "sessions", {
         session: host.sessionKey,
         runtimeSession: host.sessionKey,
+        runtimeRun: activeRunId ?? scopedCheckpoint?.runId ?? null,
         checkpoint: activeSession?.recoveryCheckpointId ?? scopedCheckpoint?.id ?? null,
       }),
       actionLabel: "Review",

@@ -1,14 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("./controllers/runtime-inspector.ts", () => ({
+  loadRuntimeInspector: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   applyResolvedTheme,
   applySettings,
   applySettingsFromUrl,
   attachThemeListener,
   buildAttentionItems,
+  loadOverview,
   setTabFromRoute,
   syncUrlWithTab,
   syncThemeWithSettings,
 } from "./app-settings.ts";
+import { loadRuntimeInspector } from "./controllers/runtime-inspector.ts";
 import type { ThemeMode, ThemeName } from "./theme.ts";
 import type { MachineControlStatus } from "./types.ts";
 
@@ -72,6 +78,8 @@ type SettingsHost = {
   bootstrapPollInterval: number | null;
   machinePollInterval: number | null;
   machineStatus?: MachineControlStatus | null;
+  client?: { request: ReturnType<typeof vi.fn> } | null;
+  chatMessage?: string;
   pendingGatewayUrl?: string | null;
   pendingGatewayToken?: string | null;
   artifactsSelectedId?: string | null;
@@ -92,11 +100,16 @@ type SettingsHost = {
       recoveryOperatorHint?: string;
       recoveryCheckpointId?: string;
       recoveryBlockedReason?: string;
+      handoffTruthSource?: "recovery" | "closure";
+      handoffRunId?: string;
+      handoffRequestRunId?: string;
+      runClosureSummary?: { runId?: string };
     }>;
   } | null;
   runtimeCheckpoints?: Array<{
     id: string;
     sessionKey?: string;
+    runId?: string;
     status?: string;
     operatorHint?: string;
     blockedReason?: string;
@@ -105,6 +118,7 @@ type SettingsHost = {
   runtimeCheckpointDetail?: {
     id: string;
     sessionKey?: string;
+    runId?: string;
     status?: string;
     operatorHint?: string;
     blockedReason?: string;
@@ -230,6 +244,8 @@ const createHost = (tab: Tab): SettingsHost => ({
   bootstrapPollInterval: null,
   machinePollInterval: null,
   machineStatus: null,
+  client: null,
+  chatMessage: "",
   pendingGatewayUrl: null,
   pendingGatewayToken: null,
   artifactsSelectedId: null,
@@ -570,8 +586,112 @@ describe("syncUrlWithTab", () => {
   });
 });
 
+describe("loadOverview", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("preloads runtime inspector with the truth-aware handoff run", async () => {
+    const host = createHost("overview");
+    host.sessionKey = "agent:main:main";
+    host.sessionsResult = {
+      sessions: [
+        {
+          key: "agent:main:main",
+          handoffTruthSource: "recovery",
+          handoffRunId: "recovery-run",
+          handoffRequestRunId: "request-run",
+          runClosureSummary: { runId: "closure-run" },
+        },
+      ],
+    };
+
+    await loadOverview(host as never);
+
+    expect(loadRuntimeInspector).toHaveBeenCalledWith(host, {
+      sessionKey: "agent:main:main",
+      runId: "recovery-run",
+    });
+  });
+
+  it("falls back to a null runtime run when no cached session row exists", async () => {
+    const host = createHost("overview");
+    host.sessionKey = "agent:main:main";
+    host.sessionsResult = null;
+
+    await loadOverview(host as never);
+
+    expect(loadRuntimeInspector).toHaveBeenCalledWith(host, {
+      sessionKey: "agent:main:main",
+      runId: null,
+    });
+  });
+});
+
 describe("buildAttentionItems", () => {
-  it("adds recovery and scoped bootstrap attention links", () => {
+  it("adds handoff-aware recovery and scoped bootstrap attention links", () => {
+    const host = createHost("overview");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.sessionsResult = {
+      sessions: [
+        {
+          key: "agent:main:main",
+          label: "Main session",
+          handoffTruthSource: "recovery",
+          handoffRunId: "recovery-run",
+          handoffRequestRunId: "request-run",
+          runClosureSummary: { runId: "closure-run" },
+          recoveryStatus: "blocked",
+          recoveryOperatorHint: "Awaiting operator approval.",
+          recoveryCheckpointId: "cp-2",
+        },
+      ],
+    };
+    host.runtimeCheckpoints = [
+      {
+        id: "cp-1",
+        sessionKey: "agent:main:main",
+        runId: "closure-run",
+        status: "blocked",
+        operatorHint: "Old closure checkpoint.",
+        target: { bootstrapRequestId: "bootstrap-old" },
+      },
+      {
+        id: "cp-2",
+        sessionKey: "agent:main:main",
+        runId: "recovery-run",
+        status: "blocked",
+        operatorHint: "Awaiting operator approval.",
+        target: { bootstrapRequestId: "bootstrap-1" },
+      },
+    ];
+    host.runtimeCheckpointDetail = {
+      id: "cp-1",
+      sessionKey: "agent:main:main",
+      runId: "closure-run",
+      status: "blocked",
+      operatorHint: "Old closure checkpoint.",
+      target: { bootstrapRequestId: "bootstrap-old" },
+    };
+
+    buildAttentionItems(host as never);
+
+    expect(host.attentionItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Recovery needs review for Main session",
+          href: "/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=recovery-run&checkpoint=cp-2",
+        }),
+        expect.objectContaining({
+          title: "Bootstrap request linked to current recovery",
+          href: "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps session-scoped recovery links when no truth-aware run is available", () => {
     const host = createHost("overview");
     host.basePath = "/ui";
     host.sessionKey = "agent:main:main";
@@ -592,16 +712,8 @@ describe("buildAttentionItems", () => {
         sessionKey: "agent:main:main",
         status: "blocked",
         operatorHint: "Awaiting operator approval.",
-        target: { bootstrapRequestId: "bootstrap-1" },
       },
     ];
-    host.runtimeCheckpointDetail = {
-      id: "cp-1",
-      sessionKey: "agent:main:main",
-      status: "blocked",
-      operatorHint: "Awaiting operator approval.",
-      target: { bootstrapRequestId: "bootstrap-1" },
-    };
 
     buildAttentionItems(host as never);
 
@@ -610,10 +722,6 @@ describe("buildAttentionItems", () => {
         expect.objectContaining({
           title: "Recovery needs review for Main session",
           href: "/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&checkpoint=cp-1",
-        }),
-        expect.objectContaining({
-          title: "Bootstrap request linked to current recovery",
-          href: "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
         }),
       ]),
     );

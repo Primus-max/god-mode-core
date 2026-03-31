@@ -8,6 +8,7 @@ import { formatRelativeTimestamp } from "../format.ts";
 import { icons } from "../icons.ts";
 import { pathForTab } from "../navigation.ts";
 import { formatSessionTokens } from "../presenter.ts";
+import { resolveSessionRuntimeInspectRunId } from "../session-runtime.ts";
 import type {
   GatewaySessionRow,
   RuntimeActionDetail,
@@ -94,17 +95,6 @@ function formatMsTimestamp(timestamp?: number | null): string {
 
 function renderRuntimeStatusChip(label: string) {
   return html`<span class="chip">${label}</span>`;
-}
-
-function resolveSessionRuntimeInspectRunId(row: GatewaySessionRow): string | undefined {
-  const closureRunId = row.runClosureSummary?.runId;
-  if (row.handoffTruthSource === "recovery") {
-    return row.handoffRunId ?? row.handoffRequestRunId ?? closureRunId;
-  }
-  if (row.handoffTruthSource === "closure") {
-    return row.handoffRunId ?? closureRunId ?? row.handoffRequestRunId;
-  }
-  return row.handoffRunId ?? row.handoffRequestRunId ?? closureRunId;
 }
 
 function renderSessionHandoffContext(row: GatewaySessionRow) {

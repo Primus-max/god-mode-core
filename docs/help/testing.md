@@ -94,6 +94,7 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
   - Current reference coverage lives in `ui/src/ui/controllers/runtime-inspector.test.ts`, `ui/src/ui/views/sessions.test.ts`, `src/platform/runtime/gateway.test.ts`, `src/platform/bootstrap/gateway.test.ts`, and `src/platform/artifacts/gateway.test.ts`.
 - Operator correlation note:
   - When you touch overview attention, deep links, or cross-surface operator routing, keep one regression where attention items are derived from existing canonical session/runtime/bootstrap state, one regression where tab-specific query state survives refresh/popstate, and one regression where linked bootstrap/artifact targets open the correct record without manual id lookup.
+  - If overview preloads runtime state for the active session, keep one regression proving it reuses the same handoff-aware `runtimeRun` selection as the Sessions inspect path instead of falling back to session-only scope.
   - Current reference coverage lives in `ui/src/ui/app-settings.test.ts`, `ui/src/ui/views/overview-attention.test.ts`, `ui/src/ui/controllers/bootstrap.test.ts`, `ui/src/ui/controllers/artifacts.test.ts`, and `ui/src/ui/views/sessions.test.ts`.
 - Cron correlation note:
   - When you touch cron/operator routing, keep one regression where failed or overdue cron attention items open the canonical cron surface, one regression where `cronJob` deep-link state survives refresh/popstate, and one regression where cron run history opens the linked operator context without manual session lookup.
