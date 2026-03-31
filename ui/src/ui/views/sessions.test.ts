@@ -329,4 +329,47 @@ describe("sessions view", () => {
       decision: "allow-once",
     });
   });
+
+  it("renders contextual links to linked bootstrap and artifact records", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(buildResult(buildSession())),
+        basePath: "/ui",
+        runtimeSelectedCheckpointId: "cp-1",
+        runtimeCheckpointDetail: {
+          id: "cp-1",
+          runId: "run-1",
+          sessionKey: "agent:main:main",
+          boundary: "bootstrap",
+          status: "blocked",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+          target: {
+            bootstrapRequestId: "bootstrap-1",
+            artifactId: "artifact-1",
+            operation: "bootstrap.run",
+          },
+        },
+        runtimeCheckpoints: [
+          {
+            id: "cp-1",
+            runId: "run-1",
+            sessionKey: "agent:main:main",
+            boundary: "bootstrap",
+            status: "blocked",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const links = Array.from(container.querySelectorAll("a")).map((link) => link.getAttribute("href"));
+    expect(links).toContain("/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1");
+    expect(links).toContain("/ui/artifacts?session=agent%3Amain%3Amain&artifact=artifact-1");
+  });
 });

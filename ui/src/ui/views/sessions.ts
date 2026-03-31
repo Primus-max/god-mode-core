@@ -93,6 +93,21 @@ function renderRuntimeStatusChip(label: string) {
   return html`<span class="chip">${label}</span>`;
 }
 
+function buildTabLink(
+  basePath: string,
+  tab: "bootstrap" | "artifacts",
+  params: Record<string, string | null | undefined>,
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab(tab, basePath)}`);
+  for (const [key, value] of Object.entries(params)) {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    if (trimmed) {
+      url.searchParams.set(key, trimmed);
+    }
+  }
+  return `${url.pathname}${url.search}`;
+}
+
 function checkpointHasNextAction(
   checkpoint: RuntimeCheckpointSummary,
   method: string,
@@ -227,6 +242,46 @@ function renderRuntimeRecoveryControls(
   `;
 }
 
+function renderRuntimeLinkedRecords(checkpoint: RuntimeCheckpointSummary, props: SessionsProps) {
+  if (!checkpoint.target?.bootstrapRequestId && !checkpoint.target?.artifactId) {
+    return nothing;
+  }
+  return html`
+    <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:12px;">
+      ${
+        checkpoint.target?.bootstrapRequestId
+          ? html`
+              <a
+                class="btn"
+                href=${buildTabLink(props.basePath, "bootstrap", {
+                  session: checkpoint.sessionKey ?? props.runtimeSessionKey,
+                  bootstrapRequest: checkpoint.target.bootstrapRequestId,
+                })}
+              >
+                ${t("sessions.runtime.links.openBootstrap")}
+              </a>
+            `
+          : nothing
+      }
+      ${
+        checkpoint.target?.artifactId
+          ? html`
+              <a
+                class="btn"
+                href=${buildTabLink(props.basePath, "artifacts", {
+                  session: checkpoint.sessionKey ?? props.runtimeSessionKey,
+                  artifact: checkpoint.target.artifactId,
+                })}
+              >
+                ${t("sessions.runtime.links.openArtifact")}
+              </a>
+            `
+          : nothing
+      }
+    </div>
+  `;
+}
+
 function renderRuntimeInspector(props: SessionsProps) {
   const checkpoints = props.runtimeCheckpoints;
   const selectedCheckpoint = props.runtimeCheckpointDetail;
@@ -346,6 +401,7 @@ function renderRuntimeInspector(props: SessionsProps) {
                                 : nothing
                             }
                             ${renderRuntimeRecoveryControls(selectedCheckpoint, props)}
+                            ${renderRuntimeLinkedRecords(selectedCheckpoint, props)}
                             ${
                               selectedCheckpoint.continuation
                                 ? html`
