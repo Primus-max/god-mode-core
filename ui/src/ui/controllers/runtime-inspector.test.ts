@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   clearRuntimeInspectorScope,
+  executeRuntimeRecoveryAction,
   loadRuntimeCheckpointDetail,
   loadRuntimeInspector,
   type RuntimeInspectorState,
@@ -17,6 +18,7 @@ function createState(
     connected: true,
     runtimeLoading: false,
     runtimeDetailLoading: false,
+    runtimeActionBusy: false,
     runtimeError: null,
     runtimeSessionKey: null,
     runtimeRunId: null,
@@ -221,5 +223,67 @@ describe("runtime inspector controller", () => {
 
     expect(state.runtimeCheckpointDetail).toBeNull();
     expect(state.runtimeError).toContain("checkpoint failed");
+  });
+
+  it("executes recovery actions through canonical backend methods and reloads the ledger", async () => {
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "exec.approval.resolve") {
+        expect(params).toEqual({ id: "approval-1", decision: "allow-once" });
+        return { ok: true };
+      }
+      if (method === "platform.runtime.checkpoints.list") {
+        return {
+          checkpoints: [
+            {
+              id: "cp-1",
+              runId: "run-1",
+              sessionKey: "agent:main:main",
+              boundary: "exec_approval",
+              status: "resumed",
+              createdAtMs: 1,
+              updatedAtMs: 3,
+            },
+          ],
+        };
+      }
+      if (method === "platform.runtime.checkpoints.get") {
+        return {
+          checkpoint: {
+            id: "cp-1",
+            runId: "run-1",
+            sessionKey: "agent:main:main",
+            boundary: "exec_approval",
+            status: "resumed",
+            createdAtMs: 1,
+            updatedAtMs: 3,
+          },
+        };
+      }
+      if (method === "platform.runtime.actions.list") {
+        return { actions: [] };
+      }
+      if (method === "platform.runtime.closures.list") {
+        return { closures: [] };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const state = createState(request, {
+      runtimeSessionKey: "agent:main:main",
+      runtimeSelectedCheckpointId: "cp-1",
+    });
+
+    await executeRuntimeRecoveryAction(state, {
+      kind: "exec-approval-resolve",
+      checkpointId: "cp-1",
+      approvalId: "approval-1",
+      decision: "allow-once",
+    });
+
+    expect(state.runtimeActionBusy).toBe(false);
+    expect(state.runtimeCheckpointDetail?.status).toBe("resumed");
+    expect(request).toHaveBeenCalledWith("exec.approval.resolve", {
+      id: "approval-1",
+      decision: "allow-once",
+    });
   });
 });

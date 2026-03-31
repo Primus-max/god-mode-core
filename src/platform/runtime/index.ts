@@ -105,6 +105,7 @@ export {
 export {
   createRuntimeActionGetGatewayMethod,
   createRuntimeActionListGatewayMethod,
+  createRuntimeCheckpointDispatchGatewayMethod,
   createRuntimeCheckpointGetGatewayMethod,
   createRuntimeCheckpointListGatewayMethod,
   createRuntimeClosureGetGatewayMethod,

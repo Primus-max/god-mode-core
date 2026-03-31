@@ -1,5 +1,6 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
+import type { RuntimeRecoveryAction } from "../controllers/runtime-inspector.ts";
 import { formatRelativeTimestamp } from "../format.ts";
 import { icons } from "../icons.ts";
 import { pathForTab } from "../navigation.ts";
@@ -18,6 +19,7 @@ export type SessionsProps = {
   loading: boolean;
   runtimeLoading: boolean;
   runtimeDetailLoading: boolean;
+  runtimeActionBusy: boolean;
   result: SessionsListResult | null;
   error: string | null;
   runtimeError: string | null;
@@ -59,6 +61,7 @@ export type SessionsProps = {
   onSelectRuntimeAction: (actionId: string) => void;
   onSelectRuntimeClosure: (runId: string) => void;
   onClearRuntimeScope: () => void;
+  onExecuteRuntimeRecoveryAction: (action: RuntimeRecoveryAction) => void;
   onPatch: (
     key: string,
     patch: {
@@ -88,6 +91,140 @@ function formatMsTimestamp(timestamp?: number | null): string {
 
 function renderRuntimeStatusChip(label: string) {
   return html`<span class="chip">${label}</span>`;
+}
+
+function checkpointHasNextAction(
+  checkpoint: RuntimeCheckpointSummary,
+  method: string,
+  phase?: "approve" | "deny" | "resume" | "retry" | "inspect",
+): boolean {
+  return (
+    checkpoint.nextActions?.some(
+      (action) => action.method === method && (phase ? action.phase === phase : true),
+    ) ?? false
+  );
+}
+
+function renderRuntimeRecoveryControls(
+  checkpoint: RuntimeCheckpointSummary,
+  props: SessionsProps,
+) {
+  const controls: Array<{ label: string; action: RuntimeRecoveryAction; tone?: "primary" | "danger" }> =
+    [];
+  if (checkpointHasNextAction(checkpoint, "exec.approval.resolve", "approve") && checkpoint.target?.approvalId) {
+    controls.push({
+      label: t("sessions.runtime.controls.approveRecovery"),
+      action: {
+        kind: "exec-approval-resolve",
+        checkpointId: checkpoint.id,
+        approvalId: checkpoint.target.approvalId,
+        decision: "allow-once",
+      },
+      tone: "primary",
+    });
+    controls.push({
+      label: t("sessions.runtime.controls.denyRecovery"),
+      action: {
+        kind: "exec-approval-resolve",
+        checkpointId: checkpoint.id,
+        approvalId: checkpoint.target.approvalId,
+        decision: "deny",
+      },
+      tone: "danger",
+    });
+  }
+  if (
+    checkpointHasNextAction(checkpoint, "platform.bootstrap.resolve", "approve") &&
+    checkpoint.target?.bootstrapRequestId
+  ) {
+    controls.push({
+      label: t("sessions.runtime.controls.approveBootstrap"),
+      action: {
+        kind: "bootstrap-resolve",
+        checkpointId: checkpoint.id,
+        requestId: checkpoint.target.bootstrapRequestId,
+        decision: "approve",
+      },
+      tone: "primary",
+    });
+    controls.push({
+      label: t("sessions.runtime.controls.denyBootstrap"),
+      action: {
+        kind: "bootstrap-resolve",
+        checkpointId: checkpoint.id,
+        requestId: checkpoint.target.bootstrapRequestId,
+        decision: "deny",
+      },
+      tone: "danger",
+    });
+  }
+  if (
+    checkpointHasNextAction(checkpoint, "platform.bootstrap.run", "resume") &&
+    checkpoint.target?.bootstrapRequestId
+  ) {
+    controls.push({
+      label: t("sessions.runtime.controls.runBootstrap"),
+      action: {
+        kind: "bootstrap-run",
+        checkpointId: checkpoint.id,
+        requestId: checkpoint.target.bootstrapRequestId,
+      },
+      tone: "primary",
+    });
+  }
+  if (
+    checkpointHasNextAction(checkpoint, "platform.artifacts.transition", "retry") &&
+    checkpoint.target?.artifactId &&
+    checkpoint.target.operation
+  ) {
+    controls.push({
+      label: t("sessions.runtime.controls.retryArtifact"),
+      action: {
+        kind: "artifact-transition",
+        checkpointId: checkpoint.id,
+        artifactId: checkpoint.target.artifactId,
+        operation: checkpoint.target.operation as "approve" | "publish" | "preview" | "retain" | "delete",
+      },
+      tone: "primary",
+    });
+  }
+  if (
+    checkpoint.continuation?.kind === "closure_recovery" &&
+    (checkpoint.continuation.state === "failed" ||
+      checkpoint.status === "approved" ||
+      checkpoint.status === "resumed")
+  ) {
+    controls.push({
+      label:
+        checkpoint.continuation.state === "failed"
+          ? t("sessions.runtime.controls.retryDispatch")
+          : t("sessions.runtime.controls.dispatchContinuation"),
+      action: {
+        kind: "dispatch-continuation",
+        checkpointId: checkpoint.id,
+      },
+      tone: "primary",
+    });
+  }
+  if (controls.length === 0) {
+    return nothing;
+  }
+  return html`
+    <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:12px;">
+      ${controls.map(
+        (control) => html`
+          <button
+            class="btn ${control.tone === "primary" ? "primary" : control.tone === "danger" ? "danger" : ""}"
+            type="button"
+            ?disabled=${props.runtimeActionBusy}
+            @click=${() => props.onExecuteRuntimeRecoveryAction(control.action)}
+          >
+            ${control.label}
+          </button>
+        `,
+      )}
+    </div>
+  `;
 }
 
 function renderRuntimeInspector(props: SessionsProps) {
@@ -208,6 +345,7 @@ function renderRuntimeInspector(props: SessionsProps) {
                                   `
                                 : nothing
                             }
+                            ${renderRuntimeRecoveryControls(selectedCheckpoint, props)}
                             ${
                               selectedCheckpoint.continuation
                                 ? html`

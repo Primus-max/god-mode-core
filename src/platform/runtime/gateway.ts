@@ -94,6 +94,58 @@ export function createRuntimeCheckpointGetGatewayMethod(
   };
 }
 
+export function createRuntimeCheckpointDispatchGatewayMethod(
+  service: PlatformRuntimeCheckpointService,
+): GatewayRequestHandler {
+  return async ({ params, respond }) => {
+    const checkpointId = typeof params.checkpointId === "string" ? params.checkpointId.trim() : "";
+    if (!checkpointId) {
+      respond(false, { error: "checkpointId required" });
+      return;
+    }
+    const checkpoint = service.get(checkpointId);
+    if (!checkpoint) {
+      respond(false, { error: "checkpoint not found" });
+      return;
+    }
+    if (!checkpoint.continuation?.kind) {
+      respond(false, { error: "checkpoint continuation not found" });
+      return;
+    }
+    if (
+      checkpoint.status === "completed" ||
+      checkpoint.status === "denied" ||
+      checkpoint.status === "cancelled"
+    ) {
+      respond(false, { error: "checkpoint already closed" });
+      return;
+    }
+    if (checkpoint.continuation.state === "running") {
+      respond(false, { error: "checkpoint continuation already running" });
+      return;
+    }
+    if (checkpoint.target?.approvalId && checkpoint.status === "blocked") {
+      respond(false, { error: "checkpoint still requires explicit approval" });
+      return;
+    }
+    if (checkpoint.continuation.kind === "closure_recovery") {
+      await import("../../auto-reply/reply/closure-outcome-dispatcher.js");
+    }
+    const updated = await service.dispatchContinuation(checkpointId);
+    if (!updated) {
+      respond(false, { error: "checkpoint dispatch failed" });
+      return;
+    }
+    const summary = toRuntimeCheckpointSummary(updated);
+    respond(true, {
+      checkpoint: {
+        ...summary,
+        operatorHint: deriveRecoveryOperatorHint(summary),
+      },
+    });
+  };
+}
+
 export function createRuntimeActionListGatewayMethod(
   service: PlatformRuntimeCheckpointService,
 ): GatewayRequestHandler {

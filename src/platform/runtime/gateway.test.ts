@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createRuntimeActionGetGatewayMethod,
   createRuntimeActionListGatewayMethod,
+  createRuntimeCheckpointDispatchGatewayMethod,
   createRuntimeCheckpointGetGatewayMethod,
   createRuntimeCheckpointListGatewayMethod,
   createRuntimeClosureListGatewayMethod,
@@ -212,5 +213,87 @@ describe("platform runtime gateway", () => {
         }),
       ],
     });
+  });
+
+  it("dispatches approved checkpoint continuations through the runtime gateway", async () => {
+    const service = createPlatformRuntimeCheckpointService();
+    service.registerContinuationHandler("bootstrap_run", async (checkpoint) => {
+      service.updateCheckpoint(checkpoint.id, {
+        status: "completed",
+        completedAtMs: 123,
+      });
+    });
+    service.createCheckpoint({
+      id: "bootstrap-checkpoint",
+      runId: "run-bootstrap",
+      boundary: "bootstrap",
+      status: "approved",
+      target: {
+        bootstrapRequestId: "bootstrap-1",
+        operation: "bootstrap.run",
+      },
+      continuation: {
+        kind: "bootstrap_run",
+        state: "idle",
+        attempts: 0,
+      },
+    } as never);
+
+    const handler = createRuntimeCheckpointDispatchGatewayMethod(service);
+    let ok = false;
+    let result: unknown;
+    await handler({
+      params: { checkpointId: "bootstrap-checkpoint" },
+      respond: (success: boolean, payload: unknown) => {
+        ok = success;
+        result = payload;
+      },
+    } as never);
+
+    expect(ok).toBe(true);
+    expect(result).toEqual({
+      checkpoint: expect.objectContaining({
+        id: "bootstrap-checkpoint",
+        status: "completed",
+        continuation: expect.objectContaining({
+          kind: "bootstrap_run",
+          state: "completed",
+          attempts: 1,
+        }),
+      }),
+    });
+  });
+
+  it("rejects dispatch when a checkpoint still requires explicit approval", async () => {
+    const service = createPlatformRuntimeCheckpointService();
+    service.createCheckpoint({
+      id: "approval-checkpoint",
+      runId: "run-approval",
+      boundary: "exec_approval",
+      status: "blocked",
+      target: {
+        approvalId: "approval-1",
+        operation: "closure.recovery",
+      },
+      continuation: {
+        kind: "closure_recovery",
+        state: "idle",
+        attempts: 0,
+      },
+    } as never);
+
+    const handler = createRuntimeCheckpointDispatchGatewayMethod(service);
+    let ok = true;
+    let result: unknown;
+    await handler({
+      params: { checkpointId: "approval-checkpoint" },
+      respond: (success: boolean, payload: unknown) => {
+        ok = success;
+        result = payload;
+      },
+    } as never);
+
+    expect(ok).toBe(false);
+    expect(result).toEqual({ error: "checkpoint still requires explicit approval" });
   });
 });
