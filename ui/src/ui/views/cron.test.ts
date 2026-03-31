@@ -1,3 +1,4 @@
+/* @vitest-environment jsdom */
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_CRON_FORM } from "../app-defaults.ts";
@@ -191,6 +192,66 @@ describe("cron view", () => {
     expect(link?.getAttribute("href")).toContain(
       "/ui/chat?session=agent%3Amain%3Acron%3Ajob-1%3Arun%3Aabc",
     );
+  });
+
+  it("renders runtime inspector links when session keys are present", () => {
+    const container = document.createElement("div");
+    render(
+      renderCron(
+        createProps({
+          basePath: "/ui",
+          runsJobId: "job-1",
+          runs: [
+            {
+              ts: Date.now(),
+              jobId: "job-1",
+              status: "ok",
+              summary: "done",
+              sessionKey: "agent:main:cron:job-1:run:abc",
+            },
+          ],
+        }),
+      ),
+      container,
+    );
+
+    const links = Array.from(container.querySelectorAll("a.session-link")).map((link) =>
+      link.getAttribute("href"),
+    );
+    expect(links).toContain(
+      "/ui/sessions?session=agent%3Amain%3Acron%3Ajob-1%3Arun%3Aabc&runtimeSession=agent%3Amain%3Acron%3Ajob-1%3Arun%3Aabc",
+    );
+  });
+
+  it("delegates runtime navigation through callback when opening a cron run session", () => {
+    const container = document.createElement("div");
+    const onNavigateToSessions = vi.fn();
+    render(
+      renderCron(
+        createProps({
+          basePath: "/ui",
+          runsJobId: "job-1",
+          runs: [
+            {
+              ts: Date.now(),
+              jobId: "job-1",
+              status: "ok",
+              summary: "done",
+              sessionKey: "agent:main:cron:job-1:run:abc",
+            },
+          ],
+          onNavigateToSessions,
+        }),
+      ),
+      container,
+    );
+
+    const runtimeLink = Array.from(container.querySelectorAll("a.session-link")).find((link) =>
+      link.textContent?.includes("Open runtime"),
+    );
+    runtimeLink?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+
+    expect(onNavigateToSessions).toHaveBeenCalledWith("agent:main:cron:job-1:run:abc");
   });
 
   it("shows selected job name and sorts run history newest first", () => {

@@ -79,6 +79,8 @@ type SettingsHost = {
   runtimeSessionKey?: string | null;
   runtimeRunId?: string | null;
   runtimeSelectedCheckpointId?: string | null;
+  cronRunsJobId?: string | null;
+  cronRunsScope?: "job" | "all";
 };
 
 type AttentionHost = Pick<
@@ -134,6 +136,8 @@ function applyDeepLinkStateFromUrl(
   host.runtimeSessionKey = pick("runtimeSession");
   host.runtimeRunId = pick("runtimeRun");
   host.runtimeSelectedCheckpointId = pick("checkpoint");
+  host.cronRunsJobId = pick("cronJob");
+  host.cronRunsScope = host.cronRunsJobId ? "job" : "all";
 }
 
 function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
@@ -143,6 +147,7 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "runtimeSession", null);
   setQueryValue(url, "runtimeRun", null);
   setQueryValue(url, "checkpoint", null);
+  setQueryValue(url, "cronJob", null);
   if (tab === "bootstrap") {
     setQueryValue(url, "bootstrapRequest", host.bootstrapSelectedId);
   }
@@ -153,6 +158,9 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
     setQueryValue(url, "runtimeSession", host.runtimeSessionKey);
     setQueryValue(url, "runtimeRun", host.runtimeRunId);
     setQueryValue(url, "checkpoint", host.runtimeSelectedCheckpointId);
+  }
+  if (tab === "cron" && host.cronRunsScope === "job") {
+    setQueryValue(url, "cronJob", host.cronRunsJobId);
   }
 }
 
@@ -850,11 +858,20 @@ export function buildAttentionItems(host: AttentionHost) {
   const cronJobs = host.cronJobs ?? [];
   const failedCron = cronJobs.filter((j) => j.state?.lastStatus === "error");
   if (failedCron.length > 0) {
+    const failedCronJobId =
+      (failedCron[0] as { id?: string | null } | undefined)?.id ?? null;
     items.push({
       severity: "error",
       icon: "clock",
       title: `${failedCron.length} cron job${failedCron.length > 1 ? "s" : ""} failed`,
       description: failedCron.map((j) => j.name).join(", "),
+      href: failedCronJobId
+        ? buildTabHref(host, "cron", {
+            session: host.sessionKey,
+            cronJob: failedCronJobId,
+          })
+        : undefined,
+      actionLabel: failedCronJobId ? "Open" : undefined,
     });
   }
 
@@ -863,11 +880,20 @@ export function buildAttentionItems(host: AttentionHost) {
     (j) => j.enabled && j.state?.nextRunAtMs != null && now - j.state.nextRunAtMs > 300_000,
   );
   if (overdue.length > 0) {
+    const overdueCronJobId =
+      (overdue[0] as { id?: string | null } | undefined)?.id ?? null;
     items.push({
       severity: "warning",
       icon: "clock",
       title: `${overdue.length} overdue job${overdue.length > 1 ? "s" : ""}`,
       description: overdue.map((j) => j.name).join(", "),
+      href: overdueCronJobId
+        ? buildTabHref(host, "cron", {
+            session: host.sessionKey,
+            cronJob: overdueCronJobId,
+          })
+        : undefined,
+      actionLabel: overdueCronJobId ? "Open" : undefined,
     });
   }
 

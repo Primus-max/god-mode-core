@@ -92,6 +92,7 @@ export type CronProps = {
     cronRunsSortDir?: CronSortDir;
   }) => void | Promise<void>;
   onNavigateToChat?: (sessionKey: string) => void;
+  onNavigateToSessions?: (sessionKey: string) => void;
 };
 
 function getRunStatusOptions(): Array<{ value: CronRunsStatusValue; label: string }> {
@@ -675,7 +676,14 @@ export function renderCron(props: CronProps) {
                   `
                 : html`
                     <div class="list" style="margin-top: 12px;">
-                      ${runs.map((entry) => renderRun(entry, props.basePath, props.onNavigateToChat))}
+                      ${runs.map((entry) =>
+                        renderRun(
+                          entry,
+                          props.basePath,
+                          props.onNavigateToChat,
+                          props.onNavigateToSessions,
+                        ),
+                      )}
                     </div>
                   `
           }
@@ -1714,10 +1722,17 @@ function renderRun(
   entry: CronRunLogEntry,
   basePath: string,
   onNavigateToChat?: (sessionKey: string) => void,
+  onNavigateToSessions?: (sessionKey: string) => void,
 ) {
   const chatUrl =
     typeof entry.sessionKey === "string" && entry.sessionKey.trim().length > 0
       ? `${pathForTab("chat", basePath)}?session=${encodeURIComponent(entry.sessionKey)}`
+      : null;
+  const sessionsUrl =
+    typeof entry.sessionKey === "string" && entry.sessionKey.trim().length > 0
+      ? `${pathForTab("sessions", basePath)}?session=${encodeURIComponent(
+          entry.sessionKey,
+        )}&runtimeSession=${encodeURIComponent(entry.sessionKey)}`
       : null;
   const status = runStatusLabel(entry.status ?? "unknown");
   const delivery = runDeliveryLabel(entry.deliveryStatus ?? "not-requested");
@@ -1770,6 +1785,26 @@ function renderRun(
                   onNavigateToChat(entry.sessionKey);
                 }
               }}>${t("cron.runEntry.openRunChat")}</a></div>`
+            : nothing
+        }
+        ${
+          sessionsUrl
+            ? html`<div><a class="session-link" href=${sessionsUrl} @click=${(e: MouseEvent) => {
+                if (
+                  e.defaultPrevented ||
+                  e.button !== 0 ||
+                  e.metaKey ||
+                  e.ctrlKey ||
+                  e.shiftKey ||
+                  e.altKey
+                ) {
+                  return;
+                }
+                if (onNavigateToSessions && entry.sessionKey) {
+                  e.preventDefault();
+                  onNavigateToSessions(entry.sessionKey);
+                }
+              }}>${t("cron.runEntry.openRunRuntime")}</a></div>`
             : nothing
         }
         ${entry.error ? html`<div class="muted">${entry.error}</div>` : nothing}
