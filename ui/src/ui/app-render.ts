@@ -710,7 +710,12 @@ export function renderApp(state: AppViewState) {
                 },
                 onConnect: () => state.connect(),
                 onRefresh: () => state.loadOverview(),
-                onNavigate: (tab) => state.setTab(tab as import("./navigation.ts").Tab),
+                onNavigate: (tab, options) => {
+                  if (tab === "skills") {
+                    state.skillsFilter = options?.skillFilter ?? "";
+                  }
+                  state.setTab(tab as import("./navigation.ts").Tab);
+                },
                 onRefreshLogs: () => state.loadOverview(),
               })
             : nothing
@@ -1468,7 +1473,10 @@ export function renderApp(state: AppViewState) {
                   edits: state.skillEdits,
                   messages: state.skillMessages,
                   busyKey: state.skillsBusyKey,
-                  onFilterChange: (next) => (state.skillsFilter = next),
+                  onFilterChange: (next) => {
+                    state.skillsFilter = next;
+                    syncUrlWithTab(state, "skills", true);
+                  },
                   onRefresh: () => loadSkills(state, { clearMessages: true }),
                   onToggle: (key, enabled) => updateSkillEnabled(state, key, enabled),
                   onEdit: (key, value) => updateSkillEdit(state, key, value),

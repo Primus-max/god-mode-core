@@ -72,7 +72,7 @@ export type OverviewProps = {
   onToggleGatewayPasswordVisibility: () => void;
   onConnect: () => void;
   onRefresh: () => void;
-  onNavigate: (tab: string) => void;
+  onNavigate: (tab: string, options?: { skillFilter?: string }) => void;
   onRefreshLogs: () => void;
   onSpecialistOverrideChange: (
     next:

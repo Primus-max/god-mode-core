@@ -107,6 +107,11 @@ Cron jobs panel notes:
 - Overview attention now routes failed and overdue cron jobs back into the Cron surface with the relevant job preselected instead of leaving the operator to search manually.
 - Cron run history can jump into the linked session context directly: operators can still open the run chat, and can also open the Sessions runtime inspector when a `sessionKey` is available.
 
+Skills panel notes:
+
+- Overview attention now routes skill dependency and allowlist problems into the Skills surface with a persisted `skillFilter`, so operators can refresh or share the link without losing the same blocked/missing context.
+- The Skills search box now matches derived state as well as metadata, so filters such as `missing` and `blocked by allowlist` surface the same problem set that overview attention points at.
+
 Runtime / recovery notes:
 
 - The Sessions tab now doubles as the operator runtime inspector: blocked checkpoints, related actions, and closure outcomes all come from the canonical runtime ledgers rather than a separate UI cache.
