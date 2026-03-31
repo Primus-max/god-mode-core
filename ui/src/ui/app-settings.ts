@@ -14,9 +14,10 @@ import {
 } from "./app-polling.ts";
 import { scheduleChatScroll, scheduleLogsScroll } from "./app-scroll.ts";
 import type { OpenClawApp } from "./app.ts";
+import { loadAgentFileContent, loadAgentFiles } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
-import { loadAgents } from "./controllers/agents.ts";
+import { loadAgents, loadToolsCatalog } from "./controllers/agents.ts";
 import { loadArtifacts } from "./controllers/artifacts.ts";
 import { loadBootstrapRequests } from "./controllers/bootstrap.ts";
 import { loadChannels } from "./controllers/channels.ts";
@@ -74,6 +75,7 @@ type SettingsHost = {
   agentsList?: AgentsListResult | null;
   agentsSelectedId?: string | null;
   agentsPanel?: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
+  agentFileActive?: string | null;
   pendingGatewayUrl?: string | null;
   systemThemeCleanup?: (() => void) | null;
   pendingGatewayToken?: string | null;
@@ -129,6 +131,21 @@ function resolveExecApprovalsTarget(
   return { kind: "gateway" };
 }
 
+function normalizeAgentsPanel(
+  value: string | null | undefined,
+): "overview" | "files" | "tools" | "skills" | "channels" | "cron" {
+  switch (value) {
+    case "files":
+    case "tools":
+    case "skills":
+    case "channels":
+    case "cron":
+      return value;
+    default:
+      return "overview";
+  }
+}
+
 function setQueryValue(url: URL, key: string, value: string | null | undefined) {
   const trimmed = trimQueryValue(value);
   if (trimmed) {
@@ -155,6 +172,9 @@ function applyDeepLinkStateFromUrl(
   sources: { params: URLSearchParams; hashParams: URLSearchParams },
 ) {
   const pick = (key: string) => trimQueryValue(sources.params.get(key) ?? sources.hashParams.get(key));
+  host.agentsSelectedId = pick("agent");
+  host.agentsPanel = normalizeAgentsPanel(pick("agentsPanel"));
+  host.agentFileActive = host.agentsPanel === "files" ? pick("agentFile") : null;
   host.bootstrapSelectedId = pick("bootstrapRequest");
   host.artifactsSelectedId = pick("artifact");
   host.channelsSelectedKey = pick("channel");
@@ -173,6 +193,9 @@ function applyDeepLinkStateFromUrl(
 
 function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "session", host.sessionKey);
+  setQueryValue(url, "agent", null);
+  setQueryValue(url, "agentsPanel", null);
+  setQueryValue(url, "agentFile", null);
   setQueryValue(url, "bootstrapRequest", null);
   setQueryValue(url, "artifact", null);
   setQueryValue(url, "channel", null);
@@ -185,6 +208,16 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "execTarget", null);
   setQueryValue(url, "execNode", null);
   setQueryValue(url, "execAgent", null);
+  if (tab === "agents") {
+    setQueryValue(url, "agent", host.agentsSelectedId);
+    setQueryValue(url, "agentsPanel", host.agentsPanel ?? "overview");
+    if (host.agentsPanel === "files") {
+      setQueryValue(url, "agentFile", host.agentFileActive);
+    }
+    if (host.agentsPanel === "skills") {
+      setQueryValue(url, "skillFilter", host.skillsFilter);
+    }
+  }
   if (tab === "bootstrap") {
     setQueryValue(url, "bootstrapRequest", host.bootstrapSelectedId);
   }
@@ -422,6 +455,19 @@ export async function refreshActiveTab(host: SettingsHost) {
       host.agentsSelectedId ?? host.agentsList?.defaultId ?? host.agentsList?.agents?.[0]?.id;
     if (agentId) {
       void loadAgentIdentity(host as unknown as OpenClawApp, agentId);
+      if (host.agentsPanel === "files") {
+        const previousFile = host.agentFileActive ?? null;
+        await loadAgentFiles(host as unknown as OpenClawApp, agentId);
+        if (host.agentFileActive) {
+          void loadAgentFileContent(host as unknown as OpenClawApp, agentId, host.agentFileActive);
+        }
+        if (previousFile !== host.agentFileActive) {
+          syncUrlWithTab(host, "agents", true);
+        }
+      }
+      if (host.agentsPanel === "tools") {
+        void loadToolsCatalog(host as unknown as OpenClawApp, agentId);
+      }
       if (host.agentsPanel === "skills") {
         void loadAgentSkills(host as unknown as OpenClawApp, agentId);
       }

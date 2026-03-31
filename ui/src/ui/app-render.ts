@@ -360,6 +360,17 @@ export function renderApp(state: AppViewState) {
     state.agentsList?.defaultId ??
     state.agentsList?.agents?.[0]?.id ??
     null;
+  const chatAgentId = parseAgentSessionKey(state.sessionKey)?.agentId ?? resolvedAgentId ?? "main";
+  const refreshAgentFiles = async (agentId: string, syncUrl = false) => {
+    const previousFile = state.agentFileActive;
+    await loadAgentFiles(state, agentId);
+    if (state.agentFileActive) {
+      await loadAgentFileContent(state, agentId, state.agentFileActive);
+    }
+    if (syncUrl && previousFile !== state.agentFileActive) {
+      syncUrlWithTab(state, "agents", true);
+    }
+  };
   const getCurrentConfigValue = () =>
     state.configForm ?? (state.configSnapshot?.config as Record<string, unknown> | null);
   const findAgentIndex = (agentId: string) =>
@@ -1184,7 +1195,7 @@ export function renderApp(state: AppViewState) {
                       state.agentsList?.agents?.[0]?.id ??
                       null;
                     if (state.agentsPanel === "files" && refreshedAgentId) {
-                      void loadAgentFiles(state, refreshedAgentId);
+                      void refreshAgentFiles(refreshedAgentId, true);
                     }
                     if (state.agentsPanel === "skills" && refreshedAgentId) {
                       void loadAgentSkills(state, refreshedAgentId);
@@ -1216,9 +1227,10 @@ export function renderApp(state: AppViewState) {
                     state.toolsCatalogResult = null;
                     state.toolsCatalogError = null;
                     state.toolsCatalogLoading = false;
+                    syncUrlWithTab(state, "agents", true);
                     void loadAgentIdentity(state, agentId);
                     if (state.agentsPanel === "files") {
-                      void loadAgentFiles(state, agentId);
+                      void refreshAgentFiles(agentId, true);
                     }
                     if (state.agentsPanel === "tools") {
                       void loadToolsCatalog(state, agentId);
@@ -1236,7 +1248,9 @@ export function renderApp(state: AppViewState) {
                         state.agentFileActive = null;
                         state.agentFileContents = {};
                         state.agentFileDrafts = {};
-                        void loadAgentFiles(state, resolvedAgentId);
+                        void refreshAgentFiles(resolvedAgentId, true);
+                      } else if (state.agentFileActive) {
+                        void loadAgentFileContent(state, resolvedAgentId, state.agentFileActive);
                       }
                     }
                     if (panel === "skills") {
@@ -1258,10 +1272,12 @@ export function renderApp(state: AppViewState) {
                     if (panel === "cron") {
                       void state.loadCron();
                     }
+                    syncUrlWithTab(state, "agents", true);
                   },
-                  onLoadFiles: (agentId) => loadAgentFiles(state, agentId),
+                  onLoadFiles: (agentId) => refreshAgentFiles(agentId, true),
                   onSelectFile: (name) => {
                     state.agentFileActive = name;
+                    syncUrlWithTab(state, "agents", true);
                     if (!resolvedAgentId) {
                       return;
                     }
@@ -1329,7 +1345,10 @@ export function renderApp(state: AppViewState) {
                     }
                     void runCronJob(state, job, "force");
                   },
-                  onSkillsFilterChange: (next) => (state.skillsFilter = next),
+                  onSkillsFilterChange: (next) => {
+                    state.skillsFilter = next;
+                    syncUrlWithTab(state, "agents", true);
+                  },
                   onSkillsRefresh: () => {
                     if (resolvedAgentId) {
                       void loadAgentSkills(state, resolvedAgentId);
@@ -1668,7 +1687,7 @@ export function renderApp(state: AppViewState) {
                   }
                 },
                 agentsList: state.agentsList,
-                currentAgentId: resolvedAgentId ?? "main",
+                currentAgentId: chatAgentId,
                 onAgentChange: (agentId: string) => {
                   state.sessionKey = buildAgentMainSessionKey({ agentId });
                   state.chatMessages = [];
@@ -1684,7 +1703,7 @@ export function renderApp(state: AppViewState) {
                   void loadSpecialistContext(state, { draft: "" });
                 },
                 onNavigateToAgent: () => {
-                  state.agentsSelectedId = resolvedAgentId;
+                  state.agentsSelectedId = chatAgentId;
                   state.setTab("agents" as import("./navigation.ts").Tab);
                 },
                 onSessionSelect: (key: string) => {

@@ -87,6 +87,9 @@ type SettingsHost = {
   chatMessage?: string;
   pendingGatewayUrl?: string | null;
   pendingGatewayToken?: string | null;
+  agentsSelectedId?: string | null;
+  agentsPanel?: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
+  agentFileActive?: string | null;
   artifactsSelectedId?: string | null;
   bootstrapSelectedId?: string | null;
   channelsSelectedKey?: string | null;
@@ -275,6 +278,9 @@ const createHost = (tab: Tab): SettingsHost => ({
   chatMessage: "",
   pendingGatewayUrl: null,
   pendingGatewayToken: null,
+  agentsSelectedId: null,
+  agentsPanel: "overview",
+  agentFileActive: null,
   artifactsSelectedId: null,
   bootstrapSelectedId: null,
   channelsSelectedKey: null,
@@ -558,15 +564,18 @@ describe("applySettingsFromUrl", () => {
     expect(host.pendingGatewayToken).toBe("test-token");
   });
 
-  it("hydrates deep-link query state for runtime, bootstrap, artifacts, cron, skills, channels, logs, and nodes", () => {
+  it("hydrates deep-link query state for agents, runtime, bootstrap, artifacts, cron, skills, channels, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/agents?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
     );
-    const host = createHost("sessions");
+    const host = createHost("agents");
 
     applySettingsFromUrl(host);
 
     expect(host.sessionKey).toBe("agent:main:main");
+    expect(host.agentsSelectedId).toBe("beta");
+    expect(host.agentsPanel).toBe("files");
+    expect(host.agentFileActive).toBe("AGENTS.md");
     expect(host.runtimeSessionKey).toBe("agent:main:main");
     expect(host.runtimeRunId).toBe("run-1");
     expect(host.runtimeSelectedCheckpointId).toBe("cp-1");
@@ -637,6 +646,39 @@ describe("syncUrlWithTab", () => {
     expect(window.location.pathname).toBe("/ui/skills");
     expect(window.location.search).toContain("session=agent%3Amain%3Amain");
     expect(window.location.search).toContain(`skillFilter=${toQueryValue(SKILL_FILTER_BLOCKED)}`);
+  });
+
+  it("persists agents file deep-link selection with basePath", () => {
+    const host = createHost("agents");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.agentsSelectedId = "beta";
+    host.agentsPanel = "files";
+    host.agentFileActive = "AGENTS.md";
+
+    syncUrlWithTab(host, "agents", true);
+
+    expect(window.location.pathname).toBe("/ui/agents");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("agent=beta");
+    expect(window.location.search).toContain("agentsPanel=files");
+    expect(window.location.search).toContain(`agentFile=${toQueryValue("AGENTS.md")}`);
+  });
+
+  it("persists skills filter when agents skills panel is active", () => {
+    const host = createHost("agents");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.agentsSelectedId = "beta";
+    host.agentsPanel = "skills";
+    host.skillsFilter = SKILL_FILTER_MISSING;
+
+    syncUrlWithTab(host, "agents", true);
+
+    expect(window.location.pathname).toBe("/ui/agents");
+    expect(window.location.search).toContain("agent=beta");
+    expect(window.location.search).toContain("agentsPanel=skills");
+    expect(window.location.search).toContain(`skillFilter=${toQueryValue(SKILL_FILTER_MISSING)}`);
   });
 
   it("persists channels deep-link selection with basePath", () => {

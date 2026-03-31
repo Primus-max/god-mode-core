@@ -206,4 +206,44 @@ describe("renderAgents", () => {
 
     await i18n.setLocale("en");
   });
+
+  it("renders the restored active file in the files panel", async () => {
+    const container = document.createElement("div");
+    render(
+      renderAgents(
+        createProps({
+          activePanel: "files",
+          agentFiles: {
+            list: {
+              agentId: "beta",
+              workspace: "/tmp/agents/beta",
+              files: [
+                {
+                  name: "AGENTS.md",
+                  path: "/tmp/agents/beta/AGENTS.md",
+                  size: 128,
+                  updatedAtMs: Date.now(),
+                  missing: false,
+                } as never,
+              ],
+            },
+            loading: false,
+            error: null,
+            active: "AGENTS.md",
+            contents: { "AGENTS.md": "# Agent" },
+            drafts: { "AGENTS.md": "# Agent" },
+            saving: false,
+          },
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const activeRow = container.querySelector(".agent-file-row.active");
+    const title = container.querySelector(".agent-file-title");
+
+    expect(activeRow?.textContent).toContain("AGENTS.md");
+    expect(title?.textContent).toContain("AGENTS.md");
+  });
 });
