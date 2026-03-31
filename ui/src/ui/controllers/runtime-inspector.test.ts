@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   clearRuntimeInspectorScope,
   executeRuntimeRecoveryAction,
+  getRuntimeRecoveryGuardrail,
   loadRuntimeCheckpointDetail,
   loadRuntimeInspector,
   type RuntimeInspectorState,
@@ -284,6 +285,39 @@ describe("runtime inspector controller", () => {
     expect(request).toHaveBeenCalledWith("exec.approval.resolve", {
       id: "approval-1",
       decision: "allow-once",
+    });
+  });
+
+  it("marks only high-risk recovery actions for confirmation", () => {
+    expect(
+      getRuntimeRecoveryGuardrail({
+        kind: "exec-approval-resolve",
+        checkpointId: "cp-1",
+        approvalId: "approval-1",
+        decision: "deny",
+      }),
+    ).toEqual({
+      requiresConfirmation: true,
+      confirmationKind: "deny-recovery",
+    });
+    expect(
+      getRuntimeRecoveryGuardrail({
+        kind: "exec-approval-resolve",
+        checkpointId: "cp-1",
+        approvalId: "approval-1",
+        decision: "allow-once",
+      }),
+    ).toEqual({
+      requiresConfirmation: false,
+    });
+    expect(
+      getRuntimeRecoveryGuardrail({
+        kind: "dispatch-continuation",
+        checkpointId: "cp-1",
+      }),
+    ).toEqual({
+      requiresConfirmation: true,
+      confirmationKind: "dispatch-continuation",
     });
   });
 });

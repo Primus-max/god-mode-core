@@ -399,6 +399,21 @@ export const ru: TranslationMap = {
         dispatchContinuation: "Запустить continuation",
         retryDispatch: "Повторить continuation",
       },
+      confirmations: {
+        contextHint: "Текущая operator hint: {hint}",
+        denyRecovery:
+          "Отклонить этот recovery?\n\nRun останется заблокированным или перейдет в failed recovery state.",
+        denyBootstrap:
+          "Отклонить этот bootstrap request?\n\nCapability останется недоступной до следующего одобрения.",
+        dispatchContinuation:
+          "Запустить continuation сейчас?\n\nЭто немедленно повторит ожидающий recovery path.",
+        artifactApprove:
+          "Одобрить этот artifact transition?\n\nЭто сразу применит ожидающее artifact approval.",
+        artifactPublish:
+          "Опубликовать этот artifact сейчас?\n\nЭто изменит состояние artifact и может открыть его downstream-потребителям.",
+        artifactDelete:
+          "Удалить этот artifact из recovery flow?\n\nArtifact будет помечен как deleted, при этом история сохранится.",
+      },
       links: {
         openBootstrap: "Открыть bootstrap request",
         openArtifact: "Открыть artifact",
@@ -408,6 +423,9 @@ export const ru: TranslationMap = {
         runId: "Run",
         sessionKey: "Сессия",
         updated: "Обновлено",
+        lastDecision: "Последнее решение оператора",
+        decidedBy: "Кто решил",
+        decidedAt: "Когда решил",
         blockedReason: "Причина блокировки",
         resultStatus: "Статус результата",
         recipe: "Recipe",

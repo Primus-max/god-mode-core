@@ -85,6 +85,7 @@ describe("bootstrap gateway methods", () => {
 
   it("resolves and runs bootstrap requests", async () => {
     const service = createBootstrapRequestService();
+    const runtimeService = getPlatformRuntimeCheckpointService();
     installBootstrapContinuationNoop();
     const record = service.create(buildRequest());
     const originalRun = service.run;
@@ -112,7 +113,18 @@ describe("bootstrap gateway methods", () => {
     await createBootstrapResolveGatewayMethod(service)({
       params: { requestId: record.id, decision: "approve" },
       req: { type: "req", method: "platform.bootstrap.resolve", id: "req-3" },
-      client: null,
+      client: {
+        connId: "conn-bootstrap",
+        connect: {
+          client: {
+            id: "control-ui",
+            displayName: "Operator Tanya",
+          },
+          device: {
+            id: "device-bootstrap",
+          },
+        },
+      } as never,
       isWebchatConnect: () => false,
       respond: resolveRespond,
       context: {} as never,
@@ -123,12 +135,32 @@ describe("bootstrap gateway methods", () => {
         detail: expect.objectContaining({ state: "approved" }),
       }),
     );
+    expect(runtimeService.get(record.id)?.lastOperatorDecision).toEqual(
+      expect.objectContaining({
+        action: "approve",
+        actor: expect.objectContaining({
+          displayName: "Operator Tanya",
+          deviceId: "device-bootstrap",
+        }),
+      }),
+    );
 
     const runRespond = vi.fn();
     await createBootstrapRunGatewayMethod(service)({
       params: { requestId: record.id },
       req: { type: "req", method: "platform.bootstrap.run", id: "req-4" },
-      client: null,
+      client: {
+        connId: "conn-bootstrap",
+        connect: {
+          client: {
+            id: "control-ui",
+            displayName: "Operator Tanya",
+          },
+          device: {
+            id: "device-bootstrap",
+          },
+        },
+      } as never,
       isWebchatConnect: () => false,
       respond: runRespond,
       context: {} as never,
@@ -137,6 +169,22 @@ describe("bootstrap gateway methods", () => {
       true,
       expect.objectContaining({
         detail: expect.objectContaining({ state: "available" }),
+      }),
+    );
+    expect(runtimeService.get(record.id)?.lastOperatorDecision).toEqual(
+      expect.objectContaining({
+        action: "run",
+        actor: expect.objectContaining({
+          displayName: "Operator Tanya",
+        }),
+      }),
+    );
+    expect(runtimeService.getAction(`bootstrap:${record.id}:run`)?.receipt?.operatorDecision).toEqual(
+      expect.objectContaining({
+        action: "run",
+        actor: expect.objectContaining({
+          deviceId: "device-bootstrap",
+        }),
       }),
     );
   });

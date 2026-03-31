@@ -891,12 +891,20 @@ export function createPlatformRuntimeCheckpointService(params?: {
     if (!existing) {
       return undefined;
     }
+    const mergedReceipt =
+      patch.receipt || existing.receipt
+        ? {
+            ...(existing.receipt ?? {}),
+            ...(patch.receipt ?? {}),
+          }
+        : undefined;
     const next = PlatformRuntimeActionSchema.parse({
       ...existing,
       ...patch,
       actionId: existing.actionId,
       createdAtMs: existing.createdAtMs,
       updatedAtMs: typeof patch.updatedAtMs === "number" ? patch.updatedAtMs : Date.now(),
+      ...(mergedReceipt ? { receipt: mergedReceipt } : {}),
     });
     return saveAction(next);
   };
@@ -948,6 +956,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         approvedAtMs: existing?.approvedAtMs,
         resumedAtMs: existing?.resumedAtMs,
         completedAtMs: existing?.completedAtMs,
+        lastOperatorDecision: existing?.lastOperatorDecision,
       });
       checkpoints.set(id, checkpoint);
       persist();
@@ -1145,6 +1154,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
             ...(checkpoint.resumedAtMs !== undefined ? { resumedAtMs: checkpoint.resumedAtMs } : {}),
             ...(checkpoint.completedAtMs !== undefined
               ? { completedAtMs: checkpoint.completedAtMs }
+              : {}),
+            ...(checkpoint.lastOperatorDecision
+              ? { lastOperatorDecision: checkpoint.lastOperatorDecision }
               : {}),
           }),
         );

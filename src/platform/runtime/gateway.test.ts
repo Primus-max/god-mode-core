@@ -34,6 +34,16 @@ describe("platform runtime gateway", () => {
         },
       },
     });
+    service.updateCheckpoint("checkpoint-1", {
+      lastOperatorDecision: {
+        action: "approve",
+        atMs: 5,
+        actor: {
+          displayName: "Operator Tanya",
+        },
+        source: "exec.approval.resolve",
+      },
+    });
 
     const listHandler = createRuntimeCheckpointListGatewayMethod(service);
     const getHandler = createRuntimeCheckpointGetGatewayMethod(service);
@@ -58,6 +68,12 @@ describe("platform runtime gateway", () => {
         expect.objectContaining({
           id: "checkpoint-1",
           operatorHint: expect.stringContaining("Awaiting operator approval"),
+          lastOperatorDecision: expect.objectContaining({
+            action: "approve",
+            actor: expect.objectContaining({
+              displayName: "Operator Tanya",
+            }),
+          }),
           continuation: expect.objectContaining({
             kind: "closure_recovery",
             state: "idle",
@@ -70,6 +86,12 @@ describe("platform runtime gateway", () => {
       checkpoint: expect.objectContaining({
         id: "checkpoint-1",
         operatorHint: expect.stringContaining("Awaiting operator approval"),
+        lastOperatorDecision: expect.objectContaining({
+          action: "approve",
+          actor: expect.objectContaining({
+            displayName: "Operator Tanya",
+          }),
+        }),
         continuation: expect.objectContaining({
           kind: "closure_recovery",
           state: "idle",
@@ -244,6 +266,18 @@ describe("platform runtime gateway", () => {
     let result: unknown;
     await handler({
       params: { checkpointId: "bootstrap-checkpoint" },
+      client: {
+        connId: "conn-1",
+        connect: {
+          client: {
+            id: "control-ui",
+            displayName: "Operator Tanya",
+          },
+          device: {
+            id: "device-1",
+          },
+        },
+      } as never,
       respond: (success: boolean, payload: unknown) => {
         ok = success;
         result = payload;
@@ -255,6 +289,14 @@ describe("platform runtime gateway", () => {
       checkpoint: expect.objectContaining({
         id: "bootstrap-checkpoint",
         status: "completed",
+        lastOperatorDecision: expect.objectContaining({
+          action: "dispatch",
+          actor: expect.objectContaining({
+            displayName: "Operator Tanya",
+            deviceId: "device-1",
+            connId: "conn-1",
+          }),
+        }),
         continuation: expect.objectContaining({
           kind: "bootstrap_run",
           state: "completed",

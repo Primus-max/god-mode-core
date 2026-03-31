@@ -8,7 +8,10 @@ import {
 } from "../recipe/runtime-adapter.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { CapabilityRegistry } from "../registry/types.js";
-import { getPlatformRuntimeCheckpointService } from "../runtime/index.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  type PlatformRuntimeOperatorDecision,
+} from "../runtime/index.js";
 import type { CapabilityInstallMethod } from "../schemas/capability.js";
 import { appendBootstrapAuditEvent, rehydrateBootstrapRequestRecords } from "./audit.js";
 import {
@@ -38,9 +41,11 @@ export type BootstrapRequestService = {
   resolve: (
     id: string,
     decision: BootstrapRequestDecision,
+    opts?: { operatorDecision?: PlatformRuntimeOperatorDecision },
   ) => BootstrapRequestRecordDetail | undefined;
   run: (params: {
     id: string;
+    operatorDecision?: PlatformRuntimeOperatorDecision;
     installers?: Partial<Record<CapabilityInstallMethod, BootstrapInstaller>>;
     availableBins?: string[];
     availableEnv?: string[];
@@ -275,7 +280,7 @@ export function createBootstrapRequestService(params?: {
       const record = records.get(id);
       return record ? BootstrapRequestRecordDetailSchema.parse(record) : undefined;
     },
-    resolve(id, decision) {
+    resolve(id, decision, opts) {
       const existing = records.get(id);
       if (!existing) {
         return undefined;
@@ -295,6 +300,7 @@ export function createBootstrapRequestService(params?: {
         status: decision === "approve" ? "approved" : "denied",
         approvedAtMs: decision === "approve" ? Date.now() : undefined,
         completedAtMs: decision === "deny" ? Date.now() : undefined,
+        lastOperatorDecision: opts?.operatorDecision,
       });
       appendAuditRecord(
         stateDir,
@@ -317,6 +323,7 @@ export function createBootstrapRequestService(params?: {
         runtimeCheckpointService.updateCheckpoint(runParams.id, {
           status: "completed",
           completedAtMs: existingAction.confirmedAtMs ?? Date.now(),
+          lastOperatorDecision: runParams.operatorDecision,
         });
         return BootstrapRequestRecordDetailSchema.parse(existing);
       }
@@ -338,6 +345,13 @@ export function createBootstrapRequestService(params?: {
         kind: "bootstrap",
         boundary: "bootstrap",
         checkpointId: existing.id,
+        ...(runParams.operatorDecision
+          ? {
+              receipt: {
+                operatorDecision: runParams.operatorDecision,
+              },
+            }
+          : {}),
         target: {
           bootstrapRequestId: existing.id,
           operation: "bootstrap.run",
@@ -354,6 +368,7 @@ export function createBootstrapRequestService(params?: {
       runtimeCheckpointService.updateCheckpoint(running.id, {
         status: "resumed",
         resumedAtMs: Date.now(),
+        lastOperatorDecision: runParams.operatorDecision,
       });
       runtimeCheckpointService.markActionAttempted(actionId, { retryable: true });
       appendAuditRecord(stateDir, "request.started", running);

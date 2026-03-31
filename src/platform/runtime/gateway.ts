@@ -3,6 +3,7 @@ import {
   PlatformRuntimeActionSchema,
   PlatformRuntimeCheckpointSummarySchema,
 } from "./contracts.js";
+import { buildRuntimeOperatorDecision } from "./operator-attribution.js";
 import { deriveRecoveryOperatorHint } from "./recovery-operator-hint.js";
 import type { PlatformRuntimeCheckpointService } from "./service.js";
 
@@ -46,6 +47,9 @@ function toRuntimeCheckpointSummary(
     ...(checkpoint.approvedAtMs !== undefined ? { approvedAtMs: checkpoint.approvedAtMs } : {}),
     ...(checkpoint.resumedAtMs !== undefined ? { resumedAtMs: checkpoint.resumedAtMs } : {}),
     ...(checkpoint.completedAtMs !== undefined ? { completedAtMs: checkpoint.completedAtMs } : {}),
+    ...(checkpoint.lastOperatorDecision
+      ? { lastOperatorDecision: checkpoint.lastOperatorDecision }
+      : {}),
   });
 }
 
@@ -97,7 +101,7 @@ export function createRuntimeCheckpointGetGatewayMethod(
 export function createRuntimeCheckpointDispatchGatewayMethod(
   service: PlatformRuntimeCheckpointService,
 ): GatewayRequestHandler {
-  return async ({ params, respond }) => {
+  return async ({ params, client, respond }) => {
     const checkpointId = typeof params.checkpointId === "string" ? params.checkpointId.trim() : "";
     if (!checkpointId) {
       respond(false, { error: "checkpointId required" });
@@ -131,6 +135,14 @@ export function createRuntimeCheckpointDispatchGatewayMethod(
     if (checkpoint.continuation.kind === "closure_recovery") {
       await import("../../auto-reply/reply/closure-outcome-dispatcher.js");
     }
+    const decision = buildRuntimeOperatorDecision({
+      action: "dispatch",
+      source: "platform.runtime.checkpoints.dispatch",
+      client,
+    });
+    service.updateCheckpoint(checkpointId, {
+      lastOperatorDecision: decision,
+    });
     const updated = await service.dispatchContinuation(checkpointId);
     if (!updated) {
       respond(false, { error: "checkpoint dispatch failed" });

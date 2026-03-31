@@ -330,6 +330,140 @@ describe("sessions view", () => {
     });
   });
 
+  it("requires confirmation before high-risk recovery actions", async () => {
+    const onExecuteRuntimeRecoveryAction = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(buildResult(buildSession())),
+        runtimeSelectedCheckpointId: "cp-1",
+        runtimeCheckpointDetail: {
+          id: "cp-1",
+          runId: "run-1",
+          sessionKey: "agent:main:main",
+          boundary: "exec_approval",
+          status: "blocked",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+          operatorHint: "Awaiting operator approval to resume messaging recovery.",
+          nextActions: [
+            {
+              method: "exec.approval.resolve",
+              label: "Approve or deny closure recovery",
+              phase: "approve",
+            },
+          ],
+          target: {
+            approvalId: "approval-1",
+            operation: "closure.recovery",
+          },
+        },
+        runtimeCheckpoints: [
+          {
+            id: "cp-1",
+            runId: "run-1",
+            sessionKey: "agent:main:main",
+            boundary: "exec_approval",
+            status: "blocked",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+        onExecuteRuntimeRecoveryAction,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const denyButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Deny recovery"),
+    );
+    denyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(onExecuteRuntimeRecoveryAction).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("renders operator decision audit context for checkpoints and actions", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(buildResult(buildSession())),
+        runtimeSelectedCheckpointId: "cp-1",
+        runtimeSelectedActionId: "action-1",
+        runtimeCheckpointDetail: {
+          id: "cp-1",
+          runId: "run-1",
+          sessionKey: "agent:main:main",
+          boundary: "bootstrap",
+          status: "resumed",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+          lastOperatorDecision: {
+            action: "approve",
+            atMs: 3,
+            actor: {
+              displayName: "Operator Tanya",
+            },
+            source: "platform.bootstrap.resolve",
+          },
+        },
+        runtimeCheckpoints: [
+          {
+            id: "cp-1",
+            runId: "run-1",
+            sessionKey: "agent:main:main",
+            boundary: "bootstrap",
+            status: "resumed",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+        runtimeActions: [
+          {
+            actionId: "action-1",
+            runId: "run-1",
+            kind: "bootstrap",
+            state: "attempted",
+            attemptCount: 1,
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+        runtimeActionDetail: {
+          actionId: "action-1",
+          runId: "run-1",
+          kind: "bootstrap",
+          state: "attempted",
+          attemptCount: 1,
+          createdAtMs: 1,
+          updatedAtMs: 2,
+          receipt: {
+            operatorDecision: {
+              action: "run",
+              atMs: 4,
+              actor: {
+                displayName: "Operator Tanya",
+              },
+              source: "platform.bootstrap.run",
+            },
+          },
+        },
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Last operator decision");
+    expect(container.textContent).toContain("Operator Tanya");
+    expect(container.textContent).toContain("approve");
+    expect(container.textContent).toContain("run");
+  });
+
   it("renders contextual links to linked bootstrap and artifact records", async () => {
     const container = document.createElement("div");
 

@@ -80,6 +80,7 @@ The Control UI can localize itself on first load based on your browser locale, a
 - Channels: WhatsApp/Telegram/Discord/Slack + plugin channels (Mattermost, etc.) status + QR login + per-channel config (`channels.status`, `web.login.*`, `config.patch`)
 - Instances: presence list + refresh (`system-presence`)
 - Sessions: list + per-session thinking/fast/verbose/reasoning overrides (`sessions.list`, `sessions.patch`)
+- Sessions runtime inspector: inspect recovery checkpoints, linked actions/closures, and operator recovery controls for the current session or a global runtime scope (`platform.runtime.checkpoints.*`, `platform.runtime.actions.*`, `platform.runtime.closures.*`)
 - Cron jobs: list/add/edit/run/enable/disable + run history (`cron.*`)
 - Skills: status, enable/disable, install, API key updates (`skills.*`)
 - Nodes: list + caps (`node.list`)
@@ -103,6 +104,12 @@ Cron jobs panel notes:
 - Form validation is inline with field-level errors; invalid values disable the save button until fixed.
 - Set `cron.webhookToken` to send a dedicated bearer token, if omitted the webhook is sent without an auth header.
 - Deprecated fallback: stored legacy jobs with `notify: true` can still use `cron.webhook` until migrated.
+
+Runtime / recovery notes:
+
+- The Sessions tab now doubles as the operator runtime inspector: blocked checkpoints, related actions, and closure outcomes all come from the canonical runtime ledgers rather than a separate UI cache.
+- High-risk recovery actions such as deny or manual continuation dispatch require an explicit confirmation in the UI before the RPC is sent.
+- When a recovery decision is sent through the Control UI, the inspector shows the latest operator decision context (`what`, `who`, `when`) so operators can verify who approved, denied, dispatched, or retried the flow.
 
 ## Chat behavior
 

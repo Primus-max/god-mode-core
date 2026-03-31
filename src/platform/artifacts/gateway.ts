@@ -1,4 +1,5 @@
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
+import { buildRuntimeOperatorDecision } from "../runtime/operator-attribution.js";
 import { ArtifactOperationSchema } from "../schemas/artifact.js";
 import type { ArtifactService } from "./service.js";
 
@@ -27,7 +28,7 @@ export function createArtifactGetGatewayMethod(service: ArtifactService): Gatewa
 export function createArtifactTransitionGatewayMethod(
   service: ArtifactService,
 ): GatewayRequestHandler {
-  return ({ params, respond }) => {
+  return ({ params, client, respond }) => {
     const artifactId = typeof params.artifactId === "string" ? params.artifactId.trim() : "";
     if (!artifactId) {
       respond(false, { error: "artifactId required" });
@@ -40,6 +41,11 @@ export function createArtifactTransitionGatewayMethod(
     }
     const transition = service.transition(artifactId, parsedOperation.data, {
       explicitApproval: parsedOperation.data === "publish" || parsedOperation.data === "approve",
+      operatorDecision: buildRuntimeOperatorDecision({
+        action: parsedOperation.data,
+        source: "platform.artifacts.transition",
+        client,
+      }),
     });
     if (!transition.ok) {
       respond(false, { error: transition.reason });
