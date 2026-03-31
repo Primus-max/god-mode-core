@@ -1049,6 +1049,7 @@ export function renderApp(state: AppViewState) {
                   onLoadRuns: async (jobId) => {
                     updateCronRunsFilter(state, { cronRunsScope: "job" });
                     await loadCronRuns(state, jobId);
+                    syncUrlWithTab(state, "cron", true);
                   },
                   onLoadMoreJobs: () => loadMoreCronJobs(state),
                   onJobsFiltersChange: async (patch) => {
@@ -1078,13 +1079,22 @@ export function renderApp(state: AppViewState) {
                     updateCronRunsFilter(state, patch);
                     if (state.cronRunsScope === "all") {
                       await loadCronRuns(state, null);
+                      syncUrlWithTab(state, "cron", true);
                       return;
                     }
                     await loadCronRuns(state, state.cronRunsJobId);
+                    syncUrlWithTab(state, "cron", true);
                   },
                   onNavigateToChat: (sessionKey) => {
                     switchChatSession(state, sessionKey);
                     state.setTab("chat" as import("./navigation.ts").Tab);
+                  },
+                  onNavigateToSessions: (sessionKey) => {
+                    switchChatSession(state, sessionKey);
+                    state.runtimeSessionKey = sessionKey;
+                    state.runtimeRunId = null;
+                    state.runtimeSelectedCheckpointId = null;
+                    state.setTab("sessions" as import("./navigation.ts").Tab);
                   },
                 }),
               )

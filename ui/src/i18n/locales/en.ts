@@ -1306,6 +1306,7 @@ export const en: TranslationMap = {
       noSummary: "No summary.",
       runAt: "Run at",
       openRunChat: "Open run chat",
+      openRunRuntime: "Open runtime",
       next: "Next {rel}",
       due: "Due {rel}",
     },

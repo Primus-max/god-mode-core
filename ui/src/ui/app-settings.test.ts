@@ -79,6 +79,8 @@ type SettingsHost = {
   runtimeSessionKey?: string | null;
   runtimeRunId?: string | null;
   runtimeSelectedCheckpointId?: string | null;
+  cronRunsJobId?: string | null;
+  cronRunsScope?: "job" | "all";
   bootstrapPendingCount?: number;
   bootstrapList?: Array<{ id: string; state: string }>;
   sessionsResult?: {
@@ -111,7 +113,7 @@ type SettingsHost = {
   skillsReport?: { skills?: Array<{ disabled?: boolean; missing?: Record<string, unknown>; blockedByAllowlist?: boolean; name: string }> } | null;
   hello?: { auth?: { role?: string; scopes?: string[] } } | null;
   lastError?: string | null;
-  cronJobs?: Array<{ name: string; enabled?: boolean; state?: { lastStatus?: string; nextRunAtMs?: number | null } }>;
+  cronJobs?: Array<{ id?: string; name: string; enabled?: boolean; state?: { lastStatus?: string; nextRunAtMs?: number | null } }>;
   attentionItems?: Array<unknown>;
 };
 
@@ -235,6 +237,8 @@ const createHost = (tab: Tab): SettingsHost => ({
   runtimeSessionKey: null,
   runtimeRunId: null,
   runtimeSelectedCheckpointId: null,
+  cronRunsJobId: null,
+  cronRunsScope: "all",
   bootstrapPendingCount: 0,
   bootstrapList: [],
   sessionsResult: null,
@@ -503,9 +507,9 @@ describe("applySettingsFromUrl", () => {
     expect(host.pendingGatewayToken).toBe("test-token");
   });
 
-  it("hydrates deep-link query state for runtime, bootstrap, and artifacts", () => {
+  it("hydrates deep-link query state for runtime, bootstrap, artifacts, and cron", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1",
     );
     const host = createHost("sessions");
 
@@ -517,6 +521,8 @@ describe("applySettingsFromUrl", () => {
     expect(host.runtimeSelectedCheckpointId).toBe("cp-1");
     expect(host.bootstrapSelectedId).toBe("bootstrap-1");
     expect(host.artifactsSelectedId).toBe("artifact-1");
+    expect(host.cronRunsJobId).toBe("cron-1");
+    expect(host.cronRunsScope).toBe("job");
   });
 });
 
@@ -547,6 +553,20 @@ describe("syncUrlWithTab", () => {
     expect(window.location.search).toContain("runtimeSession=agent%3Amain%3Amain");
     expect(window.location.search).toContain("runtimeRun=run-1");
     expect(window.location.search).toContain("checkpoint=cp-1");
+  });
+
+  it("persists cron deep-link selection with basePath", () => {
+    const host = createHost("cron");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.cronRunsJobId = "cron-1";
+    host.cronRunsScope = "job";
+
+    syncUrlWithTab(host, "cron", true);
+
+    expect(window.location.pathname).toBe("/ui/cron");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("cronJob=cron-1");
   });
 });
 
@@ -594,6 +614,37 @@ describe("buildAttentionItems", () => {
         expect.objectContaining({
           title: "Bootstrap request linked to current recovery",
           href: "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
+        }),
+      ]),
+    );
+  });
+
+  it("adds actionable cron attention links", () => {
+    const host = createHost("overview");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.cronJobs = [
+      {
+        id: "cron-1",
+        name: "Nightly digest",
+        enabled: true,
+        state: { lastStatus: "error", nextRunAtMs: Date.now() - 600_000 },
+      },
+    ];
+
+    buildAttentionItems(host as never);
+
+    expect(host.attentionItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "1 cron job failed",
+          href: "/ui/cron?session=agent%3Amain%3Amain&cronJob=cron-1",
+          actionLabel: "Open",
+        }),
+        expect.objectContaining({
+          title: "1 overdue job",
+          href: "/ui/cron?session=agent%3Amain%3Amain&cronJob=cron-1",
+          actionLabel: "Open",
         }),
       ]),
     );

@@ -1022,11 +1022,13 @@ describe("cron controller", () => {
     });
     const state = createState({
       client: { request } as unknown as CronState["client"],
+      cronRunsScope: "job",
     });
 
     await loadCronRuns(state, "job-1");
     expect(state.cronRuns).toHaveLength(1);
     expect(state.cronRunsHasMore).toBe(true);
+    expect(state.cronRunsJobId).toBe("job-1");
 
     await loadMoreCronRuns(state);
     expect(state.cronRuns).toHaveLength(2);

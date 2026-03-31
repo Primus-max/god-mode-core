@@ -95,6 +95,9 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
 - Operator correlation note:
   - When you touch overview attention, deep links, or cross-surface operator routing, keep one regression where attention items are derived from existing canonical session/runtime/bootstrap state, one regression where tab-specific query state survives refresh/popstate, and one regression where linked bootstrap/artifact targets open the correct record without manual id lookup.
   - Current reference coverage lives in `ui/src/ui/app-settings.test.ts`, `ui/src/ui/views/overview-attention.test.ts`, `ui/src/ui/controllers/bootstrap.test.ts`, `ui/src/ui/controllers/artifacts.test.ts`, and `ui/src/ui/views/sessions.test.ts`.
+- Cron correlation note:
+  - When you touch cron/operator routing, keep one regression where failed or overdue cron attention items open the canonical cron surface, one regression where `cronJob` deep-link state survives refresh/popstate, and one regression where cron run history opens the linked operator context without manual session lookup.
+  - Current reference coverage lives in `ui/src/ui/app-settings.test.ts`, `ui/src/ui/controllers/cron.test.ts`, and `ui/src/ui/views/cron.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.
   - Shared unit coverage now defaults to `threads`, while the manifest keeps the measured fork-only exceptions and heavy singleton lanes explicit.
