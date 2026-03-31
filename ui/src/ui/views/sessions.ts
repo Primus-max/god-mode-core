@@ -96,6 +96,66 @@ function renderRuntimeStatusChip(label: string) {
   return html`<span class="chip">${label}</span>`;
 }
 
+function resolveSessionRuntimeInspectRunId(row: GatewaySessionRow): string | undefined {
+  const closureRunId = row.runClosureSummary?.runId;
+  if (row.handoffTruthSource === "recovery") {
+    return row.handoffRunId ?? row.handoffRequestRunId ?? closureRunId;
+  }
+  if (row.handoffTruthSource === "closure") {
+    return row.handoffRunId ?? closureRunId ?? row.handoffRequestRunId;
+  }
+  return row.handoffRunId ?? row.handoffRequestRunId ?? closureRunId;
+}
+
+function renderSessionHandoffContext(row: GatewaySessionRow) {
+  const truthSource = row.handoffTruthSource;
+  const hasHandoffContext = Boolean(
+    truthSource || row.handoffRunId || row.handoffRequestRunId || row.runClosureSummary?.runId,
+  );
+  if (!hasHandoffContext) {
+    return nothing;
+  }
+  const currentTargetRunId =
+    truthSource === "recovery"
+      ? row.handoffRunId ?? row.handoffRequestRunId
+      : row.handoffRunId ?? row.runClosureSummary?.runId ?? row.handoffRequestRunId;
+  const closureHistoryRunId = row.runClosureSummary?.runId;
+  const showClosureHistory =
+    truthSource === "recovery" &&
+    typeof closureHistoryRunId === "string" &&
+    closureHistoryRunId !== currentTargetRunId;
+  return html`
+    ${
+      truthSource
+        ? html`<div class="muted" style="font-size:12px;">
+            ${t(`sessions.runtime.handoff.truthSource.${truthSource}`)}
+          </div>`
+        : nothing
+    }
+    ${
+      currentTargetRunId
+        ? html`<div class="muted" style="font-size:12px;">
+            ${t("sessions.runtime.handoff.currentTarget", { runId: currentTargetRunId })}
+          </div>`
+        : nothing
+    }
+    ${
+      row.handoffRequestRunId
+        ? html`<div class="muted" style="font-size:12px;">
+            ${t("sessions.runtime.handoff.requestAnchor", { runId: row.handoffRequestRunId })}
+          </div>`
+        : nothing
+    }
+    ${
+      showClosureHistory
+        ? html`<div class="muted" style="font-size:12px;">
+            ${t("sessions.runtime.handoff.closureHistory", { runId: closureHistoryRunId })}
+          </div>`
+        : nothing
+    }
+  `;
+}
+
 function formatRuntimeDecisionActor(
   decision:
     | RuntimeCheckpointSummary["lastOperatorDecision"]
@@ -1159,14 +1219,11 @@ function renderRow(
               ? html`<div class="muted" style="font-size:12px;">${row.recoveryOperatorHint}</div>`
               : nothing
           }
+          ${renderSessionHandoffContext(row)}
           <button
             class="btn btn--sm"
             type="button"
-            @click=${() =>
-              onInspectRuntimeSession(
-                row.key,
-                row.runClosureSummary?.runId ?? row.handoffRunId ?? row.handoffRequestRunId,
-              )}
+            @click=${() => onInspectRuntimeSession(row.key, resolveSessionRuntimeInspectRunId(row))}
           >
             ${t("sessions.runtime.inspect")}
           </button>

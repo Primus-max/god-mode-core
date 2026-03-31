@@ -98,6 +98,9 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
 - Cron correlation note:
   - When you touch cron/operator routing, keep one regression where failed or overdue cron attention items open the canonical cron surface, one regression where `cronJob` deep-link state survives refresh/popstate, and one regression where cron run history opens the linked operator context without manual session lookup.
   - Current reference coverage lives in `ui/src/ui/app-settings.test.ts`, `ui/src/ui/controllers/cron.test.ts`, and `ui/src/ui/views/cron.test.ts`.
+- Handoff truth note:
+  - When you touch session handoff or runtime inspect routing, keep one regression where `handoffTruthSource === recovery` prefers `handoffRunId` / `handoffRequestRunId` over persisted closure history, and one regression where `handoffTruthSource === closure` preserves the closure-aligned inspect path without inventing a second source of truth.
+  - Current reference coverage lives in `ui/src/ui/views/sessions.test.ts` and `ui/src/ui/controllers/sessions.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.
   - Shared unit coverage now defaults to `threads`, while the manifest keeps the measured fork-only exceptions and heavy singleton lanes explicit.

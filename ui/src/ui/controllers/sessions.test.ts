@@ -195,14 +195,18 @@ describe("applySessionsChangedEvent", () => {
         key: "agent:main:main",
         kind: "direct",
         updatedAt: 30,
+        handoffRequestRunId: "request-2",
         handoffRunId: "run-2",
+        handoffTruthSource: "recovery",
       },
     });
 
     expect(result).toEqual({ applied: true, shouldReload: false });
     expect(state.sessionsResult?.sessions[0]).toMatchObject({
       updatedAt: 30,
+      handoffRequestRunId: "request-2",
       handoffRunId: "run-2",
+      handoffTruthSource: "recovery",
     });
   });
 
