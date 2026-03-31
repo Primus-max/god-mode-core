@@ -93,6 +93,11 @@ The Control UI can localize itself on first load based on your browser locale, a
 - Logs: live tail of gateway file logs with filter/export (`logs.tail`)
 - Update: run a package/git update + restart (`update.run`) with a restart report
 
+Channels panel notes:
+
+- Overview attention can now route channel-specific failures into the Channels surface with a persisted `channel` query, so operators can refresh or share the link without losing which channel needs attention.
+- The Channels grid restores and highlights the selected channel card from URL state, keeping the same drill-down context across refresh/popstate.
+
 Cron jobs panel notes:
 
 - For isolated jobs, delivery defaults to announce summary. You can switch to none if you want internal-only runs.

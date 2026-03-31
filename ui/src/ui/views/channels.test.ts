@@ -25,6 +25,7 @@ function buildProps(overrides: Partial<ChannelsProps> = {}): ChannelsProps {
     connected: true,
     loading: false,
     snapshot: buildSnapshot(),
+    selectedChannelKey: null,
     lastError: null,
     lastSuccessAt: null,
     whatsappMessage: null,
@@ -40,6 +41,7 @@ function buildProps(overrides: Partial<ChannelsProps> = {}): ChannelsProps {
     nostrProfileFormState: null,
     nostrProfileAccountId: null,
     onRefresh: vi.fn(),
+    onSelectChannel: vi.fn(),
     onWhatsAppStart: vi.fn(),
     onWhatsAppWait: vi.fn(),
     onWhatsAppLogout: vi.fn(),
@@ -96,5 +98,35 @@ describe("channels view", () => {
     expect(container.textContent).toContain("Редактировать профиль");
 
     await i18n.setLocale("en");
+  });
+
+  it("marks the selected channel shell and notifies when another channel is selected", async () => {
+    const container = document.createElement("div");
+    const onSelectChannel = vi.fn();
+
+    render(
+      renderChannels(
+        buildProps({
+          snapshot: buildSnapshot({
+            channelOrder: ["slack", "telegram"],
+            channelLabels: { slack: "Slack", telegram: "Telegram" },
+            channels: { slack: {}, telegram: {} },
+          }),
+          selectedChannelKey: "slack",
+          onSelectChannel,
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const selected = container.querySelector('[data-channel-key="slack"]');
+    const other = container.querySelector('[data-channel-key="telegram"]');
+
+    expect(selected?.className).toContain("is-selected");
+    expect(other?.className).not.toContain("is-selected");
+
+    other?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onSelectChannel).toHaveBeenCalledWith("telegram");
   });
 });

@@ -21,7 +21,7 @@ import {
   SKILL_FILTER_MISSING,
 } from "./skills-correlation.ts";
 import type { ThemeMode, ThemeName } from "./theme.ts";
-import type { MachineControlStatus } from "./types.ts";
+import type { ChannelsStatusSnapshot, MachineControlStatus } from "./types.ts";
 
 type Tab =
   | "agents"
@@ -89,6 +89,7 @@ type SettingsHost = {
   pendingGatewayToken?: string | null;
   artifactsSelectedId?: string | null;
   bootstrapSelectedId?: string | null;
+  channelsSelectedKey?: string | null;
   runtimeSessionKey?: string | null;
   runtimeRunId?: string | null;
   runtimeSelectedCheckpointId?: string | null;
@@ -131,6 +132,7 @@ type SettingsHost = {
     target?: { bootstrapRequestId?: string; artifactId?: string };
   } | null;
   skillsReport?: { skills?: Array<{ disabled?: boolean; missing?: Record<string, unknown>; blockedByAllowlist?: boolean; name: string }> } | null;
+  channelsSnapshot?: ChannelsStatusSnapshot | null;
   hello?: { auth?: { role?: string; scopes?: string[] } } | null;
   lastError?: string | null;
   cronJobs?: Array<{ id?: string; name: string; enabled?: boolean; state?: { lastStatus?: string; nextRunAtMs?: number | null } }>;
@@ -260,6 +262,7 @@ const createHost = (tab: Tab): SettingsHost => ({
   pendingGatewayToken: null,
   artifactsSelectedId: null,
   bootstrapSelectedId: null,
+  channelsSelectedKey: null,
   runtimeSessionKey: null,
   runtimeRunId: null,
   runtimeSelectedCheckpointId: null,
@@ -272,6 +275,7 @@ const createHost = (tab: Tab): SettingsHost => ({
   runtimeCheckpoints: [],
   runtimeCheckpointDetail: null,
   skillsReport: null,
+  channelsSnapshot: null,
   hello: null,
   lastError: null,
   cronJobs: [],
@@ -534,9 +538,9 @@ describe("applySettingsFromUrl", () => {
     expect(host.pendingGatewayToken).toBe("test-token");
   });
 
-  it("hydrates deep-link query state for runtime, bootstrap, artifacts, cron, and skills", () => {
+  it("hydrates deep-link query state for runtime, bootstrap, artifacts, cron, skills, and channels", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack",
     );
     const host = createHost("sessions");
 
@@ -551,6 +555,7 @@ describe("applySettingsFromUrl", () => {
     expect(host.cronRunsJobId).toBe("cron-1");
     expect(host.cronRunsScope).toBe("job");
     expect(host.skillsFilter).toBe("missing");
+    expect(host.channelsSelectedKey).toBe("slack");
   });
 });
 
@@ -608,6 +613,19 @@ describe("syncUrlWithTab", () => {
     expect(window.location.pathname).toBe("/ui/skills");
     expect(window.location.search).toContain("session=agent%3Amain%3Amain");
     expect(window.location.search).toContain(`skillFilter=${toQueryValue(SKILL_FILTER_BLOCKED)}`);
+  });
+
+  it("persists channels deep-link selection with basePath", () => {
+    const host = createHost("channels");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.channelsSelectedKey = "slack";
+
+    syncUrlWithTab(host, "channels", true);
+
+    expect(window.location.pathname).toBe("/ui/channels");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("channel=slack");
   });
 });
 
@@ -816,6 +834,38 @@ describe("buildAttentionItems", () => {
         expect.objectContaining({
           title: "1 skill blocked",
           href: `/ui/skills?session=agent%3Amain%3Amain&skillFilter=${toQueryValue(SKILL_FILTER_BLOCKED)}`,
+          actionLabel: "Open",
+        }),
+      ]),
+    );
+  });
+
+  it("adds actionable channels attention links for channels with explicit errors", () => {
+    const host = createHost("overview");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.channelsSnapshot = {
+      ts: Date.now(),
+      channelOrder: ["slack", "telegram"],
+      channelLabels: { slack: "Slack", telegram: "Telegram" },
+      channels: {
+        slack: { lastError: "Token expired" },
+        telegram: {},
+      },
+      channelAccounts: {
+        slack: [{ accountId: "default", lastError: "Token expired" }],
+        telegram: [],
+      },
+      channelDefaultAccountId: {},
+    };
+
+    buildAttentionItems(host as never);
+
+    expect(host.attentionItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "1 channel issue detected",
+          href: "/ui/channels?session=agent%3Amain%3Amain&channel=slack",
           actionLabel: "Open",
         }),
       ]),

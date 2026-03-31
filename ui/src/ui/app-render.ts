@@ -728,6 +728,7 @@ export function renderApp(state: AppViewState) {
                   connected: state.connected,
                   loading: state.channelsLoading,
                   snapshot: state.channelsSnapshot,
+                  selectedChannelKey: state.channelsSelectedKey,
                   lastError: state.channelsError,
                   lastSuccessAt: state.channelsLastSuccess,
                   whatsappMessage: state.whatsappLoginMessage,
@@ -743,6 +744,10 @@ export function renderApp(state: AppViewState) {
                   nostrProfileFormState: state.nostrProfileFormState,
                   nostrProfileAccountId: state.nostrProfileAccountId,
                   onRefresh: (probe) => loadChannels(state, probe),
+                  onSelectChannel: (channelKey) => {
+                    state.channelsSelectedKey = channelKey;
+                    syncUrlWithTab(state, "channels", true);
+                  },
                   onWhatsAppStart: (force) => state.handleWhatsAppStart(force),
                   onWhatsAppWait: () => state.handleWhatsAppWait(),
                   onWhatsAppLogout: () => state.handleWhatsAppLogout(),
