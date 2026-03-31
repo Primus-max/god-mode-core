@@ -115,4 +115,47 @@ describe("nodes devices pending rendering", () => {
 
     await i18n.setLocale("en");
   });
+
+  it("reflects the preselected exec approvals target and scope", () => {
+    const container = document.createElement("div");
+    render(
+      renderNodes(
+        baseProps({
+          nodes: [
+            {
+              nodeId: "node-1",
+              displayName: "Mac mini",
+              commands: ["system.execApprovals.get", "system.execApprovals.set"],
+            },
+          ],
+          configForm: {
+            agents: {
+              list: [{ id: "main", name: "Main agent", default: true }],
+            },
+          },
+          execApprovalsForm: {
+            version: 1,
+            agents: {
+              main: {
+                allowlist: [],
+              },
+            },
+          },
+          execApprovalsTarget: "node",
+          execApprovalsTargetNodeId: "node-1",
+          execApprovalsSelectedAgent: "main",
+        }),
+      ),
+      container,
+    );
+
+    const selects = Array.from(container.querySelectorAll("select")) as HTMLSelectElement[];
+    expect(selects[0]?.value).toBe("node");
+    expect(selects[1]?.value).toBe("node-1");
+
+    const activeButtons = Array.from(container.querySelectorAll("button.active")).map((button) =>
+      button.textContent?.trim(),
+    );
+    expect(activeButtons).toContain("Main agent (main)");
+  });
 });

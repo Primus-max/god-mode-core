@@ -96,8 +96,22 @@ type SettingsHost = {
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
   skillsFilter?: string;
+  execApprovalsTarget?: "gateway" | "node";
+  execApprovalsTargetNodeId?: string | null;
+  execApprovalsSelectedAgent?: string | null;
   bootstrapPendingCount?: number;
   bootstrapList?: Array<{ id: string; state: string }>;
+  execApprovalQueue?: Array<{
+    id: string;
+    request: {
+      command: string;
+      blockedReason?: string | null;
+      nodeId?: string | null;
+      agentId?: string | null;
+    };
+    createdAtMs: number;
+    expiresAtMs: number;
+  }>;
   sessionsResult?: {
     sessions: Array<{
       key: string;
@@ -269,8 +283,12 @@ const createHost = (tab: Tab): SettingsHost => ({
   cronRunsJobId: null,
   cronRunsScope: "all",
   skillsFilter: "",
+  execApprovalsTarget: "gateway",
+  execApprovalsTargetNodeId: null,
+  execApprovalsSelectedAgent: null,
   bootstrapPendingCount: 0,
   bootstrapList: [],
+  execApprovalQueue: [],
   sessionsResult: null,
   runtimeCheckpoints: [],
   runtimeCheckpointDetail: null,
@@ -538,9 +556,9 @@ describe("applySettingsFromUrl", () => {
     expect(host.pendingGatewayToken).toBe("test-token");
   });
 
-  it("hydrates deep-link query state for runtime, bootstrap, artifacts, cron, skills, and channels", () => {
+  it("hydrates deep-link query state for runtime, bootstrap, artifacts, cron, skills, channels, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -556,6 +574,9 @@ describe("applySettingsFromUrl", () => {
     expect(host.cronRunsScope).toBe("job");
     expect(host.skillsFilter).toBe("missing");
     expect(host.channelsSelectedKey).toBe("slack");
+    expect(host.execApprovalsTarget).toBe("node");
+    expect(host.execApprovalsTargetNodeId).toBe("node-1");
+    expect(host.execApprovalsSelectedAgent).toBe("main");
   });
 });
 
@@ -626,6 +647,23 @@ describe("syncUrlWithTab", () => {
     expect(window.location.pathname).toBe("/ui/channels");
     expect(window.location.search).toContain("session=agent%3Amain%3Amain");
     expect(window.location.search).toContain("channel=slack");
+  });
+
+  it("persists nodes deep-link selection with basePath", () => {
+    const host = createHost("nodes");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.execApprovalsTarget = "node";
+    host.execApprovalsTargetNodeId = "node-1";
+    host.execApprovalsSelectedAgent = "main";
+
+    syncUrlWithTab(host, "nodes", true);
+
+    expect(window.location.pathname).toBe("/ui/nodes");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("execTarget=node");
+    expect(window.location.search).toContain("execNode=node-1");
+    expect(window.location.search).toContain("execAgent=main");
   });
 });
 
@@ -866,6 +904,37 @@ describe("buildAttentionItems", () => {
         expect.objectContaining({
           title: "1 channel issue detected",
           href: "/ui/channels?session=agent%3Amain%3Amain&channel=slack",
+          actionLabel: "Open",
+        }),
+      ]),
+    );
+  });
+
+  it("adds actionable exec approval attention links for pending approvals", () => {
+    const host = createHost("overview");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.execApprovalQueue = [
+      {
+        id: "approval-1",
+        request: {
+          command: "pnpm build",
+          blockedReason: "Approval required",
+          nodeId: "node-1",
+          agentId: "main",
+        },
+        createdAtMs: Date.now(),
+        expiresAtMs: Date.now() + 60_000,
+      },
+    ];
+
+    buildAttentionItems(host as never);
+
+    expect(host.attentionItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "1 exec approval pending",
+          href: "/ui/nodes?session=agent%3Amain%3Amain&execTarget=node&execNode=node-1&execAgent=main",
           actionLabel: "Open",
         }),
       ]),

@@ -86,6 +86,9 @@ type SettingsHost = {
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
   skillsFilter?: string;
+  execApprovalsTarget?: "gateway" | "node";
+  execApprovalsTargetNodeId?: string | null;
+  execApprovalsSelectedAgent?: string | null;
 };
 
 type AttentionHost = Pick<
@@ -101,6 +104,7 @@ type AttentionHost = Pick<
   | "attentionItems"
   | "basePath"
   | "sessionKey"
+  | "execApprovalQueue"
   | "sessionsResult"
   | "runtimeCheckpoints"
   | "runtimeCheckpointDetail"
@@ -109,6 +113,19 @@ type AttentionHost = Pick<
 function trimQueryValue(value: string | null | undefined): string | null {
   const trimmed = typeof value === "string" ? value.trim() : "";
   return trimmed ? trimmed : null;
+}
+
+function normalizeExecApprovalsTarget(value: string | null | undefined): "gateway" | "node" {
+  return value === "node" ? "node" : "gateway";
+}
+
+function resolveExecApprovalsTarget(
+  host: Pick<SettingsHost, "execApprovalsTarget" | "execApprovalsTargetNodeId">,
+): { kind: "gateway" } | { kind: "node"; nodeId: string } {
+  if (host.execApprovalsTarget === "node" && trimQueryValue(host.execApprovalsTargetNodeId)) {
+    return { kind: "node", nodeId: host.execApprovalsTargetNodeId!.trim() };
+  }
+  return { kind: "gateway" };
 }
 
 function setQueryValue(url: URL, key: string, value: string | null | undefined) {
@@ -146,6 +163,10 @@ function applyDeepLinkStateFromUrl(
   host.cronRunsJobId = pick("cronJob");
   host.cronRunsScope = host.cronRunsJobId ? "job" : "all";
   host.skillsFilter = pick("skillFilter") ?? "";
+  host.execApprovalsTarget = normalizeExecApprovalsTarget(pick("execTarget"));
+  host.execApprovalsTargetNodeId =
+    host.execApprovalsTarget === "node" ? pick("execNode") : null;
+  host.execApprovalsSelectedAgent = pick("execAgent");
 }
 
 function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
@@ -158,6 +179,9 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "checkpoint", null);
   setQueryValue(url, "cronJob", null);
   setQueryValue(url, "skillFilter", null);
+  setQueryValue(url, "execTarget", null);
+  setQueryValue(url, "execNode", null);
+  setQueryValue(url, "execAgent", null);
   if (tab === "bootstrap") {
     setQueryValue(url, "bootstrapRequest", host.bootstrapSelectedId);
   }
@@ -177,6 +201,12 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   }
   if (tab === "skills") {
     setQueryValue(url, "skillFilter", host.skillsFilter);
+  }
+  if (tab === "nodes") {
+    const execTarget = resolveExecApprovalsTarget(host);
+    setQueryValue(url, "execTarget", execTarget.kind);
+    setQueryValue(url, "execNode", execTarget.kind === "node" ? execTarget.nodeId : null);
+    setQueryValue(url, "execAgent", host.execApprovalsSelectedAgent);
   }
 }
 
@@ -401,7 +431,7 @@ export async function refreshActiveTab(host: SettingsHost) {
     await loadNodes(host as unknown as OpenClawApp);
     await loadDevices(host as unknown as OpenClawApp);
     await loadConfig(host as unknown as OpenClawApp);
-    await loadExecApprovals(host as unknown as OpenClawApp);
+    await loadExecApprovals(host as unknown as OpenClawApp, resolveExecApprovalsTarget(host));
   }
   if (host.tab === "chat") {
     await refreshChat(host as unknown as Parameters<typeof refreshChat>[0]);
@@ -878,6 +908,27 @@ export function buildAttentionItems(host: AttentionHost) {
       href: buildTabHref(host, "channels", {
         session: host.sessionKey,
         channel: primaryIssue.key,
+      }),
+      actionLabel: "Open",
+    });
+  }
+
+  const execApprovalQueue = host.execApprovalQueue ?? [];
+  if (execApprovalQueue.length > 0) {
+    const primaryApproval = execApprovalQueue[0];
+    const target = primaryApproval?.request.nodeId?.trim()
+      ? { execTarget: "node", execNode: primaryApproval.request.nodeId, execAgent: primaryApproval.request.agentId }
+      : { execTarget: "gateway", execNode: null, execAgent: primaryApproval?.request.agentId ?? null };
+    items.push({
+      severity: "warning",
+      icon: "shield",
+      title: `${execApprovalQueue.length} exec approval${execApprovalQueue.length > 1 ? "s" : ""} pending`,
+      description: primaryApproval?.request.blockedReason ?? primaryApproval?.request.command ?? "Operator review is required before execution can continue.",
+      href: buildTabHref(host, "nodes", {
+        session: host.sessionKey,
+        execTarget: target.execTarget,
+        execNode: target.execNode,
+        execAgent: target.execAgent ?? null,
       }),
       actionLabel: "Open",
     });
