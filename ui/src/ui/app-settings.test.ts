@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./controllers/runtime-inspector.ts", () => ({
   loadRuntimeInspector: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("./controllers/usage.ts", () => ({
+  loadUsage: vi.fn().mockResolvedValue(undefined),
+  loadSessionTimeSeries: vi.fn().mockResolvedValue(undefined),
+  loadSessionLogs: vi.fn().mockResolvedValue(undefined),
+}));
 
 import {
   applyResolvedTheme,
@@ -10,11 +15,13 @@ import {
   attachThemeListener,
   buildAttentionItems,
   loadOverview,
+  refreshActiveTab,
   setTabFromRoute,
   syncUrlWithTab,
   syncThemeWithSettings,
 } from "./app-settings.ts";
 import { loadRuntimeInspector } from "./controllers/runtime-inspector.ts";
+import { loadSessionLogs, loadSessionTimeSeries, loadUsage } from "./controllers/usage.ts";
 import {
   buildSkillSearchText,
   SKILL_FILTER_BLOCKED,
@@ -98,6 +105,15 @@ type SettingsHost = {
   runtimeSelectedCheckpointId?: string | null;
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
+  usageStartDate?: string;
+  usageEndDate?: string;
+  usageSelectedSessions?: string[];
+  usageTimeZone?: "local" | "utc";
+  usageQuery?: string;
+  usageQueryDraft?: string;
+  usageResult?: { sessions?: Array<{ key: string }> } | null;
+  usageTimeSeries?: unknown;
+  usageSessionLogs?: unknown;
   skillsFilter?: string;
   logsFilterText?: string;
   execApprovalsTarget?: "gateway" | "node";
@@ -289,6 +305,15 @@ const createHost = (tab: Tab): SettingsHost => ({
   runtimeSelectedCheckpointId: null,
   cronRunsJobId: null,
   cronRunsScope: "all",
+  usageStartDate: "2026-03-31",
+  usageEndDate: "2026-03-31",
+  usageSelectedSessions: [],
+  usageTimeZone: "local",
+  usageQuery: "",
+  usageQueryDraft: "",
+  usageResult: null,
+  usageTimeSeries: null,
+  usageSessionLogs: null,
   skillsFilter: "",
   logsFilterText: "",
   execApprovalsTarget: "gateway",
@@ -564,11 +589,11 @@ describe("applySettingsFromUrl", () => {
     expect(host.pendingGatewayToken).toBe("test-token");
   });
 
-  it("hydrates deep-link query state for agents, runtime, bootstrap, artifacts, cron, skills, channels, logs, and nodes", () => {
+  it("hydrates deep-link query state for agents, usage, runtime, bootstrap, artifacts, cron, skills, channels, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/agents?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/usage?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
     );
-    const host = createHost("agents");
+    const host = createHost("usage");
 
     applySettingsFromUrl(host);
 
@@ -576,6 +601,12 @@ describe("applySettingsFromUrl", () => {
     expect(host.agentsSelectedId).toBe("beta");
     expect(host.agentsPanel).toBe("files");
     expect(host.agentFileActive).toBe("AGENTS.md");
+    expect(host.usageStartDate).toBe("2026-03-01");
+    expect(host.usageEndDate).toBe("2026-03-31");
+    expect(host.usageTimeZone).toBe("utc");
+    expect(host.usageSelectedSessions).toEqual(["agent:main:main"]);
+    expect(host.usageQuery).toBe("cost spike");
+    expect(host.usageQueryDraft).toBe("cost spike");
     expect(host.runtimeSessionKey).toBe("agent:main:main");
     expect(host.runtimeRunId).toBe("run-1");
     expect(host.runtimeSelectedCheckpointId).toBe("cp-1");
@@ -646,6 +677,28 @@ describe("syncUrlWithTab", () => {
     expect(window.location.pathname).toBe("/ui/skills");
     expect(window.location.search).toContain("session=agent%3Amain%3Amain");
     expect(window.location.search).toContain(`skillFilter=${toQueryValue(SKILL_FILTER_BLOCKED)}`);
+  });
+
+  it("persists usage deep-link selection with basePath", () => {
+    const host = createHost("usage");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.usageStartDate = "2026-03-01";
+    host.usageEndDate = "2026-03-31";
+    host.usageTimeZone = "utc";
+    host.usageSelectedSessions = ["agent:main:main"];
+    host.usageQuery = "cost spike";
+    host.usageQueryDraft = "cost spike";
+
+    syncUrlWithTab(host, "usage", true);
+
+    expect(window.location.pathname).toBe("/ui/usage");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("usageFrom=2026-03-01");
+    expect(window.location.search).toContain("usageTo=2026-03-31");
+    expect(window.location.search).toContain("usageTz=utc");
+    expect(window.location.search).toContain("usageSession=agent%3Amain%3Amain");
+    expect(window.location.search).toContain(`usageQ=${toQueryValue("cost spike")}`);
   });
 
   it("persists agents file deep-link selection with basePath", () => {
@@ -722,6 +775,65 @@ describe("syncUrlWithTab", () => {
     expect(window.location.search).toContain("execTarget=node");
     expect(window.location.search).toContain("execNode=node-1");
     expect(window.location.search).toContain("execAgent=main");
+  });
+});
+
+describe("refreshActiveTab usage deep links", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("localStorage", createStorageMock());
+    vi.stubGlobal("navigator", { language: "en-US" } as Navigator);
+    setTestWindowUrl("https://control.example/ui/usage?session=agent%3Amain%3Amain");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("restores the single-session detail path after usage summary load", async () => {
+    const host = createHost("usage");
+    host.basePath = "/ui";
+    host.connected = true;
+    host.usageSelectedSessions = ["agent:main:main"];
+    vi.mocked(loadUsage).mockImplementationOnce(async (state) => {
+      (state as SettingsHost).usageResult = {
+        sessions: [{ key: "agent:main:main" }],
+      };
+    });
+
+    await refreshActiveTab(host);
+
+    expect(loadUsage).toHaveBeenCalledWith(host);
+    expect(loadSessionTimeSeries).toHaveBeenCalledWith(host, "agent:main:main");
+    expect(loadSessionLogs).toHaveBeenCalledWith(host, "agent:main:main");
+  });
+
+  it("clears invalid usageSession deep links without dropping the rest of the usage context", async () => {
+    const host = createHost("usage");
+    host.basePath = "/ui";
+    host.connected = true;
+    host.sessionKey = "agent:main:main";
+    host.usageStartDate = "2026-03-01";
+    host.usageEndDate = "2026-03-31";
+    host.usageTimeZone = "utc";
+    host.usageQuery = "cost spike";
+    host.usageQueryDraft = "cost spike";
+    host.usageSelectedSessions = ["agent:missing:main"];
+    vi.mocked(loadUsage).mockImplementationOnce(async (state) => {
+      (state as SettingsHost).usageResult = {
+        sessions: [{ key: "agent:main:main" }],
+      };
+    });
+
+    await refreshActiveTab(host);
+
+    expect(host.usageSelectedSessions).toEqual([]);
+    expect(window.location.search).toContain("usageFrom=2026-03-01");
+    expect(window.location.search).toContain("usageTo=2026-03-31");
+    expect(window.location.search).toContain("usageTz=utc");
+    expect(window.location.search).toContain(`usageQ=${toQueryValue("cost spike")}`);
+    expect(window.location.search).not.toContain("usageSession=");
   });
 });
 
