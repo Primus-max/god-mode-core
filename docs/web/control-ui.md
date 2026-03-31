@@ -93,6 +93,11 @@ The Control UI can localize itself on first load based on your browser locale, a
 - Logs: live tail of gateway file logs with filter/export (`logs.tail`)
 - Update: run a package/git update + restart (`update.run`) with a restart report
 
+Logs panel notes:
+
+- Overview attention can now route gateway-level errors into the Logs surface, so operators can jump from a generic failure signal into the canonical investigation view instead of manually switching tabs.
+- The Logs filter can now persist through a shareable `logQ` query, so refresh/popstate no longer drops the current text-based log search context.
+
 Channels panel notes:
 
 - Overview attention can now route channel-specific failures into the Channels surface with a persisted `channel` query, so operators can refresh or share the link without losing which channel needs attention.

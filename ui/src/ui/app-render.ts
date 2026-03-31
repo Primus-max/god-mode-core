@@ -2176,7 +2176,10 @@ export function renderApp(state: AppViewState) {
                   levelFilters: state.logsLevelFilters,
                   autoFollow: state.logsAutoFollow,
                   truncated: state.logsTruncated,
-                  onFilterTextChange: (next) => (state.logsFilterText = next),
+                  onFilterTextChange: (next) => {
+                    state.logsFilterText = next;
+                    syncUrlWithTab(state, "logs", true);
+                  },
                   onLevelToggle: (level, enabled) => {
                     state.logsLevelFilters = { ...state.logsLevelFilters, [level]: enabled };
                   },
