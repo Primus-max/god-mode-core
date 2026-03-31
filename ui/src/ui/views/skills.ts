@@ -1,6 +1,7 @@
 import { html, nothing } from "lit";
 import type { SkillMessageMap } from "../controllers/skills.ts";
 import { clampText } from "../format.ts";
+import { buildSkillSearchText } from "../skills-correlation.ts";
 import type { SkillStatusEntry, SkillStatusReport } from "../types.ts";
 import { groupSkills } from "./skills-grouping.ts";
 import {
@@ -30,9 +31,7 @@ export function renderSkills(props: SkillsProps) {
   const skills = props.report?.skills ?? [];
   const filter = props.filter.trim().toLowerCase();
   const filtered = filter
-    ? skills.filter((skill) =>
-        [skill.name, skill.description, skill.source].join(" ").toLowerCase().includes(filter),
-      )
+    ? skills.filter((skill) => buildSkillSearchText(skill).includes(filter))
     : skills;
   const groups = groupSkills(filtered);
 

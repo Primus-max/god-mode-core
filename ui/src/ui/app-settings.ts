@@ -44,6 +44,7 @@ import {
   type Tab,
 } from "./navigation.ts";
 import { resolveSessionRuntimeInspectRunId } from "./session-runtime.ts";
+import { SKILL_FILTER_BLOCKED, SKILL_FILTER_MISSING } from "./skills-correlation.ts";
 import { saveSettings, type UiSettings } from "./storage.ts";
 import { startThemeTransition, type ThemeTransitionContext } from "./theme-transition.ts";
 import { resolveTheme, type ResolvedTheme, type ThemeMode, type ThemeName } from "./theme.ts";
@@ -82,6 +83,7 @@ type SettingsHost = {
   runtimeSelectedCheckpointId?: string | null;
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
+  skillsFilter?: string;
 };
 
 type AttentionHost = Pick<
@@ -139,6 +141,7 @@ function applyDeepLinkStateFromUrl(
   host.runtimeSelectedCheckpointId = pick("checkpoint");
   host.cronRunsJobId = pick("cronJob");
   host.cronRunsScope = host.cronRunsJobId ? "job" : "all";
+  host.skillsFilter = pick("skillFilter") ?? "";
 }
 
 function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
@@ -149,6 +152,7 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "runtimeRun", null);
   setQueryValue(url, "checkpoint", null);
   setQueryValue(url, "cronJob", null);
+  setQueryValue(url, "skillFilter", null);
   if (tab === "bootstrap") {
     setQueryValue(url, "bootstrapRequest", host.bootstrapSelectedId);
   }
@@ -162,6 +166,9 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   }
   if (tab === "cron" && host.cronRunsScope === "job") {
     setQueryValue(url, "cronJob", host.cronRunsJobId);
+  }
+  if (tab === "skills") {
+    setQueryValue(url, "skillFilter", host.skillsFilter);
   }
 }
 
@@ -827,6 +834,11 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "zap",
       title: "Skills with missing dependencies",
       description: `${names.join(", ")}${more}`,
+      href: buildTabHref(host, "skills", {
+        session: host.sessionKey,
+        skillFilter: SKILL_FILTER_MISSING,
+      }),
+      actionLabel: "Open",
     });
   }
 
@@ -837,6 +849,11 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "shield",
       title: `${blocked.length} skill${blocked.length > 1 ? "s" : ""} blocked`,
       description: blocked.map((s) => s.name).join(", "),
+      href: buildTabHref(host, "skills", {
+        session: host.sessionKey,
+        skillFilter: SKILL_FILTER_BLOCKED,
+      }),
+      actionLabel: "Open",
     });
   }
 

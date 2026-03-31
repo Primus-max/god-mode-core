@@ -3,6 +3,7 @@ import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { t } from "../../i18n/index.ts";
 import { formatCost, formatTokens, formatRelativeTimestamp } from "../format.ts";
 import { formatNextRun } from "../presenter.ts";
+import { SKILL_FILTER_BLOCKED, SKILL_FILTER_MISSING } from "../skills-correlation.ts";
 import type {
   SessionsUsageResult,
   SessionsListResult,
@@ -18,7 +19,7 @@ export type OverviewCardsProps = {
   cronJobs: CronJob[];
   cronStatus: CronStatus | null;
   presenceCount: number;
-  onNavigate: (tab: string) => void;
+  onNavigate: (tab: string, options?: { skillFilter?: string }) => void;
 };
 
 const DIGIT_RUN = /\d{3,}/g;
@@ -35,11 +36,19 @@ type StatCard = {
   label: string;
   value: string | TemplateResult;
   hint: string | TemplateResult;
+  navigateOptions?: { skillFilter?: string };
 };
 
-function renderStatCard(card: StatCard, onNavigate: (tab: string) => void) {
+function renderStatCard(
+  card: StatCard,
+  onNavigate: (tab: string, options?: { skillFilter?: string }) => void,
+) {
   return html`
-    <button class="ov-card" data-kind=${card.kind} @click=${() => onNavigate(card.tab)}>
+    <button
+      class="ov-card"
+      data-kind=${card.kind}
+      @click=${() => onNavigate(card.tab, card.navigateOptions)}
+    >
       <span class="ov-card__label">${card.label}</span>
       <span class="ov-card__value">${card.value}</span>
       <span class="ov-card__hint">${card.hint}</span>
@@ -79,6 +88,13 @@ export function renderOverviewCards(props: OverviewCardsProps) {
   const skills = props.skillsReport?.skills ?? [];
   const enabledSkills = skills.filter((s) => !s.disabled).length;
   const blockedSkills = skills.filter((s) => s.blockedByAllowlist).length;
+  const skillsMissingCount = skills.filter(
+    (s) =>
+      s.missing.bins.length > 0 ||
+      s.missing.env.length > 0 ||
+      s.missing.config.length > 0 ||
+      s.missing.os.length > 0,
+  ).length;
   const totalSkills = skills.length;
 
   const cronEnabled = props.cronStatus?.enabled ?? null;
@@ -124,6 +140,12 @@ export function renderOverviewCards(props: OverviewCardsProps) {
         blockedSkills > 0
           ? t("overview.cardMetrics.skillsBlocked", { count: String(blockedSkills) })
           : t("overview.cardMetrics.skillsActive", { count: String(enabledSkills) }),
+      navigateOptions:
+        blockedSkills > 0
+          ? { skillFilter: SKILL_FILTER_BLOCKED }
+          : skillsMissingCount > 0
+            ? { skillFilter: SKILL_FILTER_MISSING }
+            : undefined,
     },
     {
       kind: "cron",

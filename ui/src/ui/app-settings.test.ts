@@ -15,6 +15,11 @@ import {
   syncThemeWithSettings,
 } from "./app-settings.ts";
 import { loadRuntimeInspector } from "./controllers/runtime-inspector.ts";
+import {
+  buildSkillSearchText,
+  SKILL_FILTER_BLOCKED,
+  SKILL_FILTER_MISSING,
+} from "./skills-correlation.ts";
 import type { ThemeMode, ThemeName } from "./theme.ts";
 import type { MachineControlStatus } from "./types.ts";
 
@@ -89,6 +94,7 @@ type SettingsHost = {
   runtimeSelectedCheckpointId?: string | null;
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
+  skillsFilter?: string;
   bootstrapPendingCount?: number;
   bootstrapList?: Array<{ id: string; state: string }>;
   sessionsResult?: {
@@ -207,6 +213,10 @@ function setTestWindowUrl(urlString: string) {
   return { history, location: locationLike };
 }
 
+function toQueryValue(value: string) {
+  return encodeURIComponent(value).replace(/%20/g, "+");
+}
+
 const createHost = (tab: Tab): SettingsHost => ({
   settings: {
     gatewayUrl: "",
@@ -255,6 +265,7 @@ const createHost = (tab: Tab): SettingsHost => ({
   runtimeSelectedCheckpointId: null,
   cronRunsJobId: null,
   cronRunsScope: "all",
+  skillsFilter: "",
   bootstrapPendingCount: 0,
   bootstrapList: [],
   sessionsResult: null,
@@ -523,9 +534,9 @@ describe("applySettingsFromUrl", () => {
     expect(host.pendingGatewayToken).toBe("test-token");
   });
 
-  it("hydrates deep-link query state for runtime, bootstrap, artifacts, and cron", () => {
+  it("hydrates deep-link query state for runtime, bootstrap, artifacts, cron, and skills", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing",
     );
     const host = createHost("sessions");
 
@@ -539,6 +550,7 @@ describe("applySettingsFromUrl", () => {
     expect(host.artifactsSelectedId).toBe("artifact-1");
     expect(host.cronRunsJobId).toBe("cron-1");
     expect(host.cronRunsScope).toBe("job");
+    expect(host.skillsFilter).toBe("missing");
   });
 });
 
@@ -583,6 +595,19 @@ describe("syncUrlWithTab", () => {
     expect(window.location.pathname).toBe("/ui/cron");
     expect(window.location.search).toContain("session=agent%3Amain%3Amain");
     expect(window.location.search).toContain("cronJob=cron-1");
+  });
+
+  it("persists skills deep-link selection with basePath", () => {
+    const host = createHost("skills");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.skillsFilter = SKILL_FILTER_BLOCKED;
+
+    syncUrlWithTab(host, "skills", true);
+
+    expect(window.location.pathname).toBe("/ui/skills");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain(`skillFilter=${toQueryValue(SKILL_FILTER_BLOCKED)}`);
   });
 });
 
@@ -756,5 +781,69 @@ describe("buildAttentionItems", () => {
         }),
       ]),
     );
+  });
+
+  it("adds actionable skills attention links", () => {
+    const host = createHost("overview");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.skillsReport = {
+      skills: [
+        {
+          name: "Browser Ops",
+          disabled: false,
+          missing: { bins: ["playwright"], env: [], config: [], os: [] },
+          blockedByAllowlist: false,
+        },
+        {
+          name: "SSH Ops",
+          disabled: false,
+          missing: { bins: [], env: [], config: [], os: [] },
+          blockedByAllowlist: true,
+        },
+      ],
+    };
+
+    buildAttentionItems(host as never);
+
+    expect(host.attentionItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Skills with missing dependencies",
+          href: `/ui/skills?session=agent%3Amain%3Amain&skillFilter=${toQueryValue(SKILL_FILTER_MISSING)}`,
+          actionLabel: "Open",
+        }),
+        expect.objectContaining({
+          title: "1 skill blocked",
+          href: `/ui/skills?session=agent%3Amain%3Amain&skillFilter=${toQueryValue(SKILL_FILTER_BLOCKED)}`,
+          actionLabel: "Open",
+        }),
+      ]),
+    );
+  });
+});
+
+describe("skills correlation helpers", () => {
+  it("includes derived missing and blocked tokens in the searchable skills text", () => {
+    const searchable = buildSkillSearchText({
+      name: "SSH Ops",
+      description: "SSH automation helpers",
+      source: "workspace",
+      filePath: "/workspace/ssh",
+      baseDir: "/workspace",
+      skillKey: "ssh-ops",
+      always: false,
+      disabled: false,
+      blockedByAllowlist: true,
+      eligible: false,
+      requirements: { bins: [], env: [], config: [], os: [] },
+      missing: { bins: ["ssh"], env: [], config: [], os: [] },
+      configChecks: [],
+      install: [],
+    });
+
+    expect(searchable).toContain(SKILL_FILTER_MISSING);
+    expect(searchable).toContain(SKILL_FILTER_BLOCKED);
+    expect(searchable).toContain("bin:ssh");
   });
 });
