@@ -43,6 +43,7 @@ import {
   tabFromPath,
   type Tab,
 } from "./navigation.ts";
+import { collectChannelAttentionTargets } from "./channels-correlation.ts";
 import { resolveSessionRuntimeInspectRunId } from "./session-runtime.ts";
 import { SKILL_FILTER_BLOCKED, SKILL_FILTER_MISSING } from "./skills-correlation.ts";
 import { saveSettings, type UiSettings } from "./storage.ts";
@@ -78,6 +79,7 @@ type SettingsHost = {
   pendingGatewayToken?: string | null;
   artifactsSelectedId?: string | null;
   bootstrapSelectedId?: string | null;
+  channelsSelectedKey?: string | null;
   runtimeSessionKey?: string | null;
   runtimeRunId?: string | null;
   runtimeSelectedCheckpointId?: string | null;
@@ -94,6 +96,7 @@ type AttentionHost = Pick<
   | "bootstrapPendingCount"
   | "bootstrapList"
   | "machineStatus"
+  | "channelsSnapshot"
   | "cronJobs"
   | "attentionItems"
   | "basePath"
@@ -136,6 +139,7 @@ function applyDeepLinkStateFromUrl(
   const pick = (key: string) => trimQueryValue(sources.params.get(key) ?? sources.hashParams.get(key));
   host.bootstrapSelectedId = pick("bootstrapRequest");
   host.artifactsSelectedId = pick("artifact");
+  host.channelsSelectedKey = pick("channel");
   host.runtimeSessionKey = pick("runtimeSession");
   host.runtimeRunId = pick("runtimeRun");
   host.runtimeSelectedCheckpointId = pick("checkpoint");
@@ -148,6 +152,7 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "session", host.sessionKey);
   setQueryValue(url, "bootstrapRequest", null);
   setQueryValue(url, "artifact", null);
+  setQueryValue(url, "channel", null);
   setQueryValue(url, "runtimeSession", null);
   setQueryValue(url, "runtimeRun", null);
   setQueryValue(url, "checkpoint", null);
@@ -158,6 +163,9 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   }
   if (tab === "artifacts") {
     setQueryValue(url, "artifact", host.artifactsSelectedId);
+  }
+  if (tab === "channels") {
+    setQueryValue(url, "channel", host.channelsSelectedKey);
   }
   if (tab === "sessions") {
     setQueryValue(url, "runtimeSession", host.runtimeSessionKey);
@@ -852,6 +860,24 @@ export function buildAttentionItems(host: AttentionHost) {
       href: buildTabHref(host, "skills", {
         session: host.sessionKey,
         skillFilter: SKILL_FILTER_BLOCKED,
+      }),
+      actionLabel: "Open",
+    });
+  }
+
+  const channelIssues = collectChannelAttentionTargets(host.channelsSnapshot);
+  if (channelIssues.length > 0) {
+    const primaryIssue = channelIssues[0];
+    const names = channelIssues.slice(0, 3).map((entry) => entry.label);
+    const more = channelIssues.length > 3 ? ` +${channelIssues.length - 3} more` : "";
+    items.push({
+      severity: "warning",
+      icon: "radio",
+      title: `${channelIssues.length} channel issue${channelIssues.length > 1 ? "s" : ""} detected`,
+      description: `${names.join(", ")}${more}`,
+      href: buildTabHref(host, "channels", {
+        session: host.sessionKey,
+        channel: primaryIssue.key,
       }),
       actionLabel: "Open",
     });

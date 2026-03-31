@@ -20,6 +20,7 @@ export type ChannelsProps = {
   connected: boolean;
   loading: boolean;
   snapshot: ChannelsStatusSnapshot | null;
+  selectedChannelKey: string | null;
   lastError: string | null;
   lastSuccessAt: number | null;
   whatsappMessage: string | null;
@@ -35,6 +36,7 @@ export type ChannelsProps = {
   nostrProfileFormState: NostrProfileFormState | null;
   nostrProfileAccountId: string | null;
   onRefresh: (probe: boolean) => void;
+  onSelectChannel: (channelKey: ChannelKey) => void;
   onWhatsAppStart: (force: boolean) => void;
   onWhatsAppWait: () => void;
   onWhatsAppLogout: () => void;
