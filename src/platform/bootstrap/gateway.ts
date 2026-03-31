@@ -1,5 +1,6 @@
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
 import { BootstrapRequestDecisionSchema, type BootstrapRequestService } from "./index.js";
+import { buildRuntimeOperatorDecision } from "../runtime/operator-attribution.js";
 
 export function createBootstrapListGatewayMethod(
   service: BootstrapRequestService,
@@ -30,7 +31,7 @@ export function createBootstrapGetGatewayMethod(
 export function createBootstrapResolveGatewayMethod(
   service: BootstrapRequestService,
 ): GatewayRequestHandler {
-  return ({ params, respond }) => {
+  return ({ params, client, respond }) => {
     const requestId = typeof params.requestId === "string" ? params.requestId.trim() : "";
     if (!requestId) {
       respond(false, { error: "requestId required" });
@@ -41,7 +42,13 @@ export function createBootstrapResolveGatewayMethod(
       respond(false, { error: "invalid bootstrap decision" });
       return;
     }
-    const detail = service.resolve(requestId, decision.data);
+    const detail = service.resolve(requestId, decision.data, {
+      operatorDecision: buildRuntimeOperatorDecision({
+        action: decision.data,
+        source: "platform.bootstrap.resolve",
+        client,
+      }),
+    });
     if (!detail) {
       respond(false, { error: "bootstrap request not found" });
       return;
@@ -53,13 +60,20 @@ export function createBootstrapResolveGatewayMethod(
 export function createBootstrapRunGatewayMethod(
   service: BootstrapRequestService,
 ): GatewayRequestHandler {
-  return async ({ params, respond }) => {
+  return async ({ params, client, respond }) => {
     const requestId = typeof params.requestId === "string" ? params.requestId.trim() : "";
     if (!requestId) {
       respond(false, { error: "requestId required" });
       return;
     }
-    const detail = await service.run({ id: requestId });
+    const detail = await service.run({
+      id: requestId,
+      operatorDecision: buildRuntimeOperatorDecision({
+        action: "run",
+        source: "platform.bootstrap.run",
+        client,
+      }),
+    });
     if (!detail) {
       respond(false, { error: "bootstrap request not found" });
       return;

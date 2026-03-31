@@ -60,6 +60,47 @@ export type RuntimeRecoveryAction =
   | { kind: "artifact-transition"; checkpointId: string; artifactId: string; operation: ArtifactOperation }
   | { kind: "dispatch-continuation"; checkpointId: string };
 
+export type RuntimeRecoveryConfirmationKind =
+  | "deny-recovery"
+  | "deny-bootstrap"
+  | "dispatch-continuation"
+  | "artifact-approve"
+  | "artifact-publish"
+  | "artifact-delete";
+
+export type RuntimeRecoveryGuardrail = {
+  requiresConfirmation: boolean;
+  confirmationKind?: RuntimeRecoveryConfirmationKind;
+};
+
+export function getRuntimeRecoveryGuardrail(action: RuntimeRecoveryAction): RuntimeRecoveryGuardrail {
+  switch (action.kind) {
+    case "exec-approval-resolve":
+      return action.decision === "deny"
+        ? { requiresConfirmation: true, confirmationKind: "deny-recovery" }
+        : { requiresConfirmation: false };
+    case "bootstrap-resolve":
+      return action.decision === "deny"
+        ? { requiresConfirmation: true, confirmationKind: "deny-bootstrap" }
+        : { requiresConfirmation: false };
+    case "artifact-transition":
+      if (action.operation === "approve") {
+        return { requiresConfirmation: true, confirmationKind: "artifact-approve" };
+      }
+      if (action.operation === "publish") {
+        return { requiresConfirmation: true, confirmationKind: "artifact-publish" };
+      }
+      if (action.operation === "delete") {
+        return { requiresConfirmation: true, confirmationKind: "artifact-delete" };
+      }
+      return { requiresConfirmation: false };
+    case "dispatch-continuation":
+      return { requiresConfirmation: true, confirmationKind: "dispatch-continuation" };
+    case "bootstrap-run":
+      return { requiresConfirmation: false };
+  }
+}
+
 function asArray<T>(value: T[] | undefined): T[] {
   return Array.isArray(value) ? value : [];
 }

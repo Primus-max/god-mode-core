@@ -1,6 +1,9 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
-import type { RuntimeRecoveryAction } from "../controllers/runtime-inspector.ts";
+import {
+  getRuntimeRecoveryGuardrail,
+  type RuntimeRecoveryAction,
+} from "../controllers/runtime-inspector.ts";
 import { formatRelativeTimestamp } from "../format.ts";
 import { icons } from "../icons.ts";
 import { pathForTab } from "../navigation.ts";
@@ -93,6 +96,20 @@ function renderRuntimeStatusChip(label: string) {
   return html`<span class="chip">${label}</span>`;
 }
 
+function formatRuntimeDecisionActor(
+  decision:
+    | RuntimeCheckpointSummary["lastOperatorDecision"]
+    | NonNullable<RuntimeActionDetail["receipt"]>["operatorDecision"],
+): string {
+  return (
+    decision?.actor?.displayName ??
+    decision?.actor?.id ??
+    decision?.actor?.deviceId ??
+    decision?.actor?.connId ??
+    t("common.na")
+  );
+}
+
 function buildTabLink(
   basePath: string,
   tab: "bootstrap" | "artifacts",
@@ -118,6 +135,51 @@ function checkpointHasNextAction(
       (action) => action.method === method && (phase ? action.phase === phase : true),
     ) ?? false
   );
+}
+
+function buildRuntimeRecoveryConfirmationMessage(
+  action: RuntimeRecoveryAction,
+  checkpoint: RuntimeCheckpointSummary,
+): string | null {
+  const guardrail = getRuntimeRecoveryGuardrail(action);
+  if (!guardrail.requiresConfirmation || !guardrail.confirmationKind) {
+    return null;
+  }
+  let message: string;
+  switch (guardrail.confirmationKind) {
+    case "deny-recovery":
+      message = t("sessions.runtime.confirmations.denyRecovery");
+      break;
+    case "deny-bootstrap":
+      message = t("sessions.runtime.confirmations.denyBootstrap");
+      break;
+    case "dispatch-continuation":
+      message = t("sessions.runtime.confirmations.dispatchContinuation");
+      break;
+    case "artifact-approve":
+      message = t("sessions.runtime.confirmations.artifactApprove");
+      break;
+    case "artifact-publish":
+      message = t("sessions.runtime.confirmations.artifactPublish");
+      break;
+    case "artifact-delete":
+      message = t("sessions.runtime.confirmations.artifactDelete");
+      break;
+  }
+  if (checkpoint.operatorHint) {
+    return `${message}\n\n${t("sessions.runtime.confirmations.contextHint", {
+      hint: checkpoint.operatorHint,
+    })}`;
+  }
+  return message;
+}
+
+function confirmRuntimeRecoveryAction(
+  action: RuntimeRecoveryAction,
+  checkpoint: RuntimeCheckpointSummary,
+): boolean {
+  const message = buildRuntimeRecoveryConfirmationMessage(action, checkpoint);
+  return message ? window.confirm(message) : true;
 }
 
 function renderRuntimeRecoveryControls(
@@ -232,7 +294,12 @@ function renderRuntimeRecoveryControls(
             class="btn ${control.tone === "primary" ? "primary" : control.tone === "danger" ? "danger" : ""}"
             type="button"
             ?disabled=${props.runtimeActionBusy}
-            @click=${() => props.onExecuteRuntimeRecoveryAction(control.action)}
+            @click=${() => {
+              if (!confirmRuntimeRecoveryAction(control.action, checkpoint)) {
+                return;
+              }
+              props.onExecuteRuntimeRecoveryAction(control.action);
+            }}
           >
             ${control.label}
           </button>
@@ -279,6 +346,24 @@ function renderRuntimeLinkedRecords(checkpoint: RuntimeCheckpointSummary, props:
           : nothing
       }
     </div>
+  `;
+}
+
+function renderRuntimeOperatorDecision(
+  decision:
+    | RuntimeCheckpointSummary["lastOperatorDecision"]
+    | NonNullable<RuntimeActionDetail["receipt"]>["operatorDecision"],
+) {
+  if (!decision) {
+    return nothing;
+  }
+  return html`
+    <dt>${t("sessions.runtime.fields.lastDecision")}</dt>
+    <dd>${decision.action}</dd>
+    <dt>${t("sessions.runtime.fields.decidedBy")}</dt>
+    <dd>${formatRuntimeDecisionActor(decision)}</dd>
+    <dt>${t("sessions.runtime.fields.decidedAt")}</dt>
+    <dd>${formatMsTimestamp(decision.atMs)}</dd>
   `;
 }
 
@@ -382,6 +467,7 @@ function renderRuntimeInspector(props: SessionsProps) {
                               <dd>${selectedCheckpoint.sessionKey ?? t("common.na")}</dd>
                               <dt>${t("sessions.runtime.fields.updated")}</dt>
                               <dd>${formatMsTimestamp(selectedCheckpoint.updatedAtMs)}</dd>
+                              ${renderRuntimeOperatorDecision(selectedCheckpoint.lastOperatorDecision)}
                               <dt>${t("sessions.runtime.fields.blockedReason")}</dt>
                               <dd>${selectedCheckpoint.blockedReason ?? t("common.na")}</dd>
                             </dl>
@@ -462,6 +548,21 @@ function renderRuntimeInspector(props: SessionsProps) {
                                           <div class="muted" style="margin-top:4px;">
                                             ${selectedAction.kind} · ${selectedAction.state}
                                           </div>
+                                          ${
+                                            selectedAction.receipt?.operatorDecision
+                                              ? html`
+                                                  <div style="margin-top:8px;">
+                                                    ${t("sessions.runtime.fields.lastDecision")}: ${selectedAction
+                                                      .receipt.operatorDecision.action}
+                                                  </div>
+                                                  <div style="margin-top:8px;">
+                                                    ${t("sessions.runtime.fields.decidedBy")}: ${formatRuntimeDecisionActor(
+                                                      selectedAction.receipt.operatorDecision,
+                                                    )}
+                                                  </div>
+                                                `
+                                              : nothing
+                                          }
                                           ${
                                             selectedAction.receipt?.resultStatus
                                               ? html`<div style="margin-top:8px;">

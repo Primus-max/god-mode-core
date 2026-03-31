@@ -5,6 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyMaterializationToDescriptor, materializeArtifact } from "../materialization/index.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../runtime/index.js";
+import {
   createArtifactGetGatewayMethod,
   createArtifactListGatewayMethod,
   createArtifactTransitionGatewayMethod,
@@ -33,6 +37,7 @@ afterEach(() => {
   for (const tempDir of tempDirs.splice(0)) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+  resetPlatformRuntimeCheckpointService();
 });
 
 describe("artifact gateway methods", () => {
@@ -98,13 +103,25 @@ describe("artifact gateway methods", () => {
     const stateDir = createTempStateDir();
     tempDirs.push(stateDir);
     const service = createArtifactService({ stateDir, gatewayBaseUrl: "http://127.0.0.1:18789" });
+    const runtimeService = getPlatformRuntimeCheckpointService();
     service.register(buildDescriptor({ id: "artifact-release", label: "Artifact Release" }));
 
     const respond = vi.fn();
     await createArtifactTransitionGatewayMethod(service)({
       params: { artifactId: "artifact-release", operation: "publish" },
       req: { type: "req", method: "platform.artifacts.transition", id: "req-3" },
-      client: null,
+      client: {
+        connId: "conn-artifact",
+        connect: {
+          client: {
+            id: "control-ui",
+            displayName: "Operator Tanya",
+          },
+          device: {
+            id: "device-artifact",
+          },
+        },
+      } as never,
       isWebchatConnect: () => false,
       respond,
       context: {} as never,
@@ -114,6 +131,15 @@ describe("artifact gateway methods", () => {
       true,
       expect.objectContaining({
         descriptor: expect.objectContaining({ lifecycle: "published" }),
+      }),
+    );
+    expect(runtimeService.getAction("artifact:artifact-release:publish")?.receipt?.operatorDecision).toEqual(
+      expect.objectContaining({
+        action: "publish",
+        actor: expect.objectContaining({
+          displayName: "Operator Tanya",
+          deviceId: "device-artifact",
+        }),
       }),
     );
   });

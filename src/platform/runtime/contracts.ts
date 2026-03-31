@@ -79,6 +79,26 @@ export const PlatformRuntimeTargetSchema = z
   .strict();
 export type PlatformRuntimeTarget = z.infer<typeof PlatformRuntimeTargetSchema>;
 
+export const PlatformRuntimeOperatorActorSchema = z
+  .object({
+    id: z.string().min(1).optional(),
+    displayName: z.string().min(1).optional(),
+    deviceId: z.string().min(1).optional(),
+    connId: z.string().min(1).optional(),
+  })
+  .strict();
+export type PlatformRuntimeOperatorActor = z.infer<typeof PlatformRuntimeOperatorActorSchema>;
+
+export const PlatformRuntimeOperatorDecisionSchema = z
+  .object({
+    action: z.string().min(1),
+    atMs: z.number().int().nonnegative(),
+    actor: PlatformRuntimeOperatorActorSchema.optional(),
+    source: z.string().min(1).optional(),
+  })
+  .strict();
+export type PlatformRuntimeOperatorDecision = z.infer<typeof PlatformRuntimeOperatorDecisionSchema>;
+
 export const PlatformRuntimeCheckpointSchema = z
   .object({
     id: z.string().min(1),
@@ -98,6 +118,7 @@ export const PlatformRuntimeCheckpointSchema = z
     approvedAtMs: z.number().int().nonnegative().optional(),
     resumedAtMs: z.number().int().nonnegative().optional(),
     completedAtMs: z.number().int().nonnegative().optional(),
+    lastOperatorDecision: PlatformRuntimeOperatorDecisionSchema.optional(),
   })
   .strict();
 export type PlatformRuntimeCheckpoint = z.infer<typeof PlatformRuntimeCheckpointSchema>;
@@ -118,6 +139,7 @@ export const PlatformRuntimeCheckpointSummarySchema = z
     approvedAtMs: z.number().int().nonnegative().optional(),
     resumedAtMs: z.number().int().nonnegative().optional(),
     completedAtMs: z.number().int().nonnegative().optional(),
+    lastOperatorDecision: PlatformRuntimeOperatorDecisionSchema.optional(),
   })
   .strict();
 export type PlatformRuntimeCheckpointSummary = z.infer<
@@ -199,6 +221,7 @@ export const PlatformRuntimeActionReceiptSchema = z
     operation: z.string().min(1).optional(),
     resultStatus: z.string().min(1).optional(),
     nodeInvokeResult: PlatformRuntimeNodeInvokeReceiptSchema.optional(),
+    operatorDecision: PlatformRuntimeOperatorDecisionSchema.optional(),
   })
   .strict();
 export type PlatformRuntimeActionReceipt = z.infer<typeof PlatformRuntimeActionReceiptSchema>;

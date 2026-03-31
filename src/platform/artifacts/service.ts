@@ -16,7 +16,10 @@ import { evaluatePolicy } from "../policy/engine.js";
 import { buildPolicyContextFromExecutionContext } from "../recipe/runtime-adapter.js";
 import { createArtifactStore } from "../registry/artifact-store.js";
 import type { ArtifactStore } from "../registry/types.js";
-import { getPlatformRuntimeCheckpointService } from "../runtime/index.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  type PlatformRuntimeOperatorDecision,
+} from "../runtime/index.js";
 import {
   ArtifactDescriptorSchema,
   type ArtifactDescriptor,
@@ -59,7 +62,7 @@ export type ArtifactService = {
   transition: (
     artifactId: string,
     operation: ArtifactOperation,
-    opts?: { explicitApproval?: boolean },
+    opts?: { explicitApproval?: boolean; operatorDecision?: PlatformRuntimeOperatorDecision },
   ) =>
     | { ok: true; descriptor: ArtifactDescriptor }
     | { ok: false; code: "not_found" | "denied"; reason: string };
@@ -414,6 +417,7 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
           runtimeCheckpointService.updateCheckpoint(checkpointId, {
             status: "completed",
             completedAtMs: existingAction.confirmedAtMs ?? Date.now(),
+            lastOperatorDecision: opts?.operatorDecision,
           });
           return {
             ok: true,
@@ -507,6 +511,13 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
         kind: "artifact_publish",
         boundary: "artifact_publish",
         checkpointId,
+        ...(opts?.operatorDecision
+          ? {
+              receipt: {
+                operatorDecision: opts.operatorDecision,
+              },
+            }
+          : {}),
         target: {
           artifactId,
           operation,
@@ -533,6 +544,7 @@ export function createArtifactService(initial?: ArtifactServiceConfig): Artifact
         runtimeCheckpointService.updateCheckpoint(checkpointId, {
           status: "completed",
           completedAtMs: Date.now(),
+          lastOperatorDecision: opts?.operatorDecision,
         });
       }
       runtimeCheckpointService.markActionConfirmed(actionId, {

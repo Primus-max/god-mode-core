@@ -12,6 +12,7 @@ import {
 import { resolveSystemRunApprovalRequestContext } from "../../infra/system-run-approval-context.js";
 import { getPlatformMachineControlService } from "../../platform/machine/index.js";
 import { getPlatformRuntimeCheckpointService } from "../../platform/runtime/index.js";
+import { buildRuntimeOperatorDecision } from "../../platform/runtime/operator-attribution.js";
 import type { ExecApprovalManager } from "../exec-approval-manager.js";
 import {
   ErrorCodes,
@@ -424,6 +425,11 @@ export function createExecApprovalHandlers(
       }
       const runtimeRunId = snapshot?.request.runtimeRunId ?? approvalId;
       const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
+      const operatorDecision = buildRuntimeOperatorDecision({
+        action: decision,
+        source: "exec.approval.resolve",
+        client,
+      });
       const checkpoint = snapshot
         ? runtimeCheckpointService.updateCheckpoint(
             snapshot.request.runtimeCheckpointId ?? approvalId,
@@ -431,6 +437,7 @@ export function createExecApprovalHandlers(
               status: decision === "deny" ? "denied" : "approved",
               approvedAtMs: decision === "deny" ? undefined : Date.now(),
               completedAtMs: decision === "deny" ? Date.now() : undefined,
+              lastOperatorDecision: operatorDecision,
             },
           )
         : undefined;
