@@ -122,6 +122,11 @@ Skills panel notes:
 - Overview attention now routes skill dependency and allowlist problems into the Skills surface with a persisted `skillFilter`, so operators can refresh or share the link without losing the same blocked/missing context.
 - The Skills search box now matches derived state as well as metadata, so filters such as `missing` and `blocked by allowlist` surface the same problem set that overview attention points at.
 
+Agents panel notes:
+
+- The Agents surface now restores the selected `agent`, active `agentsPanel`, and `agentFile` drill-down from URL state, so refresh/popstate can return operators to the same per-agent context instead of reopening a generic shell.
+- When the Skills panel is active inside Agents, the existing `skillFilter` query is reused there too, keeping the per-agent skills investigation flow shareable without inventing a second filter contract.
+
 Nodes / exec approvals panel notes:
 
 - Overview attention can now route pending exec approvals into the Nodes surface with persisted `execTarget`, `execNode`, and `execAgent` query state, so operators can refresh or share the link without losing the same approvals scope.
