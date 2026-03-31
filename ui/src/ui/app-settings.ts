@@ -35,7 +35,7 @@ import { loadRuntimeInspector } from "./controllers/runtime-inspector.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSkills } from "./controllers/skills.ts";
 import { loadSpecialistContext } from "./controllers/specialist.ts";
-import { loadUsage } from "./controllers/usage.ts";
+import { loadSessionLogs, loadSessionTimeSeries, loadUsage } from "./controllers/usage.ts";
 import {
   inferBasePathFromPathname,
   normalizeBasePath,
@@ -87,6 +87,15 @@ type SettingsHost = {
   runtimeSelectedCheckpointId?: string | null;
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
+  usageStartDate?: string;
+  usageEndDate?: string;
+  usageSelectedSessions?: string[];
+  usageTimeZone?: "local" | "utc";
+  usageQuery?: string;
+  usageQueryDraft?: string;
+  usageResult?: { sessions?: Array<{ key: string }> } | null;
+  usageTimeSeries?: OpenClawApp["usageTimeSeries"];
+  usageSessionLogs?: OpenClawApp["usageSessionLogs"];
   skillsFilter?: string;
   logsFilterText?: string;
   execApprovalsTarget?: "gateway" | "node";
@@ -146,6 +155,22 @@ function normalizeAgentsPanel(
   }
 }
 
+function todayUsageDate(): string {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function normalizeUsageTimeZone(value: string | null | undefined): "local" | "utc" {
+  return value === "utc" ? "utc" : "local";
+}
+
+function resolveUsageSelectedSessionKey(
+  host: Pick<SettingsHost, "usageSelectedSessions">,
+): string | null {
+  const selected = host.usageSelectedSessions ?? [];
+  return selected.length === 1 ? trimQueryValue(selected[0]) : null;
+}
+
 function setQueryValue(url: URL, key: string, value: string | null | undefined) {
   const trimmed = trimQueryValue(value);
   if (trimmed) {
@@ -183,6 +208,13 @@ function applyDeepLinkStateFromUrl(
   host.runtimeSelectedCheckpointId = pick("checkpoint");
   host.cronRunsJobId = pick("cronJob");
   host.cronRunsScope = host.cronRunsJobId ? "job" : "all";
+  host.usageStartDate = pick("usageFrom") ?? todayUsageDate();
+  host.usageEndDate = pick("usageTo") ?? todayUsageDate();
+  host.usageTimeZone = normalizeUsageTimeZone(pick("usageTz"));
+  const usageSelectedSession = pick("usageSession");
+  host.usageSelectedSessions = usageSelectedSession ? [usageSelectedSession] : [];
+  host.usageQuery = pick("usageQ") ?? "";
+  host.usageQueryDraft = host.usageQuery;
   host.skillsFilter = pick("skillFilter") ?? "";
   host.logsFilterText = pick("logQ") ?? "";
   host.execApprovalsTarget = normalizeExecApprovalsTarget(pick("execTarget"));
@@ -203,6 +235,11 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "runtimeRun", null);
   setQueryValue(url, "checkpoint", null);
   setQueryValue(url, "cronJob", null);
+  setQueryValue(url, "usageFrom", null);
+  setQueryValue(url, "usageTo", null);
+  setQueryValue(url, "usageTz", null);
+  setQueryValue(url, "usageSession", null);
+  setQueryValue(url, "usageQ", null);
   setQueryValue(url, "skillFilter", null);
   setQueryValue(url, "logQ", null);
   setQueryValue(url, "execTarget", null);
@@ -234,6 +271,13 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   }
   if (tab === "cron" && host.cronRunsScope === "job") {
     setQueryValue(url, "cronJob", host.cronRunsJobId);
+  }
+  if (tab === "usage") {
+    setQueryValue(url, "usageFrom", host.usageStartDate);
+    setQueryValue(url, "usageTo", host.usageEndDate);
+    setQueryValue(url, "usageTz", host.usageTimeZone);
+    setQueryValue(url, "usageSession", resolveUsageSelectedSessionKey(host));
+    setQueryValue(url, "usageQ", host.usageQuery);
   }
   if (tab === "skills") {
     setQueryValue(url, "skillFilter", host.skillsFilter);
@@ -416,6 +460,21 @@ export async function refreshActiveTab(host: SettingsHost) {
   }
   if (host.tab === "usage") {
     await loadUsage(host as unknown as OpenClawApp);
+    const usageSessionKey = resolveUsageSelectedSessionKey(host);
+    if (!usageSessionKey) {
+      host.usageTimeSeries = null;
+      host.usageSessionLogs = null;
+    } else if (host.usageResult?.sessions?.some((entry) => entry.key === usageSessionKey)) {
+      await Promise.allSettled([
+        loadSessionTimeSeries(host as unknown as OpenClawApp, usageSessionKey),
+        loadSessionLogs(host as unknown as OpenClawApp, usageSessionKey),
+      ]);
+    } else {
+      host.usageSelectedSessions = [];
+      host.usageTimeSeries = null;
+      host.usageSessionLogs = null;
+      syncUrlWithTab(host, "usage", true);
+    }
   }
   if (host.tab === "sessions") {
     await Promise.allSettled([

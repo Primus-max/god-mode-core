@@ -98,6 +98,11 @@ Logs panel notes:
 - Overview attention can now route gateway-level errors into the Logs surface, so operators can jump from a generic failure signal into the canonical investigation view instead of manually switching tabs.
 - The Logs filter can now persist through a shareable `logQ` query, so refresh/popstate no longer drops the current text-based log search context.
 
+Usage panel notes:
+
+- The Usage surface now restores a minimal investigation context from URL state: `usageFrom`, `usageTo`, `usageTz`, `usageSession`, and `usageQ` can survive refresh/popstate without serializing every local analytics toggle.
+- When a single `usageSession` is present in the link, the usage summary reload path reopens the same time-series and session-log detail flow after refresh, so operators can share one session investigation path instead of reselecting it manually.
+
 Channels panel notes:
 
 - Overview attention can now route channel-specific failures into the Channels surface with a persisted `channel` query, so operators can refresh or share the link without losing which channel needs attention.
