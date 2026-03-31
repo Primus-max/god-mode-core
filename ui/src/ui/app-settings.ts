@@ -86,6 +86,7 @@ type SettingsHost = {
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
   skillsFilter?: string;
+  logsFilterText?: string;
   execApprovalsTarget?: "gateway" | "node";
   execApprovalsTargetNodeId?: string | null;
   execApprovalsSelectedAgent?: string | null;
@@ -163,6 +164,7 @@ function applyDeepLinkStateFromUrl(
   host.cronRunsJobId = pick("cronJob");
   host.cronRunsScope = host.cronRunsJobId ? "job" : "all";
   host.skillsFilter = pick("skillFilter") ?? "";
+  host.logsFilterText = pick("logQ") ?? "";
   host.execApprovalsTarget = normalizeExecApprovalsTarget(pick("execTarget"));
   host.execApprovalsTargetNodeId =
     host.execApprovalsTarget === "node" ? pick("execNode") : null;
@@ -179,6 +181,7 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "checkpoint", null);
   setQueryValue(url, "cronJob", null);
   setQueryValue(url, "skillFilter", null);
+  setQueryValue(url, "logQ", null);
   setQueryValue(url, "execTarget", null);
   setQueryValue(url, "execNode", null);
   setQueryValue(url, "execAgent", null);
@@ -201,6 +204,9 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   }
   if (tab === "skills") {
     setQueryValue(url, "skillFilter", host.skillsFilter);
+  }
+  if (tab === "logs") {
+    setQueryValue(url, "logQ", host.logsFilterText);
   }
   if (tab === "nodes") {
     const execTarget = resolveExecApprovalsTarget(host);
@@ -786,6 +792,10 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "x",
       title: "Gateway Error",
       description: host.lastError,
+      href: buildTabHref(host, "logs", {
+        session: host.sessionKey,
+      }),
+      actionLabel: "Open",
     });
   }
 

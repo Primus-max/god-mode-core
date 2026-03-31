@@ -96,6 +96,7 @@ type SettingsHost = {
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
   skillsFilter?: string;
+  logsFilterText?: string;
   execApprovalsTarget?: "gateway" | "node";
   execApprovalsTargetNodeId?: string | null;
   execApprovalsSelectedAgent?: string | null;
@@ -283,6 +284,7 @@ const createHost = (tab: Tab): SettingsHost => ({
   cronRunsJobId: null,
   cronRunsScope: "all",
   skillsFilter: "",
+  logsFilterText: "",
   execApprovalsTarget: "gateway",
   execApprovalsTargetNodeId: null,
   execApprovalsSelectedAgent: null,
@@ -556,9 +558,9 @@ describe("applySettingsFromUrl", () => {
     expect(host.pendingGatewayToken).toBe("test-token");
   });
 
-  it("hydrates deep-link query state for runtime, bootstrap, artifacts, cron, skills, channels, and nodes", () => {
+  it("hydrates deep-link query state for runtime, bootstrap, artifacts, cron, skills, channels, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -574,6 +576,7 @@ describe("applySettingsFromUrl", () => {
     expect(host.cronRunsScope).toBe("job");
     expect(host.skillsFilter).toBe("missing");
     expect(host.channelsSelectedKey).toBe("slack");
+    expect(host.logsFilterText).toBe("timeout");
     expect(host.execApprovalsTarget).toBe("node");
     expect(host.execApprovalsTargetNodeId).toBe("node-1");
     expect(host.execApprovalsSelectedAgent).toBe("main");
@@ -647,6 +650,19 @@ describe("syncUrlWithTab", () => {
     expect(window.location.pathname).toBe("/ui/channels");
     expect(window.location.search).toContain("session=agent%3Amain%3Amain");
     expect(window.location.search).toContain("channel=slack");
+  });
+
+  it("persists logs deep-link selection with basePath", () => {
+    const host = createHost("logs");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.logsFilterText = "timeout error";
+
+    syncUrlWithTab(host, "logs", true);
+
+    expect(window.location.pathname).toBe("/ui/logs");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain(`logQ=${toQueryValue("timeout error")}`);
   });
 
   it("persists nodes deep-link selection with basePath", () => {
@@ -904,6 +920,25 @@ describe("buildAttentionItems", () => {
         expect.objectContaining({
           title: "1 channel issue detected",
           href: "/ui/channels?session=agent%3Amain%3Amain&channel=slack",
+          actionLabel: "Open",
+        }),
+      ]),
+    );
+  });
+
+  it("routes gateway errors to the logs surface", () => {
+    const host = createHost("overview");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.lastError = "Gateway disconnected";
+
+    buildAttentionItems(host as never);
+
+    expect(host.attentionItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Gateway Error",
+          href: "/ui/logs?session=agent%3Amain%3Amain",
           actionLabel: "Open",
         }),
       ]),
