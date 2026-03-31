@@ -270,4 +270,78 @@ describe("bootstrap controller", () => {
     expect(state.bootstrapDetail).toBeNull();
     expect(state.bootstrapDetailError).toContain("detail failed");
   });
+
+  it("preserves a deep-linked selected request when the list reloads", async () => {
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "platform.bootstrap.list") {
+        return {
+          pendingCount: 2,
+          requests: [
+            {
+              id: "bootstrap-1",
+              capabilityId: "pdf-renderer",
+              installMethod: "download",
+              reason: "renderer_unavailable",
+              sourceDomain: "document",
+              state: "pending",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              hasResult: false,
+            },
+            {
+              id: "bootstrap-2",
+              capabilityId: "browser",
+              installMethod: "download",
+              reason: "browser_missing",
+              sourceDomain: "developer",
+              state: "pending",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              hasResult: false,
+            },
+          ],
+        };
+      }
+      if (method === "platform.bootstrap.get") {
+        expect(params).toEqual({ requestId: "bootstrap-2" });
+        return {
+          detail: {
+            id: "bootstrap-2",
+            state: "pending",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            request: {
+              capabilityId: "browser",
+              installMethod: "download",
+              reason: "browser_missing",
+              sourceDomain: "developer",
+              approvalMode: "explicit",
+              catalogEntry: {
+                capability: {
+                  id: "browser",
+                  version: "1.0.0",
+                  trustLevel: "trusted",
+                  status: "missing",
+                },
+                install: {
+                  method: "download",
+                  packageRef: "@openclaw/browser",
+                  sandboxed: true,
+                  rollbackStrategy: "restore_previous",
+                },
+                healthChecks: [],
+              },
+            },
+          },
+        };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const state = createState(request, { bootstrapSelectedId: "bootstrap-2" });
+
+    await loadBootstrapRequests(state);
+
+    expect(state.bootstrapSelectedId).toBe("bootstrap-2");
+    expect(state.bootstrapDetail?.id).toBe("bootstrap-2");
+  });
 });

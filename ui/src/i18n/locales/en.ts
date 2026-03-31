@@ -266,6 +266,10 @@ export const en: TranslationMap = {
         dispatchContinuation: "Dispatch continuation",
         retryDispatch: "Retry continuation",
       },
+      links: {
+        openBootstrap: "Open bootstrap request",
+        openArtifact: "Open artifact",
+      },
       fields: {
         checkpointId: "Checkpoint",
         runId: "Run",

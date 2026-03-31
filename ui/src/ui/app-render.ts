@@ -6,6 +6,7 @@ import {
 import { t } from "../i18n/index.ts";
 import { getSafeLocalStorage } from "../local-storage.ts";
 import { refreshChatAvatar } from "./app-chat.ts";
+import { buildAttentionItems, syncUrlWithTab } from "./app-settings.ts";
 import { renderUsageTab } from "./app-render-usage-tab.ts";
 import {
   renderChatControls,
@@ -693,6 +694,12 @@ export function renderApp(state: AppViewState) {
                   });
                   void state.loadAssistantIdentity();
                   void loadSpecialistContext(state, { draft: "" });
+                  void loadRuntimeInspector(state, {
+                    sessionKey: next,
+                    runId: null,
+                    checkpointId: null,
+                  }).then(() => buildAttentionItems(state));
+                  syncUrlWithTab(state, "overview", true);
                 },
                 onSpecialistOverrideChange: (next) => void saveSpecialistOverride(state, next),
                 onToggleGatewayTokenVisibility: () => {
@@ -823,16 +830,24 @@ export function renderApp(state: AppViewState) {
                     await Promise.allSettled([loadSessions(state), loadRuntimeInspector(state)]);
                   },
                   onPatch: (key, patch) => patchSession(state, key, patch),
-                  onInspectRuntimeSession: (sessionKey, runId) =>
-                    loadRuntimeInspector(state, { sessionKey, runId }),
-                  onSelectRuntimeCheckpoint: (checkpointId) =>
-                    loadRuntimeCheckpointDetail(state, checkpointId),
+                  onInspectRuntimeSession: async (sessionKey, runId) => {
+                    await loadRuntimeInspector(state, { sessionKey, runId });
+                    syncUrlWithTab(state, "sessions", true);
+                  },
+                  onSelectRuntimeCheckpoint: async (checkpointId) => {
+                    await loadRuntimeCheckpointDetail(state, checkpointId);
+                    syncUrlWithTab(state, "sessions", true);
+                  },
                   onSelectRuntimeAction: (actionId) => loadRuntimeActionDetail(state, actionId),
                   onSelectRuntimeClosure: (runId) => loadRuntimeClosureDetail(state, runId),
-                  onClearRuntimeScope: () => clearRuntimeInspectorScope(state),
+                  onClearRuntimeScope: async () => {
+                    await clearRuntimeInspectorScope(state);
+                    syncUrlWithTab(state, "sessions", true);
+                  },
                   onExecuteRuntimeRecoveryAction: async (action) => {
                     await executeRuntimeRecoveryAction(state, action);
                     await loadSessions(state);
+                    syncUrlWithTab(state, "sessions", true);
                   },
                   onToggleSelect: (key) => {
                     const next = new Set(state.sessionsSelectedKeys);
@@ -896,12 +911,17 @@ export function renderApp(state: AppViewState) {
                   selectedId: state.artifactsSelectedId,
                   detail: state.artifactDetail,
                   onRefresh: () => loadArtifacts(state),
-                  onSelect: (artifactId) => loadArtifactDetail(state, artifactId),
+                  onSelect: async (artifactId) => {
+                    await loadArtifactDetail(state, artifactId);
+                    syncUrlWithTab(state, "artifacts", true);
+                  },
                   onFilterChange: (value) => {
                     state.artifactsFilterQuery = value;
                   },
-                  onTransition: (artifactId, operation) =>
-                    transitionArtifact(state, artifactId, operation),
+                  onTransition: async (artifactId, operation) => {
+                    await transitionArtifact(state, artifactId, operation);
+                    syncUrlWithTab(state, "artifacts", true);
+                  },
                 }),
               )
             : nothing
@@ -930,17 +950,22 @@ export function renderApp(state: AppViewState) {
                       loadRuntimeInspector(state, { sessionKey: null, runId: null }),
                     ]);
                   },
-                  onSelect: (requestId) => loadBootstrapDetail(state, requestId),
+                  onSelect: async (requestId) => {
+                    await loadBootstrapDetail(state, requestId);
+                    syncUrlWithTab(state, "bootstrap", true);
+                  },
                   onFilterChange: (value) => {
                     state.bootstrapFilterQuery = value;
                   },
                   onResolve: async (requestId, decision) => {
                     await resolveBootstrapRequest(state, requestId, decision);
                     await loadRuntimeInspector(state, { sessionKey: null, runId: null });
+                    syncUrlWithTab(state, "bootstrap", true);
                   },
                   onRun: async (requestId) => {
                     await runBootstrapRequest(state, requestId);
                     await loadRuntimeInspector(state, { sessionKey: null, runId: null });
+                    syncUrlWithTab(state, "bootstrap", true);
                   },
                 }),
               )

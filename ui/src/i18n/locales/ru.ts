@@ -399,6 +399,10 @@ export const ru: TranslationMap = {
         dispatchContinuation: "Запустить continuation",
         retryDispatch: "Повторить continuation",
       },
+      links: {
+        openBootstrap: "Открыть bootstrap request",
+        openArtifact: "Открыть artifact",
+      },
       fields: {
         checkpointId: "Checkpoint",
         runId: "Run",

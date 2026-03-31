@@ -74,7 +74,87 @@ type SettingsHost = {
   pendingGatewayUrl?: string | null;
   systemThemeCleanup?: (() => void) | null;
   pendingGatewayToken?: string | null;
+  artifactsSelectedId?: string | null;
+  bootstrapSelectedId?: string | null;
+  runtimeSessionKey?: string | null;
+  runtimeRunId?: string | null;
+  runtimeSelectedCheckpointId?: string | null;
 };
+
+type AttentionHost = Pick<
+  OpenClawApp,
+  | "lastError"
+  | "hello"
+  | "skillsReport"
+  | "bootstrapPendingCount"
+  | "bootstrapList"
+  | "machineStatus"
+  | "cronJobs"
+  | "attentionItems"
+  | "basePath"
+  | "sessionKey"
+  | "sessionsResult"
+  | "runtimeCheckpoints"
+  | "runtimeCheckpointDetail"
+>;
+
+function trimQueryValue(value: string | null | undefined): string | null {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed ? trimmed : null;
+}
+
+function setQueryValue(url: URL, key: string, value: string | null | undefined) {
+  const trimmed = trimQueryValue(value);
+  if (trimmed) {
+    url.searchParams.set(key, trimmed);
+    return;
+  }
+  url.searchParams.delete(key);
+}
+
+function buildTabHref(
+  host: Pick<SettingsHost, "basePath">,
+  tab: Tab,
+  params: Record<string, string | null | undefined> = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab(tab, host.basePath)}`);
+  for (const [key, value] of Object.entries(params)) {
+    setQueryValue(url, key, value);
+  }
+  return `${url.pathname}${url.search}`;
+}
+
+function applyDeepLinkStateFromUrl(
+  host: SettingsHost,
+  sources: { params: URLSearchParams; hashParams: URLSearchParams },
+) {
+  const pick = (key: string) => trimQueryValue(sources.params.get(key) ?? sources.hashParams.get(key));
+  host.bootstrapSelectedId = pick("bootstrapRequest");
+  host.artifactsSelectedId = pick("artifact");
+  host.runtimeSessionKey = pick("runtimeSession");
+  host.runtimeRunId = pick("runtimeRun");
+  host.runtimeSelectedCheckpointId = pick("checkpoint");
+}
+
+function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
+  setQueryValue(url, "session", host.sessionKey);
+  setQueryValue(url, "bootstrapRequest", null);
+  setQueryValue(url, "artifact", null);
+  setQueryValue(url, "runtimeSession", null);
+  setQueryValue(url, "runtimeRun", null);
+  setQueryValue(url, "checkpoint", null);
+  if (tab === "bootstrap") {
+    setQueryValue(url, "bootstrapRequest", host.bootstrapSelectedId);
+  }
+  if (tab === "artifacts") {
+    setQueryValue(url, "artifact", host.artifactsSelectedId);
+  }
+  if (tab === "sessions") {
+    setQueryValue(url, "runtimeSession", host.runtimeSessionKey);
+    setQueryValue(url, "runtimeRun", host.runtimeRunId);
+    setQueryValue(url, "checkpoint", host.runtimeSelectedCheckpointId);
+  }
+}
 
 export function applySettings(host: SettingsHost, next: UiSettings) {
   const normalized = {
@@ -168,6 +248,8 @@ export function applySettingsFromUrl(host: SettingsHost) {
       });
     }
   }
+
+  applyDeepLinkStateFromUrl(host, { params, hashParams });
 
   if (gatewayUrlRaw != null) {
     if (gatewayUrlChanged) {
@@ -444,6 +526,10 @@ export function onPopState(host: SettingsHost) {
       lastActiveSessionKey: session,
     });
   }
+  applyDeepLinkStateFromUrl(host, {
+    params: url.searchParams,
+    hashParams: new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash),
+  });
 
   setTabFromRoute(host, resolved);
 }
@@ -515,9 +601,8 @@ export function syncUrlWithTab(host: SettingsHost, tab: Tab, replace: boolean) {
 
   if (tab === "chat" && host.sessionKey) {
     url.searchParams.set("session", host.sessionKey);
-  } else {
-    url.searchParams.delete("session");
   }
+  applyTabQueryStateToUrl(host, tab, url);
 
   if (currentPath !== targetPath) {
     url.pathname = targetPath;
@@ -555,7 +640,7 @@ export async function loadOverview(host: SettingsHost) {
     loadSkills(app),
     loadUsage(app),
     loadBootstrapRequests(app),
-    loadRuntimeInspector(app, { sessionKey: null, runId: null }),
+    loadRuntimeInspector(app, { sessionKey: app.sessionKey || null, runId: null }),
     loadPlatformCatalog(app),
     loadMachineControl(app),
     loadSpecialistContext(app, { draft: app.chatMessage }),
@@ -612,7 +697,17 @@ async function loadOverviewLogs(host: OpenClawApp) {
   }
 }
 
-function buildAttentionItems(host: OpenClawApp) {
+function resolveRecoveryAttentionSeverity(status?: string | null): AttentionItem["severity"] {
+  if (status === "denied" || status === "cancelled" || status === "failed") {
+    return "error";
+  }
+  if (status === "approved" || status === "resumed") {
+    return "info";
+  }
+  return "warning";
+}
+
+export function buildAttentionItems(host: AttentionHost) {
   const items: AttentionItem[] = [];
 
   if (host.lastError) {
@@ -635,6 +730,58 @@ function buildAttentionItems(host: OpenClawApp) {
         "This connection does not have the operator.read scope. Some features may be unavailable.",
       href: "https://docs.openclaw.ai/web/dashboard",
       external: true,
+    });
+  }
+
+  const activeSession = host.sessionsResult?.sessions.find((session) => session.key === host.sessionKey);
+  const scopedCheckpoint =
+    host.runtimeCheckpointDetail?.sessionKey === host.sessionKey
+      ? host.runtimeCheckpointDetail
+      : host.runtimeCheckpoints.find((checkpoint) => checkpoint.sessionKey === host.sessionKey) ?? null;
+  const recoveryDescription =
+    activeSession?.recoveryOperatorHint ??
+    scopedCheckpoint?.operatorHint ??
+    activeSession?.recoveryBlockedReason ??
+    scopedCheckpoint?.blockedReason ??
+    null;
+  if (recoveryDescription && (activeSession?.recoveryStatus || scopedCheckpoint?.status)) {
+    items.push({
+      severity: resolveRecoveryAttentionSeverity(activeSession?.recoveryStatus ?? scopedCheckpoint?.status),
+      icon: "shield",
+      title: `Recovery needs review for ${activeSession?.label ?? activeSession?.displayName ?? host.sessionKey}`,
+      description: recoveryDescription,
+      href: buildTabHref(host, "sessions", {
+        session: host.sessionKey,
+        runtimeSession: host.sessionKey,
+        checkpoint: activeSession?.recoveryCheckpointId ?? scopedCheckpoint?.id ?? null,
+      }),
+      actionLabel: "Review",
+    });
+  }
+
+  if (scopedCheckpoint?.target?.bootstrapRequestId) {
+    items.push({
+      severity: resolveRecoveryAttentionSeverity(scopedCheckpoint.status),
+      icon: "shield",
+      title: "Bootstrap request linked to current recovery",
+      description: scopedCheckpoint.operatorHint ?? "Open the linked bootstrap request.",
+      href: buildTabHref(host, "bootstrap", {
+        session: host.sessionKey,
+        bootstrapRequest: scopedCheckpoint.target.bootstrapRequestId,
+      }),
+      actionLabel: "Open request",
+    });
+  } else if (scopedCheckpoint?.target?.artifactId) {
+    items.push({
+      severity: resolveRecoveryAttentionSeverity(scopedCheckpoint.status),
+      icon: "folder",
+      title: "Artifact transition needs review",
+      description: scopedCheckpoint.operatorHint ?? "Open the linked artifact and review the transition.",
+      href: buildTabHref(host, "artifacts", {
+        session: host.sessionKey,
+        artifact: scopedCheckpoint.target.artifactId,
+      }),
+      actionLabel: "Open artifact",
     });
   }
 
@@ -662,12 +809,19 @@ function buildAttentionItems(host: OpenClawApp) {
   }
 
   if (host.bootstrapPendingCount > 0) {
+    const pendingRequestId =
+      host.bootstrapList.find((entry) => entry.state === "pending")?.id ??
+      host.bootstrapList[0]?.id ??
+      null;
     items.push({
       severity: "warning",
       icon: "shield",
       title: `${host.bootstrapPendingCount} bootstrap request${host.bootstrapPendingCount > 1 ? "s" : ""} pending`,
       description: "Capability installs are waiting for operator approval.",
-      href: "/bootstrap",
+      href: buildTabHref(host, "bootstrap", {
+        session: host.sessionKey,
+        bootstrapRequest: pendingRequestId,
+      }),
       actionLabel: "Open",
     });
   }
@@ -679,7 +833,7 @@ function buildAttentionItems(host: OpenClawApp) {
       icon: "monitor",
       title: "Machine control kill switch enabled",
       description: "All machine-scoped execution is currently blocked.",
-      href: "/machine",
+      href: buildTabHref(host, "machine", { session: host.sessionKey }),
       actionLabel: "Open",
     });
   } else if (machineStatus?.currentDevice?.access.code === "device_not_linked") {
@@ -688,7 +842,7 @@ function buildAttentionItems(host: OpenClawApp) {
       icon: "monitor",
       title: "Current device is not linked for machine control",
       description: "Link this operator device before approving machine-scoped execution.",
-      href: "/machine",
+      href: buildTabHref(host, "machine", { session: host.sessionKey }),
       actionLabel: "Open",
     });
   }

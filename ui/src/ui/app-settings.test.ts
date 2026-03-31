@@ -4,7 +4,9 @@ import {
   applySettings,
   applySettingsFromUrl,
   attachThemeListener,
+  buildAttentionItems,
   setTabFromRoute,
+  syncUrlWithTab,
   syncThemeWithSettings,
 } from "./app-settings.ts";
 import type { ThemeMode, ThemeName } from "./theme.ts";
@@ -72,6 +74,45 @@ type SettingsHost = {
   machineStatus?: MachineControlStatus | null;
   pendingGatewayUrl?: string | null;
   pendingGatewayToken?: string | null;
+  artifactsSelectedId?: string | null;
+  bootstrapSelectedId?: string | null;
+  runtimeSessionKey?: string | null;
+  runtimeRunId?: string | null;
+  runtimeSelectedCheckpointId?: string | null;
+  bootstrapPendingCount?: number;
+  bootstrapList?: Array<{ id: string; state: string }>;
+  sessionsResult?: {
+    sessions: Array<{
+      key: string;
+      label?: string;
+      displayName?: string;
+      recoveryStatus?: string;
+      recoveryOperatorHint?: string;
+      recoveryCheckpointId?: string;
+      recoveryBlockedReason?: string;
+    }>;
+  } | null;
+  runtimeCheckpoints?: Array<{
+    id: string;
+    sessionKey?: string;
+    status?: string;
+    operatorHint?: string;
+    blockedReason?: string;
+    target?: { bootstrapRequestId?: string; artifactId?: string };
+  }>;
+  runtimeCheckpointDetail?: {
+    id: string;
+    sessionKey?: string;
+    status?: string;
+    operatorHint?: string;
+    blockedReason?: string;
+    target?: { bootstrapRequestId?: string; artifactId?: string };
+  } | null;
+  skillsReport?: { skills?: Array<{ disabled?: boolean; missing?: Record<string, unknown>; blockedByAllowlist?: boolean; name: string }> } | null;
+  hello?: { auth?: { role?: string; scopes?: string[] } } | null;
+  lastError?: string | null;
+  cronJobs?: Array<{ name: string; enabled?: boolean; state?: { lastStatus?: string; nextRunAtMs?: number | null } }>;
+  attentionItems?: Array<unknown>;
 };
 
 function createStorageMock(): Storage {
@@ -101,6 +142,15 @@ function createStorageMock(): Storage {
 function setTestWindowUrl(urlString: string) {
   const current = new URL(urlString);
   const history = {
+    pushState: vi.fn((_state: unknown, _title: string, nextUrl: string | URL) => {
+      const next = new URL(String(nextUrl), current.toString());
+      current.href = next.toString();
+      current.protocol = next.protocol;
+      current.host = next.host;
+      current.pathname = next.pathname;
+      current.search = next.search;
+      current.hash = next.hash;
+    }),
     replaceState: vi.fn((_state: unknown, _title: string, nextUrl: string | URL) => {
       const next = new URL(String(nextUrl), current.toString());
       current.href = next.toString();
@@ -180,6 +230,21 @@ const createHost = (tab: Tab): SettingsHost => ({
   machineStatus: null,
   pendingGatewayUrl: null,
   pendingGatewayToken: null,
+  artifactsSelectedId: null,
+  bootstrapSelectedId: null,
+  runtimeSessionKey: null,
+  runtimeRunId: null,
+  runtimeSelectedCheckpointId: null,
+  bootstrapPendingCount: 0,
+  bootstrapList: [],
+  sessionsResult: null,
+  runtimeCheckpoints: [],
+  runtimeCheckpointDetail: null,
+  skillsReport: null,
+  hello: null,
+  lastError: null,
+  cronJobs: [],
+  attentionItems: [],
 });
 
 describe("setTabFromRoute", () => {
@@ -436,5 +501,101 @@ describe("applySettingsFromUrl", () => {
     expect(host.settings.lastActiveSessionKey).toBe("agent:test_old:main");
     expect(host.pendingGatewayUrl).toBe("ws://gateway-b.example:18789");
     expect(host.pendingGatewayToken).toBe("test-token");
+  });
+
+  it("hydrates deep-link query state for runtime, bootstrap, and artifacts", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1",
+    );
+    const host = createHost("sessions");
+
+    applySettingsFromUrl(host);
+
+    expect(host.sessionKey).toBe("agent:main:main");
+    expect(host.runtimeSessionKey).toBe("agent:main:main");
+    expect(host.runtimeRunId).toBe("run-1");
+    expect(host.runtimeSelectedCheckpointId).toBe("cp-1");
+    expect(host.bootstrapSelectedId).toBe("bootstrap-1");
+    expect(host.artifactsSelectedId).toBe("artifact-1");
+  });
+});
+
+describe("syncUrlWithTab", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", createStorageMock());
+    vi.stubGlobal("navigator", { language: "en-US" } as Navigator);
+    setTestWindowUrl("https://control.example/ui/chat?session=main");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("persists tab-specific deep-link state with basePath", () => {
+    const host = createHost("sessions");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.runtimeSessionKey = "agent:main:main";
+    host.runtimeRunId = "run-1";
+    host.runtimeSelectedCheckpointId = "cp-1";
+
+    syncUrlWithTab(host, "sessions", true);
+
+    expect(window.location.pathname).toBe("/ui/sessions");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("runtimeSession=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("runtimeRun=run-1");
+    expect(window.location.search).toContain("checkpoint=cp-1");
+  });
+});
+
+describe("buildAttentionItems", () => {
+  it("adds recovery and scoped bootstrap attention links", () => {
+    const host = createHost("overview");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.sessionsResult = {
+      sessions: [
+        {
+          key: "agent:main:main",
+          label: "Main session",
+          recoveryStatus: "blocked",
+          recoveryOperatorHint: "Awaiting operator approval.",
+          recoveryCheckpointId: "cp-1",
+        },
+      ],
+    };
+    host.runtimeCheckpoints = [
+      {
+        id: "cp-1",
+        sessionKey: "agent:main:main",
+        status: "blocked",
+        operatorHint: "Awaiting operator approval.",
+        target: { bootstrapRequestId: "bootstrap-1" },
+      },
+    ];
+    host.runtimeCheckpointDetail = {
+      id: "cp-1",
+      sessionKey: "agent:main:main",
+      status: "blocked",
+      operatorHint: "Awaiting operator approval.",
+      target: { bootstrapRequestId: "bootstrap-1" },
+    };
+
+    buildAttentionItems(host as never);
+
+    expect(host.attentionItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Recovery needs review for Main session",
+          href: "/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&checkpoint=cp-1",
+        }),
+        expect.objectContaining({
+          title: "Bootstrap request linked to current recovery",
+          href: "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
+        }),
+      ]),
+    );
   });
 });
