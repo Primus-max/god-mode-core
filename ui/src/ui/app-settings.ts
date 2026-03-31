@@ -85,6 +85,16 @@ type SettingsHost = {
   runtimeSessionKey?: string | null;
   runtimeRunId?: string | null;
   runtimeSelectedCheckpointId?: string | null;
+  sessionsFilterActive?: string;
+  sessionsFilterLimit?: string;
+  sessionsIncludeGlobal?: boolean;
+  sessionsIncludeUnknown?: boolean;
+  sessionsSearchQuery?: string;
+  sessionsSortColumn?: "key" | "kind" | "updated" | "tokens";
+  sessionsSortDir?: "asc" | "desc";
+  sessionsPage?: number;
+  sessionsPageSize?: number;
+  sessionsResult?: { count?: number | null; sessions?: Array<{ key: string }> } | null;
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
   usageStartDate?: string;
@@ -171,6 +181,55 @@ function resolveUsageSelectedSessionKey(
   return selected.length === 1 ? trimQueryValue(selected[0]) : null;
 }
 
+function normalizeBooleanQuery(value: string | null | undefined, fallback: boolean): boolean {
+  if (value == null) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true") {
+    return true;
+  }
+  if (normalized === "0" || normalized === "false") {
+    return false;
+  }
+  return fallback;
+}
+
+function normalizeSessionsSortColumn(
+  value: string | null | undefined,
+  fallback: "key" | "kind" | "updated" | "tokens",
+): "key" | "kind" | "updated" | "tokens" {
+  switch (value) {
+    case "key":
+    case "kind":
+    case "updated":
+    case "tokens":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeSessionsSortDir(
+  value: string | null | undefined,
+  fallback: "asc" | "desc",
+): "asc" | "desc" {
+  return value === "asc" || value === "desc" ? value : fallback;
+}
+
+function normalizeNonNegativeInteger(value: string | null | undefined, fallback: number): number {
+  if (value == null) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function normalizeSessionsPageSize(value: string | null | undefined, fallback: number): number {
+  const parsed = normalizeNonNegativeInteger(value, fallback);
+  return parsed === 10 || parsed === 25 || parsed === 50 || parsed === 100 ? parsed : fallback;
+}
+
 function setQueryValue(url: URL, key: string, value: string | null | undefined) {
   const trimmed = trimQueryValue(value);
   if (trimmed) {
@@ -206,6 +265,30 @@ function applyDeepLinkStateFromUrl(
   host.runtimeSessionKey = pick("runtimeSession");
   host.runtimeRunId = pick("runtimeRun");
   host.runtimeSelectedCheckpointId = pick("checkpoint");
+  host.sessionsFilterActive = pick("sessionsActive") ?? host.sessionsFilterActive ?? "";
+  host.sessionsFilterLimit = pick("sessionsLimit") ?? host.sessionsFilterLimit ?? "120";
+  host.sessionsIncludeGlobal = normalizeBooleanQuery(
+    pick("sessionsGlobal"),
+    host.sessionsIncludeGlobal ?? true,
+  );
+  host.sessionsIncludeUnknown = normalizeBooleanQuery(
+    pick("sessionsUnknown"),
+    host.sessionsIncludeUnknown ?? false,
+  );
+  host.sessionsSearchQuery = pick("sessionsQ") ?? host.sessionsSearchQuery ?? "";
+  host.sessionsSortColumn = normalizeSessionsSortColumn(
+    pick("sessionsSort"),
+    host.sessionsSortColumn ?? "updated",
+  );
+  host.sessionsSortDir = normalizeSessionsSortDir(
+    pick("sessionsDir"),
+    host.sessionsSortDir ?? "desc",
+  );
+  host.sessionsPage = normalizeNonNegativeInteger(pick("sessionsPage"), host.sessionsPage ?? 0);
+  host.sessionsPageSize = normalizeSessionsPageSize(
+    pick("sessionsPageSize"),
+    host.sessionsPageSize ?? 25,
+  );
   host.cronRunsJobId = pick("cronJob");
   host.cronRunsScope = host.cronRunsJobId ? "job" : "all";
   host.usageStartDate = pick("usageFrom") ?? todayUsageDate();
@@ -234,6 +317,15 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "runtimeSession", null);
   setQueryValue(url, "runtimeRun", null);
   setQueryValue(url, "checkpoint", null);
+  setQueryValue(url, "sessionsActive", null);
+  setQueryValue(url, "sessionsLimit", null);
+  setQueryValue(url, "sessionsGlobal", null);
+  setQueryValue(url, "sessionsUnknown", null);
+  setQueryValue(url, "sessionsQ", null);
+  setQueryValue(url, "sessionsSort", null);
+  setQueryValue(url, "sessionsDir", null);
+  setQueryValue(url, "sessionsPage", null);
+  setQueryValue(url, "sessionsPageSize", null);
   setQueryValue(url, "cronJob", null);
   setQueryValue(url, "usageFrom", null);
   setQueryValue(url, "usageTo", null);
@@ -265,6 +357,15 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
     setQueryValue(url, "channel", host.channelsSelectedKey);
   }
   if (tab === "sessions") {
+    setQueryValue(url, "sessionsActive", host.sessionsFilterActive);
+    setQueryValue(url, "sessionsLimit", host.sessionsFilterLimit);
+    setQueryValue(url, "sessionsGlobal", String(host.sessionsIncludeGlobal ?? true));
+    setQueryValue(url, "sessionsUnknown", String(host.sessionsIncludeUnknown ?? false));
+    setQueryValue(url, "sessionsQ", host.sessionsSearchQuery);
+    setQueryValue(url, "sessionsSort", host.sessionsSortColumn);
+    setQueryValue(url, "sessionsDir", host.sessionsSortDir);
+    setQueryValue(url, "sessionsPage", String(host.sessionsPage ?? 0));
+    setQueryValue(url, "sessionsPageSize", String(host.sessionsPageSize ?? 25));
     setQueryValue(url, "runtimeSession", host.runtimeSessionKey);
     setQueryValue(url, "runtimeRun", host.runtimeRunId);
     setQueryValue(url, "checkpoint", host.runtimeSelectedCheckpointId);
@@ -481,6 +582,16 @@ export async function refreshActiveTab(host: SettingsHost) {
       loadSessions(host as unknown as OpenClawApp),
       loadRuntimeInspector(host as unknown as OpenClawApp),
     ]);
+    const totalRows =
+      typeof host.sessionsResult?.count === "number"
+        ? host.sessionsResult.count
+        : (host.sessionsResult?.sessions?.length ?? 0);
+    const pageSize = host.sessionsPageSize ?? 25;
+    const maxPage = Math.max(0, Math.ceil(totalRows / pageSize) - 1);
+    if ((host.sessionsPage ?? 0) > maxPage) {
+      host.sessionsPage = maxPage;
+      syncUrlWithTab(host, "sessions", true);
+    }
   }
   if (host.tab === "cron") {
     await loadCron(host);
