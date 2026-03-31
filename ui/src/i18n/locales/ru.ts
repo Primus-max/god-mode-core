@@ -418,6 +418,15 @@ export const ru: TranslationMap = {
         openBootstrap: "Открыть bootstrap request",
         openArtifact: "Открыть artifact",
       },
+      handoff: {
+        currentTarget: "Текущий target {runId}",
+        requestAnchor: "Request anchor {runId}",
+        closureHistory: "Closure history {runId}",
+        truthSource: {
+          closure: "Handoff truth: closure",
+          recovery: "Handoff truth: recovery",
+        },
+      },
       fields: {
         checkpointId: "Checkpoint",
         runId: "Run",

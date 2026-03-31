@@ -285,6 +285,15 @@ export const en: TranslationMap = {
         openBootstrap: "Open bootstrap request",
         openArtifact: "Open artifact",
       },
+      handoff: {
+        currentTarget: "Current target {runId}",
+        requestAnchor: "Request anchor {runId}",
+        closureHistory: "Closure history {runId}",
+        truthSource: {
+          closure: "Handoff truth: closure",
+          recovery: "Handoff truth: recovery",
+        },
+      },
       fields: {
         checkpointId: "Checkpoint",
         runId: "Run",

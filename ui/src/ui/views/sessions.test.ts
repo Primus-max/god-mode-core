@@ -266,6 +266,98 @@ describe("sessions view", () => {
     expect(onInspectRuntimeSession).toHaveBeenCalledWith("agent:main:main", undefined);
   });
 
+  it("prefers recovery handoff truth over stale closure history when inspecting runtime", async () => {
+    const onInspectRuntimeSession = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(
+          buildResult({
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: Date.now(),
+            handoffTruthSource: "recovery",
+            handoffRequestRunId: "request-run",
+            handoffRunId: "recovery-run",
+            runClosureSummary: {
+              runId: "closure-run",
+              updatedAtMs: 10,
+              outcomeStatus: "completed",
+              verificationStatus: "verified",
+              acceptanceStatus: "satisfied",
+              action: "close",
+              remediation: "none",
+              reasonCode: "completed_with_output",
+              reasons: ["ok"],
+            },
+          }),
+        ),
+        onInspectRuntimeSession,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Handoff truth: recovery");
+    expect(container.textContent).toContain("Current target recovery-run");
+    expect(container.textContent).toContain("Request anchor request-run");
+    expect(container.textContent).toContain("Closure history closure-run");
+
+    const inspectButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Inspect runtime"),
+    );
+    inspectButton?.dispatchEvent(new Event("click"));
+
+    expect(onInspectRuntimeSession).toHaveBeenCalledWith("agent:main:main", "recovery-run");
+  });
+
+  it("keeps closure-aligned runtime inspect path when handoff truth is closure", async () => {
+    const onInspectRuntimeSession = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(
+          buildResult({
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: Date.now(),
+            handoffTruthSource: "closure",
+            handoffRequestRunId: "request-run",
+            handoffRunId: "closure-run",
+            runClosureSummary: {
+              runId: "closure-run",
+              updatedAtMs: 10,
+              outcomeStatus: "completed",
+              verificationStatus: "verified",
+              acceptanceStatus: "satisfied",
+              action: "close",
+              remediation: "none",
+              reasonCode: "completed_with_output",
+              reasons: ["ok"],
+            },
+          }),
+        ),
+        onInspectRuntimeSession,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Handoff truth: closure");
+    expect(container.textContent).toContain("Current target closure-run");
+    expect(container.textContent).toContain("Request anchor request-run");
+    expect(container.textContent).not.toContain("Closure history closure-run");
+
+    const inspectButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Inspect runtime"),
+    );
+    inspectButton?.dispatchEvent(new Event("click"));
+
+    expect(onInspectRuntimeSession).toHaveBeenCalledWith("agent:main:main", "closure-run");
+  });
+
   it("turns runtime next actions into operator controls", async () => {
     const onExecuteRuntimeRecoveryAction = vi.fn();
     const container = document.createElement("div");

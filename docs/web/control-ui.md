@@ -112,6 +112,8 @@ Runtime / recovery notes:
 - The Sessions tab now doubles as the operator runtime inspector: blocked checkpoints, related actions, and closure outcomes all come from the canonical runtime ledgers rather than a separate UI cache.
 - High-risk recovery actions such as deny or manual continuation dispatch require an explicit confirmation in the UI before the RPC is sent.
 - When a recovery decision is sent through the Control UI, the inspector shows the latest operator decision context (`what`, `who`, `when`) so operators can verify who approved, denied, dispatched, or retried the flow.
+- Session rows also surface the current handoff truth used for runtime inspection: `handoffTruthSource` tells the operator whether the active target follows durable closure history or an in-flight recovery branch.
+- When handoff truth is `recovery`, the runtime inspect action follows `handoffRunId` / `handoffRequestRunId` instead of stale closure history, so operators land on the current recovery target rather than an older completed run.
 
 ## Chat behavior
 
