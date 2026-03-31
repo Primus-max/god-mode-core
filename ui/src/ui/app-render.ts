@@ -839,22 +839,28 @@ export function renderApp(state: AppViewState) {
                     state.sessionsFilterLimit = next.limit;
                     state.sessionsIncludeGlobal = next.includeGlobal;
                     state.sessionsIncludeUnknown = next.includeUnknown;
+                    state.sessionsPage = 0;
+                    syncUrlWithTab(state, "sessions", true);
                   },
                   onSearchChange: (q) => {
                     state.sessionsSearchQuery = q;
                     state.sessionsPage = 0;
+                    syncUrlWithTab(state, "sessions", true);
                   },
                   onSortChange: (col, dir) => {
                     state.sessionsSortColumn = col;
                     state.sessionsSortDir = dir;
                     state.sessionsPage = 0;
+                    syncUrlWithTab(state, "sessions", true);
                   },
                   onPageChange: (p) => {
                     state.sessionsPage = p;
+                    syncUrlWithTab(state, "sessions", true);
                   },
                   onPageSizeChange: (s) => {
                     state.sessionsPageSize = s;
                     state.sessionsPage = 0;
+                    syncUrlWithTab(state, "sessions", true);
                   },
                   onRefresh: async () => {
                     await Promise.allSettled([loadSessions(state), loadRuntimeInspector(state)]);

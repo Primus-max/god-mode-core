@@ -137,6 +137,11 @@ Nodes / exec approvals panel notes:
 - Overview attention can now route pending exec approvals into the Nodes surface with persisted `execTarget`, `execNode`, and `execAgent` query state, so operators can refresh or share the link without losing the same approvals scope.
 - The Nodes exec approvals panel restores the selected gateway-vs-node target and agent scope from URL state, keeping approvals review aligned with the same operator drill-down flow used by cron, skills, and channels.
 
+Sessions list notes:
+
+- The Sessions surface now persists its list-level investigation state as well as runtime scope: filters, search, sort, and pagination can survive refresh/popstate together with `runtimeSession` / `runtimeRun` / `checkpoint`.
+- If a shared sessions link points at a page that no longer exists after the latest list reload, the UI clamps only the pagination state instead of dropping the rest of the sessions investigation context.
+
 Runtime / recovery notes:
 
 - The Sessions tab now doubles as the operator runtime inspector: blocked checkpoints, related actions, and closure outcomes all come from the canonical runtime ledgers rather than a separate UI cache.

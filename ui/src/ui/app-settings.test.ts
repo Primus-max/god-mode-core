@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./controllers/runtime-inspector.ts", () => ({
   loadRuntimeInspector: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("./controllers/sessions.ts", () => ({
+  loadSessions: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("./controllers/usage.ts", () => ({
   loadUsage: vi.fn().mockResolvedValue(undefined),
   loadSessionTimeSeries: vi.fn().mockResolvedValue(undefined),
@@ -21,6 +24,7 @@ import {
   syncThemeWithSettings,
 } from "./app-settings.ts";
 import { loadRuntimeInspector } from "./controllers/runtime-inspector.ts";
+import { loadSessions } from "./controllers/sessions.ts";
 import { loadSessionLogs, loadSessionTimeSeries, loadUsage } from "./controllers/usage.ts";
 import {
   buildSkillSearchText,
@@ -103,6 +107,15 @@ type SettingsHost = {
   runtimeSessionKey?: string | null;
   runtimeRunId?: string | null;
   runtimeSelectedCheckpointId?: string | null;
+  sessionsFilterActive?: string;
+  sessionsFilterLimit?: string;
+  sessionsIncludeGlobal?: boolean;
+  sessionsIncludeUnknown?: boolean;
+  sessionsSearchQuery?: string;
+  sessionsSortColumn?: "key" | "kind" | "updated" | "tokens";
+  sessionsSortDir?: "asc" | "desc";
+  sessionsPage?: number;
+  sessionsPageSize?: number;
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
   usageStartDate?: string;
@@ -133,6 +146,7 @@ type SettingsHost = {
     expiresAtMs: number;
   }>;
   sessionsResult?: {
+    count?: number;
     sessions: Array<{
       key: string;
       label?: string;
@@ -303,6 +317,15 @@ const createHost = (tab: Tab): SettingsHost => ({
   runtimeSessionKey: null,
   runtimeRunId: null,
   runtimeSelectedCheckpointId: null,
+  sessionsFilterActive: "",
+  sessionsFilterLimit: "120",
+  sessionsIncludeGlobal: true,
+  sessionsIncludeUnknown: false,
+  sessionsSearchQuery: "",
+  sessionsSortColumn: "updated",
+  sessionsSortDir: "desc",
+  sessionsPage: 0,
+  sessionsPageSize: 25,
   cronRunsJobId: null,
   cronRunsScope: "all",
   usageStartDate: "2026-03-31",
@@ -589,11 +612,11 @@ describe("applySettingsFromUrl", () => {
     expect(host.pendingGatewayToken).toBe("test-token");
   });
 
-  it("hydrates deep-link query state for agents, usage, runtime, bootstrap, artifacts, cron, skills, channels, logs, and nodes", () => {
+  it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, channels, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/usage?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
     );
-    const host = createHost("usage");
+    const host = createHost("sessions");
 
     applySettingsFromUrl(host);
 
@@ -601,6 +624,15 @@ describe("applySettingsFromUrl", () => {
     expect(host.agentsSelectedId).toBe("beta");
     expect(host.agentsPanel).toBe("files");
     expect(host.agentFileActive).toBe("AGENTS.md");
+    expect(host.sessionsFilterActive).toBe("30");
+    expect(host.sessionsFilterLimit).toBe("250");
+    expect(host.sessionsIncludeGlobal).toBe(false);
+    expect(host.sessionsIncludeUnknown).toBe(true);
+    expect(host.sessionsSearchQuery).toBe("main agent");
+    expect(host.sessionsSortColumn).toBe("key");
+    expect(host.sessionsSortDir).toBe("asc");
+    expect(host.sessionsPage).toBe(2);
+    expect(host.sessionsPageSize).toBe(50);
     expect(host.usageStartDate).toBe("2026-03-01");
     expect(host.usageEndDate).toBe("2026-03-31");
     expect(host.usageTimeZone).toBe("utc");
@@ -621,6 +653,22 @@ describe("applySettingsFromUrl", () => {
     expect(host.execApprovalsTargetNodeId).toBe("node-1");
     expect(host.execApprovalsSelectedAgent).toBe("main");
   });
+
+  it("falls back to default sessions list query state when query values are invalid", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&sessionsGlobal=maybe&sessionsUnknown=wat&sessionsSort=bogus&sessionsDir=sideways&sessionsPage=-1&sessionsPageSize=7",
+    );
+    const host = createHost("sessions");
+
+    applySettingsFromUrl(host);
+
+    expect(host.sessionsIncludeGlobal).toBe(true);
+    expect(host.sessionsIncludeUnknown).toBe(false);
+    expect(host.sessionsSortColumn).toBe("updated");
+    expect(host.sessionsSortDir).toBe("desc");
+    expect(host.sessionsPage).toBe(0);
+    expect(host.sessionsPageSize).toBe(25);
+  });
 });
 
 describe("syncUrlWithTab", () => {
@@ -639,6 +687,15 @@ describe("syncUrlWithTab", () => {
     const host = createHost("sessions");
     host.basePath = "/ui";
     host.sessionKey = "agent:main:main";
+    host.sessionsFilterActive = "30";
+    host.sessionsFilterLimit = "250";
+    host.sessionsIncludeGlobal = false;
+    host.sessionsIncludeUnknown = true;
+    host.sessionsSearchQuery = "main agent";
+    host.sessionsSortColumn = "tokens";
+    host.sessionsSortDir = "asc";
+    host.sessionsPage = 3;
+    host.sessionsPageSize = 50;
     host.runtimeSessionKey = "agent:main:main";
     host.runtimeRunId = "run-1";
     host.runtimeSelectedCheckpointId = "cp-1";
@@ -647,6 +704,15 @@ describe("syncUrlWithTab", () => {
 
     expect(window.location.pathname).toBe("/ui/sessions");
     expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("sessionsActive=30");
+    expect(window.location.search).toContain("sessionsLimit=250");
+    expect(window.location.search).toContain("sessionsGlobal=false");
+    expect(window.location.search).toContain("sessionsUnknown=true");
+    expect(window.location.search).toContain(`sessionsQ=${toQueryValue("main agent")}`);
+    expect(window.location.search).toContain("sessionsSort=tokens");
+    expect(window.location.search).toContain("sessionsDir=asc");
+    expect(window.location.search).toContain("sessionsPage=3");
+    expect(window.location.search).toContain("sessionsPageSize=50");
     expect(window.location.search).toContain("runtimeSession=agent%3Amain%3Amain");
     expect(window.location.search).toContain("runtimeRun=run-1");
     expect(window.location.search).toContain("checkpoint=cp-1");
@@ -834,6 +900,52 @@ describe("refreshActiveTab usage deep links", () => {
     expect(window.location.search).toContain("usageTz=utc");
     expect(window.location.search).toContain(`usageQ=${toQueryValue("cost spike")}`);
     expect(window.location.search).not.toContain("usageSession=");
+  });
+});
+
+describe("refreshActiveTab sessions list deep links", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("localStorage", createStorageMock());
+    vi.stubGlobal("navigator", { language: "en-US" } as Navigator);
+    setTestWindowUrl("https://control.example/ui/sessions?session=agent%3Amain%3Amain");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("clamps out-of-range sessions page after the list loads", async () => {
+    const host = createHost("sessions");
+    host.basePath = "/ui";
+    host.connected = true;
+    host.sessionKey = "agent:main:main";
+    host.sessionsFilterActive = "30";
+    host.sessionsFilterLimit = "250";
+    host.sessionsIncludeGlobal = false;
+    host.sessionsIncludeUnknown = true;
+    host.sessionsSearchQuery = "main agent";
+    host.sessionsSortColumn = "tokens";
+    host.sessionsSortDir = "asc";
+    host.sessionsPage = 4;
+    host.sessionsPageSize = 50;
+    vi.mocked(loadSessions).mockImplementationOnce(async (state) => {
+      (state as SettingsHost).sessionsResult = {
+        count: 10,
+        sessions: [{ key: "agent:main:main" }],
+      };
+    });
+
+    await refreshActiveTab(host);
+
+    expect(loadSessions).toHaveBeenCalledWith(host);
+    expect(host.sessionsPage).toBe(0);
+    expect(window.location.search).toContain("sessionsSort=tokens");
+    expect(window.location.search).toContain("sessionsDir=asc");
+    expect(window.location.search).toContain("sessionsPage=0");
+    expect(window.location.search).toContain("sessionsPageSize=50");
+    expect(loadRuntimeInspector).toHaveBeenCalledWith(host);
   });
 });
 
