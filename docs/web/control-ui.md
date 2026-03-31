@@ -114,6 +114,7 @@ Runtime / recovery notes:
 - When a recovery decision is sent through the Control UI, the inspector shows the latest operator decision context (`what`, `who`, `when`) so operators can verify who approved, denied, dispatched, or retried the flow.
 - Session rows also surface the current handoff truth used for runtime inspection: `handoffTruthSource` tells the operator whether the active target follows durable closure history or an in-flight recovery branch.
 - When handoff truth is `recovery`, the runtime inspect action follows `handoffRunId` / `handoffRequestRunId` instead of stale closure history, so operators land on the current recovery target rather than an older completed run.
+- Overview recovery attention now reuses that same handoff-aware runtime target, including `runtimeRun` in deep links when available, so overview and sessions open the same recovery branch instead of diverging by session-only scope.
 
 ## Chat behavior
 
