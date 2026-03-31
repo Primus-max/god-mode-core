@@ -179,6 +179,15 @@ const CRON_TIMEZONE_SUGGESTIONS = [
   "Asia/Tokyo",
 ];
 
+function resolveExecApprovalsTarget(state: {
+  execApprovalsTarget: "gateway" | "node";
+  execApprovalsTargetNodeId: string | null;
+}) {
+  return state.execApprovalsTarget === "node" && state.execApprovalsTargetNodeId
+    ? ({ kind: "node" as const, nodeId: state.execApprovalsTargetNodeId })
+    : ({ kind: "gateway" as const });
+}
+
 function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
 }
@@ -1526,11 +1535,7 @@ export function renderApp(state: AppViewState) {
                   onDeviceRevoke: (deviceId, role) => revokeDeviceToken(state, { deviceId, role }),
                   onLoadConfig: () => loadConfig(state),
                   onLoadExecApprovals: () => {
-                    const target =
-                      state.execApprovalsTarget === "node" && state.execApprovalsTargetNodeId
-                        ? { kind: "node" as const, nodeId: state.execApprovalsTargetNodeId }
-                        : { kind: "gateway" as const };
-                    return loadExecApprovals(state, target);
+                    return loadExecApprovals(state, resolveExecApprovalsTarget(state));
                   },
                   onBindDefault: (nodeId) => {
                     if (nodeId) {
@@ -1555,19 +1560,17 @@ export function renderApp(state: AppViewState) {
                     state.execApprovalsForm = null;
                     state.execApprovalsDirty = false;
                     state.execApprovalsSelectedAgent = null;
+                    syncUrlWithTab(state, "nodes", true);
                   },
                   onExecApprovalsSelectAgent: (agentId) => {
                     state.execApprovalsSelectedAgent = agentId;
+                    syncUrlWithTab(state, "nodes", true);
                   },
                   onExecApprovalsPatch: (path, value) =>
                     updateExecApprovalsFormValue(state, path, value),
                   onExecApprovalsRemove: (path) => removeExecApprovalsFormValue(state, path),
                   onSaveExecApprovals: () => {
-                    const target =
-                      state.execApprovalsTarget === "node" && state.execApprovalsTargetNodeId
-                        ? { kind: "node" as const, nodeId: state.execApprovalsTargetNodeId }
-                        : { kind: "gateway" as const };
-                    return saveExecApprovals(state, target);
+                    return saveExecApprovals(state, resolveExecApprovalsTarget(state));
                   },
                 }),
               )

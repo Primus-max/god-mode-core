@@ -117,6 +117,11 @@ Skills panel notes:
 - Overview attention now routes skill dependency and allowlist problems into the Skills surface with a persisted `skillFilter`, so operators can refresh or share the link without losing the same blocked/missing context.
 - The Skills search box now matches derived state as well as metadata, so filters such as `missing` and `blocked by allowlist` surface the same problem set that overview attention points at.
 
+Nodes / exec approvals panel notes:
+
+- Overview attention can now route pending exec approvals into the Nodes surface with persisted `execTarget`, `execNode`, and `execAgent` query state, so operators can refresh or share the link without losing the same approvals scope.
+- The Nodes exec approvals panel restores the selected gateway-vs-node target and agent scope from URL state, keeping approvals review aligned with the same operator drill-down flow used by cron, skills, and channels.
+
 Runtime / recovery notes:
 
 - The Sessions tab now doubles as the operator runtime inspector: blocked checkpoints, related actions, and closure outcomes all come from the canonical runtime ledgers rather than a separate UI cache.
