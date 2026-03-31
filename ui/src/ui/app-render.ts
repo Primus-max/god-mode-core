@@ -1098,6 +1098,7 @@ export function renderApp(state: AppViewState) {
                     if (shouldReload) {
                       await reloadCronJobs(state);
                     }
+                    syncUrlWithTab(state, "cron", true);
                   },
                   onJobsFiltersReset: async () => {
                     updateCronJobsFilter(state, {
@@ -1109,6 +1110,7 @@ export function renderApp(state: AppViewState) {
                       cronJobsSortDir: "asc",
                     });
                     await reloadCronJobs(state);
+                    syncUrlWithTab(state, "cron", true);
                   },
                   onLoadMoreRuns: () => loadMoreCronRuns(state),
                   onRunsFiltersChange: async (patch) => {

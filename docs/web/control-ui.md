@@ -120,6 +120,7 @@ Cron jobs panel notes:
 - Set `cron.webhookToken` to send a dedicated bearer token, if omitted the webhook is sent without an auth header.
 - Deprecated fallback: stored legacy jobs with `notify: true` can still use `cron.webhook` until migrated.
 - Overview attention now routes failed and overdue cron jobs back into the Cron surface with the relevant job preselected instead of leaving the operator to search manually.
+- The Cron surface now persists its list-level investigation state too: `cronQ`, `cronEnabled`, `cronSchedule`, `cronStatus`, `cronSort`, and `cronDir` survive refresh/popstate alongside the existing `cronJob` drill-down.
 - Cron run history can jump into the linked session context directly: operators can still open the run chat, and can also open the Sessions runtime inspector when a `sessionKey` is available.
 
 Skills panel notes:
