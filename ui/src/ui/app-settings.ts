@@ -95,6 +95,12 @@ type SettingsHost = {
   sessionsPage?: number;
   sessionsPageSize?: number;
   sessionsResult?: { count?: number | null; sessions?: Array<{ key: string }> } | null;
+  cronJobsQuery?: string;
+  cronJobsEnabledFilter?: "all" | "enabled" | "disabled";
+  cronJobsScheduleKindFilter?: "all" | "at" | "every" | "cron";
+  cronJobsLastStatusFilter?: "all" | "ok" | "error" | "skipped";
+  cronJobsSortBy?: "nextRunAtMs" | "updatedAtMs" | "name";
+  cronJobsSortDir?: "asc" | "desc";
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
   usageStartDate?: string;
@@ -230,6 +236,71 @@ function normalizeSessionsPageSize(value: string | null | undefined, fallback: n
   return parsed === 10 || parsed === 25 || parsed === 50 || parsed === 100 ? parsed : fallback;
 }
 
+function normalizeCronJobsEnabledFilter(
+  value: string | null | undefined,
+  fallback: "all" | "enabled" | "disabled",
+): "all" | "enabled" | "disabled" {
+  switch (value) {
+    case "all":
+    case "enabled":
+    case "disabled":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeCronJobsScheduleKindFilter(
+  value: string | null | undefined,
+  fallback: "all" | "at" | "every" | "cron",
+): "all" | "at" | "every" | "cron" {
+  switch (value) {
+    case "all":
+    case "at":
+    case "every":
+    case "cron":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeCronJobsLastStatusFilter(
+  value: string | null | undefined,
+  fallback: "all" | "ok" | "error" | "skipped",
+): "all" | "ok" | "error" | "skipped" {
+  switch (value) {
+    case "all":
+    case "ok":
+    case "error":
+    case "skipped":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeCronJobsSortBy(
+  value: string | null | undefined,
+  fallback: "nextRunAtMs" | "updatedAtMs" | "name",
+): "nextRunAtMs" | "updatedAtMs" | "name" {
+  switch (value) {
+    case "nextRunAtMs":
+    case "updatedAtMs":
+    case "name":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeCronSortDir(
+  value: string | null | undefined,
+  fallback: "asc" | "desc",
+): "asc" | "desc" {
+  return value === "asc" || value === "desc" ? value : fallback;
+}
+
 function setQueryValue(url: URL, key: string, value: string | null | undefined) {
   const trimmed = trimQueryValue(value);
   if (trimmed) {
@@ -289,6 +360,21 @@ function applyDeepLinkStateFromUrl(
     pick("sessionsPageSize"),
     host.sessionsPageSize ?? 25,
   );
+  host.cronJobsQuery = pick("cronQ") ?? host.cronJobsQuery ?? "";
+  host.cronJobsEnabledFilter = normalizeCronJobsEnabledFilter(
+    pick("cronEnabled"),
+    host.cronJobsEnabledFilter ?? "all",
+  );
+  host.cronJobsScheduleKindFilter = normalizeCronJobsScheduleKindFilter(
+    pick("cronSchedule"),
+    host.cronJobsScheduleKindFilter ?? "all",
+  );
+  host.cronJobsLastStatusFilter = normalizeCronJobsLastStatusFilter(
+    pick("cronStatus"),
+    host.cronJobsLastStatusFilter ?? "all",
+  );
+  host.cronJobsSortBy = normalizeCronJobsSortBy(pick("cronSort"), host.cronJobsSortBy ?? "nextRunAtMs");
+  host.cronJobsSortDir = normalizeCronSortDir(pick("cronDir"), host.cronJobsSortDir ?? "asc");
   host.cronRunsJobId = pick("cronJob");
   host.cronRunsScope = host.cronRunsJobId ? "job" : "all";
   host.usageStartDate = pick("usageFrom") ?? todayUsageDate();
@@ -326,6 +412,12 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "sessionsDir", null);
   setQueryValue(url, "sessionsPage", null);
   setQueryValue(url, "sessionsPageSize", null);
+  setQueryValue(url, "cronQ", null);
+  setQueryValue(url, "cronEnabled", null);
+  setQueryValue(url, "cronSchedule", null);
+  setQueryValue(url, "cronStatus", null);
+  setQueryValue(url, "cronSort", null);
+  setQueryValue(url, "cronDir", null);
   setQueryValue(url, "cronJob", null);
   setQueryValue(url, "usageFrom", null);
   setQueryValue(url, "usageTo", null);
@@ -370,8 +462,16 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
     setQueryValue(url, "runtimeRun", host.runtimeRunId);
     setQueryValue(url, "checkpoint", host.runtimeSelectedCheckpointId);
   }
-  if (tab === "cron" && host.cronRunsScope === "job") {
-    setQueryValue(url, "cronJob", host.cronRunsJobId);
+  if (tab === "cron") {
+    setQueryValue(url, "cronQ", host.cronJobsQuery);
+    setQueryValue(url, "cronEnabled", host.cronJobsEnabledFilter);
+    setQueryValue(url, "cronSchedule", host.cronJobsScheduleKindFilter);
+    setQueryValue(url, "cronStatus", host.cronJobsLastStatusFilter);
+    setQueryValue(url, "cronSort", host.cronJobsSortBy);
+    setQueryValue(url, "cronDir", host.cronJobsSortDir);
+    if (host.cronRunsScope === "job") {
+      setQueryValue(url, "cronJob", host.cronRunsJobId);
+    }
   }
   if (tab === "usage") {
     setQueryValue(url, "usageFrom", host.usageStartDate);

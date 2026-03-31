@@ -116,6 +116,12 @@ type SettingsHost = {
   sessionsSortDir?: "asc" | "desc";
   sessionsPage?: number;
   sessionsPageSize?: number;
+  cronJobsQuery?: string;
+  cronJobsEnabledFilter?: "all" | "enabled" | "disabled";
+  cronJobsScheduleKindFilter?: "all" | "at" | "every" | "cron";
+  cronJobsLastStatusFilter?: "all" | "ok" | "error" | "skipped";
+  cronJobsSortBy?: "nextRunAtMs" | "updatedAtMs" | "name";
+  cronJobsSortDir?: "asc" | "desc";
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
   usageStartDate?: string;
@@ -326,6 +332,12 @@ const createHost = (tab: Tab): SettingsHost => ({
   sessionsSortDir: "desc",
   sessionsPage: 0,
   sessionsPageSize: 25,
+  cronJobsQuery: "",
+  cronJobsEnabledFilter: "all",
+  cronJobsScheduleKindFilter: "all",
+  cronJobsLastStatusFilter: "all",
+  cronJobsSortBy: "nextRunAtMs",
+  cronJobsSortDir: "asc",
   cronRunsJobId: null,
   cronRunsScope: "all",
   usageStartDate: "2026-03-31",
@@ -614,7 +626,7 @@ describe("applySettingsFromUrl", () => {
 
   it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, channels, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -644,6 +656,12 @@ describe("applySettingsFromUrl", () => {
     expect(host.runtimeSelectedCheckpointId).toBe("cp-1");
     expect(host.bootstrapSelectedId).toBe("bootstrap-1");
     expect(host.artifactsSelectedId).toBe("artifact-1");
+    expect(host.cronJobsQuery).toBe("digest");
+    expect(host.cronJobsEnabledFilter).toBe("enabled");
+    expect(host.cronJobsScheduleKindFilter).toBe("cron");
+    expect(host.cronJobsLastStatusFilter).toBe("error");
+    expect(host.cronJobsSortBy).toBe("name");
+    expect(host.cronJobsSortDir).toBe("desc");
     expect(host.cronRunsJobId).toBe("cron-1");
     expect(host.cronRunsScope).toBe("job");
     expect(host.skillsFilter).toBe("missing");
@@ -668,6 +686,21 @@ describe("applySettingsFromUrl", () => {
     expect(host.sessionsSortDir).toBe("desc");
     expect(host.sessionsPage).toBe(0);
     expect(host.sessionsPageSize).toBe(25);
+  });
+
+  it("falls back to default cron list query state when query values are invalid", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/cron?session=agent%3Amain%3Amain&cronEnabled=maybe&cronSchedule=weekly&cronStatus=nope&cronSort=priority&cronDir=sideways",
+    );
+    const host = createHost("cron");
+
+    applySettingsFromUrl(host);
+
+    expect(host.cronJobsEnabledFilter).toBe("all");
+    expect(host.cronJobsScheduleKindFilter).toBe("all");
+    expect(host.cronJobsLastStatusFilter).toBe("all");
+    expect(host.cronJobsSortBy).toBe("nextRunAtMs");
+    expect(host.cronJobsSortDir).toBe("asc");
   });
 });
 
@@ -722,6 +755,12 @@ describe("syncUrlWithTab", () => {
     const host = createHost("cron");
     host.basePath = "/ui";
     host.sessionKey = "agent:main:main";
+    host.cronJobsQuery = "digest";
+    host.cronJobsEnabledFilter = "enabled";
+    host.cronJobsScheduleKindFilter = "cron";
+    host.cronJobsLastStatusFilter = "error";
+    host.cronJobsSortBy = "name";
+    host.cronJobsSortDir = "desc";
     host.cronRunsJobId = "cron-1";
     host.cronRunsScope = "job";
 
@@ -729,6 +768,12 @@ describe("syncUrlWithTab", () => {
 
     expect(window.location.pathname).toBe("/ui/cron");
     expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain(`cronQ=${toQueryValue("digest")}`);
+    expect(window.location.search).toContain("cronEnabled=enabled");
+    expect(window.location.search).toContain("cronSchedule=cron");
+    expect(window.location.search).toContain("cronStatus=error");
+    expect(window.location.search).toContain("cronSort=name");
+    expect(window.location.search).toContain("cronDir=desc");
     expect(window.location.search).toContain("cronJob=cron-1");
   });
 
