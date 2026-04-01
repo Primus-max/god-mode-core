@@ -1803,14 +1803,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.configFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.configFormMode = mode;
+                  syncUrlWithTab(state, "config", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.configSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.configSearchQuery = query;
+                  syncUrlWithTab(state, "config", true);
+                },
                 onSectionChange: (section) => {
                   state.configActiveSection = section;
                   state.configActiveSubsection = null;
+                  syncUrlWithTab(state, "config", true);
                 },
-                onSubsectionChange: (section) => (state.configActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.configActiveSubsection = section;
+                  syncUrlWithTab(state, "config", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
@@ -1876,14 +1886,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.communicationsFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.communicationsFormMode = mode;
+                  syncUrlWithTab(state, "communications", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.communicationsSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.communicationsSearchQuery = query;
+                  syncUrlWithTab(state, "communications", true);
+                },
                 onSectionChange: (section) => {
                   state.communicationsActiveSection = section;
                   state.communicationsActiveSubsection = null;
+                  syncUrlWithTab(state, "communications", true);
                 },
-                onSubsectionChange: (section) => (state.communicationsActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.communicationsActiveSubsection = section;
+                  syncUrlWithTab(state, "communications", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
@@ -1943,14 +1963,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.appearanceFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.appearanceFormMode = mode;
+                  syncUrlWithTab(state, "appearance", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.appearanceSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.appearanceSearchQuery = query;
+                  syncUrlWithTab(state, "appearance", true);
+                },
                 onSectionChange: (section) => {
                   state.appearanceActiveSection = section;
                   state.appearanceActiveSubsection = null;
+                  syncUrlWithTab(state, "appearance", true);
                 },
-                onSubsectionChange: (section) => (state.appearanceActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.appearanceActiveSubsection = section;
+                  syncUrlWithTab(state, "appearance", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
@@ -2010,14 +2040,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.automationFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.automationFormMode = mode;
+                  syncUrlWithTab(state, "automation", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.automationSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.automationSearchQuery = query;
+                  syncUrlWithTab(state, "automation", true);
+                },
                 onSectionChange: (section) => {
                   state.automationActiveSection = section;
                   state.automationActiveSubsection = null;
+                  syncUrlWithTab(state, "automation", true);
                 },
-                onSubsectionChange: (section) => (state.automationActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.automationActiveSubsection = section;
+                  syncUrlWithTab(state, "automation", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
@@ -2077,14 +2117,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.infrastructureFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.infrastructureFormMode = mode;
+                  syncUrlWithTab(state, "infrastructure", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.infrastructureSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.infrastructureSearchQuery = query;
+                  syncUrlWithTab(state, "infrastructure", true);
+                },
                 onSectionChange: (section) => {
                   state.infrastructureActiveSection = section;
                   state.infrastructureActiveSubsection = null;
+                  syncUrlWithTab(state, "infrastructure", true);
                 },
-                onSubsectionChange: (section) => (state.infrastructureActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.infrastructureActiveSubsection = section;
+                  syncUrlWithTab(state, "infrastructure", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
@@ -2144,14 +2194,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.aiAgentsFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.aiAgentsFormMode = mode;
+                  syncUrlWithTab(state, "aiAgents", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.aiAgentsSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.aiAgentsSearchQuery = query;
+                  syncUrlWithTab(state, "aiAgents", true);
+                },
                 onSectionChange: (section) => {
                   state.aiAgentsActiveSection = section;
                   state.aiAgentsActiveSubsection = null;
+                  syncUrlWithTab(state, "aiAgents", true);
                 },
-                onSubsectionChange: (section) => (state.aiAgentsActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.aiAgentsActiveSubsection = section;
+                  syncUrlWithTab(state, "aiAgents", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
