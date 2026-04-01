@@ -1,12 +1,12 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
+import { buildTabHref } from "../app-settings.ts";
 import {
   getRuntimeRecoveryGuardrail,
   type RuntimeRecoveryAction,
 } from "../controllers/runtime-inspector.ts";
 import { formatRelativeTimestamp } from "../format.ts";
 import { icons } from "../icons.ts";
-import { pathForTab } from "../navigation.ts";
 import { formatSessionTokens } from "../presenter.ts";
 import { resolveSessionRuntimeInspectRunId } from "../session-runtime.ts";
 import type {
@@ -156,21 +156,6 @@ function formatRuntimeDecisionActor(
     decision?.actor?.connId ??
     t("common.na")
   );
-}
-
-function buildTabLink(
-  basePath: string,
-  tab: "bootstrap" | "artifacts",
-  params: Record<string, string | null | undefined>,
-): string {
-  const url = new URL(`https://openclaw.local${pathForTab(tab, basePath)}`);
-  for (const [key, value] of Object.entries(params)) {
-    const trimmed = typeof value === "string" ? value.trim() : "";
-    if (trimmed) {
-      url.searchParams.set(key, trimmed);
-    }
-  }
-  return `${url.pathname}${url.search}`;
 }
 
 function checkpointHasNextAction(
@@ -376,7 +361,7 @@ function renderRuntimeLinkedRecords(checkpoint: RuntimeCheckpointSummary, props:
           ? html`
               <a
                 class="btn"
-                href=${buildTabLink(props.basePath, "bootstrap", {
+                href=${buildTabHref({ basePath: props.basePath }, "bootstrap", {
                   session: checkpoint.sessionKey ?? props.runtimeSessionKey,
                   bootstrapRequest: checkpoint.target.bootstrapRequestId,
                 })}
@@ -391,7 +376,7 @@ function renderRuntimeLinkedRecords(checkpoint: RuntimeCheckpointSummary, props:
           ? html`
               <a
                 class="btn"
-                href=${buildTabLink(props.basePath, "artifacts", {
+                href=${buildTabHref({ basePath: props.basePath }, "artifacts", {
                   session: checkpoint.sessionKey ?? props.runtimeSessionKey,
                   artifact: checkpoint.target.artifactId,
                 })}
@@ -1131,9 +1116,7 @@ function renderRow(
     displayName !== (typeof row.label === "string" ? row.label.trim() : ""),
   );
   const canLink = row.kind !== "global";
-  const chatUrl = canLink
-    ? `${pathForTab("chat", basePath)}?session=${encodeURIComponent(row.key)}`
-    : null;
+  const chatUrl = canLink ? buildTabHref({ basePath }, "chat", { session: row.key }) : null;
   const badgeClass =
     row.kind === "direct"
       ? "data-table-badge--direct"

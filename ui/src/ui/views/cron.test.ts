@@ -2,6 +2,7 @@
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_CRON_FORM } from "../app-defaults.ts";
+import { buildTabHref } from "../app-settings.ts";
 import type { CronJob } from "../types.ts";
 import { renderCron, type CronProps } from "./cron.ts";
 
@@ -189,8 +190,10 @@ describe("cron view", () => {
 
     const link = container.querySelector("a.session-link");
     expect(link).not.toBeNull();
-    expect(link?.getAttribute("href")).toContain(
-      "/ui/chat?session=agent%3Amain%3Acron%3Ajob-1%3Arun%3Aabc",
+    expect(link?.getAttribute("href")).toBe(
+      buildTabHref({ basePath: "/ui" }, "chat", {
+        session: "agent:main:cron:job-1:run:abc",
+      }),
     );
   });
 
@@ -219,7 +222,10 @@ describe("cron view", () => {
       link.getAttribute("href"),
     );
     expect(links).toContain(
-      "/ui/sessions?session=agent%3Amain%3Acron%3Ajob-1%3Arun%3Aabc&runtimeSession=agent%3Amain%3Acron%3Ajob-1%3Arun%3Aabc",
+      buildTabHref({ basePath: "/ui" }, "sessions", {
+        session: "agent:main:cron:job-1:run:abc",
+        runtimeSession: "agent:main:cron:job-1:run:abc",
+      }),
     );
   });
 

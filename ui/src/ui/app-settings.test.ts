@@ -24,6 +24,7 @@ import {
   applySettingsFromUrl,
   attachThemeListener,
   buildCanonicalTabHref,
+  buildTabHref,
   buildAttentionItems,
   loadOverview,
   refreshActiveTab,
@@ -994,6 +995,23 @@ describe("syncUrlWithTab", () => {
     expect(sessionsHref).toContain("checkpoint=cp-1");
     expect(sessionsHref).toContain("runtimeAction=action-1");
     expect(chatHref).toBe("/ui/chat?session=agent%3Amain%3Amain");
+  });
+
+  it("builds explicit tab hrefs for inline session and runtime targets", () => {
+    expect(
+      buildTabHref({ basePath: "/ui" }, "chat", {
+        session: "agent:main:cron:job-1:run:abc",
+      }),
+    ).toBe("/ui/chat?session=agent%3Amain%3Acron%3Ajob-1%3Arun%3Aabc");
+
+    expect(
+      buildTabHref({ basePath: "/ui" }, "sessions", {
+        session: "agent:main:cron:job-1:run:abc",
+        runtimeSession: "agent:main:cron:job-1:run:abc",
+      }),
+    ).toBe(
+      "/ui/sessions?session=agent%3Amain%3Acron%3Ajob-1%3Arun%3Aabc&runtimeSession=agent%3Amain%3Acron%3Ajob-1%3Arun%3Aabc",
+    );
   });
 
   it("canonicalizes chat agent handoff into the session URL immediately", () => {

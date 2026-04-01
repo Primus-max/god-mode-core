@@ -1,6 +1,7 @@
 import { html, nothing } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";
 import { t } from "../../i18n/index.ts";
+import { buildTabHref } from "../app-settings.ts";
 import type {
   CronFieldErrors,
   CronFieldKey,
@@ -8,7 +9,6 @@ import type {
   CronJobsScheduleKindFilter,
 } from "../controllers/cron.ts";
 import { formatRelativeTimestamp, formatMs } from "../format.ts";
-import { pathForTab } from "../navigation.ts";
 import { formatCronSchedule, formatNextRun } from "../presenter.ts";
 import type { ChannelUiMetaEntry, CronJob, CronRunLogEntry, CronStatus } from "../types.ts";
 import type {
@@ -1726,13 +1726,14 @@ function renderRun(
 ) {
   const chatUrl =
     typeof entry.sessionKey === "string" && entry.sessionKey.trim().length > 0
-      ? `${pathForTab("chat", basePath)}?session=${encodeURIComponent(entry.sessionKey)}`
+      ? buildTabHref({ basePath }, "chat", { session: entry.sessionKey })
       : null;
   const sessionsUrl =
     typeof entry.sessionKey === "string" && entry.sessionKey.trim().length > 0
-      ? `${pathForTab("sessions", basePath)}?session=${encodeURIComponent(
-          entry.sessionKey,
-        )}&runtimeSession=${encodeURIComponent(entry.sessionKey)}`
+      ? buildTabHref({ basePath }, "sessions", {
+          session: entry.sessionKey,
+          runtimeSession: entry.sessionKey,
+        })
       : null;
   const status = runStatusLabel(entry.status ?? "unknown");
   const delivery = runDeliveryLabel(entry.deliveryStatus ?? "not-requested");

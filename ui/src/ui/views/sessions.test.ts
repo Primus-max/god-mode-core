@@ -3,6 +3,7 @@
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
+import { buildTabHref } from "../app-settings.ts";
 import type { SessionsListResult } from "../types.ts";
 import { renderSessions, type SessionsProps } from "./sessions.ts";
 
@@ -598,8 +599,43 @@ describe("sessions view", () => {
       link.getAttribute("href"),
     );
     expect(links).toContain(
-      "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
+      buildTabHref({ basePath: "/ui" }, "bootstrap", {
+        session: "agent:main:main",
+        bootstrapRequest: "bootstrap-1",
+      }),
     );
-    expect(links).toContain("/ui/artifacts?session=agent%3Amain%3Amain&artifact=artifact-1");
+    expect(links).toContain(
+      buildTabHref({ basePath: "/ui" }, "artifacts", {
+        session: "agent:main:main",
+        artifact: "artifact-1",
+      }),
+    );
+  });
+
+  it("renders canonical chat links for session rows", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(
+          buildResult(
+            buildSession({
+              key: "agent:main:linked",
+            }),
+          ),
+        ),
+        basePath: "/ui",
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const link = container.querySelector("a.session-link");
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toBe(
+      buildTabHref({ basePath: "/ui" }, "chat", {
+        session: "agent:main:linked",
+      }),
+    );
   });
 });
