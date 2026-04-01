@@ -262,7 +262,9 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     onRefresh: () => undefined,
     buildCardHref: (tab, options) =>
       options?.skillFilter ? `/ui/${tab}?skillFilter=${encodeURIComponent(options.skillFilter)}` : `/ui/${tab}`,
+    buildChatHref: (sessionKey) => `/ui/chat?session=${encodeURIComponent(sessionKey)}`,
     onNavigate: () => undefined,
+    onNavigateToChat: () => undefined,
     onRefreshLogs: () => undefined,
     onSpecialistOverrideChange: () => undefined,
     ...overrides,

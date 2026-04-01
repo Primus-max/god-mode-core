@@ -3779,6 +3779,8 @@ td.data-table-key-col {
   font-size: 13px;
   align-items: center;
   transition: border-color var(--duration-fast) ease;
+  color: inherit;
+  text-decoration: none;
 }
 
 .ov-recent__row:hover {

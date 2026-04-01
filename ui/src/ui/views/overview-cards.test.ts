@@ -27,7 +27,12 @@ function createProps(overrides: Partial<OverviewCardsProps> = {}): OverviewCards
         session: "agent:main:main",
         skillFilter: options?.skillFilter,
       }),
+    buildChatHref: (sessionKey) =>
+      buildTabHref({ basePath: "/ui" }, "chat", {
+        session: sessionKey,
+      }),
     onNavigate: () => undefined,
+    onNavigateToChat: () => undefined,
     ...overrides,
   };
 }
@@ -149,5 +154,123 @@ describe("overview cards", () => {
     expect(dispatchResult).toBe(true);
     expect(event.defaultPrevented).toBe(false);
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it("renders canonical chat hrefs for overview recent-session rows", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderOverviewCards(
+        createProps({
+          sessionsResult: {
+            count: 3,
+            sessions: [
+              {
+                key: "agent:writer:main",
+                displayName: "Writer Main",
+                label: "Writer Main",
+                model: "gpt-5",
+                updatedAt: 1_700_000_000_000,
+              },
+            ],
+          } as OverviewCardsProps["sessionsResult"],
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const recentLink = container.querySelector<HTMLAnchorElement>(
+      'a.ov-recent__row[data-session-key="agent:writer:main"]',
+    );
+    expect(recentLink).not.toBeNull();
+    expect(recentLink?.getAttribute("href")).toBe(
+      buildTabHref({ basePath: "/ui" }, "chat", {
+        session: "agent:writer:main",
+      }),
+    );
+  });
+
+  it("keeps recent-session primary clicks on the in-app chat handoff", async () => {
+    const container = document.createElement("div");
+    const onNavigateToChat = vi.fn();
+
+    render(
+      renderOverviewCards(
+        createProps({
+          sessionsResult: {
+            count: 3,
+            sessions: [
+              {
+                key: "agent:writer:main",
+                displayName: "Writer Main",
+                label: "Writer Main",
+                model: "gpt-5",
+                updatedAt: 1_700_000_000_000,
+              },
+            ],
+          } as OverviewCardsProps["sessionsResult"],
+          onNavigateToChat,
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const recentLink = container.querySelector<HTMLAnchorElement>(
+      'a.ov-recent__row[data-session-key="agent:writer:main"]',
+    );
+    expect(recentLink).not.toBeNull();
+
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    const dispatchResult = recentLink!.dispatchEvent(event);
+
+    expect(dispatchResult).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(onNavigateToChat).toHaveBeenCalledWith("agent:writer:main");
+  });
+
+  it("lets recent-session modified clicks fall through to the browser href", async () => {
+    const container = document.createElement("div");
+    const onNavigateToChat = vi.fn();
+
+    render(
+      renderOverviewCards(
+        createProps({
+          sessionsResult: {
+            count: 3,
+            sessions: [
+              {
+                key: "agent:writer:main",
+                displayName: "Writer Main",
+                label: "Writer Main",
+                model: "gpt-5",
+                updatedAt: 1_700_000_000_000,
+              },
+            ],
+          } as OverviewCardsProps["sessionsResult"],
+          onNavigateToChat,
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const recentLink = container.querySelector<HTMLAnchorElement>(
+      'a.ov-recent__row[data-session-key="agent:writer:main"]',
+    );
+    expect(recentLink).not.toBeNull();
+
+    const event = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true,
+    });
+    const dispatchResult = recentLink!.dispatchEvent(event);
+
+    expect(dispatchResult).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    expect(onNavigateToChat).not.toHaveBeenCalled();
   });
 });

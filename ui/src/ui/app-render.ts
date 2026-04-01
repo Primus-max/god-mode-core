@@ -723,11 +723,19 @@ export function renderApp(state: AppViewState) {
                   }
                   return buildCanonicalTabHref(state, tab);
                 },
+                buildChatHref: (sessionKey) =>
+                  buildTabHref({ basePath: state.basePath }, "chat", {
+                    session: sessionKey,
+                  }),
                 onNavigate: (tab, options) => {
                   if (tab === "skills") {
                     state.skillsFilter = options?.skillFilter ?? "";
                   }
                   state.setTab(tab as import("./navigation.ts").Tab);
+                },
+                onNavigateToChat: (sessionKey) => {
+                  switchChatSession(state, sessionKey);
+                  state.setTab("chat" as import("./navigation.ts").Tab);
                 },
                 onRefreshLogs: () => state.loadOverview(),
               })

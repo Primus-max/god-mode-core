@@ -25,7 +25,9 @@ export type OverviewCardsProps = {
   cronStatus: CronStatus | null;
   presenceCount: number;
   buildHref: (tab: Tab, options?: OverviewCardNavigateOptions) => string;
+  buildChatHref: (sessionKey: string) => string;
   onNavigate: (tab: Tab, options?: OverviewCardNavigateOptions) => void;
+  onNavigateToChat: (sessionKey: string) => void;
 };
 
 const DIGIT_RUN = /\d{3,}/g;
@@ -74,6 +76,40 @@ function renderStatCard(
       <span class="ov-card__value">${card.value}</span>
       <span class="ov-card__hint">${card.hint}</span>
     </a>
+  `;
+}
+
+function renderRecentSessionRow(
+  session: NonNullable<SessionsListResult>["sessions"][number],
+  buildChatHref: (sessionKey: string) => string,
+  onNavigateToChat: (sessionKey: string) => void,
+) {
+  return html`
+    <li>
+      <a
+        href=${buildChatHref(session.key)}
+        class="ov-recent__row"
+        data-session-key=${session.key}
+        @click=${(event: MouseEvent) => {
+          if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          ) {
+            return;
+          }
+          event.preventDefault();
+          onNavigateToChat(session.key);
+        }}
+      >
+        <span class="ov-recent__key">${blurDigits(session.displayName || session.label || session.key)}</span>
+        <span class="ov-recent__model">${session.model ?? ""}</span>
+        <span class="ov-recent__time">${session.updatedAt ? formatRelativeTimestamp(session.updatedAt) : ""}</span>
+      </a>
+    </li>
   `;
 }
 
@@ -202,13 +238,7 @@ export function renderOverviewCards(props: OverviewCardsProps) {
           <h3 class="ov-recent__title">${t("overview.cards.recentSessions")}</h3>
           <ul class="ov-recent__list">
             ${sessions.map(
-              (s) => html`
-                <li class="ov-recent__row">
-                  <span class="ov-recent__key">${blurDigits(s.displayName || s.label || s.key)}</span>
-                  <span class="ov-recent__model">${s.model ?? ""}</span>
-                  <span class="ov-recent__time">${s.updatedAt ? formatRelativeTimestamp(s.updatedAt) : ""}</span>
-                </li>
-              `,
+              (s) => renderRecentSessionRow(s, props.buildChatHref, props.onNavigateToChat),
             )}
           </ul>
         </section>
