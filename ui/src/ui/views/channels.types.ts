@@ -19,6 +19,7 @@ export type ChannelKey = string;
 export type ChannelsProps = {
   connected: boolean;
   loading: boolean;
+  buildChannelHref: (channelKey: ChannelKey) => string;
   snapshot: ChannelsStatusSnapshot | null;
   selectedChannelKey: string | null;
   lastError: string | null;

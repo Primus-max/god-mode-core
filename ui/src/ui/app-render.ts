@@ -16,6 +16,7 @@ import {
   switchOverviewSession,
 } from "./app-render.helpers.ts";
 import {
+  buildCanonicalChannelHref,
   buildCanonicalCronJobHref,
   buildCanonicalTabHref,
   buildTabHref,
@@ -753,6 +754,7 @@ export function renderApp(state: AppViewState) {
                 m.renderChannels({
                   connected: state.connected,
                   loading: state.channelsLoading,
+                  buildChannelHref: (channelKey) => buildCanonicalChannelHref(state, channelKey),
                   snapshot: state.channelsSnapshot,
                   selectedChannelKey: state.channelsSelectedKey,
                   lastError: state.channelsError,

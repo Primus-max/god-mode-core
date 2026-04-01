@@ -618,6 +618,16 @@ export function buildCanonicalCronJobHref(
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalChannelHref(
+  host: SettingsHost | AppViewState,
+  channelKey: string,
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("channels", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "channels", url);
+  setQueryValue(url, "channel", channelKey);
+  return `${url.pathname}${url.search}`;
+}
+
 function applyDeepLinkStateFromUrl(
   host: SettingsHost,
   sources: { params: URLSearchParams; hashParams: URLSearchParams },
