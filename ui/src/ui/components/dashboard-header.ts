@@ -1,8 +1,9 @@
 import { LitElement, html } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { property } from "lit/decorators.js";
+import { safeCustomElement } from "../lit-custom-element.ts";
 import { titleForTab, type Tab } from "../navigation.js";
 
-@customElement("dashboard-header")
+@safeCustomElement("dashboard-header")
 export class DashboardHeader extends LitElement {
   override createRenderRoot() {
     return this;

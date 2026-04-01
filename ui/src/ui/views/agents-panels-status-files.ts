@@ -20,6 +20,10 @@ import type {
 import { formatBytes, type AgentContext } from "./agents-utils.ts";
 import { resolveChannelExtras as resolveChannelExtrasFromConfig } from "./channel-config-extras.ts";
 
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+}
+
 function renderAgentContextCard(context: AgentContext, subtitle: string) {
   return html`
     <section class="card">
@@ -342,6 +346,7 @@ export function renderAgentFiles(params: {
   agentFileContents: Record<string, string>;
   agentFileDrafts: Record<string, string>;
   agentFileSaving: boolean;
+  buildFileHref: (file: string) => string;
   onLoadFiles: (agentId: string) => void;
   onSelectFile: (name: string) => void;
   onFileDraftChange: (name: string, content: string) => void;
@@ -397,7 +402,12 @@ export function renderAgentFiles(params: {
                           <div class="muted">No files found.</div>
                         `
                       : files.map((file) =>
-                          renderAgentFileRow(file, active, () => params.onSelectFile(file.name)),
+                          renderAgentFileRow(
+                            file,
+                            active,
+                            params.buildFileHref(file.name),
+                            () => params.onSelectFile(file.name),
+                          ),
                         )
                   }
                 </div>
@@ -500,15 +510,26 @@ export function renderAgentFiles(params: {
   `;
 }
 
-function renderAgentFileRow(file: AgentFileEntry, active: string | null, onSelect: () => void) {
+function renderAgentFileRow(
+  file: AgentFileEntry,
+  active: string | null,
+  href: string,
+  onSelect: () => void,
+) {
   const status = file.missing
     ? "Missing"
     : `${formatBytes(file.size)} · ${formatRelativeTimestamp(file.updatedAtMs ?? null)}`;
   return html`
-    <button
-      type="button"
+    <a
+      href=${href}
       class="agent-file-row ${active === file.name ? "active" : ""}"
-      @click=${onSelect}
+      @click=${(event: MouseEvent) => {
+        if (isModifiedNavigationClick(event)) {
+          return;
+        }
+        event.preventDefault();
+        onSelect();
+      }}
     >
       <div>
         <div class="agent-file-name mono">${file.name}</div>
@@ -521,6 +542,6 @@ function renderAgentFileRow(file: AgentFileEntry, active: string | null, onSelec
             `
           : nothing
       }
-    </button>
+    </a>
   `;
 }

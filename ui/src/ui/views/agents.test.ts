@@ -1,8 +1,9 @@
 /* @vitest-environment jsdom */
 
 import { render } from "lit";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
+import { buildCanonicalAgentsHref } from "../app-settings.ts";
 import { renderAgents, type AgentsProps } from "./agents.ts";
 
 function createSkill() {
@@ -47,6 +48,30 @@ function createProps(overrides: Partial<AgentsProps> = {}): AgentsProps {
     },
     selectedAgentId: "beta",
     activePanel: "overview",
+    buildPanelHref: (panel) =>
+      buildCanonicalAgentsHref(
+        {
+          basePath: "/ui",
+          sessionKey: "main",
+          agentsSelectedId: "beta",
+          agentsPanel: "overview",
+          agentFileActive: null,
+          skillsFilter: "",
+        } as Parameters<typeof buildCanonicalAgentsHref>[0],
+        { panel },
+      ),
+    buildFileHref: (file) =>
+      buildCanonicalAgentsHref(
+        {
+          basePath: "/ui",
+          sessionKey: "main",
+          agentsSelectedId: "beta",
+          agentsPanel: "files",
+          agentFileActive: null,
+          skillsFilter: "",
+        } as Parameters<typeof buildCanonicalAgentsHref>[0],
+        { panel: "files", file },
+      ),
     config: {
       form: null,
       loading: false,
@@ -139,8 +164,8 @@ describe("renderAgents", () => {
     );
     await Promise.resolve();
 
-    const skillsTab = Array.from(container.querySelectorAll<HTMLButtonElement>(".agent-tab")).find(
-      (button) => button.textContent?.includes("Skills"),
+    const skillsTab = Array.from(container.querySelectorAll<HTMLAnchorElement>(".agent-tab")).find(
+      (link) => link.textContent?.includes("Skills"),
     );
 
     expect(skillsTab?.textContent?.trim()).toBe("Skills");
@@ -168,8 +193,8 @@ describe("renderAgents", () => {
     );
     await Promise.resolve();
 
-    const skillsTab = Array.from(container.querySelectorAll<HTMLButtonElement>(".agent-tab")).find(
-      (button) => button.textContent?.includes("Skills"),
+    const skillsTab = Array.from(container.querySelectorAll<HTMLAnchorElement>(".agent-tab")).find(
+      (link) => link.textContent?.includes("Skills"),
     );
 
     expect(skillsTab?.textContent?.trim()).toContain("1");
@@ -199,12 +224,209 @@ describe("renderAgents", () => {
     );
     await Promise.resolve();
 
-    const skillsTab = Array.from(container.querySelectorAll<HTMLButtonElement>(".agent-tab")).find(
-      (button) => button.textContent?.includes("Навыки"),
+    const skillsTab = Array.from(container.querySelectorAll<HTMLAnchorElement>(".agent-tab")).find(
+      (link) => link.textContent?.includes("Навыки"),
     );
     expect(skillsTab).toBeTruthy();
 
     await i18n.setLocale("en");
+  });
+
+  it("renders canonical hrefs for representative panel tabs and file rows", async () => {
+    const container = document.createElement("div");
+    render(
+      renderAgents(
+        createProps({
+          activePanel: "files",
+          buildPanelHref: (panel) =>
+            buildCanonicalAgentsHref(
+              {
+                basePath: "/ui",
+                sessionKey: "main",
+                agentsSelectedId: "beta",
+                agentsPanel: "files",
+                agentFileActive: "README.md",
+                skillsFilter: "missing",
+              } as Parameters<typeof buildCanonicalAgentsHref>[0],
+              { panel },
+            ),
+          buildFileHref: (file) =>
+            buildCanonicalAgentsHref(
+              {
+                basePath: "/ui",
+                sessionKey: "main",
+                agentsSelectedId: "beta",
+                agentsPanel: "files",
+                agentFileActive: "README.md",
+                skillsFilter: "missing",
+              } as Parameters<typeof buildCanonicalAgentsHref>[0],
+              { panel: "files", file },
+            ),
+          agentFiles: {
+            list: {
+              agentId: "beta",
+              workspace: "/tmp/agents/beta",
+              files: [
+                {
+                  name: "AGENTS.md",
+                  path: "/tmp/agents/beta/AGENTS.md",
+                  size: 128,
+                  updatedAtMs: Date.now(),
+                  missing: false,
+                } as never,
+              ],
+            },
+            loading: false,
+            error: null,
+            active: "README.md",
+            contents: {},
+            drafts: {},
+            saving: false,
+          },
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const skillsTab = Array.from(container.querySelectorAll<HTMLAnchorElement>(".agent-tab")).find(
+      (link) => link.textContent?.includes("Skills"),
+    );
+    const fileRow = container.querySelector<HTMLAnchorElement>(".agent-file-row");
+
+    expect(skillsTab?.getAttribute("href")).toBe(
+      "/ui/agents?session=main&agent=beta&agentsPanel=skills&skillFilter=missing",
+    );
+    expect(fileRow?.getAttribute("href")).toBe(
+      "/ui/agents?session=main&agent=beta&agentsPanel=files&agentFile=AGENTS.md",
+    );
+  });
+
+  it("uses JS handoff for primary clicks on agent panel tabs", async () => {
+    const container = document.createElement("div");
+    const onSelectPanel = vi.fn();
+    render(
+      renderAgents(
+        createProps({
+          activePanel: "overview",
+          onSelectPanel,
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const filesTab = Array.from(container.querySelectorAll<HTMLAnchorElement>(".agent-tab")).find(
+      (link) => link.textContent?.includes("Files"),
+    );
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    filesTab?.dispatchEvent(click);
+
+    expect(onSelectPanel).toHaveBeenCalledWith("files");
+    expect(click.defaultPrevented).toBe(true);
+  });
+
+  it("uses JS handoff for primary clicks on agent file rows", async () => {
+    const container = document.createElement("div");
+    const onSelectFile = vi.fn();
+    render(
+      renderAgents(
+        createProps({
+          activePanel: "files",
+          onSelectFile,
+          agentFiles: {
+            list: {
+              agentId: "beta",
+              workspace: "/tmp/agents/beta",
+              files: [
+                {
+                  name: "AGENTS.md",
+                  path: "/tmp/agents/beta/AGENTS.md",
+                  size: 128,
+                  updatedAtMs: Date.now(),
+                  missing: false,
+                } as never,
+              ],
+            },
+            loading: false,
+            error: null,
+            active: null,
+            contents: {},
+            drafts: {},
+            saving: false,
+          },
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const fileRow = container.querySelector<HTMLAnchorElement>(".agent-file-row");
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    fileRow?.dispatchEvent(click);
+
+    expect(onSelectFile).toHaveBeenCalledWith("AGENTS.md");
+    expect(click.defaultPrevented).toBe(true);
+  });
+
+  it("lets modified clicks fall through to the browser href for agent links", async () => {
+    const container = document.createElement("div");
+    const onSelectPanel = vi.fn();
+    const onSelectFile = vi.fn();
+    render(
+      renderAgents(
+        createProps({
+          activePanel: "files",
+          onSelectPanel,
+          onSelectFile,
+          agentFiles: {
+            list: {
+              agentId: "beta",
+              workspace: "/tmp/agents/beta",
+              files: [
+                {
+                  name: "AGENTS.md",
+                  path: "/tmp/agents/beta/AGENTS.md",
+                  size: 128,
+                  updatedAtMs: Date.now(),
+                  missing: false,
+                } as never,
+              ],
+            },
+            loading: false,
+            error: null,
+            active: null,
+            contents: {},
+            drafts: {},
+            saving: false,
+          },
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const skillsTab = Array.from(container.querySelectorAll<HTMLAnchorElement>(".agent-tab")).find(
+      (link) => link.textContent?.includes("Skills"),
+    );
+    const fileRow = container.querySelector<HTMLAnchorElement>(".agent-file-row");
+    const tabClick = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    const fileClick = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    skillsTab?.dispatchEvent(tabClick);
+    fileRow?.dispatchEvent(fileClick);
+
+    expect(onSelectPanel).not.toHaveBeenCalled();
+    expect(onSelectFile).not.toHaveBeenCalled();
+    expect(tabClick.defaultPrevented).toBe(false);
+    expect(fileClick.defaultPrevented).toBe(false);
   });
 
   it("renders the restored active file in the files panel", async () => {

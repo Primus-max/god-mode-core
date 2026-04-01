@@ -628,6 +628,32 @@ export function buildCanonicalChannelHref(
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalAgentsHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    agentId?: string | null;
+    panel?: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
+    file?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("agents", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "agents", url);
+  const panel = overrides.panel ?? host.agentsPanel ?? "overview";
+  const agentId =
+    "agentId" in overrides ? (overrides.agentId ?? null) : (host.agentsSelectedId ?? null);
+  const file =
+    "file" in overrides
+      ? overrides.file
+      : panel === "files"
+        ? (host.agentFileActive ?? null)
+        : null;
+  setQueryValue(url, "agent", agentId);
+  setQueryValue(url, "agentsPanel", panel);
+  setQueryValue(url, "agentFile", panel === "files" ? file : null);
+  setQueryValue(url, "skillFilter", panel === "skills" ? host.skillsFilter : null);
+  return `${url.pathname}${url.search}`;
+}
+
 export function buildCanonicalSettingsShellHref(
   host: SettingsHost | AppViewState,
   tab: SettingsNavigationTab,

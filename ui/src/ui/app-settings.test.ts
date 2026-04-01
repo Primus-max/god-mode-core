@@ -19,6 +19,7 @@ vi.mock("./controllers/usage.ts", () => ({
 
 import { switchChatAgent, switchOverviewSession } from "./app-render.helpers.ts";
 import {
+  buildCanonicalAgentsHref,
   buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
   buildCanonicalCronJobHref,
@@ -1043,6 +1044,22 @@ describe("syncUrlWithTab", () => {
 
     expect(buildCanonicalChannelHref(host, "telegram")).toBe(
       "/ui/channels?session=main&channel=telegram",
+    );
+  });
+
+  it("builds canonical agents hrefs with panel and file overrides", () => {
+    const host = createHost("agents");
+    host.basePath = "/ui";
+    host.agentsSelectedId = "beta";
+    host.agentsPanel = "skills";
+    host.agentFileActive = "README.md";
+    host.skillsFilter = "missing";
+
+    expect(buildCanonicalAgentsHref(host, { panel: "files", file: "AGENTS.md" })).toBe(
+      "/ui/agents?session=main&agent=beta&agentsPanel=files&agentFile=AGENTS.md",
+    );
+    expect(buildCanonicalAgentsHref(host, { panel: "skills" })).toBe(
+      "/ui/agents?session=main&agent=beta&agentsPanel=skills&skillFilter=missing",
     );
   });
 

@@ -3150,6 +3150,8 @@ td.data-table-key-col {
 }
 
 .agent-tab {
+  display: inline-flex;
+  align-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   padding: 6px 12px;
@@ -3158,6 +3160,7 @@ td.data-table-key-col {
   color: var(--muted);
   background: transparent;
   cursor: pointer;
+  text-decoration: none;
   transition:
     border-color var(--duration-fast) ease,
     background var(--duration-fast) ease,
@@ -3300,6 +3303,8 @@ td.data-table-key-col {
   background: var(--card);
   padding: 10px 12px;
   cursor: pointer;
+  color: inherit;
+  text-decoration: none;
   transition: border-color var(--duration-fast) ease;
 }
 
