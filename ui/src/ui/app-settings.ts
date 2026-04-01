@@ -50,7 +50,13 @@ import { SKILL_FILTER_BLOCKED, SKILL_FILTER_MISSING } from "./skills-correlation
 import { saveSettings, type UiSettings } from "./storage.ts";
 import { startThemeTransition, type ThemeTransitionContext } from "./theme-transition.ts";
 import { resolveTheme, type ResolvedTheme, type ThemeMode, type ThemeName } from "./theme.ts";
-import type { AgentsListResult, AttentionItem } from "./types.ts";
+import type {
+  AgentsListResult,
+  AttentionItem,
+  CronDeliveryStatus,
+  CronRunScope,
+  CronRunsStatusValue,
+} from "./types.ts";
 import { resetChatViewState } from "./views/chat.ts";
 
 type SettingsHost = {
@@ -102,7 +108,12 @@ type SettingsHost = {
   cronJobsSortBy?: "nextRunAtMs" | "updatedAtMs" | "name";
   cronJobsSortDir?: "asc" | "desc";
   cronRunsJobId?: string | null;
-  cronRunsScope?: "job" | "all";
+  cronRunsScope?: CronRunScope;
+  cronRunsQuery?: string;
+  cronRunsSortDir?: "asc" | "desc";
+  cronRunsStatuses?: CronRunsStatusValue[];
+  cronRunsDeliveryStatuses?: CronDeliveryStatus[];
+  cronRunsStatusFilter?: "all" | CronRunsStatusValue;
   usageStartDate?: string;
   usageEndDate?: string;
   usageSelectedSessions?: string[];
@@ -301,6 +312,78 @@ function normalizeCronSortDir(
   return value === "asc" || value === "desc" ? value : fallback;
 }
 
+const CRON_RUNS_STATUS_URL = new Set<CronRunsStatusValue>(["ok", "error", "skipped"]);
+const CRON_RUNS_DELIVERY_URL = new Set<CronDeliveryStatus>([
+  "delivered",
+  "not-delivered",
+  "unknown",
+  "not-requested",
+]);
+
+function normalizeCronRunsScopeParam(value: string | null | undefined): CronRunScope | null {
+  if (value === "job" || value === "all") {
+    return value;
+  }
+  return null;
+}
+
+function parseCronRunsStatusesParam(raw: string | null | undefined): CronRunsStatusValue[] {
+  const trimmed = trimQueryValue(raw);
+  if (!trimmed) {
+    return [];
+  }
+  const out: CronRunsStatusValue[] = [];
+  for (const part of trimmed.split(",")) {
+    const token = part.trim();
+    if (token && CRON_RUNS_STATUS_URL.has(token as CronRunsStatusValue)) {
+      out.push(token as CronRunsStatusValue);
+    }
+  }
+  return out;
+}
+
+function parseCronRunsDeliveryParam(raw: string | null | undefined): CronDeliveryStatus[] {
+  const trimmed = trimQueryValue(raw);
+  if (!trimmed) {
+    return [];
+  }
+  const out: CronDeliveryStatus[] = [];
+  for (const part of trimmed.split(",")) {
+    const token = part.trim();
+    if (token && CRON_RUNS_DELIVERY_URL.has(token as CronDeliveryStatus)) {
+      out.push(token as CronDeliveryStatus);
+    }
+  }
+  return out;
+}
+
+function applyCronRunsStatusesToHost(
+  host: Pick<
+    SettingsHost,
+    "cronRunsStatuses" | "cronRunsStatusFilter"
+  >,
+  statuses: CronRunsStatusValue[],
+) {
+  host.cronRunsStatuses = statuses;
+  host.cronRunsStatusFilter = statuses.length === 1 ? statuses[0] : "all";
+}
+
+function serializeCronRunsStatuses(host: SettingsHost): string | null {
+  const list = host.cronRunsStatuses ?? [];
+  if (list.length === 0) {
+    return null;
+  }
+  return list.join(",");
+}
+
+function serializeCronRunsDelivery(host: SettingsHost): string | null {
+  const list = host.cronRunsDeliveryStatuses ?? [];
+  if (list.length === 0) {
+    return null;
+  }
+  return list.join(",");
+}
+
 function setQueryValue(url: URL, key: string, value: string | null | undefined) {
   const trimmed = trimQueryValue(value);
   if (trimmed) {
@@ -375,8 +458,21 @@ function applyDeepLinkStateFromUrl(
   );
   host.cronJobsSortBy = normalizeCronJobsSortBy(pick("cronSort"), host.cronJobsSortBy ?? "nextRunAtMs");
   host.cronJobsSortDir = normalizeCronSortDir(pick("cronDir"), host.cronJobsSortDir ?? "asc");
-  host.cronRunsJobId = pick("cronJob");
-  host.cronRunsScope = host.cronRunsJobId ? "job" : "all";
+  const cronJobPick = pick("cronJob");
+  const scopeParam = normalizeCronRunsScopeParam(pick("cronRunsScope"));
+  let resolvedScope: CronRunScope =
+    scopeParam ?? (cronJobPick ? "job" : "all");
+  if (resolvedScope === "job" && !cronJobPick) {
+    resolvedScope = "all";
+  }
+  host.cronRunsScope = resolvedScope;
+  host.cronRunsJobId = resolvedScope === "job" ? cronJobPick : null;
+  host.cronRunsQuery = pick("cronRunsQ") ?? "";
+  host.cronRunsSortDir = normalizeCronSortDir(pick("cronRunsSort"), host.cronRunsSortDir ?? "desc");
+  const parsedStatuses = parseCronRunsStatusesParam(pick("cronRunsStatus"));
+  const parsedDelivery = parseCronRunsDeliveryParam(pick("cronRunsDelivery"));
+  applyCronRunsStatusesToHost(host, parsedStatuses);
+  host.cronRunsDeliveryStatuses = parsedDelivery;
   host.usageStartDate = pick("usageFrom") ?? todayUsageDate();
   host.usageEndDate = pick("usageTo") ?? todayUsageDate();
   host.usageTimeZone = normalizeUsageTimeZone(pick("usageTz"));
@@ -419,6 +515,11 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "cronSort", null);
   setQueryValue(url, "cronDir", null);
   setQueryValue(url, "cronJob", null);
+  setQueryValue(url, "cronRunsScope", null);
+  setQueryValue(url, "cronRunsQ", null);
+  setQueryValue(url, "cronRunsSort", null);
+  setQueryValue(url, "cronRunsStatus", null);
+  setQueryValue(url, "cronRunsDelivery", null);
   setQueryValue(url, "usageFrom", null);
   setQueryValue(url, "usageTo", null);
   setQueryValue(url, "usageTz", null);
@@ -470,8 +571,17 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
     setQueryValue(url, "cronSort", host.cronJobsSortBy);
     setQueryValue(url, "cronDir", host.cronJobsSortDir);
     if (host.cronRunsScope === "job") {
+      setQueryValue(url, "cronRunsScope", "job");
       setQueryValue(url, "cronJob", host.cronRunsJobId);
+    } else {
+      setQueryValue(url, "cronRunsScope", "all");
     }
+    setQueryValue(url, "cronRunsQ", host.cronRunsQuery?.trim() ? host.cronRunsQuery : null);
+    if (host.cronRunsSortDir && host.cronRunsSortDir !== "desc") {
+      setQueryValue(url, "cronRunsSort", host.cronRunsSortDir);
+    }
+    setQueryValue(url, "cronRunsStatus", serializeCronRunsStatuses(host));
+    setQueryValue(url, "cronRunsDelivery", serializeCronRunsDelivery(host));
   }
   if (tab === "usage") {
     setQueryValue(url, "usageFrom", host.usageStartDate);
@@ -695,6 +805,17 @@ export async function refreshActiveTab(host: SettingsHost) {
   }
   if (host.tab === "cron") {
     await loadCron(host);
+    const app = host as unknown as OpenClawApp;
+    if (
+      app.cronRunsScope === "job" &&
+      app.cronRunsJobId &&
+      !app.cronJobs.some((j) => j.id === app.cronRunsJobId)
+    ) {
+      app.cronRunsScope = "all";
+      app.cronRunsJobId = null;
+      await loadCronRuns(app, null);
+      syncUrlWithTab(host, "cron", true);
+    }
   }
   if (host.tab === "artifacts") {
     await loadArtifacts(host as unknown as OpenClawApp);

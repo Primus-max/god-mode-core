@@ -10,6 +10,7 @@ import {
   runCronJob,
   startCronEdit,
   startCronClone,
+  updateCronRunsFilter,
   validateCronForm,
   type CronState,
 } from "./cron.ts";
@@ -1068,5 +1069,14 @@ describe("cron controller", () => {
     await runCronJob(state, job, "due");
 
     expect(request).toHaveBeenCalledWith("cron.run", { id: "job-due", mode: "due" });
+  });
+
+  it("keeps cronRunsStatusFilter aligned with multi-select statuses for URL serialization", () => {
+    const state = createState();
+    updateCronRunsFilter(state, { cronRunsStatuses: ["ok", "error"] });
+    expect(state.cronRunsStatuses).toEqual(["ok", "error"]);
+    expect(state.cronRunsStatusFilter).toBe("all");
+    updateCronRunsFilter(state, { cronRunsStatuses: ["skipped"] });
+    expect(state.cronRunsStatusFilter).toBe("skipped");
   });
 });

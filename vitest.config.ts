@@ -79,6 +79,7 @@ export default defineConfig({
       "ui/src/ui/controllers/agents.test.ts",
       "ui/src/ui/controllers/bootstrap.test.ts",
       "ui/src/ui/controllers/chat.test.ts",
+      "ui/src/ui/controllers/cron.test.ts",
       "ui/src/ui/controllers/sessions.test.ts",
       "ui/src/ui/views/sessions.test.ts",
       "ui/src/ui/views/channels.test.ts",

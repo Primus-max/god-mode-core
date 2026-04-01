@@ -23,6 +23,8 @@ import {
   syncUrlWithTab,
   syncThemeWithSettings,
 } from "./app-settings.ts";
+import * as channels from "./controllers/channels.ts";
+import * as cron from "./controllers/cron.ts";
 import { loadRuntimeInspector } from "./controllers/runtime-inspector.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSessionLogs, loadSessionTimeSeries, loadUsage } from "./controllers/usage.ts";
@@ -124,6 +126,11 @@ type SettingsHost = {
   cronJobsSortDir?: "asc" | "desc";
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
+  cronRunsQuery?: string;
+  cronRunsSortDir?: "asc" | "desc";
+  cronRunsStatuses?: Array<"ok" | "error" | "skipped">;
+  cronRunsDeliveryStatuses?: Array<"delivered" | "not-delivered" | "unknown" | "not-requested">;
+  cronRunsStatusFilter?: "all" | "ok" | "error" | "skipped";
   usageStartDate?: string;
   usageEndDate?: string;
   usageSelectedSessions?: string[];
@@ -340,6 +347,11 @@ const createHost = (tab: Tab): SettingsHost => ({
   cronJobsSortDir: "asc",
   cronRunsJobId: null,
   cronRunsScope: "all",
+  cronRunsQuery: "",
+  cronRunsSortDir: "desc",
+  cronRunsStatuses: [],
+  cronRunsDeliveryStatuses: [],
+  cronRunsStatusFilter: "all",
   usageStartDate: "2026-03-31",
   usageEndDate: "2026-03-31",
   usageSelectedSessions: [],
@@ -626,7 +638,7 @@ describe("applySettingsFromUrl", () => {
 
   it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, channels, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -664,6 +676,11 @@ describe("applySettingsFromUrl", () => {
     expect(host.cronJobsSortDir).toBe("desc");
     expect(host.cronRunsJobId).toBe("cron-1");
     expect(host.cronRunsScope).toBe("job");
+    expect(host.cronRunsQuery).toBe("needle");
+    expect(host.cronRunsSortDir).toBe("asc");
+    expect(host.cronRunsStatuses).toEqual(["ok", "error"]);
+    expect(host.cronRunsStatusFilter).toBe("all");
+    expect(host.cronRunsDeliveryStatuses).toEqual(["delivered"]);
     expect(host.skillsFilter).toBe("missing");
     expect(host.channelsSelectedKey).toBe("slack");
     expect(host.logsFilterText).toBe("timeout");
@@ -701,6 +718,34 @@ describe("applySettingsFromUrl", () => {
     expect(host.cronJobsLastStatusFilter).toBe("all");
     expect(host.cronJobsSortBy).toBe("nextRunAtMs");
     expect(host.cronJobsSortDir).toBe("asc");
+  });
+
+  it("hydrates cron runs deep-link state and falls back when scope=job is invalid without cronJob", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/cron?session=main&cronRunsScope=job&cronRunsSort=zigzag&cronRunsStatus=ok%2Cbogus&cronRunsDelivery=delivered%2Cextra",
+    );
+    const host = createHost("cron");
+
+    applySettingsFromUrl(host);
+
+    expect(host.cronRunsScope).toBe("all");
+    expect(host.cronRunsJobId).toBeNull();
+    expect(host.cronRunsSortDir).toBe("desc");
+    expect(host.cronRunsStatuses).toEqual(["ok"]);
+    expect(host.cronRunsStatusFilter).toBe("ok");
+    expect(host.cronRunsDeliveryStatuses).toEqual(["delivered"]);
+  });
+
+  it("treats cronRunsScope=all as explicit: clears cronJob for runs even when cronJob is present", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/cron?session=main&cronRunsScope=all&cronJob=cron-1",
+    );
+    const host = createHost("cron");
+
+    applySettingsFromUrl(host);
+
+    expect(host.cronRunsScope).toBe("all");
+    expect(host.cronRunsJobId).toBeNull();
   });
 });
 
@@ -774,7 +819,36 @@ describe("syncUrlWithTab", () => {
     expect(window.location.search).toContain("cronStatus=error");
     expect(window.location.search).toContain("cronSort=name");
     expect(window.location.search).toContain("cronDir=desc");
+    expect(window.location.search).toContain("cronRunsScope=job");
     expect(window.location.search).toContain("cronJob=cron-1");
+  });
+
+  it("persists cron runs explorer query state with basePath", () => {
+    const host = createHost("cron");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.cronJobsQuery = "digest";
+    host.cronJobsEnabledFilter = "enabled";
+    host.cronJobsScheduleKindFilter = "cron";
+    host.cronJobsLastStatusFilter = "error";
+    host.cronJobsSortBy = "name";
+    host.cronJobsSortDir = "desc";
+    host.cronRunsScope = "all";
+    host.cronRunsQuery = "needle";
+    host.cronRunsSortDir = "asc";
+    host.cronRunsStatuses = ["ok", "error"];
+    host.cronRunsStatusFilter = "all";
+    host.cronRunsDeliveryStatuses = ["delivered"];
+
+    syncUrlWithTab(host, "cron", true);
+
+    expect(window.location.pathname).toBe("/ui/cron");
+    expect(window.location.search).toContain("cronRunsScope=all");
+    expect(window.location.search).toContain(`cronRunsQ=${toQueryValue("needle")}`);
+    expect(window.location.search).toContain("cronRunsSort=asc");
+    expect(window.location.search).toContain("cronRunsStatus=ok%2Cerror");
+    expect(window.location.search).toContain("cronRunsDelivery=delivered");
+    expect(window.location.search).not.toContain("cronJob=");
   });
 
   it("persists skills deep-link selection with basePath", () => {
@@ -991,6 +1065,48 @@ describe("refreshActiveTab sessions list deep links", () => {
     expect(window.location.search).toContain("sessionsPage=0");
     expect(window.location.search).toContain("sessionsPageSize=50");
     expect(loadRuntimeInspector).toHaveBeenCalledWith(host);
+  });
+});
+
+describe("refreshActiveTab cron job deep links", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("localStorage", createStorageMock());
+    vi.stubGlobal("navigator", { language: "en-US" } as Navigator);
+    setTestWindowUrl(
+      "https://control.example/ui/cron?session=agent%3Amain%3Amain&cronQ=digest&cronRunsScope=job&cronJob=missing-cron",
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("falls back to all runs scope when the loaded job list does not contain the deep-linked cron job id", async () => {
+    const host = createHost("cron");
+    host.basePath = "/ui";
+    host.connected = true;
+    host.sessionKey = "agent:main:main";
+    host.cronJobsQuery = "digest";
+    host.cronRunsScope = "job";
+    host.cronRunsJobId = "missing-cron";
+
+    vi.spyOn(channels, "loadChannels").mockResolvedValue(undefined as never);
+    vi.spyOn(cron, "loadCronStatus").mockResolvedValue(undefined as never);
+    vi.spyOn(cron, "loadCronJobs").mockImplementation(async (state: { cronJobs: unknown[] }) => {
+      state.cronJobs = [{ id: "other", name: "Other" }];
+    });
+    const runsSpy = vi.spyOn(cron, "loadCronRuns").mockResolvedValue(undefined as never);
+
+    await refreshActiveTab(host);
+
+    expect(host.cronRunsScope).toBe("all");
+    expect(host.cronRunsJobId).toBeNull();
+    expect(runsSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(window.location.search).toContain(`cronQ=${toQueryValue("digest")}`);
+    expect(window.location.search).toContain("cronRunsScope=all");
+    expect(window.location.search).not.toContain("cronJob=");
   });
 });
 
