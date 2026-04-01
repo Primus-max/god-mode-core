@@ -953,6 +953,7 @@ export function renderApp(state: AppViewState) {
                   },
                   onFilterChange: (value) => {
                     state.artifactsFilterQuery = value;
+                    syncUrlWithTab(state, "artifacts", true);
                   },
                   onTransition: async (artifactId, operation) => {
                     await transitionArtifact(state, artifactId, operation);
@@ -992,6 +993,7 @@ export function renderApp(state: AppViewState) {
                   },
                   onFilterChange: (value) => {
                     state.bootstrapFilterQuery = value;
+                    syncUrlWithTab(state, "bootstrap", true);
                   },
                   onResolve: async (requestId, decision) => {
                     await resolveBootstrapRequest(state, requestId, decision);

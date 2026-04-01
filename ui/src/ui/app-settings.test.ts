@@ -103,7 +103,9 @@ type SettingsHost = {
   agentsSelectedId?: string | null;
   agentsPanel?: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
   agentFileActive?: string | null;
+  artifactsFilterQuery?: string;
   artifactsSelectedId?: string | null;
+  bootstrapFilterQuery?: string;
   bootstrapSelectedId?: string | null;
   channelsSelectedKey?: string | null;
   runtimeSessionKey?: string | null;
@@ -324,7 +326,9 @@ const createHost = (tab: Tab): SettingsHost => ({
   agentsSelectedId: null,
   agentsPanel: "overview",
   agentFileActive: null,
+  artifactsFilterQuery: "",
   artifactsSelectedId: null,
+  bootstrapFilterQuery: "",
   bootstrapSelectedId: null,
   channelsSelectedKey: null,
   runtimeSessionKey: null,
@@ -638,7 +642,7 @@ describe("applySettingsFromUrl", () => {
 
   it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, channels, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapRequest=bootstrap-1&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -666,7 +670,9 @@ describe("applySettingsFromUrl", () => {
     expect(host.runtimeSessionKey).toBe("agent:main:main");
     expect(host.runtimeRunId).toBe("run-1");
     expect(host.runtimeSelectedCheckpointId).toBe("cp-1");
+    expect(host.bootstrapFilterQuery).toBe("renderer");
     expect(host.bootstrapSelectedId).toBe("bootstrap-1");
+    expect(host.artifactsFilterQuery).toBe("invoice");
     expect(host.artifactsSelectedId).toBe("artifact-1");
     expect(host.cronJobsQuery).toBe("digest");
     expect(host.cronJobsEnabledFilter).toBe("enabled");
@@ -849,6 +855,53 @@ describe("syncUrlWithTab", () => {
     expect(window.location.search).toContain("cronRunsStatus=ok%2Cerror");
     expect(window.location.search).toContain("cronRunsDelivery=delivered");
     expect(window.location.search).not.toContain("cronJob=");
+  });
+
+  it("persists bootstrap deep-link selection and list query with basePath", () => {
+    const host = createHost("bootstrap");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.bootstrapFilterQuery = "renderer";
+    host.bootstrapSelectedId = "bootstrap-1";
+
+    syncUrlWithTab(host, "bootstrap", true);
+
+    expect(window.location.pathname).toBe("/ui/bootstrap");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain(`bootstrapQ=${toQueryValue("renderer")}`);
+    expect(window.location.search).toContain("bootstrapRequest=bootstrap-1");
+  });
+
+  it("persists artifacts deep-link selection and list query with basePath", () => {
+    const host = createHost("artifacts");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.artifactsFilterQuery = "invoice";
+    host.artifactsSelectedId = "artifact-1";
+
+    syncUrlWithTab(host, "artifacts", true);
+
+    expect(window.location.pathname).toBe("/ui/artifacts");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain(`artifactQ=${toQueryValue("invoice")}`);
+    expect(window.location.search).toContain("artifact=artifact-1");
+  });
+
+  it("clears bootstrap and artifact list query params outside their tabs", () => {
+    const host = createHost("bootstrap");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.bootstrapFilterQuery = "renderer";
+    host.bootstrapSelectedId = "bootstrap-1";
+
+    syncUrlWithTab(host, "bootstrap", true);
+    syncUrlWithTab(host, "chat", true);
+
+    expect(window.location.pathname).toBe("/ui/chat");
+    expect(window.location.search).not.toContain("bootstrapQ=");
+    expect(window.location.search).not.toContain("bootstrapRequest=");
+    expect(window.location.search).not.toContain("artifactQ=");
+    expect(window.location.search).not.toContain("artifact=");
   });
 
   it("persists skills deep-link selection with basePath", () => {
