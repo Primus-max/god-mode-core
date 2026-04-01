@@ -59,6 +59,8 @@ export type SessionsProps = {
   onSortChange: (column: "key" | "kind" | "updated" | "tokens", dir: "asc" | "desc") => void;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
+  buildSortHref: (column: "key" | "kind" | "updated" | "tokens", dir: "asc" | "desc") => string;
+  buildPageHref: (page: number) => string;
   onRefresh: () => void;
   onInspectRuntimeSession: (sessionKey: string, runId?: string) => void;
   buildRuntimeInspectHref: (sessionKey: string, runId?: string | null) => string;
@@ -881,15 +883,24 @@ export function renderSessions(props: SessionsProps) {
   ) => {
     const isActive = props.sortColumn === col;
     const nextDir = isActive && props.sortDir === "asc" ? ("desc" as const) : ("asc" as const);
+    const targetDir = isActive ? nextDir : "desc";
+    const href = props.buildSortHref(col, targetDir);
     return html`
-      <th
-        class=${extraClass}
-        data-sortable
-        data-sort-dir=${isActive ? props.sortDir : ""}
-        @click=${() => props.onSortChange(col, isActive ? nextDir : "desc")}
-      >
-        ${label}
-        <span class="data-table-sort-icon">${icons.arrowUpDown}</span>
+      <th class=${extraClass} data-sortable data-sort-dir=${isActive ? props.sortDir : ""}>
+        <a
+          class="data-table-sort-link"
+          href=${href}
+          @click=${(event: MouseEvent) => {
+            if (isModifiedNavigationClick(event)) {
+              return;
+            }
+            event.preventDefault();
+            props.onSortChange(col, targetDir);
+          }}
+        >
+          ${label}
+          <span class="data-table-sort-icon">${icons.arrowUpDown}</span>
+        </a>
       </th>
     `;
   };
@@ -1100,18 +1111,44 @@ export function renderSessions(props: SessionsProps) {
                           html`<option value=${s}>${t("sessions.pagination.perPage", { size: String(s) })}</option>`,
                       )}
                     </select>
-                    <button
-                      ?disabled=${page <= 0}
-                      @click=${() => props.onPageChange(page - 1)}
-                    >
-                      ${t("sessions.pagination.previous")}
-                    </button>
-                    <button
-                      ?disabled=${page >= totalPages - 1}
-                      @click=${() => props.onPageChange(page + 1)}
-                    >
-                      ${t("sessions.pagination.next")}
-                    </button>
+                    ${
+                      page <= 0
+                        ? html`<span class="data-table-pagination__link is-disabled">
+                            ${t("sessions.pagination.previous")}
+                          </span>`
+                        : html`<a
+                            class="data-table-pagination__link"
+                            href=${props.buildPageHref(page - 1)}
+                            @click=${(event: MouseEvent) => {
+                              if (isModifiedNavigationClick(event)) {
+                                return;
+                              }
+                              event.preventDefault();
+                              props.onPageChange(page - 1);
+                            }}
+                          >
+                            ${t("sessions.pagination.previous")}
+                          </a>`
+                    }
+                    ${
+                      page >= totalPages - 1
+                        ? html`<span class="data-table-pagination__link is-disabled">
+                            ${t("sessions.pagination.next")}
+                          </span>`
+                        : html`<a
+                            class="data-table-pagination__link"
+                            href=${props.buildPageHref(page + 1)}
+                            @click=${(event: MouseEvent) => {
+                              if (isModifiedNavigationClick(event)) {
+                                return;
+                              }
+                              event.preventDefault();
+                              props.onPageChange(page + 1);
+                            }}
+                          >
+                            ${t("sessions.pagination.next")}
+                          </a>`
+                    }
                   </div>
                 </div>
               `

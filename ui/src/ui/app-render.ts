@@ -20,6 +20,7 @@ import {
   buildCanonicalArtifactsHref,
   buildCanonicalBootstrapHref,
   buildCanonicalNodesExecApprovalsHref,
+  buildCanonicalSessionsListHref,
   buildCanonicalSessionsRuntimeHref,
   buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
@@ -881,6 +882,16 @@ export function renderApp(state: AppViewState) {
                     state.sessionsPage = 0;
                     syncUrlWithTab(state, "sessions", true);
                   },
+                  buildSortHref: (column, dir) =>
+                    buildCanonicalSessionsListHref(state, {
+                      sortColumn: column,
+                      sortDir: dir,
+                      page: 0,
+                    }),
+                  buildPageHref: (page) =>
+                    buildCanonicalSessionsListHref(state, {
+                      page,
+                    }),
                   onRefresh: async () => {
                     await Promise.allSettled([loadSessions(state), loadRuntimeInspector(state)]);
                   },

@@ -698,6 +698,61 @@ export function buildCanonicalAgentsHref(
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalSessionsListHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    activeMinutes?: string | null;
+    limit?: string | null;
+    includeGlobal?: boolean;
+    includeUnknown?: boolean;
+    searchQuery?: string | null;
+    sortColumn?: "key" | "kind" | "updated" | "tokens";
+    sortDir?: "asc" | "desc";
+    page?: number;
+    pageSize?: number;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("sessions", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "sessions", url);
+  const activeMinutes =
+    "activeMinutes" in overrides
+      ? trimQueryValue(overrides.activeMinutes ?? null)
+      : trimQueryValue(host.sessionsFilterActive ?? null);
+  const limit =
+    "limit" in overrides
+      ? trimQueryValue(overrides.limit ?? null)
+      : trimQueryValue(host.sessionsFilterLimit ?? null);
+  const includeGlobal = overrides.includeGlobal ?? (host.sessionsIncludeGlobal ?? true);
+  const includeUnknown = overrides.includeUnknown ?? (host.sessionsIncludeUnknown ?? false);
+  const searchQuery =
+    "searchQuery" in overrides
+      ? trimQueryValue(overrides.searchQuery ?? null)
+      : trimQueryValue(host.sessionsSearchQuery ?? null);
+  const sortColumn = normalizeSessionsSortColumn(
+    overrides.sortColumn,
+    host.sessionsSortColumn ?? "updated",
+  );
+  const sortDir = normalizeSessionsSortDir(overrides.sortDir, host.sessionsSortDir ?? "desc");
+  const page = normalizeNonNegativeInteger(
+    overrides.page == null ? null : String(overrides.page),
+    host.sessionsPage ?? 0,
+  );
+  const pageSize = normalizeSessionsPageSize(
+    overrides.pageSize == null ? null : String(overrides.pageSize),
+    host.sessionsPageSize ?? 25,
+  );
+  setQueryValue(url, "sessionsActive", activeMinutes);
+  setQueryValue(url, "sessionsLimit", limit);
+  setQueryValue(url, "sessionsGlobal", String(includeGlobal));
+  setQueryValue(url, "sessionsUnknown", String(includeUnknown));
+  setQueryValue(url, "sessionsQ", searchQuery);
+  setQueryValue(url, "sessionsSort", sortColumn);
+  setQueryValue(url, "sessionsDir", sortDir);
+  setQueryValue(url, "sessionsPage", String(page));
+  setQueryValue(url, "sessionsPageSize", String(pageSize));
+  return `${url.pathname}${url.search}`;
+}
+
 export function buildCanonicalSessionsRuntimeHref(
   host: SettingsHost | AppViewState,
   overrides: {

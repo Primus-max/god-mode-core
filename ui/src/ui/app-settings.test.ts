@@ -23,6 +23,7 @@ import {
   buildCanonicalArtifactsHref,
   buildCanonicalBootstrapHref,
   buildCanonicalNodesExecApprovalsHref,
+  buildCanonicalSessionsListHref,
   buildCanonicalSessionsRuntimeHref,
   buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
@@ -1104,6 +1105,43 @@ describe("syncUrlWithTab", () => {
       }),
     ).toBe(
       "/ui/sessions?session=main&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=incident&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&runtimeSession=agent%3Amain%3Aold&runtimeRun=run-1&checkpoint=cp-2",
+    );
+  });
+
+  it("builds canonical sessions list hrefs without dropping runtime context", () => {
+    const host = createHost("sessions");
+    host.basePath = "/ui";
+    host.sessionsFilterActive = "30";
+    host.sessionsFilterLimit = "250";
+    host.sessionsIncludeGlobal = false;
+    host.sessionsIncludeUnknown = true;
+    host.sessionsSearchQuery = "incident";
+    host.sessionsSortColumn = "updated";
+    host.sessionsSortDir = "desc";
+    host.sessionsPage = 2;
+    host.sessionsPageSize = 50;
+    host.runtimeSessionKey = "agent:main:old";
+    host.runtimeRunId = "run-1";
+    host.runtimeSelectedCheckpointId = "cp-1";
+    host.runtimeSelectedActionId = "action-1";
+    host.runtimeSelectedClosureRunId = "closure-1";
+
+    expect(
+      buildCanonicalSessionsListHref(host, {
+        sortColumn: "key",
+        sortDir: "asc",
+        page: 0,
+      }),
+    ).toBe(
+      "/ui/sessions?session=main&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=incident&sessionsSort=key&sessionsDir=asc&sessionsPage=0&sessionsPageSize=50&runtimeSession=agent%3Amain%3Aold&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=action-1&runtimeClosure=closure-1",
+    );
+    expect(
+      buildCanonicalSessionsListHref(host, {
+        page: 3,
+        pageSize: 100,
+      }),
+    ).toBe(
+      "/ui/sessions?session=main&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=incident&sessionsSort=updated&sessionsDir=desc&sessionsPage=3&sessionsPageSize=100&runtimeSession=agent%3Amain%3Aold&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=action-1&runtimeClosure=closure-1",
     );
   });
 

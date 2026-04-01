@@ -74,6 +74,15 @@ function buildProps(result: SessionsListResult): SessionsProps {
     onSortChange: () => undefined,
     onPageChange: () => undefined,
     onPageSizeChange: () => undefined,
+    buildSortHref: (column, dir) =>
+      buildTabHref({ basePath: "" }, "sessions", {
+        sessionsSort: column,
+        sessionsDir: dir,
+      }),
+    buildPageHref: (page) =>
+      buildTabHref({ basePath: "" }, "sessions", {
+        sessionsPage: String(page),
+      }),
     onRefresh: () => undefined,
     onInspectRuntimeSession: () => undefined,
     buildRuntimeInspectHref: (sessionKey, runId) =>
@@ -654,6 +663,147 @@ describe("sessions view", () => {
         session: "agent:main:linked",
       }),
     );
+  });
+
+  it("renders canonical hrefs for sessions list chrome controls", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(
+          buildMultiResult([
+            buildSession({ key: "agent:main:linked-1", updatedAt: 30 }),
+            buildSession({ key: "agent:main:linked-2", updatedAt: 20 }),
+            buildSession({ key: "agent:main:linked-3", updatedAt: 10 }),
+          ]),
+        ),
+        page: 1,
+        pageSize: 1,
+        runtimeSessionKey: "agent:main:linked-2",
+        runtimeRunId: "run-1",
+        buildSortHref: (column, dir) =>
+          `/ui/sessions?runtimeSession=agent%3Amain%3Alinked-2&runtimeRun=run-1&sessionsSort=${column}&sessionsDir=${dir}&sessionsPage=0`,
+        buildPageHref: (page) =>
+          `/ui/sessions?runtimeSession=agent%3Amain%3Alinked-2&runtimeRun=run-1&sessionsPage=${page}`,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const keySortLink = Array.from(container.querySelectorAll("a.data-table-sort-link")).find((link) =>
+      link.textContent?.includes("Key"),
+    );
+    const previousPageLink = Array.from(
+      container.querySelectorAll("a.data-table-pagination__link"),
+    ).find((link) => link.textContent?.includes("Previous"));
+    const nextPageLink = Array.from(container.querySelectorAll("a.data-table-pagination__link")).find(
+      (link) => link.textContent?.includes("Next"),
+    );
+
+    expect(keySortLink).not.toBeNull();
+    expect(keySortLink?.getAttribute("href")).toBe(
+      "/ui/sessions?runtimeSession=agent%3Amain%3Alinked-2&runtimeRun=run-1&sessionsSort=key&sessionsDir=desc&sessionsPage=0",
+    );
+    expect(previousPageLink?.getAttribute("href")).toBe(
+      "/ui/sessions?runtimeSession=agent%3Amain%3Alinked-2&runtimeRun=run-1&sessionsPage=0",
+    );
+    expect(nextPageLink?.getAttribute("href")).toBe(
+      "/ui/sessions?runtimeSession=agent%3Amain%3Alinked-2&runtimeRun=run-1&sessionsPage=2",
+    );
+  });
+
+  it("uses JS handoff for primary clicks on sessions list chrome links", async () => {
+    const onSortChange = vi.fn();
+    const onPageChange = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(
+          buildMultiResult([
+            buildSession({ key: "agent:main:linked-1", updatedAt: 30 }),
+            buildSession({ key: "agent:main:linked-2", updatedAt: 20 }),
+            buildSession({ key: "agent:main:linked-3", updatedAt: 10 }),
+          ]),
+        ),
+        page: 1,
+        pageSize: 1,
+        onSortChange,
+        onPageChange,
+        buildSortHref: () => "/ui/sessions?sort=key",
+        buildPageHref: (page) => `/ui/sessions?page=${page}`,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const sortLink = container.querySelector(
+      'a.data-table-sort-link[href="/ui/sessions?sort=key"]',
+    ) as HTMLAnchorElement | null;
+    const nextPageLink = container.querySelector(
+      'a.data-table-pagination__link[href="/ui/sessions?page=2"]',
+    ) as HTMLAnchorElement | null;
+
+    const sortEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    sortLink?.dispatchEvent(sortEvent);
+    const pageEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    nextPageLink?.dispatchEvent(pageEvent);
+
+    expect(onSortChange).toHaveBeenCalledWith("key", "desc");
+    expect(onPageChange).toHaveBeenCalledWith(2);
+    expect(sortEvent.defaultPrevented).toBe(true);
+    expect(pageEvent.defaultPrevented).toBe(true);
+  });
+
+  it("lets modified clicks fall through to the browser href for sessions list chrome links", async () => {
+    const onSortChange = vi.fn();
+    const onPageChange = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(
+          buildMultiResult([
+            buildSession({ key: "agent:main:linked-1", updatedAt: 30 }),
+            buildSession({ key: "agent:main:linked-2", updatedAt: 20 }),
+            buildSession({ key: "agent:main:linked-3", updatedAt: 10 }),
+          ]),
+        ),
+        page: 1,
+        pageSize: 1,
+        onSortChange,
+        onPageChange,
+        buildSortHref: () => "/ui/sessions?sort=key",
+        buildPageHref: (page) => `/ui/sessions?page=${page}`,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const sortLink = container.querySelector(
+      'a.data-table-sort-link[href="/ui/sessions?sort=key"]',
+    ) as HTMLAnchorElement | null;
+    const nextPageLink = container.querySelector(
+      'a.data-table-pagination__link[href="/ui/sessions?page=2"]',
+    ) as HTMLAnchorElement | null;
+
+    const sortEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    sortLink?.dispatchEvent(sortEvent);
+    const pageEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    nextPageLink?.dispatchEvent(pageEvent);
+
+    expect(onSortChange).not.toHaveBeenCalled();
+    expect(onPageChange).not.toHaveBeenCalled();
+    expect(sortEvent.defaultPrevented).toBe(false);
+    expect(pageEvent.defaultPrevented).toBe(false);
   });
 
   it("renders canonical hrefs for inspect and runtime drill-down controls", async () => {
