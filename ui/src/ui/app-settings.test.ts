@@ -20,6 +20,7 @@ vi.mock("./controllers/usage.ts", () => ({
 import { switchChatAgent, switchOverviewSession } from "./app-render.helpers.ts";
 import {
   buildCanonicalAgentsHref,
+  buildCanonicalSessionsRuntimeHref,
   buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
   buildCanonicalCronJobHref,
@@ -1060,6 +1061,46 @@ describe("syncUrlWithTab", () => {
     );
     expect(buildCanonicalAgentsHref(host, { panel: "skills" })).toBe(
       "/ui/agents?session=main&agent=beta&agentsPanel=skills&skillFilter=missing",
+    );
+  });
+
+  it("builds canonical sessions runtime hrefs for inspect and drill-down targets", () => {
+    const host = createHost("sessions");
+    host.basePath = "/ui";
+    host.sessionsFilterActive = "30";
+    host.sessionsFilterLimit = "250";
+    host.sessionsIncludeGlobal = false;
+    host.sessionsIncludeUnknown = true;
+    host.sessionsSearchQuery = "incident";
+    host.sessionsSortColumn = "key";
+    host.sessionsSortDir = "asc";
+    host.sessionsPage = 2;
+    host.sessionsPageSize = 50;
+    host.runtimeSessionKey = "agent:main:old";
+    host.runtimeRunId = "run-1";
+    host.runtimeSelectedCheckpointId = "cp-1";
+    host.runtimeSelectedActionId = "action-1";
+    host.runtimeSelectedClosureRunId = "closure-1";
+
+    expect(
+      buildCanonicalSessionsRuntimeHref(host, {
+        sessionKey: "agent:writer:main",
+        runId: "run-9",
+        checkpointId: null,
+        actionId: null,
+        closureRunId: null,
+      }),
+    ).toBe(
+      "/ui/sessions?session=main&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=incident&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&runtimeSession=agent%3Awriter%3Amain&runtimeRun=run-9",
+    );
+    expect(
+      buildCanonicalSessionsRuntimeHref(host, {
+        checkpointId: "cp-2",
+        actionId: null,
+        closureRunId: null,
+      }),
+    ).toBe(
+      "/ui/sessions?session=main&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=incident&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&runtimeSession=agent%3Amain%3Aold&runtimeRun=run-1&checkpoint=cp-2",
     );
   });
 

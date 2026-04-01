@@ -654,6 +654,39 @@ export function buildCanonicalAgentsHref(
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalSessionsRuntimeHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    sessionKey?: string | null;
+    runId?: string | null;
+    checkpointId?: string | null;
+    actionId?: string | null;
+    closureRunId?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("sessions", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "sessions", url);
+  const sessionKey =
+    "sessionKey" in overrides ? (overrides.sessionKey ?? null) : (host.runtimeSessionKey ?? null);
+  const runId = "runId" in overrides ? (overrides.runId ?? null) : (host.runtimeRunId ?? null);
+  const checkpointId =
+    "checkpointId" in overrides
+      ? (overrides.checkpointId ?? null)
+      : (host.runtimeSelectedCheckpointId ?? null);
+  const actionId =
+    "actionId" in overrides ? (overrides.actionId ?? null) : (host.runtimeSelectedActionId ?? null);
+  const closureRunId =
+    "closureRunId" in overrides
+      ? (overrides.closureRunId ?? null)
+      : (host.runtimeSelectedClosureRunId ?? null);
+  setQueryValue(url, "runtimeSession", sessionKey);
+  setQueryValue(url, "runtimeRun", runId);
+  setQueryValue(url, "checkpoint", checkpointId);
+  setQueryValue(url, "runtimeAction", actionId);
+  setQueryValue(url, "runtimeClosure", closureRunId);
+  return `${url.pathname}${url.search}`;
+}
+
 export function buildCanonicalSettingsShellHref(
   host: SettingsHost | AppViewState,
   tab: SettingsNavigationTab,

@@ -61,8 +61,12 @@ export type SessionsProps = {
   onPageSizeChange: (size: number) => void;
   onRefresh: () => void;
   onInspectRuntimeSession: (sessionKey: string, runId?: string) => void;
+  buildRuntimeInspectHref: (sessionKey: string, runId?: string | null) => string;
+  buildRuntimeCheckpointHref: (checkpoint: RuntimeCheckpointSummary) => string;
   onSelectRuntimeCheckpoint: (checkpointId: string) => void;
+  buildRuntimeActionHref: (actionId: string) => string;
   onSelectRuntimeAction: (actionId: string) => void;
+  buildRuntimeClosureHref: (runId: string) => string;
   onSelectRuntimeClosure: (runId: string) => void;
   onClearRuntimeScope: () => void;
   onExecuteRuntimeRecoveryAction: (action: RuntimeRecoveryAction) => void;
@@ -91,6 +95,17 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 function formatMsTimestamp(timestamp?: number | null): string {
   return typeof timestamp === "number" ? formatRelativeTimestamp(timestamp) : t("common.na");
+}
+
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  );
 }
 
 function renderRuntimeStatusChip(label: string) {
@@ -461,11 +476,17 @@ function renderRuntimeInspector(props: SessionsProps) {
                 <div style="display:flex; flex-direction:column; gap:8px;">
                   ${checkpoints.map(
                     (checkpoint) => html`
-                      <button
-                        class="btn"
-                        type="button"
-                        ?disabled=${checkpoint.id === props.runtimeSelectedCheckpointId}
-                        @click=${() => props.onSelectRuntimeCheckpoint(checkpoint.id)}
+                      <a
+                        class="btn ${checkpoint.id === props.runtimeSelectedCheckpointId ? "active" : ""}"
+                        href=${props.buildRuntimeCheckpointHref(checkpoint)}
+                        aria-current=${checkpoint.id === props.runtimeSelectedCheckpointId ? "page" : "false"}
+                        @click=${(event: MouseEvent) => {
+                          if (isModifiedNavigationClick(event)) {
+                            return;
+                          }
+                          event.preventDefault();
+                          props.onSelectRuntimeCheckpoint(checkpoint.id);
+                        }}
                         style="display:flex; width:100%; text-align:left; justify-content:space-between; gap:12px;"
                       >
                         <span>
@@ -476,7 +497,7 @@ function renderRuntimeInspector(props: SessionsProps) {
                           </span>
                         </span>
                         <span style="opacity:0.75;">${formatMsTimestamp(checkpoint.updatedAtMs)}</span>
-                      </button>
+                      </a>
                     `,
                   )}
                 </div>
@@ -566,16 +587,24 @@ function renderRuntimeInspector(props: SessionsProps) {
                                       ? html`<div class="muted">${t("sessions.runtime.noActions")}</div>`
                                       : props.runtimeActions.map(
                                           (action) => html`
-                                            <button
-                                              class="btn"
-                                              type="button"
-                                              ?disabled=${action.actionId === props.runtimeSelectedActionId}
-                                              @click=${() => props.onSelectRuntimeAction(action.actionId)}
+                                            <a
+                                              class="btn ${action.actionId === props.runtimeSelectedActionId ? "active" : ""}"
+                                              href=${props.buildRuntimeActionHref(action.actionId)}
+                                              aria-current=${action.actionId === props.runtimeSelectedActionId
+                                                ? "page"
+                                                : "false"}
+                                              @click=${(event: MouseEvent) => {
+                                                if (isModifiedNavigationClick(event)) {
+                                                  return;
+                                                }
+                                                event.preventDefault();
+                                                props.onSelectRuntimeAction(action.actionId);
+                                              }}
                                               style="justify-content:space-between;"
                                             >
                                               <span>${action.kind}</span>
                                               <span style="opacity:0.75;">${action.state}</span>
-                                            </button>
+                                            </a>
                                           `,
                                         )
                                   }
@@ -633,16 +662,24 @@ function renderRuntimeInspector(props: SessionsProps) {
                                       ? html`<div class="muted">${t("sessions.runtime.noClosures")}</div>`
                                       : props.runtimeClosures.map(
                                           (closure) => html`
-                                            <button
-                                              class="btn"
-                                              type="button"
-                                              ?disabled=${closure.runId === props.runtimeSelectedClosureRunId}
-                                              @click=${() => props.onSelectRuntimeClosure(closure.runId)}
+                                            <a
+                                              class="btn ${closure.runId === props.runtimeSelectedClosureRunId ? "active" : ""}"
+                                              href=${props.buildRuntimeClosureHref(closure.runId)}
+                                              aria-current=${closure.runId === props.runtimeSelectedClosureRunId
+                                                ? "page"
+                                                : "false"}
+                                              @click=${(event: MouseEvent) => {
+                                                if (isModifiedNavigationClick(event)) {
+                                                  return;
+                                                }
+                                                event.preventDefault();
+                                                props.onSelectRuntimeClosure(closure.runId);
+                                              }}
                                               style="justify-content:space-between;"
                                             >
                                               <span>${closure.runId}</span>
                                               <span style="opacity:0.75;">${closure.outcomeStatus}</span>
-                                            </button>
+                                            </a>
                                           `,
                                         )
                                   }
@@ -1027,6 +1064,7 @@ export function renderSessions(props: SessionsProps) {
                         props.onToggleSelect,
                         props.loading,
                         props.onInspectRuntimeSession,
+                        props.buildRuntimeInspectHref,
                         props.onNavigateToChat,
                       ),
                     )
@@ -1093,6 +1131,7 @@ function renderRow(
   onToggleSelect: SessionsProps["onToggleSelect"],
   disabled: boolean,
   onInspectRuntimeSession: SessionsProps["onInspectRuntimeSession"],
+  buildRuntimeInspectHref: SessionsProps["buildRuntimeInspectHref"],
   onNavigateToChat?: (sessionKey: string) => void,
 ) {
   const updated = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : t("common.na");
@@ -1144,14 +1183,7 @@ function renderRow(
                   href=${chatUrl}
                   class="session-link"
                   @click=${(e: MouseEvent) => {
-                    if (
-                      e.defaultPrevented ||
-                      e.button !== 0 ||
-                      e.metaKey ||
-                      e.ctrlKey ||
-                      e.shiftKey ||
-                      e.altKey
-                    ) {
+                    if (isModifiedNavigationClick(e)) {
                       return;
                     }
                     if (onNavigateToChat) {
@@ -1201,13 +1233,19 @@ function renderRow(
               : nothing
           }
           ${renderSessionHandoffContext(row)}
-          <button
+          <a
             class="btn btn--sm"
-            type="button"
-            @click=${() => onInspectRuntimeSession(row.key, resolveSessionRuntimeInspectRunId(row))}
+            href=${buildRuntimeInspectHref(row.key, resolveSessionRuntimeInspectRunId(row))}
+            @click=${(event: MouseEvent) => {
+              if (isModifiedNavigationClick(event)) {
+                return;
+              }
+              event.preventDefault();
+              onInspectRuntimeSession(row.key, resolveSessionRuntimeInspectRunId(row));
+            }}
           >
             ${t("sessions.runtime.inspect")}
-          </button>
+          </a>
         </div>
       </td>
       <td>
