@@ -76,8 +76,25 @@ function buildProps(result: SessionsListResult): SessionsProps {
     onPageSizeChange: () => undefined,
     onRefresh: () => undefined,
     onInspectRuntimeSession: () => undefined,
+    buildRuntimeInspectHref: (sessionKey, runId) =>
+      buildTabHref({ basePath: "" }, "sessions", {
+        runtimeSession: sessionKey,
+        runtimeRun: runId ?? null,
+      }),
+    buildRuntimeCheckpointHref: (checkpoint) =>
+      buildTabHref({ basePath: "" }, "sessions", {
+        checkpoint: checkpoint.id,
+      }),
     onSelectRuntimeCheckpoint: () => undefined,
+    buildRuntimeActionHref: (actionId) =>
+      buildTabHref({ basePath: "" }, "sessions", {
+        runtimeAction: actionId,
+      }),
     onSelectRuntimeAction: () => undefined,
+    buildRuntimeClosureHref: (runId) =>
+      buildTabHref({ basePath: "" }, "sessions", {
+        runtimeClosure: runId,
+      }),
     onSelectRuntimeClosure: () => undefined,
     onClearRuntimeScope: () => undefined,
     onExecuteRuntimeRecoveryAction: () => undefined,
@@ -260,10 +277,10 @@ describe("sessions view", () => {
     expect(container.textContent).toContain("Runtime Inspector");
     expect(container.textContent).toContain("exec_approval");
 
-    const inspectButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Inspect runtime"),
+    const inspectLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Inspect runtime"),
     );
-    inspectButton?.dispatchEvent(new Event("click"));
+    inspectLink?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(onInspectRuntimeSession).toHaveBeenCalledWith("agent:main:main", undefined);
   });
 
@@ -305,10 +322,10 @@ describe("sessions view", () => {
     expect(container.textContent).toContain("Request anchor request-run");
     expect(container.textContent).toContain("Closure history closure-run");
 
-    const inspectButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Inspect runtime"),
+    const inspectLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Inspect runtime"),
     );
-    inspectButton?.dispatchEvent(new Event("click"));
+    inspectLink?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
     expect(onInspectRuntimeSession).toHaveBeenCalledWith("agent:main:main", "recovery-run");
   });
@@ -351,10 +368,10 @@ describe("sessions view", () => {
     expect(container.textContent).toContain("Request anchor request-run");
     expect(container.textContent).not.toContain("Closure history closure-run");
 
-    const inspectButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Inspect runtime"),
+    const inspectLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Inspect runtime"),
     );
-    inspectButton?.dispatchEvent(new Event("click"));
+    inspectLink?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
     expect(onInspectRuntimeSession).toHaveBeenCalledWith("agent:main:main", "closure-run");
   });
@@ -637,5 +654,350 @@ describe("sessions view", () => {
         session: "agent:main:linked",
       }),
     );
+  });
+
+  it("renders canonical hrefs for inspect and runtime drill-down controls", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(
+          buildResult(
+            buildSession({
+              key: "agent:main:linked",
+              runClosureSummary: {
+                runId: "run-1",
+                updatedAtMs: 10,
+                outcomeStatus: "completed",
+                verificationStatus: "verified",
+                acceptanceStatus: "satisfied",
+                action: "close",
+                remediation: "none",
+                reasonCode: "verified_execution",
+                reasons: ["ok"],
+              },
+            }),
+          ),
+        ),
+        buildRuntimeInspectHref: (sessionKey, runId) =>
+          `/ui/sessions?runtimeSession=${encodeURIComponent(sessionKey)}&runtimeRun=${runId ?? ""}`,
+        buildRuntimeCheckpointHref: (checkpoint) => `/ui/sessions?checkpoint=${checkpoint.id}`,
+        buildRuntimeActionHref: (actionId) => `/ui/sessions?runtimeAction=${actionId}`,
+        buildRuntimeClosureHref: (runId) => `/ui/sessions?runtimeClosure=${runId}`,
+        runtimeSelectedCheckpointId: "cp-1",
+        runtimeCheckpointDetail: {
+          id: "cp-1",
+          runId: "run-1",
+          sessionKey: "agent:main:linked",
+          boundary: "bootstrap",
+          status: "blocked",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+        },
+        runtimeCheckpoints: [
+          {
+            id: "cp-1",
+            runId: "run-1",
+            sessionKey: "agent:main:linked",
+            boundary: "bootstrap",
+            status: "blocked",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+        runtimeActions: [
+          {
+            actionId: "action-1",
+            runId: "run-1",
+            kind: "bootstrap",
+            state: "attempted",
+            attemptCount: 1,
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+        runtimeSelectedActionId: "action-1",
+        runtimeClosures: [
+          {
+            runId: "closure-1",
+            updatedAtMs: 3,
+            outcomeStatus: "completed",
+            verificationStatus: "verified",
+            acceptanceStatus: "satisfied",
+            action: "close",
+            remediation: "none",
+            reasonCode: "verified_execution",
+            reasons: ["ok"],
+          },
+        ],
+        runtimeSelectedClosureRunId: "closure-1",
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const inspectLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Inspect runtime"),
+    );
+    const checkpointLink = container.querySelector('a[href="/ui/sessions?checkpoint=cp-1"]');
+    const actionLink = container.querySelector('a[href="/ui/sessions?runtimeAction=action-1"]');
+    const closureLink = container.querySelector('a[href="/ui/sessions?runtimeClosure=closure-1"]');
+
+    expect(inspectLink?.getAttribute("href")).toBe(
+      "/ui/sessions?runtimeSession=agent%3Amain%3Alinked&runtimeRun=run-1",
+    );
+    expect(checkpointLink).not.toBeNull();
+    expect(actionLink).not.toBeNull();
+    expect(closureLink).not.toBeNull();
+  });
+
+  it("uses JS handoff for primary clicks on runtime links", async () => {
+    const onInspectRuntimeSession = vi.fn();
+    const onSelectRuntimeCheckpoint = vi.fn();
+    const onSelectRuntimeAction = vi.fn();
+    const onSelectRuntimeClosure = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(
+          buildResult(
+            buildSession({
+              key: "agent:main:linked",
+              runClosureSummary: {
+                runId: "run-1",
+                updatedAtMs: 10,
+                outcomeStatus: "completed",
+                verificationStatus: "verified",
+                acceptanceStatus: "satisfied",
+                action: "close",
+                remediation: "none",
+                reasonCode: "verified_execution",
+                reasons: ["ok"],
+              },
+            }),
+          ),
+        ),
+        onInspectRuntimeSession,
+        onSelectRuntimeCheckpoint,
+        onSelectRuntimeAction,
+        onSelectRuntimeClosure,
+        buildRuntimeInspectHref: () => "/ui/sessions?inspect=1",
+        buildRuntimeCheckpointHref: () => "/ui/sessions?checkpoint=cp-1",
+        buildRuntimeActionHref: () => "/ui/sessions?runtimeAction=action-1",
+        buildRuntimeClosureHref: () => "/ui/sessions?runtimeClosure=closure-1",
+        runtimeSelectedCheckpointId: "cp-1",
+        runtimeCheckpointDetail: {
+          id: "cp-1",
+          runId: "run-1",
+          sessionKey: "agent:main:linked",
+          boundary: "bootstrap",
+          status: "blocked",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+        },
+        runtimeCheckpoints: [
+          {
+            id: "cp-1",
+            runId: "run-1",
+            sessionKey: "agent:main:linked",
+            boundary: "bootstrap",
+            status: "blocked",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+        runtimeActions: [
+          {
+            actionId: "action-1",
+            runId: "run-1",
+            kind: "bootstrap",
+            state: "attempted",
+            attemptCount: 1,
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+        runtimeClosures: [
+          {
+            runId: "closure-1",
+            updatedAtMs: 3,
+            outcomeStatus: "completed",
+            verificationStatus: "verified",
+            acceptanceStatus: "satisfied",
+            action: "close",
+            remediation: "none",
+            reasonCode: "verified_execution",
+            reasons: ["ok"],
+          },
+        ],
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const inspectLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Inspect runtime"),
+    ) as HTMLAnchorElement | undefined;
+    const checkpointLink = container.querySelector(
+      'a[href="/ui/sessions?checkpoint=cp-1"]',
+    ) as HTMLAnchorElement | null;
+    const actionLink = container.querySelector(
+      'a[href="/ui/sessions?runtimeAction=action-1"]',
+    ) as HTMLAnchorElement | null;
+    const closureLink = container.querySelector(
+      'a[href="/ui/sessions?runtimeClosure=closure-1"]',
+    ) as HTMLAnchorElement | null;
+
+    const inspectEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    inspectLink?.dispatchEvent(inspectEvent);
+    const checkpointEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    checkpointLink?.dispatchEvent(checkpointEvent);
+    const actionEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    actionLink?.dispatchEvent(actionEvent);
+    const closureEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    closureLink?.dispatchEvent(closureEvent);
+
+    expect(onInspectRuntimeSession).toHaveBeenCalledWith("agent:main:linked", "run-1");
+    expect(onSelectRuntimeCheckpoint).toHaveBeenCalledWith("cp-1");
+    expect(onSelectRuntimeAction).toHaveBeenCalledWith("action-1");
+    expect(onSelectRuntimeClosure).toHaveBeenCalledWith("closure-1");
+    expect(inspectEvent.defaultPrevented).toBe(true);
+    expect(checkpointEvent.defaultPrevented).toBe(true);
+    expect(actionEvent.defaultPrevented).toBe(true);
+    expect(closureEvent.defaultPrevented).toBe(true);
+  });
+
+  it("lets modified clicks fall through to the browser href for runtime links", async () => {
+    const onInspectRuntimeSession = vi.fn();
+    const onSelectRuntimeCheckpoint = vi.fn();
+    const onSelectRuntimeAction = vi.fn();
+    const onSelectRuntimeClosure = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(
+          buildResult(
+            buildSession({
+              key: "agent:main:linked",
+              runClosureSummary: {
+                runId: "run-1",
+                updatedAtMs: 10,
+                outcomeStatus: "completed",
+                verificationStatus: "verified",
+                acceptanceStatus: "satisfied",
+                action: "close",
+                remediation: "none",
+                reasonCode: "verified_execution",
+                reasons: ["ok"],
+              },
+            }),
+          ),
+        ),
+        onInspectRuntimeSession,
+        onSelectRuntimeCheckpoint,
+        onSelectRuntimeAction,
+        onSelectRuntimeClosure,
+        buildRuntimeInspectHref: () => "/ui/sessions?inspect=1",
+        buildRuntimeCheckpointHref: () => "/ui/sessions?checkpoint=cp-1",
+        buildRuntimeActionHref: () => "/ui/sessions?runtimeAction=action-1",
+        buildRuntimeClosureHref: () => "/ui/sessions?runtimeClosure=closure-1",
+        runtimeSelectedCheckpointId: "cp-1",
+        runtimeCheckpointDetail: {
+          id: "cp-1",
+          runId: "run-1",
+          sessionKey: "agent:main:linked",
+          boundary: "bootstrap",
+          status: "blocked",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+        },
+        runtimeCheckpoints: [
+          {
+            id: "cp-1",
+            runId: "run-1",
+            sessionKey: "agent:main:linked",
+            boundary: "bootstrap",
+            status: "blocked",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+        runtimeActions: [
+          {
+            actionId: "action-1",
+            runId: "run-1",
+            kind: "bootstrap",
+            state: "attempted",
+            attemptCount: 1,
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+        runtimeClosures: [
+          {
+            runId: "closure-1",
+            updatedAtMs: 3,
+            outcomeStatus: "completed",
+            verificationStatus: "verified",
+            acceptanceStatus: "satisfied",
+            action: "close",
+            remediation: "none",
+            reasonCode: "verified_execution",
+            reasons: ["ok"],
+          },
+        ],
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const inspectLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Inspect runtime"),
+    ) as HTMLAnchorElement | undefined;
+    const checkpointLink = container.querySelector(
+      'a[href="/ui/sessions?checkpoint=cp-1"]',
+    ) as HTMLAnchorElement | null;
+    const actionLink = container.querySelector(
+      'a[href="/ui/sessions?runtimeAction=action-1"]',
+    ) as HTMLAnchorElement | null;
+    const closureLink = container.querySelector(
+      'a[href="/ui/sessions?runtimeClosure=closure-1"]',
+    ) as HTMLAnchorElement | null;
+
+    const inspectEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    inspectLink?.dispatchEvent(inspectEvent);
+    const checkpointEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    checkpointLink?.dispatchEvent(checkpointEvent);
+    const actionEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    actionLink?.dispatchEvent(actionEvent);
+    const closureEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    closureLink?.dispatchEvent(closureEvent);
+
+    expect(onInspectRuntimeSession).not.toHaveBeenCalled();
+    expect(onSelectRuntimeCheckpoint).not.toHaveBeenCalled();
+    expect(onSelectRuntimeAction).not.toHaveBeenCalled();
+    expect(onSelectRuntimeClosure).not.toHaveBeenCalled();
+    expect(inspectEvent.defaultPrevented).toBe(false);
+    expect(checkpointEvent.defaultPrevented).toBe(false);
+    expect(actionEvent.defaultPrevented).toBe(false);
+    expect(closureEvent.defaultPrevented).toBe(false);
   });
 });

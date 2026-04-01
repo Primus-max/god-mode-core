@@ -17,6 +17,7 @@ import {
 } from "./app-render.helpers.ts";
 import {
   buildCanonicalAgentsHref,
+  buildCanonicalSessionsRuntimeHref,
   buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
   buildCanonicalCronJobHref,
@@ -885,14 +886,38 @@ export function renderApp(state: AppViewState) {
                     await loadRuntimeInspector(state, { sessionKey, runId });
                     syncUrlWithTab(state, "sessions", true);
                   },
+                  buildRuntimeInspectHref: (sessionKey, runId) =>
+                    buildCanonicalSessionsRuntimeHref(state, {
+                      sessionKey,
+                      runId: runId ?? null,
+                      checkpointId: null,
+                      actionId: null,
+                      closureRunId: null,
+                    }),
+                  buildRuntimeCheckpointHref: (checkpoint) =>
+                    buildCanonicalSessionsRuntimeHref(state, {
+                      sessionKey: checkpoint.sessionKey ?? state.runtimeSessionKey ?? null,
+                      runId: checkpoint.runId ?? state.runtimeRunId ?? null,
+                      checkpointId: checkpoint.id,
+                      actionId: null,
+                      closureRunId: null,
+                    }),
                   onSelectRuntimeCheckpoint: async (checkpointId) => {
                     await loadRuntimeCheckpointDetail(state, checkpointId);
                     syncUrlWithTab(state, "sessions", true);
                   },
+                  buildRuntimeActionHref: (actionId) =>
+                    buildCanonicalSessionsRuntimeHref(state, {
+                      actionId,
+                    }),
                   onSelectRuntimeAction: async (actionId) => {
                     await loadRuntimeActionDetail(state, actionId);
                     syncUrlWithTab(state, "sessions", true);
                   },
+                  buildRuntimeClosureHref: (runId) =>
+                    buildCanonicalSessionsRuntimeHref(state, {
+                      closureRunId: runId,
+                    }),
                   onSelectRuntimeClosure: async (runId) => {
                     await loadRuntimeClosureDetail(state, runId);
                     syncUrlWithTab(state, "sessions", true);
