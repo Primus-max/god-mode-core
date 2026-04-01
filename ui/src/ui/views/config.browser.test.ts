@@ -1,5 +1,8 @@
+/* @vitest-environment jsdom */
+
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
+import { buildCanonicalSettingsShellHref, buildTabHref } from "../app-settings.ts";
 import type { ThemeMode, ThemeName } from "../theme.ts";
 import { renderConfig } from "./config.ts";
 
@@ -27,6 +30,15 @@ describe("config view", () => {
     searchQuery: "",
     activeSection: null,
     activeSubsection: null,
+    buildSectionHref: (section: string | null) =>
+      buildTabHref({ basePath: "" }, "config", {
+        configMode: "form",
+        configSection: section,
+      }),
+    buildModeHref: (mode: "form" | "raw") =>
+      buildTabHref({ basePath: "" }, "config", {
+        configMode: mode,
+      }),
     onRawChange: vi.fn(),
     onFormModeChange: vi.fn(),
     onFormPatch: vi.fn(),
@@ -156,12 +168,14 @@ describe("config view", () => {
       container,
     );
 
-    const btn = Array.from(container.querySelectorAll("button")).find(
-      (b) => b.textContent?.trim() === "Raw",
+    const btn = Array.from(container.querySelectorAll(".config-mode-toggle__btn")).find((b) =>
+      b.textContent?.trim() === "Raw",
     );
     expect(btn).toBeTruthy();
-    btn?.click();
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    btn?.dispatchEvent(click);
     expect(onFormModeChange).toHaveBeenCalledWith("raw");
+    expect(click.defaultPrevented).toBe(true);
   });
 
   it("switches sections from the sidebar", () => {
@@ -182,12 +196,106 @@ describe("config view", () => {
       container,
     );
 
-    const btn = Array.from(container.querySelectorAll("button")).find(
-      (b) => b.textContent?.trim() === "Gateway",
+    const btn = Array.from(container.querySelectorAll(".config-top-tabs__tab")).find((b) =>
+      b.textContent?.trim() === "Gateway",
     );
     expect(btn).toBeTruthy();
-    btn?.click();
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    btn?.dispatchEvent(click);
     expect(onSectionChange).toHaveBeenCalledWith("gateway");
+    expect(click.defaultPrevented).toBe(true);
+  });
+
+  it("renders canonical hrefs for a representative section tab and mode toggle", () => {
+    const container = document.createElement("div");
+    render(
+      renderConfig({
+        ...baseProps(),
+        searchQuery: "discord",
+        activeSection: "channels",
+        activeSubsection: "slack",
+        schema: {
+          type: "object",
+          properties: {
+            gateway: { type: "object", properties: {} },
+            channels: { type: "object", properties: {} },
+          },
+        },
+        buildSectionHref: (section) =>
+          buildCanonicalSettingsShellHref(
+            {
+              basePath: "/ui",
+              sessionKey: "main",
+              configFormMode: "form",
+              configSearchQuery: "discord",
+              configActiveSection: "channels",
+              configActiveSubsection: "slack",
+            } as Parameters<typeof buildCanonicalSettingsShellHref>[0],
+            "config",
+            { section },
+          ),
+        buildModeHref: (mode) =>
+          buildCanonicalSettingsShellHref(
+            {
+              basePath: "/ui",
+              sessionKey: "main",
+              configFormMode: "form",
+              configSearchQuery: "discord",
+              configActiveSection: "channels",
+              configActiveSubsection: "slack",
+            } as Parameters<typeof buildCanonicalSettingsShellHref>[0],
+            "config",
+            { mode },
+          ),
+      }),
+      container,
+    );
+
+    const gatewayTab = Array.from(container.querySelectorAll<HTMLAnchorElement>(".config-top-tabs__tab")).find(
+      (tab) => tab.textContent?.trim() === "Gateway",
+    );
+    const rawToggle = Array.from(container.querySelectorAll<HTMLAnchorElement>(".config-mode-toggle__btn")).find(
+      (tab) => tab.textContent?.trim() === "Raw",
+    );
+
+    expect(gatewayTab?.getAttribute("href")).toBe(
+      "/ui/config?session=main&configMode=form&configQ=discord&configSection=gateway",
+    );
+    expect(rawToggle?.getAttribute("href")).toBe(
+      "/ui/config?session=main&configMode=raw&configQ=discord&configSection=channels&configSubsection=slack",
+    );
+  });
+
+  it("lets modified clicks fall through to the browser href for shell links", () => {
+    const container = document.createElement("div");
+    const onSectionChange = vi.fn();
+    render(
+      renderConfig({
+        ...baseProps(),
+        onSectionChange,
+        schema: {
+          type: "object",
+          properties: {
+            gateway: { type: "object", properties: {} },
+          },
+        },
+      }),
+      container,
+    );
+
+    const btn = Array.from(container.querySelectorAll(".config-top-tabs__tab")).find((b) =>
+      b.textContent?.trim() === "Gateway",
+    );
+    expect(btn).toBeTruthy();
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    btn?.dispatchEvent(click);
+
+    expect(onSectionChange).not.toHaveBeenCalled();
+    expect(click.defaultPrevented).toBe(false);
   });
 
   it("wires search input to onSearchChange", () => {

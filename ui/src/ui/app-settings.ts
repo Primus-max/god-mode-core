@@ -257,7 +257,7 @@ function normalizeBooleanQuery(value: string | null | undefined, fallback: boole
   return fallback;
 }
 
-type SettingsNavigationTab =
+export type SettingsNavigationTab =
   | "config"
   | "communications"
   | "appearance"
@@ -265,7 +265,7 @@ type SettingsNavigationTab =
   | "infrastructure"
   | "aiAgents";
 
-type SettingsFormMode = "form" | "raw";
+export type SettingsFormMode = "form" | "raw";
 
 type SettingsNavigationBinding = {
   tab: SettingsNavigationTab;
@@ -625,6 +625,34 @@ export function buildCanonicalChannelHref(
   const url = new URL(`https://openclaw.local${pathForTab("channels", host.basePath)}`);
   applyTabQueryStateToUrl(host as SettingsHost, "channels", url);
   setQueryValue(url, "channel", channelKey);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalSettingsShellHref(
+  host: SettingsHost | AppViewState,
+  tab: SettingsNavigationTab,
+  overrides: {
+    mode?: SettingsFormMode;
+    section?: string | null;
+    subsection?: string | null;
+  } = {},
+): string {
+  const binding = getSettingsNavigationBinding(tab);
+  const url = new URL(`https://openclaw.local${pathForTab(tab, host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, tab, url);
+  if (!binding) {
+    return `${url.pathname}${url.search}`;
+  }
+  if ("mode" in overrides && overrides.mode) {
+    setQueryValue(url, binding.modeParam, overrides.mode);
+  }
+  if ("section" in overrides) {
+    setQueryValue(url, binding.sectionParam, overrides.section);
+    setQueryValue(url, binding.subsectionParam, overrides.section ? overrides.subsection : null);
+  } else if ("subsection" in overrides) {
+    const activeSection = url.searchParams.get(binding.sectionParam);
+    setQueryValue(url, binding.subsectionParam, activeSection ? overrides.subsection : null);
+  }
   return `${url.pathname}${url.search}`;
 }
 

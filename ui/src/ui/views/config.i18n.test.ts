@@ -3,6 +3,7 @@
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
+import { buildTabHref } from "../app-settings.ts";
 import type { ThemeMode, ThemeName } from "../theme.ts";
 import { renderConfig } from "./config.ts";
 
@@ -32,6 +33,15 @@ describe("config view i18n", () => {
     searchQuery: "",
     activeSection: null,
     activeSubsection: null,
+    buildSectionHref: (section: string | null) =>
+      buildTabHref({ basePath: "" }, "config", {
+        configMode: "form",
+        configSection: section,
+      }),
+    buildModeHref: (mode: "form" | "raw") =>
+      buildTabHref({ basePath: "" }, "config", {
+        configMode: mode,
+      }),
     onRawChange: vi.fn(),
     onFormModeChange: vi.fn(),
     onFormPatch: vi.fn(),
