@@ -24,6 +24,7 @@ import {
   applySettingsFromUrl,
   attachThemeListener,
   buildCanonicalTabHref,
+  buildCanonicalUsageSessionHref,
   buildTabHref,
   buildAttentionItems,
   loadOverview,
@@ -995,6 +996,20 @@ describe("syncUrlWithTab", () => {
     expect(sessionsHref).toContain("checkpoint=cp-1");
     expect(sessionsHref).toContain("runtimeAction=action-1");
     expect(chatHref).toBe("/ui/chat?session=agent%3Amain%3Amain");
+  });
+
+  it("builds canonical usage session hrefs with the current usage filters and target session override", () => {
+    const host = createHost("usage");
+    host.basePath = "/ui";
+    host.usageStartDate = "2026-03-01";
+    host.usageEndDate = "2026-03-31";
+    host.usageTimeZone = "utc";
+    host.usageQuery = "cost spike";
+    host.usageSelectedSessions = ["agent:main:main"];
+
+    expect(buildCanonicalUsageSessionHref(host, "agent:writer:main")).toBe(
+      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Awriter%3Amain&usageQ=cost+spike",
+    );
   });
 
   it("builds explicit tab hrefs for inline session and runtime targets", () => {

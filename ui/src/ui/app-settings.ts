@@ -597,6 +597,16 @@ export function buildCanonicalTabHref(host: SettingsHost | AppViewState, tab: Ta
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalUsageSessionHref(
+  host: SettingsHost | AppViewState,
+  sessionKey: string,
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("usage", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "usage", url);
+  setQueryValue(url, "usageSession", sessionKey);
+  return `${url.pathname}${url.search}`;
+}
+
 function applyDeepLinkStateFromUrl(
   host: SettingsHost,
   sources: { params: URLSearchParams; hashParams: URLSearchParams },

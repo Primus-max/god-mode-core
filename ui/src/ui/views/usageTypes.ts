@@ -115,6 +115,7 @@ export type UsageCallbacks = {
 };
 
 export type UsageProps = {
+  buildSessionHref: (key: string) => string;
   data: UsageDataState;
   filters: UsageFilterState;
   display: UsageDisplayState;

@@ -1,5 +1,5 @@
 import { nothing } from "lit";
-import { syncUrlWithTab } from "./app-settings.ts";
+import { buildCanonicalUsageSessionHref, syncUrlWithTab } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import type { UsageState } from "./controllers/usage.ts";
 import { loadUsage, loadSessionTimeSeries, loadSessionLogs } from "./controllers/usage.ts";
@@ -21,6 +21,7 @@ export function renderUsageTab(state: AppViewState) {
   const syncUsageUrl = () => syncUrlWithTab(state, "usage", true);
 
   return renderUsage({
+    buildSessionHref: (sessionKey) => buildCanonicalUsageSessionHref(state, sessionKey),
     data: {
       loading: state.usageLoading,
       error: state.usageError,
