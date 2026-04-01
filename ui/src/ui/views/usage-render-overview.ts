@@ -649,6 +649,7 @@ function renderSessionsCard(
   sessionSortDir: "asc" | "desc",
   recentSessions: string[],
   sessionsTab: "all" | "recent",
+  buildSessionHref: (key: string) => string,
   onSelectSession: (key: string, shiftKey: boolean) => void,
   onSessionSortChange: (sort: "tokens" | "cost" | "recent" | "messages" | "errors") => void,
   onSessionSortDirChange: (dir: "asc" | "desc") => void,
@@ -752,27 +753,43 @@ function renderSessionsCard(
     const displayLabel = formatSessionListLabel(s);
     const meta = buildSessionMeta(s);
     return html`
-      <div
-        class="session-bar-row ${isSelected ? "selected" : ""}"
-        @click=${(e: MouseEvent) => onSelectSession(s.key, e.shiftKey)}
-        title="${s.key}"
-      >
-        <div class="session-bar-label">
-          <div class="session-bar-title">${displayLabel}</div>
-          ${meta.length > 0 ? html`<div class="session-bar-meta">${meta.join(" · ")}</div>` : nothing}
-        </div>
+      <div class="session-bar-row ${isSelected ? "selected" : ""}">
+        <a
+          href=${buildSessionHref(s.key)}
+          class="session-bar-link"
+          data-session-key=${s.key}
+          title=${s.key}
+          @click=${(event: MouseEvent) => {
+            if (
+              event.defaultPrevented ||
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.altKey
+            ) {
+              return;
+            }
+            event.preventDefault();
+            onSelectSession(s.key, event.shiftKey);
+          }}
+        >
+          <div class="session-bar-label">
+            <div class="session-bar-title">${displayLabel}</div>
+            ${meta.length > 0 ? html`<div class="session-bar-meta">${meta.join(" · ")}</div>` : nothing}
+          </div>
+          <div class="session-bar-value">${isTokenMode ? formatTokens(value) : formatCost(value)}</div>
+        </a>
         <div class="session-bar-actions">
           <button
             class="session-copy-btn"
             title=${t("usage.sessions.copyName")}
-            @click=${(e: MouseEvent) => {
-              e.stopPropagation();
+            @click=${(event: MouseEvent) => {
+              event.stopPropagation();
               void copySessionName(s);
             }}
           >
             ${t("usage.sessions.copy")}
           </button>
-          <div class="session-bar-value">${isTokenMode ? formatTokens(value) : formatCost(value)}</div>
         </div>
       </div>
     `;

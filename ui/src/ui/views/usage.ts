@@ -137,7 +137,7 @@ function renderUsageEmptyState(onRefresh: () => void) {
 }
 
 export function renderUsage(props: UsageProps) {
-  const { data, filters, display, detail, callbacks } = props;
+  const { data, filters, display, detail, callbacks, buildSessionHref } = props;
   const filterActions = callbacks.filters;
   const displayActions = callbacks.display;
   const detailActions = callbacks.details;
@@ -806,6 +806,7 @@ export function renderUsage(props: UsageProps) {
                     display.sessionSortDir,
                     display.recentSessions,
                     display.sessionsTab,
+                    buildSessionHref,
                     detailActions.onSelectSession,
                     displayActions.onSessionSortChange,
                     displayActions.onSessionSortDirChange,
