@@ -5,6 +5,12 @@ vi.mock("./controllers/runtime-inspector.ts", () => ({
 vi.mock("./controllers/sessions.ts", () => ({
   loadSessions: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("./controllers/chat.ts", () => ({
+  loadChatHistory: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("./controllers/specialist.ts", () => ({
+  loadSpecialistContext: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("./controllers/usage.ts", () => ({
   loadUsage: vi.fn().mockResolvedValue(undefined),
   loadSessionTimeSeries: vi.fn().mockResolvedValue(undefined),
@@ -16,6 +22,7 @@ import {
   applySettings,
   applySettingsFromUrl,
   attachThemeListener,
+  buildCanonicalTabHref,
   buildAttentionItems,
   loadOverview,
   refreshActiveTab,
@@ -25,9 +32,12 @@ import {
 } from "./app-settings.ts";
 import * as channels from "./controllers/channels.ts";
 import * as cron from "./controllers/cron.ts";
+import { loadChatHistory } from "./controllers/chat.ts";
 import { loadRuntimeInspector } from "./controllers/runtime-inspector.ts";
 import { loadSessions } from "./controllers/sessions.ts";
+import { loadSpecialistContext } from "./controllers/specialist.ts";
 import { loadSessionLogs, loadSessionTimeSeries, loadUsage } from "./controllers/usage.ts";
+import { switchChatAgent, switchOverviewSession } from "./app-render.helpers.ts";
 import {
   buildSkillSearchText,
   SKILL_FILTER_BLOCKED,
@@ -441,6 +451,16 @@ const createHost = (tab: Tab): SettingsHost => ({
   cronJobs: [],
   attentionItems: [],
 });
+
+function attachAppMethods<T extends SettingsHost>(host: T) {
+  return Object.assign(host, {
+    applySettings(next: SettingsHost["settings"]) {
+      host.settings = next;
+    },
+    loadAssistantIdentity: vi.fn().mockResolvedValue(undefined),
+    resetToolStream: vi.fn(),
+  });
+}
 
 describe("setTabFromRoute", () => {
   beforeEach(() => {
@@ -936,6 +956,83 @@ describe("syncUrlWithTab", () => {
     expect(window.location.search).toContain("checkpoint=cp-1");
     expect(window.location.search).toContain("runtimeAction=action-1");
     expect(window.location.search).toContain("runtimeClosure=run-1");
+  });
+
+  it("builds canonical tab hrefs for runtime-aware and session-only surfaces", () => {
+    const host = createHost("overview");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.runtimeSessionKey = "agent:main:main";
+    host.runtimeRunId = "run-1";
+    host.runtimeSelectedCheckpointId = "cp-1";
+    host.runtimeSelectedActionId = "action-1";
+
+    const sessionsHref = buildCanonicalTabHref(host, "sessions");
+    const chatHref = buildCanonicalTabHref(host, "chat");
+
+    expect(sessionsHref).toContain("/ui/sessions?");
+    expect(sessionsHref).toContain("session=agent%3Amain%3Amain");
+    expect(sessionsHref).toContain("runtimeSession=agent%3Amain%3Amain");
+    expect(sessionsHref).toContain("runtimeRun=run-1");
+    expect(sessionsHref).toContain("checkpoint=cp-1");
+    expect(sessionsHref).toContain("runtimeAction=action-1");
+    expect(chatHref).toBe("/ui/chat?session=agent%3Amain%3Amain");
+  });
+
+  it("canonicalizes chat agent handoff into the session URL immediately", () => {
+    const host = attachAppMethods(createHost("chat"));
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.settings = {
+      ...host.settings,
+      sessionKey: "agent:main:main",
+      lastActiveSessionKey: "agent:main:main",
+    };
+
+    switchChatAgent(host as never, "writer");
+
+    expect(host.sessionKey).toBe("agent:writer:main");
+    expect(window.location.pathname).toBe("/ui/chat");
+    expect(window.location.search).toContain("session=agent%3Awriter%3Amain");
+    expect(loadChatHistory).toHaveBeenCalledWith(host);
+    expect(loadSpecialistContext).toHaveBeenCalledWith(host, { draft: "" });
+    expect(host.loadAssistantIdentity).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps overview session handoff on the truth-aware runtime target", async () => {
+    const host = attachAppMethods(createHost("overview"));
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.settings = {
+      ...host.settings,
+      sessionKey: "agent:main:main",
+      lastActiveSessionKey: "agent:main:main",
+    };
+    host.sessionsResult = {
+      sessions: [
+        {
+          key: "agent:writer:main",
+          handoffTruthSource: "recovery",
+          handoffRunId: "recovery-run",
+          handoffRequestRunId: "request-run",
+          runClosureSummary: { runId: "closure-run" },
+        },
+      ],
+    };
+
+    switchOverviewSession(host as never, "agent:writer:main");
+    await Promise.resolve();
+
+    expect(host.sessionKey).toBe("agent:writer:main");
+    expect(loadRuntimeInspector).toHaveBeenCalledWith(host, {
+      sessionKey: "agent:writer:main",
+      runId: "recovery-run",
+      checkpointId: null,
+    });
+    expect(window.location.pathname).toBe("/ui/overview");
+    expect(window.location.search).toContain("session=agent%3Awriter%3Amain");
+    expect(host.loadAssistantIdentity).toHaveBeenCalledTimes(1);
+    expect(loadSpecialistContext).toHaveBeenCalledWith(host, { draft: "" });
   });
 
   it("persists cron deep-link selection with basePath", () => {

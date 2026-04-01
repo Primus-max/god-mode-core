@@ -594,6 +594,12 @@ function buildTabHref(
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalTabHref(host: SettingsHost, tab: Tab): string {
+  const url = new URL(`https://openclaw.local${pathForTab(tab, host.basePath)}`);
+  applyTabQueryStateToUrl(host, tab, url);
+  return `${url.pathname}${url.search}`;
+}
+
 function applyDeepLinkStateFromUrl(
   host: SettingsHost,
   sources: { params: URLSearchParams; hashParams: URLSearchParams },
