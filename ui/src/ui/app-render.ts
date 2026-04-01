@@ -879,8 +879,14 @@ export function renderApp(state: AppViewState) {
                     await loadRuntimeCheckpointDetail(state, checkpointId);
                     syncUrlWithTab(state, "sessions", true);
                   },
-                  onSelectRuntimeAction: (actionId) => loadRuntimeActionDetail(state, actionId),
-                  onSelectRuntimeClosure: (runId) => loadRuntimeClosureDetail(state, runId),
+                  onSelectRuntimeAction: async (actionId) => {
+                    await loadRuntimeActionDetail(state, actionId);
+                    syncUrlWithTab(state, "sessions", true);
+                  },
+                  onSelectRuntimeClosure: async (runId) => {
+                    await loadRuntimeClosureDetail(state, runId);
+                    syncUrlWithTab(state, "sessions", true);
+                  },
                   onClearRuntimeScope: async () => {
                     await clearRuntimeInspectorScope(state);
                     syncUrlWithTab(state, "sessions", true);

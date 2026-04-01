@@ -162,11 +162,13 @@ Nodes / exec approvals panel notes:
 Sessions list notes:
 
 - The Sessions surface now persists its list-level investigation state as well as runtime scope: filters, search, sort, and pagination can survive refresh/popstate together with `runtimeSession` / `runtimeRun` / `checkpoint`.
+- The Sessions runtime inspector now persists its selected detail drill-down too: `runtimeAction` and `runtimeClosure` can survive refresh/popstate alongside the existing runtime scope, so operators can reopen the same action/closure detail instead of only the parent checkpoint.
 - If a shared sessions link points at a page that no longer exists after the latest list reload, the UI clamps only the pagination state instead of dropping the rest of the sessions investigation context.
 
 Runtime / recovery notes:
 
 - The Sessions tab now doubles as the operator runtime inspector: blocked checkpoints, related actions, and closure outcomes all come from the canonical runtime ledgers rather than a separate UI cache.
+- Shareable runtime-inspector links still restore only routing intent; action receipts, closure payloads, loading state, and recovery errors are reloaded from the gateway rather than serialized into the URL.
 - High-risk recovery actions such as deny or manual continuation dispatch require an explicit confirmation in the UI before the RPC is sent.
 - When a recovery decision is sent through the Control UI, the inspector shows the latest operator decision context (`what`, `who`, `when`) so operators can verify who approved, denied, dispatched, or retried the flow.
 - Session rows also surface the current handoff truth used for runtime inspection: `handoffTruthSource` tells the operator whether the active target follows durable closure history or an in-flight recovery branch.

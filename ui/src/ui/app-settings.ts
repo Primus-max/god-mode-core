@@ -91,6 +91,8 @@ type SettingsHost = {
   runtimeSessionKey?: string | null;
   runtimeRunId?: string | null;
   runtimeSelectedCheckpointId?: string | null;
+  runtimeSelectedActionId?: string | null;
+  runtimeSelectedClosureRunId?: string | null;
   sessionsFilterActive?: string;
   sessionsFilterLimit?: string;
   sessionsIncludeGlobal?: boolean;
@@ -612,6 +614,8 @@ function applyDeepLinkStateFromUrl(
   host.runtimeSessionKey = pick("runtimeSession");
   host.runtimeRunId = pick("runtimeRun");
   host.runtimeSelectedCheckpointId = pick("checkpoint");
+  host.runtimeSelectedActionId = pick("runtimeAction");
+  host.runtimeSelectedClosureRunId = pick("runtimeClosure");
   host.sessionsFilterActive = pick("sessionsActive") ?? host.sessionsFilterActive ?? "";
   host.sessionsFilterLimit = pick("sessionsLimit") ?? host.sessionsFilterLimit ?? "120";
   host.sessionsIncludeGlobal = normalizeBooleanQuery(
@@ -701,6 +705,8 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "runtimeSession", null);
   setQueryValue(url, "runtimeRun", null);
   setQueryValue(url, "checkpoint", null);
+  setQueryValue(url, "runtimeAction", null);
+  setQueryValue(url, "runtimeClosure", null);
   setQueryValue(url, "sessionsActive", null);
   setQueryValue(url, "sessionsLimit", null);
   setQueryValue(url, "sessionsGlobal", null);
@@ -772,6 +778,8 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
     setQueryValue(url, "runtimeSession", host.runtimeSessionKey);
     setQueryValue(url, "runtimeRun", host.runtimeRunId);
     setQueryValue(url, "checkpoint", host.runtimeSelectedCheckpointId);
+    setQueryValue(url, "runtimeAction", host.runtimeSelectedActionId);
+    setQueryValue(url, "runtimeClosure", host.runtimeSelectedClosureRunId);
   }
   if (tab === "cron") {
     setQueryValue(url, "cronQ", host.cronJobsQuery);
@@ -1004,6 +1012,14 @@ export async function refreshActiveTab(host: SettingsHost) {
     }
   }
   if (host.tab === "sessions") {
+    const urlRuntimeAction =
+      typeof window !== "undefined"
+        ? trimQueryValue(new URL(window.location.href).searchParams.get("runtimeAction"))
+        : null;
+    const urlRuntimeClosure =
+      typeof window !== "undefined"
+        ? trimQueryValue(new URL(window.location.href).searchParams.get("runtimeClosure"))
+        : null;
     await Promise.allSettled([
       loadSessions(host as unknown as OpenClawApp),
       loadRuntimeInspector(host as unknown as OpenClawApp),
@@ -1016,6 +1032,14 @@ export async function refreshActiveTab(host: SettingsHost) {
     const maxPage = Math.max(0, Math.ceil(totalRows / pageSize) - 1);
     if ((host.sessionsPage ?? 0) > maxPage) {
       host.sessionsPage = maxPage;
+      syncUrlWithTab(host, "sessions", true);
+      return;
+    }
+    if (
+      (urlRuntimeAction != null && urlRuntimeAction !== (trimQueryValue(host.runtimeSelectedActionId) ?? null)) ||
+      (urlRuntimeClosure != null &&
+        urlRuntimeClosure !== (trimQueryValue(host.runtimeSelectedClosureRunId) ?? null))
+    ) {
       syncUrlWithTab(host, "sessions", true);
     }
   }
