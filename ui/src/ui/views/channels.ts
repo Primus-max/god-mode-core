@@ -208,11 +208,43 @@ function renderChannel(key: ChannelKey, props: ChannelsProps, data: ChannelsChan
           ? "border-radius:16px; outline:2px solid var(--accent-color, #6d5efc); outline-offset:2px;"
           : ""
       }
-      @click=${() => props.onSelectChannel(key)}
+      @click=${(event: MouseEvent) => {
+        if (!isChannelCardControlTarget(event.target)) {
+          return;
+        }
+        props.onSelectChannel(key);
+      }}
     >
-      ${content}
+      <a
+        href=${props.buildChannelHref(key)}
+        class="channel-card-link-overlay"
+        aria-label=${resolveChannelLabel(props.snapshot, key)}
+        @click=${(event: MouseEvent) => {
+          if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.altKey
+          ) {
+            event.stopPropagation();
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          props.onSelectChannel(key);
+        }}
+      ></a>
+      <div class="channel-card-link-content">${content}</div>
     </div>
   `;
+}
+
+function isChannelCardControlTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return Boolean(target.closest("button, input, select, textarea, label, summary, details"));
 }
 
 function renderGenericChannelCard(

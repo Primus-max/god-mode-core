@@ -19,6 +19,7 @@ vi.mock("./controllers/usage.ts", () => ({
 
 import { switchChatAgent, switchOverviewSession } from "./app-render.helpers.ts";
 import {
+  buildCanonicalChannelHref,
   buildCanonicalCronJobHref,
   applyResolvedTheme,
   applySettings,
@@ -1031,6 +1032,16 @@ describe("syncUrlWithTab", () => {
 
     expect(buildCanonicalCronJobHref(host, "job-new")).toBe(
       "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronRunsScope=job&cronJob=job-new&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered",
+    );
+  });
+
+  it("builds canonical channel hrefs with the target channel override", () => {
+    const host = createHost("channels");
+    host.basePath = "/ui";
+    host.channelsSelectedKey = "slack";
+
+    expect(buildCanonicalChannelHref(host, "telegram")).toBe(
+      "/ui/channels?session=main&channel=telegram",
     );
   });
 
