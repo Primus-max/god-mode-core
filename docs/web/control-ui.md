@@ -108,6 +108,11 @@ Channels panel notes:
 - Overview attention can now route channel-specific failures into the Channels surface with a persisted `channel` query, so operators can refresh or share the link without losing which channel needs attention.
 - The Channels grid restores and highlights the selected channel card from URL state, keeping the same drill-down context across refresh/popstate.
 
+Debug panel notes:
+
+- The Debug surface now persists the manual RPC draft too: `debugMethod` and `debugParams` survive refresh/popstate, so operators can reopen the same prepared gateway call without retyping the method name or JSON payload.
+- The shareable debug link intentionally restores only the manual RPC intent; snapshot payloads and prior call results/errors are reloaded or cleared normally instead of being serialized into the URL.
+
 Bootstrap and artifacts panel notes:
 
 - The Bootstrap surface now persists a minimal list-level query too: `bootstrapQ` survives refresh/popstate alongside `bootstrapRequest`, so operators can share the same filtered install queue instead of retyping the request search.

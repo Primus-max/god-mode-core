@@ -2184,8 +2184,14 @@ export function renderApp(state: AppViewState) {
                   callParams: state.debugCallParams,
                   callResult: state.debugCallResult,
                   callError: state.debugCallError,
-                  onCallMethodChange: (next) => (state.debugCallMethod = next),
-                  onCallParamsChange: (next) => (state.debugCallParams = next),
+                  onCallMethodChange: (next) => {
+                    state.debugCallMethod = next;
+                    syncUrlWithTab(state, "debug", true);
+                  },
+                  onCallParamsChange: (next) => {
+                    state.debugCallParams = next;
+                    syncUrlWithTab(state, "debug", true);
+                  },
                   onRefresh: () => loadDebug(state),
                   onCall: () => callDebugMethod(state),
                 }),
