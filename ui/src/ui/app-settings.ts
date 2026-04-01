@@ -124,6 +124,8 @@ type SettingsHost = {
   usageTimeSeries?: OpenClawApp["usageTimeSeries"];
   usageSessionLogs?: OpenClawApp["usageSessionLogs"];
   skillsFilter?: string;
+  debugCallMethod?: string;
+  debugCallParams?: string;
   logsFilterText?: string;
   execApprovalsTarget?: "gateway" | "node";
   execApprovalsTargetNodeId?: string | null;
@@ -152,6 +154,22 @@ type AttentionHost = Pick<
 function trimQueryValue(value: string | null | undefined): string | null {
   const trimmed = typeof value === "string" ? value.trim() : "";
   return trimmed ? trimmed : null;
+}
+
+function normalizeDebugCallParams(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  const trimmed = trimQueryValue(value);
+  if (!trimmed) {
+    return fallback;
+  }
+  try {
+    JSON.parse(trimmed);
+    return trimmed;
+  } catch {
+    return fallback;
+  }
 }
 
 function normalizeExecApprovalsTarget(value: string | null | undefined): "gateway" | "node" {
@@ -483,6 +501,11 @@ function applyDeepLinkStateFromUrl(
   host.usageQuery = pick("usageQ") ?? "";
   host.usageQueryDraft = host.usageQuery;
   host.skillsFilter = pick("skillFilter") ?? "";
+  host.debugCallMethod = pick("debugMethod") ?? host.debugCallMethod ?? "";
+  host.debugCallParams = normalizeDebugCallParams(
+    pick("debugParams"),
+    host.debugCallParams ?? "{}",
+  );
   host.logsFilterText = pick("logQ") ?? "";
   host.execApprovalsTarget = normalizeExecApprovalsTarget(pick("execTarget"));
   host.execApprovalsTargetNodeId =
@@ -530,6 +553,8 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "usageSession", null);
   setQueryValue(url, "usageQ", null);
   setQueryValue(url, "skillFilter", null);
+  setQueryValue(url, "debugMethod", null);
+  setQueryValue(url, "debugParams", null);
   setQueryValue(url, "logQ", null);
   setQueryValue(url, "execTarget", null);
   setQueryValue(url, "execNode", null);
@@ -598,6 +623,11 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   }
   if (tab === "skills") {
     setQueryValue(url, "skillFilter", host.skillsFilter);
+  }
+  if (tab === "debug") {
+    setQueryValue(url, "debugMethod", trimQueryValue(host.debugCallMethod));
+    const debugParams = trimQueryValue(host.debugCallParams);
+    setQueryValue(url, "debugParams", debugParams && debugParams !== "{}" ? debugParams : null);
   }
   if (tab === "logs") {
     setQueryValue(url, "logQ", host.logsFilterText);

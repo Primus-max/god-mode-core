@@ -143,6 +143,8 @@ type SettingsHost = {
   usageTimeSeries?: unknown;
   usageSessionLogs?: unknown;
   skillsFilter?: string;
+  debugCallMethod?: string;
+  debugCallParams?: string;
   logsFilterText?: string;
   execApprovalsTarget?: "gateway" | "node";
   execApprovalsTargetNodeId?: string | null;
@@ -366,6 +368,8 @@ const createHost = (tab: Tab): SettingsHost => ({
   usageTimeSeries: null,
   usageSessionLogs: null,
   skillsFilter: "",
+  debugCallMethod: "",
+  debugCallParams: "{}",
   logsFilterText: "",
   execApprovalsTarget: "gateway",
   execApprovalsTargetNodeId: null,
@@ -640,9 +644,9 @@ describe("applySettingsFromUrl", () => {
     expect(host.pendingGatewayToken).toBe("test-token");
   });
 
-  it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, channels, logs, and nodes", () => {
+  it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, debug, channels, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -688,6 +692,8 @@ describe("applySettingsFromUrl", () => {
     expect(host.cronRunsStatusFilter).toBe("all");
     expect(host.cronRunsDeliveryStatuses).toEqual(["delivered"]);
     expect(host.skillsFilter).toBe("missing");
+    expect(host.debugCallMethod).toBe("models.list");
+    expect(host.debugCallParams).toBe('{"limit":10}');
     expect(host.channelsSelectedKey).toBe("slack");
     expect(host.logsFilterText).toBe("timeout");
     expect(host.execApprovalsTarget).toBe("node");
@@ -752,6 +758,18 @@ describe("applySettingsFromUrl", () => {
 
     expect(host.cronRunsScope).toBe("all");
     expect(host.cronRunsJobId).toBeNull();
+  });
+
+  it("falls back to safe debug query defaults when debug params are empty or invalid JSON", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/debug?session=main&debugMethod=status&debugParams=%7Bbroken",
+    );
+    const host = createHost("debug");
+
+    applySettingsFromUrl(host);
+
+    expect(host.debugCallMethod).toBe("status");
+    expect(host.debugCallParams).toBe("{}");
   });
 });
 
@@ -915,6 +933,36 @@ describe("syncUrlWithTab", () => {
     expect(window.location.pathname).toBe("/ui/skills");
     expect(window.location.search).toContain("session=agent%3Amain%3Amain");
     expect(window.location.search).toContain(`skillFilter=${toQueryValue(SKILL_FILTER_BLOCKED)}`);
+  });
+
+  it("persists debug manual RPC query state with basePath", () => {
+    const host = createHost("debug");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.debugCallMethod = "models.list";
+    host.debugCallParams = '{"limit":10}';
+
+    syncUrlWithTab(host, "debug", true);
+
+    expect(window.location.pathname).toBe("/ui/debug");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("debugMethod=models.list");
+    expect(window.location.search).toContain(`debugParams=${toQueryValue('{"limit":10}')}`);
+  });
+
+  it("clears debug query params outside the debug tab", () => {
+    const host = createHost("debug");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.debugCallMethod = "status";
+    host.debugCallParams = '{"scope":"gateway"}';
+
+    syncUrlWithTab(host, "debug", true);
+    syncUrlWithTab(host, "chat", true);
+
+    expect(window.location.pathname).toBe("/ui/chat");
+    expect(window.location.search).not.toContain("debugMethod=");
+    expect(window.location.search).not.toContain("debugParams=");
   });
 
   it("persists usage deep-link selection with basePath", () => {
