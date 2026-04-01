@@ -70,6 +70,7 @@ export default defineConfig({
       "test/**/*.test.ts",
       "ui/src/ui/app-chat.test.ts",
       "ui/src/ui/views/agents-utils.test.ts",
+      "ui/src/ui/views/artifacts.test.ts",
       "ui/src/ui/views/bootstrap.test.ts",
       "ui/src/ui/views/chat.test.ts",
       "ui/src/ui/views/logs.test.ts",

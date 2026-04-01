@@ -108,6 +108,11 @@ Channels panel notes:
 - Overview attention can now route channel-specific failures into the Channels surface with a persisted `channel` query, so operators can refresh or share the link without losing which channel needs attention.
 - The Channels grid restores and highlights the selected channel card from URL state, keeping the same drill-down context across refresh/popstate.
 
+Bootstrap and artifacts panel notes:
+
+- The Bootstrap surface now persists a minimal list-level query too: `bootstrapQ` survives refresh/popstate alongside `bootstrapRequest`, so operators can share the same filtered install queue instead of retyping the request search.
+- The Artifacts surface now does the same with `artifactQ` alongside `artifact`, keeping the same filtered artifact list and selected record after refresh or when a link is opened elsewhere.
+
 Cron jobs panel notes:
 
 - For isolated jobs, delivery defaults to announce summary. You can switch to none if you want internal-only runs.

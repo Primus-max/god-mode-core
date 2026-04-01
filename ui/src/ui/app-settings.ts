@@ -413,7 +413,9 @@ function applyDeepLinkStateFromUrl(
   host.agentsSelectedId = pick("agent");
   host.agentsPanel = normalizeAgentsPanel(pick("agentsPanel"));
   host.agentFileActive = host.agentsPanel === "files" ? pick("agentFile") : null;
+  host.bootstrapFilterQuery = pick("bootstrapQ") ?? host.bootstrapFilterQuery ?? "";
   host.bootstrapSelectedId = pick("bootstrapRequest");
+  host.artifactsFilterQuery = pick("artifactQ") ?? host.artifactsFilterQuery ?? "";
   host.artifactsSelectedId = pick("artifact");
   host.channelsSelectedKey = pick("channel");
   host.runtimeSessionKey = pick("runtimeSession");
@@ -493,7 +495,9 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "agent", null);
   setQueryValue(url, "agentsPanel", null);
   setQueryValue(url, "agentFile", null);
+  setQueryValue(url, "bootstrapQ", null);
   setQueryValue(url, "bootstrapRequest", null);
+  setQueryValue(url, "artifactQ", null);
   setQueryValue(url, "artifact", null);
   setQueryValue(url, "channel", null);
   setQueryValue(url, "runtimeSession", null);
@@ -541,9 +545,11 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
     }
   }
   if (tab === "bootstrap") {
+    setQueryValue(url, "bootstrapQ", host.bootstrapFilterQuery);
     setQueryValue(url, "bootstrapRequest", host.bootstrapSelectedId);
   }
   if (tab === "artifacts") {
+    setQueryValue(url, "artifactQ", host.artifactsFilterQuery);
     setQueryValue(url, "artifact", host.artifactsSelectedId);
   }
   if (tab === "channels") {

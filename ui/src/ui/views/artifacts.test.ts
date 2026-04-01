@@ -100,4 +100,19 @@ describe("artifacts view", () => {
 
     await i18n.setLocale("en");
   });
+
+  it("forwards filter input changes", async () => {
+    const onFilterChange = vi.fn();
+    const container = document.createElement("div");
+
+    render(renderArtifacts(createProps({ onFilterChange })), container);
+    await Promise.resolve();
+
+    const filterInput = container.querySelector('input[type="search"]');
+    expect(filterInput).toBeTruthy();
+    Object.defineProperty(filterInput, "value", { value: "invoice", configurable: true });
+    filterInput?.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(onFilterChange).toHaveBeenLastCalledWith("invoice");
+  });
 });
