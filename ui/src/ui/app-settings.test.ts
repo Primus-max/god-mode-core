@@ -109,6 +109,30 @@ type SettingsHost = {
   bootstrapSelectedId?: string | null;
   channelsSelectedKey?: string | null;
   instancesReveal?: boolean;
+  configFormMode?: "form" | "raw";
+  configSearchQuery?: string;
+  configActiveSection?: string | null;
+  configActiveSubsection?: string | null;
+  communicationsFormMode?: "form" | "raw";
+  communicationsSearchQuery?: string;
+  communicationsActiveSection?: string | null;
+  communicationsActiveSubsection?: string | null;
+  appearanceFormMode?: "form" | "raw";
+  appearanceSearchQuery?: string;
+  appearanceActiveSection?: string | null;
+  appearanceActiveSubsection?: string | null;
+  automationFormMode?: "form" | "raw";
+  automationSearchQuery?: string;
+  automationActiveSection?: string | null;
+  automationActiveSubsection?: string | null;
+  infrastructureFormMode?: "form" | "raw";
+  infrastructureSearchQuery?: string;
+  infrastructureActiveSection?: string | null;
+  infrastructureActiveSubsection?: string | null;
+  aiAgentsFormMode?: "form" | "raw";
+  aiAgentsSearchQuery?: string;
+  aiAgentsActiveSection?: string | null;
+  aiAgentsActiveSubsection?: string | null;
   runtimeSessionKey?: string | null;
   runtimeRunId?: string | null;
   runtimeSelectedCheckpointId?: string | null;
@@ -335,6 +359,30 @@ const createHost = (tab: Tab): SettingsHost => ({
   bootstrapSelectedId: null,
   channelsSelectedKey: null,
   instancesReveal: false,
+  configFormMode: "form",
+  configSearchQuery: "",
+  configActiveSection: null,
+  configActiveSubsection: null,
+  communicationsFormMode: "form",
+  communicationsSearchQuery: "",
+  communicationsActiveSection: null,
+  communicationsActiveSubsection: null,
+  appearanceFormMode: "form",
+  appearanceSearchQuery: "",
+  appearanceActiveSection: null,
+  appearanceActiveSubsection: null,
+  automationFormMode: "form",
+  automationSearchQuery: "",
+  automationActiveSection: null,
+  automationActiveSubsection: null,
+  infrastructureFormMode: "form",
+  infrastructureSearchQuery: "",
+  infrastructureActiveSection: null,
+  infrastructureActiveSubsection: null,
+  aiAgentsFormMode: "form",
+  aiAgentsSearchQuery: "",
+  aiAgentsActiveSection: null,
+  aiAgentsActiveSubsection: null,
   runtimeSessionKey: null,
   runtimeRunId: null,
   runtimeSelectedCheckpointId: null,
@@ -783,6 +831,54 @@ describe("applySettingsFromUrl", () => {
 
     expect(host.instancesReveal).toBe(false);
   });
+
+  it("hydrates settings navigation query state for all settings-family tabs", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/config?session=main&configMode=raw&configQ=gateway%20mode&configSection=gateway&configSubsection=auth&communicationsMode=raw&communicationsQ=discord%20bot&communicationsSection=discord&communicationsSubsection=accounts&appearanceMode=raw&appearanceQ=theme%20tokens&appearanceSection=ui&appearanceSubsection=theme&automationMode=raw&automationQ=retry%20policy&automationSection=reply&automationSubsection=timeouts&infrastructureMode=raw&infrastructureQ=node%20pool&infrastructureSection=gateway&infrastructureSubsection=bind&aiAgentsMode=raw&aiAgentsQ=planner%20policy&aiAgentsSection=agents&aiAgentsSubsection=router",
+    );
+    const host = createHost("config");
+
+    applySettingsFromUrl(host);
+
+    expect(host.configFormMode).toBe("raw");
+    expect(host.configSearchQuery).toBe("gateway mode");
+    expect(host.configActiveSection).toBe("gateway");
+    expect(host.configActiveSubsection).toBe("auth");
+    expect(host.communicationsFormMode).toBe("raw");
+    expect(host.communicationsSearchQuery).toBe("discord bot");
+    expect(host.communicationsActiveSection).toBe("discord");
+    expect(host.communicationsActiveSubsection).toBe("accounts");
+    expect(host.appearanceFormMode).toBe("raw");
+    expect(host.appearanceSearchQuery).toBe("theme tokens");
+    expect(host.appearanceActiveSection).toBe("ui");
+    expect(host.appearanceActiveSubsection).toBe("theme");
+    expect(host.automationFormMode).toBe("raw");
+    expect(host.automationSearchQuery).toBe("retry policy");
+    expect(host.automationActiveSection).toBe("reply");
+    expect(host.automationActiveSubsection).toBe("timeouts");
+    expect(host.infrastructureFormMode).toBe("raw");
+    expect(host.infrastructureSearchQuery).toBe("node pool");
+    expect(host.infrastructureActiveSection).toBe("gateway");
+    expect(host.infrastructureActiveSubsection).toBe("bind");
+    expect(host.aiAgentsFormMode).toBe("raw");
+    expect(host.aiAgentsSearchQuery).toBe("planner policy");
+    expect(host.aiAgentsActiveSection).toBe("agents");
+    expect(host.aiAgentsActiveSubsection).toBe("router");
+  });
+
+  it("falls back to safe settings navigation defaults when query values are invalid", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/config?session=main&configMode=wizard&configQ=%20%20&configSection=%20%20&configSubsection=auth",
+    );
+    const host = createHost("config");
+
+    applySettingsFromUrl(host);
+
+    expect(host.configFormMode).toBe("form");
+    expect(host.configSearchQuery).toBe("");
+    expect(host.configActiveSection).toBeNull();
+    expect(host.configActiveSubsection).toBeNull();
+  });
 });
 
 describe("syncUrlWithTab", () => {
@@ -870,6 +966,76 @@ describe("syncUrlWithTab", () => {
     expect(window.location.pathname).toBe("/ui/instances");
     expect(window.location.search).toContain("session=agent%3Amain%3Amain");
     expect(window.location.search).toContain("instancesReveal=true");
+  });
+
+  it("persists settings navigation query state with tab-prefixed keys", () => {
+    const host = createHost("config");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.configFormMode = "raw";
+    host.configSearchQuery = "gateway mode";
+    host.configActiveSection = "gateway";
+    host.configActiveSubsection = "auth";
+
+    syncUrlWithTab(host, "config", true);
+
+    expect(window.location.pathname).toBe("/ui/config");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("configMode=raw");
+    expect(window.location.search).toContain(`configQ=${toQueryValue("gateway mode")}`);
+    expect(window.location.search).toContain("configSection=gateway");
+    expect(window.location.search).toContain("configSubsection=auth");
+  });
+
+  it("switches between settings-family tabs without leaking another tab's query state", () => {
+    const host = createHost("config");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.configFormMode = "raw";
+    host.configSearchQuery = "gateway mode";
+    host.configActiveSection = "gateway";
+    host.configActiveSubsection = "auth";
+    host.communicationsFormMode = "raw";
+    host.communicationsSearchQuery = "discord bot";
+    host.communicationsActiveSection = "discord";
+    host.communicationsActiveSubsection = "accounts";
+
+    syncUrlWithTab(host, "config", true);
+    syncUrlWithTab(host, "communications", true);
+
+    expect(window.location.pathname).toBe("/ui/communications");
+    expect(window.location.search).toContain("communicationsMode=raw");
+    expect(window.location.search).toContain(`communicationsQ=${toQueryValue("discord bot")}`);
+    expect(window.location.search).toContain("communicationsSection=discord");
+    expect(window.location.search).toContain("communicationsSubsection=accounts");
+    expect(window.location.search).not.toContain("configMode=");
+    expect(window.location.search).not.toContain("configQ=");
+    expect(window.location.search).not.toContain("configSection=");
+    expect(window.location.search).not.toContain("configSubsection=");
+  });
+
+  it("clears settings navigation query params outside the settings-family tabs", () => {
+    const host = createHost("aiAgents");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.aiAgentsFormMode = "raw";
+    host.aiAgentsSearchQuery = "planner policy";
+    host.aiAgentsActiveSection = "agents";
+    host.aiAgentsActiveSubsection = "router";
+
+    syncUrlWithTab(host, "aiAgents", true);
+    syncUrlWithTab(host, "chat", true);
+
+    expect(window.location.pathname).toBe("/ui/chat");
+    expect(window.location.search).not.toContain("configMode=");
+    expect(window.location.search).not.toContain("communicationsMode=");
+    expect(window.location.search).not.toContain("appearanceMode=");
+    expect(window.location.search).not.toContain("automationMode=");
+    expect(window.location.search).not.toContain("infrastructureMode=");
+    expect(window.location.search).not.toContain("aiAgentsMode=");
+    expect(window.location.search).not.toContain("aiAgentsQ=");
+    expect(window.location.search).not.toContain("aiAgentsSection=");
+    expect(window.location.search).not.toContain("aiAgentsSubsection=");
   });
 
   it("persists cron runs explorer query state with basePath", () => {

@@ -125,6 +125,30 @@ type SettingsHost = {
   usageSessionLogs?: OpenClawApp["usageSessionLogs"];
   skillsFilter?: string;
   instancesReveal?: boolean;
+  configFormMode?: "form" | "raw";
+  configSearchQuery?: string;
+  configActiveSection?: string | null;
+  configActiveSubsection?: string | null;
+  communicationsFormMode?: "form" | "raw";
+  communicationsSearchQuery?: string;
+  communicationsActiveSection?: string | null;
+  communicationsActiveSubsection?: string | null;
+  appearanceFormMode?: "form" | "raw";
+  appearanceSearchQuery?: string;
+  appearanceActiveSection?: string | null;
+  appearanceActiveSubsection?: string | null;
+  automationFormMode?: "form" | "raw";
+  automationSearchQuery?: string;
+  automationActiveSection?: string | null;
+  automationActiveSubsection?: string | null;
+  infrastructureFormMode?: "form" | "raw";
+  infrastructureSearchQuery?: string;
+  infrastructureActiveSection?: string | null;
+  infrastructureActiveSubsection?: string | null;
+  aiAgentsFormMode?: "form" | "raw";
+  aiAgentsSearchQuery?: string;
+  aiAgentsActiveSection?: string | null;
+  aiAgentsActiveSubsection?: string | null;
   debugCallMethod?: string;
   debugCallParams?: string;
   logsFilterText?: string;
@@ -229,6 +253,150 @@ function normalizeBooleanQuery(value: string | null | undefined, fallback: boole
     return false;
   }
   return fallback;
+}
+
+type SettingsNavigationTab =
+  | "config"
+  | "communications"
+  | "appearance"
+  | "automation"
+  | "infrastructure"
+  | "aiAgents";
+
+type SettingsFormMode = "form" | "raw";
+
+type SettingsNavigationBinding = {
+  tab: SettingsNavigationTab;
+  modeParam: string;
+  queryParam: string;
+  sectionParam: string;
+  subsectionParam: string;
+  modeProp: string;
+  queryProp: string;
+  sectionProp: string;
+  subsectionProp: string;
+};
+
+const SETTINGS_NAVIGATION_BINDINGS: readonly SettingsNavigationBinding[] = [
+  {
+    tab: "config",
+    modeParam: "configMode",
+    queryParam: "configQ",
+    sectionParam: "configSection",
+    subsectionParam: "configSubsection",
+    modeProp: "configFormMode",
+    queryProp: "configSearchQuery",
+    sectionProp: "configActiveSection",
+    subsectionProp: "configActiveSubsection",
+  },
+  {
+    tab: "communications",
+    modeParam: "communicationsMode",
+    queryParam: "communicationsQ",
+    sectionParam: "communicationsSection",
+    subsectionParam: "communicationsSubsection",
+    modeProp: "communicationsFormMode",
+    queryProp: "communicationsSearchQuery",
+    sectionProp: "communicationsActiveSection",
+    subsectionProp: "communicationsActiveSubsection",
+  },
+  {
+    tab: "appearance",
+    modeParam: "appearanceMode",
+    queryParam: "appearanceQ",
+    sectionParam: "appearanceSection",
+    subsectionParam: "appearanceSubsection",
+    modeProp: "appearanceFormMode",
+    queryProp: "appearanceSearchQuery",
+    sectionProp: "appearanceActiveSection",
+    subsectionProp: "appearanceActiveSubsection",
+  },
+  {
+    tab: "automation",
+    modeParam: "automationMode",
+    queryParam: "automationQ",
+    sectionParam: "automationSection",
+    subsectionParam: "automationSubsection",
+    modeProp: "automationFormMode",
+    queryProp: "automationSearchQuery",
+    sectionProp: "automationActiveSection",
+    subsectionProp: "automationActiveSubsection",
+  },
+  {
+    tab: "infrastructure",
+    modeParam: "infrastructureMode",
+    queryParam: "infrastructureQ",
+    sectionParam: "infrastructureSection",
+    subsectionParam: "infrastructureSubsection",
+    modeProp: "infrastructureFormMode",
+    queryProp: "infrastructureSearchQuery",
+    sectionProp: "infrastructureActiveSection",
+    subsectionProp: "infrastructureActiveSubsection",
+  },
+  {
+    tab: "aiAgents",
+    modeParam: "aiAgentsMode",
+    queryParam: "aiAgentsQ",
+    sectionParam: "aiAgentsSection",
+    subsectionParam: "aiAgentsSubsection",
+    modeProp: "aiAgentsFormMode",
+    queryProp: "aiAgentsSearchQuery",
+    sectionProp: "aiAgentsActiveSection",
+    subsectionProp: "aiAgentsActiveSubsection",
+  },
+];
+
+function normalizeSettingsFormMode(
+  value: string | null | undefined,
+  fallback: SettingsFormMode,
+): SettingsFormMode {
+  return value === "raw" || value === "form" ? value : fallback;
+}
+
+function getSettingsNavigationBinding(tab: Tab): SettingsNavigationBinding | null {
+  return SETTINGS_NAVIGATION_BINDINGS.find((binding) => binding.tab === tab) ?? null;
+}
+
+function applySettingsNavigationStateFromUrl(
+  host: SettingsHost,
+  pick: (key: string) => string | null,
+) {
+  const dynamicHost = host as Record<string, string | null | undefined>;
+  for (const binding of SETTINGS_NAVIGATION_BINDINGS) {
+    dynamicHost[binding.modeProp] = normalizeSettingsFormMode(pick(binding.modeParam), "form");
+    dynamicHost[binding.queryProp] = pick(binding.queryParam) ?? "";
+    dynamicHost[binding.sectionProp] = pick(binding.sectionParam);
+    dynamicHost[binding.subsectionProp] = dynamicHost[binding.sectionProp]
+      ? pick(binding.subsectionParam)
+      : null;
+  }
+}
+
+function clearSettingsNavigationQueryState(url: URL) {
+  for (const binding of SETTINGS_NAVIGATION_BINDINGS) {
+    setQueryValue(url, binding.modeParam, null);
+    setQueryValue(url, binding.queryParam, null);
+    setQueryValue(url, binding.sectionParam, null);
+    setQueryValue(url, binding.subsectionParam, null);
+  }
+}
+
+function applySettingsNavigationStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
+  clearSettingsNavigationQueryState(url);
+  const binding = getSettingsNavigationBinding(tab);
+  if (!binding) {
+    return;
+  }
+  const dynamicHost = host as Record<string, string | null | undefined>;
+  const activeSection = dynamicHost[binding.sectionProp];
+  setQueryValue(url, binding.modeParam, dynamicHost[binding.modeProp] ?? "form");
+  setQueryValue(url, binding.queryParam, dynamicHost[binding.queryProp]);
+  setQueryValue(url, binding.sectionParam, activeSection);
+  setQueryValue(
+    url,
+    binding.subsectionParam,
+    activeSection ? dynamicHost[binding.subsectionProp] : null,
+  );
 }
 
 function normalizeSessionsSortColumn(
@@ -506,6 +674,7 @@ function applyDeepLinkStateFromUrl(
   host.usageQuery = pick("usageQ") ?? "";
   host.usageQueryDraft = host.usageQuery;
   host.skillsFilter = pick("skillFilter") ?? "";
+  applySettingsNavigationStateFromUrl(host, pick);
   host.debugCallMethod = pick("debugMethod") ?? host.debugCallMethod ?? "";
   host.debugCallParams = normalizeDebugCallParams(
     pick("debugParams"),
@@ -559,6 +728,7 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "usageSession", null);
   setQueryValue(url, "usageQ", null);
   setQueryValue(url, "skillFilter", null);
+  clearSettingsNavigationQueryState(url);
   setQueryValue(url, "debugMethod", null);
   setQueryValue(url, "debugParams", null);
   setQueryValue(url, "logQ", null);
@@ -633,6 +803,7 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   if (tab === "skills") {
     setQueryValue(url, "skillFilter", host.skillsFilter);
   }
+  applySettingsNavigationStateToUrl(host, tab, url);
   if (tab === "debug") {
     setQueryValue(url, "debugMethod", trimQueryValue(host.debugCallMethod));
     const debugParams = trimQueryValue(host.debugCallParams);

@@ -113,6 +113,11 @@ Instances panel notes:
 - The Instances surface now persists its privacy toggle too: `instancesReveal` survives refresh/popstate, so operators can reopen the same masked-vs-revealed host/IP mode without relying on module-local UI state.
 - The shareable instances link intentionally restores only that visibility intent; presence rows, counters, and other transient beacon payloads still reload normally instead of being serialized into the URL.
 
+Settings panel notes:
+
+- The settings-family surfaces (`config`, `communications`, `appearance`, `automation`, `infrastructure`, `aiAgents`) now persist their navigation context too: each tab restores its own `*Mode`, `*Q`, `*Section`, and `*Subsection` query state after refresh/popstate instead of reopening a generic top-level config view.
+- The shareable settings links intentionally restore only that navigation context; raw JSON payloads, dirty editor state, validation issues, and other transient form details are still reloaded from the gateway rather than serialized into the URL.
+
 Debug panel notes:
 
 - The Debug surface now persists the manual RPC draft too: `debugMethod` and `debugParams` survive refresh/popstate, so operators can reopen the same prepared gateway call without retyping the method name or JSON payload.
