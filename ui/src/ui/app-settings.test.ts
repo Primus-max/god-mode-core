@@ -109,6 +109,8 @@ type SettingsHost = {
   bootstrapSelectedId?: string | null;
   channelsSelectedKey?: string | null;
   instancesReveal?: boolean;
+  runtimeSelectedActionId?: string | null;
+  runtimeSelectedClosureRunId?: string | null;
   configFormMode?: "form" | "raw";
   configSearchQuery?: string;
   configActiveSection?: string | null;
@@ -359,6 +361,8 @@ const createHost = (tab: Tab): SettingsHost => ({
   bootstrapSelectedId: null,
   channelsSelectedKey: null,
   instancesReveal: false,
+  runtimeSelectedActionId: null,
+  runtimeSelectedClosureRunId: null,
   configFormMode: "form",
   configSearchQuery: "",
   configActiveSection: null,
@@ -696,7 +700,7 @@ describe("applySettingsFromUrl", () => {
 
   it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, debug, channels, instances, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&instancesReveal=true&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=action-1&runtimeClosure=run-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&instancesReveal=true&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -724,6 +728,8 @@ describe("applySettingsFromUrl", () => {
     expect(host.runtimeSessionKey).toBe("agent:main:main");
     expect(host.runtimeRunId).toBe("run-1");
     expect(host.runtimeSelectedCheckpointId).toBe("cp-1");
+    expect(host.runtimeSelectedActionId).toBe("action-1");
+    expect(host.runtimeSelectedClosureRunId).toBe("run-1");
     expect(host.bootstrapFilterQuery).toBe("renderer");
     expect(host.bootstrapSelectedId).toBe("bootstrap-1");
     expect(host.artifactsFilterQuery).toBe("invoice");
@@ -909,6 +915,8 @@ describe("syncUrlWithTab", () => {
     host.runtimeSessionKey = "agent:main:main";
     host.runtimeRunId = "run-1";
     host.runtimeSelectedCheckpointId = "cp-1";
+    host.runtimeSelectedActionId = "action-1";
+    host.runtimeSelectedClosureRunId = "run-1";
 
     syncUrlWithTab(host, "sessions", true);
 
@@ -926,6 +934,8 @@ describe("syncUrlWithTab", () => {
     expect(window.location.search).toContain("runtimeSession=agent%3Amain%3Amain");
     expect(window.location.search).toContain("runtimeRun=run-1");
     expect(window.location.search).toContain("checkpoint=cp-1");
+    expect(window.location.search).toContain("runtimeAction=action-1");
+    expect(window.location.search).toContain("runtimeClosure=run-1");
   });
 
   it("persists cron deep-link selection with basePath", () => {
@@ -1124,6 +1134,24 @@ describe("syncUrlWithTab", () => {
 
     expect(window.location.pathname).toBe("/ui/chat");
     expect(window.location.search).not.toContain("instancesReveal=");
+  });
+
+  it("clears runtime detail query params outside the sessions tab", () => {
+    const host = createHost("sessions");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.runtimeSessionKey = "agent:main:main";
+    host.runtimeRunId = "run-1";
+    host.runtimeSelectedCheckpointId = "cp-1";
+    host.runtimeSelectedActionId = "action-1";
+    host.runtimeSelectedClosureRunId = "run-1";
+
+    syncUrlWithTab(host, "sessions", true);
+    syncUrlWithTab(host, "chat", true);
+
+    expect(window.location.pathname).toBe("/ui/chat");
+    expect(window.location.search).not.toContain("runtimeAction=");
+    expect(window.location.search).not.toContain("runtimeClosure=");
   });
 
   it("persists skills deep-link selection with basePath", () => {
@@ -1370,6 +1398,40 @@ describe("refreshActiveTab sessions list deep links", () => {
     expect(window.location.search).toContain("sessionsPage=0");
     expect(window.location.search).toContain("sessionsPageSize=50");
     expect(loadRuntimeInspector).toHaveBeenCalledWith(host);
+  });
+
+  it("canonicalizes stale runtime action and closure deep links after the inspector reloads", async () => {
+    setTestWindowUrl(
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=missing-action&runtimeClosure=missing-run",
+    );
+    const host = createHost("sessions");
+    host.basePath = "/ui";
+    host.connected = true;
+    host.sessionKey = "agent:main:main";
+    host.runtimeSessionKey = "agent:main:main";
+    host.runtimeRunId = "run-1";
+    host.runtimeSelectedCheckpointId = "cp-1";
+    host.runtimeSelectedActionId = "missing-action";
+    host.runtimeSelectedClosureRunId = "missing-run";
+    vi.mocked(loadSessions).mockImplementationOnce(async (state) => {
+      (state as SettingsHost).sessionsResult = {
+        count: 1,
+        sessions: [{ key: "agent:main:main" }],
+      };
+    });
+    vi.mocked(loadRuntimeInspector).mockImplementationOnce(async (state) => {
+      (state as SettingsHost).runtimeSelectedActionId = "action-1";
+      (state as SettingsHost).runtimeSelectedClosureRunId = "run-1";
+    });
+
+    await refreshActiveTab(host);
+
+    expect(host.runtimeSelectedActionId).toBe("action-1");
+    expect(host.runtimeSelectedClosureRunId).toBe("run-1");
+    expect(window.location.search).toContain("runtimeAction=action-1");
+    expect(window.location.search).toContain("runtimeClosure=run-1");
+    expect(window.location.search).not.toContain("runtimeAction=missing-action");
+    expect(window.location.search).not.toContain("runtimeClosure=missing-run");
   });
 });
 
