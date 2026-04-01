@@ -17,6 +17,8 @@ import {
 } from "./app-render.helpers.ts";
 import {
   buildCanonicalAgentsHref,
+  buildCanonicalArtifactsHref,
+  buildCanonicalBootstrapHref,
   buildCanonicalNodesExecApprovalsHref,
   buildCanonicalSessionsRuntimeHref,
   buildCanonicalSettingsShellHref,
@@ -993,6 +995,10 @@ export function renderApp(state: AppViewState) {
                   filterQuery: state.artifactsFilterQuery,
                   selectedId: state.artifactsSelectedId,
                   detail: state.artifactDetail,
+                  buildArtifactHref: (artifactId) =>
+                    buildCanonicalArtifactsHref(state, {
+                      artifactId,
+                    }),
                   onRefresh: () => loadArtifacts(state),
                   onSelect: async (artifactId) => {
                     await loadArtifactDetail(state, artifactId);
@@ -1028,6 +1034,10 @@ export function renderApp(state: AppViewState) {
                   selectedId: state.bootstrapSelectedId,
                   detail: state.bootstrapDetail,
                   runtimeCheckpoints: state.runtimeCheckpoints,
+                  buildRequestHref: (requestId) =>
+                    buildCanonicalBootstrapHref(state, {
+                      requestId,
+                    }),
                   onRefresh: async () => {
                     await Promise.allSettled([
                       loadBootstrapRequests(state),

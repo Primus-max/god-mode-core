@@ -21,12 +21,24 @@ export type BootstrapProps = {
   selectedId: string | null;
   detail: BootstrapRequestRecordDetail | null;
   runtimeCheckpoints?: RuntimeCheckpointSummary[];
+  buildRequestHref: (requestId: string) => string;
   onRefresh: () => void | Promise<void>;
   onSelect: (requestId: string) => void | Promise<void>;
   onFilterChange: (value: string) => void;
   onResolve: (requestId: string, decision: "approve" | "deny") => void | Promise<void>;
   onRun: (requestId: string) => void | Promise<void>;
 };
+
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  );
+}
 
 function matchesBootstrapQuery(entry: BootstrapRequestRecordSummary, query: string) {
   const normalized = query.trim().toLowerCase();
@@ -49,15 +61,22 @@ function matchesBootstrapQuery(entry: BootstrapRequestRecordSummary, query: stri
 function renderBootstrapListItem(params: {
   request: BootstrapRequestRecordSummary;
   selected: boolean;
+  buildRequestHref: (requestId: string) => string;
   onSelect: (requestId: string) => void | Promise<void>;
 }) {
-  const { request, selected, onSelect } = params;
+  const { request, selected, buildRequestHref, onSelect } = params;
   return html`
-    <button
-      class="btn"
-      type="button"
-      ?disabled=${selected}
-      @click=${() => onSelect(request.id)}
+    <a
+      class="btn ${selected ? "active" : ""}"
+      href=${buildRequestHref(request.id)}
+      aria-current=${selected ? "page" : "false"}
+      @click=${(event: MouseEvent) => {
+        if (isModifiedNavigationClick(event)) {
+          return;
+        }
+        event.preventDefault();
+        onSelect(request.id);
+      }}
       style="display:flex; width:100%; text-align:left; justify-content:space-between; gap:12px;"
     >
       <span>
@@ -67,7 +86,7 @@ function renderBootstrapListItem(params: {
         </span>
       </span>
       <span style="opacity:0.75;">${formatRelativeIsoTimestamp(request.updatedAt)}</span>
-    </button>
+    </a>
   `;
 }
 
@@ -187,6 +206,7 @@ export function renderBootstrap(props: BootstrapProps) {
                   renderBootstrapListItem({
                     request: entry,
                     selected: entry.id === props.selectedId,
+                    buildRequestHref: props.buildRequestHref,
                     onSelect: props.onSelect,
                   }),
                 )

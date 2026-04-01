@@ -63,6 +63,7 @@ function createProps(overrides: Partial<BootstrapProps> = {}): BootstrapProps {
       },
     },
     runtimeCheckpoints: [],
+    buildRequestHref: (requestId) => `/ui/bootstrap?bootstrapRequest=${encodeURIComponent(requestId)}`,
     onRefresh: () => undefined,
     onSelect: () => undefined,
     onFilterChange: () => undefined,
@@ -179,5 +180,78 @@ describe("bootstrap view", () => {
     filterInput?.dispatchEvent(new Event("input", { bubbles: true }));
 
     expect(onFilterChange).toHaveBeenLastCalledWith("renderer");
+  });
+
+  it("renders canonical hrefs for bootstrap list rows", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderBootstrap(
+        createProps({
+          filterQuery: "renderer",
+          buildRequestHref: (requestId) =>
+            `/ui/bootstrap?bootstrapQ=renderer&bootstrapRequest=${encodeURIComponent(requestId)}`,
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const rowLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("pdf-renderer"),
+    ) as HTMLAnchorElement | undefined;
+    expect(rowLink?.getAttribute("href")).toBe(
+      "/ui/bootstrap?bootstrapQ=renderer&bootstrapRequest=bootstrap-1",
+    );
+  });
+
+  it("uses JS handoff for primary clicks on bootstrap list rows", async () => {
+    const onSelect = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderBootstrap(
+        createProps({
+          onSelect,
+          buildRequestHref: () => "/ui/bootstrap?bootstrapRequest=bootstrap-1",
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const rowLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("pdf-renderer"),
+    ) as HTMLAnchorElement | undefined;
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    rowLink?.dispatchEvent(event);
+
+    expect(onSelect).toHaveBeenCalledWith("bootstrap-1");
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("lets modified clicks fall through to the browser href for bootstrap list rows", async () => {
+    const onSelect = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderBootstrap(
+        createProps({
+          onSelect,
+          buildRequestHref: () => "/ui/bootstrap?bootstrapRequest=bootstrap-1",
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const rowLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("pdf-renderer"),
+    ) as HTMLAnchorElement | undefined;
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
+    rowLink?.dispatchEvent(event);
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
   });
 });
