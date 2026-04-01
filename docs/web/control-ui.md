@@ -108,6 +108,11 @@ Channels panel notes:
 - Overview attention can now route channel-specific failures into the Channels surface with a persisted `channel` query, so operators can refresh or share the link without losing which channel needs attention.
 - The Channels grid restores and highlights the selected channel card from URL state, keeping the same drill-down context across refresh/popstate.
 
+Instances panel notes:
+
+- The Instances surface now persists its privacy toggle too: `instancesReveal` survives refresh/popstate, so operators can reopen the same masked-vs-revealed host/IP mode without relying on module-local UI state.
+- The shareable instances link intentionally restores only that visibility intent; presence rows, counters, and other transient beacon payloads still reload normally instead of being serialized into the URL.
+
 Debug panel notes:
 
 - The Debug surface now persists the manual RPC draft too: `debugMethod` and `debugParams` survive refresh/popstate, so operators can reopen the same prepared gateway call without retyping the method name or JSON payload.

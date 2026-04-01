@@ -795,6 +795,11 @@ export function renderApp(state: AppViewState) {
                   entries: state.presenceEntries,
                   lastError: state.presenceError,
                   statusMessage: state.presenceStatus,
+                  revealed: state.instancesReveal,
+                  onToggleReveal: () => {
+                    state.instancesReveal = !state.instancesReveal;
+                    syncUrlWithTab(state, "instances", true);
+                  },
                   onRefresh: () => loadPresence(state),
                 }),
               )

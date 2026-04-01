@@ -265,6 +265,7 @@ export class OpenClawApp extends LitElement {
   @state() presenceEntries: PresenceEntry[] = [];
   @state() presenceError: string | null = null;
   @state() presenceStatus: string | null = null;
+  @state() instancesReveal = false;
 
   @state() agentsLoading = false;
   @state() agentsList: AgentsListResult | null = null;
