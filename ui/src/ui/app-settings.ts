@@ -579,7 +579,7 @@ function setQueryValue(url: URL, key: string, value: string | null | undefined) 
   url.searchParams.delete(key);
 }
 
-function buildTabHref(
+export function buildTabHref(
   host: Pick<SettingsHost, "basePath">,
   tab: Tab,
   params: Record<string, string | null | undefined> = {},
