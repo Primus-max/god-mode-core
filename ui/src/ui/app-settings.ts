@@ -628,6 +628,50 @@ export function buildCanonicalChannelHref(
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalBootstrapHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    query?: string | null;
+    requestId?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("bootstrap", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "bootstrap", url);
+  const query =
+    "query" in overrides
+      ? trimQueryValue(overrides.query ?? null)
+      : trimQueryValue(host.bootstrapFilterQuery ?? null);
+  const requestId =
+    "requestId" in overrides
+      ? trimQueryValue(overrides.requestId ?? null)
+      : trimQueryValue(host.bootstrapSelectedId ?? null);
+  setQueryValue(url, "bootstrapQ", query);
+  setQueryValue(url, "bootstrapRequest", requestId);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalArtifactsHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    query?: string | null;
+    artifactId?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("artifacts", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "artifacts", url);
+  const query =
+    "query" in overrides
+      ? trimQueryValue(overrides.query ?? null)
+      : trimQueryValue(host.artifactsFilterQuery ?? null);
+  const artifactId =
+    "artifactId" in overrides
+      ? trimQueryValue(overrides.artifactId ?? null)
+      : trimQueryValue(host.artifactsSelectedId ?? null);
+  setQueryValue(url, "artifactQ", query);
+  setQueryValue(url, "artifact", artifactId);
+  return `${url.pathname}${url.search}`;
+}
+
 export function buildCanonicalAgentsHref(
   host: SettingsHost | AppViewState,
   overrides: {

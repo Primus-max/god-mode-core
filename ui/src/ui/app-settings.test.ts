@@ -20,6 +20,8 @@ vi.mock("./controllers/usage.ts", () => ({
 import { switchChatAgent, switchOverviewSession } from "./app-render.helpers.ts";
 import {
   buildCanonicalAgentsHref,
+  buildCanonicalArtifactsHref,
+  buildCanonicalBootstrapHref,
   buildCanonicalNodesExecApprovalsHref,
   buildCanonicalSessionsRuntimeHref,
   buildCanonicalSettingsShellHref,
@@ -1126,6 +1128,30 @@ describe("syncUrlWithTab", () => {
         agentId: "ops",
       }),
     ).toBe("/ui/nodes?session=main&execTarget=node&execNode=node-2&execAgent=ops");
+  });
+
+  it("builds canonical bootstrap and artifacts hrefs with list query overrides", () => {
+    const bootstrapHost = createHost("bootstrap");
+    bootstrapHost.basePath = "/ui";
+    bootstrapHost.bootstrapFilterQuery = "renderer";
+    bootstrapHost.bootstrapSelectedId = "bootstrap-1";
+
+    expect(
+      buildCanonicalBootstrapHref(bootstrapHost, {
+        requestId: "bootstrap-2",
+      }),
+    ).toBe("/ui/bootstrap?session=main&bootstrapQ=renderer&bootstrapRequest=bootstrap-2");
+
+    const artifactsHost = createHost("artifacts");
+    artifactsHost.basePath = "/ui";
+    artifactsHost.artifactsFilterQuery = "invoice";
+    artifactsHost.artifactsSelectedId = "artifact-1";
+
+    expect(
+      buildCanonicalArtifactsHref(artifactsHost, {
+        artifactId: "artifact-2",
+      }),
+    ).toBe("/ui/artifacts?session=main&artifactQ=invoice&artifact=artifact-2");
   });
 
   it("builds canonical settings shell hrefs with section and mode overrides", () => {
