@@ -15,7 +15,7 @@ import {
   switchChatSession,
   switchOverviewSession,
 } from "./app-render.helpers.ts";
-import { syncUrlWithTab } from "./app-settings.ts";
+import { buildCanonicalTabHref, buildTabHref, syncUrlWithTab } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
@@ -714,6 +714,15 @@ export function renderApp(state: AppViewState) {
                 },
                 onConnect: () => state.connect(),
                 onRefresh: () => state.loadOverview(),
+                buildCardHref: (tab, options) => {
+                  if (tab === "skills") {
+                    return buildTabHref({ basePath: state.basePath }, "skills", {
+                      session: state.sessionKey,
+                      skillFilter: options?.skillFilter ?? "",
+                    });
+                  }
+                  return buildCanonicalTabHref(state, tab);
+                },
                 onNavigate: (tab, options) => {
                   if (tab === "skills") {
                     state.skillsFilter = options?.skillFilter ?? "";
