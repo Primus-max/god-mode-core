@@ -140,6 +140,9 @@
 }
 
 .config-mode-toggle__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 1;
   padding: 6px 12px;
   border: none;
@@ -149,13 +152,14 @@
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
+  text-decoration: none;
   transition:
     background var(--duration-fast) ease,
     color var(--duration-fast) ease,
     box-shadow var(--duration-fast) ease;
 }
 
-.config-mode-toggle__btn:hover:not(.active) {
+.config-mode-toggle__btn:hover:not(.active):not([aria-disabled="true"]) {
   color: var(--text);
   background: var(--bg-hover);
 }
@@ -265,6 +269,9 @@
 }
 
 .config-top-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-full);
@@ -275,6 +282,7 @@
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
+  text-decoration: none;
   transition:
     border-color var(--duration-fast) ease,
     background var(--duration-fast) ease,
@@ -296,6 +304,11 @@
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
   background: var(--accent-subtle);
+}
+
+.config-mode-toggle__btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .config-top-tabs__right {

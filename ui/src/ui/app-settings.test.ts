@@ -19,6 +19,7 @@ vi.mock("./controllers/usage.ts", () => ({
 
 import { switchChatAgent, switchOverviewSession } from "./app-render.helpers.ts";
 import {
+  buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
   buildCanonicalCronJobHref,
   applyResolvedTheme,
@@ -1042,6 +1043,22 @@ describe("syncUrlWithTab", () => {
 
     expect(buildCanonicalChannelHref(host, "telegram")).toBe(
       "/ui/channels?session=main&channel=telegram",
+    );
+  });
+
+  it("builds canonical settings shell hrefs with section and mode overrides", () => {
+    const host = createHost("communications");
+    host.basePath = "/ui";
+    host.communicationsFormMode = "form";
+    host.communicationsSearchQuery = "discord";
+    host.communicationsActiveSection = "channels";
+    host.communicationsActiveSubsection = "slack";
+
+    expect(buildCanonicalSettingsShellHref(host, "communications", { section: "discord" })).toBe(
+      "/ui/communications?session=main&communicationsMode=form&communicationsQ=discord&communicationsSection=discord",
+    );
+    expect(buildCanonicalSettingsShellHref(host, "communications", { mode: "raw" })).toBe(
+      "/ui/communications?session=main&communicationsMode=raw&communicationsQ=discord&communicationsSection=channels&communicationsSubsection=slack",
     );
   });
 

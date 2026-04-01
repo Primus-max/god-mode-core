@@ -34,6 +34,8 @@ export type ConfigProps = {
   searchQuery: string;
   activeSection: string | null;
   activeSubsection: string | null;
+  buildSectionHref: (section: string | null) => string;
+  buildModeHref: (mode: "form" | "raw") => string;
   onRawChange: (next: string) => void;
   onFormModeChange: (mode: "form" | "raw") => void;
   onFormPatch: (path: Array<string | number>, value: unknown) => void;
@@ -730,6 +732,39 @@ export function renderConfig(props: ConfigProps) {
     formMode === "form" &&
     props.activeSection === null &&
     Boolean(include?.has("__appearance__"));
+  const formModeDisabled = props.schemaLoading || !props.schema;
+
+  const handleSectionClick = (event: MouseEvent, section: string | null) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    event.preventDefault();
+    props.onSectionChange(section);
+  };
+
+  const handleModeClick = (event: MouseEvent, mode: "form" | "raw") => {
+    if (mode === "form" && formModeDisabled) {
+      event.preventDefault();
+      return;
+    }
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    event.preventDefault();
+    props.onFormModeChange(mode);
+  };
 
   return html`
     <div class="config-layout">
@@ -852,15 +887,16 @@ export function renderConfig(props: ConfigProps) {
           <div class="config-top-tabs__scroller" role="tablist" aria-label=${t("config.shell.sectionsAria")}>
             ${topTabs.map(
               (tab) => html`
-                <button
+                <a
                   class="config-top-tabs__tab ${props.activeSection === tab.key ? "active" : ""}"
+                  href=${props.buildSectionHref(tab.key)}
                   role="tab"
                   aria-selected=${props.activeSection === tab.key}
-                  @click=${() => props.onSectionChange(tab.key)}
+                  @click=${(event: MouseEvent) => handleSectionClick(event, tab.key)}
                   title=${tab.label}
                 >
                   ${tab.label}
-                </button>
+                </a>
               `,
             )}
           </div>
@@ -870,20 +906,23 @@ export function renderConfig(props: ConfigProps) {
               showModeToggle
                 ? html`
                     <div class="config-mode-toggle">
-                      <button
+                      <a
                         class="config-mode-toggle__btn ${formMode === "form" ? "active" : ""}"
-                        ?disabled=${props.schemaLoading || !props.schema}
+                        href=${props.buildModeHref("form")}
+                        aria-disabled=${formModeDisabled ? "true" : "false"}
                         title=${formUnsafe ? t("config.shell.formUnsafeTitle") : ""}
-                        @click=${() => props.onFormModeChange("form")}
+                        @click=${(event: MouseEvent) => handleModeClick(event, "form")}
                       >
                         ${t("config.shell.form")}
-                      </button>
-                      <button
+                      </a>
+                      <a
                         class="config-mode-toggle__btn ${formMode === "raw" ? "active" : ""}"
-                        @click=${() => props.onFormModeChange("raw")}
+                        href=${props.buildModeHref("raw")}
+                        aria-disabled="false"
+                        @click=${(event: MouseEvent) => handleModeClick(event, "raw")}
                       >
                         ${t("config.shell.raw")}
-                      </button>
+                      </a>
                     </div>
                   `
                 : nothing

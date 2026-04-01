@@ -16,6 +16,7 @@ import {
   switchOverviewSession,
 } from "./app-render.helpers.ts";
 import {
+  buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
   buildCanonicalCronJobHref,
   buildCanonicalTabHref,
@@ -1765,6 +1766,9 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.configSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "config", { section }),
+                buildModeHref: (mode) => buildCanonicalSettingsShellHref(state, "config", { mode }),
                 activeSection:
                   state.configActiveSection &&
                   (COMMUNICATION_SECTION_KEYS.includes(
@@ -1872,6 +1876,10 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.communicationsSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "communications", { section }),
+                buildModeHref: (mode) =>
+                  buildCanonicalSettingsShellHref(state, "communications", { mode }),
                 activeSection:
                   state.communicationsActiveSection &&
                   !COMMUNICATION_SECTION_KEYS.includes(
@@ -1949,6 +1957,10 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.appearanceSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "appearance", { section }),
+                buildModeHref: (mode) =>
+                  buildCanonicalSettingsShellHref(state, "appearance", { mode }),
                 activeSection:
                   state.appearanceActiveSection &&
                   !APPEARANCE_SECTION_KEYS.includes(
@@ -2026,6 +2038,10 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.automationSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "automation", { section }),
+                buildModeHref: (mode) =>
+                  buildCanonicalSettingsShellHref(state, "automation", { mode }),
                 activeSection:
                   state.automationActiveSection &&
                   !AUTOMATION_SECTION_KEYS.includes(
@@ -2103,6 +2119,10 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.infrastructureSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "infrastructure", { section }),
+                buildModeHref: (mode) =>
+                  buildCanonicalSettingsShellHref(state, "infrastructure", { mode }),
                 activeSection:
                   state.infrastructureActiveSection &&
                   !INFRASTRUCTURE_SECTION_KEYS.includes(
@@ -2180,6 +2200,10 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.aiAgentsSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "aiAgents", { section }),
+                buildModeHref: (mode) =>
+                  buildCanonicalSettingsShellHref(state, "aiAgents", { mode }),
                 activeSection:
                   state.aiAgentsActiveSection &&
                   !AI_AGENTS_SECTION_KEYS.includes(
