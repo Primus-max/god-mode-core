@@ -875,7 +875,8 @@ export const en: TranslationMap = {
     },
     catalog: {
       title: "Platform catalog",
-      subtitle: "Read-only recipe routes and capability inventory for the current operator context.",
+      subtitle:
+        "Read-only recipe routes and capability inventory for the current operator context.",
       loading: "Loading platform catalog…",
       recipeRoutes: "Recipe routes",
       capabilities: "Capabilities",

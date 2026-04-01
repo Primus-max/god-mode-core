@@ -1,5 +1,5 @@
-import type { GatewayBrowserClient } from "../gateway.ts";
 import type { ArtifactOperation } from "../../../../src/platform/schemas/artifact.js";
+import type { GatewayBrowserClient } from "../gateway.ts";
 import type {
   RuntimeActionDetail,
   RuntimeActionSummary,
@@ -54,10 +54,25 @@ export type RuntimeInspectorState = {
 };
 
 export type RuntimeRecoveryAction =
-  | { kind: "exec-approval-resolve"; checkpointId: string; approvalId: string; decision: "allow-once" | "deny" }
-  | { kind: "bootstrap-resolve"; checkpointId: string; requestId: string; decision: "approve" | "deny" }
+  | {
+      kind: "exec-approval-resolve";
+      checkpointId: string;
+      approvalId: string;
+      decision: "allow-once" | "deny";
+    }
+  | {
+      kind: "bootstrap-resolve";
+      checkpointId: string;
+      requestId: string;
+      decision: "approve" | "deny";
+    }
   | { kind: "bootstrap-run"; checkpointId: string; requestId: string }
-  | { kind: "artifact-transition"; checkpointId: string; artifactId: string; operation: ArtifactOperation }
+  | {
+      kind: "artifact-transition";
+      checkpointId: string;
+      artifactId: string;
+      operation: ArtifactOperation;
+    }
   | { kind: "dispatch-continuation"; checkpointId: string };
 
 export type RuntimeRecoveryConfirmationKind =
@@ -73,7 +88,9 @@ export type RuntimeRecoveryGuardrail = {
   confirmationKind?: RuntimeRecoveryConfirmationKind;
 };
 
-export function getRuntimeRecoveryGuardrail(action: RuntimeRecoveryAction): RuntimeRecoveryGuardrail {
+export function getRuntimeRecoveryGuardrail(
+  action: RuntimeRecoveryAction,
+): RuntimeRecoveryGuardrail {
   switch (action.kind) {
     case "exec-approval-resolve":
       return action.decision === "deny"
@@ -113,7 +130,9 @@ function getRuntimeScope(state: RuntimeInspectorState): {
   return {
     ...(state.runtimeSessionKey ? { sessionKey: state.runtimeSessionKey } : {}),
     ...(state.runtimeRunId ? { runId: state.runtimeRunId } : {}),
-    ...(state.runtimeSelectedCheckpointId ? { checkpointId: state.runtimeSelectedCheckpointId } : {}),
+    ...(state.runtimeSelectedCheckpointId
+      ? { checkpointId: state.runtimeSelectedCheckpointId }
+      : {}),
   };
 }
 
@@ -158,8 +177,7 @@ export async function loadRuntimeInspector(
     const checkpoints = asArray(res?.checkpoints);
     state.runtimeCheckpoints = checkpoints;
     const selectedCheckpointId =
-      (opts?.checkpointId &&
-      checkpoints.some((checkpoint) => checkpoint.id === opts.checkpointId)
+      (opts?.checkpointId && checkpoints.some((checkpoint) => checkpoint.id === opts.checkpointId)
         ? opts.checkpointId
         : undefined) ??
       (checkpoints.some((checkpoint) => checkpoint.id === state.runtimeSelectedCheckpointId)
@@ -219,17 +237,19 @@ export async function loadRuntimeCheckpointDetail(
         checkpointId: checkpoint.id,
         ...(checkpoint.runId ? { runId: checkpoint.runId } : {}),
       }),
-      state.client.request<RuntimeClosureListResult>("platform.runtime.closures.list", {
-        ...(checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {}),
-      }),
+      state.client.request<RuntimeClosureListResult>(
+        "platform.runtime.closures.list",
+        checkpoint.sessionKey ? { sessionKey: checkpoint.sessionKey } : {},
+      ),
     ]);
     state.runtimeActions = asArray(actionsRes?.actions);
     state.runtimeClosures = asArray(closuresRes?.closures);
 
-    const selectedActionId =
-      state.runtimeActions.some((action) => action.actionId === state.runtimeSelectedActionId)
-        ? state.runtimeSelectedActionId
-        : state.runtimeActions[0]?.actionId ?? null;
+    const selectedActionId = state.runtimeActions.some(
+      (action) => action.actionId === state.runtimeSelectedActionId,
+    )
+      ? state.runtimeSelectedActionId
+      : (state.runtimeActions[0]?.actionId ?? null);
     state.runtimeSelectedActionId = selectedActionId;
     if (selectedActionId) {
       await loadRuntimeActionDetail(state, selectedActionId);
@@ -268,9 +288,12 @@ export async function loadRuntimeActionDetail(
   }
   state.runtimeSelectedActionId = actionId;
   try {
-    const res = await state.client.request<RuntimeActionDetailResult>("platform.runtime.actions.get", {
-      actionId,
-    });
+    const res = await state.client.request<RuntimeActionDetailResult>(
+      "platform.runtime.actions.get",
+      {
+        actionId,
+      },
+    );
     state.runtimeActionDetail = res?.action ?? null;
   } catch (err) {
     state.runtimeActionDetail = null;

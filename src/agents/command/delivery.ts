@@ -81,9 +81,7 @@ function mergePostDeliveryRuntimeMeta(params: {
   return {
     ...params.result.meta,
     ...(reevaluated.runClosure ? { runClosure: reevaluated.runClosure } : {}),
-    ...(reevaluated.acceptanceOutcome
-      ? { acceptanceOutcome: reevaluated.acceptanceOutcome }
-      : {}),
+    ...(reevaluated.acceptanceOutcome ? { acceptanceOutcome: reevaluated.acceptanceOutcome } : {}),
     ...(reevaluated.executionVerification
       ? { executionVerification: reevaluated.executionVerification }
       : {}),

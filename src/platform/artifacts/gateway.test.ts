@@ -3,11 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyMaterializationToDescriptor, materializeArtifact } from "../materialization/index.js";
-import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import {
   getPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,
 } from "../runtime/index.js";
+import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import {
   createArtifactGetGatewayMethod,
   createArtifactListGatewayMethod,
@@ -133,7 +133,9 @@ describe("artifact gateway methods", () => {
         descriptor: expect.objectContaining({ lifecycle: "published" }),
       }),
     );
-    expect(runtimeService.getAction("artifact:artifact-release:publish")?.receipt?.operatorDecision).toEqual(
+    expect(
+      runtimeService.getAction("artifact:artifact-release:publish")?.receipt?.operatorDecision,
+    ).toEqual(
       expect.objectContaining({
         action: "publish",
         actor: expect.objectContaining({

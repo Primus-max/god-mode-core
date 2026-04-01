@@ -9,7 +9,7 @@ function createProps(overrides: Partial<InstancesProps> = {}): InstancesProps {
     loading: false,
     entries: [
       {
-        id: "instance-1",
+        instanceId: "instance-1",
         host: "workstation.local",
         ip: "192.168.1.20",
         mode: "gateway",

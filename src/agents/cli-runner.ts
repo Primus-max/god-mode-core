@@ -7,6 +7,7 @@ import { isTruthyEnvValue } from "../infra/env.js";
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import type { RecipeRuntimePlan } from "../platform/recipe/runtime-adapter.js";
 import { getProcessSupervisor } from "../process/supervisor/index.js";
 import { scopedHeartbeatWakeOptions } from "../routing/session-key.js";
 import { resolveSessionAgentIds } from "./agent-scope.js";
@@ -38,10 +39,6 @@ import {
 import { resolveOpenClawDocsPath } from "./docs-path.js";
 import { FailoverError, resolveFailoverStatus } from "./failover-error.js";
 import {
-  joinRuntimePlanSystemPrompt,
-  prependRuntimePlanContextToPrompt,
-} from "./runtime-plan-policy.js";
-import {
   classifyFailoverReason,
   isFailoverErrorMessage,
   resolveBootstrapMaxChars,
@@ -49,9 +46,12 @@ import {
   resolveBootstrapTotalMaxChars,
 } from "./pi-embedded-helpers.js";
 import type { EmbeddedPiRunResult } from "./pi-embedded-runner.js";
+import {
+  joinRuntimePlanSystemPrompt,
+  prependRuntimePlanContextToPrompt,
+} from "./runtime-plan-policy.js";
 import { buildSystemPromptReport } from "./system-prompt-report.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "./workspace-run.js";
-import type { RecipeRuntimePlan } from "../platform/recipe/runtime-adapter.js";
 
 const log = createSubsystemLogger("agent/claude-cli");
 
@@ -236,9 +236,13 @@ export async function runCliAgent(params: {
 
     let imagePaths: string[] | undefined;
     let cleanupImages: (() => Promise<void>) | undefined;
-    let prompt = prependBootstrapPromptWarning(promptWithRuntimeSystemContext, bootstrapPromptWarning.lines, {
-      preserveExactPrompt: heartbeatPrompt,
-    });
+    let prompt = prependBootstrapPromptWarning(
+      promptWithRuntimeSystemContext,
+      bootstrapPromptWarning.lines,
+      {
+        preserveExactPrompt: heartbeatPrompt,
+      },
+    );
     if (params.images && params.images.length > 0) {
       const imagePayload = await writeCliImages(params.images);
       imagePaths = imagePayload.paths;

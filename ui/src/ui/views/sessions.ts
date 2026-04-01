@@ -107,8 +107,8 @@ function renderSessionHandoffContext(row: GatewaySessionRow) {
   }
   const currentTargetRunId =
     truthSource === "recovery"
-      ? row.handoffRunId ?? row.handoffRequestRunId
-      : row.handoffRunId ?? row.runClosureSummary?.runId ?? row.handoffRequestRunId;
+      ? (row.handoffRunId ?? row.handoffRequestRunId)
+      : (row.handoffRunId ?? row.runClosureSummary?.runId ?? row.handoffRequestRunId);
   const closureHistoryRunId = row.runClosureSummary?.runId;
   const showClosureHistory =
     truthSource === "recovery" &&
@@ -147,9 +147,7 @@ function renderSessionHandoffContext(row: GatewaySessionRow) {
 }
 
 function formatRuntimeDecisionActor(
-  decision:
-    | RuntimeCheckpointSummary["lastOperatorDecision"]
-    | NonNullable<RuntimeActionDetail["receipt"]>["operatorDecision"],
+  decision: RuntimeCheckpointSummary["lastOperatorDecision"],
 ): string {
   return (
     decision?.actor?.displayName ??
@@ -232,13 +230,16 @@ function confirmRuntimeRecoveryAction(
   return message ? window.confirm(message) : true;
 }
 
-function renderRuntimeRecoveryControls(
-  checkpoint: RuntimeCheckpointSummary,
-  props: SessionsProps,
-) {
-  const controls: Array<{ label: string; action: RuntimeRecoveryAction; tone?: "primary" | "danger" }> =
-    [];
-  if (checkpointHasNextAction(checkpoint, "exec.approval.resolve", "approve") && checkpoint.target?.approvalId) {
+function renderRuntimeRecoveryControls(checkpoint: RuntimeCheckpointSummary, props: SessionsProps) {
+  const controls: Array<{
+    label: string;
+    action: RuntimeRecoveryAction;
+    tone?: "primary" | "danger";
+  }> = [];
+  if (
+    checkpointHasNextAction(checkpoint, "exec.approval.resolve", "approve") &&
+    checkpoint.target?.approvalId
+  ) {
     controls.push({
       label: t("sessions.runtime.controls.approveRecovery"),
       action: {
@@ -310,7 +311,12 @@ function renderRuntimeRecoveryControls(
         kind: "artifact-transition",
         checkpointId: checkpoint.id,
         artifactId: checkpoint.target.artifactId,
-        operation: checkpoint.target.operation as "approve" | "publish" | "preview" | "retain" | "delete",
+        operation: checkpoint.target.operation as
+          | "approve"
+          | "publish"
+          | "preview"
+          | "retain"
+          | "delete",
       },
       tone: "primary",
     });
@@ -399,11 +405,7 @@ function renderRuntimeLinkedRecords(checkpoint: RuntimeCheckpointSummary, props:
   `;
 }
 
-function renderRuntimeOperatorDecision(
-  decision:
-    | RuntimeCheckpointSummary["lastOperatorDecision"]
-    | NonNullable<RuntimeActionDetail["receipt"]>["operatorDecision"],
-) {
+function renderRuntimeOperatorDecision(decision: RuntimeCheckpointSummary["lastOperatorDecision"]) {
   if (!decision) {
     return nothing;
   }
@@ -428,9 +430,11 @@ function renderRuntimeInspector(props: SessionsProps) {
         <div>
           <div class="card-title">${t("sessions.runtime.title")}</div>
           <div class="card-sub">
-            ${props.runtimeSessionKey
-              ? t("sessions.runtime.scopeSession", { sessionKey: props.runtimeSessionKey })
-              : t("sessions.runtime.scopeGlobal")}
+            ${
+              props.runtimeSessionKey
+                ? t("sessions.runtime.scopeSession", { sessionKey: props.runtimeSessionKey })
+                : t("sessions.runtime.scopeGlobal")
+            }
           </div>
         </div>
         <div class="row" style="gap: 8px; flex-wrap: wrap;">
@@ -555,8 +559,9 @@ function renderRuntimeInspector(props: SessionsProps) {
                                         ${
                                           selectedCheckpoint.continuation.attempts !== undefined
                                             ? html`<span class="chip"
-                                                >${t("sessions.runtime.attempts")}: ${selectedCheckpoint
-                                                  .continuation.attempts}</span
+                                                >${t("sessions.runtime.attempts")}: ${
+                                                  selectedCheckpoint.continuation.attempts
+                                                }</span
                                               >`
                                             : nothing
                                         }
@@ -602,8 +607,9 @@ function renderRuntimeInspector(props: SessionsProps) {
                                             selectedAction.receipt?.operatorDecision
                                               ? html`
                                                   <div style="margin-top:8px;">
-                                                    ${t("sessions.runtime.fields.lastDecision")}: ${selectedAction
-                                                      .receipt.operatorDecision.action}
+                                                    ${t("sessions.runtime.fields.lastDecision")}: ${
+                                                      selectedAction.receipt.operatorDecision.action
+                                                    }
                                                   </div>
                                                   <div style="margin-top:8px;">
                                                     ${t("sessions.runtime.fields.decidedBy")}: ${formatRuntimeDecisionActor(
@@ -616,8 +622,9 @@ function renderRuntimeInspector(props: SessionsProps) {
                                           ${
                                             selectedAction.receipt?.resultStatus
                                               ? html`<div style="margin-top:8px;">
-                                                  ${t("sessions.runtime.fields.resultStatus")}: ${selectedAction
-                                                    .receipt.resultStatus}
+                                                  ${t("sessions.runtime.fields.resultStatus")}: ${
+                                                    selectedAction.receipt.resultStatus
+                                                  }
                                                 </div>`
                                               : nothing
                                           }
@@ -661,8 +668,9 @@ function renderRuntimeInspector(props: SessionsProps) {
                                         <div class="callout" style="margin-top:12px;">
                                           <strong>${selectedClosure.runId}</strong>
                                           <div class="muted" style="margin-top:4px;">
-                                            ${selectedClosure.acceptanceOutcome.status} · ${selectedClosure
-                                              .supervisorVerdict.action}
+                                            ${selectedClosure.acceptanceOutcome.status} · ${
+                                              selectedClosure.supervisorVerdict.action
+                                            }
                                           </div>
                                           <div style="margin-top:8px;">
                                             ${t("sessions.runtime.fields.updated")}: ${formatMsTimestamp(

@@ -149,7 +149,9 @@ describe("nodes devices pending rendering", () => {
       container,
     );
 
-    const selects = Array.from(container.querySelectorAll("select")) as HTMLSelectElement[];
+    const selects = Array.from(container.querySelectorAll("select")).filter(
+      (el): el is HTMLSelectElement => el instanceof HTMLSelectElement,
+    );
     expect(selects[0]?.value).toBe("node");
     expect(selects[1]?.value).toBe("node-1");
 

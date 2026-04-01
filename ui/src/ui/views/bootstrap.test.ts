@@ -54,8 +54,7 @@ function createProps(overrides: Partial<BootstrapProps> = {}): BootstrapProps {
           install: {
             method: "download",
             packageRef: "playwright-pdf-renderer@1.0.0",
-            integrity:
-              "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            integrity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
             downloadUrl: "https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.0.0.tgz",
             archiveKind: "tar",
           },

@@ -231,7 +231,7 @@ describe("applySessionsChangedEvent", () => {
               acceptanceStatus: "satisfied",
               action: "close",
               remediation: "none",
-              reasonCode: "completed_with_output",
+              reasonCode: "verified_execution",
               reasons: ["ok"],
             },
             handoffTruthSource: "recovery",

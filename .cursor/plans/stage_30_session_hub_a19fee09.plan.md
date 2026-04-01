@@ -138,8 +138,6 @@ flowchart LR
     EventHub --> SessionMessage["session.message snapshot"]
 ```
 
-
-
 ## Validation
 
 - Targeted gateway tests prove all major producer paths now go through the same hub.

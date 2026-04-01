@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  getPlatformRuntimeCheckpointService,
-  resetPlatformRuntimeCheckpointService,
-} from "../../platform/runtime/index.js";
-import {
   getSharedExecApprovalManager,
   resetSharedExecApprovalManager,
 } from "../../gateway/exec-approval-manager.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../../platform/runtime/index.js";
 import type { ReplyPayload } from "../types.js";
 import type { TypingSignaler } from "./typing-mode.js";
 
@@ -54,9 +54,8 @@ describe("agent runner helpers", () => {
     hoisted.scheduleFollowupDrainMock.mockClear();
     resetPlatformRuntimeCheckpointService();
     resetSharedExecApprovalManager();
-    ({ getPlatformBootstrapService, resetPlatformBootstrapService } = await import(
-      "../../platform/bootstrap/index.js"
-    ));
+    ({ getPlatformBootstrapService, resetPlatformBootstrapService } =
+      await import("../../platform/bootstrap/index.js"));
     resetPlatformBootstrapService();
     ({
       createShouldEmitToolOutput,
@@ -640,7 +639,9 @@ describe("agent runner helpers", () => {
             expect.objectContaining({ type: "text", text: "Automatic recovery continuing" }),
             expect.objectContaining({
               type: "text",
-              text: expect.stringContaining("Reason: The delivered output did not satisfy the request."),
+              text: expect.stringContaining(
+                "Reason: The delivered output did not satisfy the request.",
+              ),
             }),
           ]),
         },
@@ -751,16 +752,17 @@ describe("agent runner helpers", () => {
         }),
       }),
     );
-    expect(getSharedExecApprovalManager().getSnapshot("closure:run-auth-closure:auth_refresh:escalate"))
-      .toEqual(
-        expect.objectContaining({
-          request: expect.objectContaining({
-            runtimeRunId: "run-auth-closure",
-            runtimeCheckpointId: "closure:run-auth-closure:auth_refresh:escalate",
-            blockedReason: "provider authentication refresh requires operator attention",
-          }),
+    expect(
+      getSharedExecApprovalManager().getSnapshot("closure:run-auth-closure:auth_refresh:escalate"),
+    ).toEqual(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          runtimeRunId: "run-auth-closure",
+          runtimeCheckpointId: "closure:run-auth-closure:auth_refresh:escalate",
+          blockedReason: "provider authentication refresh requires operator attention",
         }),
-      );
+      }),
+    );
     expect(
       getPlatformRuntimeCheckpointService().get("closure:run-auth-closure:auth_refresh:escalate"),
     ).toEqual(

@@ -40,6 +40,7 @@ import {
   validateSessionsResolveParams,
   validateSessionsSendParams,
 } from "../protocol/index.js";
+import { broadcastSessionsChangedMutationEvent } from "../session-event-hub.js";
 import {
   archiveSessionTranscriptsForSession,
   cleanupSessionBeforeMutation,
@@ -47,7 +48,6 @@ import {
   performGatewaySessionReset,
 } from "../session-reset-service.js";
 import { reactivateCompletedSubagentSession } from "../session-subagent-reactivation.js";
-import { broadcastSessionsChangedMutationEvent } from "../session-event-hub.js";
 import {
   archiveFileOnDisk,
   listSessionsFromStore,

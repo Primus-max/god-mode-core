@@ -880,13 +880,9 @@ export async function runReplyAgent(params: {
       finalPayloads = appendUsageLine(finalPayloads, responseUsageLine);
     }
     if (finalPayloads.length === 0) {
-      const fallbackPayload = buildAcceptanceFallbackPayload(
-        acceptanceOutcome,
-        supervisorVerdict,
-        {
-          channel: replyToChannel,
-        },
-      );
+      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict, {
+        channel: replyToChannel,
+      });
       if (fallbackPayload && !queuedSemanticRetry) {
         finalPayloads = [fallbackPayload];
       }

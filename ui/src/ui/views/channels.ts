@@ -203,9 +203,11 @@ function renderChannel(key: ChannelKey, props: ChannelsProps, data: ChannelsChan
     <div
       data-channel-key=${key}
       class=${selected ? "channel-card-shell is-selected" : "channel-card-shell"}
-      style=${selected
-        ? "border-radius:16px; outline:2px solid var(--accent-color, #6d5efc); outline-offset:2px;"
-        : ""}
+      style=${
+        selected
+          ? "border-radius:16px; outline:2px solid var(--accent-color, #6d5efc); outline-offset:2px;"
+          : ""
+      }
       @click=${() => props.onSelectChannel(key)}
     >
       ${content}

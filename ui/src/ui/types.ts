@@ -9,14 +9,15 @@ import type {
   BootstrapRequestRecordSummary as PlatformBootstrapRequestRecordSummary,
 } from "../../../src/platform/bootstrap/contracts.js";
 import type {
+  CapabilityCatalogSummary as PlatformCapabilityCatalogSummary,
+  RecipeCatalogSummary as PlatformRecipeCatalogSummary,
+} from "../../../src/platform/catalog/contracts.js";
+import type {
   MachineControlAccessResult as PlatformMachineControlAccessResult,
   MachineControlKillSwitch as PlatformMachineControlKillSwitch,
   MachineControlLinkRecord as PlatformMachineControlLinkRecord,
 } from "../../../src/platform/machine/contracts.js";
-import type {
-  CapabilityCatalogSummary as PlatformCapabilityCatalogSummary,
-  RecipeCatalogSummary as PlatformRecipeCatalogSummary,
-} from "../../../src/platform/catalog/contracts.js";
+import type { SpecialistRuntimeSnapshot as PlatformSpecialistRuntimeSnapshot } from "../../../src/platform/profile/contracts.js";
 import type {
   PlatformRuntimeAction,
   PlatformRuntimeActionSummary,
@@ -26,7 +27,6 @@ import type {
   PlatformRuntimeContinuationState,
   PlatformRuntimeRunClosureSummary,
 } from "../../../src/platform/runtime/index.js";
-import type { SpecialistRuntimeSnapshot as PlatformSpecialistRuntimeSnapshot } from "../../../src/platform/profile/contracts.js";
 import type { ConfigUiHints } from "../../../src/shared/config-ui-hints-types.js";
 import type {
   GatewayAgentRow as SharedGatewayAgentRow,

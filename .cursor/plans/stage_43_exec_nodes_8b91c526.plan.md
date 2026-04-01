@@ -87,4 +87,4 @@ isProject: false
 
 ## Expected outcome
 
-После stage оператор сможет перейти из overview attention прямо в `nodes` с уже выбранным approvals target, а этот контекст будет стабильно сохраняться в URL и восстанавливаться после refresh/popstate, как это уже работает для `cron`, `skills` и `channels`. 
+После stage оператор сможет перейти из overview attention прямо в `nodes` с уже выбранным approvals target, а этот контекст будет стабильно сохраняться в URL и восстанавливаться после refresh/popstate, как это уже работает для `cron`, `skills` и `channels`.

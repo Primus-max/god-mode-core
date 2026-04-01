@@ -309,9 +309,7 @@ export async function dispatchReplyFromConfig(params: {
       channel: originatingChannel,
       to: originatingTo,
       ...(resolveDeliveryActionRunId() ? { actionRunId: resolveDeliveryActionRunId() } : {}),
-      ...(resolveDeliveryRequestRunId()
-        ? { idempotencyKey: resolveDeliveryRequestRunId() }
-        : {}),
+      ...(resolveDeliveryRequestRunId() ? { idempotencyKey: resolveDeliveryRequestRunId() } : {}),
       sessionKey: ctx.SessionKey,
       accountId: ctx.AccountId,
       threadId: routeThreadId,
@@ -337,9 +335,7 @@ export async function dispatchReplyFromConfig(params: {
         channel: originatingChannel,
         to: originatingTo,
         ...(resolveDeliveryActionRunId() ? { actionRunId: resolveDeliveryActionRunId() } : {}),
-        ...(resolveDeliveryRequestRunId()
-          ? { idempotencyKey: resolveDeliveryRequestRunId() }
-          : {}),
+        ...(resolveDeliveryRequestRunId() ? { idempotencyKey: resolveDeliveryRequestRunId() } : {}),
         sessionKey: ctx.SessionKey,
         accountId: ctx.AccountId,
         threadId: routeThreadId,

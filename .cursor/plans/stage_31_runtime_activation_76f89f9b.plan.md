@@ -104,7 +104,7 @@ isProject: false
 
 - `[C:\Users\Tanya\source\repos\god-mode-core\src\agents\agent-command.ts](C:\Users\Tanya\source\repos\god-mode-core\src\agents\agent-command.ts)`
 - `[C:\Users\Tanya\source\repos\god-mode-core\src\gateway\server-methods\agent.test.ts](C:\Users\Tanya\source\repos\god-mode-core\src\gateway\server-methods\agent.test.ts)`
-- platform runtime / recipe tests рядом с `src/platform/recipe/`* и `src/platform/plugin.ts`
+- platform runtime / recipe tests рядом с `src/platform/recipe/`\* и `src/platform/plugin.ts`
 
 ### 5. Document extension rules for future recipes
 
@@ -137,8 +137,6 @@ flowchart LR
     RuntimeAdapter --> Hooks["platform plugin hooks"]
     Hooks --> Closure["before/after recipe execute"]
 ```
-
-
 
 ## Validation
 

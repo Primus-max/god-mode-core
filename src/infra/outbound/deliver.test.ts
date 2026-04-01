@@ -1086,7 +1086,10 @@ describe("deliverOutboundPayloads", () => {
             blocks: [
               { type: "text", text: "Approval or input required" },
               { type: "text", text: "Reason: A human must confirm the deployment." },
-              { type: "text", text: "Next step: Waiting for human approval or guidance before continuing." },
+              {
+                type: "text",
+                text: "Next step: Waiting for human approval or guidance before continuing.",
+              },
             ],
           },
         },
@@ -1099,9 +1102,7 @@ describe("deliverOutboundPayloads", () => {
       "C123",
       "I need human input or approval before I can finish this. A human must confirm the deployment.",
       expect.objectContaining({
-        blocks: expect.arrayContaining([
-          expect.objectContaining({ type: "section" }),
-        ]),
+        blocks: expect.arrayContaining([expect.objectContaining({ type: "section" })]),
       }),
     );
     expect(results).toEqual([{ channel: "slack", messageId: "sl-1", channelId: "C123" }]);

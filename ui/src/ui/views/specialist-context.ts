@@ -254,9 +254,11 @@ function renderRuntimeQueuePanel(props: SpecialistContextProps) {
     <div style="margin-top: 16px;">
       <div class="card-sub">${t("specialist.runtime.title")}</div>
       <div class="muted" style="margin-top: 4px;">
-        ${props.runtimeSessionKey
-          ? t("specialist.runtime.scopeSession", { sessionKey: props.runtimeSessionKey })
-          : t("specialist.runtime.scopeGlobal")}
+        ${
+          props.runtimeSessionKey
+            ? t("specialist.runtime.scopeSession", { sessionKey: props.runtimeSessionKey })
+            : t("specialist.runtime.scopeGlobal")
+        }
       </div>
       ${checkpoints.map(
         (checkpoint) => html`
@@ -264,9 +266,11 @@ function renderRuntimeQueuePanel(props: SpecialistContextProps) {
             <strong>${checkpoint.boundary}</strong>
             <div class="chip-row" style="margin-top: 8px;">
               <span class="chip">${checkpoint.status}</span>
-              ${checkpoint.continuation?.state
-                ? html`<span class="chip">${checkpoint.continuation.state}</span>`
-                : nothing}
+              ${
+                checkpoint.continuation?.state
+                  ? html`<span class="chip">${checkpoint.continuation.state}</span>`
+                  : nothing
+              }
             </div>
             ${
               checkpoint.operatorHint

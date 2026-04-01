@@ -46,9 +46,9 @@ import {
   validateAgentParams,
   validateAgentWaitParams,
 } from "../protocol/index.js";
+import { broadcastSessionsChangedMutationEvent } from "../session-event-hub.js";
 import { performGatewaySessionReset } from "../session-reset-service.js";
 import { reactivateCompletedSubagentSession } from "../session-subagent-reactivation.js";
-import { broadcastSessionsChangedMutationEvent } from "../session-event-hub.js";
 import {
   canonicalizeSpawnedByForAgent,
   loadSessionEntry,

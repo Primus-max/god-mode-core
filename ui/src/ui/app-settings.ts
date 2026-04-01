@@ -13,15 +13,17 @@ import {
   stopDebugPolling,
 } from "./app-polling.ts";
 import { scheduleChatScroll, scheduleLogsScroll } from "./app-scroll.ts";
+import type { AppViewState } from "./app-view-state.ts";
 import type { OpenClawApp } from "./app.ts";
+import { collectChannelAttentionTargets } from "./channels-correlation.ts";
 import { loadAgentFileContent, loadAgentFiles } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
 import { loadAgents, loadToolsCatalog } from "./controllers/agents.ts";
 import { loadArtifacts } from "./controllers/artifacts.ts";
 import { loadBootstrapRequests } from "./controllers/bootstrap.ts";
-import { loadChannels } from "./controllers/channels.ts";
 import { loadPlatformCatalog } from "./controllers/catalog.ts";
+import { loadChannels } from "./controllers/channels.ts";
 import { loadConfig, loadConfigSchema } from "./controllers/config.ts";
 import { loadCronJobs, loadCronRuns, loadCronStatus } from "./controllers/cron.ts";
 import { loadDebug } from "./controllers/debug.ts";
@@ -44,7 +46,6 @@ import {
   tabFromPath,
   type Tab,
 } from "./navigation.ts";
-import { collectChannelAttentionTargets } from "./channels-correlation.ts";
 import { resolveSessionRuntimeInspectRunId } from "./session-runtime.ts";
 import { SKILL_FILTER_BLOCKED, SKILL_FILTER_MISSING } from "./skills-correlation.ts";
 import { saveSettings, type UiSettings } from "./storage.ts";
@@ -85,6 +86,8 @@ type SettingsHost = {
   pendingGatewayUrl?: string | null;
   systemThemeCleanup?: (() => void) | null;
   pendingGatewayToken?: string | null;
+  bootstrapFilterQuery?: string;
+  artifactsFilterQuery?: string;
   artifactsSelectedId?: string | null;
   bootstrapSelectedId?: string | null;
   channelsSelectedKey?: string | null;
@@ -183,10 +186,7 @@ function trimQueryValue(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-function normalizeDebugCallParams(
-  value: string | null | undefined,
-  fallback: string,
-): string {
+function normalizeDebugCallParams(value: string | null | undefined, fallback: string): string {
   const trimmed = trimQueryValue(value);
   if (!trimmed) {
     return fallback;
@@ -363,7 +363,7 @@ function applySettingsNavigationStateFromUrl(
   host: SettingsHost,
   pick: (key: string) => string | null,
 ) {
-  const dynamicHost = host as Record<string, string | null | undefined>;
+  const dynamicHost = host as unknown as Record<string, string | null | undefined>;
   for (const binding of SETTINGS_NAVIGATION_BINDINGS) {
     dynamicHost[binding.modeProp] = normalizeSettingsFormMode(pick(binding.modeParam), "form");
     dynamicHost[binding.queryProp] = pick(binding.queryParam) ?? "";
@@ -389,7 +389,7 @@ function applySettingsNavigationStateToUrl(host: SettingsHost, tab: Tab, url: UR
   if (!binding) {
     return;
   }
-  const dynamicHost = host as Record<string, string | null | undefined>;
+  const dynamicHost = host as unknown as Record<string, string | null | undefined>;
   const activeSection = dynamicHost[binding.sectionProp];
   setQueryValue(url, binding.modeParam, dynamicHost[binding.modeProp] ?? "form");
   setQueryValue(url, binding.queryParam, dynamicHost[binding.queryProp]);
@@ -547,10 +547,7 @@ function parseCronRunsDeliveryParam(raw: string | null | undefined): CronDeliver
 }
 
 function applyCronRunsStatusesToHost(
-  host: Pick<
-    SettingsHost,
-    "cronRunsStatuses" | "cronRunsStatusFilter"
-  >,
+  host: Pick<SettingsHost, "cronRunsStatuses" | "cronRunsStatusFilter">,
   statuses: CronRunsStatusValue[],
 ) {
   host.cronRunsStatuses = statuses;
@@ -594,9 +591,9 @@ function buildTabHref(
   return `${url.pathname}${url.search}`;
 }
 
-export function buildCanonicalTabHref(host: SettingsHost, tab: Tab): string {
+export function buildCanonicalTabHref(host: SettingsHost | AppViewState, tab: Tab): string {
   const url = new URL(`https://openclaw.local${pathForTab(tab, host.basePath)}`);
-  applyTabQueryStateToUrl(host, tab, url);
+  applyTabQueryStateToUrl(host as SettingsHost, tab, url);
   return `${url.pathname}${url.search}`;
 }
 
@@ -604,7 +601,8 @@ function applyDeepLinkStateFromUrl(
   host: SettingsHost,
   sources: { params: URLSearchParams; hashParams: URLSearchParams },
 ) {
-  const pick = (key: string) => trimQueryValue(sources.params.get(key) ?? sources.hashParams.get(key));
+  const pick = (key: string) =>
+    trimQueryValue(sources.params.get(key) ?? sources.hashParams.get(key));
   host.agentsSelectedId = pick("agent");
   host.agentsPanel = normalizeAgentsPanel(pick("agentsPanel"));
   host.agentFileActive = host.agentsPanel === "files" ? pick("agentFile") : null;
@@ -659,12 +657,14 @@ function applyDeepLinkStateFromUrl(
     pick("cronStatus"),
     host.cronJobsLastStatusFilter ?? "all",
   );
-  host.cronJobsSortBy = normalizeCronJobsSortBy(pick("cronSort"), host.cronJobsSortBy ?? "nextRunAtMs");
+  host.cronJobsSortBy = normalizeCronJobsSortBy(
+    pick("cronSort"),
+    host.cronJobsSortBy ?? "nextRunAtMs",
+  );
   host.cronJobsSortDir = normalizeCronSortDir(pick("cronDir"), host.cronJobsSortDir ?? "asc");
   const cronJobPick = pick("cronJob");
   const scopeParam = normalizeCronRunsScopeParam(pick("cronRunsScope"));
-  let resolvedScope: CronRunScope =
-    scopeParam ?? (cronJobPick ? "job" : "all");
+  let resolvedScope: CronRunScope = scopeParam ?? (cronJobPick ? "job" : "all");
   if (resolvedScope === "job" && !cronJobPick) {
     resolvedScope = "all";
   }
@@ -692,8 +692,7 @@ function applyDeepLinkStateFromUrl(
   );
   host.logsFilterText = pick("logQ") ?? "";
   host.execApprovalsTarget = normalizeExecApprovalsTarget(pick("execTarget"));
-  host.execApprovalsTargetNodeId =
-    host.execApprovalsTarget === "node" ? pick("execNode") : null;
+  host.execApprovalsTargetNodeId = host.execApprovalsTarget === "node" ? pick("execNode") : null;
   host.execApprovalsSelectedAgent = pick("execAgent");
 }
 
@@ -1042,7 +1041,8 @@ export async function refreshActiveTab(host: SettingsHost) {
       return;
     }
     if (
-      (urlRuntimeAction != null && urlRuntimeAction !== (trimQueryValue(host.runtimeSelectedActionId) ?? null)) ||
+      (urlRuntimeAction != null &&
+        urlRuntimeAction !== (trimQueryValue(host.runtimeSelectedActionId) ?? null)) ||
       (urlRuntimeClosure != null &&
         urlRuntimeClosure !== (trimQueryValue(host.runtimeSelectedClosureRunId) ?? null))
     ) {
@@ -1334,18 +1334,19 @@ function applyTabSelection(
   }
 }
 
-export function syncUrlWithTab(host: SettingsHost, tab: Tab, replace: boolean) {
+export function syncUrlWithTab(host: SettingsHost | AppViewState, tab: Tab, replace: boolean) {
   if (typeof window === "undefined") {
     return;
   }
-  const targetPath = normalizePath(pathForTab(tab, host.basePath));
+  const settingsHost = host as SettingsHost;
+  const targetPath = normalizePath(pathForTab(tab, settingsHost.basePath));
   const currentPath = normalizePath(window.location.pathname);
   const url = new URL(window.location.href);
 
-  if (tab === "chat" && host.sessionKey) {
-    url.searchParams.set("session", host.sessionKey);
+  if (tab === "chat" && settingsHost.sessionKey) {
+    url.searchParams.set("session", settingsHost.sessionKey);
   }
-  applyTabQueryStateToUrl(host, tab, url);
+  applyTabQueryStateToUrl(settingsHost, tab, url);
 
   if (currentPath !== targetPath) {
     url.pathname = targetPath;
@@ -1358,7 +1359,11 @@ export function syncUrlWithTab(host: SettingsHost, tab: Tab, replace: boolean) {
   }
 }
 
-export function syncUrlWithSessionKey(host: SettingsHost, sessionKey: string, replace: boolean) {
+export function syncUrlWithSessionKey(
+  host: SettingsHost | AppViewState,
+  sessionKey: string,
+  replace: boolean,
+) {
   if (typeof window === "undefined") {
     return;
   }
@@ -1373,7 +1378,9 @@ export function syncUrlWithSessionKey(host: SettingsHost, sessionKey: string, re
 
 export async function loadOverview(host: SettingsHost) {
   const app = host as unknown as OpenClawApp;
-  const activeSession = app.sessionsResult?.sessions.find((session) => session.key === app.sessionKey);
+  const activeSession = app.sessionsResult?.sessions.find(
+    (session) => session.key === app.sessionKey,
+  );
   const runtimeRunId = resolveSessionRuntimeInspectRunId(activeSession) ?? null;
   await Promise.allSettled([
     loadChannels(app, false),
@@ -1496,7 +1503,9 @@ export function buildAttentionItems(host: AttentionHost) {
     });
   }
 
-  const activeSession = host.sessionsResult?.sessions.find((session) => session.key === host.sessionKey);
+  const activeSession = host.sessionsResult?.sessions.find(
+    (session) => session.key === host.sessionKey,
+  );
   const activeRunId = resolveSessionRuntimeInspectRunId(activeSession);
   const fallbackCheckpoint =
     host.runtimeCheckpoints.find((checkpoint) => checkpoint.sessionKey === host.sessionKey) ?? null;
@@ -1504,9 +1513,9 @@ export function buildAttentionItems(host: AttentionHost) {
     host.runtimeCheckpointDetail &&
     matchesRuntimeScope(host.runtimeCheckpointDetail, host.sessionKey, activeRunId)
       ? host.runtimeCheckpointDetail
-      : host.runtimeCheckpoints.find((checkpoint) =>
-            matchesRuntimeScope(checkpoint, host.sessionKey, activeRunId),
-          ) ?? fallbackCheckpoint;
+      : (host.runtimeCheckpoints.find((checkpoint) =>
+          matchesRuntimeScope(checkpoint, host.sessionKey, activeRunId),
+        ) ?? fallbackCheckpoint);
   const recoveryDescription =
     activeSession?.recoveryOperatorHint ??
     scopedCheckpoint?.operatorHint ??
@@ -1515,7 +1524,9 @@ export function buildAttentionItems(host: AttentionHost) {
     null;
   if (recoveryDescription && (activeSession?.recoveryStatus || scopedCheckpoint?.status)) {
     items.push({
-      severity: resolveRecoveryAttentionSeverity(activeSession?.recoveryStatus ?? scopedCheckpoint?.status),
+      severity: resolveRecoveryAttentionSeverity(
+        activeSession?.recoveryStatus ?? scopedCheckpoint?.status,
+      ),
       icon: "shield",
       title: `Recovery needs review for ${activeSession?.label ?? activeSession?.displayName ?? host.sessionKey}`,
       description: recoveryDescription,
@@ -1546,7 +1557,8 @@ export function buildAttentionItems(host: AttentionHost) {
       severity: resolveRecoveryAttentionSeverity(scopedCheckpoint.status),
       icon: "folder",
       title: "Artifact transition needs review",
-      description: scopedCheckpoint.operatorHint ?? "Open the linked artifact and review the transition.",
+      description:
+        scopedCheckpoint.operatorHint ?? "Open the linked artifact and review the transition.",
       href: buildTabHref(host, "artifacts", {
         session: host.sessionKey,
         artifact: scopedCheckpoint.target.artifactId,
@@ -1610,13 +1622,24 @@ export function buildAttentionItems(host: AttentionHost) {
   if (execApprovalQueue.length > 0) {
     const primaryApproval = execApprovalQueue[0];
     const target = primaryApproval?.request.nodeId?.trim()
-      ? { execTarget: "node", execNode: primaryApproval.request.nodeId, execAgent: primaryApproval.request.agentId }
-      : { execTarget: "gateway", execNode: null, execAgent: primaryApproval?.request.agentId ?? null };
+      ? {
+          execTarget: "node",
+          execNode: primaryApproval.request.nodeId,
+          execAgent: primaryApproval.request.agentId,
+        }
+      : {
+          execTarget: "gateway",
+          execNode: null,
+          execAgent: primaryApproval?.request.agentId ?? null,
+        };
     items.push({
       severity: "warning",
       icon: "shield",
       title: `${execApprovalQueue.length} exec approval${execApprovalQueue.length > 1 ? "s" : ""} pending`,
-      description: primaryApproval?.request.blockedReason ?? primaryApproval?.request.command ?? "Operator review is required before execution can continue.",
+      description:
+        primaryApproval?.request.blockedReason ??
+        primaryApproval?.request.command ??
+        "Operator review is required before execution can continue.",
       href: buildTabHref(host, "nodes", {
         session: host.sessionKey,
         execTarget: target.execTarget,
@@ -1669,8 +1692,7 @@ export function buildAttentionItems(host: AttentionHost) {
   const cronJobs = host.cronJobs ?? [];
   const failedCron = cronJobs.filter((j) => j.state?.lastStatus === "error");
   if (failedCron.length > 0) {
-    const failedCronJobId =
-      (failedCron[0] as { id?: string | null } | undefined)?.id ?? null;
+    const failedCronJobId = (failedCron[0] as { id?: string | null } | undefined)?.id ?? null;
     items.push({
       severity: "error",
       icon: "clock",
@@ -1691,8 +1713,7 @@ export function buildAttentionItems(host: AttentionHost) {
     (j) => j.enabled && j.state?.nextRunAtMs != null && now - j.state.nextRunAtMs > 300_000,
   );
   if (overdue.length > 0) {
-    const overdueCronJobId =
-      (overdue[0] as { id?: string | null } | undefined)?.id ?? null;
+    const overdueCronJobId = (overdue[0] as { id?: string | null } | undefined)?.id ?? null;
     items.push({
       severity: "warning",
       icon: "clock",

@@ -50,13 +50,13 @@ describe("platform runtime gateway", () => {
 
     let listed: unknown;
     let fetched: unknown;
-    listHandler({
+    void listHandler({
       params: {},
       respond: (_ok: boolean, result: unknown) => {
         listed = result;
       },
     } as never);
-    getHandler({
+    void getHandler({
       params: { checkpointId: "checkpoint-1" },
       respond: (_ok: boolean, result: unknown) => {
         fetched = result;
@@ -140,7 +140,7 @@ describe("platform runtime gateway", () => {
 
     let listed: unknown;
     let fetched: unknown;
-    listHandler({
+    void listHandler({
       params: {
         runId: "run-1",
         kind: "messaging_delivery",
@@ -151,7 +151,7 @@ describe("platform runtime gateway", () => {
         listed = result;
       },
     } as never);
-    getHandler({
+    void getHandler({
       params: { actionId: "action-1" },
       respond: (_ok: boolean, result: unknown) => {
         fetched = result;
@@ -219,7 +219,7 @@ describe("platform runtime gateway", () => {
 
     const listHandler = createRuntimeClosureListGatewayMethod(service);
     let listed: unknown;
-    listHandler({
+    void listHandler({
       params: { requestRunId: "request-1" },
       respond: (_ok: boolean, result: unknown) => {
         listed = result;

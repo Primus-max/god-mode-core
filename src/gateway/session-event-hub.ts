@@ -9,7 +9,9 @@ type SessionEventHubContext = Pick<
   "broadcastToConnIds" | "getSessionEventSubscriberConnIds"
 >;
 
-type SessionLifecycleEventLike = Parameters<typeof deriveGatewaySessionLifecycleSnapshot>[0]["event"];
+type SessionLifecycleEventLike = Parameters<
+  typeof deriveGatewaySessionLifecycleSnapshot
+>[0]["event"];
 
 type SessionBroadcastOverrides = Partial<
   Pick<GatewaySessionRow, "parentSessionKey" | "label" | "displayName">
@@ -68,7 +70,9 @@ function resolveSessionRow(params: {
   return params.sessionKey ? loadGatewaySessionRow(params.sessionKey) : null;
 }
 
-function buildSessionBroadcastSurface(params: SessionBroadcastSurfaceParams): Record<string, unknown> {
+function buildSessionBroadcastSurface(
+  params: SessionBroadcastSurfaceParams,
+): Record<string, unknown> {
   const row = resolveSessionRow(params);
   const lifecyclePatch = params.lifecycleEvent
     ? deriveGatewaySessionLifecycleSnapshot({

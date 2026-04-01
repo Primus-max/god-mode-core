@@ -84,6 +84,8 @@ describe("runCronIsolatedAgentTurn owner auth", () => {
       | { platformExecutionContext?: { timeoutSeconds?: number } }
       | undefined;
 
-    expect(timeoutCall?.overrideSeconds).toBe(embeddedCall?.platformExecutionContext?.timeoutSeconds);
+    expect(timeoutCall?.overrideSeconds).toBe(
+      embeddedCall?.platformExecutionContext?.timeoutSeconds,
+    );
   });
 });

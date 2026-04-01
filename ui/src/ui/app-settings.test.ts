@@ -17,6 +17,7 @@ vi.mock("./controllers/usage.ts", () => ({
   loadSessionLogs: vi.fn().mockResolvedValue(undefined),
 }));
 
+import { switchChatAgent, switchOverviewSession } from "./app-render.helpers.ts";
 import {
   applyResolvedTheme,
   applySettings,
@@ -31,20 +32,24 @@ import {
   syncThemeWithSettings,
 } from "./app-settings.ts";
 import * as channels from "./controllers/channels.ts";
-import * as cron from "./controllers/cron.ts";
 import { loadChatHistory } from "./controllers/chat.ts";
+import * as cron from "./controllers/cron.ts";
 import { loadRuntimeInspector } from "./controllers/runtime-inspector.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSpecialistContext } from "./controllers/specialist.ts";
 import { loadSessionLogs, loadSessionTimeSeries, loadUsage } from "./controllers/usage.ts";
-import { switchChatAgent, switchOverviewSession } from "./app-render.helpers.ts";
 import {
   buildSkillSearchText,
   SKILL_FILTER_BLOCKED,
   SKILL_FILTER_MISSING,
 } from "./skills-correlation.ts";
 import type { ThemeMode, ThemeName } from "./theme.ts";
-import type { ChannelsStatusSnapshot, MachineControlStatus } from "./types.ts";
+import type {
+  ChannelsStatusSnapshot,
+  MachineControlStatus,
+  SessionUsageTimeSeries,
+} from "./types.ts";
+import type { SessionLogEntry } from "./views/usage.ts";
 
 type Tab =
   | "agents"
@@ -177,8 +182,8 @@ type SettingsHost = {
   usageQuery?: string;
   usageQueryDraft?: string;
   usageResult?: { sessions?: Array<{ key: string }> } | null;
-  usageTimeSeries?: unknown;
-  usageSessionLogs?: unknown;
+  usageTimeSeries?: SessionUsageTimeSeries | null;
+  usageSessionLogs?: SessionLogEntry[] | null;
   skillsFilter?: string;
   debugCallMethod?: string;
   debugCallParams?: string;
@@ -233,11 +238,23 @@ type SettingsHost = {
     blockedReason?: string;
     target?: { bootstrapRequestId?: string; artifactId?: string };
   } | null;
-  skillsReport?: { skills?: Array<{ disabled?: boolean; missing?: Record<string, unknown>; blockedByAllowlist?: boolean; name: string }> } | null;
+  skillsReport?: {
+    skills?: Array<{
+      disabled?: boolean;
+      missing?: Record<string, unknown>;
+      blockedByAllowlist?: boolean;
+      name: string;
+    }>;
+  } | null;
   channelsSnapshot?: ChannelsStatusSnapshot | null;
   hello?: { auth?: { role?: string; scopes?: string[] } } | null;
   lastError?: string | null;
-  cronJobs?: Array<{ id?: string; name: string; enabled?: boolean; state?: { lastStatus?: string; nextRunAtMs?: number | null } }>;
+  cronJobs?: Array<{
+    id?: string;
+    name: string;
+    enabled?: boolean;
+    state?: { lastStatus?: string; nextRunAtMs?: number | null };
+  }>;
   attentionItems?: Array<unknown>;
 };
 
@@ -1412,7 +1429,7 @@ describe("refreshActiveTab usage deep links", () => {
     host.connected = true;
     host.usageSelectedSessions = ["agent:main:main"];
     vi.mocked(loadUsage).mockImplementationOnce(async (state) => {
-      (state as SettingsHost).usageResult = {
+      (state as unknown as SettingsHost).usageResult = {
         sessions: [{ key: "agent:main:main" }],
       };
     });
@@ -1436,7 +1453,7 @@ describe("refreshActiveTab usage deep links", () => {
     host.usageQueryDraft = "cost spike";
     host.usageSelectedSessions = ["agent:missing:main"];
     vi.mocked(loadUsage).mockImplementationOnce(async (state) => {
-      (state as SettingsHost).usageResult = {
+      (state as unknown as SettingsHost).usageResult = {
         sessions: [{ key: "agent:main:main" }],
       };
     });
@@ -1480,7 +1497,7 @@ describe("refreshActiveTab sessions list deep links", () => {
     host.sessionsPage = 4;
     host.sessionsPageSize = 50;
     vi.mocked(loadSessions).mockImplementationOnce(async (state) => {
-      (state as SettingsHost).sessionsResult = {
+      (state as unknown as SettingsHost).sessionsResult = {
         count: 10,
         sessions: [{ key: "agent:main:main" }],
       };
@@ -1511,14 +1528,14 @@ describe("refreshActiveTab sessions list deep links", () => {
     host.runtimeSelectedActionId = "missing-action";
     host.runtimeSelectedClosureRunId = "missing-run";
     vi.mocked(loadSessions).mockImplementationOnce(async (state) => {
-      (state as SettingsHost).sessionsResult = {
+      (state as unknown as SettingsHost).sessionsResult = {
         count: 1,
         sessions: [{ key: "agent:main:main" }],
       };
     });
     vi.mocked(loadRuntimeInspector).mockImplementationOnce(async (state) => {
-      (state as SettingsHost).runtimeSelectedActionId = "action-1";
-      (state as SettingsHost).runtimeSelectedClosureRunId = "run-1";
+      (state as unknown as SettingsHost).runtimeSelectedActionId = "action-1";
+      (state as unknown as SettingsHost).runtimeSelectedClosureRunId = "run-1";
     });
 
     await refreshActiveTab(host);

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
+import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import {
   createCapabilityCatalogGetGatewayMethod,
   createCapabilityCatalogListGatewayMethod,

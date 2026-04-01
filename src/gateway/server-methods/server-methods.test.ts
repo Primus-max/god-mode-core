@@ -161,7 +161,9 @@ describe("waitForAgentJob", () => {
     });
     const early = await Promise.race([
       waitPromise.then((s) => ({ kind: "done" as const, s })),
-      new Promise<{ kind: "pending" }>((resolve) => setTimeout(() => resolve({ kind: "pending" }), 40)),
+      new Promise<{ kind: "pending" }>((resolve) =>
+        setTimeout(() => resolve({ kind: "pending" }), 40),
+      ),
     ]);
     expect(early.kind).toBe("pending");
     emitRunClosureSummary({

@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import * as agentEvents from "../../infra/agent-events.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as agentEvents from "../../infra/agent-events.js";
 import {
   createPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,
