@@ -19,6 +19,7 @@ vi.mock("./controllers/usage.ts", () => ({
 
 import { switchChatAgent, switchOverviewSession } from "./app-render.helpers.ts";
 import {
+  buildCanonicalCronJobHref,
   applyResolvedTheme,
   applySettings,
   applySettingsFromUrl,
@@ -1009,6 +1010,27 @@ describe("syncUrlWithTab", () => {
 
     expect(buildCanonicalUsageSessionHref(host, "agent:writer:main")).toBe(
       "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Awriter%3Amain&usageQ=cost+spike",
+    );
+  });
+
+  it("builds canonical cron job hrefs with the current cron filters and target job override", () => {
+    const host = createHost("cron");
+    host.basePath = "/ui";
+    host.cronJobsQuery = "nightly";
+    host.cronJobsEnabledFilter = "enabled";
+    host.cronJobsScheduleKindFilter = "cron";
+    host.cronJobsLastStatusFilter = "error";
+    host.cronJobsSortBy = "updatedAtMs";
+    host.cronJobsSortDir = "desc";
+    host.cronRunsScope = "job";
+    host.cronRunsJobId = "job-old";
+    host.cronRunsQuery = "timeout";
+    host.cronRunsSortDir = "asc";
+    host.cronRunsStatuses = ["error"];
+    host.cronRunsDeliveryStatuses = ["not-delivered"];
+
+    expect(buildCanonicalCronJobHref(host, "job-new")).toBe(
+      "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronRunsScope=job&cronJob=job-new&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered",
     );
   });
 

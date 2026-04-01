@@ -2,7 +2,7 @@
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_CRON_FORM } from "../app-defaults.ts";
-import { buildTabHref } from "../app-settings.ts";
+import { buildCanonicalCronJobHref, buildTabHref } from "../app-settings.ts";
 import type { CronJob } from "../types.ts";
 import { renderCron, type CronProps } from "./cron.ts";
 
@@ -23,6 +23,11 @@ function createJob(id: string): CronJob {
 function createProps(overrides: Partial<CronProps> = {}): CronProps {
   return {
     basePath: "",
+    buildJobHref: (jobId) =>
+      buildTabHref({ basePath: overrides.basePath ?? "" }, "cron", {
+        cronRunsScope: "job",
+        cronJob: jobId,
+      }),
     loading: false,
     jobsLoadingMore: false,
     status: null,
@@ -131,11 +136,94 @@ describe("cron view", () => {
       container,
     );
 
-    const row = container.querySelector(".list-item-clickable");
-    expect(row).not.toBeNull();
-    row?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const rowLink = container.querySelector("a.cron-job-link-overlay");
+    expect(rowLink).not.toBeNull();
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    rowLink?.dispatchEvent(click);
 
     expect(onLoadRuns).toHaveBeenCalledWith("job-1");
+    expect(click.defaultPrevented).toBe(true);
+  });
+
+  it("renders canonical cron job hrefs for job rows", () => {
+    const container = document.createElement("div");
+    const job = createJob("job-1");
+    render(
+      renderCron(
+        createProps({
+          basePath: "/ui",
+          jobs: [job],
+          jobsQuery: "nightly",
+          jobsEnabledFilter: "enabled",
+          jobsScheduleKindFilter: "cron",
+          jobsLastStatusFilter: "error",
+          jobsSortBy: "updatedAtMs",
+          jobsSortDir: "desc",
+          runsJobId: "job-old",
+          runsScope: "job",
+          runsQuery: "timeout",
+          runsSortDir: "asc",
+          runsStatuses: ["error"],
+          runsDeliveryStatuses: ["not-delivered"],
+          buildJobHref: (jobId) =>
+            buildCanonicalCronJobHref(
+              {
+                basePath: "/ui",
+                sessionKey: "main",
+                cronJobsQuery: "nightly",
+                cronJobsEnabledFilter: "enabled",
+                cronJobsScheduleKindFilter: "cron",
+                cronJobsLastStatusFilter: "error",
+                cronJobsSortBy: "updatedAtMs",
+                cronJobsSortDir: "desc",
+                cronRunsScope: "job",
+                cronRunsJobId: "job-old",
+                cronRunsQuery: "timeout",
+                cronRunsSortDir: "asc",
+                cronRunsStatuses: ["error"],
+                cronRunsDeliveryStatuses: ["not-delivered"],
+              } as Parameters<typeof buildCanonicalCronJobHref>[0],
+              jobId,
+            ),
+        }),
+      ),
+      container,
+    );
+
+    const rowLink = container.querySelector("a.cron-job-link-overlay");
+    expect(rowLink).not.toBeNull();
+    expect(rowLink?.getAttribute("href")).toBe(
+      "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronRunsScope=job&cronJob=job-1&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered",
+    );
+  });
+
+  it("lets modified clicks fall through to the browser href for job rows", () => {
+    const container = document.createElement("div");
+    const onLoadRuns = vi.fn();
+    const job = createJob("job-1");
+    render(
+      renderCron(
+        createProps({
+          basePath: "/ui",
+          jobs: [job],
+          onLoadRuns,
+        }),
+      ),
+      container,
+    );
+
+    const rowLink = container.querySelector("a.cron-job-link-overlay");
+    expect(rowLink).not.toBeNull();
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true,
+    });
+    rowLink?.dispatchEvent(click);
+
+    expect(onLoadRuns).not.toHaveBeenCalled();
+    expect(click.defaultPrevented).toBe(false);
   });
 
   it("marks the selected job and keeps History button to a single call", () => {
