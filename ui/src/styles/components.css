@@ -1501,11 +1501,37 @@
 }
 
 .cron-job {
+  position: relative;
   grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
   grid-template-areas:
     "main meta"
     "footer footer";
   row-gap: 10px;
+}
+
+.cron-job-link-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  color: inherit;
+  text-decoration: none;
+  border-radius: inherit;
+}
+
+.cron-job-link-overlay:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.cron-job-link-content,
+.cron-job-footer {
+  position: relative;
+  z-index: 1;
+}
+
+.cron-job-link-content,
+.cron-job-footer {
+  pointer-events: none;
 }
 
 .cron-job .list-main {
@@ -1612,6 +1638,7 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   margin-top: 0;
+  pointer-events: auto;
 }
 
 .cron-job-actions .btn {

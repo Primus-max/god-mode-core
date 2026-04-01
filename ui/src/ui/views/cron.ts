@@ -24,6 +24,7 @@ import type { CronFormState } from "../ui-types.ts";
 
 export type CronProps = {
   basePath: string;
+  buildJobHref: (jobId: string) => string;
   loading: boolean;
   jobsLoadingMore: boolean;
   status: CronStatus | null;
@@ -1506,18 +1507,37 @@ function renderJob(job: CronJob, props: CronProps) {
     action();
   };
   return html`
-    <div class=${itemClass} @click=${() => props.onLoadRuns(job.id)}>
-      <div class="list-main">
+    <div class=${itemClass}>
+      <a
+        href=${props.buildJobHref(job.id)}
+        class="cron-job-link-overlay"
+        data-job-id=${job.id}
+        aria-label=${job.name}
+        @click=${(event: MouseEvent) => {
+          if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.altKey
+          ) {
+            return;
+          }
+          event.preventDefault();
+          props.onLoadRuns(job.id);
+        }}
+      ></a>
+      <div class="list-main cron-job-link-content">
         <div class="list-title">${job.name}</div>
         <div class="list-sub">${formatCronSchedule(job)}</div>
         ${renderJobPayload(job)}
         ${job.agentId ? html`<div class="muted cron-job-agent">${t("cron.jobDetail.agent")}: ${job.agentId}</div>` : nothing}
       </div>
-      <div class="list-meta">
+      <div class="list-meta cron-job-link-content">
         ${renderJobState(job)}
       </div>
       <div class="cron-job-footer">
-        <div class="chip-row cron-job-chips">
+        <div class="chip-row cron-job-chips cron-job-link-content">
           <span class=${`chip ${job.enabled ? "chip-ok" : "chip-danger"}`}>
             ${job.enabled ? t("cron.jobList.enabled") : t("cron.jobList.disabled")}
           </span>

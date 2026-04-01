@@ -15,7 +15,12 @@ import {
   switchChatSession,
   switchOverviewSession,
 } from "./app-render.helpers.ts";
-import { buildCanonicalTabHref, buildTabHref, syncUrlWithTab } from "./app-settings.ts";
+import {
+  buildCanonicalCronJobHref,
+  buildCanonicalTabHref,
+  buildTabHref,
+  syncUrlWithTab,
+} from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
@@ -1044,6 +1049,7 @@ export function renderApp(state: AppViewState) {
             ? lazyRender(lazyCron, (m) =>
                 m.renderCron({
                   basePath: state.basePath,
+                  buildJobHref: (jobId) => buildCanonicalCronJobHref(state, jobId),
                   loading: state.cronLoading,
                   status: state.cronStatus,
                   jobs: visibleCronJobs,
