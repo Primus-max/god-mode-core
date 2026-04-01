@@ -16,6 +16,7 @@ import {
   switchOverviewSession,
 } from "./app-render.helpers.ts";
 import {
+  buildCanonicalAgentsHref,
   buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
   buildCanonicalCronJobHref,
@@ -1172,6 +1173,17 @@ export function renderApp(state: AppViewState) {
                   agentsList: state.agentsList,
                   selectedAgentId: resolvedAgentId,
                   activePanel: state.agentsPanel,
+                  buildPanelHref: (panel) =>
+                    buildCanonicalAgentsHref(state, {
+                      agentId: resolvedAgentId,
+                      panel,
+                    }),
+                  buildFileHref: (file) =>
+                    buildCanonicalAgentsHref(state, {
+                      agentId: resolvedAgentId,
+                      panel: "files",
+                      file,
+                    }),
                   config: {
                     form: configValue,
                     loading: state.configLoading,
