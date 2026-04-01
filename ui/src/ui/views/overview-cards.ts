@@ -2,6 +2,7 @@ import { html, nothing, type TemplateResult } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { t } from "../../i18n/index.ts";
 import { formatCost, formatTokens, formatRelativeTimestamp } from "../format.ts";
+import type { Tab } from "../navigation.ts";
 import { formatNextRun } from "../presenter.ts";
 import { SKILL_FILTER_BLOCKED, SKILL_FILTER_MISSING } from "../skills-correlation.ts";
 import type {
@@ -12,6 +13,10 @@ import type {
   CronStatus,
 } from "../types.ts";
 
+type OverviewCardNavigateOptions = {
+  skillFilter?: string;
+};
+
 export type OverviewCardsProps = {
   usageResult: SessionsUsageResult | null;
   sessionsResult: SessionsListResult | null;
@@ -19,7 +24,8 @@ export type OverviewCardsProps = {
   cronJobs: CronJob[];
   cronStatus: CronStatus | null;
   presenceCount: number;
-  onNavigate: (tab: string, options?: { skillFilter?: string }) => void;
+  buildHref: (tab: Tab, options?: OverviewCardNavigateOptions) => string;
+  onNavigate: (tab: Tab, options?: OverviewCardNavigateOptions) => void;
 };
 
 const DIGIT_RUN = /\d{3,}/g;
@@ -32,27 +38,42 @@ function blurDigits(value: string): TemplateResult {
 
 type StatCard = {
   kind: string;
-  tab: string;
+  tab: Tab;
   label: string;
   value: string | TemplateResult;
   hint: string | TemplateResult;
-  navigateOptions?: { skillFilter?: string };
+  href: string;
+  navigateOptions?: OverviewCardNavigateOptions;
 };
 
 function renderStatCard(
   card: StatCard,
-  onNavigate: (tab: string, options?: { skillFilter?: string }) => void,
+  onNavigate: (tab: Tab, options?: OverviewCardNavigateOptions) => void,
 ) {
   return html`
-    <button
+    <a
+      href=${card.href}
       class="ov-card"
       data-kind=${card.kind}
-      @click=${() => onNavigate(card.tab, card.navigateOptions)}
+      @click=${(event: MouseEvent) => {
+        if (
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        ) {
+          return;
+        }
+        event.preventDefault();
+        onNavigate(card.tab, card.navigateOptions);
+      }}
     >
       <span class="ov-card__label">${card.label}</span>
       <span class="ov-card__value">${card.value}</span>
       <span class="ov-card__hint">${card.hint}</span>
-    </button>
+    </a>
   `;
 }
 
@@ -120,6 +141,7 @@ export function renderOverviewCards(props: OverviewCardsProps) {
     {
       kind: "cost",
       tab: "usage",
+      href: props.buildHref("usage"),
       label: t("overview.cards.cost"),
       value: totalCost,
       hint: t("overview.cardMetrics.costHint", { tokens: totalTokens, msgs: totalMessages }),
@@ -127,6 +149,7 @@ export function renderOverviewCards(props: OverviewCardsProps) {
     {
       kind: "sessions",
       tab: "sessions",
+      href: props.buildHref("sessions"),
       label: t("overview.stats.sessions"),
       value: String(sessionCount ?? t("common.na")),
       hint: t("overview.stats.sessionsHint"),
@@ -134,6 +157,14 @@ export function renderOverviewCards(props: OverviewCardsProps) {
     {
       kind: "skills",
       tab: "skills",
+      href: props.buildHref(
+        "skills",
+        blockedSkills > 0
+          ? { skillFilter: SKILL_FILTER_BLOCKED }
+          : skillsMissingCount > 0
+            ? { skillFilter: SKILL_FILTER_MISSING }
+            : undefined,
+      ),
       label: t("overview.cards.skills"),
       value: `${enabledSkills}/${totalSkills}`,
       hint:
@@ -150,6 +181,7 @@ export function renderOverviewCards(props: OverviewCardsProps) {
     {
       kind: "cron",
       tab: "cron",
+      href: props.buildHref("cron"),
       label: t("overview.stats.cron"),
       value: cronValue,
       hint: cronHint,

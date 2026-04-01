@@ -29,6 +29,10 @@ import {
 import { renderOverviewLogTail } from "./overview-log-tail.ts";
 import { renderSpecialistOverviewPanel } from "./specialist-context.ts";
 
+type OverviewCardNavigateOptions = {
+  skillFilter?: string;
+};
+
 export type OverviewProps = {
   connected: boolean;
   hello: GatewayHelloOk | null;
@@ -72,7 +76,11 @@ export type OverviewProps = {
   onToggleGatewayPasswordVisibility: () => void;
   onConnect: () => void;
   onRefresh: () => void;
-  onNavigate: (tab: string, options?: { skillFilter?: string }) => void;
+  buildCardHref: (tab: "usage" | "sessions" | "skills" | "cron", options?: OverviewCardNavigateOptions) => string;
+  onNavigate: (
+    tab: "usage" | "sessions" | "skills" | "cron",
+    options?: OverviewCardNavigateOptions,
+  ) => void;
   onRefreshLogs: () => void;
   onSpecialistOverrideChange: (
     next:
@@ -431,6 +439,7 @@ export function renderOverview(props: OverviewProps) {
       cronJobs: props.cronJobs,
       cronStatus: props.cronStatus,
       presenceCount: props.presenceCount,
+      buildHref: props.buildCardHref,
       onNavigate: props.onNavigate,
     })}
 
