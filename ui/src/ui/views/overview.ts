@@ -77,10 +77,12 @@ export type OverviewProps = {
   onConnect: () => void;
   onRefresh: () => void;
   buildCardHref: (tab: "usage" | "sessions" | "skills" | "cron", options?: OverviewCardNavigateOptions) => string;
+  buildChatHref: (sessionKey: string) => string;
   onNavigate: (
     tab: "usage" | "sessions" | "skills" | "cron",
     options?: OverviewCardNavigateOptions,
   ) => void;
+  onNavigateToChat: (sessionKey: string) => void;
   onRefreshLogs: () => void;
   onSpecialistOverrideChange: (
     next:
@@ -440,7 +442,9 @@ export function renderOverview(props: OverviewProps) {
       cronStatus: props.cronStatus,
       presenceCount: props.presenceCount,
       buildHref: props.buildCardHref,
+      buildChatHref: props.buildChatHref,
       onNavigate: props.onNavigate,
+      onNavigateToChat: props.onNavigateToChat,
     })}
 
     ${renderOverviewAttention({ items: props.attentionItems })}
