@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getSharedExecApprovalManager } from "../../gateway/exec-approval-manager.js";
 import {
   emitAgentEvent,
   emitRuntimeRecoveryTelemetry,
@@ -22,7 +23,6 @@ import {
   type PlatformRuntimeRunOutcome,
   type PlatformRuntimeSupervisorVerdict,
 } from "../../platform/runtime/index.js";
-import { getSharedExecApprovalManager } from "../../gateway/exec-approval-manager.js";
 import {
   enqueueFollowupRun,
   scheduleFollowupDrain,
@@ -30,9 +30,7 @@ import {
   type QueueSettings,
 } from "./queue.js";
 
-type MessagingClosureDecision =
-  | PlatformRuntimeAcceptanceResult
-  | PlatformRuntimeSupervisorVerdict;
+type MessagingClosureDecision = PlatformRuntimeAcceptanceResult | PlatformRuntimeSupervisorVerdict;
 
 const QueueSettingsSchema = z
   .object({
@@ -150,10 +148,7 @@ export type ClosureRecoveryStartupReconcileResult = {
   staleCheckpointCount: number;
 };
 
-const CLOSURE_APPROVAL_TIMEOUT_MS = Math.max(
-  DEFAULT_EXEC_APPROVAL_TIMEOUT_MS,
-  24 * 60 * 60 * 1000,
-);
+const CLOSURE_APPROVAL_TIMEOUT_MS = Math.max(DEFAULT_EXEC_APPROVAL_TIMEOUT_MS, 24 * 60 * 60 * 1000);
 
 function isClosureRecoveryCheckpoint(checkpoint: {
   target?: { operation?: string };
@@ -292,7 +287,9 @@ export function markClosureRecoveryCheckpointFailed(params: {
   checkpointId?: string;
   error: string;
 }): void {
-  const checkpointId = params.checkpointId ?? (params.sourceRun ? resolveClosureRecoveryCheckpointId(params.sourceRun) : undefined);
+  const checkpointId =
+    params.checkpointId ??
+    (params.sourceRun ? resolveClosureRecoveryCheckpointId(params.sourceRun) : undefined);
   if (!checkpointId) {
     return;
   }

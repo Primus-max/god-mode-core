@@ -42,12 +42,12 @@ import {
 import { evaluatePolicy } from "./policy/engine.js";
 import { getInitialProfile, getTaskOverlay } from "./profile/defaults.js";
 import { createProfileResolveGatewayMethod } from "./profile/index.js";
-import { createCapabilityRegistry } from "./registry/index.js";
 import {
   buildPolicyContextFromExecutionContext,
   resolvePlatformRuntimePlan,
   toPluginHookPlatformExecutionContext,
 } from "./recipe/runtime-adapter.js";
+import { createCapabilityRegistry } from "./registry/index.js";
 import {
   createRuntimeActionGetGatewayMethod,
   createRuntimeActionListGatewayMethod,

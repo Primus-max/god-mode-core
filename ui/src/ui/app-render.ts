@@ -3,7 +3,6 @@ import { parseAgentSessionKey } from "../../../src/routing/session-key.js";
 import { t } from "../i18n/index.ts";
 import { getSafeLocalStorage } from "../local-storage.ts";
 import { refreshChatAvatar } from "./app-chat.ts";
-import { buildAttentionItems, syncUrlWithTab } from "./app-settings.ts";
 import { renderUsageTab } from "./app-render-usage-tab.ts";
 import {
   renderChatControls,
@@ -16,6 +15,7 @@ import {
   switchChatSession,
   switchOverviewSession,
 } from "./app-render.helpers.ts";
+import { syncUrlWithTab } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
@@ -81,6 +81,8 @@ import {
   setMachineKillSwitch,
   unlinkMachineDevice,
 } from "./controllers/machine.ts";
+import { loadNodes } from "./controllers/nodes.ts";
+import { loadPresence } from "./controllers/presence.ts";
 import {
   clearRuntimeInspectorScope,
   executeRuntimeRecoveryAction,
@@ -89,8 +91,6 @@ import {
   loadRuntimeClosureDetail,
   loadRuntimeInspector,
 } from "./controllers/runtime-inspector.ts";
-import { loadNodes } from "./controllers/nodes.ts";
-import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionsAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
 import {
   installSkill,
@@ -183,8 +183,8 @@ function resolveExecApprovalsTarget(state: {
   execApprovalsTargetNodeId: string | null;
 }) {
   return state.execApprovalsTarget === "node" && state.execApprovalsTargetNodeId
-    ? ({ kind: "node" as const, nodeId: state.execApprovalsTargetNodeId })
-    : ({ kind: "gateway" as const });
+    ? { kind: "node" as const, nodeId: state.execApprovalsTargetNodeId }
+    : { kind: "gateway" as const };
 }
 
 function isHttpUrl(value: string): boolean {

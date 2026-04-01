@@ -288,7 +288,7 @@ describe("sessions view", () => {
               acceptanceStatus: "satisfied",
               action: "close",
               remediation: "none",
-              reasonCode: "completed_with_output",
+              reasonCode: "verified_execution",
               reasons: ["ok"],
             },
           }),
@@ -334,7 +334,7 @@ describe("sessions view", () => {
               acceptanceStatus: "satisfied",
               action: "close",
               remediation: "none",
-              reasonCode: "completed_with_output",
+              reasonCode: "verified_execution",
               reasons: ["ok"],
             },
           }),
@@ -594,8 +594,12 @@ describe("sessions view", () => {
     );
     await Promise.resolve();
 
-    const links = Array.from(container.querySelectorAll("a")).map((link) => link.getAttribute("href"));
-    expect(links).toContain("/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1");
+    const links = Array.from(container.querySelectorAll("a")).map((link) =>
+      link.getAttribute("href"),
+    );
+    expect(links).toContain(
+      "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
+    );
     expect(links).toContain("/ui/artifacts?session=agent%3Amain%3Amain&artifact=artifact-1");
   });
 });

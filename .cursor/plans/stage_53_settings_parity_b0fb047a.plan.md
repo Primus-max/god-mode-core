@@ -111,8 +111,6 @@ sync --> refresh[Refresh Popstate ShareLink]
 refresh --> hydrate
 ```
 
-
-
 ## Expected Outcome
 
 После stage settings-family перестанет быть memory-only surface: ссылка будет восстанавливать тот же navigation context внутри нужной settings-вкладки, а остаток v1 сузится уже до более точечных overview/entrypoint handoff gaps, а не до крупного family-wide пробела.

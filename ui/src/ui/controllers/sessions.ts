@@ -79,7 +79,9 @@ function hasDefinedOwn(
   source: Record<string, unknown> | undefined,
   key: (typeof SESSION_ROW_FIELDS)[number] | "key",
 ): boolean {
-  return Boolean(source && Object.prototype.hasOwnProperty.call(source, key) && source[key] !== undefined);
+  return Boolean(
+    source && Object.prototype.hasOwnProperty.call(source, key) && source[key] !== undefined,
+  );
 }
 
 function readSessionField(
@@ -140,7 +142,7 @@ function buildSessionRowFromChangedPayload(
   }
   return {
     key: sessionKey,
-    kind,
+    kind: kind as GatewaySessionRow["kind"],
     spawnedBy: asOptionalString(readSessionField(source, nested, "spawnedBy")),
     label: asOptionalString(readSessionField(source, nested, "label")),
     displayName: asOptionalString(readSessionField(source, nested, "displayName")),
@@ -179,7 +181,9 @@ function buildSessionRowFromChangedPayload(
       | GatewaySessionRow["handoffTruthSource"]
       | undefined,
     handoffHint: asOptionalString(readSessionField(source, nested, "handoffHint")),
-    recoveryCheckpointId: asOptionalString(readSessionField(source, nested, "recoveryCheckpointId")),
+    recoveryCheckpointId: asOptionalString(
+      readSessionField(source, nested, "recoveryCheckpointId"),
+    ),
     recoveryStatus: readSessionField(source, nested, "recoveryStatus") as
       | GatewaySessionRow["recoveryStatus"]
       | undefined,
@@ -187,10 +191,14 @@ function buildSessionRowFromChangedPayload(
       | GatewaySessionRow["recoveryContinuationState"]
       | undefined,
     recoveryOperation: asOptionalString(readSessionField(source, nested, "recoveryOperation")),
-    recoveryBlockedReason: asOptionalString(readSessionField(source, nested, "recoveryBlockedReason")),
+    recoveryBlockedReason: asOptionalString(
+      readSessionField(source, nested, "recoveryBlockedReason"),
+    ),
     recoveryUpdatedAt: asOptionalNumber(readSessionField(source, nested, "recoveryUpdatedAt")),
     recoveryAttempts: asOptionalNumber(readSessionField(source, nested, "recoveryAttempts")),
-    recoveryOperatorHint: asOptionalString(readSessionField(source, nested, "recoveryOperatorHint")),
+    recoveryOperatorHint: asOptionalString(
+      readSessionField(source, nested, "recoveryOperatorHint"),
+    ),
   };
 }
 
@@ -198,7 +206,8 @@ export function applySessionsChangedEvent(
   state: Pick<SessionsState, "sessionsResult">,
   payload: GatewaySessionChangedPayload | undefined,
 ): { applied: boolean; shouldReload: boolean } {
-  const reason = isRecord(payload) && typeof payload.reason === "string" ? payload.reason : undefined;
+  const reason =
+    isRecord(payload) && typeof payload.reason === "string" ? payload.reason : undefined;
   if (
     reason === "create" ||
     reason === "delete" ||

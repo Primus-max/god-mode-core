@@ -26,8 +26,9 @@ function resolveChannelLabel(snapshot: ChannelsStatusSnapshot, key: string): str
 
 function resolveAccountError(accounts: ChannelAccountSnapshot[] | undefined): string | null {
   return (
-    accounts?.find((account) => typeof account.lastError === "string" && account.lastError.trim().length > 0)
-      ?.lastError ?? null
+    accounts?.find(
+      (account) => typeof account.lastError === "string" && account.lastError.trim().length > 0,
+    )?.lastError ?? null
   );
 }
 

@@ -133,7 +133,9 @@ function mergeCompletionOutcomeWithRuntimeOutcome(params: {
   return PlatformRuntimeRunOutcomeSchema.parse({
     runId: baseOutcome.runId,
     status,
-    checkpointIds: Array.from(new Set([...baseOutcome.checkpointIds, ...runtimeOutcome.checkpointIds])),
+    checkpointIds: Array.from(
+      new Set([...baseOutcome.checkpointIds, ...runtimeOutcome.checkpointIds]),
+    ),
     blockedCheckpointIds: Array.from(
       new Set([...baseOutcome.blockedCheckpointIds, ...runtimeOutcome.blockedCheckpointIds]),
     ),
@@ -189,9 +191,7 @@ export type MessagingDeliveryClosureCandidate = {
   settings: QueueSettings;
 };
 
-type MessagingClosureDecision =
-  | PlatformRuntimeAcceptanceResult
-  | PlatformRuntimeSupervisorVerdict;
+type MessagingClosureDecision = PlatformRuntimeAcceptanceResult | PlatformRuntimeSupervisorVerdict;
 
 type MessagingClosurePresentation = {
   title: string;
@@ -485,24 +485,23 @@ function buildMessagingClosurePresentation(
   decision: MessagingClosureDecision,
 ): MessagingClosurePresentation | undefined {
   const reason = decision.reasons[0] ?? "The task needs additional handling.";
-  const text =
-    decision.recoveryPolicy.exhausted
-      ? decision.recoveryPolicy.exhaustedAction === "escalate"
-        ? `I could not finish automatically and now need human intervention. ${reason}`.trim()
-        : `I exhausted the automatic recovery budget and could not complete this task. ${reason}`.trim()
-      : decision.remediation === "bootstrap"
-        ? `Still working on this. I need to finish bootstrap recovery before I can complete it. ${reason}`.trim()
-        : decision.remediation === "auth_refresh"
-          ? `I could not finish because provider authentication needs attention. ${reason}`.trim()
-          : decision.remediation === "provider_fallback"
-            ? `I hit a provider/model execution problem and need a different runtime path before I can finish. ${reason}`.trim()
-            : decision.action === "retry"
-              ? `Still working on this. I need one more pass to finish reliably. ${reason}`.trim()
-              : decision.action === "escalate"
-                ? `I need human input or approval before I can finish this. ${reason}`.trim()
-                : decision.action === "stop"
-                  ? `I could not complete this task. ${reason}`.trim()
-                  : undefined;
+  const text = decision.recoveryPolicy.exhausted
+    ? decision.recoveryPolicy.exhaustedAction === "escalate"
+      ? `I could not finish automatically and now need human intervention. ${reason}`.trim()
+      : `I exhausted the automatic recovery budget and could not complete this task. ${reason}`.trim()
+    : decision.remediation === "bootstrap"
+      ? `Still working on this. I need to finish bootstrap recovery before I can complete it. ${reason}`.trim()
+      : decision.remediation === "auth_refresh"
+        ? `I could not finish because provider authentication needs attention. ${reason}`.trim()
+        : decision.remediation === "provider_fallback"
+          ? `I hit a provider/model execution problem and need a different runtime path before I can finish. ${reason}`.trim()
+          : decision.action === "retry"
+            ? `Still working on this. I need one more pass to finish reliably. ${reason}`.trim()
+            : decision.action === "escalate"
+              ? `I need human input or approval before I can finish this. ${reason}`.trim()
+              : decision.action === "stop"
+                ? `I could not complete this task. ${reason}`.trim()
+                : undefined;
   if (!text) {
     return undefined;
   }

@@ -40,11 +40,15 @@ describe("debug view", () => {
     );
     await Promise.resolve();
 
-    const method = container.querySelector("select") as HTMLSelectElement | null;
-    const params = container.querySelector("textarea") as HTMLTextAreaElement | null;
-
-    expect(method?.value).toBe("models.list");
-    expect(params?.value).toBe('{"limit":10}');
+    const method = container.querySelector("select");
+    const params = container.querySelector("textarea");
+    expect(method).toBeInstanceOf(HTMLSelectElement);
+    expect(params).toBeInstanceOf(HTMLTextAreaElement);
+    if (!(method instanceof HTMLSelectElement) || !(params instanceof HTMLTextAreaElement)) {
+      throw new Error("expected select and textarea");
+    }
+    expect(method.value).toBe("models.list");
+    expect(params.value).toBe('{"limit":10}');
   });
 
   it("forwards manual RPC field edits", async () => {

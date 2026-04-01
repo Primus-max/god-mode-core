@@ -475,7 +475,7 @@ describe("dispatchReplyFromConfig", () => {
       opts?: GetReplyOptions,
       _cfg?: OpenClawConfig,
     ) => {
-      await opts?.onDeliveryClosureCandidate?.({
+      void opts?.onDeliveryClosureCandidate?.({
         runResult: {
           meta: {
             completionOutcome: {

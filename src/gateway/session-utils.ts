@@ -36,6 +36,7 @@ import {
   getPlatformRuntimeCheckpointService,
   type PlatformRuntimeCheckpointSummary,
 } from "../platform/runtime/index.js";
+import { deriveRecoveryOperatorHint } from "../platform/runtime/recovery-operator-hint.js";
 import {
   normalizeAgentId,
   normalizeMainKey,
@@ -52,7 +53,6 @@ import {
 } from "../shared/avatar-policy.js";
 import { normalizeSessionDeliveryFields } from "../utils/delivery-context.js";
 import { estimateUsageCost, resolveModelCostConfig } from "../utils/usage-format.js";
-import { deriveRecoveryOperatorHint } from "../platform/runtime/recovery-operator-hint.js";
 import { resolveSessionRunStatusFromClosureSummary } from "./session-closure-summary.js";
 import {
   readLatestSessionUsageFromTranscript,
@@ -1260,9 +1260,9 @@ export function buildGatewaySessionRow(params: {
       ? subagentStatus
       : recoveryDerivedStatus
         ? recoveryDerivedStatus
-      : entry?.runClosureSummary
-        ? resolveSessionRunStatusFromClosureSummary(entry.runClosureSummary)
-        : entry?.status,
+        : entry?.runClosureSummary
+          ? resolveSessionRunStatusFromClosureSummary(entry.runClosureSummary)
+          : entry?.status,
     startedAt: subagentRun ? subagentStartedAt : entry?.startedAt,
     endedAt: subagentRun ? subagentEndedAt : entry?.endedAt,
     runtimeMs: subagentRun ? subagentRuntimeMs : entry?.runtimeMs,
@@ -1326,7 +1326,9 @@ export function listSessionsFromStore(params: {
   const includeUnknown = opts.includeUnknown === true;
   const includeDerivedTitles = opts.includeDerivedTitles === true;
   const includeLastMessage = opts.includeLastMessage === true;
-  const recoveryCheckpoints = buildRecoveryCheckpointMap(getPlatformRuntimeCheckpointService().list());
+  const recoveryCheckpoints = buildRecoveryCheckpointMap(
+    getPlatformRuntimeCheckpointService().list(),
+  );
   const spawnedBy = typeof opts.spawnedBy === "string" ? opts.spawnedBy : "";
   const label = typeof opts.label === "string" ? opts.label.trim() : "";
   const agentId = typeof opts.agentId === "string" ? normalizeAgentId(opts.agentId) : "";

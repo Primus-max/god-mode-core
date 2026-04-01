@@ -154,8 +154,6 @@ flowchart LR
     cronPath --> regressionMatrix
 ```
 
-
-
 ## Validation
 
 - Targeted tests prove recipe/runtime policy stays consistent across embedded, CLI, and cron surfaces.

@@ -459,7 +459,8 @@ export function createExecApprovalHandlers(
               : "approved",
         runtimeCheckpointId:
           resumedCheckpoint?.id ?? snapshot?.request.runtimeCheckpointId ?? approvalId,
-        runtimeBoundary: resumedCheckpoint?.boundary ?? snapshot?.request.runtimeBoundary ?? undefined,
+        runtimeBoundary:
+          resumedCheckpoint?.boundary ?? snapshot?.request.runtimeBoundary ?? undefined,
       });
       emitAgentEvent({
         runId: runtimeRunId,
@@ -472,7 +473,8 @@ export function createExecApprovalHandlers(
               : isClosureRecoveryCheckpoint(resumedCheckpoint)
                 ? "resumed"
                 : "approved",
-          checkpointId: resumedCheckpoint?.id ?? snapshot?.request.runtimeCheckpointId ?? approvalId,
+          checkpointId:
+            resumedCheckpoint?.id ?? snapshot?.request.runtimeCheckpointId ?? approvalId,
           boundary: resumedCheckpoint?.boundary ?? snapshot?.request.runtimeBoundary ?? undefined,
           ...(decision === "deny" ? { error: "approval denied by operator" } : {}),
         },
@@ -493,7 +495,11 @@ export function createExecApprovalHandlers(
         .catch((err) => {
           context.logGateway?.error?.(`exec approvals: forward resolve failed: ${String(err)}`);
         });
-      if (decision !== "deny" && resumedCheckpoint && isClosureRecoveryCheckpoint(resumedCheckpoint)) {
+      if (
+        decision !== "deny" &&
+        resumedCheckpoint &&
+        isClosureRecoveryCheckpoint(resumedCheckpoint)
+      ) {
         await import("../../auto-reply/reply/closure-outcome-dispatcher.js");
         await runtimeCheckpointService.dispatchContinuation(resumedCheckpoint.id);
       }

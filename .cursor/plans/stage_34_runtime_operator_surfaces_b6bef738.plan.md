@@ -25,7 +25,7 @@ isProject: false
 
 Сейчас foundation уже есть:
 
-- [c:\Users\Tanya\source\repos\god-mode-core\src\platform\runtime\gateway.ts](c:\Users\Tanya\source\repos\god-mode-core\src\platform\runtime\gateway.ts) уже отдаёт `platform.runtime.actions.`*, `platform.runtime.checkpoints.`*, `platform.runtime.closures.*`, включая `operatorHint` для checkpoint surfaces.
+- [c:\Users\Tanya\source\repos\god-mode-core\src\platform\runtime\gateway.ts](c:\Users\Tanya\source\repos\god-mode-core\src\platform\runtime\gateway.ts) уже отдаёт `platform.runtime.actions.`_, `platform.runtime.checkpoints.`_, `platform.runtime.closures.*`, включая `operatorHint` для checkpoint surfaces.
 - [c:\Users\Tanya\source\repos\god-mode-core\src\platform\runtime\recovery-operator-hint.ts](c:\Users\Tanya\source\repos\god-mode-core\src\platform\runtime\recovery-operator-hint.ts) уже формирует человекочитаемое состояние recovery без второго источника правды.
 - [c:\Users\Tanya\source\repos\god-mode-core\ui\src\ui\controllers\sessions.ts](c:\Users\Tanya\source\repos\god-mode-core\ui\src\ui\controllers\sessions.ts) уже протаскивает `recoveryOperatorHint` в `GatewaySessionRow`.
 - Но [c:\Users\Tanya\source\repos\god-mode-core\ui\src\ui\views\sessions.ts](c:\Users\Tanya\source\repos\god-mode-core\ui\src\ui\views\sessions.ts) и текущие operator surfaces не превращают эти данные в рабочий v1 recovery/inspection UX.
@@ -140,8 +140,6 @@ flowchart LR
     bootstrapUi --> operatorView
     specialistUi --> operatorView
 ```
-
-
 
 ## Validation
 

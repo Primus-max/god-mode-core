@@ -90,8 +90,6 @@ newTab --> restore["RestoreSameScope"]
 preload --> restore
 ```
 
-
-
 ## Expected Outcome
 
 После stage у оператора исчезнут последние заметные расхождения между тем, что уже открыто на экране, и тем, что лежит в URL. Смена агента в `chat`, смена сессии в `overview` и открытие вкладок через sidebar будут вести к одному и тому же shareable состоянию без скрытого stale session/runtime scope.

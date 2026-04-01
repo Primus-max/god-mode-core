@@ -1,8 +1,8 @@
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
 import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
-import type { CapabilityRegistry } from "../registry/types.js";
 import { getInitialProfile } from "../profile/defaults.js";
 import { INITIAL_RECIPES, getInitialRecipe, initialRecipeRegistry } from "../recipe/defaults.js";
+import type { CapabilityRegistry } from "../registry/types.js";
 import type { ExecutionRecipe } from "../schemas/recipe.js";
 import {
   CapabilityCatalogDetailSchema,
@@ -28,10 +28,7 @@ function buildRecipeCatalogSummary(recipe: ExecutionRecipe) {
   });
 }
 
-function buildCapabilityCatalogSummary(
-  capabilityId: string,
-  registry?: CapabilityRegistry,
-) {
+function buildCapabilityCatalogSummary(capabilityId: string, registry?: CapabilityRegistry) {
   const catalogEntry =
     registry?.resolveCatalogEntry(capabilityId) ??
     TRUSTED_CAPABILITY_CATALOG.find((entry) => entry.capability.id === capabilityId);
@@ -40,13 +37,11 @@ function buildCapabilityCatalogSummary(
   }
   const runtimeDescriptor = registry?.get(capabilityId);
   const effectiveCapability = runtimeDescriptor ?? catalogEntry.capability;
-  const requiredByRecipes = initialRecipeRegistry
-    .findByCapability(capabilityId)
-    .map((recipe) => ({
-      id: recipe.id,
-      purpose: recipe.purpose,
-      ...(recipe.summary ? { summary: recipe.summary } : {}),
-    }));
+  const requiredByRecipes = initialRecipeRegistry.findByCapability(capabilityId).map((recipe) => ({
+    id: recipe.id,
+    purpose: recipe.purpose,
+    ...(recipe.summary ? { summary: recipe.summary } : {}),
+  }));
   return CapabilityCatalogSummarySchema.parse({
     id: effectiveCapability.id,
     label: effectiveCapability.label,
@@ -54,7 +49,9 @@ function buildCapabilityCatalogSummary(
     status: effectiveCapability.status,
     source: catalogEntry.source,
     trusted: effectiveCapability.trusted,
-    ...(effectiveCapability.installMethod ? { installMethod: effectiveCapability.installMethod } : {}),
+    ...(effectiveCapability.installMethod
+      ? { installMethod: effectiveCapability.installMethod }
+      : {}),
     ...(effectiveCapability.sandboxed !== undefined
       ? { sandboxed: effectiveCapability.sandboxed }
       : {}),

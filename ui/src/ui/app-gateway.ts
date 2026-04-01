@@ -29,7 +29,11 @@ import {
 import { loadHealthState } from "./controllers/health.ts";
 import { loadMachineControl } from "./controllers/machine.ts";
 import { loadNodes } from "./controllers/nodes.ts";
-import { applySessionsChangedEvent, loadSessions, subscribeSessions } from "./controllers/sessions.ts";
+import {
+  applySessionsChangedEvent,
+  loadSessions,
+  subscribeSessions,
+} from "./controllers/sessions.ts";
 import {
   resolveGatewayErrorDetailCode,
   type GatewayEventFrame,

@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { SpecialistProfileOptionSchema } from "../profile/contracts.js";
-import { CapabilityCatalogEntrySchema, CapabilityCatalogSourceSchema } from "../schemas/capability.js";
+import {
+  CapabilityCatalogEntrySchema,
+  CapabilityCatalogSourceSchema,
+} from "../schemas/capability.js";
 import { RecipeInputSchema, RecipeOutputSchema, RiskLevelSchema } from "../schemas/recipe.js";
 
 export const RecipeCatalogSummarySchema = z

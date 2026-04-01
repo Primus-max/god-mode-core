@@ -2,16 +2,16 @@ import { DEFAULT_HEARTBEAT_ACK_MAX_CHARS, stripHeartbeatToken } from "../auto-re
 import { normalizeVerboseLevel } from "../auto-reply/thinking.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { loadConfig } from "../config/config.js";
-import { createSubsystemLogger } from "../logging/subsystem.js";
 import { type AgentEventPayload, getAgentRunContext } from "../infra/agent-events.js";
 import { resolveHeartbeatVisibility } from "../infra/heartbeat-visibility.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
   PlatformRuntimeRunClosureSummarySchema,
   type PlatformRuntimeRunClosureSummary,
 } from "../platform/runtime/contracts.js";
 import { stripInlineDirectiveTagsForDisplay } from "../utils/directive-tags.js";
-import { persistGatewaySessionLifecycleEvent } from "./session-lifecycle-state.js";
 import { buildSessionsChangedLifecycleEvent } from "./session-event-hub.js";
+import { persistGatewaySessionLifecycleEvent } from "./session-lifecycle-state.js";
 import { loadSessionEntry } from "./session-utils.js";
 import { formatForLog } from "./ws-log.js";
 
@@ -852,7 +852,7 @@ export function createAgentEventHandler({
           "sessions.changed",
           buildSessionsChangedLifecycleEvent({
             sessionKey,
-            phase: runtimeClosureSummary ? "closure" : lifecyclePhase,
+            phase: runtimeClosureSummary ? "closure" : (lifecyclePhase ?? undefined),
             runId: evt.runId,
             ts: evt.ts,
             lifecycleEvent: evt,

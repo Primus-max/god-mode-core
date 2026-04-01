@@ -5,8 +5,8 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import * as installFlow from "../../infra/install-flow.js";
 import * as installFromNpmSpec from "../../infra/install-from-npm-spec.js";
 import * as installPackageDir from "../../infra/install-package-dir.js";
-import * as downloadFetch from "./download-fetch.js";
 import type { BootstrapRequest } from "./contracts.js";
+import * as downloadFetch from "./download-fetch.js";
 import { installCapabilityRequest } from "./installers.js";
 import {
   resolvePlatformBootstrapDownloadCapabilityInstallDir,
@@ -18,7 +18,10 @@ const installFromValidatedNpmSpecArchiveMock = vi.spyOn(
   installFromNpmSpec,
   "installFromValidatedNpmSpecArchive",
 );
-const fetchBootstrapDownloadArtifactMock = vi.spyOn(downloadFetch, "fetchBootstrapDownloadArtifact");
+const fetchBootstrapDownloadArtifactMock = vi.spyOn(
+  downloadFetch,
+  "fetchBootstrapDownloadArtifact",
+);
 const withExtractedArchiveRootMock = vi.spyOn(installFlow, "withExtractedArchiveRoot");
 const installPackageDirWithManifestDepsMock = vi.spyOn(
   installPackageDir,

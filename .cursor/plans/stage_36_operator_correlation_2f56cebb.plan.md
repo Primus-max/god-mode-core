@@ -127,8 +127,6 @@ flowchart LR
     deepLinks --> machineUi["machine surface"]
 ```
 
-
-
 ## Validation
 
 - Targeted UI tests prove operator attention is driven by existing canonical state rather than a second client-side source of truth.

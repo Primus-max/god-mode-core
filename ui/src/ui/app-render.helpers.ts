@@ -4,7 +4,12 @@ import { buildAgentMainSessionKey } from "../../../src/routing/session-key.js";
 import { parseAgentSessionKey } from "../../../src/sessions/session-key-utils.js";
 import { t } from "../i18n/index.ts";
 import { refreshChat } from "./app-chat.ts";
-import { buildAttentionItems, buildCanonicalTabHref, syncUrlWithSessionKey, syncUrlWithTab } from "./app-settings.ts";
+import {
+  buildAttentionItems,
+  buildCanonicalTabHref,
+  syncUrlWithSessionKey,
+  syncUrlWithTab,
+} from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { OpenClawApp } from "./app.ts";
 import {
@@ -539,7 +544,9 @@ export function switchChatAgent(state: AppViewState, agentId: string) {
 }
 
 export function switchOverviewSession(state: AppViewState, nextSessionKey: string) {
-  const activeSession = state.sessionsResult?.sessions.find((session) => session.key === nextSessionKey);
+  const activeSession = state.sessionsResult?.sessions.find(
+    (session) => session.key === nextSessionKey,
+  );
   const runtimeRunId = resolveSessionRuntimeInspectRunId(activeSession) ?? null;
   state.sessionKey = nextSessionKey;
   state.chatMessage = "";

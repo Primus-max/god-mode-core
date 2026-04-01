@@ -97,8 +97,6 @@ flowchart TD
   recoveryOutcome --> operatorSurfaces
 ```
 
-
-
 ## Workstreams
 
 ## 1. Define a Canonical Delivery Receipt Contract

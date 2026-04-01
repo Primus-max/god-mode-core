@@ -177,7 +177,10 @@ export type PlatformRuntimeCheckpointService = {
   }) => PlatformRuntimeSupervisorVerdict;
   recordRunClosure: (closure: PlatformRuntimeRunClosure) => PlatformRuntimeRunClosure;
   getRunClosure: (runId: string) => PlatformRuntimeRunClosure | undefined;
-  listRunClosures: (params?: { sessionKey?: string; requestRunId?: string }) => PlatformRuntimeRunClosure[];
+  listRunClosures: (params?: {
+    sessionKey?: string;
+    requestRunId?: string;
+  }) => PlatformRuntimeRunClosure[];
   registerContinuationHandler: (
     kind: PlatformRuntimeContinuationKind,
     handler: (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void,
@@ -894,8 +897,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
     const mergedReceipt =
       patch.receipt || existing.receipt
         ? {
-            ...(existing.receipt ?? {}),
-            ...(patch.receipt ?? {}),
+            ...existing.receipt,
+            ...patch.receipt,
           }
         : undefined;
     const next = PlatformRuntimeActionSchema.parse({
@@ -1151,7 +1154,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
             ...(checkpoint.approvedAtMs !== undefined
               ? { approvedAtMs: checkpoint.approvedAtMs }
               : {}),
-            ...(checkpoint.resumedAtMs !== undefined ? { resumedAtMs: checkpoint.resumedAtMs } : {}),
+            ...(checkpoint.resumedAtMs !== undefined
+              ? { resumedAtMs: checkpoint.resumedAtMs }
+              : {}),
             ...(checkpoint.completedAtMs !== undefined
               ? { completedAtMs: checkpoint.completedAtMs }
               : {}),
@@ -2110,9 +2115,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
           milestone: "continuation_dispatch_start",
           checkpointId,
           continuationKind: kind,
-          ...(checkpoint.target?.approvalId
-            ? { approvalId: checkpoint.target.approvalId }
-            : {}),
+          ...(checkpoint.target?.approvalId ? { approvalId: checkpoint.target.approvalId } : {}),
         });
       }
       try {
@@ -2124,9 +2127,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
             milestone: "continuation_dispatch_handler_done",
             checkpointId,
             continuationKind: kind,
-            ...(checkpoint.target?.approvalId
-              ? { approvalId: checkpoint.target.approvalId }
-              : {}),
+            ...(checkpoint.target?.approvalId ? { approvalId: checkpoint.target.approvalId } : {}),
           });
         }
       } catch (error) {
@@ -2138,9 +2139,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
             checkpointId,
             continuationKind: kind,
             error: error instanceof Error ? error.message : String(error),
-            ...(checkpoint.target?.approvalId
-              ? { approvalId: checkpoint.target.approvalId }
-              : {}),
+            ...(checkpoint.target?.approvalId ? { approvalId: checkpoint.target.approvalId } : {}),
           });
         }
         return this.updateCheckpoint(checkpointId, {

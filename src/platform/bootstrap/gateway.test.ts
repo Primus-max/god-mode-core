@@ -179,7 +179,9 @@ describe("bootstrap gateway methods", () => {
         }),
       }),
     );
-    expect(runtimeService.getAction(`bootstrap:${record.id}:run`)?.receipt?.operatorDecision).toEqual(
+    expect(
+      runtimeService.getAction(`bootstrap:${record.id}:run`)?.receipt?.operatorDecision,
+    ).toEqual(
       expect.objectContaining({
         action: "run",
         actor: expect.objectContaining({
