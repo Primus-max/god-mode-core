@@ -108,6 +108,7 @@ type SettingsHost = {
   bootstrapFilterQuery?: string;
   bootstrapSelectedId?: string | null;
   channelsSelectedKey?: string | null;
+  instancesReveal?: boolean;
   runtimeSessionKey?: string | null;
   runtimeRunId?: string | null;
   runtimeSelectedCheckpointId?: string | null;
@@ -333,6 +334,7 @@ const createHost = (tab: Tab): SettingsHost => ({
   bootstrapFilterQuery: "",
   bootstrapSelectedId: null,
   channelsSelectedKey: null,
+  instancesReveal: false,
   runtimeSessionKey: null,
   runtimeRunId: null,
   runtimeSelectedCheckpointId: null,
@@ -644,9 +646,9 @@ describe("applySettingsFromUrl", () => {
     expect(host.pendingGatewayToken).toBe("test-token");
   });
 
-  it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, debug, channels, logs, and nodes", () => {
+  it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, debug, channels, instances, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&instancesReveal=true&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -695,6 +697,7 @@ describe("applySettingsFromUrl", () => {
     expect(host.debugCallMethod).toBe("models.list");
     expect(host.debugCallParams).toBe('{"limit":10}');
     expect(host.channelsSelectedKey).toBe("slack");
+    expect(host.instancesReveal).toBe(true);
     expect(host.logsFilterText).toBe("timeout");
     expect(host.execApprovalsTarget).toBe("node");
     expect(host.execApprovalsTargetNodeId).toBe("node-1");
@@ -770,6 +773,15 @@ describe("applySettingsFromUrl", () => {
 
     expect(host.debugCallMethod).toBe("status");
     expect(host.debugCallParams).toBe("{}");
+  });
+
+  it("falls back to masked instances mode when instancesReveal is invalid", () => {
+    setTestWindowUrl("https://control.example/ui/instances?session=main&instancesReveal=maybe");
+    const host = createHost("instances");
+
+    applySettingsFromUrl(host);
+
+    expect(host.instancesReveal).toBe(false);
   });
 });
 
@@ -847,6 +859,19 @@ describe("syncUrlWithTab", () => {
     expect(window.location.search).toContain("cronJob=cron-1");
   });
 
+  it("persists instances visibility query state with basePath", () => {
+    const host = createHost("instances");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.instancesReveal = true;
+
+    syncUrlWithTab(host, "instances", true);
+
+    expect(window.location.pathname).toBe("/ui/instances");
+    expect(window.location.search).toContain("session=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("instancesReveal=true");
+  });
+
   it("persists cron runs explorer query state with basePath", () => {
     const host = createHost("cron");
     host.basePath = "/ui";
@@ -920,6 +945,19 @@ describe("syncUrlWithTab", () => {
     expect(window.location.search).not.toContain("bootstrapRequest=");
     expect(window.location.search).not.toContain("artifactQ=");
     expect(window.location.search).not.toContain("artifact=");
+  });
+
+  it("clears instances visibility query params outside the instances tab", () => {
+    const host = createHost("instances");
+    host.basePath = "/ui";
+    host.sessionKey = "agent:main:main";
+    host.instancesReveal = true;
+
+    syncUrlWithTab(host, "instances", true);
+    syncUrlWithTab(host, "chat", true);
+
+    expect(window.location.pathname).toBe("/ui/chat");
+    expect(window.location.search).not.toContain("instancesReveal=");
   });
 
   it("persists skills deep-link selection with basePath", () => {

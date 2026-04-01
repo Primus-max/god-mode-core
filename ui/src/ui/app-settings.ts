@@ -124,6 +124,7 @@ type SettingsHost = {
   usageTimeSeries?: OpenClawApp["usageTimeSeries"];
   usageSessionLogs?: OpenClawApp["usageSessionLogs"];
   skillsFilter?: string;
+  instancesReveal?: boolean;
   debugCallMethod?: string;
   debugCallParams?: string;
   logsFilterText?: string;
@@ -436,6 +437,10 @@ function applyDeepLinkStateFromUrl(
   host.artifactsFilterQuery = pick("artifactQ") ?? host.artifactsFilterQuery ?? "";
   host.artifactsSelectedId = pick("artifact");
   host.channelsSelectedKey = pick("channel");
+  host.instancesReveal = normalizeBooleanQuery(
+    pick("instancesReveal"),
+    host.instancesReveal ?? false,
+  );
   host.runtimeSessionKey = pick("runtimeSession");
   host.runtimeRunId = pick("runtimeRun");
   host.runtimeSelectedCheckpointId = pick("checkpoint");
@@ -523,6 +528,7 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "artifactQ", null);
   setQueryValue(url, "artifact", null);
   setQueryValue(url, "channel", null);
+  setQueryValue(url, "instancesReveal", null);
   setQueryValue(url, "runtimeSession", null);
   setQueryValue(url, "runtimeRun", null);
   setQueryValue(url, "checkpoint", null);
@@ -579,6 +585,9 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   }
   if (tab === "channels") {
     setQueryValue(url, "channel", host.channelsSelectedKey);
+  }
+  if (tab === "instances") {
+    setQueryValue(url, "instancesReveal", host.instancesReveal ? "true" : null);
   }
   if (tab === "sessions") {
     setQueryValue(url, "sessionsActive", host.sessionsFilterActive);

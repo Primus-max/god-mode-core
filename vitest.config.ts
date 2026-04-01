@@ -74,6 +74,7 @@ export default defineConfig({
       "ui/src/ui/views/bootstrap.test.ts",
       "ui/src/ui/views/chat.test.ts",
       "ui/src/ui/views/debug.test.ts",
+      "ui/src/ui/views/instances.test.ts",
       "ui/src/ui/views/logs.test.ts",
       "ui/src/ui/views/nodes.devices.test.ts",
       "ui/src/ui/views/usage-render-details.test.ts",

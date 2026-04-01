@@ -169,6 +169,7 @@ export type AppViewState = {
   presenceEntries: PresenceEntry[];
   presenceError: string | null;
   presenceStatus: string | null;
+  instancesReveal: boolean;
   agentsLoading: boolean;
   agentsList: AgentsListResult | null;
   agentsError: string | null;
