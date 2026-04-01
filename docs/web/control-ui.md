@@ -174,6 +174,8 @@ Runtime / recovery notes:
 - Session rows also surface the current handoff truth used for runtime inspection: `handoffTruthSource` tells the operator whether the active target follows durable closure history or an in-flight recovery branch.
 - When handoff truth is `recovery`, the runtime inspect action follows `handoffRunId` / `handoffRequestRunId` instead of stale closure history, so operators land on the current recovery target rather than an older completed run.
 - Overview recovery attention now reuses that same handoff-aware runtime target, including `runtimeRun` in deep links when available, so overview and sessions open the same recovery branch instead of diverging by session-only scope.
+- Chat agent switches and Overview session switches now reuse the same canonical routing helpers as the destination surfaces, so the visible session/runtime target and the browser URL stop drifting apart during cross-surface handoff.
+- Sidebar tab links now reuse the shared routing contract too, so middle-click or opening a tab in a new window preserves the same `session` and tab-specific query context instead of falling back to path-only navigation.
 
 ## Chat behavior
 

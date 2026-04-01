@@ -1,8 +1,5 @@
 import { html, nothing } from "lit";
-import {
-  buildAgentMainSessionKey,
-  parseAgentSessionKey,
-} from "../../../src/routing/session-key.js";
+import { parseAgentSessionKey } from "../../../src/routing/session-key.js";
 import { t } from "../i18n/index.ts";
 import { getSafeLocalStorage } from "../local-storage.ts";
 import { refreshChatAvatar } from "./app-chat.ts";
@@ -14,8 +11,10 @@ import {
   renderChatSessionSelect,
   renderTab,
   renderSidebarConnectionStatus,
+  switchChatAgent,
   renderTopbarThemeModeToggle,
   switchChatSession,
+  switchOverviewSession,
 } from "./app-render.helpers.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
@@ -704,22 +703,7 @@ export function renderApp(state: AppViewState) {
                 onSettingsChange: (next) => state.applySettings(next),
                 onPasswordChange: (next) => (state.password = next),
                 onSessionKeyChange: (next) => {
-                  state.sessionKey = next;
-                  state.chatMessage = "";
-                  state.resetToolStream();
-                  state.applySettings({
-                    ...state.settings,
-                    sessionKey: next,
-                    lastActiveSessionKey: next,
-                  });
-                  void state.loadAssistantIdentity();
-                  void loadSpecialistContext(state, { draft: "" });
-                  void loadRuntimeInspector(state, {
-                    sessionKey: next,
-                    runId: null,
-                    checkpointId: null,
-                  }).then(() => buildAttentionItems(state));
-                  syncUrlWithTab(state, "overview", true);
+                  switchOverviewSession(state, next);
                 },
                 onSpecialistOverrideChange: (next) => void saveSpecialistOverride(state, next),
                 onToggleGatewayTokenVisibility: () => {
@@ -1710,18 +1694,7 @@ export function renderApp(state: AppViewState) {
                 agentsList: state.agentsList,
                 currentAgentId: chatAgentId,
                 onAgentChange: (agentId: string) => {
-                  state.sessionKey = buildAgentMainSessionKey({ agentId });
-                  state.chatMessages = [];
-                  state.chatStream = null;
-                  state.chatRunId = null;
-                  state.applySettings({
-                    ...state.settings,
-                    sessionKey: state.sessionKey,
-                    lastActiveSessionKey: state.sessionKey,
-                  });
-                  void loadChatHistory(state);
-                  void state.loadAssistantIdentity();
-                  void loadSpecialistContext(state, { draft: "" });
+                  switchChatAgent(state, agentId);
                 },
                 onNavigateToAgent: () => {
                   state.agentsSelectedId = chatAgentId;

@@ -1,9 +1,10 @@
 import { html, nothing } from "lit";
 import { repeat } from "lit/directives/repeat.js";
+import { buildAgentMainSessionKey } from "../../../src/routing/session-key.js";
 import { parseAgentSessionKey } from "../../../src/sessions/session-key-utils.js";
 import { t } from "../i18n/index.ts";
 import { refreshChat } from "./app-chat.ts";
-import { syncUrlWithSessionKey } from "./app-settings.ts";
+import { buildAttentionItems, buildCanonicalTabHref, syncUrlWithSessionKey, syncUrlWithTab } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { OpenClawApp } from "./app.ts";
 import {
@@ -14,10 +15,12 @@ import {
   resolveServerChatModelValue,
 } from "./chat-model-ref.ts";
 import { ChatState, loadChatHistory } from "./controllers/chat.ts";
+import { loadRuntimeInspector } from "./controllers/runtime-inspector.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSpecialistContext } from "./controllers/specialist.ts";
 import { icons } from "./icons.ts";
-import { iconForTab, pathForTab, titleForTab, type Tab } from "./navigation.ts";
+import { iconForTab, titleForTab, type Tab } from "./navigation.ts";
+import { resolveSessionRuntimeInspectRunId } from "./session-runtime.ts";
 import type { ThemeTransitionContext } from "./theme-transition.ts";
 import type { ThemeMode, ThemeName } from "./theme.ts";
 import type { ModelCatalogEntry, SessionsListResult } from "./types.ts";
@@ -58,7 +61,7 @@ function resetChatStateForSessionSwitch(state: AppViewState, sessionKey: string)
 }
 
 export function renderTab(state: AppViewState, tab: Tab, opts?: { collapsed?: boolean }) {
-  const href = pathForTab(tab, state.basePath);
+  const href = buildCanonicalTabHref(state, tab);
   const isActive = state.tab === tab;
   const collapsed = opts?.collapsed ?? state.settings.navCollapsed;
   return html`
@@ -512,6 +515,48 @@ export function switchChatSession(state: AppViewState, nextSessionKey: string) {
   void loadChatHistory(state as unknown as ChatState);
   void loadSpecialistContext(state as unknown as OpenClawApp, { draft: "" });
   void refreshSessionOptions(state);
+}
+
+export function switchChatAgent(state: AppViewState, agentId: string) {
+  const nextSessionKey = buildAgentMainSessionKey({ agentId });
+  state.sessionKey = nextSessionKey;
+  state.chatMessages = [];
+  state.chatStream = null;
+  state.chatRunId = null;
+  state.applySettings({
+    ...state.settings,
+    sessionKey: nextSessionKey,
+    lastActiveSessionKey: nextSessionKey,
+  });
+  syncUrlWithSessionKey(
+    state as unknown as Parameters<typeof syncUrlWithSessionKey>[0],
+    nextSessionKey,
+    true,
+  );
+  void loadChatHistory(state as unknown as ChatState);
+  void state.loadAssistantIdentity();
+  void loadSpecialistContext(state as unknown as OpenClawApp, { draft: "" });
+}
+
+export function switchOverviewSession(state: AppViewState, nextSessionKey: string) {
+  const activeSession = state.sessionsResult?.sessions.find((session) => session.key === nextSessionKey);
+  const runtimeRunId = resolveSessionRuntimeInspectRunId(activeSession) ?? null;
+  state.sessionKey = nextSessionKey;
+  state.chatMessage = "";
+  state.resetToolStream();
+  state.applySettings({
+    ...state.settings,
+    sessionKey: nextSessionKey,
+    lastActiveSessionKey: nextSessionKey,
+  });
+  void state.loadAssistantIdentity();
+  void loadSpecialistContext(state as unknown as OpenClawApp, { draft: "" });
+  void loadRuntimeInspector(state as unknown as Parameters<typeof loadRuntimeInspector>[0], {
+    sessionKey: nextSessionKey,
+    runId: runtimeRunId,
+    checkpointId: null,
+  }).then(() => buildAttentionItems(state as unknown as Parameters<typeof buildAttentionItems>[0]));
+  syncUrlWithTab(state as unknown as Parameters<typeof syncUrlWithTab>[0], "overview", true);
 }
 
 async function refreshSessionOptions(state: AppViewState) {
