@@ -17,6 +17,7 @@ import {
 } from "./app-render.helpers.ts";
 import {
   buildCanonicalAgentsHref,
+  buildCanonicalNodesExecApprovalsHref,
   buildCanonicalSessionsRuntimeHref,
   buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
@@ -1653,6 +1654,10 @@ export function renderApp(state: AppViewState) {
                     state.execApprovalsSelectedAgent = agentId;
                     syncUrlWithTab(state, "nodes", true);
                   },
+                  buildExecApprovalsScopeHref: (agentId) =>
+                    buildCanonicalNodesExecApprovalsHref(state, {
+                      agentId,
+                    }),
                   onExecApprovalsPatch: (path, value) =>
                     updateExecApprovalsFormValue(state, path, value),
                   onExecApprovalsRemove: (path) => removeExecApprovalsFormValue(state, path),

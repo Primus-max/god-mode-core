@@ -42,6 +42,7 @@ export type NodesProps = {
   onSaveBindings: () => void;
   onExecApprovalsTargetChange: (kind: "gateway" | "node", nodeId: string | null) => void;
   onExecApprovalsSelectAgent: (agentId: string) => void;
+  buildExecApprovalsScopeHref: (agentId: string) => string;
   onExecApprovalsPatch: (path: Array<string | number>, value: unknown) => void;
   onExecApprovalsRemove: (path: Array<string | number>) => void;
   onSaveExecApprovals: () => void;

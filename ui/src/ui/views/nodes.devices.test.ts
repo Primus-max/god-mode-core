@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import { render } from "lit";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import { renderNodes, type NodesProps } from "./nodes.ts";
 
@@ -40,6 +40,7 @@ function baseProps(overrides: Partial<NodesProps> = {}): NodesProps {
     onSaveBindings: () => undefined,
     onExecApprovalsTargetChange: () => undefined,
     onExecApprovalsSelectAgent: () => undefined,
+    buildExecApprovalsScopeHref: (agentId) => `/ui/nodes?execAgent=${encodeURIComponent(agentId)}`,
     onExecApprovalsPatch: () => undefined,
     onExecApprovalsRemove: () => undefined,
     onSaveExecApprovals: () => undefined,
@@ -155,9 +156,128 @@ describe("nodes devices pending rendering", () => {
     expect(selects[0]?.value).toBe("node");
     expect(selects[1]?.value).toBe("node-1");
 
-    const activeButtons = Array.from(container.querySelectorAll("button.active")).map((button) =>
-      button.textContent?.trim(),
+    const activeScopes = Array.from(container.querySelectorAll(".btn.active")).map((entry) =>
+      entry.textContent?.trim(),
     );
-    expect(activeButtons).toContain("Main agent (main)");
+    expect(activeScopes).toContain("Main agent (main)");
+  });
+
+  it("renders canonical hrefs for exec approvals scope links", () => {
+    const container = document.createElement("div");
+    render(
+      renderNodes(
+        baseProps({
+          configForm: {
+            agents: {
+              list: [{ id: "main", name: "Main agent", default: true }],
+            },
+          },
+          execApprovalsForm: {
+            version: 1,
+            agents: {
+              main: {
+                allowlist: [],
+              },
+            },
+          },
+          buildExecApprovalsScopeHref: (agentId) => `/ui/nodes?execAgent=${encodeURIComponent(agentId)}`,
+        }),
+      ),
+      container,
+    );
+
+    const defaultLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Defaults"),
+    ) as HTMLAnchorElement | undefined;
+    const agentLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Main agent (main)"),
+    ) as HTMLAnchorElement | undefined;
+
+    expect(defaultLink?.getAttribute("href")).toBe("/ui/nodes?execAgent=__defaults__");
+    expect(agentLink?.getAttribute("href")).toBe("/ui/nodes?execAgent=main");
+  });
+
+  it("uses JS handoff for primary clicks on exec approvals scope links", () => {
+    const onExecApprovalsSelectAgent = vi.fn();
+    const container = document.createElement("div");
+    render(
+      renderNodes(
+        baseProps({
+          configForm: {
+            agents: {
+              list: [{ id: "main", name: "Main agent", default: true }],
+            },
+          },
+          execApprovalsForm: {
+            version: 1,
+            agents: {
+              main: {
+                allowlist: [],
+              },
+            },
+          },
+          onExecApprovalsSelectAgent,
+          buildExecApprovalsScopeHref: (agentId) => `/ui/nodes?execAgent=${encodeURIComponent(agentId)}`,
+        }),
+      ),
+      container,
+    );
+
+    const defaultLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Defaults"),
+    ) as HTMLAnchorElement | undefined;
+    const agentLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Main agent (main)"),
+    ) as HTMLAnchorElement | undefined;
+
+    const defaultEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    defaultLink?.dispatchEvent(defaultEvent);
+    const agentEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    agentLink?.dispatchEvent(agentEvent);
+
+    expect(onExecApprovalsSelectAgent).toHaveBeenNthCalledWith(1, "__defaults__");
+    expect(onExecApprovalsSelectAgent).toHaveBeenNthCalledWith(2, "main");
+    expect(defaultEvent.defaultPrevented).toBe(true);
+    expect(agentEvent.defaultPrevented).toBe(true);
+  });
+
+  it("lets modified clicks fall through to the browser href for exec approvals scope links", () => {
+    const onExecApprovalsSelectAgent = vi.fn();
+    const container = document.createElement("div");
+    render(
+      renderNodes(
+        baseProps({
+          configForm: {
+            agents: {
+              list: [{ id: "main", name: "Main agent", default: true }],
+            },
+          },
+          execApprovalsForm: {
+            version: 1,
+            agents: {
+              main: {
+                allowlist: [],
+              },
+            },
+          },
+          onExecApprovalsSelectAgent,
+          buildExecApprovalsScopeHref: (agentId) => `/ui/nodes?execAgent=${encodeURIComponent(agentId)}`,
+        }),
+      ),
+      container,
+    );
+
+    const agentLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Main agent (main)"),
+    ) as HTMLAnchorElement | undefined;
+    const event = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    agentLink?.dispatchEvent(event);
+
+    expect(onExecApprovalsSelectAgent).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
   });
 });

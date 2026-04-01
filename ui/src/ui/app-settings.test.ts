@@ -20,6 +20,7 @@ vi.mock("./controllers/usage.ts", () => ({
 import { switchChatAgent, switchOverviewSession } from "./app-render.helpers.ts";
 import {
   buildCanonicalAgentsHref,
+  buildCanonicalNodesExecApprovalsHref,
   buildCanonicalSessionsRuntimeHref,
   buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
@@ -1102,6 +1103,29 @@ describe("syncUrlWithTab", () => {
     ).toBe(
       "/ui/sessions?session=main&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=incident&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&runtimeSession=agent%3Amain%3Aold&runtimeRun=run-1&checkpoint=cp-2",
     );
+  });
+
+  it("builds canonical nodes exec approvals hrefs for gateway and node scope targets", () => {
+    const host = createHost("nodes");
+    host.basePath = "/ui";
+    host.execApprovalsTarget = "node";
+    host.execApprovalsTargetNodeId = "node-1";
+    host.execApprovalsSelectedAgent = "main";
+
+    expect(
+      buildCanonicalNodesExecApprovalsHref(host, {
+        target: "gateway",
+        nodeId: null,
+        agentId: "__defaults__",
+      }),
+    ).toBe("/ui/nodes?session=main&execTarget=gateway&execAgent=__defaults__");
+    expect(
+      buildCanonicalNodesExecApprovalsHref(host, {
+        target: "node",
+        nodeId: "node-2",
+        agentId: "ops",
+      }),
+    ).toBe("/ui/nodes?session=main&execTarget=node&execNode=node-2&execAgent=ops");
   });
 
   it("builds canonical settings shell hrefs with section and mode overrides", () => {

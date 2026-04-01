@@ -687,6 +687,34 @@ export function buildCanonicalSessionsRuntimeHref(
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalNodesExecApprovalsHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    target?: "gateway" | "node";
+    nodeId?: string | null;
+    agentId?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("nodes", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "nodes", url);
+  const currentTarget = resolveExecApprovalsTarget(host as SettingsHost);
+  const target = overrides.target ?? currentTarget.kind;
+  const nodeId =
+    "nodeId" in overrides
+      ? trimQueryValue(overrides.nodeId ?? null)
+      : currentTarget.kind === "node"
+        ? currentTarget.nodeId
+        : null;
+  const agentId =
+    "agentId" in overrides
+      ? trimQueryValue(overrides.agentId ?? null)
+      : trimQueryValue(host.execApprovalsSelectedAgent ?? null);
+  setQueryValue(url, "execTarget", target);
+  setQueryValue(url, "execNode", target === "node" ? nodeId : null);
+  setQueryValue(url, "execAgent", agentId);
+  return `${url.pathname}${url.search}`;
+}
+
 export function buildCanonicalSettingsShellHref(
   host: SettingsHost | AppViewState,
   tab: SettingsNavigationTab,
