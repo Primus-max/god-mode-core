@@ -121,6 +121,7 @@ Cron jobs panel notes:
 - Deprecated fallback: stored legacy jobs with `notify: true` can still use `cron.webhook` until migrated.
 - Overview attention now routes failed and overdue cron jobs back into the Cron surface with the relevant job preselected instead of leaving the operator to search manually.
 - The Cron surface now persists its list-level investigation state too: `cronQ`, `cronEnabled`, `cronSchedule`, `cronStatus`, `cronSort`, and `cronDir` survive refresh/popstate alongside the existing `cronJob` drill-down.
+- Cron run history (runs explorer) also persists a minimal shareable contract: `cronRunsScope`, `cronRunsQ`, `cronRunsSort`, `cronRunsStatus`, and `cronRunsDelivery` (comma-separated multi-selects where applicable) alongside `cronJob` when the scope is job-scoped. Invalid or stale `cronJob` values with `cronRunsScope=job` fall back to `all` after refresh without dropping the jobs list filters.
 - Cron run history can jump into the linked session context directly: operators can still open the run chat, and can also open the Sessions runtime inspector when a `sessionKey` is available.
 
 Skills panel notes:
