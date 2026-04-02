@@ -19,6 +19,7 @@ import {
   buildCanonicalAgentsHref,
   buildCanonicalArtifactsHref,
   buildCanonicalBootstrapHref,
+  buildCanonicalLogsHref,
   buildCanonicalNodesExecApprovalsHref,
   buildCanonicalSessionsListHref,
   buildCanonicalSessionsRuntimeHref,
@@ -2373,7 +2374,15 @@ export function renderApp(state: AppViewState) {
                   },
                   onLevelToggle: (level, enabled) => {
                     state.logsLevelFilters = { ...state.logsLevelFilters, [level]: enabled };
+                    syncUrlWithTab(state, "logs", true);
                   },
+                  buildLevelHref: (level, enabled) =>
+                    buildCanonicalLogsHref(state, {
+                      levelFilters: {
+                        ...state.logsLevelFilters,
+                        [level]: enabled,
+                      },
+                    }),
                   onToggleAutoFollow: (next) => (state.logsAutoFollow = next),
                   onRefresh: () => loadLogs(state, { reset: true }),
                   onExport: (lines, label) => state.exportLogs(lines, label),

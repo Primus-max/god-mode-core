@@ -22,6 +22,7 @@ import {
   buildCanonicalAgentsHref,
   buildCanonicalArtifactsHref,
   buildCanonicalBootstrapHref,
+  buildCanonicalLogsHref,
   buildCanonicalNodesExecApprovalsHref,
   buildCanonicalSessionsListHref,
   buildCanonicalSessionsRuntimeHref,
@@ -57,6 +58,7 @@ import {
 import type { ThemeMode, ThemeName } from "./theme.ts";
 import type {
   ChannelsStatusSnapshot,
+  LogLevel,
   MachineControlStatus,
   SessionUsageTimeSeries,
 } from "./types.ts";
@@ -199,6 +201,7 @@ type SettingsHost = {
   debugCallMethod?: string;
   debugCallParams?: string;
   logsFilterText?: string;
+  logsLevelFilters?: Record<LogLevel, boolean>;
   execApprovalsTarget?: "gateway" | "node";
   execApprovalsTargetNodeId?: string | null;
   execApprovalsSelectedAgent?: string | null;
@@ -463,6 +466,14 @@ const createHost = (tab: Tab): SettingsHost => ({
   debugCallMethod: "",
   debugCallParams: "{}",
   logsFilterText: "",
+  logsLevelFilters: {
+    trace: true,
+    debug: true,
+    info: true,
+    warn: true,
+    error: true,
+    fatal: true,
+  },
   execApprovalsTarget: "gateway",
   execApprovalsTargetNodeId: null,
   execApprovalsSelectedAgent: null,
@@ -748,7 +759,7 @@ describe("applySettingsFromUrl", () => {
 
   it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, debug, channels, instances, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=action-1&runtimeClosure=run-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&instancesReveal=true&logQ=timeout&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=action-1&runtimeClosure=run-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&instancesReveal=true&logQ=timeout&logLevels=warn%2Cerror&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -801,6 +812,14 @@ describe("applySettingsFromUrl", () => {
     expect(host.channelsSelectedKey).toBe("slack");
     expect(host.instancesReveal).toBe(true);
     expect(host.logsFilterText).toBe("timeout");
+    expect(host.logsLevelFilters).toEqual({
+      trace: false,
+      debug: false,
+      info: false,
+      warn: true,
+      error: true,
+      fatal: false,
+    });
     expect(host.execApprovalsTarget).toBe("node");
     expect(host.execApprovalsTargetNodeId).toBe("node-1");
     expect(host.execApprovalsSelectedAgent).toBe("main");
@@ -884,6 +903,22 @@ describe("applySettingsFromUrl", () => {
     applySettingsFromUrl(host);
 
     expect(host.instancesReveal).toBe(false);
+  });
+
+  it("falls back to default logs level filters when logLevels query is invalid", () => {
+    setTestWindowUrl("https://control.example/ui/logs?session=main&logLevels=bogus%2Cunknown");
+    const host = createHost("logs");
+
+    applySettingsFromUrl(host);
+
+    expect(host.logsLevelFilters).toEqual({
+      trace: true,
+      debug: true,
+      info: true,
+      warn: true,
+      error: true,
+      fatal: true,
+    });
   });
 
   it("hydrates settings navigation query state for all settings-family tabs", () => {
@@ -1190,6 +1225,36 @@ describe("syncUrlWithTab", () => {
         artifactId: "artifact-2",
       }),
     ).toBe("/ui/artifacts?session=main&artifactQ=invoice&artifact=artifact-2");
+  });
+
+  it("builds canonical logs hrefs with filter and level overrides", () => {
+    const host = createHost("logs");
+    host.basePath = "/ui";
+    host.logsFilterText = "timeout";
+    host.logsLevelFilters = {
+      trace: false,
+      debug: false,
+      info: false,
+      warn: true,
+      error: true,
+      fatal: false,
+    };
+
+    expect(buildCanonicalLogsHref(host)).toBe(
+      "/ui/logs?session=main&logQ=timeout&logLevels=warn%2Cerror",
+    );
+    expect(
+      buildCanonicalLogsHref(host, {
+        levelFilters: {
+          trace: false,
+          debug: false,
+          info: false,
+          warn: false,
+          error: false,
+          fatal: false,
+        },
+      }),
+    ).toBe("/ui/logs?session=main&logQ=timeout&logLevels=none");
   });
 
   it("builds canonical settings shell hrefs with section and mode overrides", () => {
@@ -1613,12 +1678,21 @@ describe("syncUrlWithTab", () => {
     host.basePath = "/ui";
     host.sessionKey = "agent:main:main";
     host.logsFilterText = "timeout error";
+    host.logsLevelFilters = {
+      trace: false,
+      debug: false,
+      info: false,
+      warn: true,
+      error: true,
+      fatal: false,
+    };
 
     syncUrlWithTab(host, "logs", true);
 
     expect(window.location.pathname).toBe("/ui/logs");
     expect(window.location.search).toContain("session=agent%3Amain%3Amain");
     expect(window.location.search).toContain(`logQ=${toQueryValue("timeout error")}`);
+    expect(window.location.search).toContain("logLevels=warn%2Cerror");
   });
 
   it("persists nodes deep-link selection with basePath", () => {

@@ -2235,6 +2235,13 @@ td.data-table-key-col {
   color: var(--muted);
 }
 
+.log-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
 .log-chip.info {
   color: var(--info);
   border-color: rgba(59, 130, 246, 0.3);
@@ -2249,6 +2256,20 @@ td.data-table-key-col {
 .log-chip.fatal {
   color: var(--danger);
   border-color: var(--danger-subtle);
+}
+
+.log-chip.is-inactive {
+  color: var(--muted);
+  border-color: var(--border);
+  background: var(--secondary);
+  opacity: 0.72;
+}
+
+.log-chip-state {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .log-subsystem {

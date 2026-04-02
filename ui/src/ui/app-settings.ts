@@ -1,5 +1,6 @@
 import { roleScopesAllow } from "../../../src/shared/operator-scope-compat.js";
 import { refreshChat } from "./app-chat.ts";
+import { DEFAULT_LOG_LEVEL_FILTERS } from "./app-defaults.ts";
 import {
   startBootstrapPolling,
   startArtifactsPolling,
@@ -57,6 +58,7 @@ import type {
   CronDeliveryStatus,
   CronRunScope,
   CronRunsStatusValue,
+  LogLevel,
 } from "./types.ts";
 import { resetChatViewState } from "./views/chat.ts";
 
@@ -157,6 +159,7 @@ type SettingsHost = {
   debugCallMethod?: string;
   debugCallParams?: string;
   logsFilterText?: string;
+  logsLevelFilters?: Record<LogLevel, boolean>;
   execApprovalsTarget?: "gateway" | "node";
   execApprovalsTargetNodeId?: string | null;
   execApprovalsSelectedAgent?: string | null;
@@ -197,6 +200,77 @@ function normalizeDebugCallParams(value: string | null | undefined, fallback: st
   } catch {
     return fallback;
   }
+}
+
+const LOG_LEVEL_ORDER: readonly LogLevel[] = ["trace", "debug", "info", "warn", "error", "fatal"];
+const LOG_LEVEL_SET = new Set<LogLevel>(LOG_LEVEL_ORDER);
+
+function normalizeLogsLevelFilters(
+  filters?: Partial<Record<LogLevel, boolean>> | null,
+): Record<LogLevel, boolean> {
+  return {
+    trace: filters?.trace ?? DEFAULT_LOG_LEVEL_FILTERS.trace,
+    debug: filters?.debug ?? DEFAULT_LOG_LEVEL_FILTERS.debug,
+    info: filters?.info ?? DEFAULT_LOG_LEVEL_FILTERS.info,
+    warn: filters?.warn ?? DEFAULT_LOG_LEVEL_FILTERS.warn,
+    error: filters?.error ?? DEFAULT_LOG_LEVEL_FILTERS.error,
+    fatal: filters?.fatal ?? DEFAULT_LOG_LEVEL_FILTERS.fatal,
+  };
+}
+
+function parseLogsLevelFilters(raw: string | null | undefined): Record<LogLevel, boolean> {
+  const trimmed = trimQueryValue(raw);
+  if (!trimmed) {
+    return { ...DEFAULT_LOG_LEVEL_FILTERS };
+  }
+  const enabled = new Set<LogLevel>();
+  let sawNone = false;
+  for (const part of trimmed.split(",")) {
+    const token = part.trim().toLowerCase();
+    if (!token) {
+      continue;
+    }
+    if (token === "none") {
+      sawNone = true;
+      continue;
+    }
+    if (LOG_LEVEL_SET.has(token as LogLevel)) {
+      enabled.add(token as LogLevel);
+    }
+  }
+  if (enabled.size > 0) {
+    return {
+      trace: enabled.has("trace"),
+      debug: enabled.has("debug"),
+      info: enabled.has("info"),
+      warn: enabled.has("warn"),
+      error: enabled.has("error"),
+      fatal: enabled.has("fatal"),
+    };
+  }
+  if (sawNone) {
+    return {
+      trace: false,
+      debug: false,
+      info: false,
+      warn: false,
+      error: false,
+      fatal: false,
+    };
+  }
+  return { ...DEFAULT_LOG_LEVEL_FILTERS };
+}
+
+function serializeLogsLevelFilters(filters?: Partial<Record<LogLevel, boolean>> | null): string | null {
+  const normalized = normalizeLogsLevelFilters(filters);
+  const enabled = LOG_LEVEL_ORDER.filter((level) => normalized[level]);
+  if (enabled.length === LOG_LEVEL_ORDER.length) {
+    return null;
+  }
+  if (enabled.length === 0) {
+    return "none";
+  }
+  return enabled.join(",");
 }
 
 function normalizeExecApprovalsTarget(value: string | null | undefined): "gateway" | "node" {
@@ -753,6 +827,28 @@ export function buildCanonicalSessionsListHref(
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalLogsHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    filterText?: string | null;
+    levelFilters?: Record<LogLevel, boolean> | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("logs", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "logs", url);
+  const filterText =
+    "filterText" in overrides
+      ? trimQueryValue(overrides.filterText ?? null)
+      : trimQueryValue(host.logsFilterText ?? null);
+  const levelFilters =
+    "levelFilters" in overrides
+      ? normalizeLogsLevelFilters(overrides.levelFilters ?? undefined)
+      : normalizeLogsLevelFilters(host.logsLevelFilters);
+  setQueryValue(url, "logQ", filterText);
+  setQueryValue(url, "logLevels", serializeLogsLevelFilters(levelFilters));
+  return `${url.pathname}${url.search}`;
+}
+
 export function buildCanonicalSessionsRuntimeHref(
   host: SettingsHost | AppViewState,
   overrides: {
@@ -936,6 +1032,7 @@ function applyDeepLinkStateFromUrl(
     host.debugCallParams ?? "{}",
   );
   host.logsFilterText = pick("logQ") ?? "";
+  host.logsLevelFilters = parseLogsLevelFilters(pick("logLevels"));
   host.execApprovalsTarget = normalizeExecApprovalsTarget(pick("execTarget"));
   host.execApprovalsTargetNodeId = host.execApprovalsTarget === "node" ? pick("execNode") : null;
   host.execApprovalsSelectedAgent = pick("execAgent");
@@ -988,6 +1085,7 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "debugMethod", null);
   setQueryValue(url, "debugParams", null);
   setQueryValue(url, "logQ", null);
+  setQueryValue(url, "logLevels", null);
   setQueryValue(url, "execTarget", null);
   setQueryValue(url, "execNode", null);
   setQueryValue(url, "execAgent", null);
@@ -1069,6 +1167,7 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   }
   if (tab === "logs") {
     setQueryValue(url, "logQ", host.logsFilterText);
+    setQueryValue(url, "logLevels", serializeLogsLevelFilters(host.logsLevelFilters));
   }
   if (tab === "nodes") {
     const execTarget = resolveExecApprovalsTarget(host);
