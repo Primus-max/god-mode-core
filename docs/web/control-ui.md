@@ -142,6 +142,7 @@ Cron jobs panel notes:
 - Overview attention now routes failed and overdue cron jobs back into the Cron surface with the relevant job preselected instead of leaving the operator to search manually.
 - The Cron surface now persists its list-level investigation state too: `cronQ`, `cronEnabled`, `cronSchedule`, `cronStatus`, `cronSort`, and `cronDir` survive refresh/popstate alongside the existing `cronJob` drill-down.
 - Cron run history (runs explorer) also persists a minimal shareable contract: `cronRunsScope`, `cronRunsQ`, `cronRunsSort`, `cronRunsStatus`, and `cronRunsDelivery` (comma-separated multi-selects where applicable) alongside `cronJob` when the scope is job-scoped. Invalid or stale `cronJob` values with `cronRunsScope=job` fall back to `all` after refresh without dropping the jobs list filters.
+- Cron edit mode now persists its own canonical subset too: `cronEdit` survives refresh/popstate alongside the existing jobs and runs filters, so operators can share the same edit target without serializing the mutable form draft or validation state.
 - Cron run history can jump into the linked session context directly: operators can still open the run chat, and can also open the Sessions runtime inspector when a `sessionKey` is available.
 
 Skills panel notes:

@@ -28,6 +28,7 @@ import {
   buildCanonicalSessionsRuntimeHref,
   buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
+  buildCanonicalCronEditHref,
   buildCanonicalCronJobHref,
   buildCanonicalUsageHref,
   applyResolvedTheme,
@@ -182,6 +183,7 @@ type SettingsHost = {
   cronJobsLastStatusFilter?: "all" | "ok" | "error" | "skipped";
   cronJobsSortBy?: "nextRunAtMs" | "updatedAtMs" | "name";
   cronJobsSortDir?: "asc" | "desc";
+  cronEditingJobId?: string | null;
   cronRunsJobId?: string | null;
   cronRunsScope?: "job" | "all";
   cronRunsQuery?: string;
@@ -452,6 +454,7 @@ const createHost = (tab: Tab): SettingsHost => ({
   cronJobsLastStatusFilter: "all",
   cronJobsSortBy: "nextRunAtMs",
   cronJobsSortDir: "asc",
+  cronEditingJobId: null,
   cronRunsJobId: null,
   cronRunsScope: "all",
   cronRunsQuery: "",
@@ -915,6 +918,19 @@ describe("applySettingsFromUrl", () => {
     expect(host.cronRunsJobId).toBeNull();
   });
 
+  it("hydrates cron edit deep-link state without disturbing the runs scope", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/cron?session=main&cronEdit=cron-2&cronRunsScope=job&cronJob=cron-1",
+    );
+    const host = createHost("cron");
+
+    applySettingsFromUrl(host);
+
+    expect(host.cronEditingJobId).toBe("cron-2");
+    expect(host.cronRunsScope).toBe("job");
+    expect(host.cronRunsJobId).toBe("cron-1");
+  });
+
   it("falls back to safe debug query defaults when debug params are empty or invalid JSON", () => {
     setTestWindowUrl(
       "https://control.example/ui/debug?session=main&debugMethod=status&debugParams=%7Bbroken",
@@ -1134,6 +1150,32 @@ describe("syncUrlWithTab", () => {
 
     expect(buildCanonicalChannelHref(host, "telegram")).toBe(
       "/ui/channels?session=main&channel=telegram",
+    );
+  });
+
+  it("builds canonical cron edit hrefs with the target edit override", () => {
+    const host = createHost("cron");
+    host.basePath = "/ui";
+    host.sessionKey = "main";
+    host.cronJobsQuery = "nightly";
+    host.cronJobsEnabledFilter = "enabled";
+    host.cronJobsScheduleKindFilter = "cron";
+    host.cronJobsLastStatusFilter = "error";
+    host.cronJobsSortBy = "updatedAtMs";
+    host.cronJobsSortDir = "desc";
+    host.cronRunsScope = "job";
+    host.cronRunsJobId = "job-old";
+    host.cronRunsQuery = "timeout";
+    host.cronRunsSortDir = "asc";
+    host.cronRunsStatuses = ["error"];
+    host.cronRunsStatusFilter = "error";
+    host.cronRunsDeliveryStatuses = ["not-delivered"];
+
+    expect(buildCanonicalCronEditHref(host, "job-new")).toBe(
+      "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronRunsScope=job&cronJob=job-old&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered&cronEdit=job-new",
+    );
+    expect(buildCanonicalCronEditHref(host, null)).toBe(
+      "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronRunsScope=job&cronJob=job-old&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered",
     );
   });
 
@@ -1522,10 +1564,12 @@ describe("syncUrlWithTab", () => {
     host.cronRunsStatuses = ["ok", "error"];
     host.cronRunsStatusFilter = "all";
     host.cronRunsDeliveryStatuses = ["delivered"];
+    host.cronEditingJobId = "cron-edit-1";
 
     syncUrlWithTab(host, "cron", true);
 
     expect(window.location.pathname).toBe("/ui/cron");
+    expect(window.location.search).toContain("cronEdit=cron-edit-1");
     expect(window.location.search).toContain("cronRunsScope=all");
     expect(window.location.search).toContain(`cronRunsQ=${toQueryValue("needle")}`);
     expect(window.location.search).toContain("cronRunsSort=asc");
@@ -1951,6 +1995,34 @@ describe("refreshActiveTab cron job deep links", () => {
     expect(window.location.search).toContain(`cronQ=${toQueryValue("digest")}`);
     expect(window.location.search).toContain("cronRunsScope=all");
     expect(window.location.search).not.toContain("cronJob=");
+  });
+
+  it("clears stale cron edit deep links without dropping the rest of the cron context", async () => {
+    const host = createHost("cron");
+    host.basePath = "/ui";
+    host.connected = true;
+    host.sessionKey = "agent:main:main";
+    host.cronJobsQuery = "digest";
+    host.cronRunsScope = "job";
+    host.cronRunsJobId = "cron-1";
+    host.cronEditingJobId = "missing-cron";
+
+    vi.spyOn(channels, "loadChannels").mockResolvedValue(undefined as never);
+    vi.spyOn(cron, "loadCronStatus").mockResolvedValue(undefined as never);
+    vi.spyOn(cron, "loadCronJobs").mockImplementation(async (state: { cronJobs: unknown[] }) => {
+      state.cronJobs = [{ id: "cron-1", name: "Digest" }];
+    });
+    vi.spyOn(cron, "loadCronRuns").mockResolvedValue(undefined as never);
+
+    await refreshActiveTab(host);
+
+    expect(host.cronEditingJobId).toBeNull();
+    expect(host.cronRunsScope).toBe("job");
+    expect(host.cronRunsJobId).toBe("cron-1");
+    expect(window.location.search).toContain(`cronQ=${toQueryValue("digest")}`);
+    expect(window.location.search).toContain("cronRunsScope=job");
+    expect(window.location.search).toContain("cronJob=cron-1");
+    expect(window.location.search).not.toContain("cronEdit=");
   });
 });
 

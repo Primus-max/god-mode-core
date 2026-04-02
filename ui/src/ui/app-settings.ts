@@ -114,6 +114,7 @@ type SettingsHost = {
   cronJobsLastStatusFilter?: "all" | "ok" | "error" | "skipped";
   cronJobsSortBy?: "nextRunAtMs" | "updatedAtMs" | "name";
   cronJobsSortDir?: "asc" | "desc";
+  cronEditingJobId?: string | null;
   cronRunsJobId?: string | null;
   cronRunsScope?: CronRunScope;
   cronRunsQuery?: string;
@@ -781,6 +782,16 @@ export function buildCanonicalCronJobHref(
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalCronEditHref(
+  host: SettingsHost | AppViewState,
+  jobId: string | null,
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("cron", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "cron", url);
+  setQueryValue(url, "cronEdit", trimQueryValue(jobId));
+  return `${url.pathname}${url.search}`;
+}
+
 export function buildCanonicalChannelHref(
   host: SettingsHost | AppViewState,
   channelKey: string,
@@ -1092,6 +1103,7 @@ function applyDeepLinkStateFromUrl(
     host.cronJobsSortBy ?? "nextRunAtMs",
   );
   host.cronJobsSortDir = normalizeCronSortDir(pick("cronDir"), host.cronJobsSortDir ?? "asc");
+  host.cronEditingJobId = trimQueryValue(pick("cronEdit"));
   const cronJobPick = pick("cronJob");
   const scopeParam = normalizeCronRunsScopeParam(pick("cronRunsScope"));
   let resolvedScope: CronRunScope = scopeParam ?? (cronJobPick ? "job" : "all");
@@ -1175,6 +1187,7 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "cronStatus", null);
   setQueryValue(url, "cronSort", null);
   setQueryValue(url, "cronDir", null);
+  setQueryValue(url, "cronEdit", null);
   setQueryValue(url, "cronJob", null);
   setQueryValue(url, "cronRunsScope", null);
   setQueryValue(url, "cronRunsQ", null);
@@ -1247,6 +1260,7 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
     setQueryValue(url, "cronStatus", host.cronJobsLastStatusFilter);
     setQueryValue(url, "cronSort", host.cronJobsSortBy);
     setQueryValue(url, "cronDir", host.cronJobsSortDir);
+    setQueryValue(url, "cronEdit", host.cronEditingJobId);
     if (host.cronRunsScope === "job") {
       setQueryValue(url, "cronRunsScope", "job");
       setQueryValue(url, "cronJob", host.cronRunsJobId);
@@ -1520,6 +1534,7 @@ export async function refreshActiveTab(host: SettingsHost) {
   if (host.tab === "cron") {
     await loadCron(host);
     const app = host as unknown as OpenClawApp;
+    let changed = false;
     if (
       app.cronRunsScope === "job" &&
       app.cronRunsJobId &&
@@ -1528,6 +1543,16 @@ export async function refreshActiveTab(host: SettingsHost) {
       app.cronRunsScope = "all";
       app.cronRunsJobId = null;
       await loadCronRuns(app, null);
+      changed = true;
+    }
+    if (
+      app.cronEditingJobId &&
+      !app.cronJobs.some((job) => job.id === app.cronEditingJobId)
+    ) {
+      app.cronEditingJobId = null;
+      changed = true;
+    }
+    if (changed) {
       syncUrlWithTab(host, "cron", true);
     }
   }

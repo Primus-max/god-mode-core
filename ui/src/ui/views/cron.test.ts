@@ -2,7 +2,11 @@
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_CRON_FORM } from "../app-defaults.ts";
-import { buildCanonicalCronJobHref, buildTabHref } from "../app-settings.ts";
+import {
+  buildCanonicalCronEditHref,
+  buildCanonicalCronJobHref,
+  buildTabHref,
+} from "../app-settings.ts";
 import type { CronJob } from "../types.ts";
 import { renderCron, type CronProps } from "./cron.ts";
 
@@ -28,6 +32,11 @@ function createProps(overrides: Partial<CronProps> = {}): CronProps {
         cronRunsScope: "job",
         cronJob: jobId,
       }),
+    buildEditHref: (jobId) =>
+      buildTabHref({ basePath: overrides.basePath ?? "" }, "cron", {
+        cronEdit: jobId,
+      }),
+    buildCancelEditHref: () => buildTabHref({ basePath: overrides.basePath ?? "" }, "cron"),
     loading: false,
     jobsLoadingMore: false,
     status: null,
@@ -541,23 +550,149 @@ describe("cron view", () => {
       container,
     );
 
-    const editButton = Array.from(container.querySelectorAll("button")).find(
-      (btn) => btn.textContent?.trim() === "Edit",
+    const editLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent?.trim() === "Edit",
     );
-    expect(editButton).not.toBeUndefined();
-    editButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(editLink).not.toBeUndefined();
+    const editClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    editLink?.dispatchEvent(editClick);
     expect(onEdit).toHaveBeenCalledWith(job);
     expect(onLoadRuns).toHaveBeenCalledWith("job-3");
+    expect(editClick.defaultPrevented).toBe(true);
 
     expect(container.textContent).toContain("Edit Job");
     expect(container.textContent).toContain("Save changes");
 
-    const cancelButton = Array.from(container.querySelectorAll("button")).find(
-      (btn) => btn.textContent?.trim() === "Cancel",
+    const cancelLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent?.trim() === "Cancel",
     );
-    expect(cancelButton).not.toBeUndefined();
-    cancelButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(cancelLink).not.toBeUndefined();
+    const cancelClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    cancelLink?.dispatchEvent(cancelClick);
     expect(onCancelEdit).toHaveBeenCalledTimes(1);
+    expect(cancelClick.defaultPrevented).toBe(true);
+  });
+
+  it("renders canonical cron edit hrefs for edit and cancel controls", () => {
+    const container = document.createElement("div");
+    const job = createJob("job-3");
+
+    render(
+      renderCron(
+        createProps({
+          basePath: "/ui",
+          jobs: [job],
+          editingJobId: "job-3",
+          jobsQuery: "nightly",
+          jobsEnabledFilter: "enabled",
+          jobsScheduleKindFilter: "cron",
+          jobsLastStatusFilter: "error",
+          jobsSortBy: "updatedAtMs",
+          jobsSortDir: "desc",
+          runsScope: "job",
+          runsJobId: "job-9",
+          runsQuery: "timeout",
+          runsSortDir: "asc",
+          runsStatuses: ["error"],
+          runsDeliveryStatuses: ["not-delivered"],
+          buildEditHref: (jobId) =>
+            buildCanonicalCronEditHref(
+              {
+                basePath: "/ui",
+                sessionKey: "main",
+                cronJobsQuery: "nightly",
+                cronJobsEnabledFilter: "enabled",
+                cronJobsScheduleKindFilter: "cron",
+                cronJobsLastStatusFilter: "error",
+                cronJobsSortBy: "updatedAtMs",
+                cronJobsSortDir: "desc",
+                cronEditingJobId: "job-3",
+                cronRunsScope: "job",
+                cronRunsJobId: "job-9",
+                cronRunsQuery: "timeout",
+                cronRunsSortDir: "asc",
+                cronRunsStatuses: ["error"],
+                cronRunsStatusFilter: "error",
+                cronRunsDeliveryStatuses: ["not-delivered"],
+              } as Parameters<typeof buildCanonicalCronEditHref>[0],
+              jobId,
+            ),
+          buildCancelEditHref: () =>
+            buildCanonicalCronEditHref(
+              {
+                basePath: "/ui",
+                sessionKey: "main",
+                cronJobsQuery: "nightly",
+                cronJobsEnabledFilter: "enabled",
+                cronJobsScheduleKindFilter: "cron",
+                cronJobsLastStatusFilter: "error",
+                cronJobsSortBy: "updatedAtMs",
+                cronJobsSortDir: "desc",
+                cronEditingJobId: "job-3",
+                cronRunsScope: "job",
+                cronRunsJobId: "job-9",
+                cronRunsQuery: "timeout",
+                cronRunsSortDir: "asc",
+                cronRunsStatuses: ["error"],
+                cronRunsStatusFilter: "error",
+                cronRunsDeliveryStatuses: ["not-delivered"],
+              } as Parameters<typeof buildCanonicalCronEditHref>[0],
+              null,
+            ),
+        }),
+      ),
+      container,
+    );
+
+    const editLink = Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).find(
+      (link) => link.textContent?.trim() === "Edit",
+    );
+    const cancelLink = Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).find(
+      (link) => link.textContent?.trim() === "Cancel",
+    );
+
+    expect(editLink?.getAttribute("href")).toBe(
+      "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronRunsScope=job&cronJob=job-9&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered&cronEdit=job-3",
+    );
+    expect(editLink?.getAttribute("aria-current")).toBe("page");
+    expect(cancelLink?.getAttribute("href")).toBe(
+      "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronRunsScope=job&cronJob=job-9&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered",
+    );
+  });
+
+  it("lets modified clicks fall through to the browser href for cron edit links", () => {
+    const container = document.createElement("div");
+    const onEdit = vi.fn();
+    const onLoadRuns = vi.fn();
+    const job = createJob("job-3");
+
+    render(
+      renderCron(
+        createProps({
+          jobs: [job],
+          onEdit,
+          onLoadRuns,
+        }),
+      ),
+      container,
+    );
+
+    const editLink = Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).find(
+      (link) => link.textContent?.trim() === "Edit",
+    );
+    expect(editLink).not.toBeUndefined();
+
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true,
+    });
+    editLink?.dispatchEvent(click);
+
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(onLoadRuns).not.toHaveBeenCalled();
+    expect(click.defaultPrevented).toBe(false);
   });
 
   it("renders advanced controls for cron + agent payload + delivery", () => {
