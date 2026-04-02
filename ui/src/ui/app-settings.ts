@@ -125,6 +125,8 @@ type SettingsHost = {
   usageStartDate?: string;
   usageEndDate?: string;
   usageSelectedSessions?: string[];
+  usageSelectedDays?: string[];
+  usageSelectedHours?: number[];
   usageTimeZone?: "local" | "utc";
   usageQuery?: string;
   usageQueryDraft?: string;
@@ -358,6 +360,68 @@ function normalizeUsageSessionsTab(
   fallback: "all" | "recent",
 ): "all" | "recent" {
   return value === "recent" ? "recent" : value === "all" ? "all" : fallback;
+}
+
+const USAGE_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function normalizeUsageSelectedDays(values?: readonly string[] | null): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values ?? []) {
+    const day = trimQueryValue(value);
+    if (!day || !USAGE_DAY_RE.test(day) || seen.has(day)) {
+      continue;
+    }
+    seen.add(day);
+    normalized.push(day);
+  }
+  return normalized;
+}
+
+function parseUsageSelectedDaysParam(raw: string | null | undefined): string[] {
+  const trimmed = trimQueryValue(raw);
+  if (!trimmed) {
+    return [];
+  }
+  return normalizeUsageSelectedDays(trimmed.split(","));
+}
+
+function serializeUsageSelectedDays(values?: readonly string[] | null): string | null {
+  const normalized = normalizeUsageSelectedDays(values);
+  return normalized.length > 0 ? normalized.join(",") : null;
+}
+
+function normalizeUsageSelectedHours(values?: readonly number[] | null): number[] {
+  const normalized: number[] = [];
+  const seen = new Set<number>();
+  for (const value of values ?? []) {
+    if (!Number.isInteger(value) || value < 0 || value > 23 || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+function parseUsageSelectedHoursParam(raw: string | null | undefined): number[] {
+  const trimmed = trimQueryValue(raw);
+  if (!trimmed) {
+    return [];
+  }
+  const parsed: number[] = [];
+  for (const part of trimmed.split(",")) {
+    const value = Number(part.trim());
+    if (Number.isInteger(value)) {
+      parsed.push(value);
+    }
+  }
+  return normalizeUsageSelectedHours(parsed);
+}
+
+function serializeUsageSelectedHours(values?: readonly number[] | null): string | null {
+  const normalized = normalizeUsageSelectedHours(values);
+  return normalized.length > 0 ? normalized.join(",") : null;
 }
 
 function resolveUsageSelectedSessionKey(
@@ -757,6 +821,8 @@ export function buildCanonicalUsageHref(
   host: SettingsHost | AppViewState,
   overrides: {
     sessionKey?: string | null;
+    selectedDays?: string[] | null;
+    selectedHours?: number[] | null;
     chartMode?: "tokens" | "cost";
     dailyChartMode?: "total" | "by-type";
     sessionsTab?: "all" | "recent";
@@ -770,6 +836,14 @@ export function buildCanonicalUsageHref(
     "sessionKey" in overrides
       ? trimQueryValue(overrides.sessionKey ?? null)
       : resolveUsageSelectedSessionKey(host as SettingsHost);
+  const selectedDays =
+    "selectedDays" in overrides
+      ? normalizeUsageSelectedDays(overrides.selectedDays ?? undefined)
+      : normalizeUsageSelectedDays(host.usageSelectedDays);
+  const selectedHours =
+    "selectedHours" in overrides
+      ? normalizeUsageSelectedHours(overrides.selectedHours ?? undefined)
+      : normalizeUsageSelectedHours(host.usageSelectedHours);
   const chartMode = normalizeUsageChartMode(overrides.chartMode, host.usageChartMode ?? "tokens");
   const dailyChartMode = normalizeUsageDailyChartMode(
     overrides.dailyChartMode,
@@ -788,6 +862,8 @@ export function buildCanonicalUsageHref(
     host.usageSessionSortDir ?? "desc",
   );
   setQueryValue(url, "usageSession", sessionKey);
+  setQueryValue(url, "usageDays", serializeUsageSelectedDays(selectedDays));
+  setQueryValue(url, "usageHours", serializeUsageSelectedHours(selectedHours));
   setQueryValue(url, "usageChart", chartMode !== "tokens" ? chartMode : null);
   setQueryValue(url, "usageDaily", dailyChartMode !== "by-type" ? dailyChartMode : null);
   setQueryValue(url, "usageSessions", sessionsTab !== "all" ? sessionsTab : null);
@@ -1167,6 +1243,8 @@ function applyDeepLinkStateFromUrl(
   host.usageTimeZone = normalizeUsageTimeZone(pick("usageTz"));
   const usageSelectedSession = pick("usageSession");
   host.usageSelectedSessions = usageSelectedSession ? [usageSelectedSession] : [];
+  host.usageSelectedDays = parseUsageSelectedDaysParam(pick("usageDays"));
+  host.usageSelectedHours = parseUsageSelectedHoursParam(pick("usageHours"));
   host.usageQuery = pick("usageQ") ?? "";
   host.usageQueryDraft = host.usageQuery;
   host.usageChartMode = normalizeUsageChartMode(pick("usageChart"), host.usageChartMode ?? "tokens");
@@ -1242,6 +1320,8 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "usageTo", null);
   setQueryValue(url, "usageTz", null);
   setQueryValue(url, "usageSession", null);
+  setQueryValue(url, "usageDays", null);
+  setQueryValue(url, "usageHours", null);
   setQueryValue(url, "usageQ", null);
   setQueryValue(url, "usageChart", null);
   setQueryValue(url, "usageDaily", null);
@@ -1323,6 +1403,8 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
     setQueryValue(url, "usageTo", host.usageEndDate);
     setQueryValue(url, "usageTz", host.usageTimeZone);
     setQueryValue(url, "usageSession", resolveUsageSelectedSessionKey(host));
+    setQueryValue(url, "usageDays", serializeUsageSelectedDays(host.usageSelectedDays));
+    setQueryValue(url, "usageHours", serializeUsageSelectedHours(host.usageSelectedHours));
     setQueryValue(url, "usageQ", host.usageQuery);
     setQueryValue(url, "usageChart", host.usageChartMode !== "tokens" ? host.usageChartMode : null);
     setQueryValue(

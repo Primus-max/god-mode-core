@@ -102,6 +102,7 @@ Logs panel notes:
 Usage panel notes:
 
 - The Usage surface now restores a canonical investigation context from URL state: `usageFrom`, `usageTo`, `usageTz`, `usageSession`, `usageQ`, and the overview display subset (`usageChart`, `usageDaily`, `usageSessions`, `usageSort`, `usageSortDir`) can survive refresh/popstate without serializing every local analytics toggle.
+- Usage day/hour drill-down now rides that same canonical contract too: selected `usageDays` and `usageHours` survive refresh/popstate, and clearing the restored chips removes the same query state instead of leaving stale local-only filters behind.
 - When a single `usageSession` is present in the link, the usage summary reload path reopens the same time-series and session-log detail flow after refresh, so operators can share one session investigation path instead of reselecting it manually.
 
 Channels panel notes:

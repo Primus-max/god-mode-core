@@ -127,6 +127,7 @@ export function renderUsageTab(state: AppViewState) {
           } else {
             state.usageSelectedHours = [...state.usageSelectedHours, hour];
           }
+          syncUsageUrl();
         },
         onQueryDraftChange: (query) => {
           state.usageQueryDraft = query;
@@ -173,12 +174,15 @@ export function renderUsageTab(state: AppViewState) {
           } else {
             state.usageSelectedDays = [day];
           }
+          syncUsageUrl();
         },
         onClearDays: () => {
           state.usageSelectedDays = [];
+          syncUsageUrl();
         },
         onClearHours: () => {
           state.usageSelectedHours = [];
+          syncUsageUrl();
         },
         onClearSessions: () => {
           state.usageSelectedSessions = [];
