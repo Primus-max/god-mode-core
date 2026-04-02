@@ -79,6 +79,8 @@ export type GatewayClientOptions = {
   url?: string; // ws://127.0.0.1:18789
   connectDelayMs?: number;
   tickWatchMinIntervalMs?: number;
+  /** When true, do not auto-close the socket if tick frames are dropped under load (long agent runs). */
+  disableTickWatch?: boolean;
   requestTimeoutMs?: number;
   token?: string;
   bootstrapToken?: string;
@@ -485,7 +487,9 @@ export class GatewayClient {
             ? helloOk.policy.tickIntervalMs
             : 30_000;
         this.lastTick = Date.now();
-        this.startTickWatch();
+        if (!this.opts.disableTickWatch) {
+          this.startTickWatch();
+        }
         this.opts.onHelloOk?.(helloOk);
       })
       .catch((err) => {

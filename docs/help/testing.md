@@ -688,22 +688,21 @@ These are “real pipeline” regressions without real providers:
 
 ## Agent reliability evals (skills)
 
-We already have a few CI-safe tests that behave like “agent reliability evals”:
+CI-safe **skill reliability** coverage runs on the same stack as other gateway tests: `installOpenAiResponsesMock()` patches OpenAI `/responses` HTTP, the gateway loads a temp config with `buildMockOpenAiResponsesProvider()`, and the embedded agent loop performs real tool execution against workspace files. Scenarios are driven by `createOpenAiScenarioResolver()` (fixed step sequence) or small inline resolvers when the stack may issue extra provider calls.
 
-- Mock tool-calling through the real gateway + agent loop (`src/gateway/gateway.test.ts`).
-- End-to-end wizard flows that validate session wiring and config effects (`src/gateway/gateway.test.ts`).
+**Baseline suite (runs with `pnpm test` / gateway lane):** `src/gateway/gateway.skills-reliability.test.ts`
 
-What’s still missing for skills (see [Skills](/tools/skills)):
+- **Use vs avoid:** among listed skills, the scripted trajectory reads the relevant `SKILL.md` and checklist, not the irrelevant skill body.
+- **Unrelated prompt:** with skills present, a non-skill question completes without tool calls on the first provider request; the mock tolerates extra completion retries by returning the same final message.
+- **Read-before-act / workflow order:** compliance skill fixture forces read `SKILL.md`, then chained reads per skill instructions, then final assistant text.
+- **Mandatory path / args:** seal-file skill requires a specific `read` target after loading the skill file.
+- **Multi-turn session:** two sequential `agent` RPC turns on one dev session; the mock asserts earlier user text appears in `allInputText` on the second turn.
 
-- **Decisioning:** when skills are listed in the prompt, does the agent pick the right skill (or avoid irrelevant ones)?
-- **Compliance:** does the agent read `SKILL.md` before use and follow required steps/args?
-- **Workflow contracts:** multi-turn scenarios that assert tool order, session history carryover, and sandbox boundaries.
+**Harness helpers:** `src/gateway/skill-reliability-eval.harness.ts` (`runSkillEval`, `runSkillEvalTurns`, `skillEvalAssistantText`). WS clients use `disableTickWatch: true` so long embedded runs are not cut off by client tick watchdogs when server `tick` frames are dropped under load.
 
-Future evals should stay deterministic first:
+**Mock helper:** `createOpenAiScenarioResolver()` in `src/gateway/test-helpers.openai-mock.ts` builds a deterministic per-`requestIndex` handler; throw on unexpected extra requests only when you need strict regression.
 
-- A scenario runner using mock providers to assert tool calls + order, skill file reads, and session wiring.
-- A small suite of skill-focused scenarios (use vs avoid, gating, prompt injection).
-- Optional live evals (opt-in, env-gated) only after the CI-safe suite is in place.
+**Live / provider evals** (real model behavior, skill selection quality under noise) remain optional and env-gated (`pnpm test:live`); they are not part of the default PR gate.
 
 ## Contract tests (plugin and channel shape)
 

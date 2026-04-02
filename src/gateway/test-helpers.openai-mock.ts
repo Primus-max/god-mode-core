@@ -1,6 +1,57 @@
 type OpenAIResponsesParams = {
   input?: unknown[];
+  instructions?: string;
+  tools?: unknown[];
+  rawBody?: Record<string, unknown>;
 };
+
+export type MockOpenAiResponsesRequest = {
+  input: unknown[];
+  instructions: string;
+  tools: unknown[];
+  rawBody: Record<string, unknown>;
+  requestIndex: number;
+  lastUserText: string;
+  allInputText: string;
+  toolOutputs: string[];
+  toolOutput: string;
+};
+
+export type MockOpenAiResponsesDecision =
+  | {
+      type: "tool_call";
+      name: string;
+      args: Record<string, unknown>;
+      callId?: string;
+      itemId?: string;
+    }
+  | {
+      type: "message";
+      text: string;
+    };
+
+/** One step per OpenAI `/responses` request index (0-based), for deterministic skill/agent evals. */
+export type OpenAiScenarioStep = (
+  request: MockOpenAiResponsesRequest,
+) => MockOpenAiResponsesDecision | Promise<MockOpenAiResponsesDecision>;
+
+/**
+ * Builds a `resolveResponse` handler that runs a fixed sequence of scripted model decisions.
+ * Throws if the gateway issues more requests than steps (surfaces accidental extra turns).
+ */
+export function createOpenAiScenarioResolver(
+  steps: readonly OpenAiScenarioStep[],
+): (request: MockOpenAiResponsesRequest) => Promise<MockOpenAiResponsesDecision> {
+  return async (request) => {
+    const step = steps[request.requestIndex];
+    if (!step) {
+      throw new Error(
+        `OpenAI mock scenario: no step for requestIndex=${request.requestIndex} (only ${steps.length} steps defined)`,
+      );
+    }
+    return await step(request);
+  };
+}
 
 type OpenAIResponseStreamEvent =
   | { type: "response.output_item.added"; item: Record<string, unknown> }
@@ -46,91 +97,126 @@ function extractLastUserText(input: unknown[]): string {
   return "";
 }
 
-function extractToolOutput(input: unknown[]): string {
+function collectInputText(input: unknown[]): string {
+  const parts: string[] = [];
+  for (const itemRaw of input) {
+    const item = itemRaw as Record<string, unknown> | undefined;
+    const content = item?.content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+    for (const entry of content) {
+      if (
+        entry &&
+        typeof entry === "object" &&
+        typeof (entry as { text?: unknown }).text === "string"
+      ) {
+        parts.push((entry as { text: string }).text);
+      }
+    }
+  }
+  return parts.join("\n").trim();
+}
+
+function extractToolOutputs(input: unknown[]): string[] {
+  const outputs: string[] = [];
   for (const itemRaw of input) {
     const item = itemRaw as Record<string, unknown> | undefined;
     if (!item || item.type !== "function_call_output") {
       continue;
     }
-    return typeof item.output === "string" ? item.output : "";
+    outputs.push(typeof item.output === "string" ? item.output : "");
   }
-  return "";
+  return outputs;
 }
 
-async function* fakeOpenAIResponsesStream(
-  params: OpenAIResponsesParams,
-): AsyncGenerator<OpenAIResponseStreamEvent> {
-  const input = Array.isArray(params.input) ? params.input : [];
-  const toolOutput = extractToolOutput(input);
-
+function defaultOpenAiResponsesDecision(
+  request: MockOpenAiResponsesRequest,
+): MockOpenAiResponsesDecision {
+  const toolOutput = request.toolOutput;
   if (!toolOutput) {
-    const prompt = extractLastUserText(input);
+    const prompt = request.lastUserText;
     const quoted = /"([^"]+)"/.exec(prompt)?.[1];
     const toolPath = quoted ?? "package.json";
-    const argsJson = JSON.stringify({ path: toolPath });
-
-    yield {
-      type: "response.output_item.added",
-      item: {
-        type: "function_call",
-        id: "fc_test_1",
-        call_id: "call_test_1",
-        name: "read",
-        arguments: "",
-      },
+    return {
+      type: "tool_call",
+      name: "read",
+      args: { path: toolPath },
     };
-    yield { type: "response.function_call_arguments.delta", delta: argsJson };
-    yield {
-      type: "response.output_item.done",
-      item: {
-        type: "function_call",
-        id: "fc_test_1",
-        call_id: "call_test_1",
-        name: "read",
-        arguments: argsJson,
-      },
-    };
-    yield {
-      type: "response.completed",
-      response: {
-        status: "completed",
-        usage: { input_tokens: 10, output_tokens: 10, total_tokens: 20 },
-      },
-    };
-    return;
   }
 
   const nonceA = /nonceA=([^\s]+)/.exec(toolOutput)?.[1] ?? "";
   const nonceB = /nonceB=([^\s]+)/.exec(toolOutput)?.[1] ?? "";
-  const reply = `${nonceA} ${nonceB}`.trim();
+  return {
+    type: "message",
+    text: `${nonceA} ${nonceB}`.trim(),
+  };
+}
 
-  yield {
-    type: "response.output_item.added",
-    item: {
-      type: "message",
-      id: "msg_test_1",
-      role: "assistant",
-      content: [],
-      status: "in_progress",
+function buildToolCallEvents(decision: Extract<MockOpenAiResponsesDecision, { type: "tool_call" }>) {
+  const argsJson = JSON.stringify(decision.args);
+  return [
+    {
+      type: "response.output_item.added",
+      item: {
+        type: "function_call",
+        id: decision.itemId ?? "fc_test_1",
+        call_id: decision.callId ?? "call_test_1",
+        name: decision.name,
+        arguments: "",
+      },
     },
-  };
-  yield {
-    type: "response.output_item.done",
-    item: {
-      type: "message",
-      id: "msg_test_1",
-      role: "assistant",
-      status: "completed",
-      content: [{ type: "output_text", text: reply, annotations: [] }],
+    { type: "response.function_call_arguments.delta", delta: argsJson },
+    {
+      type: "response.output_item.done",
+      item: {
+        type: "function_call",
+        id: decision.itemId ?? "fc_test_1",
+        call_id: decision.callId ?? "call_test_1",
+        name: decision.name,
+        arguments: argsJson,
+      },
     },
-  };
-  yield {
-    type: "response.completed",
-    response: {
-      status: "completed",
-      usage: { input_tokens: 10, output_tokens: 10, total_tokens: 20 },
+    {
+      type: "response.completed",
+      response: {
+        status: "completed" as const,
+        usage: { input_tokens: 10, output_tokens: 10, total_tokens: 20 },
+      },
     },
-  };
+  ] satisfies OpenAIResponseStreamEvent[];
+}
+
+function buildMessageEvents(decision: Extract<MockOpenAiResponsesDecision, { type: "message" }>) {
+  return [
+    {
+      type: "response.output_item.added",
+      item: {
+        type: "message",
+        id: "msg_test_1",
+        role: "assistant",
+        content: [],
+        status: "in_progress",
+      },
+    },
+    {
+      type: "response.output_item.done",
+      item: {
+        type: "message",
+        id: "msg_test_1",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text: decision.text, annotations: [] }],
+      },
+    },
+    {
+      type: "response.completed",
+      response: {
+        status: "completed" as const,
+        usage: { input_tokens: 10, output_tokens: 10, total_tokens: 20 },
+      },
+    },
+  ] satisfies OpenAIResponseStreamEvent[];
 }
 
 function decodeBodyText(body: unknown): string {
@@ -197,16 +283,18 @@ export function buildOpenAIResponsesTextSse(text: string): Response {
 }
 
 async function buildOpenAIResponsesSse(params: OpenAIResponsesParams): Promise<Response> {
-  const events: OpenAIResponseStreamEvent[] = [];
-  for await (const event of fakeOpenAIResponsesStream(params)) {
-    events.push(event);
-  }
-  return buildSseResponse(events);
+  return buildSseResponse([]);
 }
 
-export function installOpenAiResponsesMock(params?: { baseUrl?: string }) {
+export function installOpenAiResponsesMock(params?: {
+  baseUrl?: string;
+  resolveResponse?: (
+    request: MockOpenAiResponsesRequest,
+  ) => MockOpenAiResponsesDecision | Promise<MockOpenAiResponsesDecision>;
+}) {
   const originalFetch = globalThis.fetch;
   const baseUrl = params?.baseUrl ?? "https://api.openai.com/v1";
+  const requests: MockOpenAiResponsesRequest[] = [];
   const responsesUrl = `${baseUrl}/responses`;
   const isResponsesRequest = (url: string) =>
     url === responsesUrl ||
@@ -226,7 +314,25 @@ export function installOpenAiResponsesMock(params?: { baseUrl?: string }) {
 
       const parsed = bodyText ? (JSON.parse(bodyText) as Record<string, unknown>) : {};
       const inputItems = Array.isArray(parsed.input) ? parsed.input : [];
-      return await buildOpenAIResponsesSse({ input: inputItems });
+      const toolOutputs = extractToolOutputs(inputItems);
+      const request: MockOpenAiResponsesRequest = {
+        input: inputItems,
+        instructions: typeof parsed.instructions === "string" ? parsed.instructions : "",
+        tools: Array.isArray(parsed.tools) ? parsed.tools : [],
+        rawBody: parsed,
+        requestIndex: requests.length,
+        lastUserText: extractLastUserText(inputItems),
+        allInputText: collectInputText(inputItems),
+        toolOutputs,
+        toolOutput: toolOutputs.at(-1) ?? "",
+      };
+      requests.push(request);
+      const decision = params?.resolveResponse
+        ? await params.resolveResponse(request)
+        : defaultOpenAiResponsesDecision(request);
+      const events =
+        decision.type === "tool_call" ? buildToolCallEvents(decision) : buildMessageEvents(decision);
+      return buildSseResponse(events);
     }
     if (url.startsWith(baseUrl)) {
       throw new Error(`unexpected OpenAI request in mock test: ${url}`);
@@ -240,6 +346,7 @@ export function installOpenAiResponsesMock(params?: { baseUrl?: string }) {
   (globalThis as unknown as { fetch: unknown }).fetch = fetchImpl;
   return {
     baseUrl,
+    requests,
     restore: () => {
       (globalThis as unknown as { fetch: unknown }).fetch = originalFetch;
     },

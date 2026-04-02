@@ -46,6 +46,7 @@ export async function connectGatewayClient(params: {
   connectDelayMs?: number;
   timeoutMs?: number;
   timeoutMessage?: string;
+  disableTickWatch?: boolean;
 }) {
   const role = params.role ?? "operator";
   const platform = params.platform ?? process.platform;
@@ -91,6 +92,7 @@ export async function connectGatewayClient(params: {
       commands: params.commands,
       instanceId: params.instanceId,
       deviceIdentity,
+      disableTickWatch: params.disableTickWatch,
       onEvent: params.onEvent,
       onHelloOk: () => stop(undefined, client),
       onConnectError: (err) => stop(err),
