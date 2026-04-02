@@ -652,7 +652,7 @@ describe("cron view", () => {
     );
 
     expect(editLink?.getAttribute("href")).toBe(
-      "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronRunsScope=job&cronJob=job-9&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered&cronEdit=job-3",
+      "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronEdit=job-3&cronRunsScope=job&cronJob=job-9&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered",
     );
     expect(editLink?.getAttribute("aria-current")).toBe("page");
     expect(cancelLink?.getAttribute("href")).toBe(
