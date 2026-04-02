@@ -171,6 +171,7 @@ Runtime / recovery notes:
 
 - The Sessions tab now doubles as the operator runtime inspector: blocked checkpoints, related actions, and closure outcomes all come from the canonical runtime ledgers rather than a separate UI cache.
 - Shareable runtime-inspector links still restore only routing intent; action receipts, closure payloads, loading state, and recovery errors are reloaded from the gateway rather than serialized into the URL.
+- Linked bootstrap/artifact pivots inside the runtime inspector now reuse the same canonical destination helpers as the Bootstrap and Artifacts surfaces, so copied links, refresh, and in-app primary clicks all reopen the same selected record while modified clicks keep native browser new-tab behavior.
 - High-risk recovery actions such as deny or manual continuation dispatch require an explicit confirmation in the UI before the RPC is sent.
 - When a recovery decision is sent through the Control UI, the inspector shows the latest operator decision context (`what`, `who`, `when`) so operators can verify who approved, denied, dispatched, or retried the flow.
 - Session rows also surface the current handoff truth used for runtime inspection: `handoffTruthSource` tells the operator whether the active target follows durable closure history or an in-flight recovery branch.
