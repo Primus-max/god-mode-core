@@ -196,6 +196,8 @@ type SettingsHost = {
   usageStartDate?: string;
   usageEndDate?: string;
   usageSelectedSessions?: string[];
+  usageSelectedDays?: string[];
+  usageSelectedHours?: number[];
   usageTimeZone?: "local" | "utc";
   usageQuery?: string;
   usageQueryDraft?: string;
@@ -467,6 +469,8 @@ const createHost = (tab: Tab): SettingsHost => ({
   usageStartDate: "2026-03-31",
   usageEndDate: "2026-03-31",
   usageSelectedSessions: [],
+  usageSelectedDays: [],
+  usageSelectedHours: [],
   usageTimeZone: "local",
   usageQuery: "",
   usageQueryDraft: "",
@@ -775,7 +779,7 @@ describe("applySettingsFromUrl", () => {
 
   it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, debug, channels, instances, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=action-1&runtimeClosure=run-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&instancesReveal=true&logQ=timeout&logLevels=warn%2Cerror&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageDays=2026-03-02%2C2026-03-05&usageHours=9%2C13&usageQ=cost%20spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=action-1&runtimeClosure=run-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&instancesReveal=true&logQ=timeout&logLevels=warn%2Cerror&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -798,6 +802,8 @@ describe("applySettingsFromUrl", () => {
     expect(host.usageEndDate).toBe("2026-03-31");
     expect(host.usageTimeZone).toBe("utc");
     expect(host.usageSelectedSessions).toEqual(["agent:main:main"]);
+    expect(host.usageSelectedDays).toEqual(["2026-03-02", "2026-03-05"]);
+    expect(host.usageSelectedHours).toEqual([9, 13]);
     expect(host.usageQuery).toBe("cost spike");
     expect(host.usageQueryDraft).toBe("cost spike");
     expect(host.usageChartMode).toBe("cost");
@@ -859,6 +865,18 @@ describe("applySettingsFromUrl", () => {
     expect(host.usageSessionsTab).toBe("all");
     expect(host.usageSessionSort).toBe("recent");
     expect(host.usageSessionSortDir).toBe("desc");
+  });
+
+  it("normalizes invalid usage drilldown query state without dropping valid entries", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/usage?session=main&usageDays=2026-03-12%2Cinvalid%2C2026-03-12%2C2026-03-14&usageHours=3%2C25%2Cnope%2C3%2C9",
+    );
+    const host = createHost("usage");
+
+    applySettingsFromUrl(host);
+
+    expect(host.usageSelectedDays).toEqual(["2026-03-12", "2026-03-14"]);
+    expect(host.usageSelectedHours).toEqual([3, 9]);
   });
 
   it("falls back to default sessions list query state when query values are invalid", () => {
@@ -1099,6 +1117,8 @@ describe("syncUrlWithTab", () => {
     host.usageTimeZone = "utc";
     host.usageQuery = "cost spike";
     host.usageSelectedSessions = ["agent:main:main"];
+    host.usageSelectedDays = ["2026-03-02", "2026-03-05"];
+    host.usageSelectedHours = [9, 13];
     host.usageChartMode = "cost";
     host.usageDailyChartMode = "total";
     host.usageSessionsTab = "recent";
@@ -1106,13 +1126,15 @@ describe("syncUrlWithTab", () => {
     host.usageSessionSortDir = "asc";
 
     expect(buildCanonicalUsageHref(host)).toBe(
-      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc",
+      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageDays=2026-03-02%2C2026-03-05&usageHours=9%2C13&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc",
     );
     expect(buildCanonicalUsageSessionHref(host, "agent:writer:main")).toBe(
-      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Awriter%3Amain&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc",
+      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Awriter%3Amain&usageDays=2026-03-02%2C2026-03-05&usageHours=9%2C13&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc",
     );
     expect(
       buildCanonicalUsageHref(host, {
+        selectedDays: ["2026-03-03", "invalid", "2026-03-03"],
+        selectedHours: [6, 30, 6],
         chartMode: "tokens",
         dailyChartMode: "by-type",
         sessionsTab: "all",
@@ -1120,7 +1142,7 @@ describe("syncUrlWithTab", () => {
         sessionSortDir: "desc",
       }),
     ).toBe(
-      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost+spike",
+      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageDays=2026-03-03&usageHours=6&usageQ=cost+spike",
     );
   });
 
@@ -1749,6 +1771,8 @@ describe("syncUrlWithTab", () => {
     host.usageEndDate = "2026-03-31";
     host.usageTimeZone = "utc";
     host.usageSelectedSessions = ["agent:main:main"];
+    host.usageSelectedDays = ["2026-03-02", "2026-03-05"];
+    host.usageSelectedHours = [9, 13];
     host.usageQuery = "cost spike";
     host.usageQueryDraft = "cost spike";
     host.usageChartMode = "cost";
@@ -1765,6 +1789,8 @@ describe("syncUrlWithTab", () => {
     expect(window.location.search).toContain("usageTo=2026-03-31");
     expect(window.location.search).toContain("usageTz=utc");
     expect(window.location.search).toContain("usageSession=agent%3Amain%3Amain");
+    expect(window.location.search).toContain("usageDays=2026-03-02%2C2026-03-05");
+    expect(window.location.search).toContain("usageHours=9%2C13");
     expect(window.location.search).toContain(`usageQ=${toQueryValue("cost spike")}`);
     expect(window.location.search).toContain("usageChart=cost");
     expect(window.location.search).toContain("usageDaily=total");
