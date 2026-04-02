@@ -1968,6 +1968,15 @@ function matchesRuntimeScope(
 
 export function buildAttentionItems(host: AttentionHost) {
   const items: AttentionItem[] = [];
+  const settingsHost = host as unknown as SettingsHost;
+  const buildSkillsHref = (skillFilter: string) =>
+    buildCanonicalTabHref(
+      {
+        ...settingsHost,
+        skillsFilter: skillFilter,
+      } as SettingsHost,
+      "skills",
+    );
 
   if (host.lastError) {
     items.push({
@@ -1975,9 +1984,7 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "x",
       title: "Gateway Error",
       description: host.lastError,
-      href: buildTabHref(host, "logs", {
-        session: host.sessionKey,
-      }),
+      href: buildCanonicalLogsHref(settingsHost),
       actionLabel: "Open",
     });
   }
@@ -2023,11 +2030,10 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "shield",
       title: `Recovery needs review for ${activeSession?.label ?? activeSession?.displayName ?? host.sessionKey}`,
       description: recoveryDescription,
-      href: buildTabHref(host, "sessions", {
-        session: host.sessionKey,
-        runtimeSession: host.sessionKey,
-        runtimeRun: activeRunId ?? scopedCheckpoint?.runId ?? null,
-        checkpoint: activeSession?.recoveryCheckpointId ?? scopedCheckpoint?.id ?? null,
+      href: buildCanonicalSessionsRuntimeHref(settingsHost, {
+        sessionKey: host.sessionKey,
+        runId: activeRunId ?? scopedCheckpoint?.runId ?? null,
+        checkpointId: activeSession?.recoveryCheckpointId ?? scopedCheckpoint?.id ?? null,
       }),
       actionLabel: "Review",
     });
@@ -2039,9 +2045,8 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "shield",
       title: "Bootstrap request linked to current recovery",
       description: scopedCheckpoint.operatorHint ?? "Open the linked bootstrap request.",
-      href: buildTabHref(host, "bootstrap", {
-        session: host.sessionKey,
-        bootstrapRequest: scopedCheckpoint.target.bootstrapRequestId,
+      href: buildCanonicalBootstrapHref(settingsHost, {
+        requestId: scopedCheckpoint.target.bootstrapRequestId,
       }),
       actionLabel: "Open request",
     });
@@ -2052,9 +2057,8 @@ export function buildAttentionItems(host: AttentionHost) {
       title: "Artifact transition needs review",
       description:
         scopedCheckpoint.operatorHint ?? "Open the linked artifact and review the transition.",
-      href: buildTabHref(host, "artifacts", {
-        session: host.sessionKey,
-        artifact: scopedCheckpoint.target.artifactId,
+      href: buildCanonicalArtifactsHref(settingsHost, {
+        artifactId: scopedCheckpoint.target.artifactId,
       }),
       actionLabel: "Open artifact",
     });
@@ -2070,10 +2074,7 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "zap",
       title: "Skills with missing dependencies",
       description: `${names.join(", ")}${more}`,
-      href: buildTabHref(host, "skills", {
-        session: host.sessionKey,
-        skillFilter: SKILL_FILTER_MISSING,
-      }),
+      href: buildSkillsHref(SKILL_FILTER_MISSING),
       actionLabel: "Open",
     });
   }
@@ -2085,10 +2086,7 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "shield",
       title: `${blocked.length} skill${blocked.length > 1 ? "s" : ""} blocked`,
       description: blocked.map((s) => s.name).join(", "),
-      href: buildTabHref(host, "skills", {
-        session: host.sessionKey,
-        skillFilter: SKILL_FILTER_BLOCKED,
-      }),
+      href: buildSkillsHref(SKILL_FILTER_BLOCKED),
       actionLabel: "Open",
     });
   }
@@ -2103,10 +2101,7 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "radio",
       title: `${channelIssues.length} channel issue${channelIssues.length > 1 ? "s" : ""} detected`,
       description: `${names.join(", ")}${more}`,
-      href: buildTabHref(host, "channels", {
-        session: host.sessionKey,
-        channel: primaryIssue.key,
-      }),
+      href: buildCanonicalChannelHref(settingsHost, primaryIssue.key),
       actionLabel: "Open",
     });
   }
@@ -2133,11 +2128,10 @@ export function buildAttentionItems(host: AttentionHost) {
         primaryApproval?.request.blockedReason ??
         primaryApproval?.request.command ??
         "Operator review is required before execution can continue.",
-      href: buildTabHref(host, "nodes", {
-        session: host.sessionKey,
-        execTarget: target.execTarget,
-        execNode: target.execNode,
-        execAgent: target.execAgent ?? null,
+      href: buildCanonicalNodesExecApprovalsHref(settingsHost, {
+        target: target.execTarget,
+        nodeId: target.execNode,
+        agentId: target.execAgent ?? null,
       }),
       actionLabel: "Open",
     });
@@ -2153,9 +2147,8 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "shield",
       title: `${host.bootstrapPendingCount} bootstrap request${host.bootstrapPendingCount > 1 ? "s" : ""} pending`,
       description: "Capability installs are waiting for operator approval.",
-      href: buildTabHref(host, "bootstrap", {
-        session: host.sessionKey,
-        bootstrapRequest: pendingRequestId,
+      href: buildCanonicalBootstrapHref(settingsHost, {
+        requestId: pendingRequestId,
       }),
       actionLabel: "Open",
     });
@@ -2168,7 +2161,7 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "monitor",
       title: "Machine control kill switch enabled",
       description: "All machine-scoped execution is currently blocked.",
-      href: buildTabHref(host, "machine", { session: host.sessionKey }),
+      href: buildCanonicalTabHref(settingsHost, "machine"),
       actionLabel: "Open",
     });
   } else if (machineStatus?.currentDevice?.access.code === "device_not_linked") {
@@ -2177,7 +2170,7 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "monitor",
       title: "Current device is not linked for machine control",
       description: "Link this operator device before approving machine-scoped execution.",
-      href: buildTabHref(host, "machine", { session: host.sessionKey }),
+      href: buildCanonicalTabHref(settingsHost, "machine"),
       actionLabel: "Open",
     });
   }
@@ -2191,12 +2184,7 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "clock",
       title: `${failedCron.length} cron job${failedCron.length > 1 ? "s" : ""} failed`,
       description: failedCron.map((j) => j.name).join(", "),
-      href: failedCronJobId
-        ? buildTabHref(host, "cron", {
-            session: host.sessionKey,
-            cronJob: failedCronJobId,
-          })
-        : undefined,
+      href: failedCronJobId ? buildCanonicalCronJobHref(settingsHost, failedCronJobId) : undefined,
       actionLabel: failedCronJobId ? "Open" : undefined,
     });
   }
@@ -2212,12 +2200,7 @@ export function buildAttentionItems(host: AttentionHost) {
       icon: "clock",
       title: `${overdue.length} overdue job${overdue.length > 1 ? "s" : ""}`,
       description: overdue.map((j) => j.name).join(", "),
-      href: overdueCronJobId
-        ? buildTabHref(host, "cron", {
-            session: host.sessionKey,
-            cronJob: overdueCronJobId,
-          })
-        : undefined,
+      href: overdueCronJobId ? buildCanonicalCronJobHref(settingsHost, overdueCronJobId) : undefined,
       actionLabel: overdueCronJobId ? "Open" : undefined,
     });
   }

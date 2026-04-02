@@ -9,6 +9,7 @@ describe("isUnitConfigTestFile", () => {
     expect(isUnitConfigTestFile("ui/src/ui/views/bootstrap.test.ts")).toBe(true);
     expect(isUnitConfigTestFile("ui/src/ui/views/cron.test.ts")).toBe(true);
     expect(isUnitConfigTestFile("ui/src/ui/views/config.browser.test.ts")).toBe(true);
+    expect(isUnitConfigTestFile("ui/src/ui/views/overview-attention.test.ts")).toBe(true);
     expect(isUnitConfigTestFile("ui/src/ui/views/exec-approval.test.ts")).toBe(true);
     expect(isUnitConfigTestFile("ui/src/ui/views/machine.test.ts")).toBe(true);
     expect(isUnitConfigTestFile("ui/src/ui/controllers/bootstrap.test.ts")).toBe(true);

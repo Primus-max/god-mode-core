@@ -95,6 +95,7 @@ The Control UI can localize itself on first load based on your browser locale, a
 
 Logs panel notes:
 
+- Overview attention links now reuse the same canonical destination helpers as the target surfaces themselves, so a copied attention URL, a refresh, and a direct in-app click all land on the same operator context.
 - Overview attention can now route gateway-level errors into the Logs surface, so operators can jump from a generic failure signal into the canonical investigation view instead of manually switching tabs.
 - The Logs filter can now persist through a shareable `logQ` query, so refresh/popstate no longer drops the current text-based log search context.
 
