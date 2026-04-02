@@ -2,7 +2,7 @@
 
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
-import { buildCanonicalChatHref, buildTabHref } from "../app-settings.ts";
+import { buildCanonicalChatHref, buildCanonicalSkillsHref, buildTabHref } from "../app-settings.ts";
 import { SKILL_FILTER_BLOCKED, SKILL_FILTER_MISSING } from "../skills-correlation.ts";
 import { renderOverviewCards, type OverviewCardsProps } from "./overview-cards.ts";
 
@@ -23,10 +23,20 @@ function createProps(overrides: Partial<OverviewCardsProps> = {}): OverviewCards
     cronStatus: { enabled: true, nextWakeAtMs: 1_700_000_000_000 } as OverviewCardsProps["cronStatus"],
     presenceCount: 0,
     buildHref: (tab, options) =>
-      buildTabHref({ basePath: "/ui" }, tab, {
-        session: "agent:main:main",
-        skillFilter: options?.skillFilter,
-      }),
+      tab === "skills"
+        ? buildCanonicalSkillsHref(
+            {
+              basePath: "/ui",
+              sessionKey: "agent:main:main",
+              skillsFilter: "",
+            } as never,
+            {
+              skillFilter: options?.skillFilter ?? null,
+            },
+          )
+        : buildTabHref({ basePath: "/ui" }, tab, {
+            session: "agent:main:main",
+          }),
     buildChatHref: (sessionKey) =>
       buildCanonicalChatHref(
         {
@@ -83,10 +93,16 @@ describe("overview cards", () => {
 
     const skillsCard = container.querySelector<HTMLAnchorElement>('a.ov-card[data-kind="skills"]');
     expect(skillsCard?.getAttribute("href")).toBe(
-      buildTabHref({ basePath: "/ui" }, "skills", {
-        session: "agent:main:main",
-        skillFilter: SKILL_FILTER_BLOCKED,
-      }),
+      buildCanonicalSkillsHref(
+        {
+          basePath: "/ui",
+          sessionKey: "agent:main:main",
+          skillsFilter: "",
+        } as never,
+        {
+          skillFilter: SKILL_FILTER_BLOCKED,
+        },
+      ),
     );
   });
 
@@ -114,10 +130,53 @@ describe("overview cards", () => {
 
     const skillsCard = container.querySelector<HTMLAnchorElement>('a.ov-card[data-kind="skills"]');
     expect(skillsCard?.getAttribute("href")).toBe(
-      buildTabHref({ basePath: "/ui" }, "skills", {
-        session: "agent:main:main",
-        skillFilter: SKILL_FILTER_MISSING,
-      }),
+      buildCanonicalSkillsHref(
+        {
+          basePath: "/ui",
+          sessionKey: "agent:main:main",
+          skillsFilter: "",
+        } as never,
+        {
+          skillFilter: SKILL_FILTER_MISSING,
+        },
+      ),
+    );
+  });
+
+  it("renders neutral skills cards without forcing a stale filter", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderOverviewCards(
+        createProps({
+          skillsReport: {
+            skills: [
+              {
+                name: "Healthy skill",
+                disabled: false,
+                blockedByAllowlist: false,
+                missing: { bins: [], env: [], config: [], os: [] },
+              },
+            ],
+          } as OverviewCardsProps["skillsReport"],
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const skillsCard = container.querySelector<HTMLAnchorElement>('a.ov-card[data-kind="skills"]');
+    expect(skillsCard?.getAttribute("href")).toBe(
+      buildCanonicalSkillsHref(
+        {
+          basePath: "/ui",
+          sessionKey: "agent:main:main",
+          skillsFilter: "blocked",
+        } as never,
+        {
+          skillFilter: null,
+        },
+      ),
     );
   });
 
