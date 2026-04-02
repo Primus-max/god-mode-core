@@ -22,6 +22,7 @@ import {
   buildCanonicalAgentsHref,
   buildCanonicalArtifactsHref,
   buildCanonicalBootstrapHref,
+  buildCanonicalChatHref,
   buildCanonicalLogsHref,
   buildCanonicalNodesExecApprovalsHref,
   buildCanonicalSessionsListHref,
@@ -1193,6 +1194,19 @@ describe("syncUrlWithTab", () => {
     expect(buildCanonicalAgentsHref(host, { panel: "skills" })).toBe(
       "/ui/agents?session=main&agent=beta&agentsPanel=skills&skillFilter=missing",
     );
+  });
+
+  it("builds canonical chat hrefs with session overrides", () => {
+    const host = createHost("chat");
+    host.basePath = "/ui";
+    host.sessionKey = "main";
+
+    expect(buildCanonicalChatHref(host)).toBe("/ui/chat?session=main");
+    expect(
+      buildCanonicalChatHref(host, {
+        sessionKey: "agent:writer:main",
+      }),
+    ).toBe("/ui/chat?session=agent%3Awriter%3Amain");
   });
 
   it("builds canonical sessions runtime hrefs for inspect and drill-down targets", () => {

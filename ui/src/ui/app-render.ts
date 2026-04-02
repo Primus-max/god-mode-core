@@ -19,6 +19,7 @@ import {
   buildCanonicalAgentsHref,
   buildCanonicalArtifactsHref,
   buildCanonicalBootstrapHref,
+  buildCanonicalChatHref,
   buildCanonicalLogsHref,
   buildCanonicalNodesExecApprovalsHref,
   buildCanonicalSessionsListHref,
@@ -748,8 +749,8 @@ export function renderApp(state: AppViewState) {
                   return buildCanonicalTabHref(state, tab);
                 },
                 buildChatHref: (sessionKey) =>
-                  buildTabHref({ basePath: state.basePath }, "chat", {
-                    session: sessionKey,
+                  buildCanonicalChatHref(state, {
+                    sessionKey,
                   }),
                 onNavigate: (tab, options) => {
                   if (tab === "skills") {
@@ -848,7 +849,6 @@ export function renderApp(state: AppViewState) {
                   limit: state.sessionsFilterLimit,
                   includeGlobal: state.sessionsIncludeGlobal,
                   includeUnknown: state.sessionsIncludeUnknown,
-                  basePath: state.basePath,
                   searchQuery: state.sessionsSearchQuery,
                   sortColumn: state.sessionsSortColumn,
                   sortDir: state.sessionsSortDir,
@@ -1004,6 +1004,10 @@ export function renderApp(state: AppViewState) {
                       state.sessionsSelectedKeys = next;
                     }
                   },
+                  buildChatHref: (sessionKey) =>
+                    buildCanonicalChatHref(state, {
+                      sessionKey,
+                    }),
                   onNavigateToChat: (sessionKey) => {
                     switchChatSession(state, sessionKey);
                     state.setTab("chat" as import("./navigation.ts").Tab);
@@ -1122,10 +1126,21 @@ export function renderApp(state: AppViewState) {
           state.tab === "cron"
             ? lazyRender(lazyCron, (m) =>
                 m.renderCron({
-                  basePath: state.basePath,
                   buildJobHref: (jobId) => buildCanonicalCronJobHref(state, jobId),
                   buildEditHref: (jobId) => buildCanonicalCronEditHref(state, jobId),
                   buildCancelEditHref: () => buildCanonicalCronEditHref(state, null),
+                  buildRunChatHref: (sessionKey) =>
+                    buildCanonicalChatHref(state, {
+                      sessionKey,
+                    }),
+                  buildRunRuntimeHref: (sessionKey) =>
+                    buildCanonicalSessionsRuntimeHref(state, {
+                      sessionKey,
+                      runId: null,
+                      checkpointId: null,
+                      actionId: null,
+                      closureRunId: null,
+                    }),
                   loading: state.cronLoading,
                   status: state.cronStatus,
                   jobs: visibleCronJobs,
@@ -1238,13 +1253,7 @@ export function renderApp(state: AppViewState) {
                     switchChatSession(state, sessionKey);
                     state.setTab("chat" as import("./navigation.ts").Tab);
                   },
-                  onNavigateToSessions: (sessionKey) => {
-                    switchChatSession(state, sessionKey);
-                    state.runtimeSessionKey = sessionKey;
-                    state.runtimeRunId = null;
-                    state.runtimeSelectedCheckpointId = null;
-                    state.setTab("sessions" as import("./navigation.ts").Tab);
-                  },
+                  onNavigateToRuntime: navigateByHref,
                 }),
               )
             : nothing

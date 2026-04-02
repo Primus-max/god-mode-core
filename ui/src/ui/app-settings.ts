@@ -721,6 +721,22 @@ export function buildCanonicalTabHref(host: SettingsHost | AppViewState, tab: Ta
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalChatHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    sessionKey?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("chat", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "chat", url);
+  const sessionKey =
+    "sessionKey" in overrides
+      ? trimQueryValue(overrides.sessionKey ?? null)
+      : trimQueryValue(host.sessionKey ?? null);
+  setQueryValue(url, "session", sessionKey);
+  return `${url.pathname}${url.search}`;
+}
+
 export function buildCanonicalUsageHref(
   host: SettingsHost | AppViewState,
   overrides: {
