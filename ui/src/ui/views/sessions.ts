@@ -1,6 +1,5 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
-import { buildTabHref } from "../app-settings.ts";
 import {
   getRuntimeRecoveryGuardrail,
   type RuntimeRecoveryAction,
@@ -31,7 +30,6 @@ export type SessionsProps = {
   limit: string;
   includeGlobal: boolean;
   includeUnknown: boolean;
-  basePath: string;
   searchQuery: string;
   sortColumn: "key" | "kind" | "updated" | "tokens";
   sortDir: "asc" | "desc";
@@ -89,6 +87,7 @@ export type SessionsProps = {
   onDeselectPage: (keys: string[]) => void;
   onDeselectAll: () => void;
   onDeleteSelected: () => void;
+  buildChatHref: (sessionKey: string) => string;
   onNavigateToChat?: (sessionKey: string) => void;
   onNavigateRuntimeLinkedRecord?: (href: string) => void;
 };
@@ -1087,13 +1086,13 @@ export function renderSessions(props: SessionsProps) {
                   : paginated.map((row) =>
                       renderRow(
                         row,
-                        props.basePath,
                         props.onPatch,
                         props.selectedKeys.has(row.key),
                         props.onToggleSelect,
                         props.loading,
                         props.onInspectRuntimeSession,
                         props.buildRuntimeInspectHref,
+                        props.buildChatHref,
                         props.onNavigateToChat,
                       ),
                     )
@@ -1180,13 +1179,13 @@ export function renderSessions(props: SessionsProps) {
 
 function renderRow(
   row: GatewaySessionRow,
-  basePath: string,
   onPatch: SessionsProps["onPatch"],
   selected: boolean,
   onToggleSelect: SessionsProps["onToggleSelect"],
   disabled: boolean,
   onInspectRuntimeSession: SessionsProps["onInspectRuntimeSession"],
   buildRuntimeInspectHref: SessionsProps["buildRuntimeInspectHref"],
+  buildChatHref: SessionsProps["buildChatHref"],
   onNavigateToChat?: (sessionKey: string) => void,
 ) {
   const updated = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : t("common.na");
@@ -1210,7 +1209,7 @@ function renderRow(
     displayName !== (typeof row.label === "string" ? row.label.trim() : ""),
   );
   const canLink = row.kind !== "global";
-  const chatUrl = canLink ? buildTabHref({ basePath }, "chat", { session: row.key }) : null;
+  const chatUrl = canLink ? buildChatHref(row.key) : null;
   const badgeClass =
     row.kind === "direct"
       ? "data-table-badge--direct"

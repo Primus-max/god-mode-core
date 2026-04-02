@@ -145,6 +145,7 @@ Cron jobs panel notes:
 - Cron run history (runs explorer) also persists a minimal shareable contract: `cronRunsScope`, `cronRunsQ`, `cronRunsSort`, `cronRunsStatus`, and `cronRunsDelivery` (comma-separated multi-selects where applicable) alongside `cronJob` when the scope is job-scoped. Invalid or stale `cronJob` values with `cronRunsScope=job` fall back to `all` after refresh without dropping the jobs list filters.
 - Cron edit mode now persists its own canonical subset too: `cronEdit` survives refresh/popstate alongside the existing jobs and runs filters, so operators can share the same edit target without serializing the mutable form draft or validation state.
 - Cron run history can jump into the linked session context directly: operators can still open the run chat, and can also open the Sessions runtime inspector when a `sessionKey` is available.
+- Those cron run pivots now reuse the same canonical `chat` and `sessions` destination helpers as the target surfaces, so copy-link, refresh, direct open, and primary-click SPA handoff all land on the same session or runtime scope.
 
 Skills panel notes:
 
@@ -178,6 +179,7 @@ Runtime / recovery notes:
 - When handoff truth is `recovery`, the runtime inspect action follows `handoffRunId` / `handoffRequestRunId` instead of stale closure history, so operators land on the current recovery target rather than an older completed run.
 - Overview recovery attention now reuses that same handoff-aware runtime target, including `runtimeRun` in deep links when available, so overview and sessions open the same recovery branch instead of diverging by session-only scope.
 - Chat agent switches and Overview session switches now reuse the same canonical routing helpers as the destination surfaces, so the visible session/runtime target and the browser URL stop drifting apart during cross-surface handoff.
+- Session-row and overview recent-session links now reuse that same canonical `chat` helper too, which keeps copied URLs and modified-click new-tab behavior aligned with the in-app handoff path.
 - Sidebar tab links now reuse the shared routing contract too, so middle-click or opening a tab in a new window preserves the same `session` and tab-specific query context instead of falling back to path-only navigation.
 
 ## Chat behavior

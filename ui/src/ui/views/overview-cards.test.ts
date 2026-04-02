@@ -2,7 +2,7 @@
 
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
-import { buildTabHref } from "../app-settings.ts";
+import { buildCanonicalChatHref, buildTabHref } from "../app-settings.ts";
 import { SKILL_FILTER_BLOCKED, SKILL_FILTER_MISSING } from "../skills-correlation.ts";
 import { renderOverviewCards, type OverviewCardsProps } from "./overview-cards.ts";
 
@@ -28,9 +28,15 @@ function createProps(overrides: Partial<OverviewCardsProps> = {}): OverviewCards
         skillFilter: options?.skillFilter,
       }),
     buildChatHref: (sessionKey) =>
-      buildTabHref({ basePath: "/ui" }, "chat", {
-        session: sessionKey,
-      }),
+      buildCanonicalChatHref(
+        {
+          basePath: "/ui",
+          sessionKey: "agent:main:main",
+        } as never,
+        {
+          sessionKey,
+        },
+      ),
     onNavigate: () => undefined,
     onNavigateToChat: () => undefined,
     ...overrides,
@@ -185,9 +191,15 @@ describe("overview cards", () => {
     );
     expect(recentLink).not.toBeNull();
     expect(recentLink?.getAttribute("href")).toBe(
-      buildTabHref({ basePath: "/ui" }, "chat", {
-        session: "agent:writer:main",
-      }),
+      buildCanonicalChatHref(
+        {
+          basePath: "/ui",
+          sessionKey: "agent:main:main",
+        } as never,
+        {
+          sessionKey: "agent:writer:main",
+        },
+      ),
     );
   });
 

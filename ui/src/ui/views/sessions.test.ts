@@ -6,6 +6,7 @@ import { i18n } from "../../i18n/index.ts";
 import {
   buildCanonicalArtifactsHref,
   buildCanonicalBootstrapHref,
+  buildCanonicalChatHref,
   buildTabHref,
 } from "../app-settings.ts";
 import type { SessionsListResult } from "../types.ts";
@@ -55,7 +56,6 @@ function buildProps(result: SessionsListResult): SessionsProps {
     limit: "120",
     includeGlobal: false,
     includeUnknown: false,
-    basePath: "",
     searchQuery: "",
     sortColumn: "updated",
     sortDir: "desc",
@@ -143,6 +143,16 @@ function buildProps(result: SessionsListResult): SessionsProps {
     onDeselectPage: () => undefined,
     onDeselectAll: () => undefined,
     onDeleteSelected: () => undefined,
+    buildChatHref: (sessionKey) =>
+      buildCanonicalChatHref(
+        {
+          basePath: "",
+          sessionKey: "main",
+        } as never,
+        {
+          sessionKey,
+        },
+      ),
     onNavigateRuntimeLinkedRecord: () => undefined,
   };
 }
@@ -620,7 +630,6 @@ describe("sessions view", () => {
     render(
       renderSessions({
         ...buildProps(buildResult(buildSession())),
-        basePath: "/ui",
         buildRuntimeBootstrapHref: (sessionKey, requestId) =>
           buildCanonicalBootstrapHref(
             {
@@ -854,7 +863,16 @@ describe("sessions view", () => {
             }),
           ),
         ),
-        basePath: "/ui",
+        buildChatHref: (sessionKey) =>
+          buildCanonicalChatHref(
+            {
+              basePath: "/ui",
+              sessionKey: "main",
+            } as never,
+            {
+              sessionKey,
+            },
+          ),
       }),
       container,
     );
@@ -863,9 +881,15 @@ describe("sessions view", () => {
     const link = container.querySelector("a.session-link");
     expect(link).not.toBeNull();
     expect(link?.getAttribute("href")).toBe(
-      buildTabHref({ basePath: "/ui" }, "chat", {
-        session: "agent:main:linked",
-      }),
+      buildCanonicalChatHref(
+        {
+          basePath: "/ui",
+          sessionKey: "main",
+        } as never,
+        {
+          sessionKey: "agent:main:linked",
+        },
+      ),
     );
   });
 

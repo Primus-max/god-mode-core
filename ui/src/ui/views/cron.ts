@@ -1,7 +1,6 @@
 import { html, nothing } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";
 import { t } from "../../i18n/index.ts";
-import { buildTabHref } from "../app-settings.ts";
 import type {
   CronFieldErrors,
   CronFieldKey,
@@ -23,10 +22,11 @@ import type {
 import type { CronFormState } from "../ui-types.ts";
 
 export type CronProps = {
-  basePath: string;
   buildJobHref: (jobId: string) => string;
   buildEditHref: (jobId: string) => string;
   buildCancelEditHref: () => string;
+  buildRunChatHref: (sessionKey: string) => string;
+  buildRunRuntimeHref: (sessionKey: string) => string;
   loading: boolean;
   jobsLoadingMore: boolean;
   status: CronStatus | null;
@@ -95,7 +95,7 @@ export type CronProps = {
     cronRunsSortDir?: CronSortDir;
   }) => void | Promise<void>;
   onNavigateToChat?: (sessionKey: string) => void;
-  onNavigateToSessions?: (sessionKey: string) => void;
+  onNavigateToRuntime?: (href: string) => void;
 };
 
 function isModifiedNavigationClick(event: MouseEvent): boolean {
@@ -692,9 +692,10 @@ export function renderCron(props: CronProps) {
                       ${runs.map((entry) =>
                         renderRun(
                           entry,
-                          props.basePath,
+                          props.buildRunChatHref,
+                          props.buildRunRuntimeHref,
                           props.onNavigateToChat,
-                          props.onNavigateToSessions,
+                          props.onNavigateToRuntime,
                         ),
                       )}
                     </div>
@@ -1769,20 +1770,18 @@ function runDeliveryLabel(value: string): string {
 
 function renderRun(
   entry: CronRunLogEntry,
-  basePath: string,
+  buildRunChatHref: CronProps["buildRunChatHref"],
+  buildRunRuntimeHref: CronProps["buildRunRuntimeHref"],
   onNavigateToChat?: (sessionKey: string) => void,
-  onNavigateToSessions?: (sessionKey: string) => void,
+  onNavigateToRuntime?: (href: string) => void,
 ) {
   const chatUrl =
     typeof entry.sessionKey === "string" && entry.sessionKey.trim().length > 0
-      ? buildTabHref({ basePath }, "chat", { session: entry.sessionKey })
+      ? buildRunChatHref(entry.sessionKey)
       : null;
   const sessionsUrl =
     typeof entry.sessionKey === "string" && entry.sessionKey.trim().length > 0
-      ? buildTabHref({ basePath }, "sessions", {
-          session: entry.sessionKey,
-          runtimeSession: entry.sessionKey,
-        })
+      ? buildRunRuntimeHref(entry.sessionKey)
       : null;
   const status = runStatusLabel(entry.status ?? "unknown");
   const delivery = runDeliveryLabel(entry.deliveryStatus ?? "not-requested");
@@ -1820,14 +1819,7 @@ function renderRun(
         ${
           chatUrl
             ? html`<div><a class="session-link" href=${chatUrl} @click=${(e: MouseEvent) => {
-                if (
-                  e.defaultPrevented ||
-                  e.button !== 0 ||
-                  e.metaKey ||
-                  e.ctrlKey ||
-                  e.shiftKey ||
-                  e.altKey
-                ) {
+                if (isModifiedNavigationClick(e) || e.shiftKey) {
                   return;
                 }
                 if (onNavigateToChat && entry.sessionKey) {
@@ -1840,19 +1832,12 @@ function renderRun(
         ${
           sessionsUrl
             ? html`<div><a class="session-link" href=${sessionsUrl} @click=${(e: MouseEvent) => {
-                if (
-                  e.defaultPrevented ||
-                  e.button !== 0 ||
-                  e.metaKey ||
-                  e.ctrlKey ||
-                  e.shiftKey ||
-                  e.altKey
-                ) {
+                if (isModifiedNavigationClick(e) || e.shiftKey) {
                   return;
                 }
-                if (onNavigateToSessions && entry.sessionKey) {
+                if (onNavigateToRuntime) {
                   e.preventDefault();
-                  onNavigateToSessions(entry.sessionKey);
+                  onNavigateToRuntime(sessionsUrl);
                 }
               }}>${t("cron.runEntry.openRunRuntime")}</a></div>`
             : nothing
