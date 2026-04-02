@@ -109,6 +109,7 @@ Shell navigation notes:
 
 - The topbar `OpenClaw` breadcrumb now targets the same canonical `overview` destination as the rest of the shell, so primary clicks stay inside the SPA while modified clicks and copied links still use the browser-visible `href`.
 - The command palette navigation list now tracks the same shared tab model as the sidebar, keeping keyboard-first navigation aligned with the same operator surfaces and URL sync behavior.
+- Command palette navigation rows now expose those destinations as real canonical anchors too, so copied links, browser open-in-new-tab, and primary-click SPA handoff all converge on the same shell-to-surface URL contract.
 
 Channels panel notes:
 
