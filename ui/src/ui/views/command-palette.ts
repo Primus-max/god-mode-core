@@ -65,6 +65,7 @@ export type CommandPaletteProps = {
   onToggle: () => void;
   onQueryChange: (query: string) => void;
   onActiveIndexChange: (index: number) => void;
+  buildNavigationHref: (tab: Tab) => string;
   onNavigate: (tab: Tab) => void;
   onSlashCommand: (command: string) => void;
 };
@@ -119,6 +120,24 @@ function scrollActiveIntoView() {
     const el = document.querySelector(".cmd-palette__item--active");
     el?.scrollIntoView({ block: "nearest" });
   });
+}
+
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  );
+}
+
+function navigationTabForItem(item: PaletteItem): Tab | null {
+  if (!item.action.startsWith("nav:")) {
+    return null;
+  }
+  return item.action.slice(4) as Tab;
 }
 
 function handleKeydown(e: KeyboardEvent, props: CommandPaletteProps) {
@@ -205,6 +224,35 @@ export function renderCommandPalette(props: CommandPaletteProps) {
                 ${groupedItems.map((item) => {
                   const globalIndex = items.indexOf(item);
                   const isActive = globalIndex === props.activeIndex;
+                  const navigationTab = navigationTabForItem(item);
+                  const itemContent = html`
+                    <span class="nav-item__icon">${icons[item.icon]}</span>
+                    <span>${item.label}</span>
+                    ${
+                      item.description
+                        ? html`<span class="cmd-palette__item-desc muted">${item.description}</span>`
+                        : nothing
+                    }
+                  `;
+                  if (navigationTab) {
+                    return html`
+                      <a
+                        href=${props.buildNavigationHref(navigationTab)}
+                        class="cmd-palette__item ${isActive ? "cmd-palette__item--active" : ""}"
+                        @click=${(event: MouseEvent) => {
+                          event.stopPropagation();
+                          if (isModifiedNavigationClick(event)) {
+                            return;
+                          }
+                          event.preventDefault();
+                          selectItem(item, props);
+                        }}
+                        @mouseenter=${() => props.onActiveIndexChange(globalIndex)}
+                      >
+                        ${itemContent}
+                      </a>
+                    `;
+                  }
                   return html`
                     <div
                       class="cmd-palette__item ${isActive ? "cmd-palette__item--active" : ""}"
@@ -214,13 +262,7 @@ export function renderCommandPalette(props: CommandPaletteProps) {
                       }}
                       @mouseenter=${() => props.onActiveIndexChange(globalIndex)}
                     >
-                      <span class="nav-item__icon">${icons[item.icon]}</span>
-                      <span>${item.label}</span>
-                      ${
-                        item.description
-                          ? html`<span class="cmd-palette__item-desc muted">${item.description}</span>`
-                          : nothing
-                      }
+                      ${itemContent}
                     </div>
                   `;
                 })}

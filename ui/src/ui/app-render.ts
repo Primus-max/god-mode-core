@@ -468,6 +468,7 @@ export function renderApp(state: AppViewState) {
       onActiveIndexChange: (i) => {
         state.paletteActiveIndex = i;
       },
+      buildNavigationHref: (tab) => buildCanonicalTabHref(state, tab),
       onNavigate: (tab) => {
         state.setTab(tab);
       },

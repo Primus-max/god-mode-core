@@ -35,6 +35,15 @@ When debugging real providers/models (requires real creds):
 
 Tip: when you only need one failing case, prefer narrowing live tests via the allowlist env vars described below.
 
+## Navigation validation gate
+
+For the Control UI v1 shell/operator routing contract, treat these as the minimum pre-release checks:
+
+- Shell entrypoints (`sidebar`, topbar breadcrumb, command palette) must render the same canonical destinations as the target surfaces they open.
+- Primary clicks on internal shell/operator links must stay on the SPA handoff path; modified clicks may fall through to the browser-visible `href`.
+- Representative deep-link surfaces with richer query state (`usage`, `sessions`, `cron`) must still survive refresh/popstate through the shared routing helpers instead of local-only view state.
+- The expected jsdom warning `Not implemented: navigation to another Document` on non-intercepted modified-click fallthrough is not, by itself, a regression.
+
 ## Test suites (what runs where)
 
 Think of the suites as “increasing realism” (and increasing flakiness/cost):
@@ -99,6 +108,7 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
   - If you touch inline links inside operator surfaces such as `sessions` or `cron`, keep one render-level regression where row/action `href`s are built through the shared routing helper rather than ad-hoc `pathForTab(...)` string assembly, so modified-click and open-in-new-tab keep matching the canonical destination contract.
 - If you touch overview dashboard cards, keep them as real anchor targets rather than click-only buttons, with a regression that covers both the rendered canonical `href` and the primary-click callback handoff for the same destination.
 - If you touch shell-level navigation affordances such as the topbar breadcrumb or command palette, keep them on the same canonical tab contract as the sidebar, with one regression for the rendered destination and one regression for the primary-click or selection handoff path.
+- For release-minded shell validation, also keep one regression where a command palette navigation row renders the same canonical `href` as the sidebar tab for that destination, so keyboard-first navigation and browser-native open-in-new-tab stay on one shared contract.
 - If you touch overview skills cards specifically, keep their `skillFilter` pivots on the shared canonical `skills` destination helper rather than inline `buildTabHref(...)`, so overview and attention links stay on the same shareable URL contract.
 - If you touch overview recent-session rows, keep them on the same shared chat/session routing contract as other entry surfaces, with a regression for both the rendered `chat` href and the primary-click handoff callback.
 - If you touch usage session rows, keep them on the same shared `usage` routing contract as the restored usage surface, with a regression for the rendered canonical `usage` href plus the primary-click and shift-click JS handoff semantics for the same session target.

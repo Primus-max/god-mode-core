@@ -31,6 +31,7 @@ describe("command palette navigation", () => {
         onToggle,
         onQueryChange: () => undefined,
         onActiveIndexChange: () => undefined,
+        buildNavigationHref: (tab) => `/ui/${tab}`,
         onNavigate,
         onSlashCommand,
       }),
@@ -48,5 +49,70 @@ describe("command palette navigation", () => {
     expect(onNavigate).toHaveBeenCalledWith("usage" satisfies Tab);
     expect(onToggle).toHaveBeenCalled();
     expect(onSlashCommand).not.toHaveBeenCalled();
+  });
+
+  it("renders canonical hrefs for navigation items", async () => {
+    const container = document.createElement("div");
+    const usageLabel = titleForTab("usage");
+
+    render(
+      renderCommandPalette({
+        open: true,
+        query: usageLabel,
+        activeIndex: 0,
+        onToggle: () => undefined,
+        onQueryChange: () => undefined,
+        onActiveIndexChange: () => undefined,
+        buildNavigationHref: (tab) => `/ui/${tab}?session=main`,
+        onNavigate: () => undefined,
+        onSlashCommand: () => undefined,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const usageLink = Array.from(container.querySelectorAll<HTMLAnchorElement>("a.cmd-palette__item")).find(
+      (item) => item.textContent?.includes(usageLabel),
+    );
+    expect(usageLink?.getAttribute("href")).toBe("/ui/usage?session=main");
+  });
+
+  it("lets modified clicks fall through for navigation items", async () => {
+    const container = document.createElement("div");
+    const onNavigate = vi.fn();
+    const onToggle = vi.fn();
+    const usageLabel = titleForTab("usage");
+
+    render(
+      renderCommandPalette({
+        open: true,
+        query: usageLabel,
+        activeIndex: 0,
+        onToggle,
+        onQueryChange: () => undefined,
+        onActiveIndexChange: () => undefined,
+        buildNavigationHref: (tab) => `/ui/${tab}`,
+        onNavigate,
+        onSlashCommand: () => undefined,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const usageLink = Array.from(container.querySelectorAll<HTMLAnchorElement>("a.cmd-palette__item")).find(
+      (item) => item.textContent?.includes(usageLabel),
+    );
+    expect(usageLink).not.toBeUndefined();
+
+    const clickEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    usageLink!.dispatchEvent(clickEvent);
+
+    expect(clickEvent.defaultPrevented).toBe(false);
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(onToggle).not.toHaveBeenCalled();
   });
 });
