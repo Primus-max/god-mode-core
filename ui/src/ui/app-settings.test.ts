@@ -29,6 +29,7 @@ import {
   buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
   buildCanonicalCronJobHref,
+  buildCanonicalUsageHref,
   applyResolvedTheme,
   applySettings,
   applySettingsFromUrl,
@@ -194,6 +195,11 @@ type SettingsHost = {
   usageTimeZone?: "local" | "utc";
   usageQuery?: string;
   usageQueryDraft?: string;
+  usageChartMode?: "tokens" | "cost";
+  usageDailyChartMode?: "total" | "by-type";
+  usageSessionSort?: "tokens" | "cost" | "recent" | "messages" | "errors";
+  usageSessionSortDir?: "asc" | "desc";
+  usageSessionsTab?: "all" | "recent";
   usageResult?: { sessions?: Array<{ key: string }> } | null;
   usageTimeSeries?: SessionUsageTimeSeries | null;
   usageSessionLogs?: SessionLogEntry[] | null;
@@ -459,6 +465,11 @@ const createHost = (tab: Tab): SettingsHost => ({
   usageTimeZone: "local",
   usageQuery: "",
   usageQueryDraft: "",
+  usageChartMode: "tokens",
+  usageDailyChartMode: "by-type",
+  usageSessionSort: "recent",
+  usageSessionSortDir: "desc",
+  usageSessionsTab: "all",
   usageResult: null,
   usageTimeSeries: null,
   usageSessionLogs: null,
@@ -759,7 +770,7 @@ describe("applySettingsFromUrl", () => {
 
   it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, debug, channels, instances, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=action-1&runtimeClosure=run-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&instancesReveal=true&logQ=timeout&logLevels=warn%2Cerror&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=action-1&runtimeClosure=run-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&instancesReveal=true&logQ=timeout&logLevels=warn%2Cerror&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -784,6 +795,11 @@ describe("applySettingsFromUrl", () => {
     expect(host.usageSelectedSessions).toEqual(["agent:main:main"]);
     expect(host.usageQuery).toBe("cost spike");
     expect(host.usageQueryDraft).toBe("cost spike");
+    expect(host.usageChartMode).toBe("cost");
+    expect(host.usageDailyChartMode).toBe("total");
+    expect(host.usageSessionsTab).toBe("recent");
+    expect(host.usageSessionSort).toBe("messages");
+    expect(host.usageSessionSortDir).toBe("asc");
     expect(host.runtimeSessionKey).toBe("agent:main:main");
     expect(host.runtimeRunId).toBe("run-1");
     expect(host.runtimeSelectedCheckpointId).toBe("cp-1");
@@ -823,6 +839,21 @@ describe("applySettingsFromUrl", () => {
     expect(host.execApprovalsTarget).toBe("node");
     expect(host.execApprovalsTargetNodeId).toBe("node-1");
     expect(host.execApprovalsSelectedAgent).toBe("main");
+  });
+
+  it("falls back to default usage overview display state when query params are invalid", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/usage?session=main&usageChart=bogus&usageDaily=unknown&usageSessions=archive&usageSort=latency&usageSortDir=sideways",
+    );
+    const host = createHost("usage");
+
+    applySettingsFromUrl(host);
+
+    expect(host.usageChartMode).toBe("tokens");
+    expect(host.usageDailyChartMode).toBe("by-type");
+    expect(host.usageSessionsTab).toBe("all");
+    expect(host.usageSessionSort).toBe("recent");
+    expect(host.usageSessionSortDir).toBe("desc");
   });
 
   it("falls back to default sessions list query state when query values are invalid", () => {
@@ -1042,7 +1073,7 @@ describe("syncUrlWithTab", () => {
     expect(chatHref).toBe("/ui/chat?session=agent%3Amain%3Amain");
   });
 
-  it("builds canonical usage session hrefs with the current usage filters and target session override", () => {
+  it("builds canonical usage hrefs with overview display overrides", () => {
     const host = createHost("usage");
     host.basePath = "/ui";
     host.usageStartDate = "2026-03-01";
@@ -1050,9 +1081,28 @@ describe("syncUrlWithTab", () => {
     host.usageTimeZone = "utc";
     host.usageQuery = "cost spike";
     host.usageSelectedSessions = ["agent:main:main"];
+    host.usageChartMode = "cost";
+    host.usageDailyChartMode = "total";
+    host.usageSessionsTab = "recent";
+    host.usageSessionSort = "messages";
+    host.usageSessionSortDir = "asc";
 
+    expect(buildCanonicalUsageHref(host)).toBe(
+      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc",
+    );
     expect(buildCanonicalUsageSessionHref(host, "agent:writer:main")).toBe(
-      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Awriter%3Amain&usageQ=cost+spike",
+      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Awriter%3Amain&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc",
+    );
+    expect(
+      buildCanonicalUsageHref(host, {
+        chartMode: "tokens",
+        dailyChartMode: "by-type",
+        sessionsTab: "all",
+        sessionSort: "recent",
+        sessionSortDir: "desc",
+      }),
+    ).toBe(
+      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost+spike",
     );
   });
 
@@ -1615,6 +1665,11 @@ describe("syncUrlWithTab", () => {
     host.usageSelectedSessions = ["agent:main:main"];
     host.usageQuery = "cost spike";
     host.usageQueryDraft = "cost spike";
+    host.usageChartMode = "cost";
+    host.usageDailyChartMode = "total";
+    host.usageSessionsTab = "recent";
+    host.usageSessionSort = "messages";
+    host.usageSessionSortDir = "asc";
 
     syncUrlWithTab(host, "usage", true);
 
@@ -1625,6 +1680,11 @@ describe("syncUrlWithTab", () => {
     expect(window.location.search).toContain("usageTz=utc");
     expect(window.location.search).toContain("usageSession=agent%3Amain%3Amain");
     expect(window.location.search).toContain(`usageQ=${toQueryValue("cost spike")}`);
+    expect(window.location.search).toContain("usageChart=cost");
+    expect(window.location.search).toContain("usageDaily=total");
+    expect(window.location.search).toContain("usageSessions=recent");
+    expect(window.location.search).toContain("usageSort=messages");
+    expect(window.location.search).toContain("usageSortDir=asc");
   });
 
   it("persists agents file deep-link selection with basePath", () => {

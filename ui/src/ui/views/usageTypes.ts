@@ -116,6 +116,10 @@ export type UsageCallbacks = {
 
 export type UsageProps = {
   buildSessionHref: (key: string) => string;
+  buildChartModeHref: (mode: "tokens" | "cost") => string;
+  buildDailyChartModeHref: (mode: "total" | "by-type") => string;
+  buildSessionsTabHref: (tab: "all" | "recent") => string;
+  buildSessionSortDirHref: (dir: "asc" | "desc") => string;
   data: UsageDataState;
   filters: UsageFilterState;
   display: UsageDisplayState;
