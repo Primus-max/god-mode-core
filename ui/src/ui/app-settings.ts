@@ -132,6 +132,8 @@ type SettingsHost = {
   usageSessionSort?: "tokens" | "cost" | "recent" | "messages" | "errors";
   usageSessionSortDir?: "asc" | "desc";
   usageSessionsTab?: "all" | "recent";
+  usageTimeSeriesMode?: "cumulative" | "per-turn";
+  usageTimeSeriesBreakdownMode?: "total" | "by-type";
   usageResult?: { sessions?: Array<{ key: string }> } | null;
   usageTimeSeries?: OpenClawApp["usageTimeSeries"];
   usageSessionLogs?: OpenClawApp["usageSessionLogs"];
@@ -357,6 +359,20 @@ function normalizeUsageSessionsTab(
   fallback: "all" | "recent",
 ): "all" | "recent" {
   return value === "recent" ? "recent" : value === "all" ? "all" : fallback;
+}
+
+function normalizeUsageTimeSeriesMode(
+  value: string | null | undefined,
+  fallback: "cumulative" | "per-turn",
+): "cumulative" | "per-turn" {
+  return value === "cumulative" ? "cumulative" : value === "per-turn" ? "per-turn" : fallback;
+}
+
+function normalizeUsageTimeSeriesBreakdownMode(
+  value: string | null | undefined,
+  fallback: "total" | "by-type",
+): "total" | "by-type" {
+  return value === "total" ? "total" : value === "by-type" ? "by-type" : fallback;
 }
 
 function resolveUsageSelectedSessionKey(
@@ -729,6 +745,8 @@ export function buildCanonicalUsageHref(
     sessionsTab?: "all" | "recent";
     sessionSort?: "tokens" | "cost" | "recent" | "messages" | "errors";
     sessionSortDir?: "asc" | "desc";
+    timeSeriesMode?: "cumulative" | "per-turn";
+    timeSeriesBreakdownMode?: "total" | "by-type";
   } = {},
 ): string {
   const url = new URL(`https://openclaw.local${pathForTab("usage", host.basePath)}`);
@@ -754,12 +772,28 @@ export function buildCanonicalUsageHref(
     overrides.sessionSortDir,
     host.usageSessionSortDir ?? "desc",
   );
+  const timeSeriesMode = normalizeUsageTimeSeriesMode(
+    overrides.timeSeriesMode,
+    host.usageTimeSeriesMode ?? "per-turn",
+  );
+  const timeSeriesBreakdownMode = normalizeUsageTimeSeriesBreakdownMode(
+    overrides.timeSeriesBreakdownMode,
+    host.usageTimeSeriesBreakdownMode ?? "by-type",
+  );
   setQueryValue(url, "usageSession", sessionKey);
   setQueryValue(url, "usageChart", chartMode !== "tokens" ? chartMode : null);
   setQueryValue(url, "usageDaily", dailyChartMode !== "by-type" ? dailyChartMode : null);
   setQueryValue(url, "usageSessions", sessionsTab !== "all" ? sessionsTab : null);
   setQueryValue(url, "usageSort", sessionSort !== "recent" ? sessionSort : null);
   setQueryValue(url, "usageSortDir", sessionSortDir !== "desc" ? sessionSortDir : null);
+  setQueryValue(url, "usageTsMode", timeSeriesMode !== "per-turn" ? timeSeriesMode : null);
+  setQueryValue(
+    url,
+    "usageTsBreakdown",
+    timeSeriesMode === "per-turn" && timeSeriesBreakdownMode !== "by-type"
+      ? timeSeriesBreakdownMode
+      : null,
+  );
   return `${url.pathname}${url.search}`;
 }
 
@@ -1130,6 +1164,17 @@ function applyDeepLinkStateFromUrl(
     pick("usageSortDir"),
     host.usageSessionSortDir ?? "desc",
   );
+  host.usageTimeSeriesMode = normalizeUsageTimeSeriesMode(
+    pick("usageTsMode"),
+    host.usageTimeSeriesMode ?? "per-turn",
+  );
+  host.usageTimeSeriesBreakdownMode =
+    host.usageTimeSeriesMode === "per-turn"
+      ? normalizeUsageTimeSeriesBreakdownMode(
+          pick("usageTsBreakdown"),
+          host.usageTimeSeriesBreakdownMode ?? "by-type",
+        )
+      : "by-type";
   host.skillsFilter = pick("skillFilter") ?? "";
   applySettingsNavigationStateFromUrl(host, pick);
   host.debugCallMethod = pick("debugMethod") ?? host.debugCallMethod ?? "";
@@ -1191,6 +1236,8 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "usageSessions", null);
   setQueryValue(url, "usageSort", null);
   setQueryValue(url, "usageSortDir", null);
+  setQueryValue(url, "usageTsMode", null);
+  setQueryValue(url, "usageTsBreakdown", null);
   setQueryValue(url, "skillFilter", null);
   clearSettingsNavigationQueryState(url);
   setQueryValue(url, "debugMethod", null);
@@ -1278,6 +1325,19 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
       url,
       "usageSortDir",
       host.usageSessionSortDir !== "desc" ? host.usageSessionSortDir : null,
+    );
+    setQueryValue(
+      url,
+      "usageTsMode",
+      host.usageTimeSeriesMode !== "per-turn" ? host.usageTimeSeriesMode : null,
+    );
+    setQueryValue(
+      url,
+      "usageTsBreakdown",
+      host.usageTimeSeriesMode === "per-turn" &&
+        host.usageTimeSeriesBreakdownMode !== "by-type"
+        ? host.usageTimeSeriesBreakdownMode
+        : null,
     );
   }
   if (tab === "skills") {

@@ -48,6 +48,16 @@ function filterLogsByRange(
   });
 }
 
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey
+  );
+}
+
 function renderSessionSummary(
   session: UsageSessionEntry,
   filteredUsage?: UsageSessionEntry["usage"],
@@ -218,8 +228,10 @@ function renderSessionDetailPanel(
   timeSeries: { points: TimeSeriesPoint[] } | null,
   timeSeriesLoading: boolean,
   timeSeriesMode: "cumulative" | "per-turn",
+  buildTimeSeriesModeHref: (mode: "cumulative" | "per-turn") => string,
   onTimeSeriesModeChange: (mode: "cumulative" | "per-turn") => void,
   timeSeriesBreakdownMode: "total" | "by-type",
+  buildTimeSeriesBreakdownHref: (mode: "total" | "by-type") => string,
   onTimeSeriesBreakdownChange: (mode: "total" | "by-type") => void,
   timeSeriesCursorStart: number | null,
   timeSeriesCursorEnd: number | null,
@@ -304,8 +316,10 @@ function renderSessionDetailPanel(
             timeSeries,
             timeSeriesLoading,
             timeSeriesMode,
+              buildTimeSeriesModeHref,
             onTimeSeriesModeChange,
             timeSeriesBreakdownMode,
+              buildTimeSeriesBreakdownHref,
             onTimeSeriesBreakdownChange,
             startDate,
             endDate,
@@ -341,8 +355,10 @@ function renderTimeSeriesCompact(
   timeSeries: { points: TimeSeriesPoint[] } | null,
   loading: boolean,
   mode: "cumulative" | "per-turn",
+  buildModeHref: (mode: "cumulative" | "per-turn") => string,
   onModeChange: (mode: "cumulative" | "per-turn") => void,
   breakdownMode: "total" | "by-type",
+  buildBreakdownHref: (mode: "total" | "by-type") => string,
   onBreakdownChange: (mode: "total" | "by-type") => void,
   startDate?: string,
   endDate?: string,
@@ -481,35 +497,67 @@ function renderTimeSeriesCompact(
               : nothing
           }
           <div class="chart-toggle small">
-            <button
+            <a
               class="toggle-btn ${!isCumulative ? "active" : ""}"
-              @click=${() => onModeChange("per-turn")}
+              href=${buildModeHref("per-turn")}
+              aria-current=${!isCumulative ? "page" : "false"}
+              @click=${(event: MouseEvent) => {
+                if (isModifiedNavigationClick(event)) {
+                  return;
+                }
+                event.preventDefault();
+                onModeChange("per-turn");
+              }}
             >
               ${t("usage.details.perTurn")}
-            </button>
-            <button
+            </a>
+            <a
               class="toggle-btn ${isCumulative ? "active" : ""}"
-              @click=${() => onModeChange("cumulative")}
+              href=${buildModeHref("cumulative")}
+              aria-current=${isCumulative ? "page" : "false"}
+              @click=${(event: MouseEvent) => {
+                if (isModifiedNavigationClick(event)) {
+                  return;
+                }
+                event.preventDefault();
+                onModeChange("cumulative");
+              }}
             >
               ${t("usage.details.cumulative")}
-            </button>
+            </a>
           </div>
           ${
             !isCumulative
               ? html`
                   <div class="chart-toggle small">
-                    <button
+                    <a
                       class="toggle-btn ${breakdownMode === "total" ? "active" : ""}"
-                      @click=${() => onBreakdownChange("total")}
+                      href=${buildBreakdownHref("total")}
+                      aria-current=${breakdownMode === "total" ? "page" : "false"}
+                      @click=${(event: MouseEvent) => {
+                        if (isModifiedNavigationClick(event)) {
+                          return;
+                        }
+                        event.preventDefault();
+                        onBreakdownChange("total");
+                      }}
                     >
                       ${t("usage.daily.total")}
-                    </button>
-                    <button
+                    </a>
+                    <a
                       class="toggle-btn ${breakdownMode === "by-type" ? "active" : ""}"
-                      @click=${() => onBreakdownChange("by-type")}
+                      href=${buildBreakdownHref("by-type")}
+                      aria-current=${breakdownMode === "by-type" ? "page" : "false"}
+                      @click=${(event: MouseEvent) => {
+                        if (isModifiedNavigationClick(event)) {
+                          return;
+                        }
+                        event.preventDefault();
+                        onBreakdownChange("by-type");
+                      }}
                     >
                       ${t("usage.daily.byType")}
-                    </button>
+                    </a>
                   </div>
                 `
               : nothing

@@ -28,6 +28,10 @@ export function renderUsageTab(state: AppViewState) {
     buildSessionsTabHref: (sessionsTab) => buildCanonicalUsageHref(state, { sessionsTab }),
     buildSessionSortDirHref: (sessionSortDir) =>
       buildCanonicalUsageHref(state, { sessionSortDir }),
+    buildTimeSeriesModeHref: (timeSeriesMode) =>
+      buildCanonicalUsageHref(state, { timeSeriesMode }),
+    buildTimeSeriesBreakdownHref: (timeSeriesBreakdownMode) =>
+      buildCanonicalUsageHref(state, { timeSeriesBreakdownMode }),
     data: {
       loading: state.usageLoading,
       error: state.usageError,
@@ -300,9 +304,11 @@ export function renderUsageTab(state: AppViewState) {
         },
         onTimeSeriesModeChange: (mode) => {
           state.usageTimeSeriesMode = mode;
+          syncUsageUrl();
         },
         onTimeSeriesBreakdownChange: (mode) => {
           state.usageTimeSeriesBreakdownMode = mode;
+          syncUsageUrl();
         },
         onTimeSeriesCursorRangeChange: (start, end) => {
           state.usageTimeSeriesCursorStart = start;

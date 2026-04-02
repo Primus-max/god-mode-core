@@ -158,6 +158,8 @@ export function renderUsage(props: UsageProps) {
     buildDailyChartModeHref,
     buildSessionsTabHref,
     buildSessionSortDirHref,
+    buildTimeSeriesModeHref,
+    buildTimeSeriesBreakdownHref,
   } = props;
   const filterActions = callbacks.filters;
   const displayActions = callbacks.display;
@@ -864,8 +866,10 @@ export function renderUsage(props: UsageProps) {
                           detail.timeSeries,
                           detail.timeSeriesLoading,
                           detail.timeSeriesMode,
+                          buildTimeSeriesModeHref,
                           detailActions.onTimeSeriesModeChange,
                           detail.timeSeriesBreakdownMode,
+                          buildTimeSeriesBreakdownHref,
                           detailActions.onTimeSeriesBreakdownChange,
                           detail.timeSeriesCursorStart,
                           detail.timeSeriesCursorEnd,

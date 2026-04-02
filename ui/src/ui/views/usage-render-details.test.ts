@@ -1,8 +1,13 @@
-import { describe, it, expect } from "vitest";
+/* @vitest-environment jsdom */
+
+import { render } from "lit";
+import { describe, it, expect, vi } from "vitest";
+import { buildCanonicalUsageHref } from "../app-settings.ts";
 import {
   computeFilteredUsage,
   CHART_BAR_WIDTH_RATIO,
   CHART_MAX_BAR_WIDTH,
+  renderTimeSeriesCompact,
 } from "./usage-render-details.ts";
 import type { TimeSeriesPoint, UsageSessionEntry } from "./usageTypes.ts";
 
@@ -45,6 +50,35 @@ const baseUsage = {
     errors: 0,
   },
 } satisfies NonNullable<UsageSessionEntry["usage"]>;
+
+function createUsageHost() {
+  return {
+    basePath: "/ui",
+    sessionKey: "agent:main:main",
+    usageStartDate: "2026-03-01",
+    usageEndDate: "2026-03-31",
+    usageTimeZone: "utc" as const,
+    usageSelectedSessions: ["agent:main:main"],
+    usageQuery: "cost spike",
+    usageChartMode: "cost" as const,
+    usageDailyChartMode: "total" as const,
+    usageSessionsTab: "recent" as const,
+    usageSessionSort: "messages" as const,
+    usageSessionSortDir: "asc" as const,
+    usageTimeSeriesMode: "per-turn" as const,
+    usageTimeSeriesBreakdownMode: "by-type" as const,
+  };
+}
+
+function makeTimeSeries() {
+  return {
+    points: [
+      makePoint({ timestamp: Date.parse("2026-03-12T10:00:00Z"), totalTokens: 100 }),
+      makePoint({ timestamp: Date.parse("2026-03-12T11:00:00Z"), totalTokens: 200 }),
+      makePoint({ timestamp: Date.parse("2026-03-12T12:00:00Z"), totalTokens: 300 }),
+    ],
+  };
+}
 
 describe("computeFilteredUsage", () => {
   it("returns undefined when no points match the range", () => {
@@ -132,5 +166,136 @@ describe("chart bar sizing", () => {
         expect(barGap).toBeGreaterThanOrEqual(0);
       }
     }
+  });
+});
+
+describe("usage detail links", () => {
+  it("renders canonical hrefs for representative detail toggles", async () => {
+    const host = createUsageHost();
+    const container = document.createElement("div");
+
+    render(
+      renderTimeSeriesCompact(
+        makeTimeSeries(),
+        false,
+        "per-turn",
+        (mode) => buildCanonicalUsageHref(host as never, { timeSeriesMode: mode }),
+        () => undefined,
+        "by-type",
+        (mode) => buildCanonicalUsageHref(host as never, { timeSeriesBreakdownMode: mode }),
+        () => undefined,
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const links = Array.from(container.querySelectorAll<HTMLAnchorElement>("a.toggle-btn"));
+    const cumulativeLink = links.find((link) => link.getAttribute("href")?.includes("usageTsMode=cumulative"));
+    const totalLink = links.find((link) => link.getAttribute("href")?.includes("usageTsBreakdown=total"));
+
+    expect(cumulativeLink?.getAttribute("href")).toBe(
+      "/ui/usage?session=agent%3Amain%3Amain&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc&usageTsMode=cumulative",
+    );
+    expect(totalLink?.getAttribute("href")).toBe(
+      "/ui/usage?session=agent%3Amain%3Amain&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc&usageTsBreakdown=total",
+    );
+  });
+
+  it("uses JS handoff for primary clicks on detail toggles", async () => {
+    const host = createUsageHost();
+    const container = document.createElement("div");
+    const onModeChange = vi.fn();
+
+    render(
+      renderTimeSeriesCompact(
+        makeTimeSeries(),
+        false,
+        "per-turn",
+        (mode) => buildCanonicalUsageHref(host as never, { timeSeriesMode: mode }),
+        onModeChange,
+        "by-type",
+        (mode) => buildCanonicalUsageHref(host as never, { timeSeriesBreakdownMode: mode }),
+        () => undefined,
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const cumulativeLink = Array.from(container.querySelectorAll<HTMLAnchorElement>("a.toggle-btn")).find(
+      (link) => link.getAttribute("href")?.includes("usageTsMode=cumulative"),
+    );
+    expect(cumulativeLink).not.toBeNull();
+
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    const dispatchResult = cumulativeLink!.dispatchEvent(event);
+
+    expect(dispatchResult).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(onModeChange).toHaveBeenCalledWith("cumulative");
+  });
+
+  it("lets modified clicks fall through to the browser href for detail toggles", async () => {
+    const host = createUsageHost();
+    const container = document.createElement("div");
+    const onBreakdownChange = vi.fn();
+
+    render(
+      renderTimeSeriesCompact(
+        makeTimeSeries(),
+        false,
+        "per-turn",
+        (mode) => buildCanonicalUsageHref(host as never, { timeSeriesMode: mode }),
+        () => undefined,
+        "by-type",
+        (mode) => buildCanonicalUsageHref(host as never, { timeSeriesBreakdownMode: mode }),
+        onBreakdownChange,
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const totalLink = Array.from(container.querySelectorAll<HTMLAnchorElement>("a.toggle-btn")).find(
+      (link) => link.getAttribute("href")?.includes("usageTsBreakdown=total"),
+    );
+    expect(totalLink).not.toBeNull();
+
+    const event = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true,
+    });
+    const dispatchResult = totalLink!.dispatchEvent(event);
+
+    expect(dispatchResult).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    expect(onBreakdownChange).not.toHaveBeenCalled();
+  });
+
+  it("renders the restored detail presentation from usage time-series state", async () => {
+    const host = createUsageHost();
+    const container = document.createElement("div");
+
+    render(
+      renderTimeSeriesCompact(
+        makeTimeSeries(),
+        false,
+        "per-turn",
+        (mode) => buildCanonicalUsageHref(host as never, { timeSeriesMode: mode }),
+        () => undefined,
+        "total",
+        (mode) => buildCanonicalUsageHref(host as never, { timeSeriesBreakdownMode: mode }),
+        () => undefined,
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const activeLabels = Array.from(container.querySelectorAll<HTMLAnchorElement>("a.toggle-btn"))
+      .filter((link) => link.getAttribute("aria-current") === "page")
+      .map((link) => link.textContent?.trim());
+
+    expect(activeLabels).toContain("Per Turn");
+    expect(activeLabels).toContain("Total");
   });
 });

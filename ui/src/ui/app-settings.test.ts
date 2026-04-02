@@ -200,6 +200,8 @@ type SettingsHost = {
   usageSessionSort?: "tokens" | "cost" | "recent" | "messages" | "errors";
   usageSessionSortDir?: "asc" | "desc";
   usageSessionsTab?: "all" | "recent";
+  usageTimeSeriesMode?: "cumulative" | "per-turn";
+  usageTimeSeriesBreakdownMode?: "total" | "by-type";
   usageResult?: { sessions?: Array<{ key: string }> } | null;
   usageTimeSeries?: SessionUsageTimeSeries | null;
   usageSessionLogs?: SessionLogEntry[] | null;
@@ -470,6 +472,8 @@ const createHost = (tab: Tab): SettingsHost => ({
   usageSessionSort: "recent",
   usageSessionSortDir: "desc",
   usageSessionsTab: "all",
+  usageTimeSeriesMode: "per-turn",
+  usageTimeSeriesBreakdownMode: "by-type",
   usageResult: null,
   usageTimeSeries: null,
   usageSessionLogs: null,
@@ -770,7 +774,7 @@ describe("applySettingsFromUrl", () => {
 
   it("hydrates deep-link query state for agents, sessions, usage, runtime, bootstrap, artifacts, cron, skills, debug, channels, instances, logs, and nodes", () => {
     setTestWindowUrl(
-      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=action-1&runtimeClosure=run-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&instancesReveal=true&logQ=timeout&logLevels=warn%2Cerror&execTarget=node&execNode=node-1&execAgent=main",
+      "https://control.example/ui/sessions?session=agent%3Amain%3Amain&agent=beta&agentsPanel=files&agentFile=AGENTS.md&sessionsActive=30&sessionsLimit=250&sessionsGlobal=false&sessionsUnknown=true&sessionsQ=main%20agent&sessionsSort=key&sessionsDir=asc&sessionsPage=2&sessionsPageSize=50&cronQ=digest&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=name&cronDir=desc&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost%20spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc&usageTsMode=cumulative&runtimeSession=agent%3Amain%3Amain&runtimeRun=run-1&checkpoint=cp-1&runtimeAction=action-1&runtimeClosure=run-1&bootstrapQ=renderer&bootstrapRequest=bootstrap-1&artifactQ=invoice&artifact=artifact-1&cronJob=cron-1&cronRunsQ=needle&cronRunsSort=asc&cronRunsStatus=ok%2Cerror&cronRunsDelivery=delivered&skillFilter=missing&debugMethod=models.list&debugParams=%7B%22limit%22%3A10%7D&channel=slack&instancesReveal=true&logQ=timeout&logLevels=warn%2Cerror&execTarget=node&execNode=node-1&execAgent=main",
     );
     const host = createHost("sessions");
 
@@ -800,6 +804,8 @@ describe("applySettingsFromUrl", () => {
     expect(host.usageSessionsTab).toBe("recent");
     expect(host.usageSessionSort).toBe("messages");
     expect(host.usageSessionSortDir).toBe("asc");
+    expect(host.usageTimeSeriesMode).toBe("cumulative");
+    expect(host.usageTimeSeriesBreakdownMode).toBe("by-type");
     expect(host.runtimeSessionKey).toBe("agent:main:main");
     expect(host.runtimeRunId).toBe("run-1");
     expect(host.runtimeSelectedCheckpointId).toBe("cp-1");
@@ -854,6 +860,18 @@ describe("applySettingsFromUrl", () => {
     expect(host.usageSessionsTab).toBe("all");
     expect(host.usageSessionSort).toBe("recent");
     expect(host.usageSessionSortDir).toBe("desc");
+  });
+
+  it("falls back to default usage detail display state when query params are invalid", () => {
+    setTestWindowUrl(
+      "https://control.example/ui/usage?session=main&usageTsMode=table&usageTsBreakdown=segments",
+    );
+    const host = createHost("usage");
+
+    applySettingsFromUrl(host);
+
+    expect(host.usageTimeSeriesMode).toBe("per-turn");
+    expect(host.usageTimeSeriesBreakdownMode).toBe("by-type");
   });
 
   it("falls back to default sessions list query state when query values are invalid", () => {
@@ -1086,12 +1104,16 @@ describe("syncUrlWithTab", () => {
     host.usageSessionsTab = "recent";
     host.usageSessionSort = "messages";
     host.usageSessionSortDir = "asc";
+    host.usageTimeSeriesMode = "cumulative";
+    host.usageTimeSeriesBreakdownMode = "total";
+    host.usageTimeSeriesMode = "cumulative";
+    host.usageTimeSeriesBreakdownMode = "total";
 
     expect(buildCanonicalUsageHref(host)).toBe(
-      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc",
+      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc&usageTsMode=cumulative",
     );
     expect(buildCanonicalUsageSessionHref(host, "agent:writer:main")).toBe(
-      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Awriter%3Amain&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc",
+      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Awriter%3Amain&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc&usageTsMode=cumulative",
     );
     expect(
       buildCanonicalUsageHref(host, {
@@ -1100,9 +1122,19 @@ describe("syncUrlWithTab", () => {
         sessionsTab: "all",
         sessionSort: "recent",
         sessionSortDir: "desc",
+        timeSeriesMode: "per-turn",
+        timeSeriesBreakdownMode: "by-type",
       }),
     ).toBe(
       "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost+spike",
+    );
+    expect(
+      buildCanonicalUsageHref(host, {
+        timeSeriesMode: "per-turn",
+        timeSeriesBreakdownMode: "total",
+      }),
+    ).toBe(
+      "/ui/usage?session=main&usageFrom=2026-03-01&usageTo=2026-03-31&usageTz=utc&usageSession=agent%3Amain%3Amain&usageQ=cost+spike&usageChart=cost&usageDaily=total&usageSessions=recent&usageSort=messages&usageSortDir=asc&usageTsBreakdown=total",
     );
   });
 
@@ -1670,6 +1702,8 @@ describe("syncUrlWithTab", () => {
     host.usageSessionsTab = "recent";
     host.usageSessionSort = "messages";
     host.usageSessionSortDir = "asc";
+    host.usageTimeSeriesMode = "cumulative";
+    host.usageTimeSeriesBreakdownMode = "total";
 
     syncUrlWithTab(host, "usage", true);
 
@@ -1685,6 +1719,8 @@ describe("syncUrlWithTab", () => {
     expect(window.location.search).toContain("usageSessions=recent");
     expect(window.location.search).toContain("usageSort=messages");
     expect(window.location.search).toContain("usageSortDir=asc");
+    expect(window.location.search).toContain("usageTsMode=cumulative");
+    expect(window.location.search).not.toContain("usageTsBreakdown=");
   });
 
   it("persists agents file deep-link selection with basePath", () => {

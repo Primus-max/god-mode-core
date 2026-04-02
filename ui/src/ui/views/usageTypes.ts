@@ -120,6 +120,8 @@ export type UsageProps = {
   buildDailyChartModeHref: (mode: "total" | "by-type") => string;
   buildSessionsTabHref: (tab: "all" | "recent") => string;
   buildSessionSortDirHref: (dir: "asc" | "desc") => string;
+  buildTimeSeriesModeHref: (mode: "cumulative" | "per-turn") => string;
+  buildTimeSeriesBreakdownHref: (mode: "total" | "by-type") => string;
   data: UsageDataState;
   filters: UsageFilterState;
   display: UsageDisplayState;

@@ -49,6 +49,8 @@ function createUsageHost() {
     usageSessionSort: "recent" as const,
     usageSessionSortDir: "desc" as const,
     usageSessionsTab: "all" as const,
+    usageTimeSeriesMode: "per-turn" as const,
+    usageTimeSeriesBreakdownMode: "by-type" as const,
   };
 }
 
@@ -63,6 +65,10 @@ function createProps(overrides: Partial<UsageProps> = {}): UsageProps {
     buildSessionsTabHref: (tab) => buildCanonicalUsageHref(usageHost as never, { sessionsTab: tab }),
     buildSessionSortDirHref: (dir) =>
       buildCanonicalUsageHref(usageHost as never, { sessionSortDir: dir }),
+    buildTimeSeriesModeHref: (mode) =>
+      buildCanonicalUsageHref(usageHost as never, { timeSeriesMode: mode }),
+    buildTimeSeriesBreakdownHref: (mode) =>
+      buildCanonicalUsageHref(usageHost as never, { timeSeriesBreakdownMode: mode }),
     data: {
       loading: false,
       error: null,
