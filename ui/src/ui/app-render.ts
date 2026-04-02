@@ -28,8 +28,8 @@ import {
   buildCanonicalChannelHref,
   buildCanonicalCronEditHref,
   buildCanonicalCronJobHref,
+  buildCanonicalSkillsHref,
   buildCanonicalTabHref,
-  buildTabHref,
   onPopState,
   syncUrlWithTab,
 } from "./app-settings.ts";
@@ -741,8 +741,7 @@ export function renderApp(state: AppViewState) {
                 onRefresh: () => state.loadOverview(),
                 buildCardHref: (tab, options) => {
                   if (tab === "skills") {
-                    return buildTabHref({ basePath: state.basePath }, "skills", {
-                      session: state.sessionKey,
+                    return buildCanonicalSkillsHref(state, {
                       skillFilter: options?.skillFilter ?? "",
                     });
                   }

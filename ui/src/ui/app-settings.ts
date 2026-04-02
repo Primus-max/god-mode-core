@@ -737,6 +737,22 @@ export function buildCanonicalChatHref(
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalSkillsHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    skillFilter?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("skills", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "skills", url);
+  const skillFilter =
+    "skillFilter" in overrides
+      ? trimQueryValue(overrides.skillFilter ?? null)
+      : trimQueryValue(host.skillsFilter ?? null);
+  setQueryValue(url, "skillFilter", skillFilter);
+  return `${url.pathname}${url.search}`;
+}
+
 export function buildCanonicalUsageHref(
   host: SettingsHost | AppViewState,
   overrides: {
@@ -1998,13 +2014,9 @@ export function buildAttentionItems(host: AttentionHost) {
   const items: AttentionItem[] = [];
   const settingsHost = host as unknown as SettingsHost;
   const buildSkillsHref = (skillFilter: string) =>
-    buildCanonicalTabHref(
-      {
-        ...settingsHost,
-        skillsFilter: skillFilter,
-      } as SettingsHost,
-      "skills",
-    );
+    buildCanonicalSkillsHref(settingsHost, {
+      skillFilter,
+    });
 
   if (host.lastError) {
     items.push({

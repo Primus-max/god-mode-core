@@ -31,6 +31,7 @@ import {
   buildCanonicalChannelHref,
   buildCanonicalCronEditHref,
   buildCanonicalCronJobHref,
+  buildCanonicalSkillsHref,
   buildCanonicalUsageHref,
   applyResolvedTheme,
   applySettings,
@@ -1209,6 +1210,25 @@ describe("syncUrlWithTab", () => {
     ).toBe("/ui/chat?session=agent%3Awriter%3Amain");
   });
 
+  it("builds canonical skills hrefs with skill filter overrides", () => {
+    const host = createHost("skills");
+    host.basePath = "/ui";
+    host.sessionKey = "main";
+    host.skillsFilter = "blocked";
+
+    expect(buildCanonicalSkillsHref(host)).toBe("/ui/skills?session=main&skillFilter=blocked");
+    expect(
+      buildCanonicalSkillsHref(host, {
+        skillFilter: "missing",
+      }),
+    ).toBe("/ui/skills?session=main&skillFilter=missing");
+    expect(
+      buildCanonicalSkillsHref(host, {
+        skillFilter: null,
+      }),
+    ).toBe("/ui/skills?session=main");
+  });
+
   it("builds canonical sessions runtime hrefs for inspect and drill-down targets", () => {
     const host = createHost("sessions");
     host.basePath = "/ui";
@@ -2256,24 +2276,16 @@ describe("buildAttentionItems", () => {
       expect.arrayContaining([
         expect.objectContaining({
           title: "Skills with missing dependencies",
-          href: buildCanonicalTabHref(
-            {
-              ...(host as never),
-              skillsFilter: SKILL_FILTER_MISSING,
-            },
-            "skills",
-          ),
+          href: buildCanonicalSkillsHref(host as never, {
+            skillFilter: SKILL_FILTER_MISSING,
+          }),
           actionLabel: "Open",
         }),
         expect.objectContaining({
           title: "1 skill blocked",
-          href: buildCanonicalTabHref(
-            {
-              ...(host as never),
-              skillsFilter: SKILL_FILTER_BLOCKED,
-            },
-            "skills",
-          ),
+          href: buildCanonicalSkillsHref(host as never, {
+            skillFilter: SKILL_FILTER_BLOCKED,
+          }),
           actionLabel: "Open",
         }),
       ]),

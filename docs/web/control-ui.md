@@ -150,6 +150,7 @@ Cron jobs panel notes:
 Skills panel notes:
 
 - Overview attention now routes skill dependency and allowlist problems into the Skills surface with a persisted `skillFilter`, so operators can refresh or share the link without losing the same blocked/missing context.
+- Overview skills cards now reuse that same canonical `skills` destination helper, so copied URLs, refresh, direct open, and in-app primary clicks all converge on the same filtered Skills investigation path.
 - The Skills search box now matches derived state as well as metadata, so filters such as `missing` and `blocked by allowlist` surface the same problem set that overview attention points at.
 
 Agents panel notes:
