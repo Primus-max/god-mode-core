@@ -191,6 +191,7 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
 ### E2E (gateway smoke)
 
 - Command: `pnpm test:e2e`
+- Cheap release-confidence smoke: `pnpm test:e2e:smoke`
 - Config: `vitest.e2e.config.ts`
 - Files: `src/**/*.e2e.test.ts`, `test/**/*.e2e.test.ts`
 - Runtime defaults:
@@ -204,9 +205,13 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
   - Multi-instance gateway end-to-end behavior
   - WebSocket/HTTP surfaces, node pairing, and heavier networking
 - Expectations:
-  - Runs in CI (when enabled in the pipeline)
+  - `pnpm test:e2e:smoke` is the deterministic CI-safe baseline for release confidence
+  - The broader `pnpm test:e2e` suite remains available when you touch gateway/networking behavior beyond that smoke path
   - No real keys required
   - More moving parts than unit tests (can be slower)
+- Smoke baseline note:
+  - `test/gateway.smoke.e2e.test.ts` is the intended cheap always-on path: one local gateway, one HTTP wake request, one paired node, and one chat roundtrip.
+  - Keep that file deterministic and dependency-light; do not turn it into a second full E2E suite.
 
 ### E2E: OpenShell backend smoke
 
@@ -251,8 +256,22 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
 Use this decision table:
 
 - Editing logic/tests: run `pnpm test` (and `pnpm test:coverage` if you changed a lot)
-- Touching gateway networking / WS protocol / pairing: add `pnpm test:e2e`
+- Touching gateway boot / token auth / WS connect / basic node pairing / chat lifecycle: run `pnpm test:e2e:smoke`
+- Touching gateway networking / WS protocol / pairing more broadly: add `pnpm test:e2e`
 - Debugging “my bot is down” / provider-specific failures / tool calling: run a narrowed `pnpm test:live`
+
+For a deterministic pre-release baseline before a v1 push, prefer:
+
+- `pnpm build`
+- `pnpm check`
+- `pnpm test`
+- `pnpm test:e2e:smoke`
+
+Treat heavier layers as opt-in follow-ups:
+
+- `pnpm test:e2e` for broader gateway/network confidence
+- `pnpm test:live` for real providers/models
+- Docker- or VM-based smoke only when the touched area warrants it
 
 WebSocket `sessions.changed` payloads intentionally mirror the gateway session row model (including `runClosureSummary`, recovery fields, and handoff projection) at the **top level**, not only inside nested `session`, so thin clients stay aligned with `sessions.list` without re-implementing field lists. Reference: `src/gateway/session-broadcast-snapshot.ts`, `src/gateway/session-event-hub.ts`, and their focused tests.
 
