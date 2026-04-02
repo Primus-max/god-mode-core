@@ -1,5 +1,5 @@
 import { nothing } from "lit";
-import { buildCanonicalUsageSessionHref, syncUrlWithTab } from "./app-settings.ts";
+import { buildCanonicalUsageHref, buildCanonicalUsageSessionHref, syncUrlWithTab } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import type { UsageState } from "./controllers/usage.ts";
 import { loadUsage, loadSessionTimeSeries, loadSessionLogs } from "./controllers/usage.ts";
@@ -22,6 +22,12 @@ export function renderUsageTab(state: AppViewState) {
 
   return renderUsage({
     buildSessionHref: (sessionKey) => buildCanonicalUsageSessionHref(state, sessionKey),
+    buildChartModeHref: (chartMode) => buildCanonicalUsageHref(state, { chartMode }),
+    buildDailyChartModeHref: (dailyChartMode) =>
+      buildCanonicalUsageHref(state, { dailyChartMode }),
+    buildSessionsTabHref: (sessionsTab) => buildCanonicalUsageHref(state, { sessionsTab }),
+    buildSessionSortDirHref: (sessionSortDir) =>
+      buildCanonicalUsageHref(state, { sessionSortDir }),
     data: {
       loading: state.usageLoading,
       error: state.usageError,
@@ -192,18 +198,23 @@ export function renderUsageTab(state: AppViewState) {
       display: {
         onChartModeChange: (mode) => {
           state.usageChartMode = mode;
+          syncUsageUrl();
         },
         onDailyChartModeChange: (mode) => {
           state.usageDailyChartMode = mode;
+          syncUsageUrl();
         },
         onSessionSortChange: (sort) => {
           state.usageSessionSort = sort;
+          syncUsageUrl();
         },
         onSessionSortDirChange: (dir) => {
           state.usageSessionSortDir = dir;
+          syncUsageUrl();
         },
         onSessionsTabChange: (tab) => {
           state.usageSessionsTab = tab;
+          syncUsageUrl();
         },
         onToggleColumn: (column) => {
           if (state.usageVisibleColumns.includes(column)) {

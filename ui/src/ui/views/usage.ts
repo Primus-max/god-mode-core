@@ -136,8 +136,29 @@ function renderUsageEmptyState(onRefresh: () => void) {
   `;
 }
 
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey
+  );
+}
+
 export function renderUsage(props: UsageProps) {
-  const { data, filters, display, detail, callbacks, buildSessionHref } = props;
+  const {
+    data,
+    filters,
+    display,
+    detail,
+    callbacks,
+    buildSessionHref,
+    buildChartModeHref,
+    buildDailyChartModeHref,
+    buildSessionsTabHref,
+    buildSessionSortDirHref,
+  } = props;
   const filterActions = callbacks.filters;
   const displayActions = callbacks.display;
   const detailActions = callbacks.details;
@@ -610,18 +631,34 @@ export function renderUsage(props: UsageProps) {
               <option value="utc">${t("usage.filters.timeZoneUtc")}</option>
             </select>
             <div class="chart-toggle">
-              <button
+              <a
                 class="toggle-btn ${isTokenMode ? "active" : ""}"
-                @click=${() => displayActions.onChartModeChange("tokens")}
+                href=${buildChartModeHref("tokens")}
+                aria-current=${isTokenMode ? "page" : "false"}
+                @click=${(event: MouseEvent) => {
+                  if (isModifiedNavigationClick(event)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  displayActions.onChartModeChange("tokens");
+                }}
               >
                 ${t("usage.metrics.tokens")}
-              </button>
-              <button
+              </a>
+              <a
                 class="toggle-btn ${!isTokenMode ? "active" : ""}"
-                @click=${() => displayActions.onChartModeChange("cost")}
+                href=${buildChartModeHref("cost")}
+                aria-current=${!isTokenMode ? "page" : "false"}
+                @click=${(event: MouseEvent) => {
+                  if (isModifiedNavigationClick(event)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  displayActions.onChartModeChange("cost");
+                }}
               >
                 ${t("usage.metrics.cost")}
-              </button>
+              </a>
             </div>
             <button
               class="btn btn-sm usage-action-btn usage-primary-btn"
@@ -788,6 +825,7 @@ export function renderUsage(props: UsageProps) {
                       filters.selectedDays,
                       display.chartMode,
                       display.dailyChartMode,
+                      buildDailyChartModeHref,
                       displayActions.onDailyChartModeChange,
                       filterActions.onSelectDay,
                     )}
@@ -807,6 +845,8 @@ export function renderUsage(props: UsageProps) {
                     display.recentSessions,
                     display.sessionsTab,
                     buildSessionHref,
+                    buildSessionsTabHref,
+                    buildSessionSortDirHref,
                     detailActions.onSelectSession,
                     displayActions.onSessionSortChange,
                     displayActions.onSessionSortDirChange,

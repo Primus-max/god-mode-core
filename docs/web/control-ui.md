@@ -100,7 +100,7 @@ Logs panel notes:
 
 Usage panel notes:
 
-- The Usage surface now restores a minimal investigation context from URL state: `usageFrom`, `usageTo`, `usageTz`, `usageSession`, and `usageQ` can survive refresh/popstate without serializing every local analytics toggle.
+- The Usage surface now restores a canonical investigation context from URL state: `usageFrom`, `usageTo`, `usageTz`, `usageSession`, `usageQ`, and the overview display subset (`usageChart`, `usageDaily`, `usageSessions`, `usageSort`, `usageSortDir`) can survive refresh/popstate without serializing every local analytics toggle.
 - When a single `usageSession` is present in the link, the usage summary reload path reopens the same time-series and session-log detail flow after refresh, so operators can share one session investigation path instead of reselecting it manually.
 
 Channels panel notes:

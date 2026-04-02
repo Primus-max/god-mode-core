@@ -309,6 +309,41 @@
   box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
+.chart-toggle .toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 0.18s var(--ease-out),
+    border-color 0.18s var(--ease-out),
+    background 0.18s var(--ease-out),
+    color 0.18s var(--ease-out),
+    box-shadow 0.18s var(--ease-out);
+}
+
+.chart-toggle .toggle-btn:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--secondary));
+  color: var(--text-strong);
+}
+
+.chart-toggle .toggle-btn.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--primary-foreground);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
 .usage-primary-btn:disabled,
 .usage-secondary-btn:disabled,
 .usage-export-item:disabled {

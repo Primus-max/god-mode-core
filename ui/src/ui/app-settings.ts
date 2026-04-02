@@ -127,6 +127,11 @@ type SettingsHost = {
   usageTimeZone?: "local" | "utc";
   usageQuery?: string;
   usageQueryDraft?: string;
+  usageChartMode?: "tokens" | "cost";
+  usageDailyChartMode?: "total" | "by-type";
+  usageSessionSort?: "tokens" | "cost" | "recent" | "messages" | "errors";
+  usageSessionSortDir?: "asc" | "desc";
+  usageSessionsTab?: "all" | "recent";
   usageResult?: { sessions?: Array<{ key: string }> } | null;
   usageTimeSeries?: OpenClawApp["usageTimeSeries"];
   usageSessionLogs?: OpenClawApp["usageSessionLogs"];
@@ -308,6 +313,50 @@ function todayUsageDate(): string {
 
 function normalizeUsageTimeZone(value: string | null | undefined): "local" | "utc" {
   return value === "utc" ? "utc" : "local";
+}
+
+function normalizeUsageChartMode(
+  value: string | null | undefined,
+  fallback: "tokens" | "cost",
+): "tokens" | "cost" {
+  return value === "cost" ? "cost" : value === "tokens" ? "tokens" : fallback;
+}
+
+function normalizeUsageDailyChartMode(
+  value: string | null | undefined,
+  fallback: "total" | "by-type",
+): "total" | "by-type" {
+  return value === "total" ? "total" : value === "by-type" ? "by-type" : fallback;
+}
+
+function normalizeUsageSessionSort(
+  value: string | null | undefined,
+  fallback: "tokens" | "cost" | "recent" | "messages" | "errors",
+): "tokens" | "cost" | "recent" | "messages" | "errors" {
+  switch (value) {
+    case "tokens":
+    case "cost":
+    case "recent":
+    case "messages":
+    case "errors":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeUsageSessionSortDir(
+  value: string | null | undefined,
+  fallback: "asc" | "desc",
+): "asc" | "desc" {
+  return value === "asc" ? "asc" : value === "desc" ? "desc" : fallback;
+}
+
+function normalizeUsageSessionsTab(
+  value: string | null | undefined,
+  fallback: "all" | "recent",
+): "all" | "recent" {
+  return value === "recent" ? "recent" : value === "all" ? "all" : fallback;
 }
 
 function resolveUsageSelectedSessionKey(
@@ -671,14 +720,54 @@ export function buildCanonicalTabHref(host: SettingsHost | AppViewState, tab: Ta
   return `${url.pathname}${url.search}`;
 }
 
+export function buildCanonicalUsageHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    sessionKey?: string | null;
+    chartMode?: "tokens" | "cost";
+    dailyChartMode?: "total" | "by-type";
+    sessionsTab?: "all" | "recent";
+    sessionSort?: "tokens" | "cost" | "recent" | "messages" | "errors";
+    sessionSortDir?: "asc" | "desc";
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("usage", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "usage", url);
+  const sessionKey =
+    "sessionKey" in overrides
+      ? trimQueryValue(overrides.sessionKey ?? null)
+      : resolveUsageSelectedSessionKey(host as SettingsHost);
+  const chartMode = normalizeUsageChartMode(overrides.chartMode, host.usageChartMode ?? "tokens");
+  const dailyChartMode = normalizeUsageDailyChartMode(
+    overrides.dailyChartMode,
+    host.usageDailyChartMode ?? "by-type",
+  );
+  const sessionsTab = normalizeUsageSessionsTab(
+    overrides.sessionsTab,
+    host.usageSessionsTab ?? "all",
+  );
+  const sessionSort = normalizeUsageSessionSort(
+    overrides.sessionSort,
+    host.usageSessionSort ?? "recent",
+  );
+  const sessionSortDir = normalizeUsageSessionSortDir(
+    overrides.sessionSortDir,
+    host.usageSessionSortDir ?? "desc",
+  );
+  setQueryValue(url, "usageSession", sessionKey);
+  setQueryValue(url, "usageChart", chartMode !== "tokens" ? chartMode : null);
+  setQueryValue(url, "usageDaily", dailyChartMode !== "by-type" ? dailyChartMode : null);
+  setQueryValue(url, "usageSessions", sessionsTab !== "all" ? sessionsTab : null);
+  setQueryValue(url, "usageSort", sessionSort !== "recent" ? sessionSort : null);
+  setQueryValue(url, "usageSortDir", sessionSortDir !== "desc" ? sessionSortDir : null);
+  return `${url.pathname}${url.search}`;
+}
+
 export function buildCanonicalUsageSessionHref(
   host: SettingsHost | AppViewState,
   sessionKey: string,
 ): string {
-  const url = new URL(`https://openclaw.local${pathForTab("usage", host.basePath)}`);
-  applyTabQueryStateToUrl(host as SettingsHost, "usage", url);
-  setQueryValue(url, "usageSession", sessionKey);
-  return `${url.pathname}${url.search}`;
+  return buildCanonicalUsageHref(host, { sessionKey });
 }
 
 export function buildCanonicalCronJobHref(
@@ -1024,6 +1113,23 @@ function applyDeepLinkStateFromUrl(
   host.usageSelectedSessions = usageSelectedSession ? [usageSelectedSession] : [];
   host.usageQuery = pick("usageQ") ?? "";
   host.usageQueryDraft = host.usageQuery;
+  host.usageChartMode = normalizeUsageChartMode(pick("usageChart"), host.usageChartMode ?? "tokens");
+  host.usageDailyChartMode = normalizeUsageDailyChartMode(
+    pick("usageDaily"),
+    host.usageDailyChartMode ?? "by-type",
+  );
+  host.usageSessionsTab = normalizeUsageSessionsTab(
+    pick("usageSessions"),
+    host.usageSessionsTab ?? "all",
+  );
+  host.usageSessionSort = normalizeUsageSessionSort(
+    pick("usageSort"),
+    host.usageSessionSort ?? "recent",
+  );
+  host.usageSessionSortDir = normalizeUsageSessionSortDir(
+    pick("usageSortDir"),
+    host.usageSessionSortDir ?? "desc",
+  );
   host.skillsFilter = pick("skillFilter") ?? "";
   applySettingsNavigationStateFromUrl(host, pick);
   host.debugCallMethod = pick("debugMethod") ?? host.debugCallMethod ?? "";
@@ -1080,6 +1186,11 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
   setQueryValue(url, "usageTz", null);
   setQueryValue(url, "usageSession", null);
   setQueryValue(url, "usageQ", null);
+  setQueryValue(url, "usageChart", null);
+  setQueryValue(url, "usageDaily", null);
+  setQueryValue(url, "usageSessions", null);
+  setQueryValue(url, "usageSort", null);
+  setQueryValue(url, "usageSortDir", null);
   setQueryValue(url, "skillFilter", null);
   clearSettingsNavigationQueryState(url);
   setQueryValue(url, "debugMethod", null);
@@ -1155,6 +1266,19 @@ function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
     setQueryValue(url, "usageTz", host.usageTimeZone);
     setQueryValue(url, "usageSession", resolveUsageSelectedSessionKey(host));
     setQueryValue(url, "usageQ", host.usageQuery);
+    setQueryValue(url, "usageChart", host.usageChartMode !== "tokens" ? host.usageChartMode : null);
+    setQueryValue(
+      url,
+      "usageDaily",
+      host.usageDailyChartMode !== "by-type" ? host.usageDailyChartMode : null,
+    );
+    setQueryValue(url, "usageSessions", host.usageSessionsTab !== "all" ? host.usageSessionsTab : null);
+    setQueryValue(url, "usageSort", host.usageSessionSort !== "recent" ? host.usageSessionSort : null);
+    setQueryValue(
+      url,
+      "usageSortDir",
+      host.usageSessionSortDir !== "desc" ? host.usageSessionSortDir : null,
+    );
   }
   if (tab === "skills") {
     setQueryValue(url, "skillFilter", host.skillsFilter);
