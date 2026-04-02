@@ -469,7 +469,7 @@ export function renderApp(state: AppViewState) {
         state.paletteActiveIndex = i;
       },
       onNavigate: (tab) => {
-        state.setTab(tab as import("./navigation.ts").Tab);
+        state.setTab(tab);
       },
       onSlashCommand: (cmd) => {
         state.setTab("chat" as import("./navigation.ts").Tab);
@@ -502,7 +502,13 @@ export function renderApp(state: AppViewState) {
             <span class="nav-collapse-toggle__icon" aria-hidden="true">${icons.menu}</span>
           </button>
           <div class="topnav-shell__content">
-            <dashboard-header .tab=${state.tab}></dashboard-header>
+            <dashboard-header
+              .tab=${state.tab}
+              .homeHref=${buildCanonicalTabHref(state, "overview")}
+              @navigate=${() => {
+                state.setTab("overview");
+              }}
+            ></dashboard-header>
           </div>
           <div class="topnav-shell__actions">
             <button
