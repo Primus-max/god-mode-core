@@ -14,11 +14,23 @@ export type LogsProps = {
   truncated: boolean;
   onFilterTextChange: (next: string) => void;
   onLevelToggle: (level: LogLevel, enabled: boolean) => void;
+  buildLevelHref: (level: LogLevel, enabled: boolean) => string;
   onToggleAutoFollow: (next: boolean) => void;
   onRefresh: () => void;
   onExport: (lines: string[], label: string) => void;
   onScroll: (event: Event) => void;
 };
+
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  );
+}
 
 function formatTime(value?: string | null) {
   if (!value) {
@@ -100,17 +112,26 @@ export function renderLogs(props: LogsProps) {
 
       <div class="chip-row" style="margin-top: 12px;">
         ${LEVELS.map(
-          (level) => html`
-            <label class="chip log-chip ${level}">
-              <input
-                type="checkbox"
-                .checked=${props.levelFilters[level]}
-                @change=${(e: Event) =>
-                  props.onLevelToggle(level, (e.target as HTMLInputElement).checked)}
-              />
-              <span>${level}</span>
-            </label>
-          `,
+          (level) => {
+            const enabled = props.levelFilters[level];
+            return html`
+              <a
+                class="chip log-chip ${level} ${enabled ? "is-active" : "is-inactive"}"
+                href=${props.buildLevelHref(level, !enabled)}
+                aria-current=${enabled ? "page" : "false"}
+                @click=${(event: MouseEvent) => {
+                  if (isModifiedNavigationClick(event)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  props.onLevelToggle(level, !enabled);
+                }}
+              >
+                <span>${level}</span>
+                <span class="log-chip-state">${enabled ? "on" : "off"}</span>
+              </a>
+            `;
+          },
         )}
       </div>
 
