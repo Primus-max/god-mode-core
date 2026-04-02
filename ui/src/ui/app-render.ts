@@ -25,6 +25,7 @@ import {
   buildCanonicalSessionsRuntimeHref,
   buildCanonicalSettingsShellHref,
   buildCanonicalChannelHref,
+  buildCanonicalCronEditHref,
   buildCanonicalCronJobHref,
   buildCanonicalTabHref,
   buildTabHref,
@@ -1102,6 +1103,8 @@ export function renderApp(state: AppViewState) {
                 m.renderCron({
                   basePath: state.basePath,
                   buildJobHref: (jobId) => buildCanonicalCronJobHref(state, jobId),
+                  buildEditHref: (jobId) => buildCanonicalCronEditHref(state, jobId),
+                  buildCancelEditHref: () => buildCanonicalCronEditHref(state, null),
                   loading: state.cronLoading,
                   status: state.cronStatus,
                   jobs: visibleCronJobs,
@@ -1147,13 +1150,28 @@ export function renderApp(state: AppViewState) {
                     state.cronFieldErrors = validateCronForm(state.cronForm);
                   },
                   onRefresh: () => state.loadCron(),
-                  onAdd: () => addCronJob(state),
-                  onEdit: (job) => startCronEdit(state, job),
-                  onClone: (job) => startCronClone(state, job),
-                  onCancelEdit: () => cancelCronEdit(state),
+                  onAdd: async () => {
+                    await addCronJob(state);
+                    syncUrlWithTab(state, "cron", true);
+                  },
+                  onEdit: (job) => {
+                    startCronEdit(state, job);
+                    syncUrlWithTab(state, "cron", true);
+                  },
+                  onClone: (job) => {
+                    startCronClone(state, job);
+                    syncUrlWithTab(state, "cron", true);
+                  },
+                  onCancelEdit: () => {
+                    cancelCronEdit(state);
+                    syncUrlWithTab(state, "cron", true);
+                  },
                   onToggle: (job, enabled) => toggleCronJob(state, job, enabled),
                   onRun: (job, mode) => runCronJob(state, job, mode ?? "force"),
-                  onRemove: (job) => removeCronJob(state, job),
+                  onRemove: async (job) => {
+                    await removeCronJob(state, job);
+                    syncUrlWithTab(state, "cron", true);
+                  },
                   onLoadRuns: async (jobId) => {
                     updateCronRunsFilter(state, { cronRunsScope: "job" });
                     await loadCronRuns(state, jobId);

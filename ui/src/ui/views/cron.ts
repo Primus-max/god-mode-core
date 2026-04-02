@@ -25,6 +25,8 @@ import type { CronFormState } from "../ui-types.ts";
 export type CronProps = {
   basePath: string;
   buildJobHref: (jobId: string) => string;
+  buildEditHref: (jobId: string) => string;
+  buildCancelEditHref: () => string;
   loading: boolean;
   jobsLoadingMore: boolean;
   status: CronStatus | null;
@@ -95,6 +97,16 @@ export type CronProps = {
   onNavigateToChat?: (sessionKey: string) => void;
   onNavigateToSessions?: (sessionKey: string) => void;
 };
+
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey
+  );
+}
 
 function getRunStatusOptions(): Array<{ value: CronRunsStatusValue; label: string }> {
   return [
@@ -1380,9 +1392,20 @@ export function renderCron(props: CronProps) {
           ${
             isEditing
               ? html`
-                  <button class="btn" ?disabled=${props.busy} @click=${props.onCancelEdit}>
+                  <a
+                    class="btn"
+                    href=${props.buildCancelEditHref()}
+                    aria-current="false"
+                    @click=${(event: MouseEvent) => {
+                      if (isModifiedNavigationClick(event)) {
+                        return;
+                      }
+                      event.preventDefault();
+                      props.onCancelEdit();
+                    }}
+                  >
                     ${t("cron.form.cancel")}
-                  </button>
+                  </a>
                 `
               : nothing
           }
@@ -1545,18 +1568,24 @@ function renderJob(job: CronJob, props: CronProps) {
           <span class="chip">${job.wakeMode}</span>
         </div>
         <div class="row cron-job-actions">
-          <button
-            class="btn"
-            ?disabled=${props.busy}
-            @click=${(event: Event) => {
+          <a
+            class=${`btn ${props.editingJobId === job.id ? "active" : ""}`}
+            href=${props.buildEditHref(job.id)}
+            aria-current=${props.editingJobId === job.id ? "page" : "false"}
+            @click=${(event: MouseEvent) => {
               event.stopPropagation();
+              if (isModifiedNavigationClick(event)) {
+                return;
+              }
+              event.preventDefault();
               selectAnd(() => props.onEdit(job));
             }}
           >
             ${t("cron.jobList.edit")}
-          </button>
+          </a>
           <button
             class="btn"
+            type="button"
             ?disabled=${props.busy}
             @click=${(event: Event) => {
               event.stopPropagation();
