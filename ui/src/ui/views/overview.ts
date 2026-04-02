@@ -82,6 +82,7 @@ export type OverviewProps = {
     tab: "usage" | "sessions" | "skills" | "cron",
     options?: OverviewCardNavigateOptions,
   ) => void;
+  onNavigateAttention: (href: string) => void;
   onNavigateToChat: (sessionKey: string) => void;
   onRefreshLogs: () => void;
   onSpecialistOverrideChange: (
@@ -447,7 +448,10 @@ export function renderOverview(props: OverviewProps) {
       onNavigateToChat: props.onNavigateToChat,
     })}
 
-    ${renderOverviewAttention({ items: props.attentionItems })}
+    ${renderOverviewAttention({
+      items: props.attentionItems,
+      onNavigate: props.onNavigateAttention,
+    })}
 
     <div class="ov-section-divider"></div>
 

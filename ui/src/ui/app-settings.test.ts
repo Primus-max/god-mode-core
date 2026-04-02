@@ -2121,11 +2121,17 @@ describe("buildAttentionItems", () => {
       expect.arrayContaining([
         expect.objectContaining({
           title: "Recovery needs review for Main session",
-          href: "/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&runtimeRun=recovery-run&checkpoint=cp-2",
+          href: buildCanonicalSessionsRuntimeHref(host as never, {
+            sessionKey: "agent:main:main",
+            runId: "recovery-run",
+            checkpointId: "cp-2",
+          }),
         }),
         expect.objectContaining({
           title: "Bootstrap request linked to current recovery",
-          href: "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
+          href: buildCanonicalBootstrapHref(host as never, {
+            requestId: "bootstrap-1",
+          }),
         }),
       ]),
     );
@@ -2161,7 +2167,10 @@ describe("buildAttentionItems", () => {
       expect.arrayContaining([
         expect.objectContaining({
           title: "Recovery needs review for Main session",
-          href: "/ui/sessions?session=agent%3Amain%3Amain&runtimeSession=agent%3Amain%3Amain&checkpoint=cp-1",
+          href: buildCanonicalSessionsRuntimeHref(host as never, {
+            sessionKey: "agent:main:main",
+            checkpointId: "cp-1",
+          }),
         }),
       ]),
     );
@@ -2186,12 +2195,12 @@ describe("buildAttentionItems", () => {
       expect.arrayContaining([
         expect.objectContaining({
           title: "1 cron job failed",
-          href: "/ui/cron?session=agent%3Amain%3Amain&cronJob=cron-1",
+          href: buildCanonicalCronJobHref(host as never, "cron-1"),
           actionLabel: "Open",
         }),
         expect.objectContaining({
           title: "1 overdue job",
-          href: "/ui/cron?session=agent%3Amain%3Amain&cronJob=cron-1",
+          href: buildCanonicalCronJobHref(host as never, "cron-1"),
           actionLabel: "Open",
         }),
       ]),
@@ -2225,12 +2234,24 @@ describe("buildAttentionItems", () => {
       expect.arrayContaining([
         expect.objectContaining({
           title: "Skills with missing dependencies",
-          href: `/ui/skills?session=agent%3Amain%3Amain&skillFilter=${toQueryValue(SKILL_FILTER_MISSING)}`,
+          href: buildCanonicalTabHref(
+            {
+              ...(host as never),
+              skillsFilter: SKILL_FILTER_MISSING,
+            },
+            "skills",
+          ),
           actionLabel: "Open",
         }),
         expect.objectContaining({
           title: "1 skill blocked",
-          href: `/ui/skills?session=agent%3Amain%3Amain&skillFilter=${toQueryValue(SKILL_FILTER_BLOCKED)}`,
+          href: buildCanonicalTabHref(
+            {
+              ...(host as never),
+              skillsFilter: SKILL_FILTER_BLOCKED,
+            },
+            "skills",
+          ),
           actionLabel: "Open",
         }),
       ]),
@@ -2262,7 +2283,7 @@ describe("buildAttentionItems", () => {
       expect.arrayContaining([
         expect.objectContaining({
           title: "1 channel issue detected",
-          href: "/ui/channels?session=agent%3Amain%3Amain&channel=slack",
+          href: buildCanonicalChannelHref(host as never, "slack"),
           actionLabel: "Open",
         }),
       ]),
@@ -2281,7 +2302,7 @@ describe("buildAttentionItems", () => {
       expect.arrayContaining([
         expect.objectContaining({
           title: "Gateway Error",
-          href: "/ui/logs?session=agent%3Amain%3Amain",
+          href: buildCanonicalLogsHref(host as never),
           actionLabel: "Open",
         }),
       ]),
@@ -2312,7 +2333,11 @@ describe("buildAttentionItems", () => {
       expect.arrayContaining([
         expect.objectContaining({
           title: "1 exec approval pending",
-          href: "/ui/nodes?session=agent%3Amain%3Amain&execTarget=node&execNode=node-1&execAgent=main",
+          href: buildCanonicalNodesExecApprovalsHref(host as never, {
+            target: "node",
+            nodeId: "node-1",
+            agentId: "main",
+          }),
           actionLabel: "Open",
         }),
       ]),

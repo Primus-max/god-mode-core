@@ -29,6 +29,7 @@ import {
   buildCanonicalCronJobHref,
   buildCanonicalTabHref,
   buildTabHref,
+  onPopState,
   syncUrlWithTab,
 } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
@@ -747,6 +748,14 @@ export function renderApp(state: AppViewState) {
                     state.skillsFilter = options?.skillFilter ?? "";
                   }
                   state.setTab(tab as import("./navigation.ts").Tab);
+                },
+                onNavigateAttention: (href) => {
+                  if (typeof window === "undefined") {
+                    return;
+                  }
+                  const target = new URL(href, window.location.origin);
+                  window.history.pushState({}, "", `${target.pathname}${target.search}${target.hash}`);
+                  onPopState(state as unknown as Parameters<typeof onPopState>[0]);
                 },
                 onNavigateToChat: (sessionKey) => {
                   switchChatSession(state, sessionKey);
