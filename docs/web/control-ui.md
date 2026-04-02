@@ -105,6 +105,11 @@ Usage panel notes:
 - Usage day/hour drill-down now rides that same canonical contract too: selected `usageDays` and `usageHours` survive refresh/popstate, and clearing the restored chips removes the same query state instead of leaving stale local-only filters behind.
 - When a single `usageSession` is present in the link, the usage summary reload path reopens the same time-series and session-log detail flow after refresh, so operators can share one session investigation path instead of reselecting it manually.
 
+Shell navigation notes:
+
+- The topbar `OpenClaw` breadcrumb now targets the same canonical `overview` destination as the rest of the shell, so primary clicks stay inside the SPA while modified clicks and copied links still use the browser-visible `href`.
+- The command palette navigation list now tracks the same shared tab model as the sidebar, keeping keyboard-first navigation aligned with the same operator surfaces and URL sync behavior.
+
 Channels panel notes:
 
 - Overview attention can now route channel-specific failures into the Channels surface with a persisted `channel` query, so operators can refresh or share the link without losing which channel needs attention.

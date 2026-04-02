@@ -3,6 +3,7 @@ import { ref } from "lit/directives/ref.js";
 import { t } from "../../i18n/index.ts";
 import { SLASH_COMMANDS } from "../chat/slash-commands.ts";
 import { icons, type IconName } from "../icons.ts";
+import { TAB_GROUPS, iconForTab, titleForTab, type Tab } from "../navigation.ts";
 
 type PaletteItem = {
   id: string;
@@ -22,44 +23,19 @@ const SLASH_PALETTE_ITEMS: PaletteItem[] = SLASH_COMMANDS.map((command) => ({
   description: command.description,
 }));
 
+const NAVIGATION_PALETTE_ITEMS: PaletteItem[] = TAB_GROUPS.flatMap((group) =>
+  group.tabs.map((tab) => ({
+    id: `nav-${tab}`,
+    label: titleForTab(tab),
+    icon: iconForTab(tab),
+    category: "navigation" as const,
+    action: `nav:${tab}`,
+  })),
+);
+
 const PALETTE_ITEMS: PaletteItem[] = [
   ...SLASH_PALETTE_ITEMS,
-  {
-    id: "nav-overview",
-    label: "Overview",
-    icon: "barChart",
-    category: "navigation",
-    action: "nav:overview",
-  },
-  {
-    id: "nav-sessions",
-    label: "Sessions",
-    icon: "fileText",
-    category: "navigation",
-    action: "nav:sessions",
-  },
-  {
-    id: "nav-cron",
-    label: "Scheduled",
-    icon: "scrollText",
-    category: "navigation",
-    action: "nav:cron",
-  },
-  { id: "nav-skills", label: "Skills", icon: "zap", category: "navigation", action: "nav:skills" },
-  {
-    id: "nav-config",
-    label: "Settings",
-    icon: "settings",
-    category: "navigation",
-    action: "nav:config",
-  },
-  {
-    id: "nav-agents",
-    label: "Agents",
-    icon: "folder",
-    category: "navigation",
-    action: "nav:agents",
-  },
+  ...NAVIGATION_PALETTE_ITEMS,
   {
     id: "skill-shell",
     label: "Shell Command",
@@ -89,7 +65,7 @@ export type CommandPaletteProps = {
   onToggle: () => void;
   onQueryChange: (query: string) => void;
   onActiveIndexChange: (index: number) => void;
-  onNavigate: (tab: string) => void;
+  onNavigate: (tab: Tab) => void;
   onSlashCommand: (command: string) => void;
 };
 
@@ -130,7 +106,7 @@ function restoreFocus() {
 
 function selectItem(item: PaletteItem, props: CommandPaletteProps) {
   if (item.action.startsWith("nav:")) {
-    props.onNavigate(item.action.slice(4));
+    props.onNavigate(item.action.slice(4) as Tab);
   } else {
     props.onSlashCommand(item.action);
   }
