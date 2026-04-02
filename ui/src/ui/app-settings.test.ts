@@ -1298,25 +1298,33 @@ describe("syncUrlWithTab", () => {
   it("builds canonical bootstrap and artifacts hrefs with list query overrides", () => {
     const bootstrapHost = createHost("bootstrap");
     bootstrapHost.basePath = "/ui";
+    bootstrapHost.sessionKey = "main";
     bootstrapHost.bootstrapFilterQuery = "renderer";
     bootstrapHost.bootstrapSelectedId = "bootstrap-1";
 
     expect(
       buildCanonicalBootstrapHref(bootstrapHost, {
+        sessionKey: "agent:main:linked",
         requestId: "bootstrap-2",
       }),
-    ).toBe("/ui/bootstrap?session=main&bootstrapQ=renderer&bootstrapRequest=bootstrap-2");
+    ).toBe(
+      "/ui/bootstrap?session=agent%3Amain%3Alinked&bootstrapQ=renderer&bootstrapRequest=bootstrap-2",
+    );
 
     const artifactsHost = createHost("artifacts");
     artifactsHost.basePath = "/ui";
+    artifactsHost.sessionKey = "main";
     artifactsHost.artifactsFilterQuery = "invoice";
     artifactsHost.artifactsSelectedId = "artifact-1";
 
     expect(
       buildCanonicalArtifactsHref(artifactsHost, {
+        sessionKey: "agent:main:linked",
         artifactId: "artifact-2",
       }),
-    ).toBe("/ui/artifacts?session=main&artifactQ=invoice&artifact=artifact-2");
+    ).toBe(
+      "/ui/artifacts?session=agent%3Amain%3Alinked&artifactQ=invoice&artifact=artifact-2",
+    );
   });
 
   it("builds canonical logs hrefs with filter and level overrides", () => {

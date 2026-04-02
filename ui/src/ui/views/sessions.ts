@@ -65,6 +65,8 @@ export type SessionsProps = {
   onInspectRuntimeSession: (sessionKey: string, runId?: string) => void;
   buildRuntimeInspectHref: (sessionKey: string, runId?: string | null) => string;
   buildRuntimeCheckpointHref: (checkpoint: RuntimeCheckpointSummary) => string;
+  buildRuntimeBootstrapHref: (sessionKey: string | null, requestId: string) => string;
+  buildRuntimeArtifactHref: (sessionKey: string | null, artifactId: string) => string;
   onSelectRuntimeCheckpoint: (checkpointId: string) => void;
   buildRuntimeActionHref: (actionId: string) => string;
   onSelectRuntimeAction: (actionId: string) => void;
@@ -88,6 +90,7 @@ export type SessionsProps = {
   onDeselectAll: () => void;
   onDeleteSelected: () => void;
   onNavigateToChat?: (sessionKey: string) => void;
+  onNavigateRuntimeLinkedRecord?: (href: string) => void;
 };
 
 const THINK_LEVELS = ["", "off", "minimal", "low", "medium", "high", "xhigh"] as const;
@@ -371,17 +374,28 @@ function renderRuntimeLinkedRecords(checkpoint: RuntimeCheckpointSummary, props:
   if (!checkpoint.target?.bootstrapRequestId && !checkpoint.target?.artifactId) {
     return nothing;
   }
+  const sessionKey = checkpoint.sessionKey ?? props.runtimeSessionKey ?? null;
+  const bootstrapHref = checkpoint.target?.bootstrapRequestId
+    ? props.buildRuntimeBootstrapHref(sessionKey, checkpoint.target.bootstrapRequestId)
+    : null;
+  const artifactHref = checkpoint.target?.artifactId
+    ? props.buildRuntimeArtifactHref(sessionKey, checkpoint.target.artifactId)
+    : null;
   return html`
     <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:12px;">
       ${
-        checkpoint.target?.bootstrapRequestId
+        bootstrapHref
           ? html`
               <a
                 class="btn"
-                href=${buildTabHref({ basePath: props.basePath }, "bootstrap", {
-                  session: checkpoint.sessionKey ?? props.runtimeSessionKey,
-                  bootstrapRequest: checkpoint.target.bootstrapRequestId,
-                })}
+                href=${bootstrapHref}
+                @click=${(event: MouseEvent) => {
+                  if (!props.onNavigateRuntimeLinkedRecord || isModifiedNavigationClick(event)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  props.onNavigateRuntimeLinkedRecord(bootstrapHref);
+                }}
               >
                 ${t("sessions.runtime.links.openBootstrap")}
               </a>
@@ -389,14 +403,18 @@ function renderRuntimeLinkedRecords(checkpoint: RuntimeCheckpointSummary, props:
           : nothing
       }
       ${
-        checkpoint.target?.artifactId
+        artifactHref
           ? html`
               <a
                 class="btn"
-                href=${buildTabHref({ basePath: props.basePath }, "artifacts", {
-                  session: checkpoint.sessionKey ?? props.runtimeSessionKey,
-                  artifact: checkpoint.target.artifactId,
-                })}
+                href=${artifactHref}
+                @click=${(event: MouseEvent) => {
+                  if (!props.onNavigateRuntimeLinkedRecord || isModifiedNavigationClick(event)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  props.onNavigateRuntimeLinkedRecord(artifactHref);
+                }}
               >
                 ${t("sessions.runtime.links.openArtifact")}
               </a>

@@ -345,6 +345,14 @@ export function renderApp(state: AppViewState) {
       ? () => updatableState.requestUpdate?.()
       : undefined;
   _pendingUpdate = requestHostUpdate;
+  const navigateByHref = (href: string) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const target = new URL(href, window.location.origin);
+    window.history.pushState({}, "", `${target.pathname}${target.search}${target.hash}`);
+    onPopState(state as unknown as Parameters<typeof onPopState>[0]);
+  };
 
   // Gate: require successful gateway connection before showing the dashboard.
   // The gateway URL confirmation overlay is always rendered so URL-param flows still work.
@@ -749,14 +757,7 @@ export function renderApp(state: AppViewState) {
                   }
                   state.setTab(tab as import("./navigation.ts").Tab);
                 },
-                onNavigateAttention: (href) => {
-                  if (typeof window === "undefined") {
-                    return;
-                  }
-                  const target = new URL(href, window.location.origin);
-                  window.history.pushState({}, "", `${target.pathname}${target.search}${target.hash}`);
-                  onPopState(state as unknown as Parameters<typeof onPopState>[0]);
-                },
+                onNavigateAttention: navigateByHref,
                 onNavigateToChat: (sessionKey) => {
                   switchChatSession(state, sessionKey);
                   state.setTab("chat" as import("./navigation.ts").Tab);
@@ -927,6 +928,16 @@ export function renderApp(state: AppViewState) {
                       actionId: null,
                       closureRunId: null,
                     }),
+                  buildRuntimeBootstrapHref: (sessionKey, requestId) =>
+                    buildCanonicalBootstrapHref(state, {
+                      sessionKey,
+                      requestId,
+                    }),
+                  buildRuntimeArtifactHref: (sessionKey, artifactId) =>
+                    buildCanonicalArtifactsHref(state, {
+                      sessionKey,
+                      artifactId,
+                    }),
                   onSelectRuntimeCheckpoint: async (checkpointId) => {
                     await loadRuntimeCheckpointDetail(state, checkpointId);
                     syncUrlWithTab(state, "sessions", true);
@@ -997,6 +1008,7 @@ export function renderApp(state: AppViewState) {
                     switchChatSession(state, sessionKey);
                     state.setTab("chat" as import("./navigation.ts").Tab);
                   },
+                  onNavigateRuntimeLinkedRecord: navigateByHref,
                 }),
               )
             : nothing

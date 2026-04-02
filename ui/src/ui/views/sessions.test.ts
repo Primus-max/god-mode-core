@@ -3,7 +3,11 @@
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
-import { buildTabHref } from "../app-settings.ts";
+import {
+  buildCanonicalArtifactsHref,
+  buildCanonicalBootstrapHref,
+  buildTabHref,
+} from "../app-settings.ts";
 import type { SessionsListResult } from "../types.ts";
 import { renderSessions, type SessionsProps } from "./sessions.ts";
 
@@ -94,6 +98,32 @@ function buildProps(result: SessionsListResult): SessionsProps {
       buildTabHref({ basePath: "" }, "sessions", {
         checkpoint: checkpoint.id,
       }),
+    buildRuntimeBootstrapHref: (sessionKey, requestId) =>
+      buildCanonicalBootstrapHref(
+        {
+          basePath: "",
+          sessionKey,
+          bootstrapFilterQuery: null,
+          bootstrapSelectedId: null,
+        } as never,
+        {
+          sessionKey,
+          requestId,
+        },
+      ),
+    buildRuntimeArtifactHref: (sessionKey, artifactId) =>
+      buildCanonicalArtifactsHref(
+        {
+          basePath: "",
+          sessionKey,
+          artifactsFilterQuery: null,
+          artifactsSelectedId: null,
+        } as never,
+        {
+          sessionKey,
+          artifactId,
+        },
+      ),
     onSelectRuntimeCheckpoint: () => undefined,
     buildRuntimeActionHref: (actionId) =>
       buildTabHref({ basePath: "" }, "sessions", {
@@ -113,6 +143,7 @@ function buildProps(result: SessionsListResult): SessionsProps {
     onDeselectPage: () => undefined,
     onDeselectAll: () => undefined,
     onDeleteSelected: () => undefined,
+    onNavigateRuntimeLinkedRecord: () => undefined,
   };
 }
 
@@ -583,13 +614,39 @@ describe("sessions view", () => {
     expect(container.textContent).toContain("run");
   });
 
-  it("renders contextual links to linked bootstrap and artifact records", async () => {
+  it("renders canonical hrefs for linked bootstrap and artifact records", async () => {
     const container = document.createElement("div");
 
     render(
       renderSessions({
         ...buildProps(buildResult(buildSession())),
         basePath: "/ui",
+        buildRuntimeBootstrapHref: (sessionKey, requestId) =>
+          buildCanonicalBootstrapHref(
+            {
+              basePath: "/ui",
+              sessionKey,
+              bootstrapFilterQuery: "renderer",
+              bootstrapSelectedId: "bootstrap-0",
+            } as never,
+            {
+              sessionKey,
+              requestId,
+            },
+          ),
+        buildRuntimeArtifactHref: (sessionKey, artifactId) =>
+          buildCanonicalArtifactsHref(
+            {
+              basePath: "/ui",
+              sessionKey,
+              artifactsFilterQuery: "invoice",
+              artifactsSelectedId: "artifact-0",
+            } as never,
+            {
+              sessionKey,
+              artifactId,
+            },
+          ),
         runtimeSelectedCheckpointId: "cp-1",
         runtimeCheckpointDetail: {
           id: "cp-1",
@@ -625,17 +682,164 @@ describe("sessions view", () => {
       link.getAttribute("href"),
     );
     expect(links).toContain(
-      buildTabHref({ basePath: "/ui" }, "bootstrap", {
-        session: "agent:main:main",
-        bootstrapRequest: "bootstrap-1",
-      }),
+      buildCanonicalBootstrapHref(
+        {
+          basePath: "/ui",
+          sessionKey: "agent:main:main",
+          bootstrapFilterQuery: "renderer",
+          bootstrapSelectedId: "bootstrap-0",
+        } as never,
+        {
+          sessionKey: "agent:main:main",
+          requestId: "bootstrap-1",
+        },
+      ),
     );
     expect(links).toContain(
-      buildTabHref({ basePath: "/ui" }, "artifacts", {
-        session: "agent:main:main",
-        artifact: "artifact-1",
-      }),
+      buildCanonicalArtifactsHref(
+        {
+          basePath: "/ui",
+          sessionKey: "agent:main:main",
+          artifactsFilterQuery: "invoice",
+          artifactsSelectedId: "artifact-0",
+        } as never,
+        {
+          sessionKey: "agent:main:main",
+          artifactId: "artifact-1",
+        },
+      ),
     );
+  });
+
+  it("uses JS handoff for primary clicks on linked bootstrap and artifact records", async () => {
+    const onNavigateRuntimeLinkedRecord = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(buildResult(buildSession())),
+        onNavigateRuntimeLinkedRecord,
+        buildRuntimeBootstrapHref: () => "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
+        buildRuntimeArtifactHref: () => "/ui/artifacts?session=agent%3Amain%3Amain&artifact=artifact-1",
+        runtimeSelectedCheckpointId: "cp-1",
+        runtimeCheckpointDetail: {
+          id: "cp-1",
+          runId: "run-1",
+          sessionKey: "agent:main:main",
+          boundary: "bootstrap",
+          status: "blocked",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+          target: {
+            bootstrapRequestId: "bootstrap-1",
+            artifactId: "artifact-1",
+            operation: "bootstrap.run",
+          },
+        },
+        runtimeCheckpoints: [
+          {
+            id: "cp-1",
+            runId: "run-1",
+            sessionKey: "agent:main:main",
+            boundary: "bootstrap",
+            status: "blocked",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const bootstrapLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Open bootstrap"),
+    ) as HTMLAnchorElement | undefined;
+    const artifactLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Open artifact"),
+    ) as HTMLAnchorElement | undefined;
+
+    const bootstrapEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    bootstrapLink?.dispatchEvent(bootstrapEvent);
+    const artifactEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    artifactLink?.dispatchEvent(artifactEvent);
+
+    expect(onNavigateRuntimeLinkedRecord).toHaveBeenNthCalledWith(
+      1,
+      "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
+    );
+    expect(onNavigateRuntimeLinkedRecord).toHaveBeenNthCalledWith(
+      2,
+      "/ui/artifacts?session=agent%3Amain%3Amain&artifact=artifact-1",
+    );
+    expect(bootstrapEvent.defaultPrevented).toBe(true);
+    expect(artifactEvent.defaultPrevented).toBe(true);
+  });
+
+  it("lets modified clicks fall through for linked bootstrap and artifact records", async () => {
+    const onNavigateRuntimeLinkedRecord = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(buildResult(buildSession())),
+        onNavigateRuntimeLinkedRecord,
+        buildRuntimeBootstrapHref: () => "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
+        buildRuntimeArtifactHref: () => "/ui/artifacts?session=agent%3Amain%3Amain&artifact=artifact-1",
+        runtimeSelectedCheckpointId: "cp-1",
+        runtimeCheckpointDetail: {
+          id: "cp-1",
+          runId: "run-1",
+          sessionKey: "agent:main:main",
+          boundary: "bootstrap",
+          status: "blocked",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+          target: {
+            bootstrapRequestId: "bootstrap-1",
+            artifactId: "artifact-1",
+            operation: "bootstrap.run",
+          },
+        },
+        runtimeCheckpoints: [
+          {
+            id: "cp-1",
+            runId: "run-1",
+            sessionKey: "agent:main:main",
+            boundary: "bootstrap",
+            status: "blocked",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+          },
+        ],
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const bootstrapLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Open bootstrap"),
+    ) as HTMLAnchorElement | undefined;
+    const artifactLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Open artifact"),
+    ) as HTMLAnchorElement | undefined;
+
+    const bootstrapEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    bootstrapLink?.dispatchEvent(bootstrapEvent);
+    const artifactEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    artifactLink?.dispatchEvent(artifactEvent);
+
+    expect(onNavigateRuntimeLinkedRecord).not.toHaveBeenCalled();
+    expect(bootstrapEvent.defaultPrevented).toBe(false);
+    expect(artifactEvent.defaultPrevented).toBe(false);
   });
 
   it("renders canonical chat links for session rows", async () => {
