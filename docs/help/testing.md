@@ -258,6 +258,7 @@ Use this decision table:
 - Editing logic/tests: run `pnpm test` (and `pnpm test:coverage` if you changed a lot)
 - Touching gateway boot / token auth / WS connect / basic node pairing / chat lifecycle: run `pnpm test:e2e:smoke`
 - Touching delivery truth / `runClosureSummary` / handoff fields / recovery checkpoints: run `pnpm test:gateway:recovery-confidence`
+- Touching session broadcast / `sessions.changed` payload shape / event hub policy / omission semantics: run `pnpm test:gateway:session-event-parity`
 - Touching gateway networking / WS protocol / pairing more broadly: add `pnpm test:e2e`
 - Debugging “my bot is down” / provider-specific failures / tool calling: run a narrowed `pnpm test:live`
 
@@ -299,6 +300,25 @@ Current baseline scenarios:
 - Continuation contract: active recovery handoff truth can override the durable closure `runId` while reusing the original confirmed delivery evidence instead of creating a second confirmed action.
 
 Use this layer after changes that touch delivery truth, closure summaries, recovery checkpoints, or session-facing handoff projection. Keep the heavier manual smoke below for real local gateway validation and pre-deploy sanity checks.
+
+## Session event broadcast parity evals (CI-safe)
+
+These deterministic regressions lock the parity between canonical session row truth and the `sessions.changed` broadcast payload contract without requiring a live provider, a running local gateway, or manual WebSocket inspection.
+
+- Focused command: `pnpm test:gateway:session-event-parity`
+- Focused suite: `src/gateway/session-event-broadcast-parity.test.ts`
+- Underlying seams: `src/gateway/session-broadcast-snapshot.ts`, `src/gateway/session-event-hub.ts`
+
+This layer is distinct from the recovery-confidence suite: recovery-confidence proves parity between session-facing handoff truth and runtime ledgers; this layer proves that the same truth is stably delivered through the broadcast surface.
+
+Current baseline scenarios:
+
+- Flat payload parity: top-level `sessions.changed` fields match the canonical `GatewaySessionRow` truth for core identity, runtime, and model fields.
+- Omission semantics: absent optional `handoff*`, recovery, and `runClosureSummary` keys are dropped by `JSON.stringify` on the wire and must not be treated as contract drift by consumers.
+- Variant policy: mutation and lifecycle surfaces omit the nested `session` wrapper; transcript and `session.message` surfaces include it. This policy is stable across hub variants.
+- Recovery-aligned broadcast: recovery, closure, and handoff fields from Stage 82 (checkpointId, status, continuationState, handoffTruthSource, handoffRunId, runClosureSummary) travel through the broadcast layer at the top level without being buried inside a nested object.
+
+Use this layer after changes that touch session broadcast shape, handoff projection, event hub policy, or omission semantics. The recovery-confidence suite remains the right first stop for delivery truth and closure parity changes.
 
 ## Local runtime recovery smoke
 
