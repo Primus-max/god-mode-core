@@ -257,6 +257,7 @@ Use this decision table:
 
 - Editing logic/tests: run `pnpm test` (and `pnpm test:coverage` if you changed a lot)
 - Touching gateway boot / token auth / WS connect / basic node pairing / chat lifecycle: run `pnpm test:e2e:smoke`
+- Touching delivery truth / `runClosureSummary` / handoff fields / recovery checkpoints: run `pnpm test:gateway:recovery-confidence`
 - Touching gateway networking / WS protocol / pairing more broadly: add `pnpm test:e2e`
 - Debugging “my bot is down” / provider-specific failures / tool calling: run a narrowed `pnpm test:live`
 
@@ -283,9 +284,25 @@ When you change producer-side session event behavior, keep the regression matrix
 - `src/gateway/session-event-hub.test.ts` should lock the policy differences between mutation, lifecycle, transcript, and `session.message` surfaces.
 - Gateway integration coverage should still prove the real emit paths stay wired through the same hub (`src/gateway/server.sessions.gateway-server-sessions-a.test.ts`, `src/gateway/session-message-events.test.ts`, `src/gateway/server-chat.agent-events.test.ts`).
 
+## Runtime recovery confidence evals (CI-safe)
+
+These deterministic regressions lock the release-relevant parity between session-facing handoff truth and runtime ledgers without requiring a live provider, a running local gateway, or manual log correlation.
+
+- Focused command: `pnpm test:gateway:recovery-confidence`
+- Focused suite: `src/gateway/gateway.recovery-confidence.test.ts`
+- Harness helpers: `src/gateway/recovery-confidence.test-helpers.ts`
+
+Current baseline scenarios:
+
+- Confirmed delivery parity: `sessions.list` handoff fields, `runClosureSummary`, and `messaging_delivery` action truth stay aligned for a clean confirmed send.
+- Non-clean outcome parity: a failed delivery stays retryable/blocked instead of being flattened into a clean delivered closure story.
+- Continuation contract: active recovery handoff truth can override the durable closure `runId` while reusing the original confirmed delivery evidence instead of creating a second confirmed action.
+
+Use this layer after changes that touch delivery truth, closure summaries, recovery checkpoints, or session-facing handoff projection. Keep the heavier manual smoke below for real local gateway validation and pre-deploy sanity checks.
+
 ## Local runtime recovery smoke
 
-Run this after changes that touch delivery truth, closure truth, restart/recovery behavior, or operator inspection surfaces.
+Run this after the deterministic recovery-confidence suite when changes touch delivery truth, closure truth, restart/recovery behavior, or operator inspection surfaces.
 
 Acceptance criteria:
 
@@ -296,12 +313,13 @@ Acceptance criteria:
 
 Recommended flow:
 
-1. Run the default backend gate first.
+1. Run the default backend gate first. If the touched area includes delivery/recovery parity, add the focused deterministic suite before the manual smoke.
 
 ```bash
 pnpm build
 pnpm check
 OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+pnpm test:gateway:recovery-confidence
 ```
 
 2. If the change touched gateway orchestration, pairing, or cross-process recovery, add:
@@ -361,6 +379,7 @@ Targeted references while debugging:
 
 - Delivery truth and queue recovery: `src/infra/outbound/delivery-queue.recovery.test.ts`
 - Delivery-aware closure parity: `src/auto-reply/dispatch.delivery-closure.test.ts`
+- Gateway recovery confidence suite: `src/gateway/gateway.recovery-confidence.test.ts`
 - Reply-path delivery parity: `src/auto-reply/reply/route-reply.test.ts`
 - Runtime closure and receipt evaluation: `src/platform/runtime/service.test.ts`
 
