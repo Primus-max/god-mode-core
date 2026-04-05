@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+/**
+ * Contract marker: `preferredTools`, `toolHints`, `modelHints`, and related profile fields are
+ * planner and UX hints only. They MUST NOT be treated as policy grants, effective tool allowlists,
+ * or implicit capability approval. Downstream policy engines own authorization.
+ */
+export const PLATFORM_PROFILE_HINTS_ARE_NON_AUTHORITATIVE = true as const;
+
 export const PROFILE_IDS = [
   "builder",
   "developer",
@@ -18,9 +25,9 @@ export const TaskOverlaySchema = z
     id: z.string().min(1),
     label: z.string().min(1),
     parentProfile: ProfileIdSchema,
-    toolHints: z.array(z.string()).optional(),
-    modelHints: z.array(z.string()).optional(),
-    publishTargets: z.array(z.string()).optional(),
+    toolHints: z.array(z.string().min(1)).optional(),
+    modelHints: z.array(z.string().min(1)).optional(),
+    publishTargets: z.array(z.string().min(1)).optional(),
     timeoutSeconds: z.number().positive().optional(),
   })
   .strict();
@@ -32,9 +39,9 @@ export const ProfileSchema = z
     id: ProfileIdSchema,
     label: z.string().min(1),
     description: z.string().optional(),
-    defaultModel: z.string().optional(),
-    preferredTools: z.array(z.string()).optional(),
-    preferredPublishTargets: z.array(z.string()).optional(),
+    defaultModel: z.string().min(1).optional(),
+    preferredTools: z.array(z.string().min(1)).optional(),
+    preferredPublishTargets: z.array(z.string().min(1)).optional(),
     taskOverlays: z.array(TaskOverlaySchema).optional(),
     riskCeiling: z.enum(["low", "medium", "high"]).optional(),
     priority: z.number().int().nonnegative().optional(),

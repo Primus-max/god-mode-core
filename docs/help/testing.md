@@ -259,6 +259,7 @@ Use this decision table:
 - Touching gateway boot / token auth / WS connect / basic node pairing / chat lifecycle: run `pnpm test:e2e:smoke`
 - Touching delivery truth / `runClosureSummary` / handoff fields / recovery checkpoints: run `pnpm test:gateway:recovery-confidence`
 - Touching session broadcast / `sessions.changed` payload shape / event hub policy / omission semantics: run `pnpm test:gateway:session-event-parity`
+- Pre-v1 release stamp / all focused deterministic gates: run `pnpm test:v1-gate`
 - Touching gateway networking / WS protocol / pairing more broadly: add `pnpm test:e2e`
 - Debugging “my bot is down” / provider-specific failures / tool calling: run a narrowed `pnpm test:live`
 
@@ -319,6 +320,23 @@ Current baseline scenarios:
 - Recovery-aligned broadcast: recovery, closure, and handoff fields from Stage 82 (checkpointId, status, continuationState, handoffTruthSource, handoffRunId, runClosureSummary) travel through the broadcast layer at the top level without being buried inside a nested object.
 
 Use this layer after changes that touch session broadcast shape, handoff projection, event hub policy, or omission semantics. The recovery-confidence suite remains the right first stop for delivery truth and closure parity changes.
+
+## V1 release gate (CI-safe)
+
+This is the canonical pre-release stamp that must pass before tagging a v1 release. It orchestrates all focused deterministic gate suites added across Stages 79–83 into a single command.
+
+- **Command**: `pnpm test:v1-gate`
+- **Runs**: `pnpm test:gateway:recovery-confidence && pnpm test:gateway:session-event-parity`
+- **Requires**: no live providers, no running local gateway, no manual inspection
+
+What it covers:
+
+- Runtime recovery confidence: delivery truth, closure summaries, recovery checkpoints, and session-facing handoff parity (Stage 82).
+- Session event broadcast parity: `sessions.changed` payload shape, omission semantics, variant policy, and recovery-aligned broadcast fields (Stage 83).
+
+This command is **optional** as a follow-up to the base `pnpm build && pnpm check && pnpm test && pnpm test:e2e:smoke` ladder during ordinary development, but is **mandatory** before cutting a v1 tag. It is intentionally separate from `pnpm test:e2e:smoke`, which validates gateway boot and networking rather than data-layer parity contracts.
+
+As new focused deterministic gates are added in future stages, they are appended to this command — keeping `pnpm test:v1-gate` the single authoritative pre-release stamp.
 
 ## Local runtime recovery smoke
 

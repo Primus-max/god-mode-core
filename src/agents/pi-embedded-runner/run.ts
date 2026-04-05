@@ -9,6 +9,7 @@ import { computeBackoff, sleepWithAbort, type BackoffPolicy } from "../../infra/
 import { generateSecureToken } from "../../infra/secure-random.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import {
+  buildExecutionIntentSeedFromRecipeRuntimePlan,
   getPlatformRuntimeCheckpointService,
   type PlatformRuntimeExecutionIntent,
   PlatformRuntimeRunOutcomeSchema,
@@ -312,35 +313,9 @@ function buildExecutionIntentFromRuntimePlan(params: {
   if (!runtimePlan) {
     return runtimeService.buildExecutionIntent({ runId });
   }
-  const declaredRequiresOutput =
-    runtimePlan.intent !== "general" ||
-    (runtimePlan.publishTargets?.length ?? 0) > 0 ||
-    (runtimePlan.artifactKinds?.length ?? 0) > 0;
   return runtimeService.buildExecutionIntent({
     runId,
-    executionIntent: {
-      profileId: runtimePlan.selectedProfileId,
-      recipeId: runtimePlan.selectedRecipeId,
-      ...(runtimePlan.taskOverlayId ? { taskOverlayId: runtimePlan.taskOverlayId } : {}),
-      ...(runtimePlan.plannerReasoning ? { plannerReasoning: runtimePlan.plannerReasoning } : {}),
-      ...(runtimePlan.intent ? { intent: runtimePlan.intent } : {}),
-      ...(runtimePlan.publishTargets?.length ? { publishTargets: runtimePlan.publishTargets } : {}),
-      ...(runtimePlan.artifactKinds?.length ? { artifactKinds: runtimePlan.artifactKinds } : {}),
-      ...(runtimePlan.requestedToolNames?.length
-        ? { requestedToolNames: runtimePlan.requestedToolNames }
-        : {}),
-      ...(runtimePlan.requiredCapabilities?.length
-        ? { requiredCapabilities: runtimePlan.requiredCapabilities }
-        : {}),
-      ...(runtimePlan.bootstrapRequiredCapabilities?.length
-        ? { bootstrapRequiredCapabilities: runtimePlan.bootstrapRequiredCapabilities }
-        : {}),
-      ...(runtimePlan.requireExplicitApproval !== undefined
-        ? { requireExplicitApproval: runtimePlan.requireExplicitApproval }
-        : {}),
-      ...(runtimePlan.policyAutonomy ? { policyAutonomy: runtimePlan.policyAutonomy } : {}),
-      expectations: declaredRequiresOutput ? { requiresOutput: true } : {},
-    },
+    executionIntent: buildExecutionIntentSeedFromRecipeRuntimePlan(runtimePlan),
   });
 }
 
@@ -486,7 +461,8 @@ export async function runEmbeddedPiAgent(
           `[workspace-fallback] caller=runEmbeddedPiAgent reason=${workspaceResolution.fallbackReason} run=${params.runId} session=${redactedSessionId} sessionKey=${redactedSessionKey} agent=${workspaceResolution.agentId} workspace=${redactedWorkspace}`,
         );
       }
-      ensureRuntimePluginsLoaded({
+      const _ensureRuntimePluginsLoaded = params.ensureRuntimePluginsLoaded ?? ensureRuntimePluginsLoaded;
+      _ensureRuntimePluginsLoaded({
         config: params.config,
         workspaceDir: resolvedWorkspace,
         allowGatewaySubagentBinding: params.allowGatewaySubagentBinding,
@@ -507,7 +483,8 @@ export async function runEmbeddedPiAgent(
         runId: params.runId,
         platformExecutionContext: params.platformExecutionContext,
       });
-      await ensureOpenClawModelsJson(params.config, agentDir);
+      const _mfn = params.ensureModelsJson ?? ensureOpenClawModelsJson;
+      const _modelsResult = await _mfn(params.config, agentDir);
 
       // Run before_model_resolve hooks early so plugins can override the
       // provider/model before resolveModel().
@@ -618,7 +595,8 @@ export async function runEmbeddedPiAgent(
         log.info(`[hooks] model overridden to ${modelId}`);
       }
 
-      const { model, error, authStorage, modelRegistry } = await resolveModelAsync(
+      const _resolveModelAsync = params.resolveModelAsync ?? resolveModelAsync;
+      const { model, error, authStorage, modelRegistry } = await _resolveModelAsync(
         provider,
         modelId,
         agentDir,
@@ -733,7 +711,8 @@ export async function runEmbeddedPiAgent(
             throw new Error(`Runtime auth refresh requires a source credential.`);
           }
           log.debug(`Refreshing runtime auth for ${runtimeModel.provider} (${reason})...`);
-          const preparedAuth = await prepareProviderRuntimeAuth({
+          const _prepareRuntimeAuthRefresh = params.prepareRuntimeAuth ?? prepareProviderRuntimeAuth;
+          const preparedAuth = await _prepareRuntimeAuthRefresh({
             provider: runtimeModel.provider,
             config: params.config,
             workspaceDir: resolvedWorkspace,
@@ -911,7 +890,8 @@ export async function runEmbeddedPiAgent(
           return;
         }
         let runtimeAuthHandled = false;
-        const preparedAuth = await prepareProviderRuntimeAuth({
+        const _prepareRuntimeAuth = params.prepareRuntimeAuth ?? prepareProviderRuntimeAuth;
+        const preparedAuth = await _prepareRuntimeAuth({
           provider: runtimeModel.provider,
           config: params.config,
           workspaceDir: resolvedWorkspace,
@@ -1099,17 +1079,19 @@ export async function runEmbeddedPiAgent(
         }
         return failoverReason;
       };
+      const _computeBackoff = params.computeBackoff ?? computeBackoff;
+      const _sleepWithAbort = params.sleepWithAbort ?? sleepWithAbort;
       const maybeBackoffBeforeOverloadFailover = async (reason: FailoverReason | null) => {
         if (reason !== "overloaded") {
           return;
         }
         overloadFailoverAttempts += 1;
-        const delayMs = computeBackoff(OVERLOAD_FAILOVER_BACKOFF_POLICY, overloadFailoverAttempts);
+        const delayMs = _computeBackoff(OVERLOAD_FAILOVER_BACKOFF_POLICY, overloadFailoverAttempts);
         log.warn(
           `overload backoff before failover for ${provider}/${modelId}: attempt=${overloadFailoverAttempts} delayMs=${delayMs}`,
         );
         try {
-          await sleepWithAbort(delayMs, params.abortSignal);
+          await _sleepWithAbort(delayMs, params.abortSignal);
         } catch (err) {
           if (params.abortSignal?.aborted) {
             const abortErr = new Error("Operation aborted", { cause: err });
@@ -1178,7 +1160,8 @@ export async function runEmbeddedPiAgent(
           const prompt =
             provider === "anthropic" ? scrubAnthropicRefusalMagic(params.prompt) : params.prompt;
 
-          const attempt = await runEmbeddedAttempt({
+          const _runAttempt = params.runAttempt ?? runEmbeddedAttempt;
+          const attempt = await _runAttempt({
             sessionId: params.sessionId,
             sessionKey: params.sessionKey,
             trigger: params.trigger,

@@ -6,6 +6,10 @@ import {
   type CapabilityCatalogEntry,
 } from "../schemas/capability.js";
 import {
+  catalogEntryMatchesApprovedSnapshot,
+  getApprovedCapabilityCatalogEntry,
+} from "./catalog-approval.js";
+import {
   BootstrapRequestSchema,
   BootstrapResolutionSchema,
   type BootstrapReason,
@@ -63,12 +67,16 @@ function resolveInstallMethod(entry: CapabilityCatalogEntry) {
 export function resolveBootstrapRequest(params: {
   capabilityId: string;
   registry: CapabilityRegistry;
+  /**
+   * @deprecated Ignored. Bootstrap always resolves install metadata from the pinned approved catalog snapshot.
+   */
   catalog?: CapabilityCatalogEntry[];
   reason: BootstrapReason;
   sourceDomain: BootstrapSourceDomain;
   sourceRecipeId?: string;
   executionContext?: PlatformExecutionContextSnapshot;
 }): BootstrapResolution {
+  void params.catalog;
   const existing = params.registry.get(params.capabilityId);
   if (existing?.status === "available") {
     return BootstrapResolutionSchema.parse({
@@ -77,16 +85,29 @@ export function resolveBootstrapRequest(params: {
     });
   }
 
-  const catalogEntry =
-    params.registry.resolveCatalogEntry(params.capabilityId) ??
-    params.catalog?.find((entry) => entry.capability.id === params.capabilityId);
-  if (!catalogEntry) {
+  const canonical = getApprovedCapabilityCatalogEntry(params.capabilityId);
+  if (!canonical) {
     return BootstrapResolutionSchema.parse({
       status: "unknown",
       capability: existing,
-      reasons: [`no trusted catalog entry found for capability ${params.capabilityId}`],
+      reasons: [`capability ${params.capabilityId} is not in the approved capability catalog`],
     });
   }
+
+  const registryEntry = params.registry.resolveCatalogEntry(params.capabilityId);
+  if (registryEntry && !catalogEntryMatchesApprovedSnapshot(registryEntry)) {
+    const parsedRegistryEntry = CapabilityCatalogEntrySchema.safeParse(registryEntry);
+    return BootstrapResolutionSchema.parse({
+      status: "untrusted",
+      capability: existing ?? registryEntry.capability,
+      ...(parsedRegistryEntry.success ? { catalogEntry: parsedRegistryEntry.data } : {}),
+      reasons: [
+        `registry catalog entry for ${params.capabilityId} does not match the approved catalog snapshot`,
+      ],
+    });
+  }
+
+  const catalogEntry = canonical;
   const trustReasons = assessCatalogEntryTrust(catalogEntry);
   if (trustReasons.length > 0) {
     const catalogEntryResult = CapabilityCatalogEntrySchema.safeParse(catalogEntry);

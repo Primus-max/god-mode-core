@@ -53,6 +53,15 @@ describe("ExecutionRecipeSchema", () => {
   it("rejects extra fields (strict)", () => {
     expect(ExecutionRecipeSchema.safeParse({ ...minimal, bonus: true }).success).toBe(false);
   });
+
+  it("rejects empty requiredCapabilities entries", () => {
+    expect(
+      ExecutionRecipeSchema.safeParse({
+        ...minimal,
+        requiredCapabilities: ["node", ""],
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("PlannerOutputSchema", () => {
@@ -73,5 +82,21 @@ describe("PlannerOutputSchema", () => {
 
   it("rejects empty selectedRecipeId", () => {
     expect(PlannerOutputSchema.safeParse({ selectedRecipeId: "" }).success).toBe(false);
+  });
+
+  it("rejects empty reasoning string", () => {
+    expect(
+      PlannerOutputSchema.safeParse({ selectedRecipeId: "general_reasoning", reasoning: "" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("rejects empty override model string", () => {
+    expect(
+      PlannerOutputSchema.safeParse({
+        selectedRecipeId: "general_reasoning",
+        overrides: { model: "" },
+      }).success,
+    ).toBe(false);
   });
 });

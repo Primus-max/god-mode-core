@@ -3,7 +3,7 @@ name: stage 83 session event broadcast gate
 overview: После Stage 82 следующий сильный v1 gap — зафиксировать deterministic parity между canonical session row truth и реальными `sessions.changed` broadcast variants, чтобы thin clients и operator-facing consumers не расходились с recovery/closure contract по мере дальнейших изменений gateway/runtime.
 todos:
   - id: audit-session-event-contract
-    content: Зафиксировать минимальный producer-side contract для `sessions.changed`: flat top-level keys, omission semantics, и variant-specific broadcast policy.
+    content: "Зафиксировать минимальный producer-side contract для `sessions.changed`: flat top-level keys, omission semantics, и variant-specific broadcast policy."
     status: done
   - id: build-session-event-harness
     content: Собрать тонкий deterministic harness поверх `session-broadcast-snapshot` и `session-event-hub` seams вместо нового event framework.

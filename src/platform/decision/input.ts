@@ -4,8 +4,11 @@ import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
 import {
+  buildRecipePlannerInputFromRuntimePlan,
   resolvePlatformRuntimePlan,
+  type RecipeRuntimePlan,
   type ResolvedPlatformRuntimePlan,
+  type ResolvePlatformExecutionDecisionOptions,
 } from "../recipe/runtime-adapter.js";
 
 const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
@@ -144,6 +147,37 @@ export function resolveExecutionRuntimePlan(
   params: BuildExecutionDecisionInputParams,
 ): ResolvedPlatformRuntimePlan {
   return resolvePlatformRuntimePlan(buildExecutionDecisionInput(params));
+}
+
+/**
+ * Builds planner input from a persisted `RecipeRuntimePlan` so intent, tools, artifacts,
+ * and publish targets stay aligned with the prior platform resolution instead of being re-inferred
+ * from raw prompt text.
+ */
+export function buildExecutionDecisionInputFromRuntimePlan(params: {
+  runtime: RecipeRuntimePlan;
+  prompt: string;
+  fileNames?: string[];
+  sessionEntry?: BuildExecutionDecisionInputParams["sessionEntry"];
+}): RecipePlannerInput {
+  const base = buildRecipePlannerInputFromRuntimePlan(params.runtime, params.prompt, {
+    fileNames: params.fileNames,
+  });
+  return applySessionSpecialistOverrideToPlannerInput(base, params.sessionEntry ?? null);
+}
+
+/** Re-runs platform resolution using structured fields carried by an existing runtime plan. */
+export function resolveExecutionRuntimePlanFromExistingRuntime(params: {
+  runtime: RecipeRuntimePlan;
+  prompt: string;
+  fileNames?: string[];
+  sessionEntry?: BuildExecutionDecisionInputParams["sessionEntry"];
+  options?: ResolvePlatformExecutionDecisionOptions;
+}): ResolvedPlatformRuntimePlan {
+  return resolvePlatformRuntimePlan(
+    buildExecutionDecisionInputFromRuntimePlan(params),
+    params.options ?? {},
+  );
 }
 
 export function buildSessionBackedExecutionDecisionInput(

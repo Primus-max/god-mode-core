@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { captureEnv } from "../test-utils/env.js";
@@ -9,10 +10,19 @@ import { runCliAgent } from "./cli-runner.js";
 
 const E2E_TIMEOUT_MS = 20_000;
 const require = createRequire(import.meta.url);
-const SDK_SERVER_MCP_PATH = require.resolve("@modelcontextprotocol/sdk/server/mcp.js");
-const SDK_SERVER_STDIO_PATH = require.resolve("@modelcontextprotocol/sdk/server/stdio.js");
-const SDK_CLIENT_INDEX_PATH = require.resolve("@modelcontextprotocol/sdk/client/index.js");
-const SDK_CLIENT_STDIO_PATH = require.resolve("@modelcontextprotocol/sdk/client/stdio.js");
+// Use file:// URLs so ESM imports work on Windows (absolute paths like C:\... are rejected by the ESM loader).
+const SDK_SERVER_MCP_PATH = pathToFileURL(
+  require.resolve("@modelcontextprotocol/sdk/server/mcp.js"),
+).href;
+const SDK_SERVER_STDIO_PATH = pathToFileURL(
+  require.resolve("@modelcontextprotocol/sdk/server/stdio.js"),
+).href;
+const SDK_CLIENT_INDEX_PATH = pathToFileURL(
+  require.resolve("@modelcontextprotocol/sdk/client/index.js"),
+).href;
+const SDK_CLIENT_STDIO_PATH = pathToFileURL(
+  require.resolve("@modelcontextprotocol/sdk/client/stdio.js"),
+).href;
 
 async function writeExecutable(filePath: string, content: string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -146,9 +156,15 @@ describe("runCliAgent bundle MCP e2e", () => {
     "routes enabled bundle MCP config into the claude-cli backend and executes the tool",
     { timeout: E2E_TIMEOUT_MS },
     async () => {
-      const envSnapshot = captureEnv(["HOME"]);
+      // Capture HOME, USERPROFILE, and OPENCLAW_STATE_DIR so the plugin root
+      // resolves to tempHome/.openclaw/extensions on both Linux and Windows.
+      // On Windows, test/setup.ts sets OPENCLAW_STATE_DIR which overrides HOME-based
+      // config dir resolution; we must clear it so HOME drives the state dir here.
+      const envSnapshot = captureEnv(["HOME", "USERPROFILE", "OPENCLAW_STATE_DIR"]);
       const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-cli-bundle-mcp-"));
       process.env.HOME = tempHome;
+      process.env.USERPROFILE = tempHome;
+      delete process.env.OPENCLAW_STATE_DIR;
 
       const workspaceDir = path.join(tempHome, "workspace");
       const sessionFile = path.join(tempHome, "session.jsonl");

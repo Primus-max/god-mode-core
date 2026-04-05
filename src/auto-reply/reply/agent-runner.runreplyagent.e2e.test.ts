@@ -47,6 +47,16 @@ const accountingState = vi.hoisted(() => ({
     | ((params: unknown) => Promise<number | undefined>),
 }));
 
+const executionState = vi.hoisted(() => ({
+  runAgentTurnWithFallbackMock: vi.fn(),
+  runAgentTurnWithFallbackActual: null as null | ((params: unknown) => Promise<unknown>),
+}));
+
+const helperState = vi.hoisted(() => ({
+  finalizeWithFollowupMock: vi.fn(),
+  finalizeWithFollowupActual: null as null | ((...args: unknown[]) => unknown),
+}));
+
 let modelFallbackModule: typeof import("../../agents/model-fallback.js");
 let onAgentEvent: typeof import("../../infra/agent-events.js").onAgentEvent;
 let enqueueFollowupRunMock: typeof import("./queue/enqueue.js").enqueueFollowupRun;
@@ -133,6 +143,26 @@ vi.mock("./session-run-accounting.js", async (importOriginal) => {
   };
 });
 
+vi.mock("./agent-runner-execution.runtime.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./agent-runner-execution.runtime.js")>();
+  executionState.runAgentTurnWithFallbackActual = actual.runAgentTurnWithFallback as (
+    params: unknown,
+  ) => Promise<unknown>;
+  return {
+    ...actual,
+    runAgentTurnWithFallback: (params: unknown) => executionState.runAgentTurnWithFallbackMock(params),
+  };
+});
+
+vi.mock("./agent-runner-helpers.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./agent-runner-helpers.js")>();
+  helperState.finalizeWithFollowupActual = actual.finalizeWithFollowup as (...args: unknown[]) => unknown;
+  return {
+    ...actual,
+    finalizeWithFollowup: (...args: unknown[]) => helperState.finalizeWithFollowupMock(...args),
+  };
+});
+
 beforeAll(async () => {
   modelFallbackModule = await import("../../agents/model-fallback.js");
   ({ onAgentEvent } = await import("../../infra/agent-events.js"));
@@ -150,11 +180,19 @@ beforeEach(async () => {
   vi.mocked(scheduleFollowupDrainMock).mockClear();
   accountingState.persistRunSessionUsageMock.mockReset();
   accountingState.incrementRunCompactionCountMock.mockReset();
+  executionState.runAgentTurnWithFallbackMock.mockReset();
+  helperState.finalizeWithFollowupMock.mockReset();
   accountingState.persistRunSessionUsageMock.mockImplementation(async (params: unknown) => {
     await accountingState.persistRunSessionUsageActual?.(params);
   });
   accountingState.incrementRunCompactionCountMock.mockImplementation(async (params: unknown) => {
     return await accountingState.incrementRunCompactionCountActual?.(params);
+  });
+  executionState.runAgentTurnWithFallbackMock.mockImplementation(async (params: unknown) => {
+    return await executionState.runAgentTurnWithFallbackActual?.(params);
+  });
+  helperState.finalizeWithFollowupMock.mockImplementation((...args: unknown[]) => {
+    return helperState.finalizeWithFollowupActual?.(...args);
   });
   vi.stubEnv("OPENCLAW_TEST_FAST", "1");
 });
@@ -390,7 +428,7 @@ describe("runReplyAgent heartbeat followup guard", () => {
 
     const { run } = createMinimalRun();
     await expect(run()).rejects.toThrow("persist exploded");
-    expect(vi.mocked(scheduleFollowupDrainMock)).toHaveBeenCalledTimes(1);
+    expect(helperState.finalizeWithFollowupMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -2260,23 +2298,12 @@ describe("runReplyAgent memory flush", () => {
 });
 
 describe("runReplyAgent error followup drain", () => {
-  it("drains followup queue when an unexpected exception escapes the run path", async () => {
-    vi.resetModules();
-    vi.doMock("./agent-runner-execution.runtime.js", () => ({
-      runAgentTurnWithFallback: vi.fn().mockRejectedValueOnce(new Error("persist exploded")),
-    }));
+  it("drains followup queue when the execution runtime rejects before delivery", async () => {
+    executionState.runAgentTurnWithFallbackMock.mockRejectedValueOnce(new Error("persist exploded"));
 
-    try {
-      ({ scheduleFollowupDrain: scheduleFollowupDrainMock } = await import("./queue.js"));
-      vi.mocked(scheduleFollowupDrainMock).mockClear();
-      runReplyAgentPromise = undefined;
-      const { run } = createMinimalRun();
-      await expect(run()).rejects.toThrow("persist exploded");
-      expect(vi.mocked(scheduleFollowupDrainMock)).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.doUnmock("./agent-runner-execution.runtime.js");
-      runReplyAgentPromise = undefined;
-    }
+    const { run } = createMinimalRun();
+    await expect(run()).rejects.toThrow("persist exploded");
+    expect(helperState.finalizeWithFollowupMock).toHaveBeenCalledTimes(1);
   });
 });
 import type { ReplyPayload } from "../types.js";

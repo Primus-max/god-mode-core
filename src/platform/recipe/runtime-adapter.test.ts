@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/index.js";
 import type { ExecutionRecipe } from "../schemas/index.js";
 import { planExecutionRecipe } from "./planner.js";
-import { adaptExecutionPlanToRuntime, resolvePlatformRuntimePlan } from "./runtime-adapter.js";
+import {
+  adaptExecutionPlanToRuntime,
+  buildRecipePlannerInputFromRuntimePlan,
+  resolvePlatformRuntimePlan,
+} from "./runtime-adapter.js";
 
 describe("resolvePlatformRuntimePlan", () => {
   it("projects recipe timeout and prompt context into runtime hints", () => {
@@ -143,5 +147,26 @@ describe("resolvePlatformRuntimePlan", () => {
     expect(resolved.runtime.readinessStatus).toBe("bootstrap_required");
     expect(resolved.runtime.unattendedBoundary).toBe("bootstrap");
     expect(resolved.runtime.readinessReasons?.join(" ")).toContain("Bootstrap required");
+  });
+});
+
+describe("buildRecipePlannerInputFromRuntimePlan", () => {
+  it("copies structured runtime fields onto the prompt without prompt-only inference", () => {
+    const input = {
+      prompt: "Ship the preview to production",
+      publishTargets: ["vercel"],
+      requestedTools: ["exec"],
+      intent: "publish" as const,
+    };
+    const plan = planExecutionRecipe(input);
+    const runtime = adaptExecutionPlanToRuntime(plan, { input });
+    const replay = buildRecipePlannerInputFromRuntimePlan(runtime, "hello", {
+      fileNames: ["app.ts"],
+    });
+    expect(replay.prompt).toBe("hello");
+    expect(replay.intent).toBe("publish");
+    expect(replay.publishTargets).toEqual(["vercel"]);
+    expect(replay.requestedTools).toEqual(["exec"]);
+    expect(replay.fileNames).toEqual(["app.ts"]);
   });
 });

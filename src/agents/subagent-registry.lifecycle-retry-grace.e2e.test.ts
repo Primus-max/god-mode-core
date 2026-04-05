@@ -205,6 +205,12 @@ describe("subagent registry lifecycle error grace", () => {
         },
       },
     );
+    // Pre-load subagent-registry-runtime so the lazy dynamic import inside
+    // runSubagentAnnounceFlow (loadSubagentRegistryRuntime) resolves from the module
+    // cache (microtask) rather than triggering real I/O. Without this, fake-timer-only
+    // polling (vi.advanceTimersByTimeAsync) doesn't yield enough for I/O to complete,
+    // causing callGateway("agent") to never be called within the polling window.
+    await import("./subagent-registry-runtime.js");
     mod = await import("./subagent-registry.js");
   });
 

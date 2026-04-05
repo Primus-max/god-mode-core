@@ -20,6 +20,7 @@ import {
   type PlatformRuntimeExecutionSurface,
 } from "../runtime/index.js";
 import type { CapabilityCatalogEntry } from "../schemas/capability.js";
+import type { ArtifactKind } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
 import type { RecipePlannerInput } from "./planner.js";
 import { planExecutionRecipe, type ExecutionPlan } from "./planner.js";
@@ -538,4 +539,35 @@ export function resolvePlatformRuntimePlan(
   options: ResolvePlatformExecutionDecisionOptions = {},
 ): ResolvedPlatformRuntimePlan {
   return resolvePlatformExecutionDecision(input, options);
+}
+
+/**
+ * Rehydrates planner input from an existing {@link RecipeRuntimePlan} plus the current user prompt.
+ * Use this when the platform already resolved profile/recipe/intent so downstream code does not
+ * re-derive those fields from prompt heuristics in `buildExecutionDecisionInput`.
+ */
+export function buildRecipePlannerInputFromRuntimePlan(
+  runtime: RecipeRuntimePlan,
+  prompt: string,
+  extras?: { fileNames?: string[] },
+): RecipePlannerInput {
+  const fileNames = Array.from(
+    new Set(
+      (extras?.fileNames ?? [])
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .map((value) => value.trim()),
+    ),
+  );
+  return {
+    prompt,
+    ...(fileNames.length > 0 ? { fileNames } : {}),
+    ...(runtime.intent ? { intent: runtime.intent } : {}),
+    ...(runtime.artifactKinds?.length
+      ? { artifactKinds: runtime.artifactKinds as ArtifactKind[] }
+      : {}),
+    ...(runtime.publishTargets?.length ? { publishTargets: runtime.publishTargets } : {}),
+    ...(runtime.requestedToolNames?.length
+      ? { requestedTools: runtime.requestedToolNames }
+      : {}),
+  };
 }

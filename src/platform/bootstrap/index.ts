@@ -1,5 +1,11 @@
 export { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
 export {
+  assertApprovedCatalogEntryOrThrow,
+  catalogEntryMatchesApprovedSnapshot,
+  getApprovedCapabilityCatalogEntry,
+  listApprovedCapabilityCatalogIds,
+} from "./catalog-approval.js";
+export {
   BootstrapLifecycleResultSchema,
   BootstrapLifecycleStateSchema,
   BootstrapAuditEventSchema,

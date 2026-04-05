@@ -100,6 +100,12 @@ export {
 } from "./contracts.js";
 
 export {
+  buildExecutionIntentSeedFromRecipeRuntimePlan,
+  deriveExecutionContractExpectationsFromRuntimePlan,
+  type PlatformRuntimeExecutionIntentSeed,
+} from "./execution-intent-from-plan.js";
+
+export {
   createPlatformRuntimeCheckpointService,
   getPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,

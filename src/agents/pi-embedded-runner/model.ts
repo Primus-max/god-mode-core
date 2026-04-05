@@ -43,11 +43,35 @@ type ProviderRuntimeHooks = {
   ) => unknown;
 };
 
+// Mutable references allow test suites to inject no-op stubs without relying on vi.mock,
+// which is unreliable in Vitest's forks pool when provider-runtime.js is pre-loaded before
+// the mock factory registers. See resetDefaultProviderRuntimeHooksForTest below.
+let _prepareProviderDynamicModel: ProviderRuntimeHooks["prepareProviderDynamicModel"] =
+  (params) => prepareProviderDynamicModel(params);
+let _runProviderDynamicModel: ProviderRuntimeHooks["runProviderDynamicModel"] =
+  (params) => runProviderDynamicModel(params);
+let _normalizeProviderResolvedModelWithPlugin: ProviderRuntimeHooks["normalizeProviderResolvedModelWithPlugin"] =
+  (params) => normalizeProviderResolvedModelWithPlugin(params);
+
 const DEFAULT_PROVIDER_RUNTIME_HOOKS: ProviderRuntimeHooks = {
-  prepareProviderDynamicModel,
-  runProviderDynamicModel,
-  normalizeProviderResolvedModelWithPlugin,
+  prepareProviderDynamicModel: (params) => _prepareProviderDynamicModel(params),
+  runProviderDynamicModel: (params) => _runProviderDynamicModel(params),
+  normalizeProviderResolvedModelWithPlugin: (params) => _normalizeProviderResolvedModelWithPlugin(params),
 };
+
+/** Reset provider-runtime hook references for isolated test workers.
+ *  Pass no arguments to restore the original (real) functions. */
+export function resetDefaultProviderRuntimeHooksForTest(
+  hooks?: Partial<ProviderRuntimeHooks>,
+): void {
+  _prepareProviderDynamicModel =
+    hooks?.prepareProviderDynamicModel ?? ((params) => prepareProviderDynamicModel(params));
+  _runProviderDynamicModel =
+    hooks?.runProviderDynamicModel ?? ((params) => runProviderDynamicModel(params));
+  _normalizeProviderResolvedModelWithPlugin =
+    hooks?.normalizeProviderResolvedModelWithPlugin ??
+    ((params) => normalizeProviderResolvedModelWithPlugin(params));
+}
 
 function sanitizeModelHeaders(
   headers: unknown,
@@ -415,7 +439,7 @@ export function resolveModel(
   };
 }
 
-export async function resolveModelAsync(
+export async function resolveModelAsync( // eslint-disable-line
   provider: string,
   modelId: string,
   agentDir?: string,
@@ -492,6 +516,18 @@ export async function resolveModelAsync(
     authStorage,
     modelRegistry,
   };
+}
+
+/** Normalized provider ids commonly used for cheap local inference (not primary reasoning). */
+const CONTROL_PLANE_LOCAL_PROVIDER_IDS = new Set(["ollama", "vllm", "lmstudio"]);
+
+/**
+ * True when the provider is typically a local stack suitable for control-plane support
+ * (routing hints, light classification). Primary agent reasoning should use the configured
+ * main model unless the operator explicitly chooses a local primary.
+ */
+export function isLikelyControlPlaneLocalProvider(provider: string): boolean {
+  return CONTROL_PLANE_LOCAL_PROVIDER_IDS.has(normalizeProviderId(provider));
 }
 
 /**

@@ -1,3 +1,4 @@
+import { assertApprovedCatalogEntryOrThrow } from "../bootstrap/catalog-approval.js";
 import type { CapabilityCatalogEntry, CapabilityDescriptor } from "../schemas/capability.js";
 import { CapabilityCatalogEntrySchema, CapabilityDescriptorSchema } from "../schemas/capability.js";
 import type { CapabilityRegistry } from "./types.js";
@@ -14,8 +15,8 @@ export function createCapabilityRegistry(
     store.set(descriptor.id, descriptor);
   }
   for (const entry of catalogSeed) {
-    CapabilityCatalogEntrySchema.parse(entry);
-    catalog.set(entry.capability.id, entry);
+    assertApprovedCatalogEntryOrThrow(entry);
+    catalog.set(entry.capability.id, CapabilityCatalogEntrySchema.parse(entry));
   }
 
   return {
@@ -49,6 +50,7 @@ export function createCapabilityRegistry(
       return Array.from(store.values()).filter((d) => d.status === "missing");
     },
     registerCatalogEntry(entry) {
+      assertApprovedCatalogEntryOrThrow(entry);
       const parsed = CapabilityCatalogEntrySchema.parse(entry);
       catalog.set(parsed.capability.id, parsed);
     },

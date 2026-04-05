@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { getSubagentDepth } from "../sessions/session-key-utils.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
 import { resolveAgentTimeoutMs, resolveAgentTimeoutSeconds } from "./timeout.js";
 
@@ -111,6 +112,18 @@ describe("getSubagentDepthFromSessionStore", () => {
       },
     });
     expect(depth).toBe(1);
+  });
+
+  it("breaks spawnedBy cycles by stopping recursion and falling back to key-derived depth", () => {
+    const a = "agent:main:subagent:a";
+    const b = "agent:main:subagent:b";
+    const depth = getSubagentDepthFromSessionStore(a, {
+      store: {
+        [a]: { spawnedBy: b },
+        [b]: { spawnedBy: a },
+      },
+    });
+    expect(depth).toBe(getSubagentDepth(a));
   });
 });
 

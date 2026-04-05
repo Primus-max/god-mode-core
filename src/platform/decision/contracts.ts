@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+/**
+ * Snapshot fields such as `requestedToolNames`, `modelOverride`, and `fallbackModels` are execution hints
+ * for routing and planning. Effective tooling and autonomy remain governed by policy, not by profile
+ * scoring or recipe selection alone. See `PLATFORM_PROFILE_HINTS_ARE_NON_AUTHORITATIVE` in `schemas/profile.ts`.
+ */
+
 export const PlatformExecutionContextIntentSchema = z.enum([
   "general",
   "document",

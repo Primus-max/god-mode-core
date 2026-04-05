@@ -56,6 +56,10 @@ let handleToolExecutionEnd: typeof import("../agents/pi-embedded-subscribe.handl
 
 describe("after_tool_call hook wiring", () => {
   beforeAll(async () => {
+    // Reset module cache so the vi.mock factory for hook-runner-global.js runs fresh
+    // when pi-embedded-subscribe.handlers.tools.js is loaded (it imports hook-runner-global.js
+    // both directly and transitively through pi-tools.before-tool-call.js).
+    vi.resetModules();
     ({ handleToolExecutionStart, handleToolExecutionEnd } =
       await import("../agents/pi-embedded-subscribe.handlers.tools.js"));
   });

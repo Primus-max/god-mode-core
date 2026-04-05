@@ -19,6 +19,9 @@ const { computeBackoffMock, sleepWithAbortMock } = vi.hoisted(() => ({
   sleepWithAbortMock: vi.fn(async (_ms: number, _abortSignal?: AbortSignal) => undefined),
 }));
 
+// NOTE: vi.mock("./pi-embedded-runner/run/attempt.js") may not be reliable in the forks pool
+// because test/setup.ts can pre-load transitive dependencies before the mock factory registers.
+// We also inject runAttempt directly via the runEmbeddedPiAgent params for reliability.
 vi.mock("./pi-embedded-runner/run/attempt.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./pi-embedded-runner/run/attempt.js")>();
   return {
@@ -27,6 +30,9 @@ vi.mock("./pi-embedded-runner/run/attempt.js", async (importOriginal) => {
   };
 });
 
+// NOTE: vi.mock("../infra/backoff.js") is unreliable here because test/setup.ts transitively
+// loads backoff.js via context.js before this mock factory can intercept it.
+// We also inject computeBackoff/sleepWithAbort directly via runEmbeddedPiAgent params.
 vi.mock("../infra/backoff.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../infra/backoff.js")>();
   return {
@@ -39,6 +45,8 @@ vi.mock("../infra/backoff.js", async (importOriginal) => {
   };
 });
 
+// NOTE: vi.mock("./models-config.js") may not be reliable because test/setup.ts pre-loads
+// models-config.js directly. We also inject ensureModelsJson via runEmbeddedPiAgent params.
 vi.mock("./models-config.js", async (importOriginal) => {
   const mod = await importOriginal<typeof import("./models-config.js")>();
   return {
@@ -47,10 +55,103 @@ vi.mock("./models-config.js", async (importOriginal) => {
   };
 });
 
+// Prevent provider-runtime.js from triggering expensive Jiti plugin compilation.
+// model.ts captures DEFAULT_PROVIDER_RUNTIME_HOOKS at module-load time; the vi.mock here is a
+// safety net, but we also inject resolveModelAsync directly to bypass it entirely.
+vi.mock("../plugins/provider-runtime.js", () => ({
+  clearProviderRuntimeHookCache: () => {},
+  resetProviderRuntimeHookCacheForTest: () => {},
+  resolveProviderRuntimePlugin: () => undefined,
+  runProviderDynamicModel: () => undefined,
+  prepareProviderDynamicModel: async () => {},
+  normalizeProviderResolvedModelWithPlugin: () => undefined,
+  resolveProviderCapabilitiesWithPlugin: () => undefined,
+  prepareProviderExtraParams: () => undefined,
+  wrapProviderStreamFn: () => undefined,
+  prepareProviderRuntimeAuth: async () => undefined,
+  resolveProviderUsageAuthWithPlugin: async () => undefined,
+  resolveProviderUsageSnapshotWithPlugin: async () => undefined,
+  formatProviderAuthProfileApiKeyWithPlugin: () => undefined,
+  refreshProviderOAuthCredentialWithPlugin: async () => undefined,
+  buildProviderAuthDoctorHintWithPlugin: async () => undefined,
+  resolveProviderCacheTtlEligibility: () => undefined,
+  resolveProviderBinaryThinking: () => undefined,
+  resolveProviderXHighThinking: () => undefined,
+  resolveProviderDefaultThinkingLevel: () => undefined,
+  resolveProviderModernModelRef: () => undefined,
+  buildProviderMissingAuthMessageWithPlugin: () => undefined,
+  resolveProviderBuiltInModelSuppression: () => undefined,
+  augmentModelCatalogWithProviderPlugins: async () => undefined,
+}));
+
+// Prevent ensureRuntimePluginsLoaded from triggering full Jiti plugin compilation.
+vi.mock("./runtime-plugins.js", () => ({
+  ensureRuntimePluginsLoaded: vi.fn(),
+}));
+
 let runEmbeddedPiAgent: typeof import("./pi-embedded-runner/run.js").runEmbeddedPiAgent;
 
+// Bypass the real resolveModelAsync which calls DEFAULT_PROVIDER_RUNTIME_HOOKS
+// (normalizeProviderResolvedModelWithPlugin) — a function captured at module-load time from
+// the real provider-runtime.js, causing Jiti plugin compilation hangs in tests.
+// We build the model directly from the inline config instead.
+const stubResolveModelAsync = async (
+  provider: string,
+  modelId: string,
+  _agentDir?: string,
+  cfg?: OpenClawConfig,
+) => {
+  const providerCfg = cfg?.models?.providers?.[provider];
+  const modelDef = providerCfg?.models?.find((m: { id: string }) => m.id === modelId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mockAuthStorage = { setRuntimeApiKey: () => {} } as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mockModelRegistry = { find: () => null, listAll: () => [] } as any;
+  if (!modelDef || !providerCfg) {
+    return {
+      error: `stub: unknown model ${provider}/${modelId}`,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      authStorage: mockAuthStorage,
+      modelRegistry: mockModelRegistry,
+    };
+  }
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    model: {
+      provider,
+      id: modelId,
+      name: (modelDef as { name?: string }).name ?? modelId,
+      api: providerCfg.api ?? "openai",
+      baseUrl: providerCfg.baseUrl,
+      contextWindow: (modelDef as { contextWindow?: number }).contextWindow ?? 16_000,
+      maxTokens: (modelDef as { maxTokens?: number }).maxTokens,
+      reasoning: (modelDef as { reasoning?: boolean }).reasoning ?? false,
+      input: (modelDef as { input?: string[] }).input ?? ["text"],
+      cost: (modelDef as { cost?: unknown }).cost,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    authStorage: mockAuthStorage as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    modelRegistry: mockModelRegistry as any,
+  };
+};
+
 beforeAll(async () => {
-  ({ runEmbeddedPiAgent } = await import("./pi-embedded-runner/run.js"));
+  const imported = await import("./pi-embedded-runner/run.js");
+  const _runEmbeddedPiAgent = imported.runEmbeddedPiAgent;
+  runEmbeddedPiAgent = (params) =>
+    _runEmbeddedPiAgent({
+      ...params,
+      ensureModelsJson: async () => ({ wrote: false }),
+      prepareRuntimeAuth: async () => undefined,
+      resolveModelAsync: stubResolveModelAsync,
+      runAttempt: (attemptParams) => runEmbeddedAttemptMock(attemptParams),
+      // backoff.js is pre-loaded by test/setup.ts via context.ts before vi.mock can intercept it.
+      // Inject the mock functions directly so computeBackoffMock/sleepWithAbortMock are called.
+      computeBackoff: (...args) => computeBackoffMock(...args),
+      sleepWithAbort: (...args) => sleepWithAbortMock(...args),
+    });
 });
 
 beforeEach(() => {

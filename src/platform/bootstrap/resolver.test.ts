@@ -1,7 +1,29 @@
 import { describe, expect, it } from "vitest";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
+import type { CapabilityRegistry } from "../registry/types.js";
 import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
 import { resolveBootstrapRequest, resolveBootstrapRequests } from "./resolver.js";
+
+function driftedPdfRendererRegistry(): CapabilityRegistry {
+  const canonical = TRUSTED_CAPABILITY_CATALOG.find((e) => e.capability.id === "pdf-renderer")!;
+  return {
+    get: () => undefined,
+    list: () => [],
+    register: () => {},
+    update: () => undefined,
+    available: () => [],
+    missing: () => [],
+    registerCatalogEntry: () => {},
+    listCatalogEntries: () => [],
+    resolveCatalogEntry: () => ({
+      ...canonical,
+      install: {
+        ...canonical.install!,
+        downloadUrl: "https://evil.example/bootstrap/tampered.tgz",
+      },
+    }),
+  };
+}
 
 describe("bootstrap resolver", () => {
   it("returns available when the capability is already installed", () => {
@@ -32,8 +54,8 @@ describe("bootstrap resolver", () => {
       registry,
       catalog: TRUSTED_CAPABILITY_CATALOG,
       reason: "renderer_unavailable",
-      sourceDomain: "document",
       sourceRecipeId: "doc_ingest",
+      sourceDomain: "document",
     });
 
     expect(result.status).toBe("request");
@@ -46,7 +68,7 @@ describe("bootstrap resolver", () => {
     });
   });
 
-  it("returns unknown when the capability is not in the trusted catalog", () => {
+  it("returns unknown when the capability is not in the approved catalog", () => {
     const registry = createCapabilityRegistry();
     const result = resolveBootstrapRequest({
       capabilityId: "totally-unknown",
@@ -57,10 +79,10 @@ describe("bootstrap resolver", () => {
     });
 
     expect(result.status).toBe("unknown");
-    expect(result.reasons?.[0]).toContain("no trusted catalog entry");
+    expect(result.reasons?.[0]).toContain("not in the approved capability catalog");
   });
 
-  it("returns untrusted for user-sourced catalog entries", () => {
+  it("ignores hostile catalog overrides and pins the approved snapshot", () => {
     const registry = createCapabilityRegistry();
     const result = resolveBootstrapRequest({
       capabilityId: "pdf-renderer",
@@ -81,72 +103,36 @@ describe("bootstrap resolver", () => {
       sourceDomain: "document",
     });
 
-    expect(result.status).toBe("untrusted");
-    expect(result.reasons).toContain("capability pdf-renderer comes from a user catalog source");
+    expect(result.status).toBe("request");
+    expect(result.request?.catalogEntry.source).toBe("catalog");
+    expect(result.request?.catalogEntry.capability.trusted).toBe(true);
   });
 
-  it("returns untrusted for node entries without an exact npm packageRef", () => {
-    const registry = createCapabilityRegistry();
-    const result = resolveBootstrapRequest({
-      capabilityId: "pdf-parser",
-      registry,
-      catalog: [
-        {
-          capability: {
-            id: "pdf-parser",
-            label: "PDF Parser",
-            status: "missing",
-            trusted: true,
-          },
-          source: "catalog",
-          install: {
-            method: "node",
-            packageRef: "@openclaw/pdf-parser@latest",
-            integrity: "sha512-demo",
-            rollbackStrategy: "restore_previous",
-          },
-        },
-      ],
-      reason: "missing_capability",
-      sourceDomain: "platform",
-    });
-
-    expect(result.status).toBe("untrusted");
-    expect(result.reasons).toContain(
-      "capability pdf-parser must use an exact npm registry packageRef for node installs",
-    );
-  });
-
-  it("returns untrusted for download entries without a full source contract", () => {
-    const registry = createCapabilityRegistry();
+  it("returns untrusted when the registry catalog entry drifts from the approved snapshot", () => {
+    const registry = driftedPdfRendererRegistry();
     const result = resolveBootstrapRequest({
       capabilityId: "pdf-renderer",
       registry,
-      catalog: [
-        {
-          capability: {
-            id: "pdf-renderer",
-            label: "PDF Renderer",
-            status: "missing",
-            trusted: true,
-            requiredBins: ["playwright"],
-          },
-          source: "catalog",
-          install: {
-            method: "download",
-            packageRef: "playwright-pdf-renderer@1.0.0",
-            integrity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-            rollbackStrategy: "restore_previous",
-          },
-        },
-      ],
       reason: "renderer_unavailable",
       sourceDomain: "document",
     });
 
     expect(result.status).toBe("untrusted");
-    expect(result.reasons).toContain("capability pdf-renderer is missing downloadUrl");
-    expect(result.reasons).toContain("capability pdf-renderer is missing archiveKind");
+    expect(result.reasons?.[0]).toContain("does not match the approved catalog snapshot");
+  });
+
+  it("resolves from the approved snapshot when the registry has no catalog overlay", () => {
+    const registry = createCapabilityRegistry();
+    const result = resolveBootstrapRequest({
+      capabilityId: "pdf-parser",
+      registry,
+      reason: "missing_capability",
+      sourceDomain: "platform",
+    });
+
+    expect(result.status).toBe("request");
+    expect(result.request?.installMethod).toBe("node");
+    expect(result.request?.catalogEntry.install?.packageRef).toBe("@openclaw/pdf-parser@1.0.0");
   });
 
   it("resolves bulk recipe capability requirements", () => {
