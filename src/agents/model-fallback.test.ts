@@ -239,6 +239,34 @@ describe("runWithModelFallback route preflight", () => {
     expect(result.routePreflight?.reasonCode).toBe("preflight_stronger_route");
     expect(result.routePreflight?.reordered).toBe(false);
   });
+
+  it("honors session-backed planner input for short follow-up prompts", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4.1-mini",
+            fallbacks: ["ollama/llama3.2", "anthropic/claude-haiku-3-5"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      preflightPrompt: "ok, do it",
+      preflightPlannerInput: {
+        intent: "code",
+        requestedTools: ["exec", "apply_patch"],
+      },
+      run,
+    });
+    expect(run.mock.calls[0]?.slice(0, 2)).toEqual(["openai", "gpt-4.1-mini"]);
+    expect(result.routePreflight?.reasonCode).toBe("preflight_stronger_route");
+    expect(result.routePreflight?.localRoutingEligible).toBe(false);
+  });
 });
 
 describe("runWithModelFallback", () => {

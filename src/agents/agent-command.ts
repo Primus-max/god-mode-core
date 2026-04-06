@@ -45,7 +45,10 @@ import {
 } from "../infra/agent-events.js";
 import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
-import { buildExecutionDecisionInput } from "../platform/decision/input.js";
+import {
+  buildExecutionDecisionInput,
+  buildSessionBackedExecutionDecisionInput,
+} from "../platform/decision/input.js";
 import {
   resolvePlatformRuntimePlan,
   type ResolvedPlatformRuntimePlan,
@@ -485,9 +488,24 @@ export function buildPlatformPlannerInput(params: {
   opts: Pick<AgentCommandOpts, "messageChannel" | "channel" | "replyChannel">;
   sessionEntry?: Pick<
     SessionEntry,
-    "specialistOverrideMode" | "specialistBaseProfileId" | "specialistSessionProfileId"
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
   > | null;
+  storePath?: string;
 }): Parameters<typeof resolvePlatformRuntimePlan>[0] {
+  if (params.storePath && params.sessionEntry?.sessionId) {
+    return buildExecutionDecisionInput(
+      buildSessionBackedExecutionDecisionInput({
+        draftPrompt: params.prompt,
+        storePath: params.storePath,
+        channelHints: params.opts,
+        sessionEntry: params.sessionEntry,
+      }),
+    );
+  }
   return buildExecutionDecisionInput({
     prompt: params.prompt,
     channelHints: params.opts,
@@ -729,13 +747,13 @@ async function prepareAgentCommandExecution(
     persistedThinking,
     persistedVerbose,
   } = sessionResolution;
-  const platformRuntimePlan = resolvePlatformRuntimePlan(
-    buildPlatformPlannerInput({
-      prompt: body,
-      opts,
-      sessionEntry: sessionEntryRaw,
-    }),
-  );
+  const platformPlannerInput = buildPlatformPlannerInput({
+    prompt: body,
+    opts,
+    sessionEntry: sessionEntryRaw,
+    storePath,
+  });
+  const platformRuntimePlan = resolvePlatformRuntimePlan(platformPlannerInput);
   const laneRaw = typeof opts.lane === "string" ? opts.lane.trim() : "";
   const isSubagentLane = laneRaw === String(AGENT_LANE_SUBAGENT);
   const timeoutSecondsRaw =
@@ -1288,6 +1306,7 @@ async function agentCommandInternal(
         agentDir,
         fallbacksOverride: fallbackOverride,
         preflightPrompt: body,
+        preflightPlannerInput: platformPlannerInput,
         run: (providerOverride, modelOverride, runOptions) => {
           const isFallbackRetry = fallbackAttemptIndex > 0;
           fallbackAttemptIndex += 1;

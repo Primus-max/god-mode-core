@@ -14,6 +14,10 @@ import type { SessionEntry } from "../../config/sessions.js";
 import type { TypingMode } from "../../config/types.js";
 import { logVerbose } from "../../globals.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
+import {
+  buildExecutionDecisionInput,
+  buildSessionBackedExecutionDecisionInput,
+} from "../../platform/decision/input.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { defaultRuntime } from "../../runtime.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
@@ -228,6 +232,18 @@ export function createFollowupRunner(params: {
         storePath,
         sessionEntry: activeSessionEntry,
       });
+      const preflightPlannerInput = buildExecutionDecisionInput(
+        buildSessionBackedExecutionDecisionInput({
+          draftPrompt: queued.prompt,
+          storePath,
+          sessionEntry: activeSessionEntry,
+          channelHints: {
+            messageChannel: syntheticSessionCtx.OriginatingChannel,
+            channel: queued.run.messageProvider,
+            replyChannel: syntheticSessionCtx.Surface,
+          },
+        }),
+      );
       const shouldSurfaceToControlUi = isInternalMessageChannel(
         resolveOriginMessageProvider({
           originatingChannel: queued.originatingChannel,
@@ -298,6 +314,7 @@ export function createFollowupRunner(params: {
           runId,
           agentDir: queued.run.agentDir,
           preflightPrompt: queued.prompt,
+          preflightPlannerInput,
           fallbacksOverride: resolveRunModelFallbacksOverride({
             cfg: queued.run.config,
             agentId: queued.run.agentId,

@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../config/config.js";
+import type { RecipePlannerInput } from "../platform/recipe/planner.js";
 import {
   resolveAgentModelFallbackValues,
   resolveAgentModelPrimaryValue,
@@ -535,6 +536,11 @@ export async function runWithModelFallback<T>(params: {
    * provider first on simple turns). Failover order still covers all candidates.
    */
   preflightPrompt?: string;
+  /** Optional structured planner input for session-aware preflight classification. */
+  preflightPlannerInput?: Pick<
+    RecipePlannerInput,
+    "intent" | "requestedTools" | "fileNames" | "artifactKinds"
+  >;
   /** When `force_stronger`, local-first promotion is disabled (e.g. memory flush / structured jobs). */
   preflightMode?: RoutePreflightMode;
   run: ModelFallbackRunFn<T>;
@@ -548,11 +554,12 @@ export async function runWithModelFallback<T>(params: {
   });
   // Debug: log preflight input for Stage 86 testing
   log.info(
-    `route preflight input: promptPresent=${Boolean(params.preflightPrompt?.trim())} promptLength=${params.preflightPrompt?.length ?? 0} mode=${params.preflightMode ?? "default"} candidates=${baseCandidates.map(c => `${c.provider}/${c.model}`).join(",")}`,
+    `route preflight input: promptPresent=${Boolean(params.preflightPrompt?.trim())} plannerInputPresent=${Boolean(params.preflightPlannerInput)} promptLength=${params.preflightPrompt?.length ?? 0} mode=${params.preflightMode ?? "default"} candidates=${baseCandidates.map(c => `${c.provider}/${c.model}`).join(",")}`,
   );
   const preflight = applyModelRoutePreflight({
     candidates: baseCandidates,
     prompt: params.preflightPrompt,
+    plannerInput: params.preflightPlannerInput,
     mode: params.preflightMode,
   });
   const candidates = preflight.candidates;
@@ -720,7 +727,9 @@ export async function runWithModelFallback<T>(params: {
           `Model "${sanitizeForLog(notFoundAttempt.provider)}/${sanitizeForLog(notFoundAttempt.model)}" not found. Fell back to "${sanitizeForLog(candidate.provider)}/${sanitizeForLog(candidate.model)}".`,
         );
       }
-      const includeRoutePreflightMeta = Boolean(params.preflightPrompt?.trim());
+      const includeRoutePreflightMeta = Boolean(
+        params.preflightPrompt?.trim() || params.preflightPlannerInput,
+      );
       return {
         ...attemptRun.success,
         ...(includeRoutePreflightMeta && routePreflight ? { routePreflight } : {}),

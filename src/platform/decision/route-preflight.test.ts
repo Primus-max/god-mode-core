@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ModelCandidate } from "../../agents/model-fallback.types.js";
 import {
   applyModelRoutePreflight,
+  inferLocalRoutingEligibleFromPlannerInput,
   inferLocalRoutingEligibleFromPrompt,
 } from "./route-preflight.js";
 
@@ -45,6 +46,25 @@ describe("inferLocalRoutingEligibleFromPrompt", () => {
   });
 });
 
+describe("inferLocalRoutingEligibleFromPlannerInput", () => {
+  it("keeps simple session-backed chat eligible when no heavy signals exist", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        intent: undefined,
+      }),
+    ).toBe(true);
+  });
+
+  it("treats session-backed code turns as requiring a stronger route", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        intent: "code",
+        requestedTools: ["exec"],
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("applyModelRoutePreflight", () => {
   const chain: ModelCandidate[] = [
     { provider: "openai", model: "gpt-4.1-mini" },
@@ -83,6 +103,20 @@ describe("applyModelRoutePreflight", () => {
     expect(candidates[0]).toEqual({ provider: "openai", model: "gpt-4.1-mini" });
     expect(decision?.reasonCode).toBe("preflight_stronger_route");
     expect(decision?.reordered).toBe(false);
+    expect(decision?.localRoutingEligible).toBe(false);
+  });
+
+  it("uses structured planner input when a short follow-up prompt lacks the full session context", () => {
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: chain,
+      prompt: "ok, do it",
+      plannerInput: {
+        intent: "code",
+        requestedTools: ["exec", "apply_patch"],
+      },
+    });
+    expect(candidates[0]).toEqual({ provider: "openai", model: "gpt-4.1-mini" });
+    expect(decision?.reasonCode).toBe("preflight_stronger_route");
     expect(decision?.localRoutingEligible).toBe(false);
   });
 

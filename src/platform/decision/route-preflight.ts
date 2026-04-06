@@ -1,4 +1,5 @@
 import type { ModelCandidate } from "../../agents/model-fallback.types.js";
+import type { RecipePlannerInput } from "../recipe/planner.js";
 import type { ModelRouteCostTier, ModelRoutePreflightDecision } from "./contracts.js";
 import { isLikelyControlPlaneLocalProvider } from "./control-plane-local.js";
 import { buildExecutionDecisionInput } from "./input.js";
@@ -6,6 +7,11 @@ import { buildExecutionDecisionInput } from "./input.js";
 export type RoutePreflightMode = "default" | "force_stronger";
 
 const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process"]);
+
+type LocalRoutingPlannerInput = Pick<
+  RecipePlannerInput,
+  "intent" | "requestedTools" | "fileNames" | "artifactKinds"
+>;
 
 function costTierForCandidate(candidate: ModelCandidate): ModelRouteCostTier {
   return isLikelyControlPlaneLocalProvider(candidate.provider) ? "control_plane_local" : "standard";
@@ -38,12 +44,9 @@ function buildDecisionForOrdered(
  * Infer whether the turn is safe to route through a cheap local control-plane model first
  * when one appears in the fallback chain (simple chat / no heavy tooling signals).
  */
-export function inferLocalRoutingEligibleFromPrompt(prompt: string): boolean {
-  const trimmed = prompt.trim();
-  if (!trimmed) {
-    return false;
-  }
-  const plannerInput = buildExecutionDecisionInput({ prompt: trimmed });
+export function inferLocalRoutingEligibleFromPlannerInput(
+  plannerInput: LocalRoutingPlannerInput,
+): boolean {
   if (plannerInput.intent === "code" || plannerInput.intent === "publish") {
     return false;
   }
@@ -60,6 +63,14 @@ export function inferLocalRoutingEligibleFromPrompt(prompt: string): boolean {
   return true;
 }
 
+export function inferLocalRoutingEligibleFromPrompt(prompt: string): boolean {
+  const trimmed = prompt.trim();
+  if (!trimmed) {
+    return false;
+  }
+  return inferLocalRoutingEligibleFromPlannerInput(buildExecutionDecisionInput({ prompt: trimmed }));
+}
+
 /**
  * Reorders model fallback candidates so a control-plane local provider can run first when
  * eligible, without dropping any candidates (failover semantics unchanged).
@@ -67,6 +78,7 @@ export function inferLocalRoutingEligibleFromPrompt(prompt: string): boolean {
 export function applyModelRoutePreflight(params: {
   candidates: ModelCandidate[];
   prompt?: string;
+  plannerInput?: LocalRoutingPlannerInput | null;
   mode?: RoutePreflightMode;
 }): { candidates: ModelCandidate[]; decision: ModelRoutePreflightDecision | null } {
   const list = params.candidates;
@@ -75,12 +87,17 @@ export function applyModelRoutePreflight(params: {
   }
 
   const prompt = params.prompt?.trim();
-  if (!prompt) {
+  const plannerInput = params.plannerInput ?? (prompt ? buildExecutionDecisionInput({ prompt }) : null);
+  if (!prompt && !plannerInput) {
     return { candidates: list, decision: null };
   }
 
   const localEligible =
-    params.mode === "force_stronger" ? false : inferLocalRoutingEligibleFromPrompt(prompt);
+    params.mode === "force_stronger"
+      ? false
+      : plannerInput
+        ? inferLocalRoutingEligibleFromPlannerInput(plannerInput)
+        : false;
 
   if (!localEligible) {
     return {

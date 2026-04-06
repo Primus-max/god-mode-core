@@ -24,6 +24,10 @@ import {
 } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
+import {
+  buildExecutionDecisionInput,
+  buildSessionBackedExecutionDecisionInput,
+} from "../../platform/decision/input.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { defaultRuntime } from "../../runtime.js";
 import {
@@ -124,6 +128,18 @@ export async function runAgentTurnWithFallback(params: {
     storePath: params.storePath,
     sessionEntry: params.getActiveSessionEntry(),
   });
+  const preflightPlannerInput = buildExecutionDecisionInput(
+    buildSessionBackedExecutionDecisionInput({
+      draftPrompt: params.commandBody,
+      storePath: params.storePath,
+      sessionEntry: params.getActiveSessionEntry(),
+      channelHints: {
+        messageChannel: params.sessionCtx.OriginatingChannel,
+        channel: params.sessionCtx.Provider,
+        replyChannel: params.sessionCtx.Surface,
+      },
+    }),
+  );
   const normalizeReplyMediaPaths = createReplyMediaPathNormalizer({
     cfg: params.followupRun.run.config,
     sessionKey: params.sessionKey,
@@ -238,6 +254,7 @@ export async function runAgentTurnWithFallback(params: {
           ...resolveModelFallbackOptions(params.followupRun.run, {
             preflightPrompt: params.commandBody,
           }),
+          preflightPlannerInput,
           runId,
         run: (provider, model, runOptions) => {
           // Notify that model selection is complete (including after fallback).
