@@ -19,6 +19,17 @@ describe("deterministicPromptOptimize", () => {
     expect(prompt.endsWith("tests")).toBe(true);
     expect(meta.applied).toBe(true);
     expect(meta.reasoning?.length).toBeGreaterThan(0);
+    expect(meta.normalized).toBe(true);
+    expect(meta.trimmedWhitespace).toBeGreaterThan(0);
+    expect(meta.collapsedLines).toBe(0);
+  });
+
+  it("reports visibility metrics on messy multiline prompts", () => {
+    const { prompt, meta } = deterministicPromptOptimize("  line1  \r\n\r\n\r\nline2  \n");
+    expect(prompt).toBe("line1\n\nline2");
+    expect(meta.normalized).toBe(true);
+    expect(meta.trimmedWhitespace).toBe(7);
+    expect(meta.collapsedLines).toBe(1);
   });
 
   it("collapses excessive blank lines but keeps paragraph breaks", () => {
@@ -57,5 +68,15 @@ describe("mergePromptOptimizationReports", () => {
 
   it("returns undefined when no inputs", () => {
     expect(mergePromptOptimizationReports(undefined, undefined)).toBeUndefined();
+  });
+
+  it("merges visibility fields with normalized OR and summed numerics", () => {
+    const merged = mergePromptOptimizationReports(
+      { normalized: true, trimmedWhitespace: 2, collapsedLines: 1 },
+      { trimmedWhitespace: 3, collapsedLines: 2 },
+    );
+    expect(merged?.normalized).toBe(true);
+    expect(merged?.trimmedWhitespace).toBe(5);
+    expect(merged?.collapsedLines).toBe(3);
   });
 });

@@ -22,38 +22,49 @@
 
 ## Canonical References
 
-- Product direction: `[VISION.md](C:/Users/Tanya/source/repos/god-mode-core/VISION.md)`
-- Contributor expectations: `[CONTRIBUTING.md](C:/Users/Tanya/source/repos/god-mode-core/CONTRIBUTING.md)`
-- Testing and release ladder: `[docs/help/testing.md](C:/Users/Tanya/source/repos/god-mode-core/docs/help/testing.md)`
+- Product direction: [VISION.md](../../VISION.md)
+- Contributor expectations: [CONTRIBUTING.md](../../CONTRIBUTING.md)
+- Testing and release ladder: [docs/help/testing.md](../../docs/help/testing.md)
+
+## Operational execution (autonomous v1 loop)
+
+- Execution protocol: [autonomous_v1_loop_a69b9e98.plan.md](autonomous_v1_loop_a69b9e98.plan.md)
+- **Active backlog (что делать следующим):** [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md)
+- Multi-agent protocol: [multi_agent_execution_protocol.md](multi_agent_execution_protocol.md)
+- Product v1 scope: [autonomous_v1_roadmap_cb6fe0e6.plan.md](autonomous_v1_roadmap_cb6fe0e6.plan.md)
 
 ## Recent Stage Ladder
 
 ### Done
 
 - `Stage 79 - Navigation Validation Gate`  
-  Plan: `[.cursor/plans/stage_79_validation_d7074142.plan.md](C:/Users/Tanya/source/repos/god-mode-core/.cursor/plans/stage_79_validation_d7074142.plan.md)`
+  Plan: [stage_79_validation_d7074142.plan.md](stage_79_validation_d7074142.plan.md)
 - `Stage 80 - Release Confidence E2E Gate`  
-  Plan: `[.cursor/plans/stage_80_e2e_gate_6aa314e7.plan.md](C:/Users/Tanya/source/repos/god-mode-core/.cursor/plans/stage_80_e2e_gate_6aa314e7.plan.md)`
+  Plan: [stage_80_e2e_gate_6aa314e7.plan.md](stage_80_e2e_gate_6aa314e7.plan.md)
 - `Stage 81 - Skills Reliability Evals`  
   Status source lives in chat history and follow-up implementation summary.
 - `Stage 82 - Runtime Recovery Confidence Gate`  
-  Plan: `[.cursor/plans/stage_82_recovery_gate_d607e678.plan.md](C:/Users/Tanya/source/repos/god-mode-core/.cursor/plans/stage_82_recovery_gate_d607e678.plan.md)`
+  Plan: [stage_82_recovery_gate_d607e678.plan.md](stage_82_recovery_gate_d607e678.plan.md)
 
 - `Stage 83 - Session Event Broadcast Parity Gate`  
-  Plan: `[.cursor/plans/stage_83_session_event_broadcast_gate.plan.md](C:/Users/Tanya/source/repos/god-mode-core/.cursor/plans/stage_83_session_event_broadcast_gate.plan.md)`
+  Plan: [stage_83_session_event_broadcast_gate.plan.md](stage_83_session_event_broadcast_gate.plan.md)
 - `Stage 84 — V1 Release Gate`  
-  Plan: `[.cursor/plans/stage_84_v1_gate_bd5c3d01.plan.md](C:/Users/Tanya/source/repos/god-mode-core/.cursor/plans/stage_84_v1_gate_bd5c3d01.plan.md)`
+  Plan: [stage_84_v1_gate_bd5c3d01.plan.md](stage_84_v1_gate_bd5c3d01.plan.md)
+- `Stage 85 - Cursor Execution Plan`  
+  Plan: [stage_85_cursor_execution_4d2f9c10.plan.md](stage_85_cursor_execution_4d2f9c10.plan.md)  
+  Purpose: схема исполнения главный агент + dev-подагенты по непересекающимся пакетам; прецедент для [multi_agent_execution_protocol.md](multi_agent_execution_protocol.md).
 
 ### Active
 
-- `Stage 85 - Cursor Execution Plan`
-  Plan: `[.cursor/plans/stage_85_cursor_execution_4d2f9c10.plan.md](C:/Users/Tanya/source/repos/god-mode-core/.cursor/plans/stage_85_cursor_execution_4d2f9c10.plan.md)`
-  Purpose: вернуть roadmap из pure gate/stability режима в управляемую product execution фазу через одного главного агента и 4 dev-подагента Cursor без пересечения файлов.
+- `Stage 86 - Smart routing, bootstrap, Telegram proof`  
+  Plan: [stage_86_smart_routing_bootstrap.plan.md](stage_86_smart_routing_bootstrap.plan.md)  
+  Backlog slices: [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md)  
+  User acceptance: [../stage86_test_cases.md](../stage86_test_cases.md)
 
 ### Next
 
 - Optional side path: `v1 tag` — см. Release Ladder и `openclaw-release-maintainer` skill.
-- После Stage 85: переход к следующему product stage уже по факту интегрированного `Master Orchestrator v0`, а не по markdown-only roadmap.
+- После Stage 86: следующий product stage по факту закрытого investor cut в [autonomous_v1_roadmap_cb6fe0e6.plan.md](autonomous_v1_roadmap_cb6fe0e6.plan.md).
 
 ## Release Ladder
 
@@ -83,7 +94,7 @@ Manual или heavier follow-up нужны только когда их реал
 В новом чате:
 
 1. Даём этот `master_v1_roadmap.md`.
-2. Если нужно исполнение, добавляем только активный stage-plan.
+2. Если нужно исполнение, добавляем активный `stage_XX_*.plan.md` и при автономном цикле v1 — [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md).
 3. Не тащим старые промежуточные workflow-планы и длинную историю чата, если они не нужны для конкретного решения.
 
 ## Guardrails

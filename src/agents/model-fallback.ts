@@ -45,6 +45,25 @@ import { isLikelyContextOverflowError } from "./pi-embedded-helpers.js";
 
 const log = createSubsystemLogger("model-fallback");
 
+const OPERATOR_LOG_CAPTURE_ENV = "OPENCLAW_CAPTURE_MODEL_FALLBACK_LOGS";
+
+/**
+ * When {@link OPERATOR_LOG_CAPTURE_ENV} is set to `1`, operator-facing lines are duplicated here for tests.
+ * Production logging still goes through `log.info`; this buffer avoids relying on the subsystem file-logger cache.
+ */
+export const modelFallbackOperatorLogTestBuffer: string[] = [];
+
+/**
+ * Emits a stable operator-facing `log.info` line and optionally mirrors it into {@link modelFallbackOperatorLogTestBuffer} for tests.
+ * @param message Full log line (already sanitized where provider/model text is interpolated).
+ */
+function logOperatorFacingLine(message: string): void {
+  log.info(message);
+  if (process.env[OPERATOR_LOG_CAPTURE_ENV] === "1") {
+    modelFallbackOperatorLogTestBuffer.push(message);
+  }
+}
+
 export type ModelFallbackRunOptions = {
   allowTransientCooldownProbe?: boolean;
 };
@@ -564,6 +583,16 @@ export async function runWithModelFallback<T>(params: {
   });
   const candidates = preflight.candidates;
   const routePreflight = preflight.decision;
+  // Operator grep anchor: one stable `preflightMode:` line when preflight returned a decision.
+  // When there is no preflight prompt/planner input, `applyModelRoutePreflight` yields decision=null;
+  // we omit this line so logs do not imply a routing mode from primary-first ordering alone.
+  if (routePreflight) {
+    logOperatorFacingLine(
+      routePreflight.localRoutingEligible
+        ? "preflightMode: local_eligible"
+        : "preflightMode: remote_required",
+    );
+  }
   // Debug: always log preflight decision for Stage 86 testing
   log.info(
     `route preflight: decision=${routePreflight?.reasonCode ?? "none"} eligible=${routePreflight?.localRoutingEligible ?? "n/a"} reordered=${routePreflight?.reordered ?? false} first=${sanitizeForLog(routePreflight?.chosenProvider ?? candidates[0]?.provider)}/${sanitizeForLog(routePreflight?.chosenModel ?? candidates[0]?.model)}`,
@@ -792,6 +821,12 @@ export async function runWithModelFallback<T>(params: {
         requestedModelMatched: requestedModel,
         fallbackConfigured: hasFallbackCandidates,
       });
+      const nextAfterFailure = candidates[i + 1];
+      if (nextAfterFailure) {
+        logOperatorFacingLine(
+          `model_fallback: ${sanitizeForLog(candidate.provider)}/${sanitizeForLog(candidate.model)} failed, trying ${sanitizeForLog(nextAfterFailure.provider)}/${sanitizeForLog(nextAfterFailure.model)}`,
+        );
+      }
       await params.onError?.({
         provider: candidate.provider,
         model: candidate.model,
@@ -848,6 +883,12 @@ export async function runWithImageModelFallback<T>(params: {
         model: candidate.model,
         error: err instanceof Error ? err.message : String(err),
       });
+      const nextImage = candidates[i + 1];
+      if (nextImage) {
+        logOperatorFacingLine(
+          `model_fallback: ${sanitizeForLog(candidate.provider)}/${sanitizeForLog(candidate.model)} failed, trying ${sanitizeForLog(nextImage.provider)}/${sanitizeForLog(nextImage.model)}`,
+        );
+      }
       await params.onError?.({
         provider: candidate.provider,
         model: candidate.model,

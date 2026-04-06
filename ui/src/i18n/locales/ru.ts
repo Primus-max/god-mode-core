@@ -341,6 +341,7 @@ export const ru: TranslationMap = {
       kind: "Тип",
       updated: "Обновлено",
       tokens: "Токены",
+      model: "Модель",
       runtime: "Runtime",
       thinking: "Размышления",
       fast: "Быстрый",
@@ -373,6 +374,12 @@ export const ru: TranslationMap = {
     },
     runtime: {
       title: "Runtime Inspector",
+      usageStats: {
+        title: "Статистика использования",
+        inputTokens: "Входные токены",
+        outputTokens: "Выходные токены",
+        costEstimate: "Оценка стоимости",
+      },
       scopeGlobal: "Последние runtime checkpoint'ы на operator-visible surfaces.",
       scopeSession: "Фильтр по сессии {sessionKey}.",
       clearScope: "Сбросить фильтр",
@@ -768,6 +775,11 @@ export const ru: TranslationMap = {
       bootstrapCaps: "Capabilities, требующие bootstrap",
       requiredCaps: "Требуемые capabilities",
       modelRoute: "Подсказки маршрута модели",
+      modelRouteTier: "Уровень маршрута модели",
+      modelRouteTierValues: {
+        local_eligible: "Допустим локальный маршрут (local_eligible)",
+        remote_required: "Нужен удалённый маршрут (remote_required)",
+      },
       fallbackModels: "Fallback-модели",
       tools: "Запрошенные инструменты",
       plannerReasoning: "Обоснование планировщика",

@@ -279,6 +279,58 @@ describe("sessions view", () => {
     await i18n.setLocale("en");
   });
 
+  it("renders resolved model as provider/model in the sessions table", async () => {
+    const container = document.createElement("div");
+    render(
+      renderSessions(
+        buildProps(
+          buildResult(
+            buildSession({
+              modelProvider: "ollama",
+              model: "qwen2.5-coder:7b",
+            }),
+          ),
+        ),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("ollama/qwen2.5-coder:7b");
+  });
+
+  it("shows usage stats in runtime inspector when session scope matches row with tokens and cost", async () => {
+    const sessionKey = "agent:main:usage-stats";
+    const container = document.createElement("div");
+    render(
+      renderSessions({
+        ...buildProps(
+          buildResult(
+            buildSession({
+              key: sessionKey,
+              inputTokens: 400,
+              outputTokens: 200,
+              estimatedCostUsd: 0.0512,
+            }),
+          ),
+        ),
+        runtimeSessionKey: sessionKey,
+        runtimeCheckpoints: [],
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.querySelector("[data-runtime-usage-stats]")).not.toBeNull();
+    expect(container.textContent).toContain("Usage stats");
+    expect(container.textContent).toContain("Input tokens");
+    expect(container.textContent).toContain("Output tokens");
+    expect(container.textContent).toContain("Estimated cost");
+    expect(container.textContent).toContain("400");
+    expect(container.textContent).toContain("200");
+    expect(container.textContent).toContain("$0.051");
+  });
+
   it("renders recovery hints and runtime inspector panel", async () => {
     const onInspectRuntimeSession = vi.fn();
     const container = document.createElement("div");

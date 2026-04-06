@@ -25,6 +25,7 @@ import {
   BootstrapRequestRecordDetailSchema,
   BootstrapRequestRecordSchema,
   BootstrapRequestRecordSummarySchema,
+  BootstrapRequestSchema,
   type BootstrapOrchestrationResult,
   type BootstrapAuditEventType,
   type BootstrapBlockedRunResume,
@@ -98,13 +99,14 @@ function appendAuditRecord(
 }
 
 function buildRecordSignature(request: BootstrapRequest): string {
+  // Exclude blockedRunResume identity: the same pending bootstrap should dedupe whether or not a
+  // follow-up path attached resume metadata yet (e.g. materialization creates first, closure merges).
   return [
     request.capabilityId,
     request.installMethod,
     request.reason,
     request.sourceDomain,
     request.sourceRecipeId ?? "",
-    request.blockedRunResume?.blockedRunId ?? "",
   ].join("::");
 }
 
@@ -299,11 +301,31 @@ export function createBootstrapRequestService(params?: {
         );
       });
       if (existing) {
+        const mergedRequest = BootstrapRequestSchema.parse({
+          ...existing.request,
+          ...normalizedRequest,
+          blockedRunResume:
+            normalizedRequest.blockedRunResume ?? existing.request.blockedRunResume,
+        });
         const updated = BootstrapRequestRecordSchema.parse({
           ...existing,
+          request: mergedRequest,
           updatedAt: now,
         });
         records.set(updated.id, updated);
+        const checkpoint = runtimeCheckpointService.get(updated.id);
+        if (mergedRequest.blockedRunResume && checkpoint?.continuation) {
+          runtimeCheckpointService.updateCheckpoint(updated.id, {
+            continuation: {
+              ...checkpoint.continuation,
+              input: {
+                blockedRunResume: true,
+                blockedRunId: mergedRequest.blockedRunResume.blockedRunId,
+                queueKey: mergedRequest.blockedRunResume.queueKey,
+              },
+            },
+          });
+        }
         return updated;
       }
       const record = BootstrapRequestRecordSchema.parse({

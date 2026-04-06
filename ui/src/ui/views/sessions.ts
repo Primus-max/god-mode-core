@@ -6,7 +6,7 @@ import {
   resolveBootstrapCheckpointUiPhase,
   type RuntimeRecoveryAction,
 } from "../controllers/runtime-inspector.ts";
-import { formatRelativeTimestamp } from "../format.ts";
+import { formatCost, formatRelativeTimestamp } from "../format.ts";
 import { icons } from "../icons.ts";
 import { formatSessionTokens } from "../presenter.ts";
 import { resolveSessionRuntimeInspectRunId } from "../session-runtime.ts";
@@ -101,6 +101,35 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 function formatMsTimestamp(timestamp?: number | null): string {
   return typeof timestamp === "number" ? formatRelativeTimestamp(timestamp) : t("common.na");
+}
+
+/**
+ * Resolved model id for the sessions table (`provider/model` when both are present).
+ * @param row - Gateway session row from the gateway list payload.
+ * @returns Combined provider/model, a single side if only one is set, or the localized n/a label.
+ */
+function formatResolvedSessionModel(row: GatewaySessionRow): string {
+  const provider = row.modelProvider?.trim();
+  const model = row.model?.trim();
+  if (provider && model) {
+    return `${provider}/${model}`;
+  }
+  if (provider) {
+    return provider;
+  }
+  if (model) {
+    return model;
+  }
+  return t("common.na");
+}
+
+function sessionModelFilterText(row: GatewaySessionRow): string {
+  const provider = row.modelProvider?.trim();
+  const model = row.model?.trim();
+  if (provider && model) {
+    return `${provider}/${model}`;
+  }
+  return (provider ?? model ?? "").trim();
 }
 
 function isModifiedNavigationClick(event: MouseEvent): boolean {
@@ -442,6 +471,50 @@ function renderBootstrapCheckpointGuide(checkpoint: RuntimeCheckpointSummary) {
   `;
 }
 
+function formatRuntimeUsageTokenCount(value: number | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return "—";
+  }
+  return String(Math.round(value));
+}
+
+function renderRuntimeSessionUsageStats(props: SessionsProps) {
+  const sessionKey = props.runtimeSessionKey?.trim();
+  if (!sessionKey || !props.result?.sessions?.length) {
+    return nothing;
+  }
+  const row = props.result.sessions.find((entry) => entry.key === sessionKey);
+  if (!row) {
+    return nothing;
+  }
+  const hasUsage =
+    (row.inputTokens != null && Number.isFinite(row.inputTokens)) ||
+    (row.outputTokens != null && Number.isFinite(row.outputTokens)) ||
+    (row.estimatedCostUsd != null && Number.isFinite(row.estimatedCostUsd));
+  if (!hasUsage) {
+    return nothing;
+  }
+  const costText =
+    row.estimatedCostUsd != null && Number.isFinite(row.estimatedCostUsd)
+      ? formatCost(row.estimatedCostUsd)
+      : "—";
+  return html`
+    <div class="callout" data-runtime-usage-stats style="margin-top:12px;">
+      <strong>${t("sessions.runtime.usageStats.title")}</strong>
+      <dl
+        style="margin:8px 0 0; display:grid; grid-template-columns:max-content 1fr; gap:4px 16px; align-items:baseline;"
+      >
+        <dt class="muted">${t("sessions.runtime.usageStats.inputTokens")}</dt>
+        <dd style="margin:0;">${formatRuntimeUsageTokenCount(row.inputTokens)}</dd>
+        <dt class="muted">${t("sessions.runtime.usageStats.outputTokens")}</dt>
+        <dd style="margin:0;">${formatRuntimeUsageTokenCount(row.outputTokens)}</dd>
+        <dt class="muted">${t("sessions.runtime.usageStats.costEstimate")}</dt>
+        <dd style="margin:0;">${costText}</dd>
+      </dl>
+    </div>
+  `;
+}
+
 function renderRuntimeInspector(props: SessionsProps) {
   const checkpoints = props.runtimeCheckpoints;
   const selectedCheckpoint = props.runtimeCheckpointDetail;
@@ -475,6 +548,7 @@ function renderRuntimeInspector(props: SessionsProps) {
           }
         </div>
       </div>
+      ${renderRuntimeSessionUsageStats(props)}
       ${
         props.runtimeError
           ? html`<div class="callout danger" style="margin-top: 12px;">${props.runtimeError}</div>`
@@ -848,7 +922,14 @@ function filterRows(rows: GatewaySessionRow[], query: string): GatewaySessionRow
     const label = (row.label ?? "").toLowerCase();
     const kind = (row.kind ?? "").toLowerCase();
     const displayName = (row.displayName ?? "").toLowerCase();
-    return key.includes(q) || label.includes(q) || kind.includes(q) || displayName.includes(q);
+    const model = sessionModelFilterText(row).toLowerCase();
+    return (
+      key.includes(q) ||
+      label.includes(q) ||
+      kind.includes(q) ||
+      displayName.includes(q) ||
+      model.includes(q)
+    );
   });
 }
 
@@ -1071,6 +1152,7 @@ export function renderSessions(props: SessionsProps) {
                 ${sortHeader("kind", t("sessions.table.kind"))}
                 ${sortHeader("updated", t("sessions.table.updated"))}
                 ${sortHeader("tokens", t("sessions.table.tokens"))}
+                <th>${t("sessions.table.model")}</th>
                 <th>${t("sessions.table.runtime")}</th>
                 <th>${t("sessions.table.thinking")}</th>
                 <th>${t("sessions.table.fast")}</th>
@@ -1083,7 +1165,7 @@ export function renderSessions(props: SessionsProps) {
                 paginated.length === 0
                   ? html`
                       <tr>
-                        <td colspan="11" style="text-align: center; padding: 48px 16px; color: var(--muted)">
+                        <td colspan="12" style="text-align: center; padding: 48px 16px; color: var(--muted)">
                           ${t("sessions.table.empty")}
                         </td>
                       </tr>
@@ -1277,6 +1359,7 @@ function renderRow(
       </td>
       <td>${updated}</td>
       <td>${formatSessionTokens(row)}</td>
+      <td><span class="mono">${formatResolvedSessionModel(row)}</span></td>
       <td>
         <div style="display:flex; flex-direction:column; gap:6px; min-width: 180px;">
           ${

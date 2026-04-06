@@ -2,14 +2,18 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { resetLogger, setLoggerOverride } from "../logging/logger.js";
 import type { AuthProfileStore } from "./auth-profiles.js";
 import { saveAuthProfileStore } from "./auth-profiles.js";
 import { AUTH_STORE_VERSION } from "./auth-profiles/constants.js";
 import { isAnthropicBillingError } from "./live-auth-keys.js";
-import { runWithImageModelFallback, runWithModelFallback } from "./model-fallback.js";
+import {
+  modelFallbackOperatorLogTestBuffer,
+  runWithImageModelFallback,
+  runWithModelFallback,
+} from "./model-fallback.js";
 import { makeModelFallbackCfg } from "./test-helpers/model-fallback-config-fixture.js";
 
 const makeCfg = makeModelFallbackCfg;
@@ -266,6 +270,119 @@ describe("runWithModelFallback route preflight", () => {
     expect(run.mock.calls[0]?.slice(0, 2)).toEqual(["openai", "gpt-4.1-mini"]);
     expect(result.routePreflight?.reasonCode).toBe("preflight_stronger_route");
     expect(result.routePreflight?.localRoutingEligible).toBe(false);
+  });
+});
+
+describe("runWithModelFallback operator log lines", () => {
+  const captureEnv = "OPENCLAW_CAPTURE_MODEL_FALLBACK_LOGS";
+
+  beforeEach(() => {
+    process.env[captureEnv] = "1";
+    modelFallbackOperatorLogTestBuffer.length = 0;
+  });
+
+  afterEach(() => {
+    delete process.env[captureEnv];
+  });
+
+  it("logs preflightMode local_eligible when localRoutingEligible is true", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4.1-mini",
+            fallbacks: ["ollama/llama3.2", "anthropic/claude-haiku-3-5"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      preflightPrompt: "what is 2+2?",
+      run,
+    });
+
+    expect(modelFallbackOperatorLogTestBuffer).toContain("preflightMode: local_eligible");
+  });
+
+  it("logs preflightMode remote_required when localRoutingEligible is false", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4.1-mini",
+            fallbacks: ["ollama/llama3.2", "anthropic/claude-haiku-3-5"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      preflightPrompt: "ok, do it",
+      preflightPlannerInput: {
+        intent: "code",
+        requestedTools: ["exec", "apply_patch"],
+      },
+      run,
+    });
+
+    expect(modelFallbackOperatorLogTestBuffer).toContain("preflightMode: remote_required");
+  });
+
+  it("does not emit preflightMode when preflight produced no decision", async () => {
+    const cfg = makeCfg();
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      run,
+    });
+
+    expect(modelFallbackOperatorLogTestBuffer.some((line) => line.includes("preflightMode:"))).toBe(
+      false,
+    );
+  });
+
+  it("logs model_fallback line when a candidate fails and a next candidate exists", async () => {
+    const cfg = makeCfg();
+    const run = vi.fn().mockRejectedValueOnce(new Error("rate limited")).mockResolvedValueOnce("ok");
+
+    const isolatedStore: AuthProfileStore = {
+      version: AUTH_STORE_VERSION,
+      profiles: {
+        "openai:default": {
+          type: "api_key",
+          provider: "openai",
+          key: "test-key",
+        },
+        "anthropic:default": {
+          type: "api_key",
+          provider: "anthropic",
+          key: "test-key",
+        },
+      },
+    };
+
+    await withTempAuthStore(isolatedStore, async (tempDir) => {
+      await runWithModelFallback({
+        cfg,
+        provider: "openai",
+        model: "gpt-4.1-mini",
+        agentDir: tempDir,
+        run,
+      });
+    });
+
+    expect(modelFallbackOperatorLogTestBuffer).toContain(
+      "model_fallback: openai/gpt-4.1-mini failed, trying anthropic/claude-haiku-3-5",
+    );
   });
 });
 

@@ -183,6 +183,102 @@ describe("bootstrap request service", () => {
     );
   });
 
+  it("merges blockedRunResume when reusing the same pending bootstrap signature", () => {
+    const queueKey = "openclaw-test-bootstrap-merge";
+    const blockedRunResume = BootstrapBlockedRunResumeSchema.parse({
+      blockedRunId: "run-merge-resume",
+      queueKey,
+      settings: { mode: "followup" },
+      sourceRun: {
+        prompt: "finish after merge",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-merge",
+          agentDir: "/tmp/agent",
+          sessionId: "sess-merge",
+          sessionFile: "/tmp/sess-merge.jsonl",
+          workspaceDir: "/tmp/ws-merge",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+    });
+    const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
+    const first = service.create(buildRequest());
+    expect(first.request.blockedRunResume).toBeUndefined();
+    const second = service.create(buildRequest({ blockedRunResume }));
+    expect(second.id).toBe(first.id);
+    expect(service.get(first.id)?.request.blockedRunResume).toEqual(
+      expect.objectContaining({
+        blockedRunId: "run-merge-resume",
+        queueKey,
+      }),
+    );
+    expect(getPlatformRuntimeCheckpointService().get(first.id)?.continuation?.input).toEqual(
+      expect.objectContaining({
+        blockedRunResume: true,
+        blockedRunId: "run-merge-resume",
+        queueKey,
+      }),
+    );
+  });
+
+  it("after approve, bootstrap continuation run dispatches blocked followup when blockedRunResume is set", async () => {
+    const queueKey = "openclaw-test-bootstrap-approve-resume";
+    const blockedRunResume = BootstrapBlockedRunResumeSchema.parse({
+      blockedRunId: "run-approve-continuation",
+      queueKey,
+      settings: { mode: "followup" },
+      sourceRun: {
+        prompt: "finish the document task",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-resume",
+          agentDir: "/tmp/agent",
+          sessionId: "sess-resume",
+          sessionFile: "/tmp/sess-resume.jsonl",
+          workspaceDir: "/tmp/ws-resume",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+    });
+    const service = createBootstrapRequestService();
+    getPlatformRuntimeCheckpointService().registerContinuationHandler("bootstrap_run", async (checkpoint) => {
+      const id = checkpoint.target?.bootstrapRequestId ?? "";
+      await service.run({
+        id,
+        installers: {
+          download: async ({ request }) => ({
+            ok: true,
+            capability: {
+              ...request.catalogEntry.capability,
+              trusted: true,
+              sandboxed: true,
+              installMethod: "download",
+              status: "available",
+            },
+          }),
+        },
+        availableBins: ["playwright"],
+        runHealthCheckCommand: async () => true,
+      });
+    });
+    const created = service.create(buildRequest({ blockedRunResume }));
+    expect(created.state).toBe("pending");
+    service.resolve(created.id, "approve");
+    await expect
+      .poll(() => getFollowupQueueDepth(queueKey), { timeout: 3_000, interval: 25 })
+      .toBe(1);
+  });
+
   it("enqueues blocked followup after successful bootstrap when blockedRunResume is present", async () => {
     const queueKey = "openclaw-test-bootstrap-resume";
     const blockedRunResume = BootstrapBlockedRunResumeSchema.parse({

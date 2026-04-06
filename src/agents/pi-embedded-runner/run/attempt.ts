@@ -2844,6 +2844,16 @@ export async function runEmbeddedAttempt(
               `applied=${Boolean(promptOptimization.applied)}` +
               (reasoning ? ` reasoning=${reasoning}` : ""),
           );
+          log.info(
+            "promptOptimization: " +
+              JSON.stringify({
+                normalized: Boolean(promptOptimization.normalized),
+                trimmedWhitespace: promptOptimization.trimmedWhitespace ?? 0,
+                collapsedLines: promptOptimization.collapsedLines ?? 0,
+                strategyId: promptOptimization.strategyId ?? null,
+                applied: Boolean(promptOptimization.applied),
+              }),
+          );
         }
 
         log.debug(`embedded run prompt start: runId=${params.runId} sessionId=${params.sessionId}`);

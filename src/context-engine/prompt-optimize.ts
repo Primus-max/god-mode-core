@@ -26,6 +26,9 @@ export function mergePromptOptimizationReports(
   let strategyId: string | undefined;
   let charsIn: number | undefined;
   let charsOut: number | undefined;
+  let normalized = false;
+  let trimmedWhitespace = 0;
+  let collapsedLines = 0;
 
   for (const p of parts) {
     if (!p) {
@@ -49,6 +52,15 @@ export function mergePromptOptimizationReports(
     if (typeof p.charsOut === "number") {
       charsOut = p.charsOut;
     }
+    if (p.normalized) {
+      normalized = true;
+    }
+    if (typeof p.trimmedWhitespace === "number") {
+      trimmedWhitespace += p.trimmedWhitespace;
+    }
+    if (typeof p.collapsedLines === "number") {
+      collapsedLines += p.collapsedLines;
+    }
   }
 
   if (
@@ -57,7 +69,10 @@ export function mergePromptOptimizationReports(
     charsRemoved === 0 &&
     !strategyId &&
     charsIn === undefined &&
-    charsOut === undefined
+    charsOut === undefined &&
+    !normalized &&
+    trimmedWhitespace === 0 &&
+    collapsedLines === 0
   ) {
     return undefined;
   }
@@ -81,6 +96,15 @@ export function mergePromptOptimizationReports(
   if (charsOut !== undefined) {
     out.charsOut = charsOut;
   }
+  if (normalized) {
+    out.normalized = true;
+  }
+  if (trimmedWhitespace > 0) {
+    out.trimmedWhitespace = trimmedWhitespace;
+  }
+  if (collapsedLines > 0) {
+    out.collapsedLines = collapsedLines;
+  }
   return out;
 }
 
@@ -92,17 +116,25 @@ export function deterministicPromptOptimize(prompt: string): PromptOptimizeForTu
   const charsIn = prompt.length;
   const reasoning: string[] = [];
   let text = prompt;
+  let normalized = false;
+  let trimmedWhitespace = 0;
+  let collapsedLines = 0;
 
   if (text.includes("\r\n")) {
     text = text.replaceAll("\r\n", "\n");
+    normalized = true;
     reasoning.push("normalized CRLF line endings to LF");
   }
   if (text.includes("\r")) {
     text = text.replaceAll("\r", "\n");
+    normalized = true;
     reasoning.push("normalized lone CR characters to LF");
   }
 
   const lines = text.split("\n");
+  for (const line of lines) {
+    trimmedWhitespace += line.length - line.replace(/[ \t]+$/u, "").length;
+  }
   const trimmedLines = lines.map((line) => line.replace(/[ \t]+$/u, ""));
   if (trimmedLines.join("\n") !== lines.join("\n")) {
     reasoning.push("stripped trailing spaces and tabs on lines");
@@ -127,13 +159,18 @@ export function deterministicPromptOptimize(prompt: string): PromptOptimizeForTu
     text = normalizedSpacingLines.join("\n");
   }
 
-  const collapsed = text.replace(/\n{3,}/gu, "\n\n");
+  const collapsed = text.replace(/\n{3,}/gu, (run) => {
+    collapsedLines += run.length - 2;
+    return "\n\n";
+  });
   if (collapsed !== text) {
     reasoning.push("collapsed runs of 3+ blank lines to a single paragraph break");
     text = collapsed;
   }
 
+  const beforeOuterTrim = text;
   const trimmed = text.trim();
+  trimmedWhitespace += beforeOuterTrim.length - trimmed.length;
   if (trimmed !== text) {
     reasoning.push("trimmed leading/trailing blank lines");
     text = trimmed;
@@ -150,6 +187,9 @@ export function deterministicPromptOptimize(prompt: string): PromptOptimizeForTu
       charsIn,
       charsOut,
       charsRemoved: Math.max(0, charsIn - charsOut),
+      normalized,
+      trimmedWhitespace,
+      collapsedLines,
     },
   };
 }

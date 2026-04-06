@@ -111,6 +111,26 @@ function renderReasonList(label: string, reasons?: string[]) {
   `;
 }
 
+/**
+ * Localized label for `modelRouteTier` stored on the execution context snapshot.
+ * @param tier - Tier enum from the gateway/bootstrap payload.
+ * @returns Translated short label for the planning panel.
+ */
+function formatBootstrapModelRouteTierLabel(
+  tier: NonNullable<BootstrapExecutionContext["modelRouteTier"]>,
+): string {
+  switch (tier) {
+    case "local_eligible":
+      return t("bootstrap.planning.modelRouteTierValues.local_eligible");
+    case "remote_required":
+      return t("bootstrap.planning.modelRouteTierValues.remote_required");
+    default: {
+      const _exhaustive: never = tier;
+      return _exhaustive;
+    }
+  }
+}
+
 function renderRoutingAndPlanningPanel(ctx: BootstrapExecutionContext | undefined) {
   if (!ctx) {
     return nothing;
@@ -158,6 +178,13 @@ function renderRoutingAndPlanningPanel(ctx: BootstrapExecutionContext | undefine
         ${
           requiredCaps
             ? html`<dt>${t("bootstrap.planning.requiredCaps")}</dt><dd>${requiredCaps}</dd>`
+            : nothing
+        }
+        ${
+          ctx.modelRouteTier
+            ? html`<dt>${t("bootstrap.planning.modelRouteTier")}</dt><dd>${formatBootstrapModelRouteTierLabel(
+                ctx.modelRouteTier,
+              )}</dd>`
             : nothing
         }
         ${modelLine ? html`<dt>${t("bootstrap.planning.modelRoute")}</dt><dd>${modelLine}</dd>` : nothing}

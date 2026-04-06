@@ -208,6 +208,7 @@ export const en: TranslationMap = {
       kind: "Kind",
       updated: "Updated",
       tokens: "Tokens",
+      model: "Model",
       runtime: "Runtime",
       thinking: "Thinking",
       fast: "Fast",
@@ -240,6 +241,12 @@ export const en: TranslationMap = {
     },
     runtime: {
       title: "Runtime Inspector",
+      usageStats: {
+        title: "Usage stats",
+        inputTokens: "Input tokens",
+        outputTokens: "Output tokens",
+        costEstimate: "Estimated cost",
+      },
       scopeGlobal: "Latest runtime checkpoints across operator-visible surfaces.",
       scopeSession: "Scoped to session {sessionKey}.",
       clearScope: "Clear scope",
@@ -986,6 +993,11 @@ export const en: TranslationMap = {
       bootstrapCaps: "Bootstrap-required capabilities",
       requiredCaps: "Required capabilities",
       modelRoute: "Model route hints",
+      modelRouteTier: "Model route tier",
+      modelRouteTierValues: {
+        local_eligible: "Local eligible (local_eligible)",
+        remote_required: "Remote required (remote_required)",
+      },
       fallbackModels: "Fallback models",
       tools: "Requested tools",
       plannerReasoning: "Planner reasoning",

@@ -96,6 +96,18 @@ export type PromptOptimizationReport = {
   /** Optional size diagnostics. */
   charsIn?: number;
   charsOut?: number;
+  /** True when CRLF / lone CR normalization to LF ran. */
+  normalized?: boolean;
+  /**
+   * Whitespace characters removed by per-line trailing space/tab trim plus the
+   * final outer `String#trim` (deterministic path only counts these steps).
+   */
+  trimmedWhitespace?: number;
+  /**
+   * Newlines removed when collapsing runs of three or more to a paragraph
+   * break (`\n\n`), i.e. per run: match length minus 2.
+   */
+  collapsedLines?: number;
 };
 
 export type PromptOptimizeForTurnResult = {

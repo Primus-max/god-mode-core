@@ -36,6 +36,14 @@ export type PlatformExecutionContextUnattendedBoundary = z.infer<
   typeof PlatformExecutionContextUnattendedBoundarySchema
 >;
 
+export const PlatformExecutionContextModelRouteTierSchema = z.enum([
+  "local_eligible",
+  "remote_required",
+]);
+export type PlatformExecutionContextModelRouteTier = z.infer<
+  typeof PlatformExecutionContextModelRouteTierSchema
+>;
+
 export const PlatformExecutionContextSnapshotSchema = z
   .object({
     profileId: z.string().min(1),
@@ -43,6 +51,7 @@ export const PlatformExecutionContextSnapshotSchema = z
     taskOverlayId: z.string().min(1).optional(),
     plannerReasoning: z.string().min(1).optional(),
     intent: PlatformExecutionContextIntentSchema.optional(),
+    modelRouteTier: PlatformExecutionContextModelRouteTierSchema.optional(),
     providerOverride: z.string().min(1).optional(),
     modelOverride: z.string().min(1).optional(),
     timeoutSeconds: z.number().positive().optional(),

@@ -237,6 +237,7 @@ describe("bootstrap view", () => {
       executionContext: {
         profileId: "profile-office",
         recipeId: "doc_ingest",
+        modelRouteTier: "remote_required" as const,
         readinessStatus: "bootstrap_required" as const,
         readinessReasons: ["renderer_unavailable"],
         intent: "document" as const,
@@ -318,6 +319,8 @@ describe("bootstrap view", () => {
     await Promise.resolve();
 
     expect(container.textContent).toContain("Routing & planning context");
+    expect(container.textContent).toContain("Model route tier");
+    expect(container.textContent).toContain("Remote required (remote_required)");
     expect(container.textContent).toContain("profile-office");
     expect(container.textContent).toContain("run-blocked-1");
     expect(container.textContent).toContain("Lifecycle path");

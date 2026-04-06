@@ -15,7 +15,11 @@ import {
   type BootstrapRequest,
   type BootstrapSourceDomain,
 } from "../../platform/bootstrap/index.js";
-import type { PlatformExecutionContextSnapshot } from "../../platform/decision/contracts.js";
+import type {
+  PlatformExecutionContextModelRouteTier,
+  PlatformExecutionContextSnapshot,
+} from "../../platform/decision/contracts.js";
+import { inferLocalRoutingEligibleFromPlannerInput } from "../../platform/decision/route-preflight.js";
 import { createCapabilityRegistry } from "../../platform/registry/capability-registry.js";
 import {
   getPlatformRuntimeCheckpointService,
@@ -443,6 +447,23 @@ function resolveBootstrapSourceDomain(
   return "platform";
 }
 
+/**
+ * Maps runtime execution intent to a bootstrap UI / telemetry tier aligned with route-preflight heuristics.
+ * @param intent - Active platform runtime execution intent (profile/recipe must be present for snapshots).
+ * @returns Whether the turn is treated as local-first eligible vs requiring a stronger remote route.
+ */
+function resolveModelRouteTierFromIntent(
+  intent: PlatformRuntimeExecutionIntent,
+): PlatformExecutionContextModelRouteTier {
+  const localEligible = inferLocalRoutingEligibleFromPlannerInput({
+    intent: intent.intent,
+    requestedTools: intent.requestedToolNames,
+    fileNames: [],
+    artifactKinds: intent.artifactKinds,
+  });
+  return localEligible ? "local_eligible" : "remote_required";
+}
+
 function buildBootstrapExecutionContext(params: {
   intent?: PlatformRuntimeExecutionIntent;
   decision: MessagingClosureDecision;
@@ -454,6 +475,7 @@ function buildBootstrapExecutionContext(params: {
   return {
     profileId: intent.profileId,
     recipeId: intent.recipeId,
+    modelRouteTier: resolveModelRouteTierFromIntent(intent),
     ...(intent.taskOverlayId ? { taskOverlayId: intent.taskOverlayId } : {}),
     ...(intent.plannerReasoning ? { plannerReasoning: intent.plannerReasoning } : {}),
     ...(intent.intent ? { intent: intent.intent } : {}),
