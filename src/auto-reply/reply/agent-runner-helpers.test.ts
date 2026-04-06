@@ -370,7 +370,7 @@ describe("agent runner helpers", () => {
       }),
     ).toEqual(
       expect.objectContaining({
-        text: expect.stringContaining("bootstrap recovery"),
+        text: expect.stringMatching(/paused|Capability install/i),
       }),
     );
   });
@@ -1262,6 +1262,13 @@ describe("agent runner helpers", () => {
     ]);
     const requestId = getPlatformBootstrapService().list()[0]?.id;
     expect(requestId).toBeTruthy();
+    expect(requestId ? getPlatformBootstrapService().get(requestId)?.request.blockedRunResume : undefined).toEqual(
+      expect.objectContaining({
+        blockedRunId: "run-bootstrap-closure",
+        queueKey: "queue-1",
+        settings: expect.objectContaining({ mode: "followup" }),
+      }),
+    );
     expect(requestId ? getPlatformRuntimeCheckpointService().get(requestId) : undefined).toEqual(
       expect.objectContaining({
         runId: requestId,

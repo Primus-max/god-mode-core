@@ -7,6 +7,7 @@ import {
 } from "../../context-engine/index.js";
 import { computeBackoff, sleepWithAbort, type BackoffPolicy } from "../../infra/backoff.js";
 import { generateSecureToken } from "../../infra/secure-random.js";
+import { isLikelyControlPlaneLocalProvider } from "../../platform/decision/control-plane-local.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import {
   buildExecutionIntentSeedFromRecipeRuntimePlan,
@@ -110,6 +111,14 @@ const RUNTIME_AUTH_REFRESH_MIN_DELAY_MS = 5 * 1000;
 const OVERLOAD_FAILOVER_BACKOFF_POLICY: BackoffPolicy = {
   initialMs: 250,
   maxMs: 1_500,
+  factor: 2,
+  jitter: 0.2,
+};
+
+/** Local control-plane stacks usually recover faster; keep failover responsive without hammering them. */
+const CONTROL_PLANE_LOCAL_OVERLOAD_FAILOVER_BACKOFF_POLICY: BackoffPolicy = {
+  initialMs: 120,
+  maxMs: 900,
   factor: 2,
   jitter: 0.2,
 };
@@ -1086,7 +1095,10 @@ export async function runEmbeddedPiAgent(
           return;
         }
         overloadFailoverAttempts += 1;
-        const delayMs = _computeBackoff(OVERLOAD_FAILOVER_BACKOFF_POLICY, overloadFailoverAttempts);
+        const overloadPolicy = isLikelyControlPlaneLocalProvider(provider)
+          ? CONTROL_PLANE_LOCAL_OVERLOAD_FAILOVER_BACKOFF_POLICY
+          : OVERLOAD_FAILOVER_BACKOFF_POLICY;
+        const delayMs = _computeBackoff(overloadPolicy, overloadFailoverAttempts);
         log.warn(
           `overload backoff before failover for ${provider}/${modelId}: attempt=${overloadFailoverAttempts} delayMs=${delayMs}`,
         );

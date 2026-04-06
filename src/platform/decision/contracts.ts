@@ -61,3 +61,29 @@ export const PlatformExecutionContextSnapshotSchema = z
 export type PlatformExecutionContextSnapshot = z.infer<
   typeof PlatformExecutionContextSnapshotSchema
 >;
+
+/** Relative cost / capability tier for the first model route attempt after preflight. */
+export type ModelRouteCostTier = "control_plane_local" | "standard";
+
+/**
+ * Typed outcome of proactive model-route preflight (ordering only; failover remains the safety net).
+ */
+export type ModelRoutePreflightDecision = {
+  chosenProvider: string;
+  chosenModel: string;
+  /** Machine-oriented reason code for logs and telemetry */
+  reasonCode:
+    | "preflight_stronger_route"
+    | "preflight_primary_control_plane_local"
+    | "preflight_no_local_candidate"
+    | "preflight_reordered_local_first";
+  /** Human-readable explanation */
+  reason: string;
+  costTier: ModelRouteCostTier;
+  /** True when the first attempt uses a cheap local control-plane style provider */
+  controlPlaneUsed: boolean;
+  /** True when heuristics allow promoting a local control-plane candidate ahead of the configured primary */
+  localRoutingEligible: boolean;
+  /** True when candidate order changed vs configured primary-first resolution */
+  reordered: boolean;
+};

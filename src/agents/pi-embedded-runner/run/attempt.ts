@@ -29,6 +29,10 @@ import type {
   PluginHookBeforePromptBuildResult,
 } from "../../../plugins/types.js";
 import { isCronSessionKey, isSubagentSessionKey } from "../../../routing/session-key.js";
+import {
+  deterministicPromptOptimize,
+  mergePromptOptimizationReports,
+} from "../../../context-engine/prompt-optimize.js";
 import { joinPresentTextSegments } from "../../../shared/text/join-segments.js";
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
 import { resolveUserPath } from "../../../utils.js";
@@ -1499,6 +1503,11 @@ export async function resolvePromptBuildHookResult(params: {
       promptBuildResult?.appendSystemContext,
       legacyResult?.appendSystemContext,
     ]),
+    userPromptOverride: promptBuildResult?.userPromptOverride ?? legacyResult?.userPromptOverride,
+    promptOptimization: mergePromptOptimizationReports(
+      promptBuildResult?.promptOptimization,
+      legacyResult?.promptOptimization,
+    ),
   };
 }
 
@@ -2794,10 +2803,53 @@ export async function runEmbeddedAttempt(
           }
         }
 
+        const hookPromptOverride =
+          typeof hookResult?.userPromptOverride === "string"
+            ? hookResult.userPromptOverride.trim()
+            : "";
+        if (hookPromptOverride.length > 0) {
+          effectivePrompt = hookPromptOverride;
+          log.debug(`hooks: applied userPromptOverride (${hookPromptOverride.length} chars)`);
+        }
+
+        let optimizedTurn = deterministicPromptOptimize(effectivePrompt);
+        if (typeof params.contextEngine?.optimizePromptForTurn === "function") {
+          try {
+            optimizedTurn = await params.contextEngine.optimizePromptForTurn({
+              sessionId: params.sessionId,
+              sessionKey: params.sessionKey,
+              prompt: effectivePrompt,
+            });
+          } catch (optimizeErr) {
+            log.warn(
+              `context engine optimizePromptForTurn failed, using deterministic optimizer: ${String(optimizeErr)}`,
+            );
+            optimizedTurn = deterministicPromptOptimize(effectivePrompt);
+          }
+        }
+        effectivePrompt = optimizedTurn.prompt;
+
+        const promptOptimization = mergePromptOptimizationReports(
+          hookResult?.promptOptimization,
+          optimizedTurn.meta,
+        );
+        if (promptOptimization && log.isEnabled("debug")) {
+          const reasoning = (promptOptimization.reasoning ?? []).join(" | ");
+          log.debug(
+            `prompt optimize: strategy=${promptOptimization.strategyId ?? "n/a"} ` +
+              `removed=${promptOptimization.charsRemoved ?? 0} ` +
+              `applied=${Boolean(promptOptimization.applied)}` +
+              (reasoning ? ` reasoning=${reasoning}` : ""),
+          );
+        }
+
         log.debug(`embedded run prompt start: runId=${params.runId} sessionId=${params.sessionId}`);
         cacheTrace?.recordStage("prompt:before", {
           prompt: effectivePrompt,
           messages: activeSession.messages,
+          ...(promptOptimization
+            ? { options: { promptOptimization } as Record<string, unknown> }
+            : {}),
         });
 
         // Repair orphaned trailing user messages so new prompts don't violate role ordering.

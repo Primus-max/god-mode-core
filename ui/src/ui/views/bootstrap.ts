@@ -7,6 +7,13 @@ import type {
   RuntimeCheckpointSummary,
 } from "../types.ts";
 
+type BootstrapExecutionContext = NonNullable<
+  BootstrapRequestRecordDetail["request"]["executionContext"]
+>;
+type BootstrapBlockedResume = NonNullable<
+  BootstrapRequestRecordDetail["request"]["blockedRunResume"]
+>;
+
 export type BootstrapProps = {
   loading: boolean;
   detailLoading: boolean;
@@ -100,6 +107,124 @@ function renderReasonList(label: string, reasons?: string[]) {
       <ul style="margin:8px 0 0 18px;">
         ${reasons.map((reason) => html`<li>${reason}</li>`)}
       </ul>
+    </div>
+  `;
+}
+
+function renderRoutingAndPlanningPanel(ctx: BootstrapExecutionContext | undefined) {
+  if (!ctx) {
+    return nothing;
+  }
+  const readinessLine = ctx.readinessStatus
+    ? `${ctx.readinessStatus}${ctx.readinessReasons?.length ? ` — ${ctx.readinessReasons.join("; ")}` : ""}`
+    : "";
+  const intentLine = ctx.intent ?? "";
+  const autonomyLine = ctx.policyAutonomy ?? "";
+  const boundaryLine = ctx.unattendedBoundary ?? "";
+  const bootstrapCaps = ctx.bootstrapRequiredCapabilities?.join(", ") ?? "";
+  const requiredCaps = ctx.requiredCapabilities?.join(", ") ?? "";
+  const modelLine = [ctx.providerOverride, ctx.modelOverride].filter(Boolean).join(" · ");
+  const fallbackLine = ctx.fallbackModels?.length ? ctx.fallbackModels.join(", ") : "";
+  const toolsLine = ctx.requestedToolNames?.length ? ctx.requestedToolNames.join(", ") : "";
+
+  return html`
+    <div class="callout" style="margin-top:16px;">
+      <strong>${t("bootstrap.planning.title")}</strong>
+      <div class="muted" style="margin-top:6px;">${t("bootstrap.planning.subtitle")}</div>
+      <dl style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:12px 0 0;">
+        <dt>${t("bootstrap.planning.profileRecipe")}</dt>
+        <dd>${ctx.profileId} · ${ctx.recipeId}</dd>
+        ${
+          readinessLine
+            ? html`<dt>${t("bootstrap.planning.readiness")}</dt><dd>${readinessLine}</dd>`
+            : nothing
+        }
+        ${intentLine ? html`<dt>${t("bootstrap.planning.intent")}</dt><dd>${intentLine}</dd>` : nothing}
+        ${
+          autonomyLine
+            ? html`<dt>${t("bootstrap.planning.autonomy")}</dt><dd>${autonomyLine}</dd>`
+            : nothing
+        }
+        ${
+          boundaryLine
+            ? html`<dt>${t("bootstrap.planning.boundary")}</dt><dd>${boundaryLine}</dd>`
+            : nothing
+        }
+        ${
+          bootstrapCaps
+            ? html`<dt>${t("bootstrap.planning.bootstrapCaps")}</dt><dd>${bootstrapCaps}</dd>`
+            : nothing
+        }
+        ${
+          requiredCaps
+            ? html`<dt>${t("bootstrap.planning.requiredCaps")}</dt><dd>${requiredCaps}</dd>`
+            : nothing
+        }
+        ${modelLine ? html`<dt>${t("bootstrap.planning.modelRoute")}</dt><dd>${modelLine}</dd>` : nothing}
+        ${
+          fallbackLine
+            ? html`<dt>${t("bootstrap.planning.fallbackModels")}</dt><dd>${fallbackLine}</dd>`
+            : nothing
+        }
+        ${toolsLine ? html`<dt>${t("bootstrap.planning.tools")}</dt><dd>${toolsLine}</dd>` : nothing}
+        ${
+          ctx.plannerReasoning
+            ? html`<dt>${t("bootstrap.planning.plannerReasoning")}</dt><dd>${ctx.plannerReasoning}</dd>`
+            : nothing
+        }
+      </dl>
+    </div>
+  `;
+}
+
+function renderBlockedResumePanel(resume: BootstrapBlockedResume | undefined) {
+  if (!resume) {
+    return nothing;
+  }
+  const summary =
+    resume.sourceRun.summaryLine?.trim() ||
+    (() => {
+      const p = resume.sourceRun.prompt.trim();
+      return p.length > 200 ? `${p.slice(0, 200)}…` : p;
+    })();
+  return html`
+    <div class="callout" style="margin-top:16px;">
+      <strong>${t("bootstrap.blockedResume.title")}</strong>
+      <div class="muted" style="margin-top:6px;">${t("bootstrap.blockedResume.subtitle")}</div>
+      <dl style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:12px 0 0;">
+        <dt>${t("bootstrap.blockedResume.runId")}</dt>
+        <dd>${resume.blockedRunId}</dd>
+        ${
+          resume.sessionKey
+            ? html`<dt>${t("bootstrap.blockedResume.sessionKey")}</dt><dd>${resume.sessionKey}</dd>`
+            : nothing
+        }
+        <dt>${t("bootstrap.blockedResume.queueKey")}</dt>
+        <dd>${resume.queueKey}</dd>
+        <dt>${t("bootstrap.blockedResume.taskPreview")}</dt>
+        <dd>${summary}</dd>
+      </dl>
+    </div>
+  `;
+}
+
+function renderLifecyclePathPanel(detail: BootstrapRequestRecordDetail) {
+  const life = detail.result?.lifecycle;
+  if (!life?.transitions?.length) {
+    return nothing;
+  }
+  const path = life.transitions.join(" → ");
+  return html`
+    <div style="margin-top:16px;">
+      <strong>${t("bootstrap.lifecyclePath.title")}</strong>
+      <div class="muted" style="margin-top:6px;">${path}</div>
+      ${
+        life.verificationStatus
+          ? html`<div class="muted" style="margin-top:6px;">
+              ${t("bootstrap.lifecyclePath.verification")}: ${life.verificationStatus}
+            </div>`
+          : nothing
+      }
     </div>
   `;
 }
@@ -248,8 +373,18 @@ export function renderBootstrap(props: BootstrapProps) {
                     <dt>${t("bootstrap.fields.updated")}</dt>
                     <dd>${detail.updatedAt}</dd>
                     <dt>${t("bootstrap.fields.lifecycle")}</dt>
-                    <dd>${result?.lifecycle?.status ?? result?.status ?? t("bootstrap.notRun")}</dd>
+                    <dd>
+                      ${result?.lifecycle?.status ?? result?.status ?? t("bootstrap.notRun")}
+                      ${
+                        detail.state
+                          ? html`<span class="muted"> (${t("bootstrap.recordStateHint", { state: detail.state })})</span>`
+                          : nothing
+                      }
+                    </dd>
                   </dl>
+                  ${renderRoutingAndPlanningPanel(request.executionContext)}
+                  ${renderBlockedResumePanel(request.blockedRunResume)}
+                  ${renderLifecyclePathPanel(detail)}
                   ${renderReasonList(t("bootstrap.reasonLists.record"), detail.reasons)}
                   ${renderReasonList(t("bootstrap.reasonLists.result"), result?.reasons)}
                   ${renderRuntimeCheckpointPanel(

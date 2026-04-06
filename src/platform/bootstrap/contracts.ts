@@ -44,6 +44,113 @@ export const BootstrapRollbackStatusSchema = z.enum([
 ]);
 export type BootstrapRollbackStatus = z.infer<typeof BootstrapRollbackStatusSchema>;
 
+/** Queue settings for post-bootstrap followup resume (mirrors closure recovery payload). */
+const BootstrapResumeQueueSettingsSchema = z
+  .object({
+    mode: z.enum(["steer", "followup", "collect", "steer-backlog", "interrupt", "queue"]),
+    debounceMs: z.number().int().nonnegative().optional(),
+    cap: z.number().int().positive().optional(),
+    dropPolicy: z.enum(["old", "new", "summarize"]).optional(),
+  })
+  .strict();
+
+const BootstrapResumeFollowupAutomationSchema = z
+  .object({
+    source: z.enum(["acceptance_retry", "closure_recovery"]),
+    retryCount: z.number().int().nonnegative(),
+    persisted: z.boolean().optional(),
+    runtimeCheckpointId: z.string().min(1).optional(),
+    reasonCode: z.string().min(1).optional(),
+    reasonSummary: z.string().min(1).optional(),
+  })
+  .strict();
+
+/** Followup run snapshot for re-queueing the blocked task after bootstrap (aligned with closure recovery). */
+const BootstrapResumeFollowupRunSnapshotSchema = z
+  .object({
+    prompt: z.string(),
+    messageId: z.string().min(1).optional(),
+    summaryLine: z.string().min(1).optional(),
+    enqueuedAt: z.number().int().nonnegative(),
+    requestRunId: z.string().min(1).optional(),
+    parentRunId: z.string().min(1).optional(),
+    automation: BootstrapResumeFollowupAutomationSchema.optional(),
+    originatingChannel: z.string().min(1).optional(),
+    originatingTo: z.string().min(1).optional(),
+    originatingAccountId: z.string().min(1).optional(),
+    originatingThreadId: z.union([z.string().min(1), z.number().int()]).optional(),
+    originatingChatType: z.string().min(1).optional(),
+    run: z
+      .object({
+        agentId: z.string().min(1),
+        agentDir: z.string().min(1),
+        sessionId: z.string().min(1),
+        sessionKey: z.string().min(1).optional(),
+        messageProvider: z.string().min(1).optional(),
+        agentAccountId: z.string().min(1).optional(),
+        groupId: z.string().min(1).optional(),
+        groupChannel: z.string().min(1).optional(),
+        groupSpace: z.string().min(1).optional(),
+        senderId: z.string().min(1).optional(),
+        senderName: z.string().min(1).optional(),
+        senderUsername: z.string().min(1).optional(),
+        senderE164: z.string().min(1).optional(),
+        senderIsOwner: z.boolean().optional(),
+        sessionFile: z.string().min(1),
+        workspaceDir: z.string().min(1),
+        config: z.record(z.string(), z.unknown()),
+        skillsSnapshot: z.unknown().optional(),
+        provider: z.string().min(1),
+        model: z.string().min(1),
+        authProfileId: z.string().min(1).optional(),
+        authProfileIdSource: z.enum(["auto", "user"]).optional(),
+        thinkLevel: z.string().min(1).optional(),
+        verboseLevel: z.string().min(1).optional(),
+        reasoningLevel: z.string().min(1).optional(),
+        elevatedLevel: z.string().min(1).optional(),
+        execOverrides: z
+          .object({
+            host: z.string().min(1).optional(),
+            security: z.string().min(1).optional(),
+            ask: z.string().min(1).optional(),
+            node: z.string().min(1).optional(),
+          })
+          .strict()
+          .optional(),
+        bashElevated: z
+          .object({
+            enabled: z.boolean(),
+            allowed: z.boolean(),
+            defaultLevel: z.string().min(1),
+          })
+          .strict()
+          .optional(),
+        timeoutMs: z.number().int().positive(),
+        blockReplyBreak: z.enum(["text_end", "message_end"]),
+        ownerNumbers: z.array(z.string().min(1)).optional(),
+        inputProvenance: z.unknown().optional(),
+        extraSystemPrompt: z.string().min(1).optional(),
+        enforceFinalTag: z.boolean().optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+/**
+ * When present, a successful bootstrap (install + verify) re-queues the blocked followup run.
+ * Only attached for a single pending capability from closure/bootstrap remediation to avoid duplicate resumes.
+ */
+export const BootstrapBlockedRunResumeSchema = z
+  .object({
+    blockedRunId: z.string().min(1),
+    sessionKey: z.string().min(1).optional(),
+    queueKey: z.string().min(1),
+    settings: BootstrapResumeQueueSettingsSchema,
+    sourceRun: BootstrapResumeFollowupRunSnapshotSchema,
+  })
+  .strict();
+export type BootstrapBlockedRunResume = z.infer<typeof BootstrapBlockedRunResumeSchema>;
+
 export const BootstrapRequestSchema = z
   .object({
     capabilityId: z.string().min(1),
@@ -53,6 +160,7 @@ export const BootstrapRequestSchema = z
     sourceDomain: BootstrapSourceDomainSchema,
     sourceRecipeId: z.string().min(1).optional(),
     executionContext: PlatformExecutionContextSnapshotSchema.optional(),
+    blockedRunResume: BootstrapBlockedRunResumeSchema.optional(),
     approvalMode: BootstrapApprovalModeSchema,
     catalogEntry: CapabilityCatalogEntrySchema,
   })
@@ -184,6 +292,8 @@ export const BootstrapAuditEventTypeSchema = z.enum([
   "request.available",
   "request.degraded",
   "request.rolled_back",
+  "request.resume_enqueued",
+  "request.resume_enqueue_failed",
 ]);
 export type BootstrapAuditEventType = z.infer<typeof BootstrapAuditEventTypeSchema>;
 

@@ -12,6 +12,7 @@ import {
 import {
   BootstrapRequestSchema,
   BootstrapResolutionSchema,
+  type BootstrapBlockedRunResume,
   type BootstrapReason,
   type BootstrapResolution,
   type BootstrapSourceDomain,
@@ -75,6 +76,7 @@ export function resolveBootstrapRequest(params: {
   sourceDomain: BootstrapSourceDomain;
   sourceRecipeId?: string;
   executionContext?: PlatformExecutionContextSnapshot;
+  blockedRunResume?: BootstrapBlockedRunResume;
 }): BootstrapResolution {
   void params.catalog;
   const existing = params.registry.get(params.capabilityId);
@@ -127,6 +129,7 @@ export function resolveBootstrapRequest(params: {
     sourceDomain: params.sourceDomain,
     ...(params.sourceRecipeId ? { sourceRecipeId: params.sourceRecipeId } : {}),
     ...(params.executionContext ? { executionContext: params.executionContext } : {}),
+    ...(params.blockedRunResume ? { blockedRunResume: params.blockedRunResume } : {}),
     approvalMode: "explicit",
     catalogEntry,
   });
@@ -147,6 +150,7 @@ export function resolveBootstrapRequests(params: {
   sourceDomain: BootstrapSourceDomain;
   sourceRecipeId?: string;
   executionContext?: PlatformExecutionContextSnapshot;
+  blockedRunResume?: BootstrapBlockedRunResume;
 }): BootstrapResolution[] {
   return params.capabilityIds.map((capabilityId) =>
     resolveBootstrapRequest({
@@ -157,6 +161,7 @@ export function resolveBootstrapRequests(params: {
       sourceDomain: params.sourceDomain,
       sourceRecipeId: params.sourceRecipeId,
       executionContext: params.executionContext,
+      blockedRunResume: params.blockedRunResume,
     }),
   );
 }

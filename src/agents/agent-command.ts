@@ -1276,6 +1276,7 @@ async function agentCommandInternal(
         runId,
         agentDir,
         fallbacksOverride: fallbackOverride,
+        preflightPrompt: body,
         run: (providerOverride, modelOverride, runOptions) => {
           const isFallbackRetry = fallbackAttemptIndex > 0;
           fallbackAttemptIndex += 1;

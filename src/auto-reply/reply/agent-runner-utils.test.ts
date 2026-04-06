@@ -73,6 +73,19 @@ describe("agent-runner-utils", () => {
     });
   });
 
+  it("includes preflight fields when a prompt is provided", () => {
+    hoisted.resolveRunModelFallbacksOverrideMock.mockReturnValue(["fallback-model"]);
+    const run = makeRun();
+
+    const resolved = resolveModelFallbackOptions(run, {
+      preflightPrompt: "  hello  ",
+      preflightMode: "force_stronger",
+    });
+
+    expect(resolved.preflightPrompt).toBe("hello");
+    expect(resolved.preflightMode).toBe("force_stronger");
+  });
+
   it("passes through missing agentId for helper-based fallback resolution", () => {
     hoisted.resolveRunModelFallbacksOverrideMock.mockReturnValue(["fallback-model"]);
     const run = makeRun({ agentId: undefined });

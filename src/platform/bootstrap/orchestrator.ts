@@ -36,13 +36,17 @@ export async function orchestrateBootstrapRequest(params: {
     (params.request.installMethod !== "builtin" && !decision.allowPrivilegedTools)
   ) {
     const capability = params.registry.get(params.request.capabilityId);
+    const deniedReasons =
+      decision.deniedReasons.length > 0
+        ? decision.deniedReasons
+        : ["Policy blocked capability bootstrap before install (no additional detail)."];
     return BootstrapOrchestrationResultSchema.parse({
       capabilityId: params.request.capabilityId,
       status: "denied",
       request: params.request,
       policy,
       ...(capability ? { capability } : {}),
-      reasons: decision.deniedReasons,
+      reasons: deniedReasons,
     });
   }
 

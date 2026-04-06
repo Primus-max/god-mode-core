@@ -297,6 +297,7 @@ export function createFollowupRunner(params: {
           model: queued.run.model,
           runId,
           agentDir: queued.run.agentDir,
+          preflightPrompt: queued.prompt,
           fallbacksOverride: resolveRunModelFallbacksOverride({
             cfg: queued.run.config,
             agentId: queued.run.agentId,

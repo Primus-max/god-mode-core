@@ -285,6 +285,24 @@ export const en: TranslationMap = {
         openBootstrap: "Open bootstrap request",
         openArtifact: "Open artifact",
       },
+      bootstrapGuide: {
+        title: "Bootstrap checkpoint (operator guide)",
+        pending_approval:
+          "The inbound task is paused here. Approve (or deny) the capability in the Bootstrap tab before install can start.",
+        pending_run:
+          "The request is approved — run bootstrap to perform the install. The paused task stays queued until install finishes.",
+        install_running:
+          "Install is in progress. When it completes, use the next actions below to resume or dispatch the paused task if prompted.",
+        resume_dispatch:
+          "Install finished — dispatch continuation when you are ready so the paused message or task can run again.",
+        resume_failed:
+          "Continuation failed after install. Use retry/dispatch controls or inspect errors, then try again.",
+        resume_complete:
+          "Continuation completed; the paused task path should be finished or handed off to the next run.",
+        completed: "This bootstrap checkpoint is complete.",
+        denied: "Bootstrap was denied; the paused task will not resume until requirements or policy change.",
+        generic: "Review status, next actions, and the linked bootstrap record for details.",
+      },
       handoff: {
         currentTarget: "Current target {runId}",
         requestAnchor: "Request anchor {runId}",
@@ -954,6 +972,36 @@ export const en: TranslationMap = {
       created: "Created",
       updated: "Updated",
       lifecycle: "Lifecycle",
+    },
+    recordStateHint: "request {state}",
+    planning: {
+      title: "Routing & planning context",
+      subtitle:
+        "Snapshot from the planner when this bootstrap was requested (readiness, profile, model hints).",
+      profileRecipe: "Profile · recipe",
+      readiness: "Readiness",
+      intent: "Intent",
+      autonomy: "Policy autonomy",
+      boundary: "Unattended boundary",
+      bootstrapCaps: "Bootstrap-required capabilities",
+      requiredCaps: "Required capabilities",
+      modelRoute: "Model route hints",
+      fallbackModels: "Fallback models",
+      tools: "Requested tools",
+      plannerReasoning: "Planner reasoning",
+    },
+    blockedResume: {
+      title: "Paused task (resumes after install)",
+      subtitle:
+        "When install and verification succeed, this queued task is scheduled to run again automatically.",
+      runId: "Blocked run",
+      sessionKey: "Session",
+      queueKey: "Queue",
+      taskPreview: "Task preview",
+    },
+    lifecyclePath: {
+      title: "Lifecycle path",
+      verification: "Verification",
     },
   },
   machine: {

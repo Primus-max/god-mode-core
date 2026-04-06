@@ -6,6 +6,7 @@ export {
   listApprovedCapabilityCatalogIds,
 } from "./catalog-approval.js";
 export {
+  BootstrapBlockedRunResumeSchema,
   BootstrapLifecycleResultSchema,
   BootstrapLifecycleStateSchema,
   BootstrapAuditEventSchema,
@@ -29,6 +30,7 @@ export {
   type BootstrapAuditEvent,
   type BootstrapAuditEventType,
   type BootstrapApprovalMode,
+  type BootstrapBlockedRunResume,
   type BootstrapLifecycleResult,
   type BootstrapLifecycleState,
   type BootstrapOrchestrationResult,

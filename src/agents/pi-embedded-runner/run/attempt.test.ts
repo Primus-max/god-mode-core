@@ -96,12 +96,12 @@ describe("resolvePromptBuildHookResult", () => {
     });
 
     expect(hookRunner.runBeforeAgentStart).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      prependContext: "from-cache",
-      systemPrompt: "legacy-system",
-      prependSystemContext: undefined,
-      appendSystemContext: undefined,
-    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        prependContext: "from-cache",
+        systemPrompt: "legacy-system",
+      }),
+    );
   });
 
   it("calls legacy hook when precomputed result is absent", async () => {
@@ -144,6 +144,32 @@ describe("resolvePromptBuildHookResult", () => {
     expect(result.prependContext).toBe("prompt context\n\nlegacy context");
     expect(result.prependSystemContext).toBe("prompt prepend\n\nlegacy prepend");
     expect(result.appendSystemContext).toBe("prompt append\n\nlegacy append");
+  });
+
+  it("merges userPromptOverride and promptOptimization with before_prompt_build precedence", async () => {
+    const hookRunner = {
+      hasHooks: vi.fn(() => true),
+      runBeforePromptBuild: vi.fn(async () => ({
+        userPromptOverride: "from typed hook",
+        promptOptimization: { reasoning: ["typed"], applied: true },
+      })),
+      runBeforeAgentStart: vi.fn(async () => ({
+        userPromptOverride: "from legacy",
+        promptOptimization: { reasoning: ["legacy"], charsRemoved: 1 },
+      })),
+    };
+
+    const result = await resolvePromptBuildHookResult({
+      prompt: "hello",
+      messages: [],
+      hookCtx: {},
+      hookRunner,
+    });
+
+    expect(result.userPromptOverride).toBe("from typed hook");
+    expect(result.promptOptimization?.reasoning).toEqual(["typed", "legacy"]);
+    expect(result.promptOptimization?.charsRemoved).toBe(1);
+    expect(result.promptOptimization?.applied).toBe(true);
   });
 });
 

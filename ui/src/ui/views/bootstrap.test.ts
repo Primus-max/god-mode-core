@@ -230,6 +230,152 @@ describe("bootstrap view", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("shows routing context, blocked resume, lifecycle path, and record state hint", async () => {
+    const base = createProps();
+    const request = {
+      ...base.detail!.request,
+      executionContext: {
+        profileId: "profile-office",
+        recipeId: "doc_ingest",
+        readinessStatus: "bootstrap_required" as const,
+        readinessReasons: ["renderer_unavailable"],
+        intent: "document" as const,
+        policyAutonomy: "assist" as const,
+        unattendedBoundary: "bootstrap" as const,
+        bootstrapRequiredCapabilities: ["pdf-renderer"],
+        requestedToolNames: ["attachments.read"],
+        providerOverride: "anthropic",
+        modelOverride: "claude-sonnet-4-20250514",
+        plannerReasoning: "Document path requires PDF renderer.",
+      },
+      blockedRunResume: {
+        blockedRunId: "run-blocked-1",
+        sessionKey: "agent:main:main",
+        queueKey: "queue-main",
+        settings: { mode: "followup" as const },
+        sourceRun: {
+          prompt: "Please summarize the attached PDF.",
+          summaryLine: "PDF summary",
+          enqueuedAt: 1,
+          run: {
+            agentId: "agent",
+            agentDir: "/tmp/agent",
+            sessionId: "session",
+            sessionFile: "/tmp/session.json",
+            workspaceDir: "/tmp/workspace",
+            config: {},
+            provider: "anthropic",
+            model: "claude-sonnet-4-20250514",
+            timeoutMs: 30_000,
+            blockReplyBreak: "message_end" as const,
+          },
+        },
+      },
+    };
+    const policy = {
+      allowCapabilityBootstrap: true,
+      allowPrivilegedTools: false,
+      requireExplicitApproval: true,
+      reasons: [] as string[],
+      deniedReasons: [] as string[],
+    };
+    const lifecycle = {
+      capabilityId: request.capabilityId,
+      installMethod: request.installMethod,
+      verificationStatus: "passed" as const,
+      rollbackStatus: "not_needed" as const,
+      status: "available" as const,
+      transitions: ["requested", "approved", "installing", "verifying", "available"] as const,
+    };
+    const container = document.createElement("div");
+    render(
+      renderBootstrap(
+        createProps({
+          detail: {
+            ...base.detail!,
+            state: "available",
+            request,
+            result: {
+              capabilityId: request.capabilityId,
+              status: "available",
+              request,
+              policy,
+              lifecycle,
+            },
+          },
+          requests: [
+            {
+              ...base.requests[0],
+              state: "available",
+              hasResult: true,
+              lastResultStatus: "available",
+            },
+          ],
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Routing & planning context");
+    expect(container.textContent).toContain("profile-office");
+    expect(container.textContent).toContain("run-blocked-1");
+    expect(container.textContent).toContain("Lifecycle path");
+    expect(container.textContent).toContain("requested → approved → installing → verifying → available");
+    expect(container.textContent).toContain("request available");
+  });
+
+  it("surfaces pending approval, run bootstrap after approve, then completed lifecycle in sequence", async () => {
+    const pending = createProps();
+    const approved = createProps({
+      requests: [{ ...pending.requests[0], state: "approved" }],
+      detail: { ...pending.detail!, state: "approved" },
+    });
+    const request = pending.detail!.request;
+    const available = createProps({
+      requests: [{ ...pending.requests[0], state: "available", hasResult: true, lastResultStatus: "available" }],
+      detail: {
+        ...pending.detail!,
+        state: "available",
+        result: {
+          capabilityId: request.capabilityId,
+          status: "available",
+          request,
+          policy: {
+            allowCapabilityBootstrap: true,
+            allowPrivilegedTools: false,
+            requireExplicitApproval: true,
+            reasons: [],
+            deniedReasons: [],
+          },
+          lifecycle: {
+            capabilityId: request.capabilityId,
+            installMethod: request.installMethod,
+            verificationStatus: "passed",
+            rollbackStatus: "not_needed",
+            status: "available",
+            transitions: ["requested", "approved", "installing", "available"],
+          },
+        },
+      },
+    });
+
+    const pendingHost = document.createElement("div");
+    render(renderBootstrap(pending), pendingHost);
+    await Promise.resolve();
+    expect(pendingHost.textContent).toContain("Approve");
+
+    const approvedHost = document.createElement("div");
+    render(renderBootstrap(approved), approvedHost);
+    await Promise.resolve();
+    expect(approvedHost.textContent).toContain("Run bootstrap");
+
+    const doneHost = document.createElement("div");
+    render(renderBootstrap(available), doneHost);
+    await Promise.resolve();
+    expect(doneHost.textContent).toMatch(/installing|available/);
+  });
+
   it("lets modified clicks fall through to the browser href for bootstrap list rows", async () => {
     const onSelect = vi.fn();
     const container = document.createElement("div");

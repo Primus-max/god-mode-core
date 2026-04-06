@@ -1,0 +1,125 @@
+import type { PromptOptimizationReport, PromptOptimizeForTurnResult } from "./types.js";
+
+const DETERMINISTIC_STRATEGY_ID = "deterministic-v1";
+
+/**
+ * Merge optimization reports from hooks and runtime passes (ordered reasoning).
+ */
+export function mergePromptOptimizationReports(
+  ...parts: Array<PromptOptimizationReport | undefined>
+): PromptOptimizationReport | undefined {
+  const reasoning: string[] = [];
+  let charsRemoved = 0;
+  let applied = false;
+  let strategyId: string | undefined;
+  let charsIn: number | undefined;
+  let charsOut: number | undefined;
+
+  for (const p of parts) {
+    if (!p) {
+      continue;
+    }
+    if (p.reasoning?.length) {
+      reasoning.push(...p.reasoning);
+    }
+    if (typeof p.charsRemoved === "number") {
+      charsRemoved += p.charsRemoved;
+    }
+    if (p.applied) {
+      applied = true;
+    }
+    if (p.strategyId) {
+      strategyId = p.strategyId;
+    }
+    if (typeof p.charsIn === "number") {
+      charsIn = p.charsIn;
+    }
+    if (typeof p.charsOut === "number") {
+      charsOut = p.charsOut;
+    }
+  }
+
+  if (
+    reasoning.length === 0 &&
+    !applied &&
+    charsRemoved === 0 &&
+    !strategyId &&
+    charsIn === undefined &&
+    charsOut === undefined
+  ) {
+    return undefined;
+  }
+
+  const out: PromptOptimizationReport = {};
+  if (reasoning.length > 0) {
+    out.reasoning = reasoning;
+  }
+  if (applied) {
+    out.applied = true;
+  }
+  if (charsRemoved > 0) {
+    out.charsRemoved = charsRemoved;
+  }
+  if (strategyId) {
+    out.strategyId = strategyId;
+  }
+  if (charsIn !== undefined) {
+    out.charsIn = charsIn;
+  }
+  if (charsOut !== undefined) {
+    out.charsOut = charsOut;
+  }
+  return out;
+}
+
+/**
+ * Deterministic prompt cleanup: trims line noise and excessive blank lines
+ * without removing non-empty lines (preserves paths, tasks, and constraints).
+ */
+export function deterministicPromptOptimize(prompt: string): PromptOptimizeForTurnResult {
+  const charsIn = prompt.length;
+  const reasoning: string[] = [];
+  let text = prompt;
+
+  if (text.includes("\r\n")) {
+    text = text.replaceAll("\r\n", "\n");
+    reasoning.push("normalized CRLF line endings to LF");
+  }
+  if (text.includes("\r")) {
+    text = text.replaceAll("\r", "\n");
+    reasoning.push("normalized lone CR characters to LF");
+  }
+
+  const lines = text.split("\n");
+  const trimmedLines = lines.map((line) => line.replace(/[ \t]+$/u, ""));
+  if (trimmedLines.join("\n") !== lines.join("\n")) {
+    reasoning.push("stripped trailing spaces and tabs on lines");
+    text = trimmedLines.join("\n");
+  }
+
+  const collapsed = text.replace(/\n{3,}/gu, "\n\n");
+  if (collapsed !== text) {
+    reasoning.push("collapsed runs of 3+ blank lines to a single paragraph break");
+    text = collapsed;
+  }
+
+  const trimmed = text.trim();
+  if (trimmed !== text) {
+    reasoning.push("trimmed leading/trailing blank lines");
+    text = trimmed;
+  }
+
+  const charsOut = text.length;
+  const applied = text !== prompt;
+  return {
+    prompt: text,
+    meta: {
+      applied,
+      reasoning: reasoning.length > 0 ? reasoning : undefined,
+      strategyId: DETERMINISTIC_STRATEGY_ID,
+      charsIn,
+      charsOut,
+      charsRemoved: Math.max(0, charsIn - charsOut),
+    },
+  };
+}

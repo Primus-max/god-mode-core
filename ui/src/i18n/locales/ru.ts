@@ -418,6 +418,24 @@ export const ru: TranslationMap = {
         openBootstrap: "Открыть bootstrap request",
         openArtifact: "Открыть artifact",
       },
+      bootstrapGuide: {
+        title: "Bootstrap checkpoint (подсказка оператору)",
+        pending_approval:
+          "Входящая задача на паузе. Одобрите (или отклоните) capability на вкладке Bootstrap, затем можно запускать установку.",
+        pending_run:
+          "Запрос одобрен — запустите bootstrap для установки. Поставленная задача остаётся в очереди до завершения установки.",
+        install_running:
+          "Идёт установка. После завершения используйте следующие действия ниже, чтобы возобновить или dispatch paused task при необходимости.",
+        resume_dispatch:
+          "Установка завершена — выполните dispatch continuation, когда готовы, чтобы снова запустить отложенное сообщение или задачу.",
+        resume_failed:
+          "Continuation после установки завершился ошибкой. Используйте retry/dispatch или проверьте логи и повторите.",
+        resume_complete:
+          "Continuation завершён; путь отложенной задачи должен быть закрыт или передан следующему run.",
+        completed: "Этот bootstrap checkpoint завершён.",
+        denied: "Bootstrap отклонён; задача не возобновится, пока не изменятся требования или политика.",
+        generic: "Смотрите статус, следующие действия и связанную запись bootstrap.",
+      },
       handoff: {
         currentTarget: "Текущий target {runId}",
         requestAnchor: "Request anchor {runId}",
@@ -736,6 +754,36 @@ export const ru: TranslationMap = {
       created: "Создано",
       updated: "Обновлено",
       lifecycle: "Жизненный цикл",
+    },
+    recordStateHint: "запрос {state}",
+    planning: {
+      title: "Контекст маршрутизации и планирования",
+      subtitle:
+        "Снимок планировщика на момент запроса bootstrap (готовность, профиль, подсказки по модели).",
+      profileRecipe: "Профиль · рецепт",
+      readiness: "Готовность",
+      intent: "Намерение",
+      autonomy: "Автономия политики",
+      boundary: "Граница без присмотра",
+      bootstrapCaps: "Capabilities, требующие bootstrap",
+      requiredCaps: "Требуемые capabilities",
+      modelRoute: "Подсказки маршрута модели",
+      fallbackModels: "Fallback-модели",
+      tools: "Запрошенные инструменты",
+      plannerReasoning: "Обоснование планировщика",
+    },
+    blockedResume: {
+      title: "Поставленная задача (возобновится после установки)",
+      subtitle:
+        "После успешной установки и проверки эта задача в очереди будет автоматически запланирована снова.",
+      runId: "Заблокированный run",
+      sessionKey: "Сессия",
+      queueKey: "Очередь",
+      taskPreview: "Превью задачи",
+    },
+    lifecyclePath: {
+      title: "Путь жизненного цикла",
+      verification: "Проверка",
     },
   },
   machine: {
