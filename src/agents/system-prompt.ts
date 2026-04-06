@@ -256,6 +256,7 @@ export function buildAgentSystemPrompt(params: {
       "Show a /status-equivalent status card (usage + time + Reasoning/Verbose/Elevated); use for model-use questions (📊 session_status); optional per-session model override",
     image: "Analyze an image with the configured image model",
     image_generate: "Generate images with the configured image-generation model",
+    pdf: "Analyze PDFs or create a simple PDF from prompt text; prefer this over exec/installing PDF toolchains for prompt-only PDF requests",
   };
 
   const toolOrder = [
@@ -284,6 +285,7 @@ export function buildAgentSystemPrompt(params: {
     "session_status",
     "image",
     "image_generate",
+    "pdf",
   ];
 
   const rawToolNames = (params.toolNames ?? []).map((tool) => tool.trim());

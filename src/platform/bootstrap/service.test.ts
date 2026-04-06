@@ -3,10 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  getFollowupQueueDepth,
+  resetInMemoryFollowupQueuesForTests,
+} from "../../auto-reply/reply/queue.js";
+import {
   getPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,
 } from "../runtime/index.js";
-import type { BootstrapRequest } from "./contracts.js";
+import { BootstrapBlockedRunResumeSchema, type BootstrapRequest } from "./contracts.js";
 import { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
 import { createBootstrapRequestService } from "./service.js";
 
@@ -50,6 +54,7 @@ function installBootstrapContinuationNoop() {
 describe("bootstrap request service", () => {
   afterEach(() => {
     resetPlatformRuntimeCheckpointService();
+    resetInMemoryFollowupQueuesForTests();
   });
 
   it("creates, lists, and resolves bootstrap requests", () => {
@@ -176,6 +181,53 @@ describe("bootstrap request service", () => {
         state: "confirmed",
       }),
     );
+  });
+
+  it("enqueues blocked followup after successful bootstrap when blockedRunResume is present", async () => {
+    const queueKey = "openclaw-test-bootstrap-resume";
+    const blockedRunResume = BootstrapBlockedRunResumeSchema.parse({
+      blockedRunId: "run-blocked-bootstrap-resume",
+      queueKey,
+      settings: { mode: "followup" },
+      sourceRun: {
+        prompt: "finish the document task",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-resume",
+          agentDir: "/tmp/agent",
+          sessionId: "sess-resume",
+          sessionFile: "/tmp/sess-resume.jsonl",
+          workspaceDir: "/tmp/ws-resume",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+    });
+    const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
+    const created = service.create(buildRequest({ blockedRunResume }));
+    service.resolve(created.id, "approve");
+    await service.run({
+      id: created.id,
+      installers: {
+        download: async ({ request }) => ({
+          ok: true,
+          capability: {
+            ...request.catalogEntry.capability,
+            trusted: true,
+            sandboxed: true,
+            installMethod: "download",
+            status: "available",
+          },
+        }),
+      },
+      availableBins: ["playwright"],
+      runHealthCheckCommand: async () => true,
+    });
+    expect(getFollowupQueueDepth(queueKey)).toBe(1);
   });
 
   it("auto-approves and continues trusted unattended bootstrap lanes", async () => {

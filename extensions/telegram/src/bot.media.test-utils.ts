@@ -137,6 +137,11 @@ beforeAll(async () => {
   fetchRemoteMediaSpyRef = harness.fetchRemoteMediaSpy;
   undiciFetchSpyRef = harness.undiciFetchSpy;
   resetFetchRemoteMediaMockRef = harness.resetFetchRemoteMediaMock;
+  // Reset the module cache so the vi.mock("openclaw/plugin-sdk/media-runtime") factory runs
+  // fresh when bot.js (and its transitive dependency delivery.resolve-media.ts) is loaded.
+  // Without this, media-runtime may be served from cache and the fetchRemoteMedia /
+  // saveMediaBuffer spies are bypassed by the real implementations.
+  vi.resetModules();
   const botModule = await import("./bot.js");
   botModule.setTelegramBotRuntimeForTest(
     harness.telegramBotRuntimeForTest as unknown as Parameters<

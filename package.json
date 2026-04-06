@@ -722,6 +722,7 @@
     "test:gateway": "vitest run --config vitest.gateway.config.ts --pool=forks",
     "test:gateway:recovery-confidence": "vitest run --config vitest.gateway.config.ts src/gateway/gateway.recovery-confidence.test.ts --pool=forks --maxWorkers=1",
     "test:gateway:session-event-parity": "vitest run --config vitest.gateway.config.ts src/gateway/session-event-broadcast-parity.test.ts --pool=forks --maxWorkers=1",
+    "test:v1-gate": "pnpm test:gateway:recovery-confidence && pnpm test:gateway:session-event-parity",
     "test:gateway:watch-regression": "node scripts/check-gateway-watch-regression.mjs",
     "test:install:e2e": "bash scripts/test-install-sh-e2e-docker.sh",
     "test:install:e2e:anthropic": "OPENCLAW_E2E_MODELS=anthropic bash scripts/test-install-sh-e2e-docker.sh",

@@ -2,6 +2,7 @@ export { INITIAL_RECIPES, getInitialRecipe, initialRecipeRegistry } from "./defa
 export { planExecutionRecipe, type ExecutionPlan, type RecipePlannerInput } from "./planner.js";
 export {
   adaptExecutionPlanToRuntime,
+  buildRecipePlannerInputFromRuntimePlan,
   resolvePlatformRuntimePlan,
   type RecipeRuntimePlan,
   type ResolvedPlatformRuntimePlan,

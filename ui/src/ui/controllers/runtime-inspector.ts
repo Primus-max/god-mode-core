@@ -88,6 +88,84 @@ export type RuntimeRecoveryGuardrail = {
   confirmationKind?: RuntimeRecoveryConfirmationKind;
 };
 
+export function checkpointHasNextAction(
+  checkpoint: RuntimeCheckpointSummary,
+  method: string,
+  phase?: "approve" | "deny" | "resume" | "retry" | "inspect",
+): boolean {
+  return (
+    checkpoint.nextActions?.some(
+      (action) => action.method === method && (phase ? action.phase === phase : true),
+    ) ?? false
+  );
+}
+
+/** Operator-facing phase for bootstrap boundary checkpoints (Sessions runtime inspector). */
+export type BootstrapCheckpointUiPhase =
+  | "pending_approval"
+  | "pending_run"
+  | "install_running"
+  | "resume_dispatch"
+  | "resume_failed"
+  | "resume_complete"
+  | "completed"
+  | "denied"
+  | "generic";
+
+export function resolveBootstrapCheckpointUiPhase(
+  checkpoint: RuntimeCheckpointSummary,
+): BootstrapCheckpointUiPhase | null {
+  if (checkpoint.boundary !== "bootstrap") {
+    return null;
+  }
+  if (checkpoint.status === "denied") {
+    return "denied";
+  }
+  if (checkpoint.status === "completed") {
+    return "completed";
+  }
+  if (checkpoint.status === "cancelled") {
+    return "generic";
+  }
+  if (checkpoint.status === "blocked") {
+    if (checkpointHasNextAction(checkpoint, "platform.bootstrap.resolve", "approve")) {
+      return "pending_approval";
+    }
+    return "generic";
+  }
+  if (checkpoint.status === "approved") {
+    if (checkpointHasNextAction(checkpoint, "platform.bootstrap.run", "resume")) {
+      return "pending_run";
+    }
+    if (
+      checkpoint.continuation?.kind === "bootstrap_run" &&
+      checkpoint.continuation.state === "running"
+    ) {
+      return "install_running";
+    }
+    return "generic";
+  }
+  if (checkpoint.status === "resumed") {
+    if (checkpoint.continuation?.kind === "closure_recovery") {
+      if (checkpoint.continuation.state === "failed") {
+        return "resume_failed";
+      }
+      if (checkpoint.continuation.state === "completed") {
+        return "resume_complete";
+      }
+      return "resume_dispatch";
+    }
+    if (
+      checkpoint.continuation?.kind === "bootstrap_run" &&
+      checkpoint.continuation.state === "running"
+    ) {
+      return "install_running";
+    }
+    return "generic";
+  }
+  return "generic";
+}
+
 export function getRuntimeRecoveryGuardrail(
   action: RuntimeRecoveryAction,
 ): RuntimeRecoveryGuardrail {

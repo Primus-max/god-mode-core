@@ -536,7 +536,10 @@ export async function runMemoryFlushIfNeeded(params: {
     .join("\n\n");
   try {
     await runWithModelFallback({
-      ...resolveModelFallbackOptions(params.followupRun.run),
+      ...resolveModelFallbackOptions(params.followupRun.run, {
+        preflightPrompt: memoryFlushPrompt,
+        preflightMode: "force_stronger",
+      }),
       runId: flushRunId,
       run: async (provider, model, runOptions) => {
         if (contextHashBeforeFlush && fallbackFlushAttemptedForCurrentHash) {

@@ -73,8 +73,8 @@ describe("applyTaskOverlay", () => {
     const profile = getInitialProfile("developer")!;
     const overlay = profile.taskOverlays?.find((entry) => entry.id === "code_first");
     const effective = applyTaskOverlay(profile, overlay);
-    expect(effective.preferredTools).toContain("exec");
-    expect(effective.modelHints).toContain("tool-use");
+    expect(effective.preferredTools).toEqual(["edit", "exec", "process", "read", "write"]);
+    expect(effective.modelHints).toEqual(["repo-aware", "tool-use"]);
     expect(effective.timeoutSeconds).toBe(300);
   });
 

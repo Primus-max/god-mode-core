@@ -434,7 +434,7 @@ function resolveMessagingClosureTitle(decision: MessagingClosureDecision): strin
       : "Automatic recovery exhausted";
   }
   if (decision.remediation === "bootstrap") {
-    return "Bootstrap recovery in progress";
+    return "Task paused for capability install";
   }
   if (decision.remediation === "auth_refresh") {
     return "Authentication attention required";
@@ -461,7 +461,7 @@ function resolveMessagingClosureNextStep(decision: MessagingClosureDecision): st
       : "No further automatic recovery will be attempted.";
   }
   if (decision.remediation === "bootstrap") {
-    return "Bootstrap recovery must finish before the task can complete.";
+    return "Approve the capability in Control UI → Bootstrap, run the installer, then the paused task resumes automatically.";
   }
   if (decision.remediation === "auth_refresh") {
     return "Provider authentication must be refreshed before retrying.";
@@ -490,7 +490,7 @@ function buildMessagingClosurePresentation(
       ? `I could not finish automatically and now need human intervention. ${reason}`.trim()
       : `I exhausted the automatic recovery budget and could not complete this task. ${reason}`.trim()
     : decision.remediation === "bootstrap"
-      ? `Still working on this. I need to finish bootstrap recovery before I can complete it. ${reason}`.trim()
+      ? `Your task is paused while a capability install is pending. Approve it in Control UI → Bootstrap, run bootstrap, and I will resume this task when the platform allows. ${reason}`.trim()
       : decision.remediation === "auth_refresh"
         ? `I could not finish because provider authentication needs attention. ${reason}`.trim()
         : decision.remediation === "provider_fallback"

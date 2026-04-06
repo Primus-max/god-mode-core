@@ -5,6 +5,7 @@ export {
   ProfileScoringSignalSchema,
   ActiveProfileStateSchema,
   PROFILE_IDS,
+  PLATFORM_PROFILE_HINTS_ARE_NON_AUTHORITATIVE,
   type ProfileId,
   type Profile,
   type TaskOverlay,

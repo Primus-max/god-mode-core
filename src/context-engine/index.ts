@@ -6,6 +6,8 @@ export type {
   ContextEngineMaintenanceResult,
   ContextEngineRuntimeContext,
   IngestResult,
+  PromptOptimizationReport,
+  PromptOptimizeForTurnResult,
   TranscriptRewriteReplacement,
   TranscriptRewriteRequest,
   TranscriptRewriteResult,
@@ -23,3 +25,8 @@ export { LegacyContextEngine, registerLegacyContextEngine } from "./legacy.js";
 export { delegateCompactionToRuntime } from "./delegate.js";
 
 export { ensureContextEnginesInitialized } from "./init.js";
+
+export {
+  deterministicPromptOptimize,
+  mergePromptOptimizationReports,
+} from "./prompt-optimize.js";

@@ -1,5 +1,6 @@
 import type { ArtifactKind, Profile, TaskOverlay } from "../schemas/index.js";
 import { getTaskOverlay } from "./defaults.js";
+import { normalizeProfileHintList } from "./hints.js";
 import type { ProfileSignalInput } from "./signals.js";
 
 export type EffectiveProfilePreference = {
@@ -11,10 +12,6 @@ export type EffectiveProfilePreference = {
   modelHints: string[];
   timeoutSeconds?: number;
 };
-
-function unique(values: string[]): string[] {
-  return Array.from(new Set(values));
-}
 
 function promptIncludes(prompt: string | undefined, values: string[]): boolean {
   const normalized = (prompt ?? "").toLowerCase();
@@ -161,12 +158,15 @@ export function applyTaskOverlay(
     profile,
     activeProfileId: profile.id,
     taskOverlay,
-    preferredTools: unique([...(profile.preferredTools ?? []), ...(taskOverlay?.toolHints ?? [])]),
-    preferredPublishTargets: unique([
+    preferredTools: normalizeProfileHintList([
+      ...(profile.preferredTools ?? []),
+      ...(taskOverlay?.toolHints ?? []),
+    ]),
+    preferredPublishTargets: normalizeProfileHintList([
       ...(profile.preferredPublishTargets ?? []),
       ...(taskOverlay?.publishTargets ?? []),
     ]),
-    modelHints: unique(taskOverlay?.modelHints ?? []),
+    modelHints: normalizeProfileHintList(taskOverlay?.modelHints ?? []),
     timeoutSeconds: taskOverlay?.timeoutSeconds,
   };
 }

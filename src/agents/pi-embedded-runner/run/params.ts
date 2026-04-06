@@ -3,7 +3,13 @@ import type { ReasoningLevel, ThinkLevel, VerboseLevel } from "../../../auto-rep
 import type { ReplyPayload } from "../../../auto-reply/types.js";
 import type { OpenClawConfig } from "../../../config/config.js";
 import type { RecipeRuntimePlan } from "../../../platform/recipe/runtime-adapter.js";
+import type { ensureOpenClawModelsJson } from "../../models-config.js";
+import type { prepareProviderRuntimeAuth } from "../../../plugins/provider-runtime.js";
 import type { enqueueCommand } from "../../../process/command-queue.js";
+import type { runEmbeddedAttempt } from "../run/attempt.js";
+import type { resolveModelAsync } from "../model.js";
+import type { computeBackoff, sleepWithAbort } from "../../../infra/backoff.js";
+import type { ensureRuntimePluginsLoaded } from "../../runtime-plugins.js";
 import type { InputProvenance } from "../../../sessions/input-provenance.js";
 import type { ExecElevatedDefaults, ExecToolDefaults } from "../../bash-tools.js";
 import type { AgentStreamParams } from "../../command/types.js";
@@ -119,12 +125,38 @@ export type RunEmbeddedPiAgentParams = {
   onAgentEvent?: (evt: { stream: string; data: Record<string, unknown> }) => void;
   lane?: string;
   enqueue?: typeof enqueueCommand;
+  /** Injectable override for ensureOpenClawModelsJson — used in tests to bypass the real
+   *  implementation which triggers expensive Jiti plugin compilation. */
+  ensureModelsJson?: typeof ensureOpenClawModelsJson;
+  /** Injectable override for ensureRuntimePluginsLoaded — used in tests to bypass Jiti
+   *  plugin compilation that happens on the first call per worker process. */
+  ensureRuntimePluginsLoaded?: typeof ensureRuntimePluginsLoaded;
+  /** Injectable override for prepareProviderRuntimeAuth — used in tests to bypass the real
+   *  implementation which triggers Jiti plugin loading. */
+  prepareRuntimeAuth?: typeof prepareProviderRuntimeAuth;
+  /** Injectable override for runEmbeddedAttempt — used in tests to bypass the real
+   *  implementation which makes actual LLM API calls. */
+  runAttempt?: typeof runEmbeddedAttempt;
+  /** Injectable override for resolveModelAsync — used in tests to bypass the real
+   *  implementation which triggers Jiti plugin compilation via DEFAULT_PROVIDER_RUNTIME_HOOKS. */
+  resolveModelAsync?: typeof resolveModelAsync;
+  /** Injectable override for computeBackoff — used in tests to bypass the vi.mock interception
+   *  failure caused by test/setup.ts pre-loading backoff.js via context.ts before vi.mock applies. */
+  computeBackoff?: typeof computeBackoff;
+  /** Injectable override for sleepWithAbort — used in tests alongside computeBackoff injection. */
+  sleepWithAbort?: typeof sleepWithAbort;
   extraSystemPrompt?: string;
   inputProvenance?: InputProvenance;
   streamParams?: AgentStreamParams;
   ownerNumbers?: string[];
   enforceFinalTag?: boolean;
-  /** Structured platform orchestration hints selected before entering the runner. */
+  /**
+   * Structured platform orchestration hints selected before entering the runner.
+   * When refreshing policy or rebuilding planner input for the same turn, prefer
+   * `buildExecutionDecisionInputFromRuntimePlan` / `resolveExecutionRuntimePlanFromExistingRuntime`
+   * (`src/platform/decision/input.ts`) so intent and artifact signals stay tied to this snapshot
+   * instead of being re-inferred from raw prompt text.
+   */
   platformExecutionContext?: RecipeRuntimePlan;
   /**
    * Allow a single run attempt even when all auth profiles are in cooldown,

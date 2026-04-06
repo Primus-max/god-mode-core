@@ -22,7 +22,7 @@ function escapePdfText(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("(", "\\(").replaceAll(")", "\\)");
 }
 
-function buildMinimalPdfBuffer(text: string): Buffer {
+export function buildMinimalPdfBuffer(text: string): Buffer {
   const lines = text.split(/\r?\n/gu).flatMap((line) => {
     const trimmed = line.trim();
     if (!trimmed) {

@@ -15,6 +15,14 @@ process.env.VITEST = "true";
 // Config validation walks plugin manifests; keep an aggressive cache in tests to avoid
 // repeated filesystem discovery across suites/workers.
 process.env.OPENCLAW_PLUGIN_MANIFEST_CACHE_MS ??= "60000";
+// Redirect bundled-plugin discovery to a non-existent path so tests never trigger the
+// synchronous filesystem scan of the extensions/ directory (~5 000 files, ~2–90 s blocking).
+// Tests that need real bundled-plugin discovery must override this themselves.
+process.env.OPENCLAW_BUNDLED_PLUGINS_DIR ??= "__openclaw_test_no_bundled_plugins__";
+// Enable fast test mode to skip setTimeout-based polling delays in subagent-announce.ts
+// (buildCompactAnnounceStatsLine token-wait loop and readLatestSubagentOutputWithRetry).
+// This prevents 3×150ms fake-timer waits from interfering with fake-timer-driven e2e tests.
+process.env.OPENCLAW_TEST_FAST ??= "1";
 // Vitest vm forks can load transitive lockfile helpers many times per worker.
 // Raise listener budget to avoid noisy MaxListeners warnings and warning-stack overhead.
 const TEST_PROCESS_MAX_LISTENERS = 128;

@@ -3,6 +3,7 @@ import type { ResolvedPlatformRuntimePlan } from "../platform/recipe/runtime-ada
 import {
   buildEmbeddedAgentRunParams,
   resolveAgentCommandFallbackOverride,
+  shouldFailoverEmptySemanticRetryResult,
 } from "./agent-command.js";
 
 function makeOpts(overrides?: Record<string, unknown>) {
@@ -114,5 +115,67 @@ describe("agent-command Stage 2 wiring helpers", () => {
         configuredFallbacks: ["configured/fallback"],
       }),
     ).toEqual(["configured/fallback"]);
+  });
+
+  it("fails over when a run returns no payloads and requests semantic retry", () => {
+    expect(
+      shouldFailoverEmptySemanticRetryResult({
+        payloads: [],
+        meta: {
+          durationMs: 1,
+          supervisorVerdict: {
+            runId: "run-1",
+            status: "retryable",
+            action: "retry",
+            remediation: "semantic_retry",
+            reasonCode: "contract_mismatch",
+            reasons: ["no output"],
+            recoveryPolicy: {
+              remediation: "semantic_retry",
+              recoveryClass: "semantic",
+              cadence: "immediate",
+              continuous: false,
+              attemptCount: 0,
+              maxAttempts: 1,
+              remainingAttempts: 1,
+              exhausted: false,
+              exhaustedAction: "stop",
+              nextAttemptDelayMs: 0,
+            },
+          },
+        },
+      } as never),
+    ).toBe(true);
+  });
+
+  it("does not fail over when payloads are present", () => {
+    expect(
+      shouldFailoverEmptySemanticRetryResult({
+        payloads: [{ text: "ok" }],
+        meta: {
+          durationMs: 1,
+          supervisorVerdict: {
+            runId: "run-1",
+            status: "retryable",
+            action: "retry",
+            remediation: "semantic_retry",
+            reasonCode: "contract_mismatch",
+            reasons: ["retry"],
+            recoveryPolicy: {
+              remediation: "semantic_retry",
+              recoveryClass: "semantic",
+              cadence: "immediate",
+              continuous: false,
+              attemptCount: 0,
+              maxAttempts: 1,
+              remainingAttempts: 1,
+              exhausted: false,
+              exhaustedAction: "stop",
+              nextAttemptDelayMs: 0,
+            },
+          },
+        },
+      } as never),
+    ).toBe(false);
   });
 });

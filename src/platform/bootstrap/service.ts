@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { resolveStateDir } from "../../config/paths.js";
+import {
+  emitAgentEvent,
+  emitRuntimeRecoveryTelemetry,
+  registerAgentRunContext,
+} from "../../infra/agent-events.js";
+import type { FollowupRun } from "../../auto-reply/reply/queue.js";
 import { buildExecutionDecisionInput } from "../decision/input.js";
 import type { PolicyContext } from "../policy/types.js";
 import {
@@ -21,6 +27,7 @@ import {
   BootstrapRequestRecordSummarySchema,
   type BootstrapOrchestrationResult,
   type BootstrapAuditEventType,
+  type BootstrapBlockedRunResume,
   type BootstrapRequest,
   type BootstrapRequestDecision,
   type BootstrapRequestRecord,
@@ -97,7 +104,91 @@ function buildRecordSignature(request: BootstrapRequest): string {
     request.reason,
     request.sourceDomain,
     request.sourceRecipeId ?? "",
+    request.blockedRunResume?.blockedRunId ?? "",
   ].join("::");
+}
+
+async function dispatchBlockedRunResumeAfterBootstrap(params: {
+  bootstrapRequestId: string;
+  capabilityId: string;
+  resume: BootstrapBlockedRunResume;
+}): Promise<boolean> {
+  const { enqueueFollowupRun, scheduleFollowupDrain } = await import(
+    "../../auto-reply/reply/queue.js"
+  );
+  const [{ createFollowupRunner }, { createTypingController }] = await Promise.all([
+    import("../../auto-reply/reply/followup-runner.js"),
+    import("../../auto-reply/reply/typing.js"),
+  ]);
+  const runFollowup = createFollowupRunner({
+    typing: createTypingController({}),
+    typingMode: "never",
+    queueKey: params.resume.queueKey,
+    resolvedQueue: params.resume.settings,
+    defaultModel: params.resume.sourceRun.run.model,
+  });
+  const resumeLead = `Capability "${params.capabilityId}" was installed and verified. Continue the interrupted task from the approved bootstrap; do not ask for another bootstrap for this capability.\n\n`;
+  const sessionKey = params.resume.sourceRun.run.sessionKey ?? params.resume.sessionKey;
+  const followupRun: FollowupRun = {
+    ...(params.resume.sourceRun as FollowupRun),
+    prompt: `${resumeLead}${params.resume.sourceRun.prompt}`,
+    enqueuedAt: Date.now(),
+    requestRunId: params.resume.sourceRun.requestRunId ?? params.resume.blockedRunId,
+    parentRunId: params.resume.blockedRunId,
+    automation: {
+      source: "closure_recovery",
+      retryCount: params.resume.sourceRun.automation?.retryCount ?? 0,
+      persisted: true,
+      runtimeCheckpointId: params.bootstrapRequestId,
+      reasonCode: "bootstrap_install_verified",
+      reasonSummary: `Resumed after bootstrap ${params.bootstrapRequestId} (${params.capabilityId})`,
+    },
+  };
+  const enqueued = enqueueFollowupRun(
+    params.resume.queueKey,
+    followupRun,
+    params.resume.settings,
+    "prompt",
+  );
+  scheduleFollowupDrain(params.resume.queueKey, runFollowup);
+  registerAgentRunContext(params.resume.blockedRunId, {
+    ...(sessionKey ? { sessionKey } : {}),
+    runtimeState: "resumed",
+    runtimeCheckpointId: params.bootstrapRequestId,
+    runtimeBoundary: "bootstrap",
+  });
+  emitAgentEvent({
+    runId: params.resume.blockedRunId,
+    ...(sessionKey ? { sessionKey } : {}),
+    stream: "lifecycle",
+    data: {
+      phase: "resumed",
+      checkpointId: params.bootstrapRequestId,
+      boundary: "bootstrap",
+      detail: "blocked followup re-queued after bootstrap",
+    },
+  });
+  if (enqueued) {
+    emitRuntimeRecoveryTelemetry({
+      runId: params.resume.blockedRunId,
+      ...(sessionKey ? { sessionKey } : {}),
+      milestone: "followup_enqueued",
+      checkpointId: params.bootstrapRequestId,
+      continuationKind: "bootstrap_run",
+      queueKey: params.resume.queueKey,
+    });
+    return true;
+  }
+  emitRuntimeRecoveryTelemetry({
+    runId: params.resume.blockedRunId,
+    ...(sessionKey ? { sessionKey } : {}),
+    milestone: "continuation_dispatch_failed",
+    checkpointId: params.bootstrapRequestId,
+    continuationKind: "bootstrap_run",
+    error: "followup queue rejected duplicate or drop policy skipped resume",
+    queueKey: params.resume.queueKey,
+  });
+  return false;
 }
 
 function resolveBootstrapRunActionId(requestId: string): string {
@@ -227,16 +318,17 @@ export function createBootstrapRequestService(params?: {
         id: record.id,
         runId: record.id,
         boundary: "bootstrap",
-        blockedReason: "bootstrap approval required",
+        blockedReason:
+          "Bootstrap checkpoint: capability install is blocked until the operator approves (platform.bootstrap.resolve) and runs install/verify (platform.bootstrap.run).",
         nextActions: [
           {
             method: "platform.bootstrap.resolve",
-            label: "Approve or deny bootstrap request",
+            label: "Approve or deny capability bootstrap (install) request",
             phase: "approve",
           },
           {
             method: "platform.bootstrap.run",
-            label: "Run approved bootstrap request",
+            label: "Execute approved install, health verification, and resume blocked work if configured",
             phase: "resume",
           },
         ],
@@ -249,6 +341,15 @@ export function createBootstrapRequestService(params?: {
           ...(shouldAutoContinueBootstrapRequest(record.request) ? { autoDispatch: true } : {}),
           state: "idle",
           attempts: 0,
+          ...(record.request.blockedRunResume
+            ? {
+                input: {
+                  blockedRunResume: true,
+                  blockedRunId: record.request.blockedRunResume.blockedRunId,
+                  queueKey: record.request.blockedRunResume.queueKey,
+                },
+              }
+            : {}),
         },
         executionContext: record.request.executionContext,
       });
@@ -332,7 +433,7 @@ export function createBootstrapRequestService(params?: {
           ...existing,
           updatedAt: new Date().toISOString(),
           reasons: [
-            `bootstrap request must be approved before run (current state: ${existing.state})`,
+            `Bootstrap run is blocked: request state is "${existing.state}"; operator must approve via platform.bootstrap.resolve before platform.bootstrap.run.`,
           ],
         });
         records.set(blocked.id, blocked);
@@ -441,7 +542,45 @@ export function createBootstrapRequestService(params?: {
       if (result.lifecycle?.rollbackStatus && result.lifecycle.rollbackStatus !== "not_needed") {
         appendAuditRecord(stateDir, "request.rolled_back", updated);
       }
-      return BootstrapRequestRecordDetailSchema.parse(updated);
+      if (result.status === "bootstrapped" && running.request.blockedRunResume) {
+        try {
+          const resumeOk = await dispatchBlockedRunResumeAfterBootstrap({
+            bootstrapRequestId: updated.id,
+            capabilityId: updated.request.capabilityId,
+            resume: running.request.blockedRunResume,
+          });
+          const resumeAuditRecord = BootstrapRequestRecordSchema.parse({
+            ...updated,
+            ...(resumeOk
+              ? {}
+              : {
+                  reasons: [
+                    ...(updated.reasons ?? []),
+                    "Blocked task resume was not enqueued (duplicate prompt or queue drop policy).",
+                  ],
+                }),
+          });
+          if (!resumeOk) {
+            records.set(updated.id, resumeAuditRecord);
+          }
+          appendAuditRecord(
+            stateDir,
+            resumeOk ? "request.resume_enqueued" : "request.resume_enqueue_failed",
+            resumeAuditRecord,
+          );
+        } catch (error) {
+          const failedResume = BootstrapRequestRecordSchema.parse({
+            ...updated,
+            reasons: [
+              ...(updated.reasons ?? []),
+              `Blocked task resume dispatch failed: ${error instanceof Error ? error.message : String(error)}`,
+            ],
+          });
+          records.set(updated.id, failedResume);
+          appendAuditRecord(stateDir, "request.resume_enqueue_failed", failedResume);
+        }
+      }
+      return BootstrapRequestRecordDetailSchema.parse(records.get(updated.id) ?? updated);
     },
     rehydrate() {
       records.clear();

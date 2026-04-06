@@ -16,12 +16,12 @@ export function createBootstrapGetGatewayMethod(
   return ({ params, respond }) => {
     const requestId = typeof params.requestId === "string" ? params.requestId.trim() : "";
     if (!requestId) {
-      respond(false, { error: "requestId required" });
+      respond(false, { error: "platform.bootstrap.get requires a non-empty requestId" });
       return;
     }
     const detail = service.get(requestId);
     if (!detail) {
-      respond(false, { error: "bootstrap request not found" });
+      respond(false, { error: "bootstrap request not found for the given requestId" });
       return;
     }
     respond(true, { detail });
@@ -34,12 +34,12 @@ export function createBootstrapResolveGatewayMethod(
   return ({ params, client, respond }) => {
     const requestId = typeof params.requestId === "string" ? params.requestId.trim() : "";
     if (!requestId) {
-      respond(false, { error: "requestId required" });
+      respond(false, { error: "platform.bootstrap.resolve requires a non-empty requestId" });
       return;
     }
     const decision = BootstrapRequestDecisionSchema.safeParse(params.decision);
     if (!decision.success) {
-      respond(false, { error: "invalid bootstrap decision" });
+      respond(false, { error: "invalid bootstrap decision (expected approve or deny)" });
       return;
     }
     const detail = service.resolve(requestId, decision.data, {
@@ -50,7 +50,7 @@ export function createBootstrapResolveGatewayMethod(
       }),
     });
     if (!detail) {
-      respond(false, { error: "bootstrap request not found" });
+      respond(false, { error: "bootstrap request not found for the given requestId" });
       return;
     }
     respond(true, { detail });
@@ -63,7 +63,7 @@ export function createBootstrapRunGatewayMethod(
   return async ({ params, client, respond }) => {
     const requestId = typeof params.requestId === "string" ? params.requestId.trim() : "";
     if (!requestId) {
-      respond(false, { error: "requestId required" });
+      respond(false, { error: "platform.bootstrap.run requires a non-empty requestId" });
       return;
     }
     const detail = await service.run({
@@ -75,7 +75,7 @@ export function createBootstrapRunGatewayMethod(
       }),
     });
     if (!detail) {
-      respond(false, { error: "bootstrap request not found" });
+      respond(false, { error: "bootstrap request not found for the given requestId" });
       return;
     }
     respond(true, { detail });

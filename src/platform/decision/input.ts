@@ -4,14 +4,81 @@ import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
 import {
+  buildRecipePlannerInputFromRuntimePlan,
   resolvePlatformRuntimePlan,
+  type RecipeRuntimePlan,
   type ResolvedPlatformRuntimePlan,
+  type ResolvePlatformExecutionDecisionOptions,
 } from "../recipe/runtime-adapter.js";
 
 const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
 const DEVELOPER_EXECUTION_KEYWORDS =
   /\b(build|test|fix|refactor|repo|repository|compile|ci|code)\b/iu;
 const DEVELOPER_PUBLISH_KEYWORDS = /\b(preview|publish|release|deploy|ship|rollout)\b/iu;
+const DOCUMENT_ARTIFACT_HINTS = [
+  "pdf",
+  "document",
+  "doc",
+  "docx",
+  "report",
+  "invoice",
+  "estimate",
+  "spec",
+  "proposal",
+  "документ",
+  "отчет",
+  "отчёт",
+  "смет",
+  "спецификац",
+  "предложени",
+] as const;
+const MEDIA_IMAGE_HINTS = [
+  "image",
+  "picture",
+  "screenshot",
+  "illustration",
+  "poster",
+  "thumbnail",
+  "banner",
+  "icon",
+  "logo",
+  "render",
+  "изображени",
+  "картин",
+  "скриншот",
+  "иллюстрац",
+  "постер",
+  "баннер",
+  "иконк",
+  "логотип",
+  "рендер",
+] as const;
+const MEDIA_VIDEO_HINTS = [
+  "video",
+  "clip",
+  "animation",
+  "gif",
+  "reel",
+  "trailer",
+  "видео",
+  "ролик",
+  "анимац",
+  "гиф",
+] as const;
+const MEDIA_AUDIO_HINTS = [
+  "audio",
+  "voice",
+  "speech",
+  "podcast",
+  "soundtrack",
+  "music",
+  "аудио",
+  "голос",
+  "речь",
+  "подкаст",
+  "саундтрек",
+  "музык",
+] as const;
 
 type DecisionInputChannelHints = {
   messageChannel?: string;
@@ -66,9 +133,17 @@ function toUniqueLowercase(values: Array<string | undefined> | undefined): strin
   );
 }
 
+function promptIncludesAny(prompt: string, hints: readonly string[]): boolean {
+  const normalized = prompt.toLowerCase();
+  return hints.some((hint) => normalized.includes(hint));
+}
+
 function inferPromptIntent(prompt: string): RecipePlannerInput["intent"] {
   if (DEVELOPER_PUBLISH_KEYWORDS.test(prompt)) {
     return "publish";
+  }
+  if (promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS)) {
+    return "document";
   }
   if (DEVELOPER_EXECUTION_KEYWORDS.test(prompt)) {
     return "code";
@@ -78,10 +153,25 @@ function inferPromptIntent(prompt: string): RecipePlannerInput["intent"] {
 
 function inferArtifactKinds(prompt: string): NonNullable<RecipePlannerInput["artifactKinds"]> {
   const publishTargets = collectPromptHints(prompt, DEVELOPER_PUBLISH_TARGET_HINTS);
+  const hasDocumentArtifactHint = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
+  const hasMediaArtifactHint =
+    promptIncludesAny(prompt, MEDIA_IMAGE_HINTS) ||
+    promptIncludesAny(prompt, MEDIA_VIDEO_HINTS) ||
+    promptIncludesAny(prompt, MEDIA_AUDIO_HINTS);
   return toUniqueLowercase([
     ...(publishTargets.length > 0 || /\bpreview\b/iu.test(prompt) ? ["site"] : []),
     ...(publishTargets.length > 0 || /\brelease\b/iu.test(prompt) ? ["release"] : []),
-    ...(DEVELOPER_EXECUTION_KEYWORDS.test(prompt) ? ["binary"] : []),
+    ...(DEVELOPER_EXECUTION_KEYWORDS.test(prompt) &&
+    !hasDocumentArtifactHint &&
+    !hasMediaArtifactHint
+      ? ["binary"]
+      : []),
+    ...(hasDocumentArtifactHint ? ["document"] : []),
+    ...(/\breport\b/iu.test(prompt) ? ["report"] : []),
+    ...(/\b(отчет|отчёт)\b/iu.test(prompt) ? ["report"] : []),
+    ...(promptIncludesAny(prompt, MEDIA_IMAGE_HINTS) ? ["image"] : []),
+    ...(promptIncludesAny(prompt, MEDIA_VIDEO_HINTS) ? ["video"] : []),
+    ...(promptIncludesAny(prompt, MEDIA_AUDIO_HINTS) ? ["audio"] : []),
   ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
 }
 
@@ -144,6 +234,37 @@ export function resolveExecutionRuntimePlan(
   params: BuildExecutionDecisionInputParams,
 ): ResolvedPlatformRuntimePlan {
   return resolvePlatformRuntimePlan(buildExecutionDecisionInput(params));
+}
+
+/**
+ * Builds planner input from a persisted `RecipeRuntimePlan` so intent, tools, artifacts,
+ * and publish targets stay aligned with the prior platform resolution instead of being re-inferred
+ * from raw prompt text.
+ */
+export function buildExecutionDecisionInputFromRuntimePlan(params: {
+  runtime: RecipeRuntimePlan;
+  prompt: string;
+  fileNames?: string[];
+  sessionEntry?: BuildExecutionDecisionInputParams["sessionEntry"];
+}): RecipePlannerInput {
+  const base = buildRecipePlannerInputFromRuntimePlan(params.runtime, params.prompt, {
+    fileNames: params.fileNames,
+  });
+  return applySessionSpecialistOverrideToPlannerInput(base, params.sessionEntry ?? null);
+}
+
+/** Re-runs platform resolution using structured fields carried by an existing runtime plan. */
+export function resolveExecutionRuntimePlanFromExistingRuntime(params: {
+  runtime: RecipeRuntimePlan;
+  prompt: string;
+  fileNames?: string[];
+  sessionEntry?: BuildExecutionDecisionInputParams["sessionEntry"];
+  options?: ResolvePlatformExecutionDecisionOptions;
+}): ResolvedPlatformRuntimePlan {
+  return resolvePlatformRuntimePlan(
+    buildExecutionDecisionInputFromRuntimePlan(params),
+    params.options ?? {},
+  );
 }
 
 export function buildSessionBackedExecutionDecisionInput(

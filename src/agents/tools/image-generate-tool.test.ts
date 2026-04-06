@@ -74,9 +74,31 @@ describe("createImageGenerateTool", () => {
     vi.unstubAllEnvs();
   });
 
-  it("returns null when no image-generation model can be inferred", () => {
+  it("keeps image_generate available with a local fallback when no provider is inferred", async () => {
     stubImageGenerationProviders();
-    expect(createImageGenerateTool({ config: {} })).toBeNull();
+    const tool = createImageGenerateTool({ config: {} });
+    expect(tool).not.toBeNull();
+    if (!tool) {
+      throw new Error("expected image_generate tool");
+    }
+    vi.spyOn(mediaStore, "saveMediaBuffer").mockResolvedValue({
+      path: "/tmp/local-image.png",
+      id: "local-image.png",
+      size: 10,
+      contentType: "image/png",
+    });
+    const result = await tool.execute("call-local", {
+      prompt: 'Generate an image with the text "STAGE 86 OK".',
+      filename: "stage-86-local.png",
+    });
+    expect(result).toMatchObject({
+      content: [{ type: "text", text: "Generated 1 image with local/simple-svg." }],
+      details: {
+        provider: "local",
+        model: "simple-svg",
+        media: { mediaUrls: ["/tmp/local-image.png"] },
+      },
+    });
   });
 
   it("infers an OpenAI image-generation model from env-backed auth", () => {

@@ -334,6 +334,56 @@ describe("sessions view", () => {
     expect(onInspectRuntimeSession).toHaveBeenCalledWith("agent:main:main", undefined);
   });
 
+  it("renders bootstrap checkpoint operator guide for pending approval", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderSessions({
+        ...buildProps(buildResult(buildSession())),
+        runtimeCheckpoints: [
+          {
+            id: "cp-bootstrap",
+            runId: "run-1",
+            sessionKey: "agent:main:main",
+            boundary: "bootstrap",
+            status: "blocked",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+            nextActions: [
+              {
+                method: "platform.bootstrap.resolve",
+                label: "Approve bootstrap",
+                phase: "approve",
+              },
+            ],
+          },
+        ],
+        runtimeSelectedCheckpointId: "cp-bootstrap",
+        runtimeCheckpointDetail: {
+          id: "cp-bootstrap",
+          runId: "run-1",
+          sessionKey: "agent:main:main",
+          boundary: "bootstrap",
+          status: "blocked",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+          nextActions: [
+            {
+              method: "platform.bootstrap.resolve",
+              label: "Approve bootstrap",
+              phase: "approve",
+            },
+          ],
+        },
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Bootstrap checkpoint");
+    expect(container.textContent).toMatch(/paused|Bootstrap tab/i);
+  });
+
   it("prefers recovery handoff truth over stale closure history when inspecting runtime", async () => {
     const onInspectRuntimeSession = vi.fn();
     const container = document.createElement("div");

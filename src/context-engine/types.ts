@@ -83,6 +83,26 @@ export type TranscriptRewriteResult = {
 
 export type ContextEngineMaintenanceResult = TranscriptRewriteResult;
 
+/** Visibility metadata for prompt/context optimization (hooks + runtime). */
+export type PromptOptimizationReport = {
+  /** Human-readable, ordered steps applied by an optimizer. */
+  reasoning?: string[];
+  /** Stable id for the optimization path (e.g. deterministic-v1). */
+  strategyId?: string;
+  /** Characters removed vs the incoming prompt (best-effort). */
+  charsRemoved?: number;
+  /** True when the outgoing prompt text differs from incoming. */
+  applied?: boolean;
+  /** Optional size diagnostics. */
+  charsIn?: number;
+  charsOut?: number;
+};
+
+export type PromptOptimizeForTurnResult = {
+  prompt: string;
+  meta: PromptOptimizationReport;
+};
+
 export type ContextEngineRuntimeContext = Record<string, unknown> & {
   /**
    * Safe transcript rewrite helper implemented by the runtime.
@@ -170,6 +190,17 @@ export interface ContextEngine {
     /** Optional runtime-owned context for engines that need caller state. */
     runtimeContext?: ContextEngineRuntimeContext;
   }): Promise<void>;
+
+  /**
+   * Optional hook to replace or refine the user prompt immediately before the
+   * main model call. When omitted, the embedded runner applies a built-in
+   * deterministic noise reducer after `before_prompt_build` hooks.
+   */
+  optimizePromptForTurn?(params: {
+    sessionId: string;
+    sessionKey?: string;
+    prompt: string;
+  }): Promise<PromptOptimizeForTurnResult>;
 
   /**
    * Assemble model context under a token budget.

@@ -1,8 +1,10 @@
 import { type Context, complete } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
+import { saveMediaBuffer } from "../../media/store.js";
 import { extractPdfContent, type PdfExtractedContent } from "../../media/pdf-extract.js";
 import { loadWebMediaRaw } from "../../media/web-media.js";
+import { buildMinimalPdfBuffer } from "../../platform/materialization/pdf-materializer.js";
 import { resolveUserPath } from "../../utils.js";
 import {
   coerceImageModelConfig,
@@ -48,6 +50,36 @@ const ANTHROPIC_PDF_FALLBACK = "anthropic/claude-opus-4-5";
 
 const PDF_MIN_TEXT_CHARS = 200;
 const PDF_MAX_PIXELS = 4_000_000;
+
+function buildGeneratedPdfText(prompt: string): string {
+  return prompt
+    .replace(/\s+/gu, " ")
+    .replace(/^(create|generate|make|создай|сгенерируй|сделай)\s+/iu, "")
+    .trim()
+    .slice(0, 4000);
+}
+
+function looksLikePdfReference(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (/^https?:\/\//i.test(trimmed) || /^file:/i.test(trimmed) || /^data:/i.test(trimmed)) {
+    return true;
+  }
+  if (
+    /^[a-zA-Z]:[\\/]/.test(trimmed) ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("./") ||
+    trimmed.startsWith("../") ||
+    trimmed.startsWith("~\\") ||
+    trimmed.startsWith("~/") ||
+    /[\\/]/.test(trimmed)
+  ) {
+    return true;
+  }
+  return /\.pdf(?:[?#].*)?$/iu.test(trimmed);
+}
 
 // ---------------------------------------------------------------------------
 // Model resolution (mirrors image tool pattern)
@@ -332,7 +364,7 @@ export function createPdfTool(options?: {
   });
 
   const description =
-    "Analyze one or more PDF documents with a model. Supports native PDF analysis for Anthropic and Google models, with text/image extraction fallback for other providers. Use pdf for a single path/URL, or pdfs for multiple (up to 10). Provide a prompt describing what to analyze.";
+    "Analyze one or more PDF documents with a model. Supports native PDF analysis for Anthropic and Google models, with text/image extraction fallback for other providers. If no source PDF is provided, the tool can create a simple one-page PDF from the prompt text. Use pdf for a single path/URL, or pdfs for multiple (up to 10).";
 
   return {
     label: "PDF",
@@ -351,6 +383,7 @@ export function createPdfTool(options?: {
           description: 'Page range to process, e.g. "1-5", "1,3,5-7". Defaults to all pages.',
         }),
       ),
+      filename: Type.Optional(Type.String()),
       model: Type.Optional(Type.String()),
       maxBytesMb: Type.Optional(Type.Number()),
     }),
@@ -368,16 +401,52 @@ export function createPdfTool(options?: {
 
       const seenPdfs = new Set<string>();
       const pdfInputs: string[] = [];
+      const promptOnlyFallbackParts: string[] = [];
+      if (typeof record.prompt === "string" && record.prompt.trim()) {
+        promptOnlyFallbackParts.push(record.prompt.trim());
+      }
       for (const candidate of pdfCandidates) {
         const trimmed = candidate.trim();
         if (!trimmed || seenPdfs.has(trimmed)) {
           continue;
         }
         seenPdfs.add(trimmed);
-        pdfInputs.push(trimmed);
+        if (looksLikePdfReference(trimmed)) {
+          pdfInputs.push(trimmed);
+          continue;
+        }
+        promptOnlyFallbackParts.push(trimmed);
       }
       if (pdfInputs.length === 0) {
-        throw new Error("pdf required: provide a path or URL to a PDF document");
+        const fallbackPrompt = promptOnlyFallbackParts.join("\n\n").trim();
+        if (!fallbackPrompt) {
+          throw new Error("pdf required: provide a path or URL to a PDF document");
+        }
+        const pdfBuffer = buildMinimalPdfBuffer(buildGeneratedPdfText(fallbackPrompt));
+        const saved = await saveMediaBuffer(
+          pdfBuffer,
+          "application/pdf",
+          "tool-pdf-generation",
+          undefined,
+          typeof record.filename === "string" ? record.filename : undefined,
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Generated 1 PDF locally from the prompt text.",
+            },
+          ],
+          details: {
+            provider: "local",
+            model: "minimal-pdf",
+            pdf: saved.path,
+            paths: [saved.path],
+            media: {
+              mediaUrls: [saved.path],
+            },
+          },
+        };
       }
 
       // Enforce max PDFs cap

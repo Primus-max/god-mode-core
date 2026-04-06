@@ -366,13 +366,45 @@ describe("createPdfTool", () => {
     await withAnthropicPdfTool(async (tool) => {
       expect(tool.name).toBe("pdf");
       expect(tool.label).toBe("PDF");
-      expect(tool.description).toContain("PDF documents");
+      expect(tool.description).toContain("simple one-page PDF");
     });
   });
 
-  it("rejects when no pdf input provided", async () => {
+  it("creates a PDF when no source pdf is provided", async () => {
     await withAnthropicPdfTool(async (tool) => {
-      await expect(tool.execute("t1", { prompt: "test" })).rejects.toThrow("pdf required");
+      const result = await tool.execute("t1", {
+        prompt: "Create a one-page PDF with the text Stage 86 PDF Test.",
+        filename: "stage-86-test.pdf",
+      });
+      expect(result).toMatchObject({
+        content: [{ type: "text", text: "Generated 1 PDF locally from the prompt text." }],
+        details: {
+          provider: "local",
+          model: "minimal-pdf",
+          media: { mediaUrls: [expect.stringContaining("stage-86-test")] },
+        },
+      });
+      const mediaPath = (result as { details: { paths: string[] } }).details.paths[0];
+      await expect(fs.stat(mediaPath)).resolves.toMatchObject({ isFile: expect.any(Function) });
+    });
+  });
+
+  it("treats raw text in the pdf field as a prompt-only PDF request", async () => {
+    await withAnthropicPdfTool(async (tool) => {
+      const result = await tool.execute("t1", {
+        pdf: "Stage 86\n\n1. Routing works\n2. Prompt optimize works",
+        filename: "stage-86-raw-text.pdf",
+      });
+      expect(result).toMatchObject({
+        content: [{ type: "text", text: "Generated 1 PDF locally from the prompt text." }],
+        details: {
+          provider: "local",
+          model: "minimal-pdf",
+          media: { mediaUrls: [expect.stringContaining("stage-86-raw-text")] },
+        },
+      });
+      const mediaPath = (result as { details: { paths: string[] } }).details.paths[0];
+      await expect(fs.stat(mediaPath)).resolves.toMatchObject({ isFile: expect.any(Function) });
     });
   });
 
@@ -530,6 +562,7 @@ describe("createPdfTool", () => {
       expect(props.pdf).toBeDefined();
       expect(props.pdfs).toBeDefined();
       expect(props.pages).toBeDefined();
+      expect(props.filename).toBeDefined();
       expect(props.model).toBeDefined();
       expect(props.maxBytesMb).toBeDefined();
     });

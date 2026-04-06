@@ -1,7 +1,9 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
 import {
+  checkpointHasNextAction,
   getRuntimeRecoveryGuardrail,
+  resolveBootstrapCheckpointUiPhase,
   type RuntimeRecoveryAction,
 } from "../controllers/runtime-inspector.ts";
 import { formatRelativeTimestamp } from "../format.ts";
@@ -174,18 +176,6 @@ function formatRuntimeDecisionActor(
     decision?.actor?.deviceId ??
     decision?.actor?.connId ??
     t("common.na")
-  );
-}
-
-function checkpointHasNextAction(
-  checkpoint: RuntimeCheckpointSummary,
-  method: string,
-  phase?: "approve" | "deny" | "resume" | "retry" | "inspect",
-): boolean {
-  return (
-    checkpoint.nextActions?.some(
-      (action) => action.method === method && (phase ? action.phase === phase : true),
-    ) ?? false
   );
 }
 
@@ -438,6 +428,20 @@ function renderRuntimeOperatorDecision(decision: RuntimeCheckpointSummary["lastO
   `;
 }
 
+function renderBootstrapCheckpointGuide(checkpoint: RuntimeCheckpointSummary) {
+  const phase = resolveBootstrapCheckpointUiPhase(checkpoint);
+  if (!phase) {
+    return nothing;
+  }
+  const bodyKey = `sessions.runtime.bootstrapGuide.${phase}` as const;
+  return html`
+    <div class="callout" style="margin-top:12px;">
+      <strong>${t("sessions.runtime.bootstrapGuide.title")}</strong>
+      <div class="muted" style="margin-top:8px;">${t(bodyKey)}</div>
+    </div>
+  `;
+}
+
 function renderRuntimeInspector(props: SessionsProps) {
   const checkpoints = props.runtimeCheckpoints;
   const selectedCheckpoint = props.runtimeCheckpointDetail;
@@ -550,6 +554,7 @@ function renderRuntimeInspector(props: SessionsProps) {
                               <dt>${t("sessions.runtime.fields.blockedReason")}</dt>
                               <dd>${selectedCheckpoint.blockedReason ?? t("common.na")}</dd>
                             </dl>
+                            ${renderBootstrapCheckpointGuide(selectedCheckpoint)}
                             ${
                               selectedCheckpoint.nextActions?.length
                                 ? html`

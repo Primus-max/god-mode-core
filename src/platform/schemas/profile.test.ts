@@ -5,7 +5,14 @@ import {
   ProfileSchema,
   ProfileScoringSignalSchema,
   TaskOverlaySchema,
+  PLATFORM_PROFILE_HINTS_ARE_NON_AUTHORITATIVE,
 } from "./profile.js";
+
+describe("PLATFORM_PROFILE_HINTS_ARE_NON_AUTHORITATIVE", () => {
+  it("is a documented contract marker for downstream policy integration", () => {
+    expect(PLATFORM_PROFILE_HINTS_ARE_NON_AUTHORITATIVE).toBe(true);
+  });
+});
 
 describe("ProfileIdSchema", () => {
   it("accepts valid profile ids", () => {
@@ -64,6 +71,19 @@ describe("ProfileSchema", () => {
   it("rejects empty label", () => {
     expect(ProfileSchema.safeParse({ id: "builder", label: "" }).success).toBe(false);
   });
+
+  it("rejects empty defaultModel string", () => {
+    expect(
+      ProfileSchema.safeParse({ id: "builder", label: "Builder", defaultModel: "" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects empty preferredTools entries", () => {
+    expect(
+      ProfileSchema.safeParse({ id: "builder", label: "Builder", preferredTools: ["read", ""] })
+        .success,
+    ).toBe(false);
+  });
 });
 
 describe("TaskOverlaySchema", () => {
@@ -78,6 +98,16 @@ describe("TaskOverlaySchema", () => {
 
   it("rejects invalid parentProfile", () => {
     const bad = { id: "x", label: "X", parentProfile: "nonexistent" };
+    expect(TaskOverlaySchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("rejects empty toolHints entries", () => {
+    const bad = {
+      id: "x",
+      label: "X",
+      parentProfile: "builder",
+      toolHints: ["read", ""],
+    };
     expect(TaskOverlaySchema.safeParse(bad).success).toBe(false);
   });
 });

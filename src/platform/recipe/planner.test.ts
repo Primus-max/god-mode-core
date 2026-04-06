@@ -95,4 +95,14 @@ describe("planExecutionRecipe", () => {
     expect(plan.profile.selectedProfile.id).toBe("media_creator");
     expect(plan.recipe.id).toBe("media_production");
   });
+
+  it("avoids code_build_publish for PDF-only artifact requests", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Create a one-page PDF report with Stage 86 test results.",
+      artifactKinds: ["document"],
+      intent: "document",
+    });
+
+    expect(plan.recipe.id).not.toBe("code_build_publish");
+  });
 });

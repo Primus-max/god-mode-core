@@ -6,8 +6,13 @@ import {
   type CapabilityCatalogEntry,
 } from "../schemas/capability.js";
 import {
+  catalogEntryMatchesApprovedSnapshot,
+  getApprovedCapabilityCatalogEntry,
+} from "./catalog-approval.js";
+import {
   BootstrapRequestSchema,
   BootstrapResolutionSchema,
+  type BootstrapBlockedRunResume,
   type BootstrapReason,
   type BootstrapResolution,
   type BootstrapSourceDomain,
@@ -63,12 +68,17 @@ function resolveInstallMethod(entry: CapabilityCatalogEntry) {
 export function resolveBootstrapRequest(params: {
   capabilityId: string;
   registry: CapabilityRegistry;
+  /**
+   * @deprecated Ignored. Bootstrap always resolves install metadata from the pinned approved catalog snapshot.
+   */
   catalog?: CapabilityCatalogEntry[];
   reason: BootstrapReason;
   sourceDomain: BootstrapSourceDomain;
   sourceRecipeId?: string;
   executionContext?: PlatformExecutionContextSnapshot;
+  blockedRunResume?: BootstrapBlockedRunResume;
 }): BootstrapResolution {
+  void params.catalog;
   const existing = params.registry.get(params.capabilityId);
   if (existing?.status === "available") {
     return BootstrapResolutionSchema.parse({
@@ -77,16 +87,29 @@ export function resolveBootstrapRequest(params: {
     });
   }
 
-  const catalogEntry =
-    params.registry.resolveCatalogEntry(params.capabilityId) ??
-    params.catalog?.find((entry) => entry.capability.id === params.capabilityId);
-  if (!catalogEntry) {
+  const canonical = getApprovedCapabilityCatalogEntry(params.capabilityId);
+  if (!canonical) {
     return BootstrapResolutionSchema.parse({
       status: "unknown",
       capability: existing,
-      reasons: [`no trusted catalog entry found for capability ${params.capabilityId}`],
+      reasons: [`capability ${params.capabilityId} is not in the approved capability catalog`],
     });
   }
+
+  const registryEntry = params.registry.resolveCatalogEntry(params.capabilityId);
+  if (registryEntry && !catalogEntryMatchesApprovedSnapshot(registryEntry)) {
+    const parsedRegistryEntry = CapabilityCatalogEntrySchema.safeParse(registryEntry);
+    return BootstrapResolutionSchema.parse({
+      status: "untrusted",
+      capability: existing ?? registryEntry.capability,
+      ...(parsedRegistryEntry.success ? { catalogEntry: parsedRegistryEntry.data } : {}),
+      reasons: [
+        `registry catalog entry for ${params.capabilityId} does not match the approved catalog snapshot`,
+      ],
+    });
+  }
+
+  const catalogEntry = canonical;
   const trustReasons = assessCatalogEntryTrust(catalogEntry);
   if (trustReasons.length > 0) {
     const catalogEntryResult = CapabilityCatalogEntrySchema.safeParse(catalogEntry);
@@ -106,6 +129,7 @@ export function resolveBootstrapRequest(params: {
     sourceDomain: params.sourceDomain,
     ...(params.sourceRecipeId ? { sourceRecipeId: params.sourceRecipeId } : {}),
     ...(params.executionContext ? { executionContext: params.executionContext } : {}),
+    ...(params.blockedRunResume ? { blockedRunResume: params.blockedRunResume } : {}),
     approvalMode: "explicit",
     catalogEntry,
   });
@@ -126,6 +150,7 @@ export function resolveBootstrapRequests(params: {
   sourceDomain: BootstrapSourceDomain;
   sourceRecipeId?: string;
   executionContext?: PlatformExecutionContextSnapshot;
+  blockedRunResume?: BootstrapBlockedRunResume;
 }): BootstrapResolution[] {
   return params.capabilityIds.map((capabilityId) =>
     resolveBootstrapRequest({
@@ -136,6 +161,7 @@ export function resolveBootstrapRequests(params: {
       sourceDomain: params.sourceDomain,
       sourceRecipeId: params.sourceRecipeId,
       executionContext: params.executionContext,
+      blockedRunResume: params.blockedRunResume,
     }),
   );
 }

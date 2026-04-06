@@ -1014,6 +1014,8 @@ export function buildSubagentSystemPrompt(params: {
   childDepth?: number;
   /** Config value: max allowed spawn depth. */
   maxSpawnDepth?: number;
+  /** Max concurrent active child runs for the spawner session (agents.defaults.subagents.maxChildrenPerAgent). */
+  maxChildrenPerAgent?: number;
 }) {
   const taskText =
     typeof params.task === "string" && params.task.trim()
@@ -1024,6 +1026,10 @@ export function buildSubagentSystemPrompt(params: {
     typeof params.maxSpawnDepth === "number"
       ? params.maxSpawnDepth
       : DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH;
+  const maxChildrenPerAgent =
+    typeof params.maxChildrenPerAgent === "number" && Number.isFinite(params.maxChildrenPerAgent)
+      ? Math.max(1, Math.floor(params.maxChildrenPerAgent))
+      : 5;
   const acpEnabled = params.acpEnabled !== false;
   const canSpawn = childDepth < maxSpawnDepth;
   const parentLabel = childDepth >= 2 ? "parent orchestrator" : "main agent";
@@ -1064,6 +1070,13 @@ export function buildSubagentSystemPrompt(params: {
   if (canSpawn) {
     lines.push(
       "## Sub-Agent Spawning",
+      "### Shallow orchestration (required)",
+      "OpenClaw is intentionally **shallow**: bounded depth and fan-out—not a deep manager-of-managers or nested planner tree as the default architecture.",
+      `- You may spawn while your depth stays **below** maxSpawnDepth (this gateway: **${maxSpawnDepth}**).`,
+      `- Each spawner session is capped at **${maxChildrenPerAgent}** concurrent active child runs (operators configure this).`,
+      "- Prefer **one coordinator + parallel workers**; do **not** delegate \"only spawn more coordinators\" chains.",
+      "- Assign **leaf-destined** sessions concrete work; when a child cannot spawn further, it must execute—not re-delegate sideways.",
+      "",
       "You CAN spawn your own sub-agents for parallel or complex work using `sessions_spawn`.",
       "Use the `subagents` tool to steer, kill, or do an on-demand status check for your spawned sub-agents.",
       "Your sub-agents will announce their results back to you automatically (not to the main agent).",
@@ -1152,7 +1165,7 @@ function buildDescendantWakeMessage(params: { findings: string; taskLabel: strin
   return [
     "[Subagent Context] Your prior run ended while waiting for descendant subagent completions.",
     "[Subagent Context] All pending descendants for that run have now settled.",
-    "[Subagent Context] Continue your workflow using these results. Spawn more subagents if needed, otherwise send your final answer.",
+    "[Subagent Context] Continue using these results. Spawn additional **direct** workers only if parallel work is still missing; avoid orchestrator-only chains, then send your final answer.",
     "",
     `Task: ${params.taskLabel}`,
     "",

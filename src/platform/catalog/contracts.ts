@@ -3,6 +3,7 @@ import { SpecialistProfileOptionSchema } from "../profile/contracts.js";
 import {
   CapabilityCatalogEntrySchema,
   CapabilityCatalogSourceSchema,
+  CapabilityStatusSchema,
 } from "../schemas/capability.js";
 import { RecipeInputSchema, RecipeOutputSchema, RiskLevelSchema } from "../schemas/recipe.js";
 
@@ -45,7 +46,7 @@ export const CapabilityCatalogSummarySchema = z
     id: z.string().min(1),
     label: z.string().min(1),
     description: z.string().min(1).optional(),
-    status: z.string().min(1),
+    status: CapabilityStatusSchema,
     source: CapabilityCatalogSourceSchema,
     trusted: z.boolean(),
     installMethod: z.string().min(1).optional(),

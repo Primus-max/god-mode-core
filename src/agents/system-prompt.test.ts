@@ -688,6 +688,10 @@ describe("buildSubagentSystemPrompt", () => {
     });
 
     expect(prompt).toContain("## Sub-Agent Spawning");
+    expect(prompt).toContain("### Shallow orchestration (required)");
+    expect(prompt).toContain("bounded depth and fan-out");
+    expect(prompt).toContain("maxSpawnDepth (this gateway: **2**)");
+    expect(prompt).toContain("**5** concurrent active child runs");
     expect(prompt).toContain(
       "You CAN spawn your own sub-agents for parallel or complex work using `sessions_spawn`.",
     );

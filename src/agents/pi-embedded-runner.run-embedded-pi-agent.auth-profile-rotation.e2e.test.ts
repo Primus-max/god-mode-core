@@ -9,22 +9,33 @@ import { redactIdentifier } from "../logging/redact-identifier.js";
 import type { AuthProfileFailureReason } from "./auth-profiles.js";
 import type { EmbeddedRunAttemptResult } from "./pi-embedded-runner/run/types.js";
 
-const runEmbeddedAttemptMock = vi.fn<(params: unknown) => Promise<EmbeddedRunAttemptResult>>();
-const resolveCopilotApiTokenMock = vi.fn();
-const COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token";
-const { computeBackoffMock, sleepWithAbortMock } = vi.hoisted(() => ({
-  computeBackoffMock: vi.fn(
-    (
-      _policy: { initialMs: number; maxMs: number; factor: number; jitter: number },
-      _attempt: number,
-    ) => 321,
-  ),
-  sleepWithAbortMock: vi.fn(async (_ms: number, _abortSignal?: AbortSignal) => undefined),
-}));
+// All mock primitives in vi.hoisted() so they are safely accessible inside vi.mock() factories
+// (Vitest hoists vi.mock() calls before module-scope const declarations, so factories must only
+// reference vi.hoisted() values to avoid temporal-dead-zone binding issues).
+const {
+  runEmbeddedAttemptMock,
+  resolveCopilotApiTokenMock,
+  computeBackoffMock,
+  sleepWithAbortMock,
+} = vi.hoisted(() => {
+  const resolveCopilotApiTokenMockInner = vi.fn();
+  return {
+    runEmbeddedAttemptMock: vi.fn<(params: unknown) => Promise<EmbeddedRunAttemptResult>>(),
+    resolveCopilotApiTokenMock: resolveCopilotApiTokenMockInner,
+    computeBackoffMock: vi.fn(
+      (
+        _policy: { initialMs: number; maxMs: number; factor: number; jitter: number },
+        _attempt: number,
+      ) => 321,
+    ),
+    sleepWithAbortMock: vi.fn(async (_ms: number, _abortSignal?: AbortSignal) => undefined),
+  };
+});
 
-vi.mock("./pi-embedded-runner/run/attempt.js", () => ({
-  runEmbeddedAttempt: (params: unknown) => runEmbeddedAttemptMock(params),
-}));
+// NOTE: vi.mock("./pi-embedded-runner/run/attempt.js") does NOT work reliably in the forks pool
+// because the mock factory is not registered before run.ts's static import of run/attempt.js is
+// resolved (same root cause as models-config.js and provider-runtime.js).
+// We bypass this by injecting runEmbeddedAttemptMock via the `runAttempt` param instead.
 
 vi.mock("../infra/backoff.js", () => ({
   computeBackoff: (
@@ -39,53 +50,177 @@ vi.mock("../../extensions/github-copilot/token.js", () => ({
   resolveCopilotApiToken: (...args: unknown[]) => resolveCopilotApiTokenMock(...args),
 }));
 
+// Mock provider-runtime.js to avoid loading all bundled plugins via Jiti on every call
+// (which causes massive CPU overhead and hangs due to repeated TypeScript compilation +
+// file-system discovery for 70+ extension directories).
+//
+// We provide explicit stubs for ALL exported functions rather than using importOriginal,
+// because importOriginal causes a startup hang by eagerly compiling the entire transitive
+// module chain (loader.ts, discovery.ts, manifest-registry.ts, etc.) at initialization.
+//
+// All "resolve*WithPlugin" / "prepare*" helpers return undefined or no-op so that the
+// production code gracefully falls back to built-in behaviour (which is correct for the
+// `openai` provider used by these tests).
+vi.mock("../plugins/provider-runtime.js", () => ({
+  clearProviderRuntimeHookCache: () => {},
+  resetProviderRuntimeHookCacheForTest: () => {},
+  resolveProviderRuntimePlugin: () => undefined,
+  runProviderDynamicModel: () => undefined,
+  prepareProviderDynamicModel: async () => {},
+  normalizeProviderResolvedModelWithPlugin: () => undefined,
+  resolveProviderCapabilitiesWithPlugin: () => undefined,
+  prepareProviderExtraParams: () => undefined,
+  wrapProviderStreamFn: () => undefined,
+  prepareProviderRuntimeAuth: async () => {
+    const result = (await resolveCopilotApiTokenMock()) as
+      | { token: string; expiresAt: number; baseUrl: string }
+      | undefined;
+    if (!result) return undefined;
+    return { apiKey: result.token, expiresAt: result.expiresAt, baseUrl: result.baseUrl };
+  },
+  resolveProviderUsageAuthWithPlugin: async () => undefined,
+  resolveProviderUsageSnapshotWithPlugin: async () => undefined,
+  formatProviderAuthProfileApiKeyWithPlugin: () => undefined,
+  refreshProviderOAuthCredentialWithPlugin: async () => undefined,
+  buildProviderAuthDoctorHintWithPlugin: async () => undefined,
+  resolveProviderCacheTtlEligibility: () => undefined,
+  resolveProviderBinaryThinking: () => undefined,
+  resolveProviderXHighThinking: () => undefined,
+  resolveProviderDefaultThinkingLevel: () => undefined,
+  resolveProviderModernModelRef: () => undefined,
+  buildProviderMissingAuthMessageWithPlugin: () => undefined,
+  resolveProviderBuiltInModelSuppression: () => undefined,
+  augmentModelCatalogWithProviderPlugins: async () => undefined,
+}));
+
+// Prevent ensureRuntimePluginsLoaded from triggering full Jiti plugin compilation on every test.
+// The active plugin registry is provided by test/setup.ts's DEFAULT_PLUGIN_REGISTRY, which is
+// sufficient for these tests. The auth rotation tests only need the mock attempt + auth mocks.
+vi.mock("./runtime-plugins.js", () => ({
+  ensureRuntimePluginsLoaded: vi.fn(),
+}));
+
+// Skip file-system locking: tests run in a single process with isolated temp dirs, so the
+// cross-process file lock is unnecessary and causes Windows I/O hangs (fs.open "wx" / realpath
+// can block for tens of seconds in CI temp dirs, which triggers the 120s test timeout and
+// blocks the shared global command-queue lane for all subsequent tests).
+vi.mock("../infra/file-lock.js", () => ({
+  withFileLock: async <T>(_path: unknown, _opts: unknown, fn: () => Promise<T>) => fn(),
+  acquireFileLock: async () => ({ lockPath: "", release: async () => {} }),
+}));
+
 vi.mock("./pi-embedded-runner/compact.js", () => ({
   compactEmbeddedPiSessionDirect: vi.fn(async () => {
     throw new Error("compact should not run in auth profile rotation tests");
   }),
 }));
 
-vi.mock("./models-config.js", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("./models-config.js")>();
-  return {
-    ...mod,
-    ensureOpenClawModelsJson: vi.fn(async () => ({ wrote: false })),
-  };
-});
+// NOTE: vi.mock("./models-config.js") and vi.mock("../plugins/provider-runtime.js") do NOT
+// work reliably for run.ts because test/setup.ts (and its transitive imports) pre-load those
+// real modules into the ESM cache before vi.mock can intercept them.
+//
+// Additionally, model.ts creates DEFAULT_PROVIDER_RUNTIME_HOOKS at module-load time using
+// the real normalizeProviderResolvedModelWithPlugin from provider-runtime.js. Even with
+// vi.mock hoisting, if model.ts is pre-loaded via test/setup.ts transitives, the hook
+// object captures the real Jiti-triggering function before any mock can intercept it.
+//
+// We bypass all these hanging functions via injectable params:
+//   - `ensureModelsJson`: bypasses ensureOpenClawModelsJson (avoids Jiti models.json build)
+//   - `prepareRuntimeAuth`: bypasses prepareProviderRuntimeAuth (avoids Jiti plugin loading)
+//   - `resolveModelAsync`: bypasses DEFAULT_PROVIDER_RUNTIME_HOOKS.normalizeProviderResolvedModelWithPlugin
+//   - `enqueue`: bypasses the global command queue
+//
+// This pattern is safe: the injected stubs are only used in tests, not production code paths.
 
 let runEmbeddedPiAgent: typeof import("./pi-embedded-runner/run.js").runEmbeddedPiAgent;
 let unregisterLogTransport: (() => void) | undefined;
-const originalFetch = globalThis.fetch;
+
+const inlineEnqueue = <T>(task: () => Promise<T>): Promise<T> => task();
+const stubEnsureModelsJson = async () => {
+  return { agentDir: "", wrote: false as const };
+};
+// Only copilot uses runtime auth exchange; all other providers return undefined.
+const stubPrepareRuntimeAuth = async (params: { provider: string }) => {
+  if (params.provider !== "github-copilot") return undefined;
+  const result = (await resolveCopilotApiTokenMock()) as
+    | { token: string; expiresAt: number; baseUrl: string }
+    | undefined;
+  if (!result) return undefined;
+  return { apiKey: result.token, expiresAt: result.expiresAt, baseUrl: result.baseUrl };
+};
+
+// Bypass the real resolveModelAsync which calls DEFAULT_PROVIDER_RUNTIME_HOOKS
+// (normalizeProviderResolvedModelWithPlugin) — a function captured at module-load time from
+// the real provider-runtime.js, causing Jiti plugin compilation hangs in tests.
+// We build the model directly from the inline config instead.
+const stubResolveModelAsync = async (
+  provider: string,
+  modelId: string,
+  _agentDir?: string,
+  cfg?: OpenClawConfig,
+) => {
+  const providerCfg = cfg?.models?.providers?.[provider];
+  const modelDef = providerCfg?.models?.find((m: { id: string }) => m.id === modelId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mockAuthStorage = { setRuntimeApiKey: () => {} } as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mockModelRegistry = { find: () => null, listAll: () => [] } as any;
+  if (!modelDef || !providerCfg) {
+    return {
+      error: `stub: unknown model ${provider}/${modelId}`,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      authStorage: mockAuthStorage,
+      modelRegistry: mockModelRegistry,
+    };
+  }
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    model: {
+      provider,
+      id: modelId,
+      name: (modelDef as { name?: string }).name ?? modelId,
+      api: providerCfg.api ?? "openai",
+      baseUrl: providerCfg.baseUrl,
+      contextWindow: (modelDef as { contextWindow?: number }).contextWindow ?? 16_000,
+      maxTokens: (modelDef as { maxTokens?: number }).maxTokens,
+      reasoning: (modelDef as { reasoning?: boolean }).reasoning ?? false,
+      input: (modelDef as { input?: string[] }).input ?? ["text"],
+      cost: (modelDef as { cost?: unknown }).cost,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    authStorage: mockAuthStorage as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    modelRegistry: mockModelRegistry as any,
+  };
+};
 
 beforeAll(async () => {
-  ({ runEmbeddedPiAgent } = await import("./pi-embedded-runner/run.js"));
+  const imported = await import("./pi-embedded-runner/run.js");
+  const _runEmbeddedPiAgent = imported.runEmbeddedPiAgent;
+  runEmbeddedPiAgent = (params) =>
+    _runEmbeddedPiAgent({
+      ...params,
+      enqueue: inlineEnqueue,
+      ensureModelsJson: stubEnsureModelsJson,
+      prepareRuntimeAuth: stubPrepareRuntimeAuth,
+      resolveModelAsync: stubResolveModelAsync,
+      runAttempt: (attemptParams) => runEmbeddedAttemptMock(attemptParams),
+      // backoff.js is pre-loaded by test/setup.ts via context.ts before vi.mock can intercept it.
+      // Inject the mock functions directly so computeBackoffMock/sleepWithAbortMock are called.
+      computeBackoff: (...args) => computeBackoffMock(...args),
+      sleepWithAbort: (...args) => sleepWithAbortMock(...args),
+    });
 });
 
 beforeEach(() => {
-  vi.useRealTimers();
   runEmbeddedAttemptMock.mockClear();
   resolveCopilotApiTokenMock.mockReset();
-  globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url !== COPILOT_TOKEN_URL) {
-      throw new Error(`Unexpected fetch in test: ${url}`);
-    }
-    const token = await resolveCopilotApiTokenMock();
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        token: token.token,
-        expires_at: Math.floor(token.expiresAt / 1000),
-      }),
-    } as Response;
-  }) as typeof fetch;
   computeBackoffMock.mockClear();
   sleepWithAbortMock.mockClear();
 });
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
   unregisterLogTransport?.();
   unregisterLogTransport = undefined;
   setLoggerOverride(null);
@@ -440,21 +575,21 @@ function mockSingleErrorAttempt(params: {
 async function withTimedAgentWorkspace<T>(
   run: (ctx: { agentDir: string; workspaceDir: string; now: number }) => Promise<T>,
 ) {
-  vi.useFakeTimers();
-  try {
-    const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-agent-"));
-    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-workspace-"));
-    const now = Date.now();
-    vi.setSystemTime(now);
+  // Spy on Date.now() to freeze time for cooldown/expiry comparisons.
+  // Using vi.spyOn instead of vi.useFakeTimers({ toFake: ["Date"] }) because
+  // vi.useFakeTimers in Vitest 4.x breaks Promise microtask resolution and
+  // causes any `await` inside the test to hang indefinitely.
+  const now = Date.now();
+  const dateSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+  const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-agent-"));
+  const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-workspace-"));
 
-    try {
-      return await run({ agentDir, workspaceDir, now });
-    } finally {
-      await fs.rm(agentDir, { recursive: true, force: true });
-      await fs.rm(workspaceDir, { recursive: true, force: true });
-    }
+  try {
+    return await run({ agentDir, workspaceDir, now });
   } finally {
-    vi.useRealTimers();
+    dateSpy.mockRestore();
+    await fs.rm(agentDir, { recursive: true, force: true });
+    await fs.rm(workspaceDir, { recursive: true, force: true });
   }
 }
 
@@ -511,9 +646,10 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
   it("refreshes copilot token after auth error and retries once", async () => {
     const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-agent-"));
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-workspace-"));
+    await writeCopilotAuthStore(agentDir);
+    const now = Date.now();
+    const dateSpy = vi.spyOn(Date, "now").mockReturnValue(now);
     try {
-      await writeCopilotAuthStore(agentDir);
-      const now = Date.now();
 
       resolveCopilotApiTokenMock
         .mockResolvedValueOnce({
@@ -567,6 +703,7 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
       expect(runEmbeddedAttemptMock).toHaveBeenCalledTimes(2);
       expect(resolveCopilotApiTokenMock).toHaveBeenCalledTimes(2);
     } finally {
+      dateSpy.mockRestore();
       await fs.rm(agentDir, { recursive: true, force: true });
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }
@@ -575,9 +712,10 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
   it("allows another auth refresh after a successful retry", async () => {
     const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-agent-"));
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-workspace-"));
+    await writeCopilotAuthStore(agentDir);
+    const now = Date.now();
+    const dateSpy = vi.spyOn(Date, "now").mockReturnValue(now);
     try {
-      await writeCopilotAuthStore(agentDir);
-      const now = Date.now();
 
       resolveCopilotApiTokenMock
         .mockResolvedValueOnce({
@@ -651,6 +789,7 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
       expect(runEmbeddedAttemptMock).toHaveBeenCalledTimes(4);
       expect(resolveCopilotApiTokenMock).toHaveBeenCalledTimes(3);
     } finally {
+      dateSpy.mockRestore();
       await fs.rm(agentDir, { recursive: true, force: true });
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }
@@ -659,11 +798,10 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
   it("does not reschedule copilot refresh after shutdown", async () => {
     const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-agent-"));
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-workspace-"));
-    vi.useFakeTimers();
+    const now = Date.now();
+    const dateSpy = vi.spyOn(Date, "now").mockReturnValue(now);
     try {
       await writeCopilotAuthStore(agentDir);
-      const now = Date.now();
-      vi.setSystemTime(now);
 
       resolveCopilotApiTokenMock.mockResolvedValue({
         token: "copilot-initial",
@@ -682,7 +820,7 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
         }),
       );
 
-      const runPromise = runEmbeddedPiAgent({
+      await runEmbeddedPiAgent({
         sessionId: "session:test",
         sessionKey: "agent:test:copilot-shutdown",
         sessionFile: path.join(workspaceDir, "session.jsonl"),
@@ -697,15 +835,13 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
         runId: "run:copilot-shutdown",
       });
 
-      await vi.advanceTimersByTimeAsync(1);
-      await runPromise;
+      // With Date.now() spied (no fake setTimeout), stopRuntimeAuthRefreshTimer()
+      // cancels the real timer in the finally block before it can fire.
+      // Record the call count right after the run; it must not grow.
       const refreshCalls = resolveCopilotApiTokenMock.mock.calls.length;
-
-      await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
-
       expect(resolveCopilotApiTokenMock.mock.calls.length).toBe(refreshCalls);
     } finally {
-      vi.useRealTimers();
+      dateSpy.mockRestore();
       await fs.rm(agentDir, { recursive: true, force: true });
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }

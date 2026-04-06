@@ -39,14 +39,21 @@
 - `Stage 82 - Runtime Recovery Confidence Gate`  
   Plan: `[.cursor/plans/stage_82_recovery_gate_d607e678.plan.md](C:/Users/Tanya/source/repos/god-mode-core/.cursor/plans/stage_82_recovery_gate_d607e678.plan.md)`
 
-### Active
-
 - `Stage 83 - Session Event Broadcast Parity Gate`  
   Plan: `[.cursor/plans/stage_83_session_event_broadcast_gate.plan.md](C:/Users/Tanya/source/repos/god-mode-core/.cursor/plans/stage_83_session_event_broadcast_gate.plan.md)`
+- `Stage 84 — V1 Release Gate`  
+  Plan: `[.cursor/plans/stage_84_v1_gate_bd5c3d01.plan.md](C:/Users/Tanya/source/repos/god-mode-core/.cursor/plans/stage_84_v1_gate_bd5c3d01.plan.md)`
+
+### Active
+
+- `Stage 85 - Cursor Execution Plan`
+  Plan: `[.cursor/plans/stage_85_cursor_execution_4d2f9c10.plan.md](C:/Users/Tanya/source/repos/god-mode-core/.cursor/plans/stage_85_cursor_execution_4d2f9c10.plan.md)`
+  Purpose: вернуть roadmap из pure gate/stability режима в управляемую product execution фазу через одного главного агента и 4 dev-подагента Cursor без пересечения файлов.
 
 ### Next
 
-- TBD — to be drafted at the end of Stage 83.
+- Optional side path: `v1 tag` — см. Release Ladder и `openclaw-release-maintainer` skill.
+- После Stage 85: переход к следующему product stage уже по факту интегрированного `Master Orchestrator v0`, а не по markdown-only roadmap.
 
 ## Release Ladder
 
@@ -56,7 +63,7 @@
 - `pnpm check`
 - `pnpm test`
 - `pnpm test:e2e:smoke`
-- focused deterministic gates из `[docs/help/testing.md](C:/Users/Tanya/source/repos/god-mode-core/docs/help/testing.md)` для touched area, включая skill/recovery/session-event layers
+- **`pnpm test:v1-gate`** ← обязателен перед v1 тегом; запускает все focused deterministic gates (recovery-confidence + session-event-parity)
 
 Manual или heavier follow-up нужны только когда их реально требует touched area:
 

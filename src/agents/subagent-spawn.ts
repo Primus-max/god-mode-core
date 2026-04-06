@@ -374,7 +374,7 @@ export async function spawnSubagentDirect(
   if (callerDepth >= maxSpawnDepth) {
     return {
       status: "forbidden",
-      error: `sessions_spawn is not allowed at this depth (current depth: ${callerDepth}, max: ${maxSpawnDepth})`,
+      error: `sessions_spawn is not allowed at this depth (current depth: ${callerDepth}, max: ${maxSpawnDepth}). Subagent nesting stays intentionally bounded—raise maxSpawnDepth only for a controlled extra hop, not deep planner stacks.`,
     };
   }
 
@@ -383,7 +383,7 @@ export async function spawnSubagentDirect(
   if (activeChildren >= maxChildren) {
     return {
       status: "forbidden",
-      error: `sessions_spawn has reached max active children for this session (${activeChildren}/${maxChildren})`,
+      error: `sessions_spawn has reached max active children for this session (${activeChildren}/${maxChildren}). This caps fan-out per session; finish or kill in-flight children before spawning more.`,
     };
   }
 
@@ -563,6 +563,7 @@ export async function spawnSubagentDirect(
     acpEnabled: cfg.acp?.enabled !== false && !childRuntime.sandboxed,
     childDepth,
     maxSpawnDepth,
+    maxChildrenPerAgent: maxChildren,
   });
 
   let retainOnSessionKeep = false;
@@ -601,7 +602,7 @@ export async function spawnSubagentDirect(
   }
 
   const childTaskMessage = [
-    `[Subagent Context] You are running as a subagent (depth ${childDepth}/${maxSpawnDepth}). Results auto-announce to your requester; do not busy-poll for status.`,
+    `[Subagent Context] You are running as a subagent (depth ${childDepth}/${maxSpawnDepth}). Orchestration is intentionally shallow—parallel workers beat stacked coordinators. Results auto-announce to your requester; do not busy-poll for status.`,
     spawnMode === "session"
       ? "[Subagent Context] This subagent session is persistent and remains available for thread follow-up messages."
       : undefined,

@@ -145,6 +145,10 @@ Auto-archive:
 
 By default, sub-agents cannot spawn their own sub-agents (`maxSpawnDepth: 1`). You can enable one level of nesting by setting `maxSpawnDepth: 2`, which allows the **orchestrator pattern**: main → orchestrator sub-agent → worker sub-sub-agents.
 
+### Shallow orchestration guardrail
+
+OpenClaw intentionally favors **bounded, shallow** delegation (see project `VISION.md`: no manager-of-managers / nested planner trees as the default). Higher `maxSpawnDepth` values remain **config-only escape hatches** for power users; prompts, spawn errors, and tool copy steer agents toward **one coordinator + parallel workers**, not deep stacks of “coordinators that only spawn coordinators.” `maxChildrenPerAgent` limits fan-out per session on purpose.
+
 ### How to enable
 
 ```json5

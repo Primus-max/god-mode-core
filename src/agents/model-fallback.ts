@@ -3,6 +3,11 @@ import {
   resolveAgentModelFallbackValues,
   resolveAgentModelPrimaryValue,
 } from "../config/model-input.js";
+import type { ModelRoutePreflightDecision } from "../platform/decision/contracts.js";
+import {
+  applyModelRoutePreflight,
+  type RoutePreflightMode,
+} from "../platform/decision/route-preflight.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { sanitizeForLog } from "../terminal/ansi.js";
 import {
@@ -109,11 +114,13 @@ type ModelFallbackErrorHandler = (attempt: {
   total: number;
 }) => void | Promise<void>;
 
-type ModelFallbackRunResult<T> = {
+export type ModelFallbackRunResult<T> = {
   result: T;
   provider: string;
   model: string;
   attempts: FallbackAttempt[];
+  /** Present when a preflight prompt was supplied; describes the first-route decision. */
+  routePreflight?: ModelRoutePreflightDecision | null;
 };
 
 function buildFallbackSuccess<T>(params: {
@@ -121,12 +128,14 @@ function buildFallbackSuccess<T>(params: {
   provider: string;
   model: string;
   attempts: FallbackAttempt[];
+  routePreflight?: ModelRoutePreflightDecision | null;
 }): ModelFallbackRunResult<T> {
   return {
     result: params.result,
     provider: params.provider,
     model: params.model,
     attempts: params.attempts,
+    ...(params.routePreflight !== undefined ? { routePreflight: params.routePreflight } : {}),
   };
 }
 
@@ -521,15 +530,42 @@ export async function runWithModelFallback<T>(params: {
   agentDir?: string;
   /** Optional explicit fallbacks list; when provided (even empty), replaces agents.defaults.model.fallbacks. */
   fallbacksOverride?: string[];
+  /**
+   * When set, runs proactive route preflight (may reorder candidates to try a control-plane local
+   * provider first on simple turns). Failover order still covers all candidates.
+   */
+  preflightPrompt?: string;
+  /** When `force_stronger`, local-first promotion is disabled (e.g. memory flush / structured jobs). */
+  preflightMode?: RoutePreflightMode;
   run: ModelFallbackRunFn<T>;
   onError?: ModelFallbackErrorHandler;
 }): Promise<ModelFallbackRunResult<T>> {
-  const candidates = resolveFallbackCandidates({
+  const baseCandidates = resolveFallbackCandidates({
     cfg: params.cfg,
     provider: params.provider,
     model: params.model,
     fallbacksOverride: params.fallbacksOverride,
   });
+  // Debug: log preflight input for Stage 86 testing
+  log.info(
+    `route preflight input: promptPresent=${Boolean(params.preflightPrompt?.trim())} promptLength=${params.preflightPrompt?.length ?? 0} mode=${params.preflightMode ?? "default"} candidates=${baseCandidates.map(c => `${c.provider}/${c.model}`).join(",")}`,
+  );
+  const preflight = applyModelRoutePreflight({
+    candidates: baseCandidates,
+    prompt: params.preflightPrompt,
+    mode: params.preflightMode,
+  });
+  const candidates = preflight.candidates;
+  const routePreflight = preflight.decision;
+  // Debug: always log preflight decision for Stage 86 testing
+  log.info(
+    `route preflight: decision=${routePreflight?.reasonCode ?? "none"} eligible=${routePreflight?.localRoutingEligible ?? "n/a"} reordered=${routePreflight?.reordered ?? false} first=${sanitizeForLog(routePreflight?.chosenProvider ?? candidates[0]?.provider)}/${sanitizeForLog(routePreflight?.chosenModel ?? candidates[0]?.model)}`,
+  );
+  if (routePreflight?.reordered) {
+    log.info(
+      `route preflight: ${routePreflight.reason} first=${sanitizeForLog(routePreflight.chosenProvider)}/${sanitizeForLog(routePreflight.chosenModel)}`,
+    );
+  }
   const authStore = params.cfg
     ? ensureAuthProfileStore(params.agentDir, { allowKeychainPrompt: false })
     : null;
@@ -684,7 +720,11 @@ export async function runWithModelFallback<T>(params: {
           `Model "${sanitizeForLog(notFoundAttempt.provider)}/${sanitizeForLog(notFoundAttempt.model)}" not found. Fell back to "${sanitizeForLog(candidate.provider)}/${sanitizeForLog(candidate.model)}".`,
         );
       }
-      return attemptRun.success;
+      const includeRoutePreflightMeta = Boolean(params.preflightPrompt?.trim());
+      return {
+        ...attemptRun.success,
+        ...(includeRoutePreflightMeta && routePreflight ? { routePreflight } : {}),
+      };
     }
     const err = attemptRun.error;
     {

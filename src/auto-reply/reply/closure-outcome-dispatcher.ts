@@ -7,6 +7,7 @@ import {
 } from "../../infra/agent-events.js";
 import { DEFAULT_EXEC_APPROVAL_TIMEOUT_MS } from "../../infra/exec-approvals.js";
 import {
+  BootstrapBlockedRunResumeSchema,
   TRUSTED_CAPABILITY_CATALOG,
   getPlatformBootstrapService,
   resolveBootstrapRequests,
@@ -469,7 +470,9 @@ function buildBootstrapExecutionContext(params: {
       : {}),
     ...(intent.policyAutonomy ? { policyAutonomy: intent.policyAutonomy } : {}),
     readinessStatus: "bootstrap_required",
-    readinessReasons: Array.from(new Set(params.decision.reasons)),
+    readinessReasons: Array.from(
+      new Set([...params.decision.reasons, `blockedRunId=${params.decision.runId}`]),
+    ),
     unattendedBoundary: "bootstrap",
   };
 }
@@ -589,6 +592,9 @@ function ensureClosureApprovalRequest(params: {
 function ensureBootstrapRequests(params: {
   decision: MessagingClosureDecision;
   executionIntent?: PlatformRuntimeExecutionIntent;
+  queueKey?: string;
+  sourceRun?: FollowupRun;
+  settings?: QueueSettings;
 }): string[] {
   const outcome = resolveDecisionOutcome(params.decision);
   if ((outcome?.bootstrapRequestIds.length ?? 0) > 0) {
@@ -601,6 +607,19 @@ function ensureBootstrapRequests(params: {
     return [];
   }
 
+  const queueKey = params.queueKey?.trim();
+  const resumeCandidate =
+    capabilityIds.length === 1 && queueKey && params.sourceRun && params.settings
+      ? BootstrapBlockedRunResumeSchema.safeParse({
+          blockedRunId: params.decision.runId,
+          sessionKey: params.sourceRun.run.sessionKey,
+          queueKey,
+          settings: params.settings,
+          sourceRun: params.sourceRun,
+        })
+      : undefined;
+  const blockedRunResume = resumeCandidate?.success ? resumeCandidate.data : undefined;
+
   const registry = createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
   const resolutions = resolveBootstrapRequests({
     capabilityIds,
@@ -612,6 +631,7 @@ function ensureBootstrapRequests(params: {
       intent: params.executionIntent,
       decision: params.decision,
     }),
+    ...(blockedRunResume ? { blockedRunResume } : {}),
   });
   const service = getPlatformBootstrapService();
   return resolutions
@@ -691,6 +711,9 @@ export function dispatchMessagingClosureOutcome(params: {
       ? ensureBootstrapRequests({
           decision,
           executionIntent: params.executionIntent,
+          queueKey: params.queueKey,
+          sourceRun: params.sourceRun,
+          settings: params.settings,
         })
       : [];
   const approvalId =

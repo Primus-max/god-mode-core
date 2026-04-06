@@ -495,6 +495,17 @@ export function buildPlatformPlannerInput(params: {
   });
 }
 
+export function shouldFailoverEmptySemanticRetryResult(
+  result: Awaited<ReturnType<typeof runEmbeddedPiAgent>>,
+): boolean {
+  const payloads = result.payloads ?? [];
+  if (payloads.length > 0) {
+    return false;
+  }
+  const verdict = result.meta.supervisorVerdict;
+  return verdict?.action === "retry" && verdict.remediation === "semantic_retry";
+}
+
 function runAgentAttempt(params: RunAgentAttemptParams) {
   const effectivePrompt = resolveFallbackRetryPrompt({
     body: params.body,
@@ -1276,6 +1287,7 @@ async function agentCommandInternal(
         runId,
         agentDir,
         fallbacksOverride: fallbackOverride,
+        preflightPrompt: body,
         run: (providerOverride, modelOverride, runOptions) => {
           const isFallbackRetry = fallbackAttemptIndex > 0;
           fallbackAttemptIndex += 1;
@@ -1316,6 +1328,18 @@ async function agentCommandInternal(
                 lifecycleEnded = true;
               }
             },
+          }).then((attemptResult) => {
+            if (shouldFailoverEmptySemanticRetryResult(attemptResult)) {
+              throw new FailoverError(
+                "Model returned no user-visible output and requested a semantic retry.",
+                {
+                  reason: "format",
+                  provider: providerOverride,
+                  model: modelOverride,
+                },
+              );
+            }
+            return attemptResult;
           });
         },
       });

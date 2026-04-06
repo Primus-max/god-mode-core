@@ -189,6 +189,58 @@ const MODEL_COOLDOWN_MESSAGE = "model_cooldown: All credentials for model gpt-5 
 // SDK/transport compatibility marker, not a provider API contract.
 const CONNECTION_ERROR_MESSAGE = "Connection error.";
 
+describe("runWithModelFallback route preflight", () => {
+  it("calls local control-plane provider first on simple prompts when in the fallback chain", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4.1-mini",
+            fallbacks: ["ollama/llama3.2", "anthropic/claude-haiku-3-5"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      preflightPrompt: "what is 2+2?",
+      run,
+    });
+    expect(result.result).toBe("ok");
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.slice(0, 2)).toEqual(["ollama", "llama3.2"]);
+    expect(result.routePreflight?.reasonCode).toBe("preflight_reordered_local_first");
+    expect(result.routePreflight?.controlPlaneUsed).toBe(true);
+  });
+
+  it("keeps configured primary first when preflight selects a stronger route", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4.1-mini",
+            fallbacks: ["ollama/llama3.2", "anthropic/claude-haiku-3-5"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      preflightPrompt: "run the full test suite and fix every failure",
+      run,
+    });
+    expect(run.mock.calls[0]?.slice(0, 2)).toEqual(["openai", "gpt-4.1-mini"]);
+    expect(result.routePreflight?.reasonCode).toBe("preflight_stronger_route");
+    expect(result.routePreflight?.reordered).toBe(false);
+  });
+});
+
 describe("runWithModelFallback", () => {
   it("keeps openai gpt-5.3 codex on the openai provider before running", async () => {
     const cfg = makeCfg();

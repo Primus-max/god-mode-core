@@ -5,6 +5,7 @@ import { normalizeAnyChannelId, normalizeChannelId } from "../../channels/regist
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { resolveSessionBackedExecutionRuntimePlan } from "../../platform/decision/input.js";
+import type { RoutePreflightMode } from "../../platform/decision/route-preflight.js";
 import type { RecipeRuntimePlan } from "../../platform/recipe/runtime-adapter.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import type { TemplateContext } from "../templating.js";
@@ -103,7 +104,11 @@ export const formatBunFetchSocketError = (message: string) => {
 export const resolveEnforceFinalTag = (run: FollowupRun["run"], provider: string) =>
   Boolean(run.enforceFinalTag || isReasoningTagProvider(provider));
 
-export function resolveModelFallbackOptions(run: FollowupRun["run"]) {
+export function resolveModelFallbackOptions(
+  run: FollowupRun["run"],
+  opts?: { preflightPrompt?: string; preflightMode?: RoutePreflightMode },
+) {
+  const trimmedPreflight = opts?.preflightPrompt?.trim();
   return {
     cfg: run.config,
     provider: run.provider,
@@ -114,6 +119,12 @@ export function resolveModelFallbackOptions(run: FollowupRun["run"]) {
       agentId: run.agentId,
       sessionKey: run.sessionKey,
     }),
+    ...(trimmedPreflight
+      ? {
+          preflightPrompt: trimmedPreflight,
+          ...(opts?.preflightMode ? { preflightMode: opts.preflightMode } : {}),
+        }
+      : {}),
   };
 }
 
