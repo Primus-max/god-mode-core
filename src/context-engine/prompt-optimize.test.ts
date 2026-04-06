@@ -7,7 +7,7 @@ describe("deterministicPromptOptimize", () => {
     expect(prompt).toBe("fix the bug in src/app.ts");
     expect(meta.applied).toBe(false);
     expect(meta.charsRemoved).toBe(0);
-    expect(meta.strategyId).toBe("deterministic-v1");
+    expect(meta.strategyId).toBe("deterministic-v2");
   });
 
   it("normalizes CRLF and trims trailing line whitespace without dropping paths", () => {
@@ -24,6 +24,22 @@ describe("deterministicPromptOptimize", () => {
   it("collapses excessive blank lines but keeps paragraph breaks", () => {
     const { prompt } = deterministicPromptOptimize("line1\n\n\n\nline2");
     expect(prompt).toBe("line1\n\nline2");
+  });
+
+  it("collapses repeated inline spacing in plain text", () => {
+    const { prompt, meta } = deterministicPromptOptimize(
+      "Сильно    сожми   этот   раздутый запрос и  ответь одной фразой.",
+    );
+    expect(prompt).toBe("Сильно сожми этот раздутый запрос и ответь одной фразой.");
+    expect(meta.applied).toBe(true);
+  });
+
+  it("preserves fenced and inline code spacing", () => {
+    const { prompt } = deterministicPromptOptimize(
+      "Keep `foo  bar` unchanged.\n```ts\nconst x =  1;\n```",
+    );
+    expect(prompt).toContain("`foo  bar`");
+    expect(prompt).toContain("const x =  1;");
   });
 });
 

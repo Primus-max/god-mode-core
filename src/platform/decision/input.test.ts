@@ -88,3 +88,55 @@ describe("buildExecutionDecisionInputFromRuntimePlan", () => {
     expect(replayPlan.profile.selectedProfile.id).toBe(priorPlan.profile.selectedProfile.id);
   });
 });
+
+describe("buildExecutionDecisionInput", () => {
+  it("infers document intent and artifact kinds for pdf-style prompts", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Create a PDF report with a short summary for the customer.",
+    });
+
+    expect(input.intent).toBe("document");
+    expect(input.artifactKinds).toEqual(["document", "report"]);
+  });
+
+  it("infers image artifact kinds for media-generation prompts", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Generate an image banner with the text Stage 86 OK.",
+    });
+
+    expect(input.intent).toBeUndefined();
+    expect(input.artifactKinds).toEqual(["image"]);
+  });
+
+  it("infers artifact kinds from Russian media and document prompts", () => {
+    const imageInput = buildExecutionDecisionInput({
+      prompt: "Сгенерируй изображение баннера с текстом Stage 86 OK.",
+    });
+    const pdfInput = buildExecutionDecisionInput({
+      prompt: "Создай PDF-отчёт с краткой сводкой результатов теста.",
+    });
+
+    expect(imageInput.artifactKinds).toEqual(["image"]);
+    expect(pdfInput.intent).toBe("document");
+    expect(pdfInput.artifactKinds).toEqual(["document"]);
+  });
+
+  it("keeps PDF generation prompts on the document path even when they mention tests", () => {
+    const input = buildExecutionDecisionInput({
+      prompt:
+        "Создай PDF-отчёт с краткой сводкой результатов теста и заголовком Stage 86 PDF Test.",
+    });
+
+    expect(input.intent).toBe("document");
+    expect(input.artifactKinds).toEqual(["document"]);
+  });
+
+  it("does not force ordinary summary requests onto the document path", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Сильно сожми этот раздутый запрос и дай краткую сводку по статусу stage 86.",
+    });
+
+    expect(input.intent).toBeUndefined();
+    expect(input.artifactKinds ?? []).toEqual([]);
+  });
+});

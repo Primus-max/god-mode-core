@@ -546,6 +546,10 @@ export async function runWithModelFallback<T>(params: {
     model: params.model,
     fallbacksOverride: params.fallbacksOverride,
   });
+  // Debug: log preflight input for Stage 86 testing
+  log.info(
+    `route preflight input: promptPresent=${Boolean(params.preflightPrompt?.trim())} promptLength=${params.preflightPrompt?.length ?? 0} mode=${params.preflightMode ?? "default"} candidates=${baseCandidates.map(c => `${c.provider}/${c.model}`).join(",")}`,
+  );
   const preflight = applyModelRoutePreflight({
     candidates: baseCandidates,
     prompt: params.preflightPrompt,
@@ -553,6 +557,10 @@ export async function runWithModelFallback<T>(params: {
   });
   const candidates = preflight.candidates;
   const routePreflight = preflight.decision;
+  // Debug: always log preflight decision for Stage 86 testing
+  log.info(
+    `route preflight: decision=${routePreflight?.reasonCode ?? "none"} eligible=${routePreflight?.localRoutingEligible ?? "n/a"} reordered=${routePreflight?.reordered ?? false} first=${sanitizeForLog(routePreflight?.chosenProvider ?? candidates[0]?.provider)}/${sanitizeForLog(routePreflight?.chosenModel ?? candidates[0]?.model)}`,
+  );
   if (routePreflight?.reordered) {
     log.info(
       `route preflight: ${routePreflight.reason} first=${sanitizeForLog(routePreflight.chosenProvider)}/${sanitizeForLog(routePreflight.chosenModel)}`,

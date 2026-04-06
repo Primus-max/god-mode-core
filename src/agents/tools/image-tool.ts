@@ -124,6 +124,60 @@ type ImageSandboxConfig = {
   bridge: SandboxFsBridge;
 };
 
+function extractLocalImageText(prompt: string): string {
+  const quoted =
+    prompt.match(/text\s+["“](.+?)["”]/iu)?.[1] ??
+    prompt.match(/текст(?:ом)?\s+["«](.+?)["»]/iu)?.[1] ??
+    prompt.match(/['"`](.+?)['"`]/u)?.[1];
+  const normalized = (quoted ?? prompt)
+    .replace(/\s+/gu, " ")
+    .replace(/^(generate|create|make|draw|сгенерируй|создай|сделай)\s+/iu, "")
+    .trim();
+  return (normalized || "OpenClaw").slice(0, 120);
+}
+
+async function generateLocalImageArtifact(params: {
+  prompt: string;
+  filename?: string;
+}): Promise<{
+  savedPath: string;
+  text: string;
+}> {
+  const width = 1400;
+  const height = 900;
+  const text = extractLocalImageText(params.prompt);
+  const escapedText = text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+  const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="${String(width)}" height="${String(height)}" viewBox="0 0 ${String(width)} ${String(height)}">
+  <rect width="100%" height="100%" fill="#ffffff" />
+  <rect x="48" y="48" width="${String(width - 96)}" height="${String(height - 96)}" rx="28" fill="#f5f5f5" stroke="#111111" stroke-width="6" />
+  <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#111111"
+    font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="700">${escapedText}</text>
+</svg>`.trim();
+  const sharpModule = (await import("sharp")) as unknown as {
+    default: (input: Buffer | string) => {
+      png: () => { toBuffer: () => Promise<Buffer> };
+    };
+  };
+  const sharp = sharpModule.default;
+  const buffer = await sharp(Buffer.from(svg, "utf8")).png().toBuffer();
+  const mediaStore = await import("../../media/store.js");
+  const saved = await mediaStore.saveMediaBuffer(
+    buffer,
+    "image/png",
+    "tool-image-local",
+    undefined,
+    params.filename,
+  );
+  return {
+    savedPath: saved.path,
+    text,
+  };
+}
+
 async function runImagePrompt(params: {
   cfg?: OpenClawConfig;
   agentDir: string;
@@ -251,7 +305,7 @@ export function createImageTool(options?: {
   // so this tool is only needed when image wasn't provided in the prompt
   const description = options?.modelHasVision
     ? "Analyze one or more images with a vision model. Use image for a single path/URL, or images for multiple (up to 20). Only use this tool when images were NOT already provided in the user's message. Images mentioned in the prompt are automatically visible to you."
-    : "Analyze one or more images with the configured image model (agents.defaults.imageModel). Use image for a single path/URL, or images for multiple (up to 20). Provide a prompt describing what to analyze.";
+    : "Analyze one or more images with the configured image model (agents.defaults.imageModel). Use image for a single path/URL, or images for multiple (up to 20). If no source image is provided but the prompt asks to create a simple image, the tool can generate a local image artifact from the prompt.";
 
   const localRoots = resolveMediaToolLocalRoots(options?.workspaceDir, {
     workspaceOnly: options?.fsPolicy?.workspaceOnly === true,
@@ -269,6 +323,7 @@ export function createImageTool(options?: {
           description: "Multiple image paths or URLs (up to maxImages, default 20).",
         }),
       ),
+      filename: Type.Optional(Type.String()),
       model: Type.Optional(Type.String()),
       maxBytesMb: Type.Optional(Type.Number()),
       maxImages: Type.Optional(Type.Number()),
@@ -299,7 +354,32 @@ export function createImageTool(options?: {
         imageInputs.push(trimmedCandidate);
       }
       if (imageInputs.length === 0) {
-        throw new Error("image required");
+        const fallbackPrompt =
+          typeof record.prompt === "string" && record.prompt.trim() ? record.prompt.trim() : "";
+        if (!fallbackPrompt) {
+          throw new Error("image required");
+        }
+        const generated = await generateLocalImageArtifact({
+          prompt: fallbackPrompt,
+          filename: typeof record.filename === "string" ? record.filename : undefined,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Generated 1 image locally from the prompt text "${generated.text}".`,
+            },
+          ],
+          details: {
+            provider: "local",
+            model: "simple-svg",
+            image: generated.savedPath,
+            paths: [generated.savedPath],
+            media: {
+              mediaUrls: [generated.savedPath],
+            },
+          },
+        };
       }
 
       // MARK: - Enforce max images cap

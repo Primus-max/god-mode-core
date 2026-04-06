@@ -220,7 +220,12 @@ function buildCapabilitySummary(params: {
   capabilityRegistry?: CapabilityRegistry;
   capabilityCatalog?: CapabilityCatalogEntry[];
 }): PlatformCapabilitySummary {
-  const requiredCapabilities = params.plan.recipe.requiredCapabilities ?? [];
+  const requiredCapabilities =
+    params.plan.recipe.id === "doc_ingest" &&
+    (params.input.fileNames?.length ?? 0) === 0 &&
+    params.input.intent === "document"
+      ? []
+      : (params.plan.recipe.requiredCapabilities ?? []);
   if (requiredCapabilities.length === 0) {
     return {
       requiredCapabilities: [],

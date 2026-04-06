@@ -652,6 +652,27 @@ export function sanitizeUserFacingText(text: string, opts?: { errorContext?: boo
     return "";
   }
 
+  // Some local/openai-compatible models occasionally leak a raw tool-call JSON object
+  // instead of emitting a structured tool invocation or a user-facing answer.
+  // Treat an exact standalone tool-call envelope as non-user-facing content.
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as { name?: unknown }).name === "string" &&
+      "arguments" in (parsed as Record<string, unknown>) &&
+      Object.keys(parsed as Record<string, unknown>).every(
+        (key) => key === "name" || key === "arguments" || key === "id",
+      )
+    ) {
+      return "";
+    }
+  } catch {
+    // Ignore non-JSON content.
+  }
+
   // Only apply error-pattern rewrites when the caller knows this text is an error payload.
   // Otherwise we risk swallowing legitimate assistant text that merely *mentions* these errors.
   if (errorContext) {

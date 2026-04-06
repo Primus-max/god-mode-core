@@ -1,6 +1,18 @@
 import type { PromptOptimizationReport, PromptOptimizeForTurnResult } from "./types.js";
 
-const DETERMINISTIC_STRATEGY_ID = "deterministic-v1";
+const DETERMINISTIC_STRATEGY_ID = "deterministic-v2";
+
+function collapseInlineSpacingOutsideCode(line: string): string {
+  if (!line || !/[ \t]{2,}/u.test(line)) {
+    return line;
+  }
+  const segments = line.split(/(`[^`]*`)/gu);
+  return segments
+    .map((segment, index) =>
+      index % 2 === 1 ? segment : segment.replace(/(?<=\S)[ \t]{2,}(?=\S)/gu, " "),
+    )
+    .join("");
+}
 
 /**
  * Merge optimization reports from hooks and runtime passes (ordered reasoning).
@@ -95,6 +107,24 @@ export function deterministicPromptOptimize(prompt: string): PromptOptimizeForTu
   if (trimmedLines.join("\n") !== lines.join("\n")) {
     reasoning.push("stripped trailing spaces and tabs on lines");
     text = trimmedLines.join("\n");
+  }
+
+  const spacingLines = text.split("\n");
+  let insideFence = false;
+  const normalizedSpacingLines = spacingLines.map((line) => {
+    const trimmedLine = line.trimStart();
+    if (trimmedLine.startsWith("```")) {
+      insideFence = !insideFence;
+      return line;
+    }
+    if (insideFence) {
+      return line;
+    }
+    return collapseInlineSpacingOutsideCode(line);
+  });
+  if (normalizedSpacingLines.join("\n") !== spacingLines.join("\n")) {
+    reasoning.push("collapsed repeated inline spacing in plain-text lines");
+    text = normalizedSpacingLines.join("\n");
   }
 
   const collapsed = text.replace(/\n{3,}/gu, "\n\n");

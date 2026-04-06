@@ -148,6 +148,19 @@ describe("resolvePlatformRuntimePlan", () => {
     expect(resolved.runtime.unattendedBoundary).toBe("bootstrap");
     expect(resolved.runtime.readinessReasons?.join(" ")).toContain("Bootstrap required");
   });
+
+  it("does not require pdf-parser for prompt-only PDF generation", () => {
+    const resolved = resolvePlatformRuntimePlan({
+      prompt: "Create a one-page PDF with a short summary.",
+      artifactKinds: ["document"],
+      intent: "document",
+    });
+
+    expect(resolved.runtime.selectedRecipeId).toBe("doc_ingest");
+    expect(resolved.runtime.requiredCapabilities).toBeUndefined();
+    expect(resolved.runtime.bootstrapRequiredCapabilities).toBeUndefined();
+    expect(resolved.runtime.readinessStatus).toBe("ready");
+  });
 });
 
 describe("buildRecipePlannerInputFromRuntimePlan", () => {

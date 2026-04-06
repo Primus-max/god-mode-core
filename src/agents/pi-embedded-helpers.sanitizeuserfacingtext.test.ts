@@ -127,6 +127,16 @@ describe("sanitizeUserFacingText", () => {
   it.each(["\n\n", "  \n  "])("returns empty for whitespace-only input: %j", (input) => {
     expect(sanitizeUserFacingText(input)).toBe("");
   });
+
+  it("strips standalone raw tool-call JSON leaked as assistant text", () => {
+    expect(sanitizeUserFacingText('{"name":"session_status","arguments":{}}')).toBe("");
+  });
+
+  it("keeps ordinary JSON content that is not a tool-call envelope", () => {
+    expect(sanitizeUserFacingText('{"status":"ok","message":"ready"}')).toBe(
+      '{"status":"ok","message":"ready"}',
+    );
+  });
 });
 
 describe("stripThoughtSignatures", () => {

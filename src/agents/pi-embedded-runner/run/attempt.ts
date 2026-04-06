@@ -2833,10 +2833,13 @@ export async function runEmbeddedAttempt(
           hookResult?.promptOptimization,
           optimizedTurn.meta,
         );
-        if (promptOptimization && log.isEnabled("debug")) {
+        // Stage 86: always log prompt optimization results for testing visibility
+        if (promptOptimization) {
           const reasoning = (promptOptimization.reasoning ?? []).join(" | ");
-          log.debug(
+          log.info(
             `prompt optimize: strategy=${promptOptimization.strategyId ?? "n/a"} ` +
+              `in=${optimizedTurn.meta?.charsIn ?? effectivePrompt.length} ` +
+              `out=${optimizedTurn.meta?.charsOut ?? effectivePrompt.length} ` +
               `removed=${promptOptimization.charsRemoved ?? 0} ` +
               `applied=${Boolean(promptOptimization.applied)}` +
               (reasoning ? ` reasoning=${reasoning}` : ""),

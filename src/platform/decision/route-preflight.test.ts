@@ -17,6 +17,32 @@ describe("inferLocalRoutingEligibleFromPrompt", () => {
   it("treats publish-intent prompts as requiring a stronger route", () => {
     expect(inferLocalRoutingEligibleFromPrompt("deploy this preview to vercel")).toBe(false);
   });
+
+  it("treats image-generation prompts as requiring a stronger route", () => {
+    expect(inferLocalRoutingEligibleFromPrompt("Generate an image banner for Stage 86.")).toBe(
+      false,
+    );
+  });
+
+  it("treats Russian image-generation prompts as requiring a stronger route", () => {
+    expect(inferLocalRoutingEligibleFromPrompt("Сгенерируй изображение баннера для Stage 86.")).toBe(
+      false,
+    );
+  });
+
+  it("treats pdf-generation prompts as requiring a stronger route", () => {
+    expect(inferLocalRoutingEligibleFromPrompt("Create a PDF report with the test results.")).toBe(
+      false,
+    );
+  });
+
+  it("keeps ordinary summary requests local-eligible", () => {
+    expect(
+      inferLocalRoutingEligibleFromPrompt(
+        "Сильно сожми этот раздутый запрос и дай краткую сводку по статусу stage 86.",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("applyModelRoutePreflight", () => {

@@ -15,6 +15,70 @@ const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "ne
 const DEVELOPER_EXECUTION_KEYWORDS =
   /\b(build|test|fix|refactor|repo|repository|compile|ci|code)\b/iu;
 const DEVELOPER_PUBLISH_KEYWORDS = /\b(preview|publish|release|deploy|ship|rollout)\b/iu;
+const DOCUMENT_ARTIFACT_HINTS = [
+  "pdf",
+  "document",
+  "doc",
+  "docx",
+  "report",
+  "invoice",
+  "estimate",
+  "spec",
+  "proposal",
+  "документ",
+  "отчет",
+  "отчёт",
+  "смет",
+  "спецификац",
+  "предложени",
+] as const;
+const MEDIA_IMAGE_HINTS = [
+  "image",
+  "picture",
+  "screenshot",
+  "illustration",
+  "poster",
+  "thumbnail",
+  "banner",
+  "icon",
+  "logo",
+  "render",
+  "изображени",
+  "картин",
+  "скриншот",
+  "иллюстрац",
+  "постер",
+  "баннер",
+  "иконк",
+  "логотип",
+  "рендер",
+] as const;
+const MEDIA_VIDEO_HINTS = [
+  "video",
+  "clip",
+  "animation",
+  "gif",
+  "reel",
+  "trailer",
+  "видео",
+  "ролик",
+  "анимац",
+  "гиф",
+] as const;
+const MEDIA_AUDIO_HINTS = [
+  "audio",
+  "voice",
+  "speech",
+  "podcast",
+  "soundtrack",
+  "music",
+  "аудио",
+  "голос",
+  "речь",
+  "подкаст",
+  "саундтрек",
+  "музык",
+] as const;
 
 type DecisionInputChannelHints = {
   messageChannel?: string;
@@ -69,9 +133,17 @@ function toUniqueLowercase(values: Array<string | undefined> | undefined): strin
   );
 }
 
+function promptIncludesAny(prompt: string, hints: readonly string[]): boolean {
+  const normalized = prompt.toLowerCase();
+  return hints.some((hint) => normalized.includes(hint));
+}
+
 function inferPromptIntent(prompt: string): RecipePlannerInput["intent"] {
   if (DEVELOPER_PUBLISH_KEYWORDS.test(prompt)) {
     return "publish";
+  }
+  if (promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS)) {
+    return "document";
   }
   if (DEVELOPER_EXECUTION_KEYWORDS.test(prompt)) {
     return "code";
@@ -81,10 +153,25 @@ function inferPromptIntent(prompt: string): RecipePlannerInput["intent"] {
 
 function inferArtifactKinds(prompt: string): NonNullable<RecipePlannerInput["artifactKinds"]> {
   const publishTargets = collectPromptHints(prompt, DEVELOPER_PUBLISH_TARGET_HINTS);
+  const hasDocumentArtifactHint = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
+  const hasMediaArtifactHint =
+    promptIncludesAny(prompt, MEDIA_IMAGE_HINTS) ||
+    promptIncludesAny(prompt, MEDIA_VIDEO_HINTS) ||
+    promptIncludesAny(prompt, MEDIA_AUDIO_HINTS);
   return toUniqueLowercase([
     ...(publishTargets.length > 0 || /\bpreview\b/iu.test(prompt) ? ["site"] : []),
     ...(publishTargets.length > 0 || /\brelease\b/iu.test(prompt) ? ["release"] : []),
-    ...(DEVELOPER_EXECUTION_KEYWORDS.test(prompt) ? ["binary"] : []),
+    ...(DEVELOPER_EXECUTION_KEYWORDS.test(prompt) &&
+    !hasDocumentArtifactHint &&
+    !hasMediaArtifactHint
+      ? ["binary"]
+      : []),
+    ...(hasDocumentArtifactHint ? ["document"] : []),
+    ...(/\breport\b/iu.test(prompt) ? ["report"] : []),
+    ...(/\b(отчет|отчёт)\b/iu.test(prompt) ? ["report"] : []),
+    ...(promptIncludesAny(prompt, MEDIA_IMAGE_HINTS) ? ["image"] : []),
+    ...(promptIncludesAny(prompt, MEDIA_VIDEO_HINTS) ? ["video"] : []),
+    ...(promptIncludesAny(prompt, MEDIA_AUDIO_HINTS) ? ["audio"] : []),
   ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
 }
 

@@ -53,6 +53,53 @@ const SUPPORTED_ASPECT_RATIOS = new Set([
   "21:9",
 ]);
 
+function extractLocalImageText(prompt: string): string {
+  const quoted =
+    prompt.match(/text\s+["“](.+?)["”]/iu)?.[1] ??
+    prompt.match(/текст(?:ом)?\s+["«](.+?)["»]/iu)?.[1] ??
+    prompt.match(/['"`](.+?)['"`]/u)?.[1];
+  const normalized = (quoted ?? prompt)
+    .replace(/\s+/gu, " ")
+    .replace(/^(generate|create|make|draw|сгенерируй|создай|сделай)\s+/iu, "")
+    .trim();
+  return (normalized || "OpenClaw").slice(0, 120);
+}
+
+async function generateLocalImageFallback(params: {
+  prompt: string;
+  filename?: string;
+}): Promise<{ savedPath: string; text: string }> {
+  const width = 1400;
+  const height = 900;
+  const text = extractLocalImageText(params.prompt);
+  const escapedText = text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+  const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="${String(width)}" height="${String(height)}" viewBox="0 0 ${String(width)} ${String(height)}">
+  <rect width="100%" height="100%" fill="#ffffff" />
+  <rect x="48" y="48" width="${String(width - 96)}" height="${String(height - 96)}" rx="28" fill="#f5f5f5" stroke="#111111" stroke-width="6" />
+  <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#111111"
+    font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="700">${escapedText}</text>
+</svg>`.trim();
+  const sharpModule = (await import("sharp")) as unknown as {
+    default: (input: Buffer | string) => {
+      png: () => { toBuffer: () => Promise<Buffer> };
+    };
+  };
+  const sharp = sharpModule.default;
+  const buffer = await sharp(Buffer.from(svg, "utf8")).png().toBuffer();
+  const saved = await saveMediaBuffer(
+    buffer,
+    "image/png",
+    "tool-image-generation",
+    undefined,
+    params.filename,
+  );
+  return { savedPath: saved.path, text };
+}
+
 const ImageGenerateToolSchema = Type.Object({
   action: Type.Optional(
     Type.String({
@@ -482,11 +529,9 @@ export function createImageGenerateTool(options?: {
     cfg,
     agentDir: options?.agentDir,
   });
-  if (!imageGenerationModelConfig) {
-    return null;
-  }
-  const effectiveCfg =
-    applyImageGenerationModelConfigDefaults(cfg, imageGenerationModelConfig) ?? cfg;
+  const effectiveCfg = imageGenerationModelConfig
+    ? applyImageGenerationModelConfigDefaults(cfg, imageGenerationModelConfig) ?? cfg
+    : cfg;
   const localRoots = resolveMediaToolLocalRoots(options?.workspaceDir, {
     workspaceOnly: options?.fsPolicy?.workspaceOnly === true,
   });
@@ -503,22 +548,35 @@ export function createImageGenerateTool(options?: {
     label: "Image Generation",
     name: "image_generate",
     description:
-      'Generate new images or edit reference images with the configured or inferred image-generation model. Set agents.defaults.imageGenerationModel.primary to pick a provider/model. If you want openai/*, google/*, fal/*, or another provider, configure that provider auth/API key first. Use action="list" to inspect available providers, models, and auth hints. Generated images are delivered automatically from the tool result as MEDIA paths.',
+      'Generate new images or edit reference images with the configured or inferred image-generation model. Set agents.defaults.imageGenerationModel.primary to pick a provider/model. If no external image provider is configured, the tool can still generate a simple local image artifact from the prompt. Use action="list" to inspect available providers, models, and auth hints. Generated images are delivered automatically from the tool result as MEDIA paths.',
     parameters: ImageGenerateToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
       const action = resolveAction(params);
       if (action === "list") {
-        const providers = listRuntimeImageGenerationProviders({ config: effectiveCfg }).map(
-          (provider) => ({
-            id: provider.id,
-            ...(provider.label ? { label: provider.label } : {}),
-            ...(provider.defaultModel ? { defaultModel: provider.defaultModel } : {}),
-            models: provider.models ?? (provider.defaultModel ? [provider.defaultModel] : []),
-            authEnvVars: getImageGenerationProviderAuthEnvVars(provider.id),
-            capabilities: provider.capabilities,
-          }),
-        );
+        const providers = [
+          ...listRuntimeImageGenerationProviders({ config: effectiveCfg }).map(
+            (provider) => ({
+              id: provider.id,
+              ...(provider.label ? { label: provider.label } : {}),
+              ...(provider.defaultModel ? { defaultModel: provider.defaultModel } : {}),
+              models: provider.models ?? (provider.defaultModel ? [provider.defaultModel] : []),
+              authEnvVars: getImageGenerationProviderAuthEnvVars(provider.id),
+              capabilities: provider.capabilities,
+            }),
+          ),
+          {
+            id: "local",
+            label: "Local simple image fallback",
+            defaultModel: "simple-svg",
+            models: ["simple-svg"],
+            authEnvVars: [],
+            capabilities: {
+              generate: { maxCount: 1, supportsAspectRatio: false, supportsResolution: false },
+              edit: { enabled: false, maxInputImages: 0 },
+            },
+          },
+        ];
         const lines = providers.flatMap((provider) => {
           const caps: string[] = [];
           if (provider.capabilities.edit.enabled) {
@@ -576,11 +634,13 @@ export function createImageGenerateTool(options?: {
           : inputImages.length > 0
             ? await inferResolutionFromInputImages(inputImages)
             : undefined);
-      const selectedProvider = resolveSelectedImageGenerationProvider({
-        config: effectiveCfg,
-        imageGenerationModelConfig,
-        modelOverride: model,
-      });
+      const selectedProvider = imageGenerationModelConfig
+        ? resolveSelectedImageGenerationProvider({
+            config: effectiveCfg,
+            imageGenerationModelConfig,
+            modelOverride: model,
+          })
+        : undefined;
       validateImageGenerationCapabilities({
         provider: selectedProvider,
         count,
@@ -589,72 +649,109 @@ export function createImageGenerateTool(options?: {
         aspectRatio,
         resolution,
       });
-
-      const result = await generateImage({
-        cfg: effectiveCfg,
-        prompt,
-        agentDir: options?.agentDir,
-        modelOverride: model,
-        size,
-        aspectRatio,
-        resolution,
-        count,
-        inputImages,
-      });
-
-      const savedImages = await Promise.all(
-        result.images.map((image) =>
-          saveMediaBuffer(
-            image.buffer,
-            image.mimeType,
-            "tool-image-generation",
-            undefined,
-            filename || image.fileName,
-          ),
-        ),
-      );
-
-      const revisedPrompts = result.images
-        .map((image) => image.revisedPrompt?.trim())
-        .filter((entry): entry is string => Boolean(entry));
-      const lines = [
-        `Generated ${savedImages.length} image${savedImages.length === 1 ? "" : "s"} with ${result.provider}/${result.model}.`,
-      ];
-
-      return {
-        content: [{ type: "text", text: lines.join("\n") }],
-        details: {
-          provider: result.provider,
-          model: result.model,
-          count: savedImages.length,
-          media: {
-            mediaUrls: savedImages.map((image) => image.path),
+      if (!imageGenerationModelConfig && inputImages.length === 0) {
+        const local = await generateLocalImageFallback({ prompt, filename });
+        return {
+          content: [{ type: "text", text: `Generated 1 image with local/simple-svg.` }],
+          details: {
+            provider: "local",
+            model: "simple-svg",
+            count: 1,
+            media: {
+              mediaUrls: [local.savedPath],
+            },
+            paths: [local.savedPath],
+            ...(filename ? { filename } : {}),
           },
-          paths: savedImages.map((image) => image.path),
-          ...(imageInputs.length === 1
-            ? {
-                image: loadedReferenceImages[0]?.resolvedImage,
-                ...(loadedReferenceImages[0]?.rewrittenFrom
-                  ? { rewrittenFrom: loadedReferenceImages[0].rewrittenFrom }
-                  : {}),
-              }
-            : imageInputs.length > 1
+        };
+      }
+
+      try {
+        const result = await generateImage({
+          cfg: effectiveCfg,
+          prompt,
+          agentDir: options?.agentDir,
+          modelOverride: model,
+          size,
+          aspectRatio,
+          resolution,
+          count,
+          inputImages,
+        });
+
+        const savedImages = await Promise.all(
+          result.images.map((image) =>
+            saveMediaBuffer(
+              image.buffer,
+              image.mimeType,
+              "tool-image-generation",
+              undefined,
+              filename || image.fileName,
+            ),
+          ),
+        );
+
+        const revisedPrompts = result.images
+          .map((image) => image.revisedPrompt?.trim())
+          .filter((entry): entry is string => Boolean(entry));
+        const lines = [
+          `Generated ${savedImages.length} image${savedImages.length === 1 ? "" : "s"} with ${result.provider}/${result.model}.`,
+        ];
+
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          details: {
+            provider: result.provider,
+            model: result.model,
+            count: savedImages.length,
+            media: {
+              mediaUrls: savedImages.map((image) => image.path),
+            },
+            paths: savedImages.map((image) => image.path),
+            ...(imageInputs.length === 1
               ? {
-                  images: loadedReferenceImages.map((entry) => ({
-                    image: entry.resolvedImage,
-                    ...(entry.rewrittenFrom ? { rewrittenFrom: entry.rewrittenFrom } : {}),
-                  })),
+                  image: loadedReferenceImages[0]?.resolvedImage,
+                  ...(loadedReferenceImages[0]?.rewrittenFrom
+                    ? { rewrittenFrom: loadedReferenceImages[0].rewrittenFrom }
+                    : {}),
                 }
-              : {}),
-          ...(resolution ? { resolution } : {}),
-          ...(size ? { size } : {}),
-          ...(aspectRatio ? { aspectRatio } : {}),
-          ...(filename ? { filename } : {}),
-          attempts: result.attempts,
-          metadata: result.metadata,
-          ...(revisedPrompts.length > 0 ? { revisedPrompts } : {}),
-        },
-      };
+              : imageInputs.length > 1
+                ? {
+                    images: loadedReferenceImages.map((entry) => ({
+                      image: entry.resolvedImage,
+                      ...(entry.rewrittenFrom ? { rewrittenFrom: entry.rewrittenFrom } : {}),
+                    })),
+                  }
+                : {}),
+            ...(resolution ? { resolution } : {}),
+            ...(size ? { size } : {}),
+            ...(aspectRatio ? { aspectRatio } : {}),
+            ...(filename ? { filename } : {}),
+            attempts: result.attempts,
+            metadata: result.metadata,
+            ...(revisedPrompts.length > 0 ? { revisedPrompts } : {}),
+          },
+        };
+      } catch (error) {
+        if (inputImages.length > 0) {
+          throw error;
+        }
+        const local = await generateLocalImageFallback({ prompt, filename });
+        return {
+          content: [{ type: "text", text: `Generated 1 image with local/simple-svg.` }],
+          details: {
+            provider: "local",
+            model: "simple-svg",
+            count: 1,
+            media: {
+              mediaUrls: [local.savedPath],
+            },
+            paths: [local.savedPath],
+            ...(filename ? { filename } : {}),
+            fallbackFromError: error instanceof Error ? error.message : String(error),
+          },
+        };
+      }
     },
   };
 }

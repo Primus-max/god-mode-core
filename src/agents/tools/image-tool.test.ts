@@ -634,10 +634,12 @@ describe("image tool implicit imageModel config", () => {
       const imagesSchema = schema.properties?.images as
         | { type?: unknown; items?: unknown }
         | undefined;
+      const filenameSchema = schema.properties?.filename as { type?: unknown } | undefined;
       const imageItems = imagesSchema?.items as { type?: unknown } | undefined;
 
       expect(imageSchema?.type).toBe("string");
       expect(imagesSchema?.type).toBe("array");
+      expect(filenameSchema?.type).toBe("string");
       expect(imageItems?.type).toBe("string");
     });
   });
@@ -654,11 +656,31 @@ describe("image tool implicit imageModel config", () => {
             type: "array",
             items: { type: "string" },
           },
+          filename: { type: "string" },
           model: { type: "string" },
           maxBytesMb: { type: "number" },
           maxImages: { type: "number" },
         },
       });
+    });
+  });
+
+  it("creates a local image artifact when no source image is provided", async () => {
+    await withMinimaxImageToolFromTempAgentDir(async (tool) => {
+      const result = await tool.execute("t-local", {
+        prompt: 'Generate an image with the text "STAGE 86 OK".',
+        filename: "stage-86-local.png",
+      });
+      expect(result).toMatchObject({
+        content: [{ type: "text", text: expect.stringContaining("Generated 1 image locally") }],
+        details: {
+          provider: "local",
+          model: "simple-svg",
+          media: { mediaUrls: [expect.stringContaining("stage-86-local")] },
+        },
+      });
+      const mediaPath = (result as { details: { paths: string[] } }).details.paths[0];
+      await expect(fs.stat(mediaPath)).resolves.toMatchObject({ isFile: expect.any(Function) });
     });
   });
 
