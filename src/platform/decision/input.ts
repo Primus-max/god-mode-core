@@ -206,6 +206,14 @@ function promptIncludesAny(prompt: string, hints: readonly string[]): boolean {
   return hints.some((hint) => normalized.includes(hint));
 }
 
+function resolveKeywordInferencePrompt(prompt: string): string {
+  const segments = prompt
+    .split(/\n\s*\n/iu)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  return segments.at(-1) ?? prompt;
+}
+
 function compareLanguageInPrompt(prompt: string): boolean {
   return (
     promptIncludesAny(prompt, COMPARE_INTENT_HINTS) ||
@@ -240,16 +248,21 @@ function inferCompareIntentFromAttachments(prompt: string, fileNames: string[]):
 }
 
 function inferPromptIntent(prompt: string, fileNames: string[]): RecipePlannerInput["intent"] {
-  if (DEVELOPER_PUBLISH_KEYWORDS.test(prompt)) {
-    return "publish";
-  }
   if (compareLanguageInPrompt(prompt) || inferCompareIntentFromAttachments(prompt, fileNames)) {
     return "compare";
   }
   if (calculationLanguageInPrompt(prompt)) {
     return "calculation";
   }
-  if (promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS)) {
+  const documentHint = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
+  const developerExecutionHint = DEVELOPER_EXECUTION_KEYWORDS.test(prompt);
+  if (documentHint && !developerExecutionHint) {
+    return "document";
+  }
+  if (DEVELOPER_PUBLISH_KEYWORDS.test(prompt)) {
+    return "publish";
+  }
+  if (documentHint) {
     return "document";
   }
   if (DEVELOPER_EXECUTION_KEYWORDS.test(prompt)) {
@@ -305,9 +318,10 @@ export function buildExecutionDecisionInput(
         .map((value) => value.trim()),
     ),
   );
-  const inferredPublishTargets = collectPromptHints(params.prompt, DEVELOPER_PUBLISH_TARGET_HINTS);
+  const inferencePrompt = resolveKeywordInferencePrompt(params.prompt);
+  const inferredPublishTargets = collectPromptHints(inferencePrompt, DEVELOPER_PUBLISH_TARGET_HINTS);
   const inferredIntegrations = inferredPublishTargets.filter((target) => target !== "npm");
-  const inferredIntent = inferPromptIntent(params.prompt, fileNames);
+  const inferredIntent = inferPromptIntent(inferencePrompt, fileNames);
   const effectiveIntent = params.intent ?? inferredIntent;
   const inferredRequestedTools =
     effectiveIntent === "code" || effectiveIntent === "publish"
@@ -328,7 +342,7 @@ export function buildExecutionDecisionInput(
     ...channelHints,
   ]);
   const artifactKinds = toUniqueLowercase([
-    ...inferArtifactKinds(params.prompt, fileNames),
+    ...inferArtifactKinds(inferencePrompt, fileNames),
     ...((params.artifactKinds ?? []) as string[]),
   ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
   const requestedTools = toUniqueLowercase([

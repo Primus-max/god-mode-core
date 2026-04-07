@@ -108,7 +108,9 @@ export function materializeArtifact(
       }),
     );
     if (request.includePdf) {
-      supporting.push(writePdfMaterialization({ outputDir, baseFileName, html: htmlBody }));
+      supporting.push(
+        writePdfMaterialization({ outputDir, baseFileName, html: htmlBody, title, summary: request.payload.summary }),
+      );
     }
     return MaterializationResultSchema.parse({
       primary,
@@ -156,6 +158,8 @@ export function materializeArtifact(
         outputDir,
         baseFileName,
         html: htmlBody,
+        title,
+        summary: request.payload.summary,
       }),
     });
   }
@@ -170,7 +174,9 @@ export function materializeArtifact(
     renderKind: request.outputTarget === "preview" ? "site_preview" : "html",
   });
   if (request.includePdf) {
-    supporting.push(writePdfMaterialization({ outputDir, baseFileName, html: htmlBody }));
+    supporting.push(
+      writePdfMaterialization({ outputDir, baseFileName, html: htmlBody, title, summary: request.payload.summary }),
+    );
   }
   return MaterializationResultSchema.parse({
     primary,

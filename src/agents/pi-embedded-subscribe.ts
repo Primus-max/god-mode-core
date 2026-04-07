@@ -81,6 +81,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     successfulCronAdds: 0,
     pendingMessagingMediaUrls: new Map(),
     pendingToolMediaUrls: [],
+    toolResultMediaUrls: [],
     pendingToolAudioAsVoice: false,
     deterministicApprovalPromptSent: false,
     executionReceipts: [],
@@ -612,6 +613,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     state.successfulCronAdds = 0;
     state.pendingMessagingMediaUrls.clear();
     state.pendingToolMediaUrls = [];
+    state.toolResultMediaUrls = [];
     state.pendingToolAudioAsVoice = false;
     state.deterministicApprovalPromptSent = false;
     state.executionReceipts = [];
@@ -701,6 +703,8 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     getMessagingToolSentTexts: () => messagingToolSentTexts.slice(),
     getMessagingToolSentMediaUrls: () => messagingToolSentMediaUrls.slice(),
     getMessagingToolSentTargets: () => messagingToolSentTargets.slice(),
+    getToolResultMediaUrls: () => state.toolResultMediaUrls.slice(),
+    getPendingToolMediaUrls: () => state.pendingToolMediaUrls.slice(),
     getSuccessfulCronAdds: () => state.successfulCronAdds,
     getExecutionReceipts: () => state.executionReceipts?.slice() ?? [],
     // Returns true if any messaging tool successfully sent a message.

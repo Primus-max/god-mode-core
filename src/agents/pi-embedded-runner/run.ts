@@ -1913,6 +1913,7 @@ export async function runEmbeddedPiAgent(
             inlineToolResultsAllowed: false,
             didSendViaMessagingTool: attempt.didSendViaMessagingTool,
             didSendDeterministicApprovalPrompt: attempt.didSendDeterministicApprovalPrompt,
+            toolResultMediaUrls: attempt.toolResultMediaUrls,
           });
 
           // Timeout aborts can leave the run without any assistant payloads.

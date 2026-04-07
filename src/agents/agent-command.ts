@@ -555,6 +555,18 @@ export function resolveAgentCommandFallbackOverride(params: {
 export function buildEmbeddedAgentRunParams(
   params: BuildEmbeddedAgentRunParams,
 ): Parameters<typeof runEmbeddedPiAgent>[0] {
+  const deliveryManagedArtifactHint =
+    params.opts.deliver === true
+      ? [
+          "Final reply delivery is handled by the command pipeline for this run.",
+          "Do not call the message tool to send the final answer or attachment yourself.",
+          "Do not read or verify a generated artifact by guessing a file path or filename alone.",
+          "Generate the artifact with the appropriate tool and then return a normal assistant reply describing the completed result.",
+        ].join(" ")
+      : undefined;
+  const extraSystemPrompt = [params.opts.extraSystemPrompt, deliveryManagedArtifactHint]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n\n");
   return {
     sessionId: params.sessionId,
     sessionKey: params.sessionKey,
@@ -573,6 +585,7 @@ export function buildEmbeddedAgentRunParams(
     replyToMode: params.runContext.replyToMode,
     hasRepliedRef: params.runContext.hasRepliedRef,
     senderIsOwner: params.opts.senderIsOwner,
+    disableMessageTool: params.opts.deliver === true,
     sessionFile: params.sessionFile,
     workspaceDir: params.workspaceDir,
     config: params.cfg,
@@ -592,7 +605,7 @@ export function buildEmbeddedAgentRunParams(
     runId: params.runId,
     lane: params.opts.lane,
     abortSignal: params.opts.abortSignal,
-    extraSystemPrompt: params.opts.extraSystemPrompt,
+    extraSystemPrompt: extraSystemPrompt || undefined,
     inputProvenance: params.opts.inputProvenance,
     streamParams: params.opts.streamParams,
     agentDir: params.agentDir,
@@ -641,7 +654,48 @@ export function shouldFailoverEmptySemanticRetryResult(
   result: Awaited<ReturnType<typeof runEmbeddedPiAgent>>,
 ): boolean {
   const payloads = result.payloads ?? [];
+  const unwrapStandaloneToolCallEnvelope = (text: string): string | null => {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    return fenced?.[1]?.trim() || trimmed;
+  };
+  const isStandaloneToolCallEnvelope = (text: string | undefined): boolean => {
+    if (typeof text !== "string") {
+      return false;
+    }
+    const candidate = unwrapStandaloneToolCallEnvelope(text);
+    if (!candidate) {
+      return false;
+    }
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      return Boolean(
+        parsed &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed) &&
+          typeof (parsed as { name?: unknown }).name === "string" &&
+          "arguments" in (parsed as Record<string, unknown>) &&
+          Object.keys(parsed as Record<string, unknown>).every(
+            (key) => key === "name" || key === "arguments" || key === "id",
+          ),
+      );
+    } catch {
+      return false;
+    }
+  };
   if (payloads.length > 0) {
+    const onlyPseudoToolPayloads = payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      return !hasMedia && isStandaloneToolCallEnvelope(payload.text);
+    });
+    if (onlyPseudoToolPayloads) {
+      return true;
+    }
     return false;
   }
   const verdict = result.meta.supervisorVerdict;

@@ -265,6 +265,11 @@ describe("extractToolResultMediaPaths", () => {
     expect(isToolResultMediaTrusted("image_generate")).toBe(true);
   });
 
+  it("trusts pdf local media paths", () => {
+    expect(isToolResultMediaTrusted("pdf")).toBe(true);
+    expect(filterToolResultMediaUrls("pdf", ["/tmp/report.pdf"])).toEqual(["/tmp/report.pdf"]);
+  });
+
   it("does not trust local MEDIA paths for MCP-provenance results", () => {
     expect(
       filterToolResultMediaUrls("browser", ["/tmp/screenshot.png"], {

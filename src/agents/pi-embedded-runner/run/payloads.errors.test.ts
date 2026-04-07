@@ -80,6 +80,20 @@ describe("buildEmbeddedRunPayloads", () => {
     expect(payloads.some((payload) => payload.text === errorJson)).toBe(false);
   });
 
+  it("attaches trusted tool media to the final assistant payload", () => {
+    const payloads = buildPayloads({
+      assistantTexts: ["Я создал PDF-презентацию о жизни котика."],
+      toolResultMediaUrls: ["/tmp/tool-pdf-generation/presentation_kitten_life.pdf"],
+    });
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]?.text).toBe("Я создал PDF-презентацию о жизни котика.");
+    expect(payloads[0]?.mediaUrl).toBe("/tmp/tool-pdf-generation/presentation_kitten_life.pdf");
+    expect(payloads[0]?.mediaUrls).toEqual([
+      "/tmp/tool-pdf-generation/presentation_kitten_life.pdf",
+    ]);
+  });
+
   it("suppresses pretty-printed error JSON that differs from the errorMessage", () => {
     const payloads = buildPayloads({
       assistantTexts: [errorJsonPretty],

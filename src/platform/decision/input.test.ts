@@ -172,6 +172,17 @@ describe("buildExecutionDecisionInput", () => {
     expect(input.artifactKinds).toEqual(["document"]);
   });
 
+  it("keeps PDF generation prompts on the document path even when prior context mentions publish work", () => {
+    const input = buildExecutionDecisionInput({
+      prompt:
+        "Build the app, publish the release, and ship the preview.\n\nСоздай PDF с презентацией о жизни котика.",
+    });
+
+    expect(input.intent).toBe("document");
+    expect(input.requestedTools ?? []).toEqual([]);
+    expect(input.artifactKinds).toEqual(["document"]);
+  });
+
   it("does not force ordinary summary requests onto the document path", () => {
     const input = buildExecutionDecisionInput({
       prompt: "Сильно сожми этот раздутый запрос и дай краткую сводку по статусу stage 86.",

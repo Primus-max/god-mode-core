@@ -1,10 +1,14 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { type Context, complete } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
 import { saveMediaBuffer } from "../../media/store.js";
 import { extractPdfContent, type PdfExtractedContent } from "../../media/pdf-extract.js";
 import { loadWebMediaRaw } from "../../media/web-media.js";
-import { buildMinimalPdfBuffer } from "../../platform/materialization/pdf-materializer.js";
+import { resolveHtmlBody } from "../../platform/materialization/html-preview-materializer.js";
+import { writePdfFileFromHtml } from "../../platform/materialization/pdf-materializer.js";
 import { resolveUserPath } from "../../utils.js";
 import {
   coerceImageModelConfig,
@@ -422,14 +426,26 @@ export function createPdfTool(options?: {
         if (!fallbackPrompt) {
           throw new Error("pdf required: provide a path or URL to a PDF document");
         }
-        const pdfBuffer = buildMinimalPdfBuffer(buildGeneratedPdfText(fallbackPrompt));
+        const generatedText = buildGeneratedPdfText(fallbackPrompt);
+        const filename =
+          typeof record.filename === "string" && record.filename.trim()
+            ? record.filename
+            : "generated-pdf.pdf";
+        const rendered = writePdfFileFromHtml({
+          outputDir: path.join(os.tmpdir(), "openclaw-pdf-tool"),
+          baseFileName: path.parse(filename).name || "generated-pdf",
+          title: path.parse(filename).name || "Generated PDF",
+          bodyHtml: resolveHtmlBody({ text: generatedText }),
+        });
+        const renderedBuffer = await fs.readFile(rendered.path);
         const saved = await saveMediaBuffer(
-          pdfBuffer,
+          renderedBuffer,
           "application/pdf",
           "tool-pdf-generation",
           undefined,
-          typeof record.filename === "string" ? record.filename : undefined,
+          filename,
         );
+        await fs.rm(rendered.path, { force: true }).catch(() => {});
         return {
           content: [
             {

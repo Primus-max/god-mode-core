@@ -25,6 +25,7 @@ function createMockContext(overrides?: {
       pendingMessagingTargets: new Map(),
       pendingMessagingMediaUrls: new Map(),
       pendingToolMediaUrls: [],
+      toolResultMediaUrls: [],
       pendingToolAudioAsVoice: false,
       messagingToolSentTexts: [],
       messagingToolSentTextsNormalized: [],
@@ -135,6 +136,7 @@ describe("handleToolExecutionEnd media emission", () => {
 
     expect(onToolResult).not.toHaveBeenCalled();
     expect(ctx.state.pendingToolMediaUrls).toEqual(["/tmp/screenshot.png"]);
+    expect(ctx.state.toolResultMediaUrls).toEqual(["/tmp/screenshot.png"]);
   });
 
   it("does NOT emit local media for untrusted tools", async () => {
@@ -211,6 +213,7 @@ describe("handleToolExecutionEnd media emission", () => {
 
     expect(ctx.emitToolOutput).toHaveBeenCalled();
     expect(ctx.state.pendingToolMediaUrls).toEqual(["/tmp/reply.opus"]);
+    expect(ctx.state.toolResultMediaUrls).toEqual(["/tmp/reply.opus"]);
     expect(ctx.state.pendingToolAudioAsVoice).toBe(true);
   });
 
