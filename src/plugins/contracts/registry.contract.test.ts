@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveBundledWebSearchPluginIds } from "../bundled-web-search.js";
-import { loadPluginManifestRegistry } from "../manifest-registry.js";
+import { clearPluginDiscoveryCache } from "../discovery.js";
+import { clearPluginManifestRegistryCache, loadPluginManifestRegistry } from "../manifest-registry.js";
 import {
   imageGenerationProviderContractRegistry,
   mediaUnderstandingProviderContractRegistry,
@@ -86,6 +87,18 @@ function findRegistrationForPlugin(pluginId: string) {
 }
 
 describe("plugin contract registry", () => {
+  beforeEach(() => {
+    vi.stubEnv("OPENCLAW_BUNDLED_PLUGINS_DIR", "");
+    clearPluginManifestRegistryCache();
+    clearPluginDiscoveryCache();
+  });
+
+  afterAll(() => {
+    vi.stubEnv("OPENCLAW_BUNDLED_PLUGINS_DIR", "__openclaw_test_no_bundled_plugins__");
+    clearPluginManifestRegistryCache();
+    clearPluginDiscoveryCache();
+  });
+
   it("loads bundled non-provider capability registries without import-time failure", () => {
     expect(providerContractLoadError).toBeUndefined();
     expect(pluginRegistrationContractRegistry.length).toBeGreaterThan(0);

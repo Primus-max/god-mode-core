@@ -989,8 +989,16 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const existing = actions.get(actionParams.actionId);
       const action = PlatformRuntimeActionSchema.parse({
         actionId: actionParams.actionId,
-        ...(actionParams.runId ? { runId: actionParams.runId } : {}),
-        ...(actionParams.sessionKey ? { sessionKey: actionParams.sessionKey } : {}),
+        ...(actionParams.runId
+          ? { runId: actionParams.runId }
+          : existing?.runId
+            ? { runId: existing.runId }
+            : {}),
+        ...(actionParams.sessionKey
+          ? { sessionKey: actionParams.sessionKey }
+          : existing?.sessionKey
+            ? { sessionKey: existing.sessionKey }
+            : {}),
         kind: actionParams.kind,
         state: existing?.state ?? "staged",
         ...(actionParams.boundary ? { boundary: actionParams.boundary } : {}),
@@ -1147,6 +1155,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
                         }
                       : {}),
                   },
+                }
+              : {}),
+            ...(checkpoint.executionContext
+              ? {
+                  executionContext: checkpoint.executionContext,
                 }
               : {}),
             createdAtMs: checkpoint.createdAtMs,

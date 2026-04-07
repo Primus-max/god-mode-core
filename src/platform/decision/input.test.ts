@@ -46,6 +46,47 @@ describe("buildSessionBackedExecutionDecisionInput", () => {
     expect(decisionInput.fileNames).toEqual(["build.log"]);
     expect(decisionInput.channelHints).toEqual({ messageChannel: "telegram" });
   });
+
+  it("ignores stale tabular attachments outside the recent user-turn window", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-decision-input-"));
+    const storePath = path.join(tempDir, "sessions.json");
+    const transcriptPath = resolveSessionTranscriptPathInDir("session-stale-files", tempDir);
+    const transcriptLines = [
+      {
+        id: "msg-1",
+        message: {
+          role: "user",
+          content: "Compare supplier exports.",
+          MediaPaths: ["/tmp/old-a.csv", "/tmp/old-b.xlsx"],
+        },
+      },
+      ...Array.from({ length: 6 }, (_, index) => ({
+        id: `msg-${index + 2}`,
+        message: {
+          role: "user",
+          content: `Recent short follow-up ${index + 1}`,
+        },
+      })),
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join("\n");
+    await fs.writeFile(transcriptPath, `${transcriptLines}\n`, "utf8");
+
+    const decisionInput = buildSessionBackedExecutionDecisionInput({
+      draftPrompt: "Привет! Как дела? Просто поздоровайся.",
+      storePath,
+      sessionEntry: {
+        sessionId: "session-stale-files",
+        sessionFile: "session-stale-files.jsonl",
+      },
+    });
+
+    expect(decisionInput.prompt).toContain("Recent short follow-up 2");
+    expect(decisionInput.prompt).toContain("Привет! Как дела? Просто поздоровайся.");
+    expect(decisionInput.fileNames ?? []).toEqual([]);
+    expect(decisionInput.intent).toBeUndefined();
+    expect(decisionInput.artifactKinds ?? []).toEqual([]);
+  });
 });
 
 describe("buildExecutionDecisionInputFromRuntimePlan", () => {
@@ -53,7 +94,7 @@ describe("buildExecutionDecisionInputFromRuntimePlan", () => {
     const plannerInput = {
       prompt: "Parse this PDF estimate into a report",
       fileNames: ["estimate.pdf"],
-      artifactKinds: ["document", "report"] as const,
+      artifactKinds: ["document", "report"],
       intent: "document" as const,
     };
     const priorPlan = planExecutionRecipe(plannerInput);
@@ -74,7 +115,7 @@ describe("buildExecutionDecisionInputFromRuntimePlan", () => {
     const plannerInput = {
       prompt: "Parse this PDF estimate into a report",
       fileNames: ["estimate.pdf"],
-      artifactKinds: ["document", "report"] as const,
+      artifactKinds: ["document", "report"],
       intent: "document" as const,
     };
     const priorPlan = planExecutionRecipe(plannerInput);
@@ -138,5 +179,53 @@ describe("buildExecutionDecisionInput", () => {
 
     expect(input.intent).toBeUndefined();
     expect(input.artifactKinds ?? []).toEqual([]);
+  });
+
+  it("infers general intent for Russian greeting prompts without attachments", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Привет! Как дела? Просто поздоровайся.",
+    });
+
+    expect(input.intent).toBe("general");
+    expect(input.artifactKinds ?? []).toEqual([]);
+  });
+
+  it("infers compare intent and tabular artifacts for English comparison prompts", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Compare vendor_prices.csv and internal_prices.csv for price drift by SKU.",
+    });
+
+    expect(input.intent).toBe("compare");
+    expect(input.artifactKinds).toEqual(expect.arrayContaining(["data", "report"]));
+  });
+
+  it("infers compare intent from two tabular attachments even with a short prompt", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Please analyze.",
+      fileNames: ["sheet_a.csv", "sheet_b.csv"],
+    });
+
+    expect(input.intent).toBe("compare");
+    expect(input.artifactKinds).toEqual(expect.arrayContaining(["data", "report"]));
+  });
+
+  it("infers calculation intent for Russian engineering-style prompts without document artifact noise", () => {
+    const input = buildExecutionDecisionInput({
+      prompt:
+        "Нужен расчёт вентиляции для кабинета 20 м²: приток и вытяжка, итог в кратком отчёте.",
+    });
+
+    expect(input.intent).toBe("calculation");
+    expect(input.artifactKinds).toEqual(expect.arrayContaining(["report", "data"]));
+    expect(input.artifactKinds).not.toContain("document");
+  });
+
+  it("infers calculation intent for English dimensional prompts", () => {
+    const input = buildExecutionDecisionInput({
+      prompt:
+        "Run a quick square feet to square meters conversion table for the listed room sizes.",
+    });
+
+    expect(input.intent).toBe("calculation");
   });
 });

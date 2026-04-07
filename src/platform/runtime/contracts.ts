@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
+import { ArtifactKindSchema } from "../schemas/artifact.js";
 
 export const PlatformRuntimeBoundarySchema = z.enum([
   "exec_approval",
@@ -134,6 +135,7 @@ export const PlatformRuntimeCheckpointSummarySchema = z
     nextActions: z.array(PlatformRuntimeNextActionSchema).optional(),
     target: PlatformRuntimeTargetSchema.optional(),
     continuation: PlatformRuntimeContinuationSummarySchema.optional(),
+    executionContext: PlatformExecutionContextSnapshotSchema.optional(),
     createdAtMs: z.number().int().nonnegative(),
     updatedAtMs: z.number().int().nonnegative(),
     approvedAtMs: z.number().int().nonnegative().optional(),
@@ -539,9 +541,9 @@ export const PlatformRuntimeExecutionIntentSchema = z
     recipeId: z.string().min(1).optional(),
     taskOverlayId: z.string().min(1).optional(),
     plannerReasoning: z.string().min(1).optional(),
-    intent: z.enum(["general", "document", "code", "publish"]).optional(),
+    intent: z.enum(["general", "document", "compare", "calculation", "code", "publish"]).optional(),
     publishTargets: z.array(z.string().min(1)).optional(),
-    artifactKinds: z.array(z.string().min(1)).optional(),
+    artifactKinds: z.array(ArtifactKindSchema).optional(),
     requestedToolNames: z.array(z.string().min(1)).optional(),
     requiredCapabilities: z.array(z.string().min(1)).optional(),
     bootstrapRequiredCapabilities: z.array(z.string().min(1)).optional(),
@@ -616,8 +618,8 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     successfulCronAdds: z.number().int().nonnegative().optional(),
     declaredProfileId: z.string().min(1).optional(),
     declaredRecipeId: z.string().min(1).optional(),
-    declaredIntent: z.enum(["general", "document", "code", "publish"]).optional(),
-    declaredArtifactKinds: z.array(z.string().min(1)).optional(),
+    declaredIntent: PlatformRuntimeExecutionIntentSchema.shape.intent.optional(),
+    declaredArtifactKinds: z.array(ArtifactKindSchema).optional(),
     declaredRequiresOutput: z.boolean().optional(),
     declaredRequiresMessagingDelivery: z.boolean().optional(),
     declaredRequiresConfirmedAction: z.boolean().optional(),

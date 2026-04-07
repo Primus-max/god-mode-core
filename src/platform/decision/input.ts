@@ -80,6 +80,74 @@ const MEDIA_AUDIO_HINTS = [
   "музык",
 ] as const;
 
+const COMPARE_INTENT_HINTS = [
+  "compare",
+  "comparison",
+  "comparing",
+  "reconcile",
+  "reconciliation",
+  "side by side",
+  "price diff",
+  "discrepanc",
+  "variance",
+  "match up",
+  "сравн",
+  "сопостав",
+  "расхожден",
+  "совпаден",
+  "сверк",
+  "выверк",
+  "разница в цен",
+] as const;
+
+const CALCULATION_INTENT_HINTS = [
+  "ventilation",
+  "cfm",
+  "airflow",
+  "hvac",
+  "duct",
+  "btu",
+  "unit conversion",
+  "dimensional analysis",
+  "square feet",
+  "square foot",
+  "cubic meter",
+  "cubic metre",
+  "ventilation report",
+  "вентиляц",
+  "кубатур",
+  "площад",
+  "перевод единиц",
+  "единиц измерен",
+  "размер помещен",
+  "расчёт",
+  "расчет",
+  "рассчитай",
+  "приток",
+  "вытяжк",
+] as const;
+const GENERAL_INTENT_HINTS = [
+  "hello",
+  "hi",
+  "how are you",
+  "joke",
+  "fun",
+  "story",
+  "chat",
+  "translate",
+  "explain",
+  "brainstorm",
+  "привет",
+  "здравств",
+  "как дела",
+  "пошут",
+  "шутк",
+  "истори",
+  "поболта",
+  "перевед",
+  "объясн",
+] as const;
+
 type DecisionInputChannelHints = {
   messageChannel?: string;
   channel?: string;
@@ -138,9 +206,48 @@ function promptIncludesAny(prompt: string, hints: readonly string[]): boolean {
   return hints.some((hint) => normalized.includes(hint));
 }
 
-function inferPromptIntent(prompt: string): RecipePlannerInput["intent"] {
+function compareLanguageInPrompt(prompt: string): boolean {
+  return (
+    promptIncludesAny(prompt, COMPARE_INTENT_HINTS) ||
+    /\b(diff|deltas?|delta\b|reconcil\w*)\b/iu.test(prompt) ||
+    /\b(два|две|три|оба|обе)\s+(csv|файл|таблиц|экспорт|xlsx)\b/iu.test(prompt)
+  );
+}
+
+function calculationLanguageInPrompt(prompt: string): boolean {
+  return (
+    promptIncludesAny(prompt, CALCULATION_INTENT_HINTS) ||
+    /\b(dimensions?|measurement|square\s*meter|sq\s*m\b)\b/iu.test(prompt)
+  );
+}
+
+function generalLanguageInPrompt(prompt: string): boolean {
+  return promptIncludesAny(prompt, GENERAL_INTENT_HINTS);
+}
+
+function tabularAttachmentCount(fileNames: string[]): number {
+  return fileNames.filter((name) => /\.(csv|xlsx|xls|ods)$/iu.test(name)).length;
+}
+
+function inferCompareIntentFromAttachments(prompt: string, fileNames: string[]): boolean {
+  if (tabularAttachmentCount(fileNames) < 2) {
+    return false;
+  }
+  if (/\b(merge|concat|append|stack|объедин)\w*\b/iu.test(prompt)) {
+    return false;
+  }
+  return true;
+}
+
+function inferPromptIntent(prompt: string, fileNames: string[]): RecipePlannerInput["intent"] {
   if (DEVELOPER_PUBLISH_KEYWORDS.test(prompt)) {
     return "publish";
+  }
+  if (compareLanguageInPrompt(prompt) || inferCompareIntentFromAttachments(prompt, fileNames)) {
+    return "compare";
+  }
+  if (calculationLanguageInPrompt(prompt)) {
+    return "calculation";
   }
   if (promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS)) {
     return "document";
@@ -148,12 +255,23 @@ function inferPromptIntent(prompt: string): RecipePlannerInput["intent"] {
   if (DEVELOPER_EXECUTION_KEYWORDS.test(prompt)) {
     return "code";
   }
+  if (generalLanguageInPrompt(prompt) && fileNames.length === 0) {
+    return "general";
+  }
   return undefined;
 }
 
-function inferArtifactKinds(prompt: string): NonNullable<RecipePlannerInput["artifactKinds"]> {
+function inferArtifactKinds(
+  prompt: string,
+  fileNames: string[],
+): NonNullable<RecipePlannerInput["artifactKinds"]> {
   const publishTargets = collectPromptHints(prompt, DEVELOPER_PUBLISH_TARGET_HINTS);
-  const hasDocumentArtifactHint = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
+  const compareIntentish =
+    compareLanguageInPrompt(prompt) || inferCompareIntentFromAttachments(prompt, fileNames);
+  const calculationIntentish = calculationLanguageInPrompt(prompt);
+  const hasDocumentArtifactHintRaw = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
+  const hasDocumentArtifactHint =
+    hasDocumentArtifactHintRaw && !calculationIntentish && !compareIntentish;
   const hasMediaArtifactHint =
     promptIncludesAny(prompt, MEDIA_IMAGE_HINTS) ||
     promptIncludesAny(prompt, MEDIA_VIDEO_HINTS) ||
@@ -167,6 +285,8 @@ function inferArtifactKinds(prompt: string): NonNullable<RecipePlannerInput["art
       ? ["binary"]
       : []),
     ...(hasDocumentArtifactHint ? ["document"] : []),
+    ...(compareIntentish ? (["data", "report"] as const) : []),
+    ...(calculationIntentish ? (["report", "data"] as const) : []),
     ...(/\breport\b/iu.test(prompt) ? ["report"] : []),
     ...(/\b(отчет|отчёт)\b/iu.test(prompt) ? ["report"] : []),
     ...(promptIncludesAny(prompt, MEDIA_IMAGE_HINTS) ? ["image"] : []),
@@ -178,9 +298,16 @@ function inferArtifactKinds(prompt: string): NonNullable<RecipePlannerInput["art
 export function buildExecutionDecisionInput(
   params: BuildExecutionDecisionInputParams,
 ): RecipePlannerInput {
+  const fileNames = Array.from(
+    new Set(
+      (params.fileNames ?? [])
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .map((value) => value.trim()),
+    ),
+  );
   const inferredPublishTargets = collectPromptHints(params.prompt, DEVELOPER_PUBLISH_TARGET_HINTS);
   const inferredIntegrations = inferredPublishTargets.filter((target) => target !== "npm");
-  const inferredIntent = inferPromptIntent(params.prompt);
+  const inferredIntent = inferPromptIntent(params.prompt, fileNames);
   const effectiveIntent = params.intent ?? inferredIntent;
   const inferredRequestedTools =
     effectiveIntent === "code" || effectiveIntent === "publish"
@@ -191,13 +318,6 @@ export function buildExecutionDecisionInput(
     params.channelHints?.channel,
     params.channelHints?.replyChannel,
   ]);
-  const fileNames = Array.from(
-    new Set(
-      (params.fileNames ?? [])
-        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        .map((value) => value.trim()),
-    ),
-  );
   const publishTargets = toUniqueLowercase([
     ...inferredPublishTargets,
     ...(params.publishTargets ?? []),
@@ -208,7 +328,7 @@ export function buildExecutionDecisionInput(
     ...channelHints,
   ]);
   const artifactKinds = toUniqueLowercase([
-    ...inferArtifactKinds(params.prompt),
+    ...inferArtifactKinds(params.prompt, fileNames),
     ...((params.artifactKinds ?? []) as string[]),
   ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
   const requestedTools = toUniqueLowercase([
@@ -324,25 +444,35 @@ function pushMediaPath(value: unknown, into: Set<string>) {
   into.add(path.basename(value.trim()));
 }
 
+/**
+ * Builds a compact planner context from the latest user turns in a session transcript.
+ *
+ * The same recent user-message window is used for both prompt text and attachment-derived
+ * file names so older spreadsheet uploads do not leak into a new unrelated turn.
+ *
+ * @param {unknown[]} messages - Raw transcript messages for the current session.
+ * @returns {{ prompt: string; fileNames: string[] }} Prompt text and attachment file names.
+ */
 export function resolveSessionDecisionInputContext(messages: unknown[]): {
   prompt: string;
   fileNames: string[];
 } {
+  const recentUserMessages = messages
+    .slice(-24)
+    .filter(
+      (
+        raw,
+      ): raw is {
+        role?: unknown;
+        content?: unknown;
+        MediaPath?: unknown;
+        MediaPaths?: unknown;
+      } => Boolean(raw) && typeof raw === "object" && (raw as { role?: unknown }).role === "user",
+    )
+    .slice(-6);
   const recentTexts: string[] = [];
   const fileNames = new Set<string>();
-  for (const raw of messages.slice(-24)) {
-    if (!raw || typeof raw !== "object") {
-      continue;
-    }
-    const message = raw as {
-      role?: unknown;
-      content?: unknown;
-      MediaPath?: unknown;
-      MediaPaths?: unknown;
-    };
-    if (message.role !== "user") {
-      continue;
-    }
+  for (const message of recentUserMessages) {
     const text = extractTranscriptUserText(message.content)?.trim();
     if (text) {
       recentTexts.push(text);
@@ -355,7 +485,7 @@ export function resolveSessionDecisionInputContext(messages: unknown[]): {
     }
   }
   return {
-    prompt: recentTexts.slice(-6).join("\n\n"),
+    prompt: recentTexts.join("\n\n"),
     fileNames: Array.from(fileNames).slice(-8),
   };
 }

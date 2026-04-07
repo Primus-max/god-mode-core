@@ -9,6 +9,8 @@ import { z } from "zod";
 export const PlatformExecutionContextIntentSchema = z.enum([
   "general",
   "document",
+  "compare",
+  "calculation",
   "code",
   "publish",
 ]);

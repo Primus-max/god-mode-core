@@ -2,7 +2,7 @@
 
 ## Назначение
 
-Единственный операционный ответ на вопрос **«что делать следующим прямо сейчас»** в рамках текущего v1 execution slice (Stage 86: smart routing + bootstrap + Telegram proof).
+Единственный операционный ответ на вопрос **«что делать следующим прямо сейчас»** в рамках текущего Horizon 1 investor-cut queue. Активный stage сейчас — Stage 86 (`smart routing + bootstrap + Telegram proof`), а следующие Horizon 1 doc/report/context slices идут в этой же очереди после него.
 
 Не заменяет:
 
@@ -41,7 +41,7 @@
 
 ---
 
-## Stage 86 — ordered backlog slices
+## Horizon 1 — ordered backlog slices
 
 Обновляй столбец `status` при работе; главный агент ведёт этот файл как единственный backlog источник.
 
@@ -110,13 +110,43 @@
 - **requiredValidation:** T1–T4 по факту затронутых областей перед объявлением готовности трека; **T5 — полный прогон** [../stage86_test_cases.md](../stage86_test_cases.md)
 - **doneWhen:** Выполнены success criteria из [../stage86_test_cases.md](../stage86_test_cases.md) (6+/8 кейсов, gateway стабилен, bootstrap после approval автоматический).
 
+### H1-01 — universal file/table/report flow
+
+- **priority:** 7
+- **status:** open
+- **dependsOn:** S86-06
+- **userValue:** Бот принимает два CSV/Excel файла, сравнивает и нормализует строки, выдаёт ranked summary и умеет материализовать clean markdown/PDF report без хрупких ручных шагов.
+- **ownedFiles:** `src/platform/recipe/**`, `src/platform/document/**`, `src/platform/materialization/**`, `src/platform/decision/input.ts`, `src/platform/decision/route-preflight.ts`, `src/agents/tools/pdf-tool.ts`, связанные `*.test.ts`
+- **requiredValidation:** T1 (recipe + decision + document/materialization tests), T2 (`pnpm check`, `pnpm build`), T3 если меняется gateway/chat execution path, T5 → live investor scenarios `Сгенерируй PDF-отчет` и `Сравни эти два прайса и скажи, у кого лучше покупать`
+- **doneWhen:** Два CSV/Excel файла дают нормализованное сравнение с рекомендацией; report flow отдаёт пригодный markdown/PDF; для табличных и report задач виден правдоподобный маршрут local/mid-tier/strong по сложности.
+
+### H1-02 — structured calculation flow + builder context preset
+
+- **priority:** 8
+- **status:** open
+- **dependsOn:** H1-01
+- **userValue:** Builder/project-designer сценарии используют лёгкий доменный контекст, а расчётные задачи дают структурированный ответ с assumptions, units, formulas и report output.
+- **ownedFiles:** `src/platform/profile/**`, `src/platform/recipe/**`, `src/platform/decision/input.ts`, `src/platform/decision/route-preflight.ts`, `src/agents/system-prompt.ts`, `src/agents/pi-embedded-runner/**`, связанные `*.test.ts`
+- **requiredValidation:** T1 (profile + recipe + runner tests), T2 (`pnpm check`, `pnpm build`), T3 если меняется gateway/chat execution path, T5 → live investor scenario `Посчитай вентиляцию по этим размерам и сделай сводку`
+- **doneWhen:** Builder context добавляет нормы/единицы/типовые формулы без отдельной capability; вентиляционный demo-flow выдаёт структурированный расчёт с assumptions и units; latency и bootstrap поведение не деградируют.
+
+### H1-03 — investor demo proof + final Horizon 1 handoff
+
+- **priority:** 9
+- **status:** open
+- **dependsOn:** H1-02
+- **userValue:** Весь investor-facing Horizon 1 можно показать сквозным live-сценарием через UI и бота без устных оговорок про недостающие куски.
+- **ownedFiles:** сквозные; обновлять по факту touched areas и итогового handoff
+- **requiredValidation:** T1–T4 для затронутых областей; **T5 — полный live regression** по roadmap scenarios и [../stage86_test_cases.md](../stage86_test_cases.md)
+- **doneWhen:** Проходят demo scenarios из `autonomous_v1_roadmap_cb6fe0e6.plan.md` и success criteria Stage 86; backlog по Horizon 1 пуст; готов короткий user-testable handoff.
+
 ---
 
 ## Условие «v1 ready for user test» (stop / handoff)
 
-Считать трек **готовым к финальному ручному прогону пользователем**, только если одновременно:
+Считать Horizon 1 **готовым к финальному ручному прогону пользователем**, только если одновременно:
 
-1. Все slice’ы Stage 86 в этом файле в статусе `done` **или** оставшиеся `open` перенесены в отдельный явный follow-up с согласования пользователя.
+1. Все slice’ы текущего Horizon 1 в этом файле в статусе `done` **или** оставшиеся `open` перенесены в отдельный явный follow-up с согласования пользователя.
 2. Обязательные автоматические tier’ы для затронутого scope зелёные (минимум для релизной границы: **T4** перед тегом v1).
 3. Протокол T5 по [../stage86_test_cases.md](../stage86_test_cases.md) выполнен оператором или зафиксированы блокеры (секреты, сеть, внешние сервисы).
 4. В чат/отчёт добавлен краткий handoff: что проверено автоматически и что пользователь должен нажать/прочитать вручную.

@@ -42,6 +42,11 @@ function toRuntimeCheckpointSummary(
           },
         }
       : {}),
+    ...(checkpoint.executionContext
+      ? {
+          executionContext: checkpoint.executionContext,
+        }
+      : {}),
     createdAtMs: checkpoint.createdAtMs,
     updatedAtMs: checkpoint.updatedAtMs,
     ...(checkpoint.approvedAtMs !== undefined ? { approvedAtMs: checkpoint.approvedAtMs } : {}),

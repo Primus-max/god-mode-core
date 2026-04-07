@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveSessionTranscriptPathInDir } from "../config/sessions/paths.js";
-import { buildPlatformPlannerInput } from "./agent-command.js";
+import {
+  appendInboundFilesContext,
+  buildInlineCsvPreview,
+  buildPlatformPlannerInput,
+} from "./agent-command.js";
 
 const tempDirs: string[] = [];
 
@@ -46,7 +50,7 @@ describe("agent-command Stage 4 planner input helpers", () => {
       },
     });
 
-    expect(input.intent).toBeUndefined();
+    expect(input.intent).toBe("general");
     expect(input.publishTargets).toBeUndefined();
     expect(input.requestedTools).toBeUndefined();
     expect(input.artifactKinds).toBeUndefined();
@@ -87,5 +91,49 @@ describe("agent-command Stage 4 planner input helpers", () => {
     expect(input.prompt).toContain("ok, do it");
     expect(input.intent).toBe("code");
     expect(input.requestedTools).toEqual(["exec", "apply_patch", "process"]);
+  });
+
+  it("passes explicit inbound file names into planner resolution", () => {
+    const input = buildPlatformPlannerInput({
+      prompt: "Сравни прайс-листы и дай краткий отчёт по расхождениям.",
+      fileNames: ["offer-a.csv", "offer-b.xlsx"],
+      opts: {
+        messageChannel: "telegram",
+        channel: undefined,
+        replyChannel: undefined,
+      },
+    });
+
+    expect(input.intent).toBe("compare");
+    expect(input.fileNames).toEqual(["offer-a.csv", "offer-b.xlsx"]);
+    expect(input.artifactKinds).toEqual(["data", "report"]);
+  });
+
+  it("inlines small csv previews into the prompt context", () => {
+    const preview = buildInlineCsvPreview(
+      "offer-a.csv",
+      "media/inbound/offer-a.csv",
+      Buffer.from("sku,price\nA-100,10\nB-200,20\n", "utf8"),
+    );
+    const prompt = appendInboundFilesContext("Сравни файлы.", ["media/inbound/offer-a.csv"], [
+      preview!,
+    ]);
+
+    expect(preview).toContain("```csv");
+    expect(preview).toContain("A-100,10");
+    expect(prompt).toContain("Attached files available in workspace:");
+    expect(prompt).toContain("do not emit raw tool-call JSON");
+    expect(prompt).toContain("Inline file previews for immediate reasoning:");
+  });
+
+  it("skips inline previews for oversized csv attachments", () => {
+    const largeCsv = `sku,price\n${"A-100,10\n".repeat(4000)}`;
+    const preview = buildInlineCsvPreview(
+      "huge.csv",
+      "media/inbound/huge.csv",
+      Buffer.from(largeCsv, "utf8"),
+    );
+
+    expect(preview).toBeUndefined();
   });
 });

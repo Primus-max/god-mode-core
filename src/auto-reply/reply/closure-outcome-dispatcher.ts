@@ -438,7 +438,11 @@ function resolveBootstrapReason(intent?: PlatformRuntimeExecutionIntent): Bootst
 function resolveBootstrapSourceDomain(
   intent?: PlatformRuntimeExecutionIntent,
 ): BootstrapSourceDomain {
-  if (intent?.intent === "document") {
+  if (
+    intent?.intent === "document" ||
+    intent?.intent === "compare" ||
+    intent?.intent === "calculation"
+  ) {
     return "document";
   }
   if (intent?.intent === "code") {

@@ -4,19 +4,19 @@ overview: "Первый полностью backlog-driven stage: smart routing +
 todos:
   - id: slice-s86-01
     content: "S86-01: routing parity + session-aware preflight (T1–T5 по slice)"
-    status: pending
+    status: in_progress
   - id: slice-s86-02
     content: "S86-02: prompt optimization visibility"
-    status: pending
+    status: in_progress
   - id: slice-s86-03
     content: "S86-03: bootstrap approve → install → resume"
-    status: pending
+    status: in_progress
   - id: slice-s86-04
     content: "S86-04: runtime inspector (route / blocked resume / lifecycle)"
-    status: pending
+    status: in_progress
   - id: slice-s86-05
     content: "S86-05: usage / cost visibility"
-    status: pending
+    status: in_progress
   - id: slice-s86-06
     content: "S86-06: Telegram E2E + 15m stability proof"
     status: pending
@@ -41,6 +41,8 @@ isProject: false
 Канонический порядок и поля: **[autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md)** (S86-01 … S86-06).
 
 Главный агент не дублирует таблицу здесь; при расхождении правит **только** `autonomous_v1_active_backlog.md`, затем кратко отражает изменение в этом плане одной строкой в конце сессии.
+
+Post-Stage 86 Horizon 1 doc/report/context slices живут в том же backlog, но относятся уже к следующему stage и не валидируются этим планом.
 
 ## Validation ladder
 

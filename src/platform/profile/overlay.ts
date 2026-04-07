@@ -44,7 +44,21 @@ export function resolveTaskOverlay(
   }
 
   if (
-    promptIncludes(input.prompt, ["joke", "fun", "story", "hello", "brainstorm"]) &&
+    promptIncludes(input.prompt, [
+      "joke",
+      "fun",
+      "story",
+      "hello",
+      "how are you",
+      "brainstorm",
+      "привет",
+      "здравств",
+      "как дела",
+      "шутк",
+      "пошут",
+      "истори",
+      "поболта",
+    ]) &&
     getTaskOverlay(profile, "general_chat")
   ) {
     return getTaskOverlay(profile, "general_chat");

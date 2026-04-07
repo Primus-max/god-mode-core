@@ -132,6 +132,37 @@ describe("platform runtime checkpoint service", () => {
     ]);
   });
 
+  it("includes execution context in checkpoint summaries", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    service.createCheckpoint({
+      id: "checkpoint-execution-context",
+      runId: "run-execution-context",
+      sessionKey: "session-execution-context",
+      boundary: "bootstrap",
+      blockedReason: "table parser review pending",
+      executionContext: {
+        profileId: "builder",
+        recipeId: "table_extract",
+        providerOverride: "ollama",
+        modelOverride: "qwen2.5-coder:7b",
+        modelRouteTier: "local_eligible",
+        fallbackModels: ["hydra/gpt-4o-mini"],
+        requiredCapabilities: ["table-parser"],
+      },
+    });
+
+    expect(service.list({ runId: "run-execution-context" })).toEqual([
+      expect.objectContaining({
+        id: "checkpoint-execution-context",
+        executionContext: expect.objectContaining({
+          profileId: "builder",
+          recipeId: "table_extract",
+          modelRouteTier: "local_eligible",
+        }),
+      }),
+    ]);
+  });
+
   it("persists action ledger entries and includes them in run outcomes", () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-actions-"));
     tempDirs.push(stateDir);
@@ -185,6 +216,43 @@ describe("platform runtime checkpoint service", () => {
     expect(next.getAction("action-1")).toEqual(
       expect.objectContaining({
         state: "confirmed",
+      }),
+    );
+  });
+
+  it("preserves run correlation when re-staging an existing action without run metadata", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    service.stageAction({
+      actionId: "action-preserve-run",
+      runId: "run-preserve",
+      sessionKey: "session-preserve",
+      kind: "messaging_delivery",
+      target: {
+        operation: "deliver",
+      },
+    });
+    service.markActionFailed("action-preserve-run", {
+      lastError: "temporary network failure",
+      retryable: true,
+    });
+
+    service.stageAction({
+      actionId: "action-preserve-run",
+      kind: "messaging_delivery",
+      target: {
+        operation: "deliver",
+      },
+    });
+
+    expect(service.getAction("action-preserve-run")).toEqual(
+      expect.objectContaining({
+        runId: "run-preserve",
+        sessionKey: "session-preserve",
+      }),
+    );
+    expect(service.buildRunOutcome("run-preserve")).toEqual(
+      expect.objectContaining({
+        actionIds: ["action-preserve-run"],
       }),
     );
   });

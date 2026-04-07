@@ -64,7 +64,9 @@
 ### Next
 
 - Optional side path: `v1 tag` — см. Release Ladder и `openclaw-release-maintainer` skill.
-- После Stage 86: следующий product stage по факту закрытого investor cut в [autonomous_v1_roadmap_cb6fe0e6.plan.md](autonomous_v1_roadmap_cb6fe0e6.plan.md).
+- После Stage 86: `Stage 87 - Horizon 1 doc flows and builder context`  
+  Plan: [stage_87_h1_docflows.plan.md](stage_87_h1_docflows.plan.md)  
+  Backlog slices: [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md)
 
 ## Release Ladder
 

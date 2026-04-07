@@ -63,6 +63,17 @@ describe("planExecutionRecipe", () => {
     expect(plan.profile.activeProfile.sessionProfile).toBe("developer");
   });
 
+  it("keeps builder-profile greetings on general_reasoning", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Привет! Как дела? Просто поздоровайся.",
+      sessionProfile: "builder",
+      intent: "general",
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).toBe("general_reasoning");
+  });
+
   it("selects integration_delivery for integration-heavy work", () => {
     const plan = planExecutionRecipe({
       prompt: "Validate the webhook integration, sync OAuth config, and roll out the connector",
@@ -104,5 +115,50 @@ describe("planExecutionRecipe", () => {
     });
 
     expect(plan.recipe.id).not.toBe("code_build_publish");
+  });
+
+  it("selects table_compare for two spreadsheet price comparison prompts", () => {
+    const plan = planExecutionRecipe({
+      prompt:
+        "Compare these two Excel exports for SKU and price differences, then summarize mismatches.",
+      fileNames: ["vendor_prices.xlsx", "internal_prices.xlsx"],
+      artifactKinds: ["data", "report"],
+      intent: "compare",
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).toBe("table_compare");
+    expect(plan.plannerOutput.selectedRecipeId).toBe("table_compare");
+  });
+
+  it("selects table_compare for Russian CSV comparison prompts", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Сравни два CSV с ценами и покажи расхождения по артикулам.",
+      fileNames: ["jan.csv", "feb.csv"],
+      intent: "compare",
+    });
+
+    expect(plan.recipe.id).toBe("table_compare");
+  });
+
+  it("selects calculation_report for ventilation and dimensions prompts", () => {
+    const plan = planExecutionRecipe({
+      prompt:
+        "Compute required ventilation CFM for a 420 sq ft room with 8 ft ceilings and give a short written report with assumptions.",
+      artifactKinds: ["report"],
+      intent: "calculation",
+    });
+
+    expect(plan.recipe.id).toBe("calculation_report");
+  });
+
+  it("selects calculation_report for Russian unit and sizing language", () => {
+    const plan = planExecutionRecipe({
+      prompt:
+        "Рассчитай кубатуру помещения 4x5 м при высоте 2.7 м и переведи в кубические футы в отчёте.",
+      intent: "calculation",
+    });
+
+    expect(plan.recipe.id).toBe("calculation_report");
   });
 });

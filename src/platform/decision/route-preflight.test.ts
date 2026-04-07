@@ -26,9 +26,9 @@ describe("inferLocalRoutingEligibleFromPrompt", () => {
   });
 
   it("treats Russian image-generation prompts as requiring a stronger route", () => {
-    expect(inferLocalRoutingEligibleFromPrompt("Сгенерируй изображение баннера для Stage 86.")).toBe(
-      false,
-    );
+    expect(
+      inferLocalRoutingEligibleFromPrompt("Сгенерируй изображение баннера для Stage 86."),
+    ).toBe(false);
   });
 
   it("treats pdf-generation prompts as requiring a stronger route", () => {
@@ -43,6 +43,14 @@ describe("inferLocalRoutingEligibleFromPrompt", () => {
         "Сильно сожми этот раздутый запрос и дай краткую сводку по статусу stage 86.",
       ),
     ).toBe(true);
+  });
+
+  it("keeps detailed analytical prompts on the stronger route", () => {
+    expect(
+      inferLocalRoutingEligibleFromPrompt(
+        "Напиши подробный анализ: какие 5 метрик важны для SaaS продукта и почему. С примерами.",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -60,6 +68,56 @@ describe("inferLocalRoutingEligibleFromPlannerInput", () => {
       inferLocalRoutingEligibleFromPlannerInput({
         intent: "code",
         requestedTools: ["exec"],
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps file-backed compare turns on the stronger route even for simple CSV pairs", () => {
+    const input = inferLocalRoutingEligibleFromPlannerInput({
+      prompt: "Compare these two CSVs for SKU alignment.",
+      intent: "compare",
+      fileNames: ["a.csv", "b.csv"],
+      artifactKinds: ["data", "report"],
+    });
+    expect(input).toBe(false);
+  });
+
+  it("blocks local-first when compare attachments include a PDF", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        prompt: "Compare pricing",
+        intent: "compare",
+        fileNames: ["quotes.pdf", "internal.csv"],
+        artifactKinds: ["data", "report"],
+      }),
+    ).toBe(false);
+  });
+
+  it("allows local-first for calculation turns that only carry report-style artifact hints", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        prompt: "Estimate CFM for a 12x14 ft bedroom with standard assumptions.",
+        intent: "calculation",
+        artifactKinds: ["report", "data"],
+      }),
+    ).toBe(true);
+  });
+
+  it("blocks local-first when prompts mention PDF work even without attachments", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        prompt: "Compare totals and export a PDF summary.",
+        intent: "compare",
+        artifactKinds: ["data", "report"],
+      }),
+    ).toBe(false);
+  });
+
+  it("blocks local-first for general prompts that clearly ask for multi-step analysis", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        prompt: "Напиши подробный анализ: какие 5 метрик важны для SaaS продукта и почему.",
+        intent: "general",
       }),
     ).toBe(false);
   });

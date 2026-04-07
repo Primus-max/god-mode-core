@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
+import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/index.js";
 import type { ExecutionRecipe } from "../schemas/index.js";
 import { planExecutionRecipe } from "./planner.js";
@@ -37,6 +39,10 @@ describe("resolvePlatformRuntimePlan", () => {
     );
     expect(resolved.runtime.prependSystemContext).toContain("Execution recipe: doc_ingest.");
     expect(resolved.runtime.prependContext).toContain("Planner reasoning:");
+    expect(resolved.runtime.prependContext).toContain("Builder domain context:");
+    expect(resolved.runtime.prependContext).toMatch(/SNiP\/SP\/GOST/i);
+    expect(resolved.runtime.prependContext).toMatch(/assumptions/i);
+    expect(resolved.runtime.prependContext).toMatch(/formulas/i);
   });
 
   it("parses recipe model overrides and fallback chains", () => {
@@ -67,6 +73,7 @@ describe("resolvePlatformRuntimePlan", () => {
     });
     const runtime = adaptExecutionPlanToRuntime(planned);
 
+    expect(runtime.prependContext).not.toContain("Builder domain context:");
     expect(runtime.providerOverride).toBe("openai");
     expect(runtime.modelOverride).toBe("gpt-4o-mini");
     expect(runtime.fallbackModels).toEqual(["anthropic/claude-sonnet-4.6"]);
@@ -128,7 +135,7 @@ describe("resolvePlatformRuntimePlan", () => {
       intent: "publish",
     });
 
-    expect(resolved.policyContext.requestedCapabilities).toEqual(["node", "git"]);
+    expect(resolved.policyContext.requestedCapabilities).toBeUndefined();
     expect(resolved.policyPreview.requireExplicitApproval).toBe(true);
     expect(resolved.runtime.policyAutonomy).toBe("assist");
     expect(resolved.runtime.requireExplicitApproval).toBe(true);
@@ -147,6 +154,39 @@ describe("resolvePlatformRuntimePlan", () => {
     expect(resolved.runtime.readinessStatus).toBe("bootstrap_required");
     expect(resolved.runtime.unattendedBoundary).toBe("bootstrap");
     expect(resolved.runtime.readinessReasons?.join(" ")).toContain("Bootstrap required");
+  });
+
+  it("keeps compare flows ready when the required table parser is already available", () => {
+    const capabilityRegistry = createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
+    const resolved = resolvePlatformRuntimePlan(
+      {
+        prompt: "Сравни два CSV-прайс-листа и дай короткий отчет по расхождениям.",
+        fileNames: ["offer-a.csv", "offer-b.csv"],
+        artifactKinds: ["data", "report"],
+        intent: "compare",
+      },
+      { capabilityRegistry },
+    );
+
+    expect(resolved.runtime.selectedRecipeId).toBe("table_compare");
+    expect(resolved.policyPreview.requireExplicitApproval).toBe(false);
+    expect(resolved.runtime.readinessStatus).toBe("ready");
+    expect(resolved.runtime.requiredCapabilities).toBeUndefined();
+    expect(resolved.runtime.bootstrapRequiredCapabilities).toBeUndefined();
+  });
+
+  it("marks compare flows as bootstrap-resumable when table parser is missing", () => {
+    const resolved = resolvePlatformRuntimePlan({
+      prompt: "Сравни два прайс-листа и дай короткий отчет по расхождениям.",
+      fileNames: ["offer-a.xlsx", "offer-b.xlsx"],
+      artifactKinds: ["data", "report"],
+      intent: "compare",
+    });
+
+    expect(resolved.runtime.selectedRecipeId).toBe("table_compare");
+    expect(resolved.runtime.readinessStatus).toBe("bootstrap_required");
+    expect(resolved.runtime.unattendedBoundary).toBe("bootstrap");
+    expect(resolved.runtime.bootstrapRequiredCapabilities).toEqual(["table-parser"]);
   });
 
   it("does not require pdf-parser for prompt-only PDF generation", () => {

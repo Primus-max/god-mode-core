@@ -242,6 +242,7 @@ export const agentHandlers: GatewayRequestHandlers = {
 
     let message = (request.message ?? "").trim();
     let images: Array<{ type: "image"; data: string; mimeType: string }> = [];
+    let documents: Array<{ type: "file"; data: string; mimeType: string; fileName: string }> = [];
     if (normalizedAttachments.length > 0) {
       try {
         const parsed = await parseMessageWithAttachments(message, normalizedAttachments, {
@@ -250,6 +251,7 @@ export const agentHandlers: GatewayRequestHandlers = {
         });
         message = parsed.message.trim();
         images = parsed.images;
+        documents = parsed.files;
       } catch (err) {
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(err)));
         return;
@@ -633,6 +635,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       ingressOpts: {
         message,
         images,
+        documents,
         provider: providerOverride,
         model: modelOverride,
         to: resolvedTo,

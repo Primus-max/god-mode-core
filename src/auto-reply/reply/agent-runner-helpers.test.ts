@@ -1281,6 +1281,117 @@ describe("agent runner helpers", () => {
     );
   });
 
+  it("maps compare bootstrap remediation onto the document bootstrap lane", () => {
+    finalizeMessagingDeliveryClosure({
+      candidate: {
+        runResult: {
+          meta: {
+            acceptanceOutcome: {
+              runId: "run-compare-bootstrap",
+              status: "retryable",
+              action: "retry",
+              remediation: "bootstrap",
+              reasonCode: "bootstrap_required",
+              reasons: ["Table parsing bootstrap is still required before compare can complete."],
+              recoveryPolicy: {
+                remediation: "bootstrap",
+                recoveryClass: "bootstrap",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 2,
+                remainingAttempts: 2,
+                exhausted: false,
+                exhaustedAction: "escalate",
+              },
+              outcome: {
+                runId: "run-compare-bootstrap",
+                status: "completed",
+                checkpointIds: [],
+                blockedCheckpointIds: [],
+                completedCheckpointIds: [],
+                deniedCheckpointIds: [],
+                pendingApprovalIds: [],
+                artifactIds: [],
+                bootstrapRequestIds: [],
+                actionIds: [],
+                attemptedActionIds: [],
+                confirmedActionIds: [],
+                failedActionIds: [],
+                boundaries: [],
+              },
+              evidence: {
+                executionSurfaceStatus: "bootstrap_required",
+                executionUnattendedBoundary: "bootstrap",
+              },
+            },
+            supervisorVerdict: {
+              runId: "run-compare-bootstrap",
+              status: "retryable",
+              action: "retry",
+              remediation: "bootstrap",
+              reasonCode: "bootstrap_recovery",
+              reasons: ["Table parsing bootstrap is still required before compare can complete."],
+              recoveryPolicy: {
+                remediation: "bootstrap",
+                recoveryClass: "bootstrap",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 2,
+                remainingAttempts: 2,
+                exhausted: false,
+                exhaustedAction: "escalate",
+              },
+            },
+            executionIntent: {
+              runId: "run-compare-bootstrap",
+              profileId: "builder",
+              recipeId: "table_compare",
+              intent: "compare",
+              bootstrapRequiredCapabilities: ["table-parser"],
+              policyAutonomy: "assist",
+              expectations: {},
+            },
+          },
+        },
+        sourceRun: {
+          prompt: "compare supplier price sheets",
+          enqueuedAt: 1,
+          run: {
+            agentId: "agent",
+            agentDir: "/tmp/agent",
+            sessionId: "session",
+            sessionKey: "agent:main:main",
+            sessionFile: "/tmp/session.json",
+            workspaceDir: "/tmp/workspace",
+            config: {},
+            provider: "ollama",
+            model: "qwen2.5-coder:7b",
+            timeoutMs: 30_000,
+            blockReplyBreak: "message_end",
+          },
+        },
+        queueKey: "queue-compare",
+        settings: { mode: "followup", debounceMs: 0, cap: 20 },
+      },
+      replyPayloads: [{ text: "Bootstrap required." }],
+      deliveryReceipt: {},
+    });
+
+    const requestId = getPlatformBootstrapService().list()[0]?.id;
+    expect(requestId).toBeTruthy();
+    expect(requestId ? getPlatformBootstrapService().get(requestId)?.request.sourceDomain : undefined).toBe(
+      "document",
+    );
+    expect(requestId ? getPlatformRuntimeCheckpointService().get(requestId)?.continuation : undefined).toEqual(
+      expect.objectContaining({
+        kind: "bootstrap_run",
+        autoDispatch: true,
+      }),
+    );
+  });
+
   it("reuses declared execution intent when messaging closure is reevaluated", () => {
     const acceptance = reevaluateAcceptanceForMessagingRun({
       runResult: {

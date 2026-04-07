@@ -68,7 +68,7 @@ Create a dedicated active backlog artifact under `.cursor/plans/` that is narrow
 
 - Keep `[.cursor/plans/master_v1_roadmap.md](.cursor/plans/master_v1_roadmap.md)` as the short canonical handoff file.
 - Keep `[.cursor/plans/sovereign_ai_map_8e04210e.plan.md](.cursor/plans/sovereign_ai_map_8e04210e.plan.md)` as long-horizon product map only.
-- **Done:** [`autonomous_v1_active_backlog.md`](autonomous_v1_active_backlog.md) contains ordered slices with fields:
+- [`autonomous_v1_active_backlog.md`](autonomous_v1_active_backlog.md) must stay the operational backlog; each slice has fields:
   - `id`
   - `priority`
   - `status`

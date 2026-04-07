@@ -8,7 +8,7 @@
 
 - [ ] Gateway running (PID: 25176)
 - [ ] Ollama available at :11434
-- [ ] Hydra/SD1 key configured
+- [ ] Hydra/SD1 key configured (или другой remote OpenAI-compatible provider с моделью `hydra/gpt-4o`, если так настроен current profile)
 - [ ] UI connected to http://127.0.0.1:18789
 - [ ] Telegram bot @gode_mode_admin_bot responsive
 
@@ -82,7 +82,7 @@
 
 **Expected:**
 
-- [ ] Бот отвечает: "Для генерации PDF нужна capability `pdf-generator`. Установить?"
+- [ ] Бот отвечает, что для генерации PDF нужна capability `pdf-renderer` и предлагает установку
 - [ ] В UI → Bootstrap panel появляется запрос на approval
 - [ ] После твоего "Да" в Telegram или Approval в UI:
   - [ ] Авто-установка capability
@@ -124,9 +124,9 @@
 2. Перейди в Sessions
 3. Найди активную или недавнюю сессию
 4. Проверь:
-   - [ ] Панель "Planning/Routing Context" показывает `modelRouteTier`
-   - [ ] Если был bootstrap request - виден "Blocked Run Resume" callout
-   - [ ] Lifecycle transitions отображаются
+   - [ ] Панель "Routing & planning context" показывает `modelRouteTier`
+   - [ ] Если был bootstrap request - из runtime inspector есть переход к Bootstrap record, где виден callout о paused task / auto-resume
+   - [ ] Lifecycle path отображается в Bootstrap record
 
 ---
 
@@ -137,7 +137,7 @@
 **Command:** Напиши любой запрос, затем в UI:
 
 - [ ] Sessions → выбери сессию → Usage Stats
-- [ ] Проверь что есть поля: `inputTokens`, `outputTokens`, `costEstimate`
+- [ ] Проверь что в UI видны `inputTokens`, `outputTokens` и estimated cost (DTO поле `estimatedCostUsd`)
 
 ---
 

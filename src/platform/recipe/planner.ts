@@ -9,7 +9,7 @@ import type { ProfileId } from "../schemas/profile.js";
 import { INITIAL_RECIPES, getInitialRecipe } from "./defaults.js";
 
 export type RecipePlannerInput = ProfileResolverInput & {
-  intent?: "general" | "document" | "code" | "publish";
+  intent?: "general" | "document" | "code" | "publish" | "compare" | "calculation";
   recipes?: ExecutionRecipe[];
 };
 
@@ -94,6 +94,43 @@ function hasTableSignal(input: RecipePlannerInput, files: string[]): boolean {
   );
 }
 
+function tabularFileCount(files: string[]): number {
+  return files.filter((file) => /\.(csv|xlsx|xls|ods)$/iu.test(file)).length;
+}
+
+function hasCompareSignal(input: RecipePlannerInput, files: string[]): boolean {
+  const prompt = input.prompt ?? "";
+  const lower = prompt.toLowerCase();
+  const tabular = tabularFileCount(files);
+  const compareWord =
+    /\b(compare|comparison|comparing|diff|reconcile|reconciliation|side[- ]by[- ]side|price\s*diff|variance|discrepanc|match\s+up|align\s+(the\s+)?(rows|sheets))\b/iu.test(
+      prompt,
+    ) || /\b(сравн|сопостав|расхожден|совпаден|разница\s+в\s+цен|сверк|выверк)\w*\b/iu.test(prompt);
+  const multiTabularPrompt =
+    /\b(two|three|both|multiple)\s+(csv|spreadsheets?|workbooks?|exports?|files?)\b/iu.test(
+      lower,
+    ) || /\b(два|две|три|оба|обе)\s+(csv|файл|таблиц|экспорт)/iu.test(prompt);
+  return (
+    compareWord ||
+    (tabular >= 2 && /\b(price|sku|qty|quantity|cost|amount|total)\b/iu.test(lower)) ||
+    (tabular >= 2 && /\b(цен|артикул|колич|сумм|стоимост)\w*\b/iu.test(prompt)) ||
+    (multiTabularPrompt && tabular >= 1) ||
+    tabular >= 2
+  );
+}
+
+function hasCalculationSignal(input: RecipePlannerInput): boolean {
+  const prompt = input.prompt ?? "";
+  return (
+    /\b(ventilation|vent\s|cfm|ach\b|airflow|hvac|duct|btu|cubic\s*(foot|feet|meter|metre)|square\s*(foot|feet|meter|metre)|unit\s*conversion|dimensional\s*analysis|convert\s+\d+)\b/iu.test(
+      prompt,
+    ) ||
+    /\b(вентиляц|приток|вытяжк|кубатур|площад|перевод\s+единиц|единиц\s+измерен|размер\s+помещен|расч[её]т|рассчитай)\w*\b/iu.test(
+      prompt,
+    )
+  );
+}
+
 function buildRecipeScore(params: {
   recipe: ExecutionRecipe;
   profile: ProfileResolution;
@@ -105,6 +142,14 @@ function buildRecipeScore(params: {
   const publishTargets = (input.publishTargets ?? []).map((value) => value.toLowerCase());
   const tools = (input.requestedTools ?? []).map((value) => value.toLowerCase());
   const artifactKinds = input.artifactKinds ?? [];
+  const documentSignal =
+    input.intent === "document" ||
+    hasDocumentArtifact(artifactKinds) ||
+    files.some((file) => /\.(pdf|doc|docx|xls|xlsx|csv)$/iu.test(file));
+  const ocrSignal = hasOcrSignal(input, files);
+  const tableSignal = hasTableSignal(input, files);
+  const compareSignal = hasCompareSignal(input, files);
+  const calculationSignal = hasCalculationSignal(input);
 
   if (recipe.id === "general_reasoning") {
     let score = 0.2;
@@ -122,10 +167,10 @@ function buildRecipeScore(params: {
 
   if (recipe.id === "doc_ingest") {
     let score = 0;
-    if (profile.selectedProfile.id === "builder") {
+    if (profile.selectedProfile.id === "builder" && documentSignal) {
       score += 1;
     }
-    if (overlayId === "document_first") {
+    if (overlayId === "document_first" && documentSignal) {
       score += 1.4;
     }
     if (input.intent === "document") {
@@ -147,16 +192,16 @@ function buildRecipeScore(params: {
 
   if (recipe.id === "ocr_extract") {
     let score = 0;
-    if (profile.selectedProfile.id === "builder") {
+    if (profile.selectedProfile.id === "builder" && (ocrSignal || documentSignal)) {
       score += 1;
     }
-    if (overlayId === "document_first") {
+    if (overlayId === "document_first" && (ocrSignal || documentSignal)) {
       score += 1.2;
     }
     if (input.intent === "document") {
       score += 0.8;
     }
-    if (hasOcrSignal(input, files)) {
+    if (ocrSignal) {
       score += 1.8;
     }
     if (hasDocumentArtifact(artifactKinds)) {
@@ -167,20 +212,80 @@ function buildRecipeScore(params: {
 
   if (recipe.id === "table_extract") {
     let score = 0;
-    if (profile.selectedProfile.id === "builder") {
+    if (profile.selectedProfile.id === "builder" && (tableSignal || documentSignal)) {
       score += 1;
     }
-    if (overlayId === "document_first") {
+    if (overlayId === "document_first" && (tableSignal || documentSignal)) {
       score += 1.1;
     }
     if (input.intent === "document") {
       score += 0.8;
     }
-    if (hasTableSignal(input, files)) {
+    if (tableSignal) {
       score += 2.2;
+    }
+    if (compareSignal) {
+      score -= 2.6;
     }
     if (hasDocumentArtifact(artifactKinds)) {
       score += 0.5;
+    }
+    return score;
+  }
+
+  if (recipe.id === "table_compare") {
+    let score = 0;
+    if (profile.selectedProfile.id === "builder" && compareSignal) {
+      score += 1;
+    }
+    if (overlayId === "document_first" && compareSignal) {
+      score += 1.2;
+    }
+    if (input.intent === "compare") {
+      score += 2.7;
+    }
+    if (input.intent === "document") {
+      score += 0.45;
+    }
+    if (compareSignal) {
+      score += 3.5;
+    }
+    if (tabularFileCount(files) >= 2) {
+      score += 2.6;
+    } else if (tabularFileCount(files) === 1 && hasCompareSignal(input, files)) {
+      score += 1.3;
+    }
+    if (hasTableSignal(input, files)) {
+      score += 0.8;
+    }
+    if (hasDocumentArtifact(artifactKinds)) {
+      score += 0.35;
+    }
+    return score;
+  }
+
+  if (recipe.id === "calculation_report") {
+    let score = 0;
+    if (
+      (profile.selectedProfile.id === "builder" || profile.selectedProfile.id === "general") &&
+      (calculationSignal || input.intent === "calculation")
+    ) {
+      score += 0.95;
+    }
+    if (overlayId === "document_first" && (calculationSignal || input.intent === "calculation")) {
+      score += 0.65;
+    }
+    if (input.intent === "calculation") {
+      score += 3.3;
+    }
+    if (input.intent === "document") {
+      score += 0.35;
+    }
+    if (calculationSignal) {
+      score += 3.6;
+    }
+    if (hasDocumentArtifact(artifactKinds)) {
+      score += 0.3;
     }
     return score;
   }

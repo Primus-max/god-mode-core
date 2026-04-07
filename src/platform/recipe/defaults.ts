@@ -69,6 +69,50 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
     timeoutSeconds: 210,
   },
   {
+    id: "table_compare",
+    purpose: "Compare, diff, and reconcile two or more tabular exports (CSV/Excel) or price sheets",
+    summary:
+      "Use compare-first flow when the task centers on aligning rows, spotting price or quantity deltas, or reconciling spreadsheets.",
+    acceptedInputs: [
+      {
+        type: "file",
+        required: true,
+        description: "Two or more spreadsheets or CSV exports to compare",
+      },
+      { type: "text", required: true, description: "Compare rules, keys, or columns to align on" },
+    ],
+    producedArtifacts: [
+      { type: "data", description: "Aligned or diffed row-level comparison output" },
+      { type: "report", description: "Comparison summary and reconciliation notes" },
+    ],
+    requiredCapabilities: ["table-parser"],
+    allowedProfiles: ["builder", "general"],
+    riskLevel: "low",
+    systemPrompt:
+      "Use compare-first reasoning. Normalize schemas, choose stable join keys, surface row-level deltas, and call out ambiguous or missing matches before narrating conclusions.",
+    timeoutSeconds: 240,
+  },
+  {
+    id: "calculation_report",
+    purpose:
+      "Engineering-style calculations, unit conversions, and dimensional summaries with a clear written report",
+    summary:
+      "Use calculation-first flow for ventilation loads, dimensions, unit math, and other numeric report-style answers without code shipping.",
+    acceptedInputs: [
+      { type: "text", required: true, description: "Calculation goal, inputs, and required units" },
+      { type: "file", description: "Optional reference tables, drawings, or notes" },
+    ],
+    producedArtifacts: [
+      { type: "report", description: "Stepwise calculation and assumptions" },
+      { type: "data", description: "Intermediate numeric results when helpful" },
+    ],
+    allowedProfiles: ["builder", "general"],
+    riskLevel: "low",
+    systemPrompt:
+      "Use calculation-first reasoning. State assumptions, keep unit tracking explicit, show intermediate steps for auditability, and finish with a concise results section.",
+    timeoutSeconds: 180,
+  },
+  {
     id: "code_build_publish",
     purpose: "Build, test, and publish code artifacts",
     summary: "Work repo-first and validate changes before publish when possible.",

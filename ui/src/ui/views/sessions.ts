@@ -471,6 +471,64 @@ function renderBootstrapCheckpointGuide(checkpoint: RuntimeCheckpointSummary) {
   `;
 }
 
+function formatRuntimeModelRouteTierLabel(
+  tier: NonNullable<NonNullable<RuntimeCheckpointSummary["executionContext"]>["modelRouteTier"]>,
+): string {
+  switch (tier) {
+    case "local_eligible":
+      return t("bootstrap.planning.modelRouteTierValues.local_eligible");
+    case "remote_required":
+      return t("bootstrap.planning.modelRouteTierValues.remote_required");
+  }
+}
+
+function renderRuntimePlanningContext(checkpoint: RuntimeCheckpointSummary) {
+  const ctx = checkpoint.executionContext;
+  if (!ctx) {
+    return nothing;
+  }
+  const modelLine = [ctx.providerOverride, ctx.modelOverride].filter(Boolean).join("/");
+  const fallbackLine = ctx.fallbackModels?.length ? ctx.fallbackModels.join(", ") : null;
+  const bootstrapCaps = ctx.bootstrapRequiredCapabilities?.length
+    ? ctx.bootstrapRequiredCapabilities.join(", ")
+    : null;
+  const requiredCaps = ctx.requiredCapabilities?.length
+    ? ctx.requiredCapabilities.join(", ")
+    : null;
+  const toolsLine = ctx.requestedToolNames?.length ? ctx.requestedToolNames.join(", ") : null;
+  return html`
+    <div class="callout" style="margin-top:12px;">
+      <strong>${t("bootstrap.planning.title")}</strong>
+      <div class="muted" style="margin-top:6px;">${t("bootstrap.planning.subtitle")}</div>
+      <dl style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:12px 0 0;">
+        <dt>${t("bootstrap.planning.profileRecipe")}</dt>
+        <dd>${ctx.profileId} · ${ctx.recipeId}</dd>
+        ${
+          ctx.modelRouteTier
+            ? html`<dt>${t("bootstrap.planning.modelRouteTier")}</dt><dd>${formatRuntimeModelRouteTierLabel(
+                ctx.modelRouteTier,
+              )}</dd>`
+            : nothing
+        }
+        ${modelLine ? html`<dt>${t("bootstrap.planning.modelRoute")}</dt><dd>${modelLine}</dd>` : nothing}
+        ${
+          fallbackLine
+            ? html`<dt>${t("bootstrap.planning.fallbackModels")}</dt><dd>${fallbackLine}</dd>`
+            : nothing
+        }
+        ${bootstrapCaps ? html`<dt>${t("bootstrap.planning.bootstrapCaps")}</dt><dd>${bootstrapCaps}</dd>` : nothing}
+        ${requiredCaps ? html`<dt>${t("bootstrap.planning.requiredCaps")}</dt><dd>${requiredCaps}</dd>` : nothing}
+        ${toolsLine ? html`<dt>${t("bootstrap.planning.tools")}</dt><dd>${toolsLine}</dd>` : nothing}
+        ${
+          ctx.plannerReasoning
+            ? html`<dt>${t("bootstrap.planning.plannerReasoning")}</dt><dd>${ctx.plannerReasoning}</dd>`
+            : nothing
+        }
+      </dl>
+    </div>
+  `;
+}
+
 function formatRuntimeUsageTokenCount(value: number | undefined): string {
   if (value == null || !Number.isFinite(value)) {
     return "—";
@@ -629,6 +687,7 @@ function renderRuntimeInspector(props: SessionsProps) {
                               <dd>${selectedCheckpoint.blockedReason ?? t("common.na")}</dd>
                             </dl>
                             ${renderBootstrapCheckpointGuide(selectedCheckpoint)}
+                            ${renderRuntimePlanningContext(selectedCheckpoint)}
                             ${
                               selectedCheckpoint.nextActions?.length
                                 ? html`
@@ -688,9 +747,11 @@ function renderRuntimeInspector(props: SessionsProps) {
                                             <a
                                               class="btn ${action.actionId === props.runtimeSelectedActionId ? "active" : ""}"
                                               href=${props.buildRuntimeActionHref(action.actionId)}
-                                              aria-current=${action.actionId === props.runtimeSelectedActionId
-                                                ? "page"
-                                                : "false"}
+                                              aria-current=${
+                                                action.actionId === props.runtimeSelectedActionId
+                                                  ? "page"
+                                                  : "false"
+                                              }
                                               @click=${(event: MouseEvent) => {
                                                 if (isModifiedNavigationClick(event)) {
                                                   return;
@@ -763,9 +824,11 @@ function renderRuntimeInspector(props: SessionsProps) {
                                             <a
                                               class="btn ${closure.runId === props.runtimeSelectedClosureRunId ? "active" : ""}"
                                               href=${props.buildRuntimeClosureHref(closure.runId)}
-                                              aria-current=${closure.runId === props.runtimeSelectedClosureRunId
-                                                ? "page"
-                                                : "false"}
+                                              aria-current=${
+                                                closure.runId === props.runtimeSelectedClosureRunId
+                                                  ? "page"
+                                                  : "false"
+                                              }
                                               @click=${(event: MouseEvent) => {
                                                 if (isModifiedNavigationClick(event)) {
                                                   return;

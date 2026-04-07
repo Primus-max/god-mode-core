@@ -10,8 +10,106 @@ const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process"]);
 
 type LocalRoutingPlannerInput = Pick<
   RecipePlannerInput,
-  "intent" | "requestedTools" | "fileNames" | "artifactKinds"
+  "intent" | "requestedTools" | "fileNames" | "artifactKinds" | "prompt"
 >;
+
+const HEAVY_FILE_EXTENSION =
+  /\.(pdf|png|jpe?g|webp|gif|tiff?|bmp|heic|ts|tsx|js|jsx|mjs|cjs|json|py|go|rs|java|kt|cs|cpp|h)$/iu;
+
+const TABULAR_ATTACHMENT_EXTENSION = /\.(csv|xlsx|xls|ods)$/iu;
+
+function fileNamesImplyHeavyLocalRoute(fileNames: string[]): boolean {
+  return fileNames.some((name) => HEAVY_FILE_EXTENSION.test(name));
+}
+
+function promptSuggestsHeavyDocumentWork(prompt: string | undefined): boolean {
+  if (!prompt?.trim()) {
+    return false;
+  }
+  return (
+    /\b(pdf|png|jpe?g|webp|gif|scan|scanned|screenshot|ocr|invoice|diagram)\b/iu.test(prompt) ||
+    /\b(pdf|png|скан|скриншот|чертеж)\b/iu.test(prompt)
+  );
+}
+
+/**
+ * Keep obviously multi-step analytical asks on the stronger route even when they have
+ * no files, because local-first is mainly for lightweight chat and simple arithmetic.
+ */
+function promptSuggestsComplexReasoning(prompt: string | undefined): boolean {
+  if (!prompt?.trim()) {
+    return false;
+  }
+  const normalized = prompt.trim().toLowerCase();
+  let score = 0;
+  if (normalized.length >= 120) {
+    score += 1;
+  }
+  if (
+    /\b(analy[sz]e|analysis|deep dive|detailed|trade[- ]?offs?|framework|metrics?|kpis?|examples?|rationale|prioriti[sz]e|step[- ]by[- ]step)\b/iu.test(
+      prompt,
+    ) ||
+    [
+      "анализ",
+      "подробн",
+      "развернут",
+      "развёрнут",
+      "почему",
+      "пример",
+      "метрик",
+      "пошагов",
+      "приорит",
+      "обоснован",
+    ].some((hint) => normalized.includes(hint))
+  ) {
+    score += 2;
+  }
+  if (
+    /\b(three|four|five|six|seven|eight|nine|ten|3|4|5|6|7|8|9|10)\b/iu.test(prompt) ||
+    ["три", "четыре", "пять", "шесть", "семь", "восемь", "девять", "десять"].some((hint) =>
+      normalized.includes(hint),
+    )
+  ) {
+    score += 1;
+  }
+  if (
+    /[:;]/.test(prompt) &&
+    (/\b(why|because|with examples?)\b/iu.test(prompt) ||
+      normalized.includes("с примерами") ||
+      normalized.includes("почему") ||
+      normalized.includes("например"))
+  ) {
+    score += 1;
+  }
+  return score >= 2;
+}
+
+function artifactKindsAllowLightTabularOrCalc(
+  kinds: NonNullable<RecipePlannerInput["artifactKinds"]>,
+  intent: RecipePlannerInput["intent"],
+): boolean {
+  if (kinds.length === 0) {
+    return true;
+  }
+  const heavy = new Set([
+    "image",
+    "video",
+    "audio",
+    "document",
+    "site",
+    "release",
+    "binary",
+    "archive",
+  ]);
+  if (kinds.some((kind) => heavy.has(kind))) {
+    return false;
+  }
+  const onlyDataReport = kinds.every((kind) => kind === "data" || kind === "report");
+  if (!onlyDataReport) {
+    return false;
+  }
+  return intent === "compare" || intent === "calculation";
+}
 
 function costTierForCandidate(candidate: ModelCandidate): ModelRouteCostTier {
   return isLikelyControlPlaneLocalProvider(candidate.provider) ? "control_plane_local" : "standard";
@@ -54,11 +152,32 @@ export function inferLocalRoutingEligibleFromPlannerInput(
   if (tools.some((t) => HEAVY_TOOL_IDS.has(t))) {
     return false;
   }
-  if (plannerInput.fileNames && plannerInput.fileNames.length > 0) {
+  const intent = plannerInput.intent;
+  const fileNames = plannerInput.fileNames ?? [];
+  const kinds = plannerInput.artifactKinds ?? [];
+
+  if (promptSuggestsHeavyDocumentWork(plannerInput.prompt)) {
     return false;
   }
-  if (plannerInput.artifactKinds && plannerInput.artifactKinds.length > 0) {
+  if (promptSuggestsComplexReasoning(plannerInput.prompt)) {
     return false;
+  }
+
+  if (fileNames.length > 0) {
+    if (fileNamesImplyHeavyLocalRoute(fileNames)) {
+      return false;
+    }
+    if (
+      intent === "compare" &&
+      fileNames.every((name) => TABULAR_ATTACHMENT_EXTENSION.test(name))
+    ) {
+      return false;
+    }
+    return false;
+  }
+
+  if (kinds.length > 0) {
+    return artifactKindsAllowLightTabularOrCalc(kinds, intent);
   }
   return true;
 }
@@ -68,7 +187,9 @@ export function inferLocalRoutingEligibleFromPrompt(prompt: string): boolean {
   if (!trimmed) {
     return false;
   }
-  return inferLocalRoutingEligibleFromPlannerInput(buildExecutionDecisionInput({ prompt: trimmed }));
+  return inferLocalRoutingEligibleFromPlannerInput(
+    buildExecutionDecisionInput({ prompt: trimmed }),
+  );
 }
 
 /**
@@ -87,7 +208,8 @@ export function applyModelRoutePreflight(params: {
   }
 
   const prompt = params.prompt?.trim();
-  const plannerInput = params.plannerInput ?? (prompt ? buildExecutionDecisionInput({ prompt }) : null);
+  const plannerInput =
+    params.plannerInput ?? (prompt ? buildExecutionDecisionInput({ prompt }) : null);
   if (!prompt && !plannerInput) {
     return { candidates: list, decision: null };
   }

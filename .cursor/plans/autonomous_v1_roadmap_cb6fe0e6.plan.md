@@ -4,19 +4,19 @@ overview: "Main product plan for investor-facing v1. The target is a strong firs
 todos:
   - id: investor-cut-scope
     content: Freeze the investor-facing v1 scope into a 3-5 day delivery cut
-    status: pending
+    status: completed
   - id: close-stage86
     content: Close Stage 86 with visible routing, bootstrap, and Telegram proof
-    status: pending
+    status: in_progress
   - id: bootstrap-flow
     content: Implement approve to install to resume flow without re-prompting the user
-    status: pending
+    status: in_progress
   - id: route-visibility
     content: Show route tier, model, and prompt optimization effect in user-visible surfaces
-    status: pending
+    status: in_progress
   - id: usage-visibility
     content: Show token and cost visibility for investor demo sessions
-    status: pending
+    status: in_progress
   - id: builder-context-v0
     content: Add builder/project-designer context preset for file, table, and reasoning workflows
     status: pending
@@ -42,7 +42,7 @@ isProject: false
 This file is the main product plan.
 
 - `[.cursor/plans/autonomous_v1_loop_a69b9e98.plan.md](.cursor/plans/autonomous_v1_loop_a69b9e98.plan.md)` is the execution protocol.
-- `[.cursor/plans/autonomous_v1_active_backlog.md](.cursor/plans/autonomous_v1_active_backlog.md)` is the operational **next-slice** backlog for the current execution track (Stage 86).
+- `[.cursor/plans/autonomous_v1_active_backlog.md](.cursor/plans/autonomous_v1_active_backlog.md)` is the operational **next-slice** backlog for the current Horizon 1 queue (Stage 86 active, post-Stage 86 doc/report/context slices queued next).
 - This roadmap answers `what v1 is`, `what is in the investor build`, and `what comes immediately after`.
 - The loop tells the agent how to keep iterating with subagents until the current slice is fully implemented and validated.
 

@@ -30,12 +30,12 @@ export type RecipeRuntimePlan = {
   selectedProfileId: ProfileId;
   taskOverlayId?: string;
   plannerReasoning?: string;
-  intent?: PolicyContext["intent"];
+  intent?: RecipePlannerInput["intent"];
   providerOverride?: string;
   modelOverride?: string;
   fallbackModels?: string[];
   timeoutSeconds?: number;
-  artifactKinds?: string[];
+  artifactKinds?: ArtifactKind[];
   requestedToolNames?: string[];
   publishTargets?: string[];
   requiredCapabilities?: string[];
@@ -95,6 +95,21 @@ export type PlatformExecutionReadiness = {
   unattendedBoundary?: PlatformExecutionContextUnattendedBoundary;
 };
 
+function normalizePlannerIntentForPolicy(
+  intent: RecipePlannerInput["intent"] | undefined,
+): PolicyContext["intent"] | undefined {
+  if (intent === "compare" || intent === "calculation") {
+    return "document";
+  }
+  return intent;
+}
+
+function normalizePlannerIntentForBootstrapSourceDomain(
+  intent: RecipePlannerInput["intent"] | undefined,
+): PolicyContext["intent"] | undefined {
+  return normalizePlannerIntentForPolicy(intent);
+}
+
 export function buildExecutionSurfaceSnapshot(params: {
   readiness: PlatformExecutionReadiness;
   capabilitySummary: PlatformCapabilitySummary;
@@ -139,6 +154,20 @@ function buildSystemContext(
     .join("\n");
 }
 
+/**
+ * Compact domain guidance for builder / project-designer runs (not a capability; injected as context only).
+ */
+function buildBuilderDomainContextSegment(): string {
+  return [
+    "Builder domain context:",
+    "use consistent units (state SI vs other and conversions);",
+    "label explicit assumptions (loads, losses, price basis);",
+    "show formulas and calculation steps when deriving quantities, costs, or spreadsheet totals;",
+    "for ventilation/air exchange cite applicable SNiP/SP/GOST-class norm references as bibliographic pointers only, not legal advice;",
+    "for supplier comparison align scope, units, incoterms or delivery terms, lead times, and warranty.",
+  ].join(" ");
+}
+
 function buildPrependContext(
   plan: ExecutionPlan,
   params?: {
@@ -149,6 +178,7 @@ function buildPrependContext(
 ): string {
   return [
     `Profile: ${plan.profile.selectedProfile.label}.`,
+    plan.profile.selectedProfile.id === "builder" ? buildBuilderDomainContextSegment() : undefined,
     plan.profile.effective.taskOverlay?.label
       ? `Task overlay: ${plan.profile.effective.taskOverlay.label}.`
       : undefined,
@@ -179,7 +209,10 @@ function buildExecutionReadiness(params: {
     );
     const canAutoContinueBootstrap =
       params.policyPreview.autonomy === "assist" &&
-      (params.input.intent === "document" || params.input.intent === "code");
+      (params.input.intent === "document" ||
+        params.input.intent === "code" ||
+        params.input.intent === "compare" ||
+        params.input.intent === "calculation");
     return {
       status: "bootstrap_required",
       reasons,
@@ -214,6 +247,18 @@ function resolveBootstrapSourceDomain(
   return "platform";
 }
 
+/**
+ * Plain CSV files can be handled directly from the staged workspace without
+ * forcing a table-parser bootstrap. Spreadsheet binaries still require the
+ * dedicated capability path.
+ */
+function allTabularFilesAreCsv(fileNames: string[] | undefined): boolean {
+  const normalized = (fileNames ?? [])
+    .map((name) => name.trim().toLowerCase())
+    .filter((name) => name.length > 0);
+  return normalized.length > 0 && normalized.every((name) => name.endsWith(".csv"));
+}
+
 function buildCapabilitySummary(params: {
   plan: ExecutionPlan;
   input: RecipePlannerInput;
@@ -225,6 +270,9 @@ function buildCapabilitySummary(params: {
     (params.input.fileNames?.length ?? 0) === 0 &&
     params.input.intent === "document"
       ? []
+      : (params.plan.recipe.id === "table_extract" || params.plan.recipe.id === "table_compare") &&
+          allTabularFilesAreCsv(params.input.fileNames)
+        ? []
       : (params.plan.recipe.requiredCapabilities ?? []);
   if (requiredCapabilities.length === 0) {
     return {
@@ -243,7 +291,9 @@ function buildCapabilitySummary(params: {
     registry,
     catalog: params.capabilityCatalog ?? TRUSTED_CAPABILITY_CATALOG,
     reason: "recipe_requirement",
-    sourceDomain: resolveBootstrapSourceDomain(params.input.intent),
+    sourceDomain: resolveBootstrapSourceDomain(
+      normalizePlannerIntentForBootstrapSourceDomain(params.input.intent),
+    ),
     sourceRecipeId: params.plan.recipe.id,
   });
   const requirements = bootstrapResolutions.map((resolution, index) => {
@@ -302,7 +352,7 @@ export function buildPolicyContextFromRuntimePlan(
     | "intent"
     | "requestedToolNames"
     | "publishTargets"
-    | "requiredCapabilities"
+    | "bootstrapRequiredCapabilities"
   >,
   overrides: Pick<
     PolicyContext,
@@ -327,13 +377,15 @@ export function buildPolicyContextFromRuntimePlan(
     activeProfile: profile,
     activeStateTaskOverlay: overlay?.id,
     effective: applyTaskOverlay(profile, overlay),
-    ...(runtimePlan.intent ? { intent: runtimePlan.intent } : {}),
+    ...(normalizePlannerIntentForPolicy(runtimePlan.intent)
+      ? { intent: normalizePlannerIntentForPolicy(runtimePlan.intent) }
+      : {}),
     ...(runtimePlan.requestedToolNames?.length
       ? { requestedToolNames: runtimePlan.requestedToolNames }
       : {}),
     ...(runtimePlan.publishTargets?.length ? { publishTargets: runtimePlan.publishTargets } : {}),
-    ...(runtimePlan.requiredCapabilities?.length
-      ? { requestedCapabilities: runtimePlan.requiredCapabilities }
+    ...(runtimePlan.bootstrapRequiredCapabilities?.length
+      ? { requestedCapabilities: runtimePlan.bootstrapRequiredCapabilities }
       : {}),
     ...overrides,
   };
@@ -348,6 +400,7 @@ export function buildPolicyContextFromExecutionContext(
     | "requestedToolNames"
     | "publishTargets"
     | "requiredCapabilities"
+    | "bootstrapRequiredCapabilities"
   >,
   overrides: Pick<
     PolicyContext,
@@ -367,7 +420,8 @@ export function buildPolicyContextFromExecutionContext(
       intent: execution.intent,
       requestedToolNames: execution.requestedToolNames,
       publishTargets: execution.publishTargets,
-      requiredCapabilities: execution.requiredCapabilities,
+      bootstrapRequiredCapabilities:
+        execution.bootstrapRequiredCapabilities ?? execution.requiredCapabilities,
     },
     overrides,
   );
@@ -501,7 +555,7 @@ export function resolvePlatformExecutionDecision(
         intent: input.intent,
         requestedToolNames: input.requestedTools,
         publishTargets: input.publishTargets,
-        requiredCapabilities: baseCapabilitySummary.requiredCapabilities,
+        bootstrapRequiredCapabilities: baseCapabilitySummary.bootstrapRequiredCapabilities,
       },
       {
         explicitApproval: options.explicitApproval,
@@ -571,8 +625,6 @@ export function buildRecipePlannerInputFromRuntimePlan(
       ? { artifactKinds: runtime.artifactKinds as ArtifactKind[] }
       : {}),
     ...(runtime.publishTargets?.length ? { publishTargets: runtime.publishTargets } : {}),
-    ...(runtime.requestedToolNames?.length
-      ? { requestedTools: runtime.requestedToolNames }
-      : {}),
+    ...(runtime.requestedToolNames?.length ? { requestedTools: runtime.requestedToolNames } : {}),
   };
 }

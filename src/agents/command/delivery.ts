@@ -89,6 +89,24 @@ function mergePostDeliveryRuntimeMeta(params: {
   };
 }
 
+/**
+ * Resolves the runtime run id used to correlate outbound delivery actions with the
+ * run closure verification path. CLI turns often omit `opts.runId`, so we fall back
+ * to the completion outcome's run id to preserve verified delivery receipts.
+ *
+ * @param {AgentCommandOpts} opts - Agent command options for the current run.
+ * @param {RunResult} result - Embedded run result that may already contain closure metadata.
+ * @returns {string | undefined} Run id for durable delivery action correlation.
+ */
+function resolveDeliveryActionRunId(opts: AgentCommandOpts, result: RunResult): string | undefined {
+  const explicitRunId = opts.runId?.trim();
+  if (explicitRunId) {
+    return explicitRunId;
+  }
+  const completionRunId = result.meta?.completionOutcome?.runId?.trim();
+  return completionRunId ? completionRunId : undefined;
+}
+
 export async function deliverAgentCommandResult(params: {
   cfg: OpenClawConfig;
   deps: CliDeps;
@@ -100,6 +118,7 @@ export async function deliverAgentCommandResult(params: {
   payloads: RunResult["payloads"];
 }) {
   const { cfg, deps, runtime, opts, outboundSession, sessionEntry, payloads, result } = params;
+  const actionRunId = resolveDeliveryActionRunId(opts, result);
   const effectiveSessionKey = outboundSession?.key ?? opts.sessionKey;
   const deliver = opts.deliver === true;
   const bestEffortDeliver = opts.bestEffortDeliver === true;
@@ -245,7 +264,7 @@ export async function deliverAgentCommandResult(params: {
   if (deliver && deliveryChannel && !isInternalMessageChannel(deliveryChannel)) {
     if (deliveryTarget) {
       await deliverOutboundPayloads({
-        ...(opts.runId ? { actionRunId: opts.runId } : {}),
+        ...(actionRunId ? { actionRunId } : {}),
         cfg,
         channel: deliveryChannel,
         to: deliveryTarget,

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
 import { getAcpSessionManager } from "../acp/control-plane/manager.js";
 import { resolveAcpAgentPolicyError, resolveAcpDispatchPolicyError } from "../acp/policy.js";
@@ -421,6 +422,126 @@ type BuildEmbeddedAgentRunParams = Pick<
   bootstrapPromptWarningSignature?: string;
 };
 
+/**
+ * Sanitizes an inbound attachment file name for workspace staging.
+ *
+ * @param {string} fileName - Original attachment file name from the caller.
+ * @param {number} index - Stable attachment index for fallback naming.
+ * @returns {string} Safe file name for `media/inbound`.
+ */
+function sanitizeInboundAttachmentFileName(fileName: string, index: number): string {
+  const baseName = path.basename(fileName.trim());
+  const cleaned = baseName.replace(/[^\w.-]+/g, "_");
+  return cleaned || `attachment-${String(index + 1)}.bin`;
+}
+
+/**
+ * Appends a compact note so the agent can discover staged inbound files via tools.
+ *
+ * @param {string} message - Original user-visible prompt text.
+ * @param {string[]} relativePaths - Workspace-relative staged file paths.
+ * @param {string[]} inlinePreviews - Optional inline text previews for small inbound files.
+ * @returns {string} Prompt text with a short attached-files note.
+ */
+export function appendInboundFilesContext(
+  message: string,
+  relativePaths: string[],
+  inlinePreviews: string[] = [],
+): string {
+  if (relativePaths.length === 0) {
+    return message;
+  }
+  const attachmentBlock = [
+    "Attached files available in workspace:",
+    ...relativePaths.map((relativePath) => `- ${relativePath}`),
+  ].join("\n");
+  const previewBlock =
+    inlinePreviews.length > 0
+      ? `\n\nInline file previews for immediate reasoning:\n\n${inlinePreviews.join("\n\n")}`
+      : "";
+  const previewInstruction =
+    inlinePreviews.length > 0
+      ? "\n\nUse the inline file previews below as the primary source for this turn. Return the final answer directly and do not emit raw tool-call JSON, placeholder tool payloads, or memory search requests."
+      : "";
+  return `${message}\n\n${attachmentBlock}${previewInstruction}${previewBlock}`;
+}
+
+/**
+ * Builds a compact CSV preview so smaller tabular attachments can be reasoned
+ * about directly even when the selected model does not reliably trigger tools.
+ *
+ * @param {string} fileName - Sanitized staged file name.
+ * @param {string} relativePath - Workspace-relative file path.
+ * @param {Buffer} bytes - Raw decoded attachment bytes.
+ * @returns {string | undefined} Markdown preview block when the file is eligible.
+ */
+export function buildInlineCsvPreview(
+  fileName: string,
+  relativePath: string,
+  bytes: Buffer,
+): string | undefined {
+  if (!fileName.toLowerCase().endsWith(".csv") || bytes.byteLength > 16_000) {
+    return undefined;
+  }
+  const rawText = bytes.toString("utf8").replace(/\r\n/g, "\n").trim();
+  if (!rawText) {
+    return undefined;
+  }
+  const lines = rawText.split("\n");
+  const previewLines = lines.slice(0, 40);
+  const previewText = previewLines.join("\n").slice(0, 3_500);
+  const truncated = previewLines.length < lines.length || previewText.length < rawText.length;
+  return [
+    `File preview: ${fileName} (${relativePath})`,
+    "```csv",
+    previewText,
+    "```",
+    truncated ? "Preview truncated; open the staged file if more rows are needed." : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Stages caller-provided document attachments into the agent workspace so the
+ * planner/runtime can reason about file names and the model can inspect files.
+ *
+ * @param {{ workspaceDir: string; documents: NonNullable<AgentCommandOpts["documents"]> }} params - Workspace and raw document attachments.
+ * @returns {Promise<{ fileNames: string[]; relativePaths: string[]; inlinePreviews: string[] }>} Staged file names, workspace-relative paths, and inline prompt previews.
+ */
+async function stageInboundDocuments(params: {
+  workspaceDir: string;
+  documents: NonNullable<AgentCommandOpts["documents"]>;
+}): Promise<{
+  fileNames: string[];
+  relativePaths: string[];
+  inlinePreviews: string[];
+}> {
+  if (params.documents.length === 0) {
+    return { fileNames: [], relativePaths: [], inlinePreviews: [] };
+  }
+  const inboundDir = path.join(params.workspaceDir, "media", "inbound");
+  await fs.mkdir(inboundDir, { recursive: true });
+  const fileNames: string[] = [];
+  const relativePaths: string[] = [];
+  const inlinePreviews: string[] = [];
+  for (const [index, document] of params.documents.entries()) {
+    const safeFileName = sanitizeInboundAttachmentFileName(document.fileName, index);
+    const uniqueFileName = `${path.parse(safeFileName).name}---${Date.now()}-${String(index)}${path.extname(safeFileName)}`;
+    const absolutePath = path.join(inboundDir, uniqueFileName);
+    const bytes = Buffer.from(document.data, "base64");
+    await fs.writeFile(absolutePath, bytes);
+    fileNames.push(safeFileName);
+    const relativePath = path.posix.join("media", "inbound", uniqueFileName);
+    relativePaths.push(relativePath);
+    const inlinePreview = buildInlineCsvPreview(safeFileName, relativePath, bytes);
+    if (inlinePreview) {
+      inlinePreviews.push(inlinePreview);
+    }
+  }
+  return { fileNames, relativePaths, inlinePreviews };
+}
+
 export function resolveAgentCommandFallbackOverride(params: {
   platformRuntimePlan: ResolvedPlatformRuntimePlan;
   configuredFallbacks?: string[];
@@ -485,6 +606,7 @@ export function buildEmbeddedAgentRunParams(
 
 export function buildPlatformPlannerInput(params: {
   prompt: string;
+  fileNames?: string[];
   opts: Pick<AgentCommandOpts, "messageChannel" | "channel" | "replyChannel">;
   sessionEntry?: Pick<
     SessionEntry,
@@ -500,6 +622,7 @@ export function buildPlatformPlannerInput(params: {
     return buildExecutionDecisionInput(
       buildSessionBackedExecutionDecisionInput({
         draftPrompt: params.prompt,
+        ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
         storePath: params.storePath,
         channelHints: params.opts,
         sessionEntry: params.sessionEntry,
@@ -508,6 +631,7 @@ export function buildPlatformPlannerInput(params: {
   }
   return buildExecutionDecisionInput({
     prompt: params.prompt,
+    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
     channelHints: params.opts,
     sessionEntry: params.sessionEntry,
   });
@@ -656,7 +780,7 @@ async function prepareAgentCommandExecution(
   if (!message.trim()) {
     throw new Error("Message (--message) is required");
   }
-  const body = prependInternalEventContext(message, opts.internalEvents);
+  let body = prependInternalEventContext(message, opts.internalEvents);
   if (!opts.to && !opts.sessionId && !opts.sessionKey && !opts.agentId) {
     throw new Error("Pass --to <E.164>, --session-id, or --agent to choose a session");
   }
@@ -749,6 +873,7 @@ async function prepareAgentCommandExecution(
   } = sessionResolution;
   const platformPlannerInput = buildPlatformPlannerInput({
     prompt: body,
+    fileNames: opts.documents?.map((document) => document.fileName),
     opts,
     sessionEntry: sessionEntryRaw,
     storePath,
@@ -792,6 +917,15 @@ async function prepareAgentCommandExecution(
     ensureBootstrapFiles: !agentCfg?.skipBootstrap,
   });
   const workspaceDir = workspace.dir;
+  const stagedDocuments = await stageInboundDocuments({
+    workspaceDir,
+    documents: opts.documents ?? [],
+  });
+  body = appendInboundFilesContext(
+    body,
+    stagedDocuments.relativePaths,
+    stagedDocuments.inlinePreviews,
+  );
   const runId = opts.runId?.trim() || sessionId;
   const acpManager = getAcpSessionManager();
   const acpResolution = sessionKey
@@ -803,6 +937,7 @@ async function prepareAgentCommandExecution(
 
   return {
     body,
+    platformPlannerInput,
     platformRuntimePlan,
     cfg,
     normalizedSpawned,
@@ -837,6 +972,7 @@ async function agentCommandInternal(
   const prepared = await prepareAgentCommandExecution(opts, runtime);
   const {
     body,
+    platformPlannerInput,
     platformRuntimePlan,
     cfg,
     normalizedSpawned,
