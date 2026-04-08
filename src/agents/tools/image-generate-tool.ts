@@ -194,7 +194,13 @@ export function resolveImageGenerationModelConfigForTool(params: {
   cfg?: OpenClawConfig;
   agentDir?: string;
 }): ToolModelConfig | null {
-  const explicit = coerceToolModelConfig(params.cfg?.agents?.defaults?.imageGenerationModel);
+  const explicitImageGeneration = coerceToolModelConfig(
+    params.cfg?.agents?.defaults?.imageGenerationModel,
+  );
+  const explicitImageModel = coerceToolModelConfig(params.cfg?.agents?.defaults?.imageModel);
+  const explicit = hasToolModelConfig(explicitImageGeneration)
+    ? explicitImageGeneration
+    : explicitImageModel;
   if (hasToolModelConfig(explicit)) {
     return explicit;
   }

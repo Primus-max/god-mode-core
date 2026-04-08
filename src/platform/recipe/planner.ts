@@ -3,6 +3,12 @@ import {
   type ProfileResolution,
   type ProfileResolverInput,
 } from "../profile/resolver.js";
+import {
+  countTabularFiles,
+  promptSuggestsCalculationIntent,
+  promptSuggestsCompareIntent,
+  TABULAR_ATTACHMENT_EXTENSION,
+} from "../decision/intent-signals.js";
 import type { ArtifactKind, ExecutionRecipe, PlannerOutput } from "../schemas/index.js";
 import { PlannerOutputSchema } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
@@ -90,22 +96,19 @@ function hasTableSignal(input: RecipePlannerInput, files: string[]): boolean {
   const prompt = (input.prompt ?? "").toLowerCase();
   return (
     /\b(table|spreadsheet|csv|xlsx|rows|columns|line items?)\b/iu.test(prompt) ||
-    files.some((file) => /\.(csv|xlsx|xls|ods)$/iu.test(file))
+    files.some((file) => TABULAR_ATTACHMENT_EXTENSION.test(file))
   );
 }
 
 function tabularFileCount(files: string[]): number {
-  return files.filter((file) => /\.(csv|xlsx|xls|ods)$/iu.test(file)).length;
+  return countTabularFiles(files);
 }
 
 function hasCompareSignal(input: RecipePlannerInput, files: string[]): boolean {
   const prompt = input.prompt ?? "";
   const lower = prompt.toLowerCase();
   const tabular = tabularFileCount(files);
-  const compareWord =
-    /\b(compare|comparison|comparing|diff|reconcile|reconciliation|side[- ]by[- ]side|price\s*diff|variance|discrepanc|match\s+up|align\s+(the\s+)?(rows|sheets))\b/iu.test(
-      prompt,
-    ) || /\b(сравн|сопостав|расхожден|совпаден|разница\s+в\s+цен|сверк|выверк)\w*\b/iu.test(prompt);
+  const compareWord = promptSuggestsCompareIntent(prompt);
   const multiTabularPrompt =
     /\b(two|three|both|multiple)\s+(csv|spreadsheets?|workbooks?|exports?|files?)\b/iu.test(
       lower,
@@ -120,15 +123,7 @@ function hasCompareSignal(input: RecipePlannerInput, files: string[]): boolean {
 }
 
 function hasCalculationSignal(input: RecipePlannerInput): boolean {
-  const prompt = input.prompt ?? "";
-  return (
-    /\b(ventilation|vent\s|cfm|ach\b|airflow|hvac|duct|btu|cubic\s*(foot|feet|meter|metre)|square\s*(foot|feet|meter|metre)|unit\s*conversion|dimensional\s*analysis|convert\s+\d+)\b/iu.test(
-      prompt,
-    ) ||
-    /\b(вентиляц|приток|вытяжк|кубатур|площад|перевод\s+единиц|единиц\s+измерен|размер\s+помещен|расч[её]т|рассчитай)\w*\b/iu.test(
-      prompt,
-    )
-  );
+  return promptSuggestsCalculationIntent(input.prompt ?? "");
 }
 
 function buildRecipeScore(params: {

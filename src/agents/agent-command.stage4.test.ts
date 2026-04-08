@@ -7,6 +7,7 @@ import {
   appendInboundFilesContext,
   buildInlineCsvPreview,
   buildPlatformPlannerInput,
+  shouldGrantPlatformExplicitApprovalForAgentTurn,
 } from "./agent-command.js";
 
 const tempDirs: string[] = [];
@@ -115,9 +116,11 @@ describe("agent-command Stage 4 planner input helpers", () => {
       "media/inbound/offer-a.csv",
       Buffer.from("sku,price\nA-100,10\nB-200,20\n", "utf8"),
     );
-    const prompt = appendInboundFilesContext("Сравни файлы.", ["media/inbound/offer-a.csv"], [
-      preview!,
-    ]);
+    const prompt = appendInboundFilesContext(
+      "Сравни файлы.",
+      ["media/inbound/offer-a.csv"],
+      [preview!],
+    );
 
     expect(preview).toContain("```csv");
     expect(preview).toContain("A-100,10");
@@ -135,5 +138,10 @@ describe("agent-command Stage 4 planner input helpers", () => {
     );
 
     expect(preview).toBeUndefined();
+  });
+
+  it("treats owner-originated turns as explicitly approved for platform execution", () => {
+    expect(shouldGrantPlatformExplicitApprovalForAgentTurn({ senderIsOwner: true })).toBe(true);
+    expect(shouldGrantPlatformExplicitApprovalForAgentTurn({ senderIsOwner: false })).toBe(false);
   });
 });

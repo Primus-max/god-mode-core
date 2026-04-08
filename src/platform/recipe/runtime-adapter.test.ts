@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
-import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/index.js";
+import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { ExecutionRecipe } from "../schemas/index.js";
 import { planExecutionRecipe } from "./planner.js";
 import {
@@ -38,6 +38,12 @@ describe("resolvePlatformRuntimePlan", () => {
       }),
     );
     expect(resolved.runtime.prependSystemContext).toContain("Execution recipe: doc_ingest.");
+    expect(resolved.runtime.prependSystemContext).toContain(
+      "Reply in the same language as the user's latest message",
+    );
+    expect(resolved.runtime.prependSystemContext).toContain(
+      "do not claim completion without producing a real artifact or attachment",
+    );
     expect(resolved.runtime.prependContext).toContain("Planner reasoning:");
     expect(resolved.runtime.prependContext).toContain("Builder domain context:");
     expect(resolved.runtime.prependContext).toMatch(/SNiP\/SP\/GOST/i);

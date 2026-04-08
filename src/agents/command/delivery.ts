@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import {
   reevaluateMessagingDecisionForMessagingRun,
   type MessagingDeliveryClosureCandidate,
@@ -11,6 +12,7 @@ import {
   resolveAgentOutboundTarget,
 } from "../../infra/outbound/agent-delivery.js";
 import { resolveMessageChannelSelection } from "../../infra/outbound/channel-selection.js";
+import { resolveOutboundChannelPlugin } from "../../infra/outbound/channel-resolution.js";
 import { deliverOutboundPayloads } from "../../infra/outbound/deliver.js";
 import { buildOutboundResultEnvelope } from "../../infra/outbound/envelope.js";
 import {
@@ -107,6 +109,40 @@ function resolveDeliveryActionRunId(opts: AgentCommandOpts, result: RunResult): 
   return completionRunId ? completionRunId : undefined;
 }
 
+function createDeterministicDeliveryActionId(params: {
+  actionRunId?: string;
+  sessionKey?: string;
+  channel?: string;
+  to?: string;
+  accountId?: string;
+  threadId?: string | number | null;
+  replyToId?: string | null;
+  payloads: ReturnType<typeof normalizeOutboundPayloadsForJson>;
+}): string | undefined {
+  const actionRunId = params.actionRunId?.trim();
+  const channel = params.channel?.trim();
+  const to = params.to?.trim();
+  if (!actionRunId || !channel || !to) {
+    return undefined;
+  }
+  const fingerprint = crypto
+    .createHash("sha1")
+    .update(
+      JSON.stringify({
+        sessionKey: params.sessionKey ?? null,
+        channel,
+        to,
+        accountId: params.accountId ?? null,
+        threadId: params.threadId ?? null,
+        replyToId: params.replyToId ?? null,
+        payloads: params.payloads,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 20);
+  return `messaging:${actionRunId}:${fingerprint}`;
+}
+
 export async function deliverAgentCommandResult(params: {
   cfg: OpenClawConfig;
   deps: CliDeps;
@@ -157,7 +193,10 @@ export async function deliverAgentCommandResult(params: {
         };
   // Channel docking: delivery channels are resolved via plugin registry.
   const deliveryPlugin = !isInternalMessageChannel(deliveryChannel)
-    ? getChannelPlugin(normalizeChannelId(deliveryChannel) ?? deliveryChannel)
+    ? resolveOutboundChannelPlugin({
+        channel: normalizeChannelId(deliveryChannel) ?? deliveryChannel,
+        cfg,
+      })
     : undefined;
 
   const isDeliveryChannelKnown =
@@ -220,6 +259,16 @@ export async function deliverAgentCommandResult(params: {
   }
 
   const normalizedPayloads = normalizeOutboundPayloadsForJson(payloads ?? []);
+  const deterministicActionId = createDeterministicDeliveryActionId({
+    actionRunId,
+    sessionKey: effectiveSessionKey,
+    channel: deliveryChannel,
+    to: deliveryTarget ?? undefined,
+    accountId: resolvedAccountId,
+    threadId: resolvedThreadTarget ?? null,
+    replyToId: resolvedReplyToId ?? null,
+    payloads: normalizedPayloads,
+  });
   if (opts.json) {
     runtime.log(
       JSON.stringify(
@@ -264,6 +313,7 @@ export async function deliverAgentCommandResult(params: {
   if (deliver && deliveryChannel && !isInternalMessageChannel(deliveryChannel)) {
     if (deliveryTarget) {
       await deliverOutboundPayloads({
+        ...(deterministicActionId ? { actionId: deterministicActionId } : {}),
         ...(actionRunId ? { actionRunId } : {}),
         cfg,
         channel: deliveryChannel,

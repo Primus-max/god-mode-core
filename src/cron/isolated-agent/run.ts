@@ -480,6 +480,13 @@ export async function runCronIsolatedAgentTurn(params: {
         runId: cronSession.sessionEntry.sessionId,
         agentDir,
         fallbacksOverride: fallbackOverride,
+        preflightPrompt: promptText,
+        preflightPlannerInput: {
+          intent: platformExecutionContext.intent,
+          requestedTools: platformExecutionContext.requestedToolNames,
+          fileNames: [],
+          artifactKinds: platformExecutionContext.artifactKinds,
+        },
         run: async (providerOverride, modelOverride, runOptions) => {
           if (abortSignal?.aborted) {
             throw new Error(abortReason());

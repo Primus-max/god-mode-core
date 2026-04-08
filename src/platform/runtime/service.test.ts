@@ -591,6 +591,99 @@ describe("platform runtime checkpoint service", () => {
     );
   });
 
+  it("treats text-only delivery as missing output for physical artifact requests", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-structured-artifact-required",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: ["messaging:artifact-delivery"],
+      attemptedActionIds: [],
+      confirmedActionIds: ["messaging:artifact-delivery"],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const contract = service.buildExecutionContract({
+      runId: "run-structured-artifact-required",
+      outcome,
+      receipts: [
+        {
+          kind: "messaging_delivery",
+          name: "delivery.telegram",
+          status: "success",
+          proof: "verified",
+          summary: "runtime action confirmed",
+        },
+      ],
+      executionIntent: {
+        recipeId: "doc_ingest",
+        intent: "document",
+        artifactKinds: ["document"],
+      },
+      evidence: {
+        hasOutput: true,
+        hasStructuredReplyPayload: false,
+        stagedReplyCount: 1,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+      },
+    });
+    const verification = service.verifyExecutionContract({
+      contract,
+      outcome,
+      evidence: {
+        hasOutput: true,
+        hasStructuredReplyPayload: false,
+        stagedReplyCount: 1,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+        declaredIntent: "document",
+        declaredRecipeId: "doc_ingest",
+        declaredArtifactKinds: ["document"],
+      },
+    });
+    expect(verification.status).toBe("mismatch");
+    expect(verification.reasons.join(" ")).toContain("expected output");
+
+    const evidence = service.buildAcceptanceEvidence({
+      outcome,
+      evidence: {
+        hasOutput: true,
+        hasStructuredReplyPayload: false,
+        stagedReplyCount: 1,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+      },
+      executionIntent: {
+        runId: "run-structured-artifact-required",
+        recipeId: "doc_ingest",
+        intent: "document",
+        artifactKinds: ["document"],
+        expectations: {},
+      },
+      executionVerification: verification,
+    });
+    const acceptance = service.evaluateAcceptance({
+      runId: "run-structured-artifact-required",
+      outcome,
+      evidence,
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        action: "retry",
+        remediation: "semantic_retry",
+        reasonCode: "contract_mismatch",
+      }),
+    );
+  });
+
   it("does not close non-messaging runs without a verified structured receipt", () => {
     const service = createPlatformRuntimeCheckpointService();
     const outcome: PlatformRuntimeRunOutcome = {
@@ -659,6 +752,58 @@ describe("platform runtime checkpoint service", () => {
         action: "retry",
         remediation: "semantic_retry",
         reasonCode: "contract_mismatch",
+      }),
+    );
+  });
+
+  it("ignores superseded failed receipts when the same tool later succeeds", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-superseded-failure",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const verification = service.verifyExecutionContract({
+      contract: {
+        runId: "run-superseded-failure",
+        receipts: [
+          {
+            kind: "tool",
+            name: "image_generate",
+            status: "failed",
+            proof: "reported",
+            reasons: ["provider fallback failed"],
+          },
+          {
+            kind: "tool",
+            name: "image_generate",
+            status: "success",
+            proof: "reported",
+          },
+        ],
+        expectations: {
+          requiresOutput: true,
+        },
+      },
+      outcome,
+      evidence: {
+        hasOutput: true,
+      },
+    });
+    expect(verification).toEqual(
+      expect.objectContaining({
+        status: "verified",
       }),
     );
   });

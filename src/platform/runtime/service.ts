@@ -4,6 +4,7 @@ import path from "node:path";
 import { resolveStateDir } from "../../config/paths.js";
 import { emitRunClosureSummary, emitRuntimeRecoveryTelemetry } from "../../infra/agent-events.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
+import type { ArtifactKind } from "../schemas/index.js";
 import {
   PlatformRuntimeAcceptanceResultSchema,
   PlatformRuntimeActionSchema,
@@ -61,6 +62,31 @@ const PLATFORM_RUNTIME_SERVICE_KEY = Symbol.for("openclaw.platform.runtime.servi
 const PLATFORM_RUNTIME_CHECKPOINTS_FILENAME = "platform-runtime-checkpoints.json";
 const PLATFORM_RUNTIME_ACTIONS_FILENAME = "platform-runtime-actions.json";
 const PLATFORM_RUNTIME_CLOSURES_FILENAME = "platform-runtime-closures.json";
+
+const STRUCTURED_OUTPUT_ARTIFACT_KINDS = new Set<ArtifactKind>([
+  "document",
+  "estimate",
+  "site",
+  "release",
+  "binary",
+  "video",
+  "image",
+  "audio",
+  "archive",
+]);
+
+/**
+ * Checks whether the declared artifact kinds require a tangible structured
+ * deliverable instead of a plain text-only completion.
+ *
+ * @param {readonly string[] | undefined} artifactKinds - Artifact kinds declared by planner/runtime metadata.
+ * @returns {boolean} True when the run must close with structured artifact evidence.
+ */
+function hasStructuredOutputArtifactKinds(artifactKinds?: readonly string[]): boolean {
+  return Boolean(
+    artifactKinds?.some((kind) => STRUCTURED_OUTPUT_ARTIFACT_KINDS.has(kind as ArtifactKind)),
+  );
+}
 
 export type PlatformRuntimeCheckpointService = {
   configure: (params: { stateDir?: string }) => void;
@@ -622,12 +648,26 @@ function deriveRequiredReceiptKinds(params: {
   return kinds.size > 0 ? Array.from(kinds) : undefined;
 }
 
+/**
+ * Determines whether the declared execution intent expects a tangible artifact
+ * rather than a plain text-only completion message.
+ *
+ * @param {PlatformRuntimeExecutionIntent | undefined} executionIntent - Declared execution intent for the run.
+ * @returns {boolean} True when the run should only close after structured artifact evidence exists.
+ */
+function requiresStructuredArtifactOutput(
+  executionIntent?: PlatformRuntimeExecutionIntent,
+): boolean {
+  return hasStructuredOutputArtifactKinds(executionIntent?.artifactKinds);
+}
+
 function deriveExecutionContractExpectations(params: {
   outcome: PlatformRuntimeRunOutcome;
   evidence: PlatformRuntimeAcceptanceEvidence;
   executionIntent?: PlatformRuntimeExecutionIntent;
 }): PlatformRuntimeExecutionContract["expectations"] {
   const declared = params.executionIntent?.expectations ?? {};
+  const needsStructuredArtifactOutput = requiresStructuredArtifactOutput(params.executionIntent);
   const requiresMessagingDelivery =
     declared.requiresMessagingDelivery ??
     (params.evidence.didSendViaMessagingTool === true ||
@@ -641,7 +681,9 @@ function deriveExecutionContractExpectations(params: {
   return PlatformRuntimeExecutionContractSchema.shape.expectations.parse({
     requiresOutput:
       declared.requiresOutput ??
-      (params.evidence.hasOutput === true || params.evidence.hasStructuredReplyPayload === true),
+      (needsStructuredArtifactOutput ||
+        params.evidence.hasOutput === true ||
+        params.evidence.hasStructuredReplyPayload === true),
     requiresMessagingDelivery,
     requiresConfirmedAction:
       declared.requiresConfirmedAction ?? params.outcome.actionIds.length > 0,
@@ -1508,6 +1550,17 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const expectations = contract.expectations;
       const hasBlockedNoProgress = receipts.some((receipt) => receipt.status === "blocked");
       const hasFailedReceipt = counts.failed > 0;
+      const hasTerminalFailedReceipt = receipts.some(
+        (receipt) =>
+          receipt.status === "failed" &&
+          !receipts.some(
+            (candidate) =>
+              candidate.status === "success" &&
+              candidate.kind === receipt.kind &&
+              candidate.name === receipt.name &&
+              (receipt.summary ? candidate.summary === receipt.summary : true),
+          ),
+      );
       const hasDegradedReceipt = counts.degraded > 0;
       const hasPartialReceipt = counts.partial > 0;
       const hasWarningReceipt = counts.warning > 0;
@@ -1528,7 +1581,14 @@ export function createPlatformRuntimeCheckpointService(params?: {
         evidence.deliveredReplyCount ?? 0,
         verifiedConfirmedDeliveryCount,
       );
-      const hasOutput = evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
+      const requiresStructuredOutput = hasStructuredOutputArtifactKinds(
+        evidence.declaredArtifactKinds,
+      );
+      const hasOutput = requiresStructuredOutput
+        ? evidence.hasStructuredReplyPayload === true ||
+          (params.outcome?.artifactIds.length ?? 0) > 0 ||
+          (params.outcome?.bootstrapRequestIds.length ?? 0) > 0
+        : evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
       const declaredIntent = describeDeclaredIntent(evidence);
       const confirmedActionCount =
         evidence.confirmedActionCount ?? params.outcome?.confirmedActionIds.length ?? 0;
@@ -1543,7 +1603,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       if (hasBlockedNoProgress) {
         reasons.push("Execution receipts show no_progress on one or more tool or runtime paths.");
       }
-      if (hasFailedReceipt) {
+      if (hasTerminalFailedReceipt) {
         reasons.push("Execution receipts contain a failed outcome.");
       }
       if (expectations?.requiresMessagingDelivery && confirmedDeliveryCount === 0) {
@@ -1591,7 +1651,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       let status: PlatformRuntimeExecutionVerification["status"] = "verified";
       if (hasBlockedNoProgress) {
         status = "no_progress";
-      } else if (hasFailedReceipt || reasons.length > 0) {
+      } else if (hasTerminalFailedReceipt || reasons.length > 0) {
         status = "mismatch";
       } else if (hasDegradedReceipt) {
         status = "degraded";

@@ -623,16 +623,9 @@ function ensureBootstrapRequests(params: {
   settings?: QueueSettings;
 }): string[] {
   const outcome = resolveDecisionOutcome(params.decision);
-  if ((outcome?.bootstrapRequestIds.length ?? 0) > 0) {
-    return outcome?.bootstrapRequestIds ?? [];
-  }
   const capabilityIds = Array.from(
     new Set(params.executionIntent?.bootstrapRequiredCapabilities ?? []),
   );
-  if (capabilityIds.length === 0) {
-    return [];
-  }
-
   const queueKey = params.queueKey?.trim();
   const resumeCandidate =
     capabilityIds.length === 1 && queueKey && params.sourceRun && params.settings
@@ -645,6 +638,26 @@ function ensureBootstrapRequests(params: {
         })
       : undefined;
   const blockedRunResume = resumeCandidate?.success ? resumeCandidate.data : undefined;
+  const existingRequestIds = outcome?.bootstrapRequestIds ?? [];
+  if (existingRequestIds.length > 0) {
+    if (blockedRunResume) {
+      const service = getPlatformBootstrapService();
+      for (const requestId of existingRequestIds) {
+        const existing = service.get(requestId);
+        if (!existing || existing.request.blockedRunResume) {
+          continue;
+        }
+        service.create({
+          ...existing.request,
+          blockedRunResume,
+        });
+      }
+    }
+    return existingRequestIds;
+  }
+  if (capabilityIds.length === 0) {
+    return [];
+  }
 
   const registry = createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
   const resolutions = resolveBootstrapRequests({

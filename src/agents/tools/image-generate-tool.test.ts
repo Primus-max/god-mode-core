@@ -134,6 +134,27 @@ describe("createImageGenerateTool", () => {
     });
   });
 
+  it("reuses agents.defaults.imageModel when imageGenerationModel is not configured", () => {
+    stubImageGenerationProviders();
+    expect(
+      resolveImageGenerationModelConfigForTool({
+        cfg: {
+          agents: {
+            defaults: {
+              imageModel: {
+                primary: "google/gemini-3.1-flash-image-preview",
+                fallbacks: ["openai/gpt-image-1"],
+              },
+            },
+          },
+        },
+      }),
+    ).toEqual({
+      primary: "google/gemini-3.1-flash-image-preview",
+      fallbacks: ["openai/gpt-image-1"],
+    });
+  });
+
   it("generates images and returns details.media paths", async () => {
     const generateImage = vi.spyOn(imageGenerationRuntime, "generateImage").mockResolvedValue({
       provider: "openai",
@@ -527,7 +548,9 @@ describe("createImageGenerateTool", () => {
     expect(text).not.toContain("auth: set");
     expect(result).toMatchObject({
       details: {
-        providers: [expect.objectContaining({ id: "__proto__", authEnvVars: [] })],
+        providers: expect.arrayContaining([
+          expect.objectContaining({ id: "__proto__", authEnvVars: [] }),
+        ]),
       },
     });
   });

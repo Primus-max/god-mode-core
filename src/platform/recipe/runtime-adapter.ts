@@ -65,6 +65,18 @@ export type PlatformCapabilitySummary = {
   bootstrapResolutions: BootstrapResolution[];
 };
 
+const STRUCTURED_OUTPUT_ARTIFACT_KINDS = new Set<ArtifactKind>([
+  "document",
+  "estimate",
+  "site",
+  "release",
+  "binary",
+  "video",
+  "image",
+  "audio",
+  "archive",
+]);
+
 export type ResolvedPlatformExecutionDecision = ExecutionPlan & {
   runtime: RecipeRuntimePlan;
   policyContext: PolicyContext;
@@ -138,9 +150,45 @@ export function buildExecutionSurfaceSnapshot(params: {
   });
 }
 
+/**
+ * Returns execution-time guardrails for artifact requests that must not degrade
+ * into a plain status message.
+ *
+ * @param {ArtifactKind[] | undefined} artifactKinds - Requested artifact kinds from planner input.
+ * @returns {string | undefined} Extra system guidance when the run must emit a tangible artifact.
+ */
+function buildArtifactOutputGuardrails(artifactKinds?: ArtifactKind[]): string | undefined {
+  if (!artifactKinds?.some((kind) => STRUCTURED_OUTPUT_ARTIFACT_KINDS.has(kind))) {
+    return undefined;
+  }
+  return [
+    "Artifact contract: do not claim completion without producing a real artifact or attachment.",
+    "When a file-like deliverable is requested, use the appropriate tool and return the actual deliverable instead of a text-only status update.",
+  ].join(" ");
+}
+
+/**
+ * Keeps reply language aligned with the user's latest turn so lightweight local
+ * models do not drift into an unrelated language on simple chat requests.
+ *
+ * @returns {string} Stable language-continuity instruction for the system prompt.
+ */
+function buildReplyLanguageGuardrail(): string {
+  return "Reply in the same language as the user's latest message unless they explicitly ask for another language.";
+}
+
+/**
+ * Builds the system-context prefix for the selected execution recipe.
+ *
+ * @param {ExecutionPlan} plan - Planned execution route chosen by the planner.
+ * @param {PlatformCapabilitySummary | undefined} capabilitySummary - Capability readiness summary for the route.
+ * @param {ArtifactKind[] | undefined} artifactKinds - Requested artifact kinds inferred for the run.
+ * @returns {string} Joined system-context instructions for the embedded agent.
+ */
 function buildSystemContext(
   plan: ExecutionPlan,
   capabilitySummary?: PlatformCapabilitySummary,
+  artifactKinds?: ArtifactKind[],
 ): string {
   return [
     `Execution recipe: ${plan.recipe.id}.`,
@@ -148,6 +196,8 @@ function buildSystemContext(
     capabilitySummary?.requiredCapabilities.length
       ? `Required capabilities: ${capabilitySummary.requiredCapabilities.join(", ")}.`
       : undefined,
+    buildReplyLanguageGuardrail(),
+    buildArtifactOutputGuardrails(artifactKinds),
     plan.recipe.systemPrompt,
   ]
     .filter(Boolean)
@@ -273,7 +323,7 @@ function buildCapabilitySummary(params: {
       : (params.plan.recipe.id === "table_extract" || params.plan.recipe.id === "table_compare") &&
           allTabularFilesAreCsv(params.input.fileNames)
         ? []
-      : (params.plan.recipe.requiredCapabilities ?? []);
+        : (params.plan.recipe.requiredCapabilities ?? []);
   if (requiredCapabilities.length === 0) {
     return {
       requiredCapabilities: [],
@@ -480,7 +530,11 @@ export function adaptExecutionPlanToRuntime(
 ): RecipeRuntimePlan {
   const overrideModel = plan.plannerOutput.overrides?.model;
   const parsedModel = overrideModel ? parseModelRef(overrideModel, DEFAULT_PROVIDER) : null;
-  const prependSystemContext = buildSystemContext(plan, params?.capabilitySummary);
+  const prependSystemContext = buildSystemContext(
+    plan,
+    params?.capabilitySummary,
+    params?.input?.artifactKinds,
+  );
   const prependContext = buildPrependContext(plan, {
     capabilitySummary: params?.capabilitySummary,
     policyPreview: params?.policyPreview,

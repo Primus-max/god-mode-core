@@ -1599,6 +1599,37 @@ describe("runReplyAgent typing (heartbeat)", () => {
     });
   });
 
+  it("surfaces model-fallback exhaustion with generic user-facing text", async () => {
+    await withTempStateDir(async (stateDir) => {
+      const sessionId = "session-fallback-exhausted";
+      const storePath = path.join(stateDir, "sessions", "sessions.json");
+      const sessionEntry = { sessionId, updatedAt: Date.now() };
+      const sessionStore = { main: sessionEntry };
+
+      await fs.mkdir(path.dirname(storePath), { recursive: true });
+      await fs.writeFile(storePath, JSON.stringify(sessionStore), "utf-8");
+
+      state.runEmbeddedPiAgentMock.mockImplementationOnce(async () => {
+        throw new Error(
+          'All models failed (2): ollama/gpt-oss:20b: Ollama API error 500: {"error":"model requires more system memory (11.4 GiB) than is available (9.8 GiB)"} | ollama/gemma4:e4b: timeout',
+        );
+      });
+
+      const { run } = createMinimalRun({
+        sessionEntry,
+        sessionStore,
+        sessionKey: "main",
+        storePath,
+      });
+      const res = await run();
+
+      expect(res).toMatchObject({
+        text: "⚠️ No available model could complete this request right now. Please try again in a moment.",
+      });
+      expect(sessionStore.main).toBeDefined();
+    });
+  });
+
   it("still replies even if session reset fails to persist", async () => {
     await withTempStateDir(async (stateDir) => {
       const saveSpy = vi

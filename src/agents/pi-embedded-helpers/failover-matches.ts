@@ -19,6 +19,14 @@ const ERROR_PATTERNS = {
   overloaded: [
     /overloaded_error|"type"\s*:\s*"overloaded_error"/i,
     "overloaded",
+    // Local Ollama/LLM stacks can reject a heavyweight model before generation
+    // starts when the model cannot fit into available system memory. Treat that
+    // as a retryable overload-style failure so outer model fallback can try a
+    // lighter local model or a remote provider instead of surfacing raw runtime
+    // details to the user.
+    "requires more system memory",
+    "insufficient system memory",
+    /\bout of memory\b/i,
     // Match "service unavailable" only when combined with an explicit overload
     // indicator — a generic 503 from a proxy/CDN should not be classified as
     // provider-overload (#32828).

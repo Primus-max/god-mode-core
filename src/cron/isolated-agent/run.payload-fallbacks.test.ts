@@ -54,4 +54,27 @@ describe("runCronIsolatedAgentTurn — payload.fallbacks", () => {
     expect(runWithModelFallbackMock).toHaveBeenCalledOnce();
     expect(runWithModelFallbackMock.mock.calls[0][0].fallbacksOverride).toEqual(expectedFallbacks);
   });
+
+  it("passes preflight prompt and planner hints into model fallback", async () => {
+    const result = await runCronIsolatedAgentTurn(
+      makeIsolatedAgentTurnParams({
+        message: "Compare two CSV exports and summarize the delta.",
+        job: makeIsolatedAgentTurnJob({
+          payload: { kind: "agentTurn", message: "Compare two CSV exports and summarize the delta." },
+        }),
+      }),
+    );
+
+    expect(result.status).toBe("ok");
+    expect(runWithModelFallbackMock).toHaveBeenCalledOnce();
+    expect(runWithModelFallbackMock.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        preflightPrompt: expect.stringContaining("Compare two CSV exports and summarize the delta."),
+        preflightPlannerInput: expect.objectContaining({
+          intent: "compare",
+          fileNames: [],
+        }),
+      }),
+    );
+  });
 });

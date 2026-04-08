@@ -10,10 +10,15 @@ import {
   type ResolvedPlatformRuntimePlan,
   type ResolvePlatformExecutionDecisionOptions,
 } from "../recipe/runtime-adapter.js";
+import {
+  countTabularFiles,
+  promptSuggestsCalculationIntent,
+  promptSuggestsCompareIntent,
+} from "./intent-signals.js";
 
 const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
 const DEVELOPER_EXECUTION_KEYWORDS =
-  /\b(build|test|fix|refactor|repo|repository|compile|ci|code)\b/iu;
+  /\b(build|test|fix|refactor|repo|repository|compile|ci|code|e2e|bug|tests?|тест|тесты|исправ|почин|баг|код|сборк|проверк|рефактор)\b/iu;
 const DEVELOPER_PUBLISH_KEYWORDS = /\b(preview|publish|release|deploy|ship|rollout)\b/iu;
 const DOCUMENT_ARTIFACT_HINTS = [
   "pdf",
@@ -79,53 +84,34 @@ const MEDIA_AUDIO_HINTS = [
   "саундтрек",
   "музык",
 ] as const;
-
-const COMPARE_INTENT_HINTS = [
-  "compare",
-  "comparison",
-  "comparing",
-  "reconcile",
-  "reconciliation",
-  "side by side",
-  "price diff",
-  "discrepanc",
-  "variance",
-  "match up",
-  "сравн",
-  "сопостав",
-  "расхожден",
-  "совпаден",
-  "сверк",
-  "выверк",
-  "разница в цен",
+const BROWSER_TOOL_HINTS = [
+  "browser",
+  "browse",
+  "website",
+  "web page",
+  "webpage",
+  "page title",
+  "navigate",
+  "open tab",
+  "открой в браузере",
+  "в браузере",
+  "сайт",
+  "страниц",
+  "заголовок страницы",
+] as const;
+const WEB_SEARCH_TOOL_HINTS = [
+  "web search",
+  "search the web",
+  "search online",
+  "find online",
+  "internet",
+  "latest public",
+  "найди в интернете",
+  "поищи в интернете",
+  "поиск в интернете",
+  "в интернете",
 ] as const;
 
-const CALCULATION_INTENT_HINTS = [
-  "ventilation",
-  "cfm",
-  "airflow",
-  "hvac",
-  "duct",
-  "btu",
-  "unit conversion",
-  "dimensional analysis",
-  "square feet",
-  "square foot",
-  "cubic meter",
-  "cubic metre",
-  "ventilation report",
-  "вентиляц",
-  "кубатур",
-  "площад",
-  "перевод единиц",
-  "единиц измерен",
-  "размер помещен",
-  "расчёт",
-  "расчет",
-  "рассчитай",
-  "приток",
-  "вытяжк",
-] as const;
 const GENERAL_INTENT_HINTS = [
   "hello",
   "hi",
@@ -186,9 +172,35 @@ export type BuildSessionBackedExecutionDecisionInputParams = Omit<
   > | null;
 };
 
+export function shouldUseLightweightBootstrapContext(
+  plannerInput: Pick<
+    RecipePlannerInput,
+    "intent" | "requestedTools" | "artifactKinds" | "fileNames" | "publishTargets"
+  >,
+): boolean {
+  if ((plannerInput.fileNames?.length ?? 0) > 0) {
+    return false;
+  }
+  if ((plannerInput.requestedTools?.length ?? 0) > 0) {
+    return false;
+  }
+  if ((plannerInput.artifactKinds?.length ?? 0) > 0) {
+    return false;
+  }
+  if ((plannerInput.publishTargets?.length ?? 0) > 0) {
+    return false;
+  }
+  return plannerInput.intent === "general" || plannerInput.intent === undefined;
+}
+
 function collectPromptHints(prompt: string, candidates: readonly string[]): string[] {
   const normalized = prompt.toLowerCase();
-  return candidates.filter((candidate) => normalized.includes(candidate));
+  return candidates.filter((candidate) =>
+    new RegExp(
+      `(^|[^\\p{L}\\p{N}_])${candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[^\\p{L}\\p{N}_]|$)`,
+      "iu",
+    ).test(normalized),
+  );
 }
 
 function toUniqueLowercase(values: Array<string | undefined> | undefined): string[] {
@@ -215,18 +227,11 @@ function resolveKeywordInferencePrompt(prompt: string): string {
 }
 
 function compareLanguageInPrompt(prompt: string): boolean {
-  return (
-    promptIncludesAny(prompt, COMPARE_INTENT_HINTS) ||
-    /\b(diff|deltas?|delta\b|reconcil\w*)\b/iu.test(prompt) ||
-    /\b(два|две|три|оба|обе)\s+(csv|файл|таблиц|экспорт|xlsx)\b/iu.test(prompt)
-  );
+  return promptSuggestsCompareIntent(prompt);
 }
 
 function calculationLanguageInPrompt(prompt: string): boolean {
-  return (
-    promptIncludesAny(prompt, CALCULATION_INTENT_HINTS) ||
-    /\b(dimensions?|measurement|square\s*meter|sq\s*m\b)\b/iu.test(prompt)
-  );
+  return promptSuggestsCalculationIntent(prompt);
 }
 
 function generalLanguageInPrompt(prompt: string): boolean {
@@ -234,7 +239,7 @@ function generalLanguageInPrompt(prompt: string): boolean {
 }
 
 function tabularAttachmentCount(fileNames: string[]): number {
-  return fileNames.filter((name) => /\.(csv|xlsx|xls|ods)$/iu.test(name)).length;
+  return countTabularFiles(fileNames);
 }
 
 function inferCompareIntentFromAttachments(prompt: string, fileNames: string[]): boolean {
@@ -272,6 +277,14 @@ function inferPromptIntent(prompt: string, fileNames: string[]): RecipePlannerIn
     return "general";
   }
   return undefined;
+}
+
+function promptNeedsBrowserTool(prompt: string): boolean {
+  return /https?:\/\//iu.test(prompt) || promptIncludesAny(prompt, BROWSER_TOOL_HINTS);
+}
+
+function promptNeedsWebSearchTool(prompt: string): boolean {
+  return promptIncludesAny(prompt, WEB_SEARCH_TOOL_HINTS);
 }
 
 function inferArtifactKinds(
@@ -318,15 +331,34 @@ export function buildExecutionDecisionInput(
         .map((value) => value.trim()),
     ),
   );
-  const inferencePrompt = resolveKeywordInferencePrompt(params.prompt);
-  const inferredPublishTargets = collectPromptHints(inferencePrompt, DEVELOPER_PUBLISH_TARGET_HINTS);
+  const inferencePromptCandidate = resolveKeywordInferencePrompt(params.prompt);
+  const candidatePublishTargets = collectPromptHints(
+    inferencePromptCandidate,
+    DEVELOPER_PUBLISH_TARGET_HINTS,
+  );
+  const candidateIntent = inferPromptIntent(inferencePromptCandidate, fileNames);
+  const candidateArtifactKinds = inferArtifactKinds(inferencePromptCandidate, fileNames);
+  const inferencePrompt =
+    inferencePromptCandidate !== params.prompt &&
+    !candidateIntent &&
+    candidatePublishTargets.length === 0 &&
+    candidateArtifactKinds.length === 0
+      ? params.prompt
+      : inferencePromptCandidate;
+  const inferredPublishTargets = collectPromptHints(
+    inferencePrompt,
+    DEVELOPER_PUBLISH_TARGET_HINTS,
+  );
   const inferredIntegrations = inferredPublishTargets.filter((target) => target !== "npm");
   const inferredIntent = inferPromptIntent(inferencePrompt, fileNames);
   const effectiveIntent = params.intent ?? inferredIntent;
-  const inferredRequestedTools =
-    effectiveIntent === "code" || effectiveIntent === "publish"
+  const inferredRequestedTools = toUniqueLowercase([
+    ...(effectiveIntent === "code" || effectiveIntent === "publish"
       ? ["exec", "apply_patch", "process"]
-      : [];
+      : []),
+    ...(promptNeedsBrowserTool(inferencePrompt) ? ["browser"] : []),
+    ...(promptNeedsWebSearchTool(inferencePrompt) ? ["web_search"] : []),
+  ]);
   const channelHints = toUniqueLowercase([
     params.channelHints?.messageChannel,
     params.channelHints?.channel,
@@ -342,7 +374,9 @@ export function buildExecutionDecisionInput(
     ...channelHints,
   ]);
   const artifactKinds = toUniqueLowercase([
-    ...inferArtifactKinds(inferencePrompt, fileNames),
+    ...(inferencePrompt === inferencePromptCandidate
+      ? candidateArtifactKinds
+      : inferArtifactKinds(inferencePrompt, fileNames)),
     ...((params.artifactKinds ?? []) as string[]),
   ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
   const requestedTools = toUniqueLowercase([

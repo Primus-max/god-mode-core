@@ -425,6 +425,70 @@ describe("runEmbeddedPiAgent", () => {
     }
   });
 
+  it("throws a failover-compatible error for assistant-side local OOM when fallbacks exist", async () => {
+    const sessionFile = nextSessionFile();
+    const sessionKey = nextSessionKey();
+    const cfg = createEmbeddedPiRunnerOpenAiConfig(["mock-error", "mock-fallback"]);
+    cfg.agents = {
+      defaults: {
+        model: {
+          primary: "openai/mock-error",
+          fallbacks: ["openai/mock-fallback"],
+        },
+      },
+    };
+    const oomAssistantRunAttempt = async (params: {
+      sessionId: string;
+      model: { api?: string };
+      provider: string;
+      modelId: string;
+    }) => ({
+      aborted: false,
+      timedOut: false,
+      timedOutDuringCompaction: false,
+      promptError: undefined,
+      sessionIdUsed: params.sessionId,
+      lastAssistant: {
+        role: "assistant" as const,
+        content: [] as unknown[],
+        stopReason: "error" as const,
+        errorMessage:
+          'Ollama API error 500: {"error":"model requires more system memory (11.4 GiB) than is available (9.8 GiB)"}',
+        api: params.model.api ?? "openai-responses",
+        provider: params.provider,
+        model: params.modelId,
+        usage: createMockUsage(0, 0),
+        timestamp: Date.now(),
+      },
+      messagesSnapshot: [],
+      assistantTexts: [],
+      toolMetas: [],
+      didSendViaMessagingTool: false,
+      cloudCodeAssistFormatError: false,
+      messagingToolSentTexts: [],
+      messagingToolSentMediaUrls: [],
+      messagingToolSentTargets: [],
+    });
+
+    await expect(
+      runEmbeddedPiAgent({
+        sessionId: "session:test",
+        sessionKey,
+        sessionFile,
+        workspaceDir,
+        config: cfg,
+        prompt: "test local oom fallback",
+        provider: "openai",
+        model: "mock-error",
+        timeoutMs: 5_000,
+        agentDir,
+        runId: nextRunId("assistant-local-oom"),
+        enqueue: immediateEnqueue,
+        runAttempt: oomAssistantRunAttempt,
+      }),
+    ).rejects.toThrow(/temporarily overloaded/i);
+  });
+
   it(
     "preserves existing transcript entries across an additional turn",
     { timeout: 7_000 },

@@ -87,6 +87,8 @@ export type ModelRoutePreflightDecision = {
     | "preflight_stronger_route"
     | "preflight_primary_control_plane_local"
     | "preflight_no_local_candidate"
+    | "preflight_reordered_remote_first"
+    | "preflight_reordered_local_strong_first"
     | "preflight_reordered_local_first";
   /** Human-readable explanation */
   reason: string;

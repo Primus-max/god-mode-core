@@ -1,9 +1,16 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { buildHtmlDocument } from "./html-preview-materializer.js";
+import { pathToFileURL } from "node:url";
+import { resolveBrowserConfig } from "../../browser/config.js";
+import { loadConfig } from "../../config/config.js";
 import type { MaterializedArtifactOutput } from "./contracts.js";
+import { buildHtmlDocument } from "./html-preview-materializer.js";
+
+const require = createRequire(import.meta.url);
+const PLAYWRIGHT_CORE_MODULE_URL = pathToFileURL(require.resolve("playwright-core")).toString();
 
 function stripHtml(html: string): string {
   return html
@@ -21,18 +28,40 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+function resolvePdfBrowserLaunchOptions(): {
+  extraArgs?: string[];
+} {
+  const cfg = loadConfig();
+  const resolved = resolveBrowserConfig(cfg.browser, cfg);
+  const extraArgs = [...(resolved.noSandbox ? ["--no-sandbox"] : []), ...resolved.extraArgs];
+  return {
+    ...(extraArgs.length > 0 ? { extraArgs } : {}),
+  };
+}
+
 function writePlaywrightPdf(params: { htmlPath: string; pdfPath: string }): void {
+  const launchOptions = resolvePdfBrowserLaunchOptions();
   const script = `
-    import { chromium } from "playwright";
     import { pathToFileURL } from "node:url";
 
     const htmlPath = process.env.OPENCLAW_PDF_HTML;
     const pdfPath = process.env.OPENCLAW_PDF_OUT;
-    if (!htmlPath || !pdfPath) {
-      throw new Error("OPENCLAW_PDF_HTML / OPENCLAW_PDF_OUT env vars are required");
+    const playwrightModuleUrl = process.env.OPENCLAW_PDF_PLAYWRIGHT_MODULE;
+    const browserExtraArgsRaw = process.env.OPENCLAW_PDF_BROWSER_ARGS;
+    if (!htmlPath || !pdfPath || !playwrightModuleUrl) {
+      throw new Error("OPENCLAW_PDF_HTML / OPENCLAW_PDF_OUT / OPENCLAW_PDF_PLAYWRIGHT_MODULE env vars are required");
+    }
+    const playwrightModule = await import(playwrightModuleUrl);
+    const chromium = playwrightModule.chromium ?? playwrightModule.default?.chromium;
+    if (!chromium) {
+      throw new Error("playwright-core chromium export is unavailable");
+    }
+    const launchOptions = { headless: true };
+    if (browserExtraArgsRaw) {
+      launchOptions.args = JSON.parse(browserExtraArgsRaw);
     }
 
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch(launchOptions);
     try {
       const page = await browser.newPage();
       await page.goto(pathToFileURL(htmlPath).toString(), { waitUntil: "networkidle" });
@@ -47,18 +76,18 @@ function writePlaywrightPdf(params: { htmlPath: string; pdfPath: string }): void
       await browser.close();
     }
   `;
-  execFileSync(
-    process.execPath,
-    ["--input-type=module", "--eval", script],
-    {
-      env: {
-        ...process.env,
-        OPENCLAW_PDF_HTML: params.htmlPath,
-        OPENCLAW_PDF_OUT: params.pdfPath,
-      },
-      stdio: "pipe",
+  execFileSync(process.execPath, ["--input-type=module", "--eval", script], {
+    env: {
+      ...process.env,
+      OPENCLAW_PDF_HTML: params.htmlPath,
+      OPENCLAW_PDF_OUT: params.pdfPath,
+      OPENCLAW_PDF_PLAYWRIGHT_MODULE: PLAYWRIGHT_CORE_MODULE_URL,
+      ...(launchOptions.extraArgs
+        ? { OPENCLAW_PDF_BROWSER_ARGS: JSON.stringify(launchOptions.extraArgs) }
+        : {}),
     },
-  );
+    stdio: "pipe",
+  });
 }
 
 function writeTempHtmlForPdf(params: {
@@ -68,12 +97,8 @@ function writeTempHtmlForPdf(params: {
   bodyHtml: string;
   summary?: string;
 }): string {
-  const htmlPath = path.join(
-    os.tmpdir(),
-    "openclaw-pdf-render",
-    `${params.baseFileName}---${Date.now()}.html`,
-  );
-  fs.mkdirSync(path.dirname(htmlPath), { recursive: true });
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-pdf-render-"));
+  const htmlPath = path.join(tempDir, `${params.baseFileName}.html`);
   fs.writeFileSync(
     htmlPath,
     buildHtmlDocument({
@@ -99,7 +124,7 @@ export function writePdfFileFromHtml(params: {
   try {
     writePlaywrightPdf({ htmlPath, pdfPath: filePath });
   } finally {
-    fs.rmSync(htmlPath, { force: true });
+    fs.rmSync(path.dirname(htmlPath), { recursive: true, force: true });
   }
   return {
     path: filePath,

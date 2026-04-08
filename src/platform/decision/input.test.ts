@@ -9,6 +9,7 @@ import {
   buildExecutionDecisionInput,
   buildExecutionDecisionInputFromRuntimePlan,
   buildSessionBackedExecutionDecisionInput,
+  shouldUseLightweightBootstrapContext,
 } from "./input.js";
 
 describe("buildSessionBackedExecutionDecisionInput", () => {
@@ -238,5 +239,40 @@ describe("buildExecutionDecisionInput", () => {
     });
 
     expect(input.intent).toBe("calculation");
+  });
+
+  it("infers code intent for Russian bugfix prompts", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Исправь фейлящий e2e тест, предложи план правки и укажи какие проверки прогнать.",
+    });
+
+    expect(input.intent).toBe("code");
+    expect(input.artifactKinds).toContain("binary");
+  });
+
+  it("does not misread pnpm as an npm publish target", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "refactor the repo to use pnpm workspaces",
+    });
+
+    expect(input.intent).toBe("code");
+    expect(input.publishTargets ?? []).toEqual([]);
+    expect(input.artifactKinds).toEqual(["binary"]);
+  });
+
+  it("marks browser navigation prompts with the browser tool", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Открой в браузере https://example.com и скажи заголовок страницы.",
+    });
+
+    expect(input.requestedTools).toEqual(["browser"]);
+  });
+
+  it("marks casual chat prompts as lightweight bootstrap candidates", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Привет! Как дела?",
+    });
+
+    expect(shouldUseLightweightBootstrapContext(input)).toBe(true);
   });
 });

@@ -99,6 +99,7 @@ USER.md
 .agent/*.json
 !.agent/workflows/
 /local/
+auth-profiles.json
 package-lock.json
 .claude/
 .agent/
@@ -137,3 +138,7 @@ docs/superpowers
 
 # Deprecated changelog fragment workflow
 changelog/fragments/
+
+# MemPalace entity detect (optional local file)
+mempal.yaml
+entities.json

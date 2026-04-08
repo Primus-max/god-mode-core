@@ -11,6 +11,7 @@ import {
   isCompactionFailureError,
   isContextOverflowError,
   isBillingErrorMessage,
+  isFailoverErrorMessage,
   isLikelyContextOverflowError,
   isTransientHttpError,
   sanitizeUserFacingText,
@@ -27,6 +28,7 @@ import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-event
 import {
   buildExecutionDecisionInput,
   buildSessionBackedExecutionDecisionInput,
+  shouldUseLightweightBootstrapContext,
 } from "../../platform/decision/input.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -140,6 +142,9 @@ export async function runAgentTurnWithFallback(params: {
       },
     }),
   );
+  const bootstrapContextMode =
+    params.opts?.bootstrapContextMode ??
+    (shouldUseLightweightBootstrapContext(preflightPlannerInput) ? "lightweight" : undefined);
   const normalizeReplyMediaPaths = createReplyMediaPathNormalizer({
     cfg: params.followupRun.run.config,
     sessionKey: params.sessionKey,
@@ -404,7 +409,7 @@ export async function runAgentTurnWithFallback(params: {
                   return isMarkdownCapableMessageChannel(channel) ? "markdown" : "plain";
                 })(),
                 suppressToolErrorWarnings: params.opts?.suppressToolErrorWarnings,
-                bootstrapContextMode: params.opts?.bootstrapContextMode,
+                bootstrapContextMode,
                 bootstrapContextRunKind: params.opts?.isHeartbeat ? "heartbeat" : "default",
                 images: params.opts?.images,
                 abortSignal: params.opts?.abortSignal,
@@ -604,6 +609,8 @@ export async function runAgentTurnWithFallback(params: {
       const isSessionCorruption = /function call turn comes immediately after/i.test(message);
       const isRoleOrderingError = /incorrect role information|roles must alternate/i.test(message);
       const isTransientHttp = isTransientHttpError(message);
+      const isFailoverMessage = isFailoverErrorMessage(message);
+      const isModelFallbackExhausted = /^All (?:image )?models failed\b/i.test(message);
 
       if (
         isCompactionFailure &&
@@ -691,9 +698,8 @@ export async function runAgentTurnWithFallback(params: {
       }
 
       defaultRuntime.error(`Embedded agent failed before reply: ${message}`);
-      const safeMessage = isTransientHttp
-        ? sanitizeUserFacingText(message, { errorContext: true })
-        : message;
+      const safeMessage =
+        isTransientHttp || isFailoverMessage ? sanitizeUserFacingText(message, { errorContext: true }) : message;
       const trimmedMessage = safeMessage.replace(/\.\s*$/, "");
       const fallbackText = isBilling
         ? BILLING_ERROR_USER_MESSAGE
@@ -701,6 +707,10 @@ export async function runAgentTurnWithFallback(params: {
           ? "⚠️ Context overflow — prompt too large for this model. Try a shorter message or a larger-context model."
           : isRoleOrderingError
             ? "⚠️ Message ordering conflict - please try again. If this persists, use /new to start a fresh session."
+            : isModelFallbackExhausted
+              ? "⚠️ No available model could complete this request right now. Please try again in a moment."
+              : isFailoverMessage && trimmedMessage
+                ? trimmedMessage
             : `⚠️ Agent failed before reply: ${trimmedMessage}.\nLogs: openclaw logs --follow`;
 
       return {

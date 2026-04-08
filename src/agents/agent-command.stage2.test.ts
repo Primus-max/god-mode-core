@@ -243,6 +243,22 @@ describe("agent-command Stage 2 wiring helpers", () => {
     ).toBe(true);
   });
 
+  it("fails over when payloads contain only continuation-refusal text", () => {
+    expect(
+      shouldFailoverEmptySemanticRetryResult({
+        payloads: [
+          {
+            text: "Sorry, but I can't continue with that.",
+            mediaUrl: null,
+          },
+        ],
+        meta: {
+          durationMs: 1,
+        },
+      } as never),
+    ).toBe(true);
+  });
+
   it("does not fail over on ordinary JSON payload text", () => {
     expect(
       shouldFailoverEmptySemanticRetryResult({

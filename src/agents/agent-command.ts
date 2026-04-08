@@ -49,6 +49,7 @@ import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
 import {
   buildExecutionDecisionInput,
   buildSessionBackedExecutionDecisionInput,
+  shouldUseLightweightBootstrapContext,
 } from "../platform/decision/input.js";
 import {
   resolvePlatformRuntimePlan,
@@ -388,6 +389,7 @@ type RunAgentAttemptParams = {
   storePath?: string;
   allowTransientCooldownProbe?: boolean;
   platformRuntimePlan: ResolvedPlatformRuntimePlan;
+  bootstrapContextMode?: "full" | "lightweight";
 };
 
 type BuildEmbeddedAgentRunParams = Pick<
@@ -414,6 +416,7 @@ type BuildEmbeddedAgentRunParams = Pick<
   | "allowTransientCooldownProbe"
   | "onAgentEvent"
   | "platformRuntimePlan"
+  | "bootstrapContextMode"
 > & {
   effectivePrompt: string;
   images?: AgentCommandOpts["images"];
@@ -611,6 +614,7 @@ export function buildEmbeddedAgentRunParams(
     agentDir: params.agentDir,
     platformExecutionContext: params.platformRuntimePlan.runtime,
     allowTransientCooldownProbe: params.allowTransientCooldownProbe,
+    bootstrapContextMode: params.bootstrapContextMode,
     onAgentEvent: params.onAgentEvent,
     bootstrapPromptWarningSignaturesSeen: params.bootstrapPromptWarningSignaturesSeen,
     bootstrapPromptWarningSignature: params.bootstrapPromptWarningSignature,
@@ -654,6 +658,8 @@ export function shouldFailoverEmptySemanticRetryResult(
   result: Awaited<ReturnType<typeof runEmbeddedPiAgent>>,
 ): boolean {
   const payloads = result.payloads ?? [];
+  const CONTINUATION_REFUSAL_RE =
+    /\b(?:can(?:not|'t)\s+continue|unable\s+to\s+continue|can(?:not|'t)\s+proceed|unable\s+to\s+proceed)\b/i;
   const unwrapStandaloneToolCallEnvelope = (text: string): string | null => {
     const trimmed = text.trim();
     if (!trimmed) {
@@ -674,19 +680,30 @@ export function shouldFailoverEmptySemanticRetryResult(
       const parsed = JSON.parse(candidate) as unknown;
       return Boolean(
         parsed &&
-          typeof parsed === "object" &&
-          !Array.isArray(parsed) &&
-          typeof (parsed as { name?: unknown }).name === "string" &&
-          "arguments" in (parsed as Record<string, unknown>) &&
-          Object.keys(parsed as Record<string, unknown>).every(
-            (key) => key === "name" || key === "arguments" || key === "id",
-          ),
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        typeof (parsed as { name?: unknown }).name === "string" &&
+        "arguments" in (parsed as Record<string, unknown>) &&
+        Object.keys(parsed as Record<string, unknown>).every(
+          (key) => key === "name" || key === "arguments" || key === "id",
+        ),
       );
     } catch {
       return false;
     }
   };
   if (payloads.length > 0) {
+    const onlyContinuationRefusals = payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      return (
+        !hasMedia && typeof payload.text === "string" && CONTINUATION_REFUSAL_RE.test(payload.text)
+      );
+    });
+    if (onlyContinuationRefusals) {
+      return true;
+    }
     const onlyPseudoToolPayloads = payloads.every((payload) => {
       const hasMedia =
         typeof payload.mediaUrl === "string" ||
@@ -700,6 +717,12 @@ export function shouldFailoverEmptySemanticRetryResult(
   }
   const verdict = result.meta.supervisorVerdict;
   return verdict?.action === "retry" && verdict.remediation === "semantic_retry";
+}
+
+export function shouldGrantPlatformExplicitApprovalForAgentTurn(params: {
+  senderIsOwner: boolean;
+}): boolean {
+  return params.senderIsOwner === true;
 }
 
 function runAgentAttempt(params: RunAgentAttemptParams) {
@@ -932,7 +955,11 @@ async function prepareAgentCommandExecution(
     sessionEntry: sessionEntryRaw,
     storePath,
   });
-  const platformRuntimePlan = resolvePlatformRuntimePlan(platformPlannerInput);
+  const platformRuntimePlan = resolvePlatformRuntimePlan(platformPlannerInput, {
+    explicitApproval: shouldGrantPlatformExplicitApprovalForAgentTurn({
+      senderIsOwner: opts.senderIsOwner,
+    }),
+  });
   const laneRaw = typeof opts.lane === "string" ? opts.lane.trim() : "";
   const isSubagentLane = laneRaw === String(AGENT_LANE_SUBAGENT);
   const timeoutSecondsRaw =
@@ -1484,6 +1511,9 @@ async function agentCommandInternal(
         platformRuntimePlan,
         configuredFallbacks: effectiveFallbacksOverride,
       });
+      const bootstrapContextMode = shouldUseLightweightBootstrapContext(platformPlannerInput)
+        ? "lightweight"
+        : undefined;
 
       // Track model fallback attempts so retries on an existing session don't
       // re-inject the original prompt as a duplicate user message.
@@ -1513,7 +1543,7 @@ async function agentCommandInternal(
             body,
             isFallbackRetry,
             resolvedThinkLevel,
-            timeoutMs,
+            timeoutMs: runOptions?.timeoutMsOverride ?? timeoutMs,
             runId,
             opts,
             runContext,
@@ -1527,6 +1557,7 @@ async function agentCommandInternal(
             storePath,
             allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
             platformRuntimePlan,
+            bootstrapContextMode,
             onAgentEvent: (evt) => {
               // Track lifecycle end for fallback emission below.
               if (
