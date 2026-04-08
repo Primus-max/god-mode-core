@@ -68,6 +68,7 @@ let usageCostRuntimePromise: Promise<typeof import("./usage-cost.runtime.js")> |
 let sessionStoreRuntimePromise: Promise<
   typeof import("../../config/sessions/store.runtime.js")
 > | null = null;
+const DEBUG_REPLY_ROUTING_ENV = "OPENCLAW_DEBUG_REPLY_ROUTING";
 
 function loadPiEmbeddedQueueRuntime() {
   piEmbeddedQueueRuntimePromise ??= import("../../agents/pi-embedded-queue.runtime.js");
@@ -82,6 +83,143 @@ function loadUsageCostRuntime() {
 function loadSessionStoreRuntime() {
   sessionStoreRuntimePromise ??= import("../../config/sessions/store.runtime.js");
   return sessionStoreRuntimePromise;
+}
+
+function isDebugReplyRoutingEnabled(): boolean {
+  return process.env[DEBUG_REPLY_ROUTING_ENV] === "1";
+}
+
+function formatDebugTokenCount(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("en-US") : "?";
+}
+
+function summarizePromptForDebug(prompt: string, maxLength = 180): string {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function dedupeDebugAttempts(
+  attempts: Array<{
+    provider: string;
+    model: string;
+    status?: string;
+  }>,
+): Array<{
+  provider: string;
+  model: string;
+  status?: string;
+}> {
+  const deduped: Array<{ provider: string; model: string; status?: string }> = [];
+  for (const attempt of attempts) {
+    const previous = deduped[deduped.length - 1];
+    if (
+      previous &&
+      previous.provider === attempt.provider &&
+      previous.model === attempt.model &&
+      previous.status === attempt.status
+    ) {
+      continue;
+    }
+    deduped.push(attempt);
+  }
+  return deduped;
+}
+
+function buildDebugReplyBlock(params: {
+  userMessage: string;
+  selectedProvider: string;
+  selectedModel: string;
+  activeProvider: string;
+  activeModel: string;
+  fallbackAttempts: Array<{
+    provider: string;
+    model: string;
+    reason?: string;
+    error?: string;
+    code?: string;
+  }>;
+  usage?:
+    | {
+        input?: number;
+        output?: number;
+        cacheRead?: number;
+        cacheWrite?: number;
+        total?: number;
+      }
+    | undefined;
+  lastCallUsage?:
+    | {
+        input?: number;
+        output?: number;
+        cacheRead?: number;
+        cacheWrite?: number;
+        total?: number;
+      }
+    | undefined;
+  executionIntent?: string;
+}): string | undefined {
+  if (!isDebugReplyRoutingEnabled()) {
+    return undefined;
+  }
+  const attemptEntries: Array<{ provider: string; model: string; status?: string }> = [];
+  const addAttempt = (provider: string, model: string, status?: string) => {
+    attemptEntries.push({ provider, model, status });
+  };
+
+  addAttempt(params.selectedProvider, params.selectedModel, "selected");
+  for (const attempt of params.fallbackAttempts) {
+    addAttempt(
+      attempt.provider,
+      attempt.model,
+      attempt.reason === "unknown"
+        ? undefined
+        : attempt.reason ?? attempt.code ?? (attempt.error ? "failed" : undefined),
+    );
+  }
+  addAttempt(params.activeProvider, params.activeModel, "used");
+  const attempts = dedupeDebugAttempts(attemptEntries);
+  const attemptParts = attempts.map((attempt) =>
+    attempt.status
+      ? `${attempt.provider}/${attempt.model} (${attempt.status})`
+      : `${attempt.provider}/${attempt.model}`,
+  );
+
+  const usage = params.usage;
+  const totalTokens =
+    usage?.total ??
+    ((usage?.input ?? 0) + (usage?.output ?? 0) + (usage?.cacheRead ?? 0) + (usage?.cacheWrite ?? 0));
+  const lastCall = params.lastCallUsage;
+  const summary = [
+    "[debug]",
+    `used \`${params.activeProvider}/${params.activeModel}\``,
+    usage ? `${formatDebugTokenCount(totalTokens)} tok` : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+
+  const details = [
+    params.executionIntent ? `intent: \`${params.executionIntent}\`` : undefined,
+    `selected: \`${params.selectedProvider}/${params.selectedModel}\``,
+    attemptParts.length > 1 ? `attempts: ${attemptParts.join(" -> ")}` : undefined,
+    usage
+      ? `tokens: in ${formatDebugTokenCount(usage.input)} / out ${formatDebugTokenCount(usage.output)} / total ${formatDebugTokenCount(totalTokens)}`
+      : undefined,
+    lastCall
+      ? `last-call: in ${formatDebugTokenCount(lastCall.input)} / out ${formatDebugTokenCount(lastCall.output)} / total ${formatDebugTokenCount(lastCall.total)}`
+      : undefined,
+    `msg: ${summarizePromptForDebug(params.userMessage, 96)}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join(" | ");
+
+  // Two root-level blockquotes (blank line between) so Telegram can render the details
+  // as <blockquote expandable> instead of <tg-spoiler> (spoiler UX is a noisy static mask).
+  return details
+    ? `> ${summary}\n\n> ${details}`
+    : `> ${summary}`;
 }
 
 export async function runReplyAgent(params: {
@@ -386,7 +524,41 @@ export async function runReplyAgent(params: {
         `Role ordering conflict (${reason}). Restarting session ${sessionKey} -> ${nextSessionId}.`,
       cleanupTranscripts: true,
     });
+  const maybeResetOversizedSession = async (): Promise<boolean> => {
+    if (!sessionKey || !activeSessionEntry || isHeartbeat) {
+      return false;
+    }
+    const totalTokens = activeSessionEntry.totalTokens ?? activeSessionEntry.inputTokens ?? 0;
+    const rawMessage =
+      sessionCtx.BodyForCommands ??
+      sessionCtx.CommandBody ??
+      sessionCtx.RawBody ??
+      sessionCtx.Body ??
+      commandBody;
+    const normalizedMessage = rawMessage.trim();
+    const isDirectChat =
+      sessionCtx.ChatType === "direct" ||
+      sessionKey.includes(":telegram:direct:") ||
+      sessionKey.includes(":whatsapp:direct:");
+    const sessionLooksOversized =
+      totalTokens >= 50_000 ||
+      Boolean(
+        activeSessionEntry.systemPromptReport?.systemPrompt?.chars &&
+          activeSessionEntry.systemPromptReport.systemPrompt.chars >= 30_000,
+      );
+    const messageLooksSimple = normalizedMessage.length > 0 && normalizedMessage.length <= 600;
+    if (!isDirectChat || !sessionLooksOversized || !messageLooksSimple) {
+      return false;
+    }
+    return await resetSession({
+      failureLabel: "oversized polluted session",
+      buildLogMessage: (nextSessionId) =>
+        `Oversized direct session detected (${sessionKey}, tokens=${String(totalTokens)}). Restarting session -> ${nextSessionId}.`,
+      cleanupTranscripts: true,
+    });
+  };
   try {
+    await maybeResetOversizedSession();
     const runStartedAt = Date.now();
     const runOutcome = await runAgentTurnWithFallback({
       commandBody,
@@ -886,6 +1058,25 @@ export async function runReplyAgent(params: {
       if (fallbackPayload && !queuedSemanticRetry) {
         finalPayloads = [fallbackPayload];
       }
+    }
+    const debugReplyBlock = buildDebugReplyBlock({
+      userMessage:
+        sessionCtx.BodyForCommands ??
+        sessionCtx.CommandBody ??
+        sessionCtx.RawBody ??
+        sessionCtx.Body ??
+        commandBody,
+      selectedProvider,
+      selectedModel,
+      activeProvider: providerUsed,
+      activeModel: modelUsed,
+      fallbackAttempts,
+      usage,
+      lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
+      executionIntent: runResult.meta?.executionIntent?.intent,
+    });
+    if (debugReplyBlock) {
+      finalPayloads = appendUsageLine(finalPayloads, debugReplyBlock);
     }
 
     return finalizeWithFollowup(

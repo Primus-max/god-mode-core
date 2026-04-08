@@ -28,6 +28,7 @@ const HEAVY_ARTIFACT_KINDS = new Set([
   "archive",
 ]);
 type RemoteRoutingProfile = "cheap" | "code" | "strong";
+const CHEAP_REMOTE_FIRST_ENV = "OPENCLAW_PREFER_CHEAP_REMOTE_FIRST";
 
 function fileNamesImplyHeavyLocalRoute(fileNames: string[]): boolean {
   return fileNames.some((name) => HEAVY_FILE_EXTENSION.test(name));
@@ -207,6 +208,21 @@ function shouldPreferRemoteOrchestratorFirst(
     return true;
   }
   return false;
+}
+
+function shouldPreferCheapRemoteFirstForGeneral(plannerInput: LocalRoutingPlannerInput | null): boolean {
+  if (process.env[CHEAP_REMOTE_FIRST_ENV] !== "1") {
+    return false;
+  }
+  if (!plannerInput) {
+    return false;
+  }
+  return (
+    (plannerInput.intent === "general" || plannerInput.intent === undefined) &&
+    (plannerInput.requestedTools?.length ?? 0) === 0 &&
+    (plannerInput.artifactKinds?.length ?? 0) === 0 &&
+    (plannerInput.fileNames?.length ?? 0) === 0
+  );
 }
 
 function plannerInputNeedsVisionCapability(plannerInput: LocalRoutingPlannerInput): boolean {
@@ -945,6 +961,49 @@ export function applyModelRoutePreflight(params: {
   }, -1);
 
   const primary = list[0];
+  if (shouldPreferCheapRemoteFirstForGeneral(plannerInput)) {
+    const profile = plannerInput ? inferRemoteRoutingProfile(plannerInput, true) : "cheap";
+    const needsVision = plannerInput ? plannerInputNeedsVisionCapability(plannerInput) : false;
+    const bestRemoteIndex = list.reduce((bestIndex, candidate, index) => {
+      if (isLikelyControlPlaneLocalProvider(candidate.provider)) {
+        return bestIndex;
+      }
+      if (bestIndex < 0) {
+        return index;
+      }
+      const candidateScore = scorePreferredRemoteModel(
+        candidate,
+        profile,
+        params.catalog
+          ? findModelInCatalog(params.catalog, candidate.provider, candidate.model)
+          : undefined,
+        { needsVision },
+      );
+      const bestCandidate = list[bestIndex];
+      const bestScore = scorePreferredRemoteModel(
+        bestCandidate,
+        profile,
+        params.catalog
+          ? findModelInCatalog(params.catalog, bestCandidate.provider, bestCandidate.model)
+          : undefined,
+        { needsVision },
+      );
+      return candidateScore > bestScore ? index : bestIndex;
+    }, -1);
+    if (bestRemoteIndex > 0) {
+      const remoteCandidate = list[bestRemoteIndex];
+      const ordered = [remoteCandidate, ...list.filter((_, index) => index !== bestRemoteIndex)];
+      return finalizeResult(
+        ordered,
+        buildDecisionForOrdered(ordered, {
+          reasonCode: "preflight_reordered_remote_first",
+          reason: `Temporary latency mode promoted ${remoteCandidate.provider}/${remoteCandidate.model} ahead of local candidates for a cheap remote-first pass.`,
+          localRoutingEligible: false,
+          reordered: true,
+        }),
+      );
+    }
+  }
   if (isLikelyControlPlaneLocalProvider(primary.provider)) {
     if (preferredLocalIndex > 0) {
       const localCandidate = list[preferredLocalIndex];

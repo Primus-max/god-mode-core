@@ -132,6 +132,17 @@ describe("resolvePlatformRuntimePlan", () => {
     expect(mediaResolved.runtime.selectedRecipeId).toBe("media_production");
   });
 
+  it("adds explicit tool-use guardrails for image and pdf artifact turns", () => {
+    const resolved = resolvePlatformRuntimePlan({
+      prompt: "Сделай веселый банан и собери презентацию в PDF.",
+      artifactKinds: ["image", "document"],
+      requestedTools: ["image_generate", "pdf"],
+    });
+
+    expect(resolved.runtime.prependSystemContext).toContain("call image_generate");
+    expect(resolved.runtime.prependSystemContext).toContain("use the pdf tool");
+  });
+
   it("adds policy preview and bootstrap hints to the execution decision", () => {
     const resolved = resolvePlatformRuntimePlan({
       prompt: "Fix the failing TypeScript build and publish to GitHub",

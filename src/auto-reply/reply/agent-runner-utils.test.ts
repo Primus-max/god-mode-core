@@ -86,6 +86,16 @@ describe("agent-runner-utils", () => {
     expect(resolved.preflightMode).toBe("force_stronger");
   });
 
+  it("sets skipRoutePreflight when run.modelRoutePreflightDisabled is true", () => {
+    hoisted.resolveRunModelFallbacksOverrideMock.mockReturnValue(undefined);
+    const run = makeRun({ modelRoutePreflightDisabled: true });
+
+    const resolved = resolveModelFallbackOptions(run, { preflightPrompt: "hi" });
+
+    expect(resolved.skipRoutePreflight).toBe(true);
+    expect(resolved.preflightPrompt).toBe("hi");
+  });
+
   it("passes through missing agentId for helper-based fallback resolution", () => {
     hoisted.resolveRunModelFallbacksOverrideMock.mockReturnValue(["fallback-model"]);
     const run = makeRun({ agentId: undefined });

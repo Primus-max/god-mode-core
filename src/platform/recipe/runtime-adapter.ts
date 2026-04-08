@@ -167,6 +167,25 @@ function buildArtifactOutputGuardrails(artifactKinds?: ArtifactKind[]): string |
   ].join(" ");
 }
 
+function buildRequestedToolGuardrails(requestedToolNames?: string[]): string | undefined {
+  if (!requestedToolNames?.length) {
+    return undefined;
+  }
+  const toolSet = new Set(requestedToolNames.map((tool) => tool.trim().toLowerCase()));
+  const guardrails: string[] = [];
+  if (toolSet.has("image_generate")) {
+    guardrails.push(
+      "Image artifact contract: when the user asks you to generate or edit an image, call image_generate and return the actual generated image instead of a text-only description or brainstorm.",
+    );
+  }
+  if (toolSet.has("pdf")) {
+    guardrails.push(
+      "PDF artifact contract: when the user asks for a PDF or slide-style document from prompt text, use the pdf tool to create the deliverable instead of replying with instructions or a plan.",
+    );
+  }
+  return guardrails.length > 0 ? guardrails.join(" ") : undefined;
+}
+
 /**
  * Keeps reply language aligned with the user's latest turn so lightweight local
  * models do not drift into an unrelated language on simple chat requests.
@@ -189,6 +208,7 @@ function buildSystemContext(
   plan: ExecutionPlan,
   capabilitySummary?: PlatformCapabilitySummary,
   artifactKinds?: ArtifactKind[],
+  requestedToolNames?: string[],
 ): string {
   return [
     `Execution recipe: ${plan.recipe.id}.`,
@@ -198,6 +218,7 @@ function buildSystemContext(
       : undefined,
     buildReplyLanguageGuardrail(),
     buildArtifactOutputGuardrails(artifactKinds),
+    buildRequestedToolGuardrails(requestedToolNames),
     plan.recipe.systemPrompt,
   ]
     .filter(Boolean)
@@ -534,6 +555,7 @@ export function adaptExecutionPlanToRuntime(
     plan,
     params?.capabilitySummary,
     params?.input?.artifactKinds,
+    params?.input?.requestedTools,
   );
   const prependContext = buildPrependContext(plan, {
     capabilitySummary: params?.capabilitySummary,

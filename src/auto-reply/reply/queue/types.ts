@@ -95,6 +95,12 @@ export type FollowupRun = {
     inputProvenance?: InputProvenance;
     extraSystemPrompt?: string;
     enforceFinalTag?: boolean;
+    /**
+     * When true, skip automatic route preflight reordering (cheap-remote-first, promote Hydra, etc.)
+     * and use the configured candidate order with the session primary first. Set when the session
+     * has an explicit model override, or via OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT=1 at runtime.
+     */
+    modelRoutePreflightDisabled?: boolean;
   };
 };
 

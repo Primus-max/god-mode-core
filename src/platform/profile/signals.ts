@@ -105,6 +105,15 @@ const MEDIA_KEYWORDS = [
   "screenshot",
   "figma",
   "design",
+  "изображ",
+  "картин",
+  "инфограф",
+  "видео",
+  "аудио",
+  "обложк",
+  "баннер",
+  "рендер",
+  "дизайн",
 ];
 
 const GENERAL_KEYWORDS = [

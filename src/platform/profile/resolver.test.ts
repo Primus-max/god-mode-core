@@ -74,6 +74,17 @@ describe("resolveProfile", () => {
     expect(resolved.activeProfile.sessionProfile).toBe("developer");
   });
 
+  it("lets explicit media turns override a pinned builder profile", () => {
+    const resolved = resolveProfile({
+      baseProfile: "builder",
+      prompt: "Сделай инфографику с бананом и отдай PDF с картинкой",
+      artifactKinds: ["document", "image"],
+      requestedTools: ["image_generate", "pdf"],
+    });
+    expect(resolved.selectedProfile.id).toBe("media_creator");
+    expect(resolved.activeProfile.taskOverlay).toBe("media_first");
+  });
+
   it("falls back to general when no strong signals are present", () => {
     const resolved = resolveProfile({ prompt: "" });
     expect(resolved.selectedProfile.id).toBe("general");

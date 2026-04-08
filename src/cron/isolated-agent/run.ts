@@ -487,6 +487,11 @@ export async function runCronIsolatedAgentTurn(params: {
           fileNames: [],
           artifactKinds: platformExecutionContext.artifactKinds,
         },
+        ...(Boolean(cronSession.sessionEntry.providerOverride?.trim()) ||
+        Boolean(cronSession.sessionEntry.modelOverride?.trim()) ||
+        process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1"
+          ? { skipRoutePreflight: true as const }
+          : {}),
         run: async (providerOverride, modelOverride, runOptions) => {
           if (abortSignal?.aborted) {
             throw new Error(abortReason());

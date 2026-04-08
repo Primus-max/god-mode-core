@@ -259,7 +259,8 @@ export async function maybeHandleModelDirectiveInfo(params: {
           activeRuntimeLine,
           "",
           "Tap below to browse models, or use:",
-          "/model <provider/model> to switch",
+          "/model <provider/model> to switch (locks routing order for this session)",
+          "/model default — back to agent default + automatic routing",
           "/model status for details",
         ]
           .filter(Boolean)
@@ -273,7 +274,7 @@ export async function maybeHandleModelDirectiveInfo(params: {
         `Current: ${current}${modelRefs.activeDiffers ? " (selected)" : ""}`,
         activeRuntimeLine,
         "",
-        "Switch: /model <provider/model>",
+        "Switch: /model <provider/model> (locks routing order until /model default)",
         "Browse: /models (providers) or /models <provider> (models)",
         "More: /model status",
       ]

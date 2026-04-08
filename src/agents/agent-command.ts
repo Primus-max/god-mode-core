@@ -1527,6 +1527,11 @@ async function agentCommandInternal(
         fallbacksOverride: fallbackOverride,
         preflightPrompt: body,
         preflightPlannerInput: platformPlannerInput,
+        ...(Boolean(sessionEntry?.providerOverride?.trim()) ||
+        Boolean(sessionEntry?.modelOverride?.trim()) ||
+        process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1"
+          ? { skipRoutePreflight: true as const }
+          : {}),
         run: (providerOverride, modelOverride, runOptions) => {
           const isFallbackRetry = fallbackAttemptIndex > 0;
           fallbackAttemptIndex += 1;

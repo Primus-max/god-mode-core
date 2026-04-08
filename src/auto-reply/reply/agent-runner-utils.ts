@@ -109,6 +109,9 @@ export function resolveModelFallbackOptions(
   opts?: { preflightPrompt?: string; preflightMode?: RoutePreflightMode },
 ) {
   const trimmedPreflight = opts?.preflightPrompt?.trim();
+  const skipRoutePreflight =
+    run.modelRoutePreflightDisabled === true ||
+    process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1";
   return {
     cfg: run.config,
     provider: run.provider,
@@ -119,6 +122,7 @@ export function resolveModelFallbackOptions(
       agentId: run.agentId,
       sessionKey: run.sessionKey,
     }),
+    ...(skipRoutePreflight ? { skipRoutePreflight: true as const } : {}),
     ...(trimmedPreflight
       ? {
           preflightPrompt: trimmedPreflight,

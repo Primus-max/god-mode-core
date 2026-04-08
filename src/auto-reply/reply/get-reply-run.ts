@@ -512,6 +512,8 @@ export async function runPreparedReply(
   const authProfileIdSource = sessionEntry?.authProfileOverrideSource;
   const requestRunId =
     typeof opts?.runId === "string" && opts.runId.trim() ? opts.runId.trim() : undefined;
+  const sessionPinsModelRoute =
+    Boolean(sessionEntry?.providerOverride?.trim()) || Boolean(sessionEntry?.modelOverride?.trim());
   const followupRun = {
     prompt: queuedBody,
     messageId: sessionCtx.MessageSidFull ?? sessionCtx.MessageSid,
@@ -576,6 +578,7 @@ export async function runPreparedReply(
       inputProvenance: ctx.InputProvenance ?? sessionCtx.InputProvenance,
       extraSystemPrompt: extraSystemPromptParts.join("\n\n") || undefined,
       ...(isReasoningTagProvider(provider) ? { enforceFinalTag: true } : {}),
+      ...(sessionPinsModelRoute ? { modelRoutePreflightDisabled: true as const } : {}),
     },
   };
 

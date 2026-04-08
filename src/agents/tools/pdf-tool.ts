@@ -4,7 +4,7 @@ import path from "node:path";
 import { type Context, complete } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
-import { saveMediaBuffer } from "../../media/store.js";
+import { extractOriginalFilename, getMediaDir, saveMediaBuffer } from "../../media/store.js";
 import { extractPdfContent, type PdfExtractedContent } from "../../media/pdf-extract.js";
 import { loadWebMediaRaw } from "../../media/web-media.js";
 import { resolveHtmlBody } from "../../platform/materialization/html-preview-materializer.js";
@@ -68,8 +68,11 @@ function looksLikePdfReference(value: string): boolean {
   if (!trimmed) {
     return false;
   }
-  if (/^https?:\/\//i.test(trimmed) || /^file:/i.test(trimmed) || /^data:/i.test(trimmed)) {
+  if (/^data:application\/pdf(?:;|,)/i.test(trimmed)) {
     return true;
+  }
+  if (/^https?:\/\//i.test(trimmed) || /^file:/i.test(trimmed)) {
+    return /\.pdf(?:[?#].*)?$/iu.test(trimmed);
   }
   if (
     /^[a-zA-Z]:[\\/]/.test(trimmed) ||
@@ -80,9 +83,241 @@ function looksLikePdfReference(value: string): boolean {
     trimmed.startsWith("~/") ||
     /[\\/]/.test(trimmed)
   ) {
-    return true;
+    return /\.pdf$/iu.test(trimmed);
   }
   return /\.pdf(?:[?#].*)?$/iu.test(trimmed);
+}
+
+function looksLikeImageReference(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (trimmed.startsWith("sandbox://")) {
+    return true;
+  }
+  if (/^data:image\/[a-z0-9.+-]+(?:;|,)/iu.test(trimmed)) {
+    return true;
+  }
+  if (/^https?:\/\//i.test(trimmed) || /^file:/i.test(trimmed)) {
+    return /\.(png|jpe?g|webp|gif|svg)(?:[?#].*)?$/iu.test(trimmed);
+  }
+  if (
+    /^[a-zA-Z]:[\\/]/.test(trimmed) ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("./") ||
+    trimmed.startsWith("../") ||
+    trimmed.startsWith("~\\") ||
+    trimmed.startsWith("~/") ||
+    /[\\/]/.test(trimmed)
+  ) {
+    return /\.(png|jpe?g|webp|gif|svg)$/iu.test(trimmed);
+  }
+  return /^[^\\/\r\n]+\.(png|jpe?g|webp|gif|svg)$/iu.test(trimmed);
+}
+
+type PromptOnlyPdfImageAsset = {
+  fileName: string;
+  mimeType: string;
+  base64: string;
+};
+
+function extractImageReferencesFromText(text: string): string[] {
+  const refs = text.match(
+    /sandbox:\/\/[^\s)"'`]+|(?:https?:\/\/|file:\/\/)[^\s)"'`]+\.(?:png|jpe?g|webp|gif|svg)(?:[?#][^\s)"'`]*)?/giu,
+  );
+  return refs ? Array.from(new Set(refs)) : [];
+}
+
+async function findMediaFileByOriginalName(originalName: string): Promise<string | null> {
+  const mediaDir = getMediaDir();
+  const stack = [mediaDir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) {
+      continue;
+    }
+    const entries = await fs.readdir(current, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+      if (extractOriginalFilename(fullPath) === originalName) {
+        return fullPath;
+      }
+    }
+  }
+  return null;
+}
+
+async function loadPromptOnlyPdfImageAsset(params: {
+  ref: string;
+  maxBytes: number;
+  localRoots: string[];
+  sandboxConfig: SandboxedBridgeMediaPathConfig | null;
+}): Promise<PromptOnlyPdfImageAsset> {
+  const trimmed = params.ref.trim();
+  const isHttpUrl = /^https?:\/\//i.test(trimmed);
+  const resolvedRef = (() => {
+    if (trimmed.startsWith("sandbox://")) {
+      return trimmed;
+    }
+    if (/^[^\\/\r\n]+\.(png|jpe?g|webp|gif|svg)$/iu.test(trimmed)) {
+      return trimmed;
+    }
+    if (params.sandboxConfig) {
+      return trimmed;
+    }
+    if (trimmed.startsWith("~")) {
+      return resolveUserPath(trimmed);
+    }
+    return trimmed;
+  })();
+
+  const resolvedPathInfo =
+    (trimmed.startsWith("sandbox://") ||
+      /^[^\\/\r\n]+\.(png|jpe?g|webp|gif|svg)$/iu.test(trimmed)) &&
+    !params.sandboxConfig
+      ? {
+          resolved: await findMediaFileByOriginalName(
+            trimmed.startsWith("sandbox://") ? trimmed.slice("sandbox://".length) : trimmed,
+          ),
+        }
+      : params.sandboxConfig
+        ? await resolveSandboxedBridgeMediaPath({
+            sandbox: params.sandboxConfig,
+            mediaPath: resolvedRef,
+            inboundFallbackDir: "media/inbound",
+          })
+        : {
+            resolved: resolvedRef.startsWith("file://")
+              ? resolvedRef.slice("file://".length)
+              : resolvedRef,
+          };
+
+  if (!resolvedPathInfo?.resolved) {
+    throw new Error(`Unable to resolve prompt-only image reference: ${trimmed}`);
+  }
+
+  const media = params.sandboxConfig
+    ? await loadWebMediaRaw(resolvedPathInfo.resolved, {
+        maxBytes: params.maxBytes,
+        sandboxValidated: true,
+        readFile: createSandboxBridgeReadFile({ sandbox: params.sandboxConfig }),
+      })
+    : await loadWebMediaRaw(resolvedPathInfo.resolved, {
+        maxBytes: params.maxBytes,
+        localRoots: params.localRoots,
+      });
+
+  if (media.kind !== "image") {
+    throw new Error(`Expected image but got ${media.contentType ?? media.kind}: ${trimmed}`);
+  }
+
+  const fileName =
+    media.fileName ??
+    (isHttpUrl
+      ? (new URL(trimmed).pathname.split("/").pop() ?? "image.png")
+      : path.basename(resolvedPathInfo.resolved));
+  return {
+    fileName,
+    mimeType: media.contentType ?? "image/png",
+    base64: media.buffer.toString("base64"),
+  };
+}
+
+function buildPromptOnlyPdfHtml(params: {
+  bodyMarkdown: string;
+  images: PromptOnlyPdfImageAsset[];
+}): string {
+  const imagesHtml = params.images
+    .map(
+      (image) => `
+        <figure style="margin:0 0 24px 0;padding:24px;border-radius:28px;background:linear-gradient(135deg,#fffbe8,#eef8ff);border:1px solid rgba(17,24,39,.08);">
+          <img src="data:${image.mimeType};base64,${image.base64}" alt="${image.fileName}" style="display:block;width:100%;max-width:520px;margin:0 auto;border-radius:24px;box-shadow:0 20px 50px rgba(15,23,42,.15);" />
+        </figure>
+      `,
+    )
+    .join("\n");
+  const bodyHtml = resolveHtmlBody({ markdown: params.bodyMarkdown });
+  return `
+    <section style="font-family:'Open Sans',Arial,sans-serif;color:#111827;">
+      ${imagesHtml}
+      <div style="font-size:15px;line-height:1.65;">${bodyHtml}</div>
+    </section>
+  `.trim();
+}
+
+async function draftPromptOnlyPdfMarkdown(params: {
+  cfg: OpenClawConfig;
+  agentDir: string;
+  pdfModelConfig: ImageModelConfig;
+  modelOverride?: string;
+  prompt: string;
+  images: PromptOnlyPdfImageAsset[];
+}): Promise<{
+  text: string;
+  provider: string;
+  model: string;
+}> {
+  const effectiveCfg = applyImageModelConfigDefaults(params.cfg, params.pdfModelConfig);
+  await ensureOpenClawModelsJson(effectiveCfg, params.agentDir);
+  const authStorage = discoverAuthStorage(params.agentDir);
+  const modelRegistry = discoverModels(authStorage, params.agentDir);
+
+  const result = await runWithImageModelFallback({
+    cfg: effectiveCfg,
+    modelOverride: params.modelOverride,
+    run: async (provider, modelId) => {
+      const model = resolveModelFromRegistry({ modelRegistry, provider, modelId });
+      const apiKey = await resolveModelRuntimeApiKey({
+        model,
+        cfg: effectiveCfg,
+        agentDir: params.agentDir,
+        authStorage,
+      });
+      const context: Context = {
+        messages: [
+          {
+            role: "user",
+            content: [
+              ...params.images.map((image) => ({
+                type: "image" as const,
+                data: image.base64,
+                mimeType: image.mimeType,
+              })),
+              {
+                type: "text" as const,
+                text: [
+                  "Create polished PDF-ready markdown for the user's requested document.",
+                  "Return markdown only, no code fences, no explanations.",
+                  "If reference images are attached, treat them as the main visual already available for layout.",
+                  "Use the user's requested language and formatting intent.",
+                  "",
+                  `User request:\n${params.prompt}`,
+                ].join("\n"),
+              },
+            ],
+            timestamp: Date.now(),
+          },
+        ],
+      };
+      const message = await complete(model, context, {
+        apiKey,
+        maxTokens: resolvePdfToolMaxTokens(model.maxTokens),
+      });
+      const text = coercePdfAssistantText({ message, provider, model: modelId });
+      return { text, provider, model: modelId };
+    },
+  });
+
+  return {
+    text: result.result.text,
+    provider: result.result.provider,
+    model: result.result.model,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +628,24 @@ export function createPdfTool(options?: {
     }),
     execute: async (_toolCallId, args) => {
       const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+      const { prompt: promptRaw, modelOverride } = resolvePromptAndModelOverride(
+        record,
+        DEFAULT_PROMPT,
+      );
+      const maxBytesMbRaw = typeof record.maxBytesMb === "number" ? record.maxBytesMb : undefined;
+      const maxBytesMb =
+        typeof maxBytesMbRaw === "number" && Number.isFinite(maxBytesMbRaw) && maxBytesMbRaw > 0
+          ? maxBytesMbRaw
+          : configuredMaxBytesMb;
+      const maxBytes = Math.floor(maxBytesMb * 1024 * 1024);
+      const sandboxConfig: SandboxedBridgeMediaPathConfig | null =
+        options?.sandbox && options.sandbox.root.trim()
+          ? {
+              root: options.sandbox.root.trim(),
+              bridge: options.sandbox.bridge,
+              workspaceOnly: options.fsPolicy?.workspaceOnly === true,
+            }
+          : null;
 
       // MARK: - Normalize pdf + pdfs input
       const pdfCandidates: string[] = [];
@@ -406,8 +659,10 @@ export function createPdfTool(options?: {
       const seenPdfs = new Set<string>();
       const pdfInputs: string[] = [];
       const promptOnlyFallbackParts: string[] = [];
+      const promptOnlyImageRefs: string[] = [];
       if (typeof record.prompt === "string" && record.prompt.trim()) {
         promptOnlyFallbackParts.push(record.prompt.trim());
+        promptOnlyImageRefs.push(...extractImageReferencesFromText(record.prompt));
       }
       for (const candidate of pdfCandidates) {
         const trimmed = candidate.trim();
@@ -417,6 +672,12 @@ export function createPdfTool(options?: {
         seenPdfs.add(trimmed);
         if (looksLikePdfReference(trimmed)) {
           pdfInputs.push(trimmed);
+          continue;
+        }
+        if (looksLikeImageReference(trimmed)) {
+          if (!promptOnlyImageRefs.includes(trimmed)) {
+            promptOnlyImageRefs.push(trimmed);
+          }
           continue;
         }
         promptOnlyFallbackParts.push(trimmed);
@@ -431,11 +692,38 @@ export function createPdfTool(options?: {
           typeof record.filename === "string" && record.filename.trim()
             ? record.filename
             : "generated-pdf.pdf";
+        const imageAssets = await Promise.all(
+          promptOnlyImageRefs.map((ref) =>
+            loadPromptOnlyPdfImageAsset({
+              ref,
+              maxBytes,
+              localRoots,
+              sandboxConfig,
+            }),
+          ),
+        );
+        const drafted =
+          imageAssets.length > 0
+            ? await draftPromptOnlyPdfMarkdown({
+                cfg: options?.config ?? {},
+                agentDir,
+                pdfModelConfig,
+                modelOverride: typeof record.model === "string" ? record.model : undefined,
+                prompt: fallbackPrompt,
+                images: imageAssets,
+              }).catch(() => null)
+            : null;
         const rendered = writePdfFileFromHtml({
           outputDir: path.join(os.tmpdir(), "openclaw-pdf-tool"),
           baseFileName: path.parse(filename).name || "generated-pdf",
           title: path.parse(filename).name || "Generated PDF",
-          bodyHtml: resolveHtmlBody({ text: generatedText }),
+          bodyHtml:
+            imageAssets.length > 0
+              ? buildPromptOnlyPdfHtml({
+                  bodyMarkdown: drafted?.text || generatedText,
+                  images: imageAssets,
+                })
+              : resolveHtmlBody({ text: generatedText }),
         });
         const renderedBuffer = await fs.readFile(rendered.path);
         const saved = await saveMediaBuffer(
@@ -450,12 +738,15 @@ export function createPdfTool(options?: {
           content: [
             {
               type: "text",
-              text: "Generated 1 PDF locally from the prompt text.",
+              text:
+                imageAssets.length > 0
+                  ? "Generated 1 PDF with embedded image assets."
+                  : "Generated 1 PDF locally from the prompt text.",
             },
           ],
           details: {
-            provider: "local",
-            model: "minimal-pdf",
+            provider: drafted?.provider ?? "local",
+            model: drafted?.model ?? "minimal-pdf",
             pdf: saved.path,
             paths: [saved.path],
             media: {
@@ -478,29 +769,9 @@ export function createPdfTool(options?: {
         };
       }
 
-      const { prompt: promptRaw, modelOverride } = resolvePromptAndModelOverride(
-        record,
-        DEFAULT_PROMPT,
-      );
-      const maxBytesMbRaw = typeof record.maxBytesMb === "number" ? record.maxBytesMb : undefined;
-      const maxBytesMb =
-        typeof maxBytesMbRaw === "number" && Number.isFinite(maxBytesMbRaw) && maxBytesMbRaw > 0
-          ? maxBytesMbRaw
-          : configuredMaxBytesMb;
-      const maxBytes = Math.floor(maxBytesMb * 1024 * 1024);
-
       // Parse page range
       const pagesRaw =
         typeof record.pages === "string" && record.pages.trim() ? record.pages.trim() : undefined;
-
-      const sandboxConfig: SandboxedBridgeMediaPathConfig | null =
-        options?.sandbox && options.sandbox.root.trim()
-          ? {
-              root: options.sandbox.root.trim(),
-              bridge: options.sandbox.bridge,
-              workspaceOnly: options.fsPolicy?.workspaceOnly === true,
-            }
-          : null;
 
       // MARK: - Load each PDF
       const loadedPdfs: Array<{

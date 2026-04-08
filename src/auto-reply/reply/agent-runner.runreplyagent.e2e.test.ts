@@ -194,6 +194,7 @@ beforeEach(async () => {
   helperState.finalizeWithFollowupMock.mockImplementation((...args: unknown[]) => {
     return helperState.finalizeWithFollowupActual?.(...args);
   });
+  vi.stubEnv("OPENCLAW_DEBUG_REPLY_ROUTING", "0");
   vi.stubEnv("OPENCLAW_TEST_FAST", "1");
 });
 
@@ -1356,6 +1357,79 @@ describe("runReplyAgent typing (heartbeat)", () => {
 
       const persisted = JSON.parse(await fs.readFile(storePath, "utf-8"));
       expect(persisted.main.sessionId).toBe(sessionStore.main.sessionId);
+    });
+  });
+
+  it("automatically resets oversized direct sessions before running the next turn", async () => {
+    await withTempStateDir(async (stateDir) => {
+      const sessionId = "session-oversized-direct";
+      const sessionKey = "agent:main:telegram:direct:123";
+      const storePath = path.join(stateDir, "sessions", "sessions.json");
+      const transcriptPath = sessions.resolveSessionTranscriptPath(sessionId);
+      const sessionEntry: SessionEntry = {
+        sessionId,
+        updatedAt: Date.now(),
+        sessionFile: transcriptPath,
+        totalTokens: 62_000,
+        systemPromptReport: {
+          source: "run",
+          generatedAt: Date.now(),
+          sessionId,
+          sessionKey,
+          provider: "hydra",
+          model: "hydra-gpt-pro",
+          workspaceDir: stateDir,
+          bootstrapMaxChars: 1000,
+          bootstrapTotalMaxChars: 2000,
+          systemPrompt: {
+            chars: 35_000,
+            projectContextChars: 20_000,
+            nonProjectContextChars: 15_000,
+          },
+          injectedWorkspaceFiles: [],
+          skills: {
+            promptChars: 0,
+            entries: [],
+          },
+          tools: {
+            listChars: 0,
+            schemaChars: 0,
+            entries: [],
+          },
+        },
+      };
+      const sessionStore: Record<string, SessionEntry> = {
+        [sessionKey]: sessionEntry,
+      };
+
+      await fs.mkdir(path.dirname(storePath), { recursive: true });
+      await fs.writeFile(storePath, JSON.stringify(sessionStore), "utf-8");
+      await fs.mkdir(path.dirname(transcriptPath), { recursive: true });
+      await fs.writeFile(transcriptPath, "stale transcript", "utf-8");
+
+      state.runEmbeddedPiAgentMock.mockResolvedValueOnce({
+        payloads: [{ text: "fresh run" }],
+        meta: {},
+      });
+
+      const { run } = createMinimalRun({
+        sessionEntry,
+        sessionStore,
+        sessionKey,
+        storePath,
+      });
+      const res = await run();
+
+      expect(state.runEmbeddedPiAgentMock).toHaveBeenCalledTimes(1);
+      expect(res).toMatchObject({ text: "fresh run" });
+      expect(sessionStore[sessionKey]?.sessionId).not.toBe(sessionId);
+      expect(state.runEmbeddedPiAgentMock.mock.calls[0]?.[0]).toMatchObject({
+        sessionId: sessionStore[sessionKey]?.sessionId,
+      });
+      await expect(fs.access(transcriptPath)).rejects.toThrow();
+
+      const persisted = JSON.parse(await fs.readFile(storePath, "utf-8"));
+      expect(persisted[sessionKey].sessionId).toBe(sessionStore[sessionKey]?.sessionId);
     });
   });
 

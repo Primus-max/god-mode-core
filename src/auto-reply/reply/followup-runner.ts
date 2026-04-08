@@ -315,6 +315,10 @@ export function createFollowupRunner(params: {
           agentDir: queued.run.agentDir,
           preflightPrompt: queued.prompt,
           preflightPlannerInput,
+          ...(queued.run.modelRoutePreflightDisabled === true ||
+          process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1"
+            ? { skipRoutePreflight: true as const }
+            : {}),
           fallbacksOverride: resolveRunModelFallbacksOverride({
             cfg: queued.run.config,
             agentId: queued.run.agentId,

@@ -148,6 +148,7 @@ describe("buildExecutionDecisionInput", () => {
 
     expect(input.intent).toBeUndefined();
     expect(input.artifactKinds).toEqual(["image"]);
+    expect(input.requestedTools).toEqual(["image_generate"]);
   });
 
   it("infers artifact kinds from Russian media and document prompts", () => {
@@ -159,8 +160,20 @@ describe("buildExecutionDecisionInput", () => {
     });
 
     expect(imageInput.artifactKinds).toEqual(["image"]);
+    expect(imageInput.requestedTools).toEqual(["image_generate"]);
     expect(pdfInput.intent).toBe("document");
     expect(pdfInput.artifactKinds).toEqual(["document"]);
+    expect(pdfInput.requestedTools).toEqual(["pdf"]);
+  });
+
+  it("infers both image and pdf tools for infographic presentation requests", () => {
+    const input = buildExecutionDecisionInput({
+      prompt:
+        "Сделай презентационную инфографику с веселым бананом и собери итог в PDF на 3 страницы.",
+    });
+
+    expect(input.artifactKinds).toEqual(expect.arrayContaining(["document", "image"]));
+    expect(input.requestedTools).toEqual(expect.arrayContaining(["image_generate", "pdf"]));
   });
 
   it("keeps PDF generation prompts on the document path even when they mention tests", () => {
@@ -180,7 +193,7 @@ describe("buildExecutionDecisionInput", () => {
     });
 
     expect(input.intent).toBe("document");
-    expect(input.requestedTools ?? []).toEqual([]);
+    expect(input.requestedTools ?? []).toEqual(["pdf"]);
     expect(input.artifactKinds).toEqual(["document"]);
   });
 

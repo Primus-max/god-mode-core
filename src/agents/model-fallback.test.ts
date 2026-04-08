@@ -229,6 +229,31 @@ describe("runWithModelFallback route preflight", () => {
     expect(result.routePreflight?.controlPlaneUsed).toBe(true);
   });
 
+  it("skips route preflight reordering when skipRoutePreflight is true", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4.1-mini",
+            fallbacks: ["ollama/llama3.2", "anthropic/claude-haiku-3-5"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      preflightPrompt: "what is 2+2?",
+      skipRoutePreflight: true,
+      run,
+    });
+    expect(result.result).toBe("ok");
+    expect(run.mock.calls[0]?.slice(0, 2)).toEqual(["openai", "gpt-4.1-mini"]);
+    expect(result.routePreflight).toBeUndefined();
+  });
+
   it("keeps configured primary first when preflight selects a stronger route", async () => {
     const cfg = makeCfg({
       agents: {

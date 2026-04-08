@@ -106,6 +106,7 @@ type RunWithModelFallbackParams = {
 beforeEach(() => {
   vi.useRealTimers();
   vi.clearAllTimers();
+  vi.stubEnv("OPENCLAW_DEBUG_REPLY_ROUTING", "0");
   vi.mocked(enqueueFollowupRun).mockReset();
   runEmbeddedPiAgentMock.mockClear();
   runCliAgentMock.mockClear();
@@ -240,7 +241,7 @@ describe("runReplyAgent onAgentRunStart", () => {
 
     expect(onAgentRunStart).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      text: expect.stringContaining('No API key found for provider "anthropic".'),
+      text: expect.stringContaining('No API key found for provider "anthropic"'),
     });
   });
 

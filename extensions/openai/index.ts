@@ -1,5 +1,8 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { buildOpenAIImageGenerationProvider } from "./image-generation-provider.js";
+import {
+  buildHydraImageGenerationProvider,
+  buildOpenAIImageGenerationProvider,
+} from "./image-generation-provider.js";
 import { openaiMediaUnderstandingProvider } from "./media-understanding-provider.js";
 import { buildOpenAICodexProviderPlugin } from "./openai-codex-provider.js";
 import { buildOpenAIProvider } from "./openai-provider.js";
@@ -15,5 +18,6 @@ export default definePluginEntry({
     api.registerSpeechProvider(buildOpenAISpeechProvider());
     api.registerMediaUnderstandingProvider(openaiMediaUnderstandingProvider);
     api.registerImageGenerationProvider(buildOpenAIImageGenerationProvider());
+    api.registerImageGenerationProvider(buildHydraImageGenerationProvider());
   },
 });

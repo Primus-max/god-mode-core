@@ -121,7 +121,7 @@ function shouldUseLatencySensitiveLocalProbe(params: {
   >;
 }): boolean {
   const prompt = params.prompt?.trim();
-  if (!prompt || prompt.length > 140) {
+  if (!prompt || prompt.length > 400) {
     return false;
   }
   return shouldUseLightweightBootstrapContext({
@@ -642,6 +642,11 @@ export async function runWithModelFallback<T>(params: {
   >;
   /** When `force_stronger`, local-first promotion is disabled (e.g. memory flush / structured jobs). */
   preflightMode?: RoutePreflightMode;
+  /**
+   * When true (or OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT=1), do not reorder the fallback chain;
+   * the primary from config/session stays first. Failover order is unchanged.
+   */
+  skipRoutePreflight?: boolean;
   run: ModelFallbackRunFn<T>;
   onError?: ModelFallbackErrorHandler;
 }): Promise<ModelFallbackRunResult<T>> {
@@ -652,17 +657,22 @@ export async function runWithModelFallback<T>(params: {
     model: params.model,
     fallbacksOverride: params.fallbacksOverride,
   });
+  const skipRoutePreflight =
+    params.skipRoutePreflight === true ||
+    process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1";
   // Debug: log preflight input for Stage 86 testing
   log.info(
-    `route preflight input: promptPresent=${Boolean(params.preflightPrompt?.trim())} plannerInputPresent=${Boolean(params.preflightPlannerInput)} promptLength=${params.preflightPrompt?.length ?? 0} mode=${params.preflightMode ?? "default"} candidates=${baseCandidates.map(c => `${c.provider}/${c.model}`).join(",")}`,
+    `route preflight input: promptPresent=${Boolean(params.preflightPrompt?.trim())} plannerInputPresent=${Boolean(params.preflightPlannerInput)} promptLength=${params.preflightPrompt?.length ?? 0} mode=${params.preflightMode ?? "default"} skipRoutePreflight=${skipRoutePreflight} candidates=${baseCandidates.map(c => `${c.provider}/${c.model}`).join(",")}`,
   );
-  const preflight = applyModelRoutePreflight({
-    candidates: baseCandidates,
-    prompt: params.preflightPrompt,
-    plannerInput: params.preflightPlannerInput,
-    mode: params.preflightMode,
-    catalog: modelCatalog,
-  });
+  const preflight = skipRoutePreflight
+    ? { candidates: baseCandidates, decision: null as const }
+    : applyModelRoutePreflight({
+        candidates: baseCandidates,
+        prompt: params.preflightPrompt,
+        plannerInput: params.preflightPlannerInput,
+        mode: params.preflightMode,
+        catalog: modelCatalog,
+      });
   const candidates = preflight.candidates;
   const routePreflight = preflight.decision;
   // Operator grep anchor: one stable `preflightMode:` line when preflight returned a decision.

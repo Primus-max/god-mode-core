@@ -90,6 +90,16 @@ describe("markdownToTelegramHtml", () => {
     expect(res).toBe("the answer is <tg-spoiler>42</tg-spoiler>");
   });
 
+  it("promotes OpenClaw debug routing details blockquote to expandable (not spoiler)", () => {
+    const md = "> [debug] · used `hydra/x` · 9 tok\n\n> intent: `g` | selected: `a/b`";
+    const res = markdownToTelegramHtml(md);
+    expect(res).toContain("<blockquote>[debug] · used ");
+    expect(res).toContain("</blockquote>");
+    expect(res).toContain("<blockquote expandable>");
+    expect(res).toContain("intent:");
+    expect(res).not.toContain("<tg-spoiler>");
+  });
+
   it("renders spoiler with nested formatting", () => {
     const res = markdownToTelegramHtml("||**secret** text||");
     expect(res).toBe("<tg-spoiler><b>secret</b> text</tg-spoiler>");

@@ -47,6 +47,7 @@ const MEDIA_IMAGE_HINTS = [
   "banner",
   "icon",
   "logo",
+  "infographic",
   "render",
   "изображени",
   "картин",
@@ -56,6 +57,7 @@ const MEDIA_IMAGE_HINTS = [
   "баннер",
   "иконк",
   "логотип",
+  "инфограф",
   "рендер",
 ] as const;
 const MEDIA_VIDEO_HINTS = [
@@ -111,6 +113,20 @@ const WEB_SEARCH_TOOL_HINTS = [
   "поиск в интернете",
   "в интернете",
 ] as const;
+const PRESENTATION_ARTIFACT_HINTS = [
+  "presentation",
+  "slides",
+  "slide deck",
+  "deck",
+  "infographic",
+  "презентац",
+  "слайд",
+  "инфограф",
+] as const;
+const IMAGE_GENERATION_VERB_RE =
+  /generate|create|make|draw|render|paint|сгенерируй|создай|сделай|нарисуй|отрендери/iu;
+const PDF_GENERATION_VERB_RE =
+  /generate|create|make|export|render|assemble|сгенерируй|создай|сделай|экспортируй|собери/iu;
 
 const GENERAL_INTENT_HINTS = [
   "hello",
@@ -287,6 +303,17 @@ function promptNeedsWebSearchTool(prompt: string): boolean {
   return promptIncludesAny(prompt, WEB_SEARCH_TOOL_HINTS);
 }
 
+function promptNeedsImageGenerationTool(prompt: string): boolean {
+  return IMAGE_GENERATION_VERB_RE.test(prompt) && promptIncludesAny(prompt, MEDIA_IMAGE_HINTS);
+}
+
+function promptNeedsPdfTool(prompt: string): boolean {
+  return (
+    PDF_GENERATION_VERB_RE.test(prompt) &&
+    (/\bpdf\b/iu.test(prompt) || promptIncludesAny(prompt, PRESENTATION_ARTIFACT_HINTS))
+  );
+}
+
 function inferArtifactKinds(
   prompt: string,
   fileNames: string[],
@@ -358,6 +385,8 @@ export function buildExecutionDecisionInput(
       : []),
     ...(promptNeedsBrowserTool(inferencePrompt) ? ["browser"] : []),
     ...(promptNeedsWebSearchTool(inferencePrompt) ? ["web_search"] : []),
+    ...(promptNeedsImageGenerationTool(inferencePrompt) ? ["image_generate"] : []),
+    ...(promptNeedsPdfTool(inferencePrompt) ? ["pdf"] : []),
   ]);
   const channelHints = toUniqueLowercase([
     params.channelHints?.messageChannel,
