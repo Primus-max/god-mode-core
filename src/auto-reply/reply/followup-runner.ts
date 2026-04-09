@@ -14,10 +14,6 @@ import type { SessionEntry } from "../../config/sessions.js";
 import type { TypingMode } from "../../config/types.js";
 import { logVerbose } from "../../globals.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
-import {
-  buildExecutionDecisionInput,
-  buildSessionBackedExecutionDecisionInput,
-} from "../../platform/decision/input.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { defaultRuntime } from "../../runtime.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
@@ -34,7 +30,7 @@ import {
   markClosureRecoveryCheckpointFailed,
   reevaluateMessagingDecisionForMessagingRun,
 } from "./agent-runner-helpers.js";
-import { resolvePlatformExecutionContextForTemplateRun } from "./agent-runner-utils.js";
+import { resolveRoutingSnapshotForTemplateRun } from "./agent-runner-utils.js";
 import {
   resolveOriginAccountId,
   resolveOriginMessageProvider,
@@ -225,25 +221,15 @@ export function createFollowupRunner(params: {
         Provider: queued.run.messageProvider,
         Surface: queued.originatingChannel ?? queued.run.messageProvider,
       } as const;
-      const platformExecutionContext = resolvePlatformExecutionContextForTemplateRun({
+      const routingSnapshot = resolveRoutingSnapshotForTemplateRun({
         prompt: queued.prompt,
         run: queued.run,
         sessionCtx: syntheticSessionCtx,
         storePath,
         sessionEntry: activeSessionEntry,
       });
-      const preflightPlannerInput = buildExecutionDecisionInput(
-        buildSessionBackedExecutionDecisionInput({
-          draftPrompt: queued.prompt,
-          storePath,
-          sessionEntry: activeSessionEntry,
-          channelHints: {
-            messageChannel: syntheticSessionCtx.OriginatingChannel,
-            channel: queued.run.messageProvider,
-            replyChannel: syntheticSessionCtx.Surface,
-          },
-        }),
-      );
+      const platformExecutionContext = routingSnapshot.runtimePlan;
+      const preflightPlannerInput = routingSnapshot.plannerInput;
       const shouldSurfaceToControlUi = isInternalMessageChannel(
         resolveOriginMessageProvider({
           originatingChannel: queued.originatingChannel,

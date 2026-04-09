@@ -4,22 +4,22 @@ overview: "Пересобрать главный v1-план и поддержи
 todos:
   - id: define-execution-contract
     content: "Сформулировать единый V1 execution-контракт: состояния, переходы, обязательные проверки и stop-conditions"
-    status: pending
+    status: completed
   - id: harden-master-roadmap
     content: Обновить master_v1_roadmap под новый контракт и явные правила handoff/continuation
-    status: pending
+    status: completed
   - id: normalize-active-backlog
     content: Добавить в active backlog обязательные операционные поля и правила фиксации evidence
-    status: pending
+    status: completed
   - id: align-multi-agent-protocol
     content: Привести multi-agent execution protocol к циклу Do-Verify-Fix-Repeat и единой терминологии
-    status: pending
+    status: completed
   - id: add-compact-checklist
     content: Создать короткий v1 execution checklist-файл для старта любого нового чата
-    status: pending
+    status: completed
   - id: cross-doc-consistency-pass
     content: Проверить согласованность ссылок, критериев done/blocked и v1-ready во всех поддерживающих документах
-    status: pending
+    status: completed
 isProject: false
 ---
 

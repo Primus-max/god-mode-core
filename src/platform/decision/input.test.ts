@@ -108,6 +108,7 @@ describe("buildExecutionDecisionInputFromRuntimePlan", () => {
 
     expect(replayInput.intent).toBe("document");
     expect(replayInput.artifactKinds).toEqual(["document", "report"]);
+    expect(replayInput.routing).toEqual(priorRuntime.routing);
     expect(fromScratch.intent).toBeUndefined();
     expect(fromScratch.artifactKinds?.length ?? 0).toBe(0);
   });

@@ -309,13 +309,17 @@ Done when:
 
 ## Success Criteria
 
-| Demo scenario                                          | Expected result                                                        |
-| ------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `Просто поздоровайся`                                  | Routes local, responds fast, visible low-cost path                     |
-| `Сделай подробный анализ`                              | Routes stronger, structured response, visible stronger path            |
-| `Сгенерируй PDF-отчет`                                 | Capability path succeeds and returns usable output                     |
-| `Сравни эти два прайса и скажи, у кого лучше покупать` | Bot returns ranked summary table plus recommendation                   |
-| `Посчитай вентиляцию по этим размерам и сделай сводку` | Bot returns structured calculation summary with assumptions and report |
+Главный product-level gate для этой недели:
+
+- **не менее 10/10 живых пользовательских сценариев** из `[.cursor/v1_user_acceptance_cases.md](.cursor/v1_user_acceptance_cases.md)` должны пройти end-to-end;
+- automated tests остаются обязательной страховкой, но не являются главным доказательством готовности;
+- investor/user должен увидеть, что бот реально отвечает, роутит, устанавливает capability, продолжает выполнение и создаёт нужные артефакты.
+
+| Demo scenario group                                    | Expected result                                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| Stage 86 foundation (cases 1-8)                        | Local/remote routing, fallback, bootstrap, inspector, usage, Hydra path green   |
+| `Сравни эти два прайса и скажи, у кого лучше покупать` | Bot returns ranked summary table plus recommendation                            |
+| `Посчитай вентиляцию по этим размерам и сделай сводку` | Bot returns structured calculation summary with assumptions, units, and report   |
 
 ## Realistic Timing
 

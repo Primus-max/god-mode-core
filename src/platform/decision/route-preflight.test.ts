@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.js";
 import type { ModelCandidate } from "../../agents/model-fallback.types.js";
+import { buildExecutionDecisionInput } from "./input.js";
 import {
   applyModelRoutePreflight,
   inferLocalRoutingEligibleFromPlannerInput,
@@ -107,9 +108,11 @@ describe("inferLocalRoutingEligibleFromPlannerInput", () => {
   it("blocks local-first when prompts mention PDF work even without attachments", () => {
     expect(
       inferLocalRoutingEligibleFromPlannerInput({
-        prompt: "Compare totals and export a PDF summary.",
-        intent: "compare",
-        artifactKinds: ["data", "report"],
+        ...buildExecutionDecisionInput({
+          prompt: "Compare totals and export a PDF summary.",
+          intent: "compare",
+          artifactKinds: ["data", "report"],
+        }),
       }),
     ).toBe(false);
   });
@@ -117,8 +120,10 @@ describe("inferLocalRoutingEligibleFromPlannerInput", () => {
   it("blocks local-first for general prompts that clearly ask for multi-step analysis", () => {
     expect(
       inferLocalRoutingEligibleFromPlannerInput({
-        prompt: "Напиши подробный анализ: какие 5 метрик важны для SaaS продукта и почему.",
-        intent: "general",
+        ...buildExecutionDecisionInput({
+          prompt: "Напиши подробный анализ: какие 5 метрик важны для SaaS продукта и почему.",
+          intent: "general",
+        }),
       }),
     ).toBe(false);
   });
@@ -451,11 +456,11 @@ describe("applyModelRoutePreflight", () => {
     ];
     const { candidates, decision } = applyModelRoutePreflight({
       candidates: artifactChain,
-      plannerInput: {
+      plannerInput: buildExecutionDecisionInput({
         prompt: "Сделай 3-страничный PDF про жизнь городского кота с иллюстрациями.",
         intent: "document",
         artifactKinds: ["document", "image"],
-      },
+      }),
       catalog,
     });
     expect(candidates.map((candidate) => `${candidate.provider}/${candidate.model}`)).toEqual([

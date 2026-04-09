@@ -22,7 +22,7 @@ import {
 import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 import type { ArtifactKind } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
-import type { RecipePlannerInput } from "./planner.js";
+import type { RecipePlannerInput, RecipeRoutingHints } from "./planner.js";
 import { planExecutionRecipe, type ExecutionPlan } from "./planner.js";
 
 export type RecipeRuntimePlan = {
@@ -31,6 +31,7 @@ export type RecipeRuntimePlan = {
   taskOverlayId?: string;
   plannerReasoning?: string;
   intent?: RecipePlannerInput["intent"];
+  routing?: RecipeRoutingHints;
   providerOverride?: string;
   modelOverride?: string;
   fallbackModels?: string[];
@@ -571,6 +572,7 @@ export function adaptExecutionPlanToRuntime(
       : {}),
     ...(plan.plannerOutput.reasoning ? { plannerReasoning: plan.plannerOutput.reasoning } : {}),
     ...(params?.input?.intent ? { intent: params.input.intent } : {}),
+    ...(params?.input?.routing ? { routing: params.input.routing } : {}),
     ...(parsedModel?.provider ? { providerOverride: parsedModel.provider } : {}),
     ...(parsedModel?.model ? { modelOverride: parsedModel.model } : {}),
     ...(plan.recipe.fallbackModels?.length ? { fallbackModels: plan.recipe.fallbackModels } : {}),
@@ -697,6 +699,7 @@ export function buildRecipePlannerInputFromRuntimePlan(
     prompt,
     ...(fileNames.length > 0 ? { fileNames } : {}),
     ...(runtime.intent ? { intent: runtime.intent } : {}),
+    ...(runtime.routing ? { routing: runtime.routing } : {}),
     ...(runtime.artifactKinds?.length
       ? { artifactKinds: runtime.artifactKinds as ArtifactKind[] }
       : {}),

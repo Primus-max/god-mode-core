@@ -4,7 +4,6 @@ import type { RecipePlannerInput } from "../recipe/planner.js";
 import type { ModelRouteCostTier, ModelRoutePreflightDecision } from "./contracts.js";
 import { isLikelyControlPlaneLocalProvider } from "./control-plane-local.js";
 import { buildExecutionDecisionInput } from "./input.js";
-import { TABULAR_ATTACHMENT_EXTENSION } from "./intent-signals.js";
 
 export type RoutePreflightMode = "default" | "force_stronger";
 
@@ -12,7 +11,7 @@ const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process", "browser", "we
 
 type LocalRoutingPlannerInput = Pick<
   RecipePlannerInput,
-  "intent" | "requestedTools" | "fileNames" | "artifactKinds" | "prompt"
+  "intent" | "requestedTools" | "fileNames" | "artifactKinds" | "prompt" | "routing"
 >;
 
 const HEAVY_FILE_EXTENSION =
@@ -169,10 +168,12 @@ function shouldPreferRemoteOrchestratorFirst(
   if (!plannerInput) {
     return false;
   }
+  if (plannerInput.routing?.preferRemoteFirst === true) {
+    return true;
+  }
   if (plannerInput.intent === "publish") {
     return true;
   }
-  const normalizedPrompt = plannerInput.prompt?.toLowerCase() ?? "";
   const tools = plannerInput.requestedTools ?? [];
   if (tools.includes("browser") || tools.includes("web_search")) {
     return true;
@@ -203,14 +204,16 @@ function shouldPreferRemoteOrchestratorFirst(
       "слайд",
       "плакат",
       "баннер",
-    ].some((hint) => normalizedPrompt.includes(hint))
+    ].some((hint) => (plannerInput.prompt?.toLowerCase() ?? "").includes(hint))
   ) {
     return true;
   }
   return false;
 }
 
-function shouldPreferCheapRemoteFirstForGeneral(plannerInput: LocalRoutingPlannerInput | null): boolean {
+function shouldPreferCheapRemoteFirstForGeneral(
+  plannerInput: LocalRoutingPlannerInput | null,
+): boolean {
   if (process.env[CHEAP_REMOTE_FIRST_ENV] !== "1") {
     return false;
   }
@@ -226,7 +229,7 @@ function shouldPreferCheapRemoteFirstForGeneral(plannerInput: LocalRoutingPlanne
 }
 
 function plannerInputNeedsVisionCapability(plannerInput: LocalRoutingPlannerInput): boolean {
-  if (promptSuggestsHeavyDocumentWork(plannerInput.prompt)) {
+  if (plannerInput.routing?.needsVision === true) {
     return true;
   }
   const fileNames = plannerInput.fileNames ?? [];
@@ -370,6 +373,9 @@ function inferRemoteRoutingProfile(
   plannerInput: LocalRoutingPlannerInput,
   localEligible: boolean,
 ): RemoteRoutingProfile {
+  if (plannerInput.routing?.remoteProfile) {
+    return plannerInput.routing.remoteProfile;
+  }
   const tools = plannerInput.requestedTools ?? [];
   const kinds = plannerInput.artifactKinds ?? [];
   if (
@@ -382,8 +388,7 @@ function inferRemoteRoutingProfile(
   if (
     !localEligible ||
     kinds.some((kind) => HEAVY_ARTIFACT_KINDS.has(kind)) ||
-    promptSuggestsHeavyDocumentWork(plannerInput.prompt) ||
-    promptSuggestsComplexReasoning(plannerInput.prompt)
+    plannerInputNeedsVisionCapability(plannerInput)
   ) {
     return "strong";
   }
@@ -627,68 +632,6 @@ function reorderRemoteTailCandidates(params: {
   };
 }
 
-function promptSuggestsHeavyDocumentWork(prompt: string | undefined): boolean {
-  if (!prompt?.trim()) {
-    return false;
-  }
-  return (
-    /\b(pdf|png|jpe?g|webp|gif|scan|scanned|screenshot|ocr|invoice|diagram)\b/iu.test(prompt) ||
-    /\b(pdf|png|скан|скриншот|чертеж)\b/iu.test(prompt)
-  );
-}
-
-/**
- * Keep obviously multi-step analytical asks on the stronger route even when they have
- * no files, because local-first is mainly for lightweight chat and simple arithmetic.
- */
-function promptSuggestsComplexReasoning(prompt: string | undefined): boolean {
-  if (!prompt?.trim()) {
-    return false;
-  }
-  const normalized = prompt.trim().toLowerCase();
-  let score = 0;
-  if (normalized.length >= 120) {
-    score += 1;
-  }
-  if (
-    /\b(analy[sz]e|analysis|deep dive|detailed|trade[- ]?offs?|framework|metrics?|kpis?|examples?|rationale|prioriti[sz]e|step[- ]by[- ]step)\b/iu.test(
-      prompt,
-    ) ||
-    [
-      "анализ",
-      "подробн",
-      "развернут",
-      "развёрнут",
-      "почему",
-      "пример",
-      "метрик",
-      "пошагов",
-      "приорит",
-      "обоснован",
-    ].some((hint) => normalized.includes(hint))
-  ) {
-    score += 2;
-  }
-  if (
-    /\b(three|four|five|six|seven|eight|nine|ten|3|4|5|6|7|8|9|10)\b/iu.test(prompt) ||
-    ["три", "четыре", "пять", "шесть", "семь", "восемь", "девять", "десять"].some((hint) =>
-      normalized.includes(hint),
-    )
-  ) {
-    score += 1;
-  }
-  if (
-    /[:;]/.test(prompt) &&
-    (/\b(why|because|with examples?)\b/iu.test(prompt) ||
-      normalized.includes("с примерами") ||
-      normalized.includes("почему") ||
-      normalized.includes("например"))
-  ) {
-    score += 1;
-  }
-  return score >= 2;
-}
-
 function artifactKindsAllowLightTabularOrCalc(
   kinds: NonNullable<RecipePlannerInput["artifactKinds"]>,
   intent: RecipePlannerInput["intent"],
@@ -740,6 +683,9 @@ function buildDecisionForOrdered(
 export function inferLocalRoutingEligibleFromPlannerInput(
   plannerInput: LocalRoutingPlannerInput,
 ): boolean {
+  if (typeof plannerInput.routing?.localEligible === "boolean") {
+    return plannerInput.routing.localEligible;
+  }
   if (plannerInput.intent === "code" || plannerInput.intent === "publish") {
     return false;
   }
@@ -751,21 +697,8 @@ export function inferLocalRoutingEligibleFromPlannerInput(
   const fileNames = plannerInput.fileNames ?? [];
   const kinds = plannerInput.artifactKinds ?? [];
 
-  if (promptSuggestsHeavyDocumentWork(plannerInput.prompt)) {
-    return false;
-  }
-  if (promptSuggestsComplexReasoning(plannerInput.prompt)) {
-    return false;
-  }
-
   if (fileNames.length > 0) {
     if (fileNamesImplyHeavyLocalRoute(fileNames)) {
-      return false;
-    }
-    if (
-      intent === "compare" &&
-      fileNames.every((name) => TABULAR_ATTACHMENT_EXTENSION.test(name))
-    ) {
       return false;
     }
     return false;

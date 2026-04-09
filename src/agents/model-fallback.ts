@@ -1,17 +1,17 @@
 import type { OpenClawConfig } from "../config/config.js";
-import { isLikelyControlPlaneLocalProvider } from "../platform/decision/control-plane-local.js";
-import { shouldUseLightweightBootstrapContext } from "../platform/decision/input.js";
-import type { RecipePlannerInput } from "../platform/recipe/planner.js";
 import {
   resolveAgentModelFallbackValues,
   resolveAgentModelPrimaryValue,
 } from "../config/model-input.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { ModelRoutePreflightDecision } from "../platform/decision/contracts.js";
+import { isLikelyControlPlaneLocalProvider } from "../platform/decision/control-plane-local.js";
+import { shouldUseLightweightBootstrapContext } from "../platform/decision/input.js";
 import {
   applyModelRoutePreflight,
   type RoutePreflightMode,
 } from "../platform/decision/route-preflight.js";
-import { createSubsystemLogger } from "../logging/subsystem.js";
+import type { RecipePlannerInput } from "../platform/recipe/planner.js";
 import { sanitizeForLog } from "../terminal/ansi.js";
 import {
   ensureAuthProfileStore,
@@ -32,6 +32,7 @@ import {
   shouldPreserveTransientCooldownProbeSlot,
   shouldUseTransientCooldownProbeSlot,
 } from "./failover-policy.js";
+import { loadModelCatalog } from "./model-catalog.js";
 import { logModelFallbackDecision } from "./model-fallback-observation.js";
 import type { FallbackAttempt, ModelCandidate } from "./model-fallback.types.js";
 import {
@@ -42,7 +43,6 @@ import {
   resolveConfiguredModelRef,
   resolveModelRefFromString,
 } from "./model-selection.js";
-import { loadModelCatalog } from "./model-catalog.js";
 import type { FailoverReason } from "./pi-embedded-helpers.js";
 import { isLikelyContextOverflowError } from "./pi-embedded-helpers.js";
 
@@ -51,15 +51,10 @@ const log = createSubsystemLogger("model-fallback");
 const OPERATOR_LOG_CAPTURE_ENV = "OPENCLAW_CAPTURE_MODEL_FALLBACK_LOGS";
 const LIGHTWEIGHT_LOCAL_PRIMARY_TIMEOUT_MS = 8_000;
 const LIGHTWEIGHT_LOCAL_FALLBACK_TIMEOUT_MS = 6_000;
-const LOCAL_TIMEOUT_COOLDOWN_MS = 5 * 60 * 1000;
 
 type RecentLocalTimeoutState = {
   timeoutCount: number;
-  lastTimeoutAt: number;
-  cooldownUntil: number;
 };
-
-const recentLocalTimeouts = new Map<string, RecentLocalTimeoutState>();
 
 /**
  * When {@link OPERATOR_LOG_CAPTURE_ENV} is set to `1`, operator-facing lines are duplicated here for tests.
@@ -82,35 +77,32 @@ function modelRuntimeKey(provider: string, model: string): string {
   return `${provider.trim().toLowerCase()}/${model.trim().toLowerCase()}`;
 }
 
-function pruneRecentLocalTimeouts(now: number): void {
-  for (const [key, state] of recentLocalTimeouts) {
-    if (!Number.isFinite(state.cooldownUntil) || state.cooldownUntil <= now) {
-      recentLocalTimeouts.delete(key);
-    }
-  }
-}
-
 function getRecentLocalTimeoutState(
+  store: Map<string, RecentLocalTimeoutState>,
   provider: string,
   model: string,
-  now: number,
 ): RecentLocalTimeoutState | undefined {
-  pruneRecentLocalTimeouts(now);
-  return recentLocalTimeouts.get(modelRuntimeKey(provider, model));
+  return store.get(modelRuntimeKey(provider, model));
 }
 
-function noteRecentLocalTimeout(provider: string, model: string, now: number): void {
+function noteRecentLocalTimeout(
+  store: Map<string, RecentLocalTimeoutState>,
+  provider: string,
+  model: string,
+): void {
   const key = modelRuntimeKey(provider, model);
-  const previous = recentLocalTimeouts.get(key);
-  recentLocalTimeouts.set(key, {
+  const previous = store.get(key);
+  store.set(key, {
     timeoutCount: (previous?.timeoutCount ?? 0) + 1,
-    lastTimeoutAt: now,
-    cooldownUntil: now + LOCAL_TIMEOUT_COOLDOWN_MS,
   });
 }
 
-function clearRecentLocalTimeout(provider: string, model: string): void {
-  recentLocalTimeouts.delete(modelRuntimeKey(provider, model));
+function clearRecentLocalTimeout(
+  store: Map<string, RecentLocalTimeoutState>,
+  provider: string,
+  model: string,
+): void {
+  store.delete(modelRuntimeKey(provider, model));
 }
 
 function shouldUseLatencySensitiveLocalProbe(params: {
@@ -136,10 +128,12 @@ function shouldUseLatencySensitiveLocalProbe(params: {
 /** @internal – exposed for unit tests only */
 export const _recentLocalTimeoutInternals = {
   reset(): void {
-    recentLocalTimeouts.clear();
+    // Per-run local timeout state is no longer shared across turns.
   },
   get(provider: string, model: string): RecentLocalTimeoutState | undefined {
-    return recentLocalTimeouts.get(modelRuntimeKey(provider, model));
+    void provider;
+    void model;
+    return undefined;
   },
 } as const;
 
@@ -153,6 +147,13 @@ type ModelFallbackRunFn<T> = (
   model: string,
   options?: ModelFallbackRunOptions,
 ) => Promise<T>;
+
+type ProviderWideFailureState = {
+  reason: FailoverReason;
+  sourceModel: string;
+  status?: number;
+  code?: string;
+};
 
 /**
  * Fallback abort check. Only treats explicit AbortError names as user aborts.
@@ -295,6 +296,34 @@ async function runFallbackAttempt<T>(params: {
 
 function sameModelCandidate(a: ModelCandidate, b: ModelCandidate): boolean {
   return a.provider === b.provider && a.model === b.model;
+}
+
+function shouldSkipRemainingProviderCandidates(params: {
+  provider: string;
+  reason?: FailoverReason | null;
+  status?: number;
+  code?: string;
+  message?: string;
+}): params is { provider: string; reason: FailoverReason } {
+  if (!params.reason) {
+    return false;
+  }
+  if (params.reason === "billing") {
+    return true;
+  }
+  if (params.reason !== "auth" && params.reason !== "auth_permanent") {
+    return false;
+  }
+  if (isLikelyControlPlaneLocalProvider(params.provider)) {
+    return false;
+  }
+  const normalizedCode = params.code?.trim().toLowerCase();
+  const normalizedMessage = params.message?.trim().toLowerCase() ?? "";
+  return (
+    params.status === 403 ||
+    normalizedCode === "access_forbidden" ||
+    normalizedMessage.includes("access temporarily forbidden")
+  );
 }
 
 function throwFallbackFailureSummary(params: {
@@ -638,7 +667,13 @@ export async function runWithModelFallback<T>(params: {
   /** Optional structured planner input for session-aware preflight classification. */
   preflightPlannerInput?: Pick<
     RecipePlannerInput,
-    "prompt" | "intent" | "requestedTools" | "fileNames" | "artifactKinds" | "publishTargets"
+    | "prompt"
+    | "intent"
+    | "requestedTools"
+    | "fileNames"
+    | "artifactKinds"
+    | "publishTargets"
+    | "routing"
   >;
   /** When `force_stronger`, local-first promotion is disabled (e.g. memory flush / structured jobs). */
   preflightMode?: RoutePreflightMode;
@@ -658,14 +693,16 @@ export async function runWithModelFallback<T>(params: {
     fallbacksOverride: params.fallbacksOverride,
   });
   const skipRoutePreflight =
-    params.skipRoutePreflight === true ||
-    process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1";
+    params.skipRoutePreflight === true || process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1";
   // Debug: log preflight input for Stage 86 testing
   log.info(
-    `route preflight input: promptPresent=${Boolean(params.preflightPrompt?.trim())} plannerInputPresent=${Boolean(params.preflightPlannerInput)} promptLength=${params.preflightPrompt?.length ?? 0} mode=${params.preflightMode ?? "default"} skipRoutePreflight=${skipRoutePreflight} candidates=${baseCandidates.map(c => `${c.provider}/${c.model}`).join(",")}`,
+    `route preflight input: promptPresent=${Boolean(params.preflightPrompt?.trim())} plannerInputPresent=${Boolean(params.preflightPlannerInput)} promptLength=${params.preflightPrompt?.length ?? 0} mode=${params.preflightMode ?? "default"} skipRoutePreflight=${skipRoutePreflight} candidates=${baseCandidates.map((c) => `${c.provider}/${c.model}`).join(",")}`,
   );
-  const preflight = skipRoutePreflight
-    ? { candidates: baseCandidates, decision: null as const }
+  const preflight: {
+    candidates: ModelCandidate[];
+    decision: ModelRoutePreflightDecision | null;
+  } = skipRoutePreflight
+    ? { candidates: baseCandidates, decision: null }
     : applyModelRoutePreflight({
         candidates: baseCandidates,
         prompt: params.preflightPrompt,
@@ -703,6 +740,8 @@ export async function runWithModelFallback<T>(params: {
   const attempts: FallbackAttempt[] = [];
   let lastError: unknown;
   const cooldownProbeUsedProviders = new Set<string>();
+  const providerWideFailures = new Map<string, ProviderWideFailureState>();
+  const recentLocalTimeouts = new Map<string, RecentLocalTimeoutState>();
 
   const hasFallbackCandidates = candidates.length > 1;
   const latencySensitiveLocalProbe = shouldUseLatencySensitiveLocalProbe({
@@ -724,7 +763,10 @@ export async function runWithModelFallback<T>(params: {
       routePreflight?.localRoutingEligible === true &&
       latencySensitiveLocalProbe &&
       isLikelyControlPlaneLocalProvider(candidate.provider);
-    if (skipRemainingTightLocalCandidates && isLikelyControlPlaneLocalProvider(candidate.provider)) {
+    if (
+      skipRemainingTightLocalCandidates &&
+      isLikelyControlPlaneLocalProvider(candidate.provider)
+    ) {
       const error = `Model ${candidate.provider}/${candidate.model} skipped after a prior lightweight local timeout in this run`;
       attempts.push({
         provider: candidate.provider,
@@ -750,10 +792,13 @@ export async function runWithModelFallback<T>(params: {
       continue;
     }
     if (shouldUseTightLocalTimeout) {
-      const now = Date.now();
-      const recentTimeout = getRecentLocalTimeoutState(candidate.provider, candidate.model, now);
+      const recentTimeout = getRecentLocalTimeoutState(
+        recentLocalTimeouts,
+        candidate.provider,
+        candidate.model,
+      );
       if (recentTimeout) {
-        const error = `Model ${candidate.provider}/${candidate.model} recently timed out on a lightweight local-first turn; skipping until cooldown expires`;
+        const error = `Model ${candidate.provider}/${candidate.model} already timed out earlier in this lightweight local-first run; skipping the rest of this run`;
         attempts.push({
           provider: candidate.provider,
           model: candidate.model,
@@ -783,6 +828,36 @@ export async function runWithModelFallback<T>(params: {
           ? LIGHTWEIGHT_LOCAL_PRIMARY_TIMEOUT_MS
           : LIGHTWEIGHT_LOCAL_FALLBACK_TIMEOUT_MS,
       };
+    }
+    const providerWideFailure = providerWideFailures.get(candidate.provider);
+    if (providerWideFailure) {
+      const error = `Provider ${candidate.provider} marked unavailable for this run after ${providerWideFailure.reason} on ${candidate.provider}/${providerWideFailure.sourceModel}`;
+      attempts.push({
+        provider: candidate.provider,
+        model: candidate.model,
+        error,
+        reason: providerWideFailure.reason,
+        status: providerWideFailure.status,
+        code: providerWideFailure.code,
+      });
+      logModelFallbackDecision({
+        decision: "skip_candidate",
+        runId: params.runId,
+        requestedProvider: params.provider,
+        requestedModel: params.model,
+        candidate,
+        attempt: i + 1,
+        total: candidates.length,
+        reason: providerWideFailure.reason,
+        status: providerWideFailure.status,
+        code: providerWideFailure.code,
+        error,
+        nextCandidate: candidates[i + 1],
+        isPrimary,
+        requestedModelMatched: requestedModel,
+        fallbackConfigured: hasFallbackCandidates,
+      });
+      continue;
     }
     if (authStore) {
       const profileIds = resolveAuthProfileOrder({
@@ -903,7 +978,7 @@ export async function runWithModelFallback<T>(params: {
     });
     if ("success" in attemptRun) {
       if (isLikelyControlPlaneLocalProvider(candidate.provider)) {
-        clearRecentLocalTimeout(candidate.provider, candidate.model);
+        clearRecentLocalTimeout(recentLocalTimeouts, candidate.provider, candidate.model);
       }
       if (i > 0 || attempts.length > 0 || attemptedDuringCooldown) {
         logModelFallbackDecision({
@@ -974,7 +1049,7 @@ export async function runWithModelFallback<T>(params: {
         isLikelyControlPlaneLocalProvider(candidate.provider) &&
         timeoutLikeFailure
       ) {
-        noteRecentLocalTimeout(candidate.provider, candidate.model, Date.now());
+        noteRecentLocalTimeout(recentLocalTimeouts, candidate.provider, candidate.model);
         skipRemainingTightLocalCandidates = true;
       }
       attempts.push({
@@ -985,6 +1060,22 @@ export async function runWithModelFallback<T>(params: {
         status: described.status,
         code: described.code,
       });
+      if (
+        shouldSkipRemainingProviderCandidates({
+          provider: candidate.provider,
+          reason: described.reason,
+          status: described.status,
+          code: described.code,
+          message: described.message,
+        })
+      ) {
+        providerWideFailures.set(candidate.provider, {
+          reason: described.reason!,
+          sourceModel: candidate.model,
+          status: described.status,
+          code: described.code,
+        });
+      }
       logModelFallbackDecision({
         decision: "candidate_failed",
         runId: params.runId,

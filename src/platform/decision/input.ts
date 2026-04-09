@@ -127,6 +127,18 @@ const IMAGE_GENERATION_VERB_RE =
   /generate|create|make|draw|render|paint|сгенерируй|создай|сделай|нарисуй|отрендери/iu;
 const PDF_GENERATION_VERB_RE =
   /generate|create|make|export|render|assemble|сгенерируй|создай|сделай|экспортируй|собери/iu;
+const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process", "browser", "web_search"]);
+const HEAVY_ARTIFACT_KINDS = new Set([
+  "image",
+  "video",
+  "audio",
+  "document",
+  "site",
+  "release",
+  "binary",
+  "archive",
+]);
+const TABULAR_ATTACHMENT_EXTENSION = /\.(csv|tsv|xlsx?|ods)$/iu;
 
 const GENERAL_INTENT_HINTS = [
   "hello",
@@ -314,6 +326,61 @@ function promptNeedsPdfTool(prompt: string): boolean {
   );
 }
 
+function promptSuggestsHeavyDocumentWork(prompt: string): boolean {
+  return (
+    /\b(pdf|png|jpe?g|webp|gif|scan|scanned|screenshot|ocr|invoice|diagram)\b/iu.test(prompt) ||
+    /\b(pdf|png|скан|скриншот|чертеж)\b/iu.test(prompt)
+  );
+}
+
+function promptSuggestsComplexReasoning(prompt: string): boolean {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  let score = 0;
+  if (normalized.length >= 120) {
+    score += 1;
+  }
+  if (
+    /\b(analy[sz]e|analysis|deep dive|detailed|trade[- ]?offs?|framework|metrics?|kpis?|examples?|rationale|prioriti[sz]e|step[- ]by[- ]step)\b/iu.test(
+      prompt,
+    ) ||
+    [
+      "анализ",
+      "подробн",
+      "развернут",
+      "развёрнут",
+      "почему",
+      "пример",
+      "метрик",
+      "пошагов",
+      "приорит",
+      "обоснован",
+    ].some((hint) => normalized.includes(hint))
+  ) {
+    score += 2;
+  }
+  if (
+    /\b(three|four|five|six|seven|eight|nine|ten|3|4|5|6|7|8|9|10)\b/iu.test(prompt) ||
+    ["три", "четыре", "пять", "шесть", "семь", "восемь", "девять", "десять"].some((hint) =>
+      normalized.includes(hint),
+    )
+  ) {
+    score += 1;
+  }
+  if (
+    /[:;]/.test(prompt) &&
+    (/\b(why|because|with examples?)\b/iu.test(prompt) ||
+      normalized.includes("с примерами") ||
+      normalized.includes("почему") ||
+      normalized.includes("например"))
+  ) {
+    score += 1;
+  }
+  return score >= 2;
+}
+
 function inferArtifactKinds(
   prompt: string,
   fileNames: string[],
@@ -346,6 +413,141 @@ function inferArtifactKinds(
     ...(promptIncludesAny(prompt, MEDIA_VIDEO_HINTS) ? ["video"] : []),
     ...(promptIncludesAny(prompt, MEDIA_AUDIO_HINTS) ? ["audio"] : []),
   ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
+}
+
+function fileNamesImplyHeavyLocalRoute(fileNames: string[]): boolean {
+  return fileNames.some((name) =>
+    /\.(pdf|png|jpe?g|webp|gif|tiff?|bmp|heic|ts|tsx|js|jsx|mjs|cjs|json|py|go|rs|java|kt|cs|cpp|h)$/iu.test(
+      name,
+    ),
+  );
+}
+
+function artifactKindsAllowLightTabularOrCalc(
+  kinds: NonNullable<RecipePlannerInput["artifactKinds"]>,
+  intent: RecipePlannerInput["intent"],
+): boolean {
+  if (kinds.length === 0) {
+    return true;
+  }
+  if (kinds.some((kind) => HEAVY_ARTIFACT_KINDS.has(kind))) {
+    return false;
+  }
+  const onlyDataReport = kinds.every((kind) => kind === "data" || kind === "report");
+  if (!onlyDataReport) {
+    return false;
+  }
+  return intent === "compare" || intent === "calculation";
+}
+
+function inferLocalRoutingEligible(params: {
+  prompt: string;
+  intent: RecipePlannerInput["intent"];
+  requestedTools: string[];
+  fileNames: string[];
+  artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
+}): boolean {
+  if (params.intent === "code" || params.intent === "publish") {
+    return false;
+  }
+  if (params.requestedTools.some((tool) => HEAVY_TOOL_IDS.has(tool))) {
+    return false;
+  }
+  if (promptSuggestsHeavyDocumentWork(params.prompt)) {
+    return false;
+  }
+  if (promptSuggestsComplexReasoning(params.prompt)) {
+    return false;
+  }
+  if (params.fileNames.length > 0) {
+    if (fileNamesImplyHeavyLocalRoute(params.fileNames)) {
+      return false;
+    }
+    if (
+      params.intent === "compare" &&
+      params.fileNames.every((name) => TABULAR_ATTACHMENT_EXTENSION.test(name))
+    ) {
+      return false;
+    }
+    return false;
+  }
+  if (params.artifactKinds.length > 0) {
+    return artifactKindsAllowLightTabularOrCalc(params.artifactKinds, params.intent);
+  }
+  return true;
+}
+
+function inferRemoteRoutingProfile(params: {
+  prompt: string;
+  intent: RecipePlannerInput["intent"];
+  requestedTools: string[];
+  artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
+  localEligible: boolean;
+}): NonNullable<NonNullable<RecipePlannerInput["routing"]>["remoteProfile"]> {
+  if (
+    params.intent === "code" ||
+    params.intent === "publish" ||
+    params.requestedTools.some((tool) => HEAVY_TOOL_IDS.has(tool))
+  ) {
+    return "code";
+  }
+  if (
+    !params.localEligible ||
+    params.artifactKinds.some((kind) => HEAVY_ARTIFACT_KINDS.has(kind)) ||
+    promptSuggestsHeavyDocumentWork(params.prompt) ||
+    promptSuggestsComplexReasoning(params.prompt)
+  ) {
+    return "strong";
+  }
+  return "cheap";
+}
+
+function inferPreferRemoteFirst(params: {
+  prompt: string;
+  intent: RecipePlannerInput["intent"];
+  requestedTools: string[];
+  artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
+}): boolean {
+  if (params.intent === "publish") {
+    return true;
+  }
+  if (params.requestedTools.includes("browser") || params.requestedTools.includes("web_search")) {
+    return true;
+  }
+  if (
+    params.artifactKinds.some(
+      (kind) =>
+        kind === "image" ||
+        kind === "video" ||
+        kind === "audio" ||
+        kind === "site" ||
+        kind === "release",
+    )
+  ) {
+    return true;
+  }
+  return (
+    params.artifactKinds.includes("document") &&
+    [
+      "pdf",
+      "presentation",
+      "slides",
+      "infographic",
+      "layout",
+      "презентац",
+      "инфограф",
+      "слайд",
+      "плакат",
+      "баннер",
+    ].some((hint) => params.prompt.toLowerCase().includes(hint))
+  );
+}
+
+function inferNeedsVision(params: { prompt: string; fileNames: string[] }): boolean {
+  if (promptSuggestsHeavyDocumentWork(params.prompt)) {
+    return true;
+  }
+  return params.fileNames.some((name) => /\.(pdf|png|jpe?g|webp|gif|tiff?|bmp|heic)$/iu.test(name));
 }
 
 export function buildExecutionDecisionInput(
@@ -412,6 +614,27 @@ export function buildExecutionDecisionInput(
     ...inferredRequestedTools,
     ...(params.requestedTools ?? []),
   ]);
+  const localRoutingEligible = inferLocalRoutingEligible({
+    prompt: inferencePrompt,
+    intent: effectiveIntent,
+    requestedTools,
+    fileNames,
+    artifactKinds,
+  });
+  const remoteProfile = inferRemoteRoutingProfile({
+    prompt: inferencePrompt,
+    intent: effectiveIntent,
+    requestedTools,
+    artifactKinds,
+    localEligible: localRoutingEligible,
+  });
+  const preferRemoteFirst = inferPreferRemoteFirst({
+    prompt: inferencePrompt,
+    intent: effectiveIntent,
+    requestedTools,
+    artifactKinds,
+  });
+  const needsVision = inferNeedsVision({ prompt: inferencePrompt, fileNames });
 
   return applySessionSpecialistOverrideToPlannerInput(
     {
@@ -422,6 +645,12 @@ export function buildExecutionDecisionInput(
       ...(integrations.length > 0 ? { integrations } : {}),
       ...(requestedTools.length > 0 ? { requestedTools } : {}),
       ...(artifactKinds.length > 0 ? { artifactKinds } : {}),
+      routing: {
+        localEligible: localRoutingEligible,
+        remoteProfile,
+        ...(preferRemoteFirst ? { preferRemoteFirst: true } : {}),
+        ...(needsVision ? { needsVision: true } : {}),
+      },
     },
     params.sessionEntry,
   );

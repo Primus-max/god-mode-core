@@ -1,22 +1,30 @@
 import {
-  resolveProfile,
-  type ProfileResolution,
-  type ProfileResolverInput,
-} from "../profile/resolver.js";
-import {
   countTabularFiles,
   promptSuggestsCalculationIntent,
   promptSuggestsCompareIntent,
   TABULAR_ATTACHMENT_EXTENSION,
 } from "../decision/intent-signals.js";
+import {
+  resolveProfile,
+  type ProfileResolution,
+  type ProfileResolverInput,
+} from "../profile/resolver.js";
 import type { ArtifactKind, ExecutionRecipe, PlannerOutput } from "../schemas/index.js";
 import { PlannerOutputSchema } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
 import { INITIAL_RECIPES, getInitialRecipe } from "./defaults.js";
 
+export type RecipeRoutingHints = {
+  localEligible?: boolean;
+  remoteProfile?: "cheap" | "code" | "strong";
+  preferRemoteFirst?: boolean;
+  needsVision?: boolean;
+};
+
 export type RecipePlannerInput = ProfileResolverInput & {
   intent?: "general" | "document" | "code" | "publish" | "compare" | "calculation";
   recipes?: ExecutionRecipe[];
+  routing?: RecipeRoutingHints;
 };
 
 export type ExecutionPlan = {

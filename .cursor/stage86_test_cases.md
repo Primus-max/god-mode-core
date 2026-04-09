@@ -175,7 +175,8 @@ Select-String -Path "C:\tmp\openclaw\openclaw-2026-04-06.log" -Pattern "prefligh
 
 ✅ **Stage 86 работает если:**
 
-- 6+ тестов из 8 проходят
+- все **8 из 8** тестов Stage 86 проходят
 - Gateway не упал за 15 минут
 - Все fallback сработали без ручного вмешательства
 - Bootstrap flow завершился автоматически после approval
+- Этот набор является foundation-блоком для общего live gate `10/10` из [v1_user_acceptance_cases.md](v1_user_acceptance_cases.md)

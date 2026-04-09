@@ -7,6 +7,8 @@
 В новый чат передаётся:
 
 - этот `master_v1_roadmap.md`;
+- [v1_execution_checklist.md](v1_execution_checklist.md);
+- [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md);
 - текущий активный `stage_XX_*.plan.md`, если нужно именно выполнять stage.
 
 ## Stable V1 Boundary
@@ -25,13 +27,41 @@
 - Product direction: [VISION.md](../../VISION.md)
 - Contributor expectations: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 - Testing and release ladder: [docs/help/testing.md](../../docs/help/testing.md)
+- Live acceptance gate: [../v1_user_acceptance_cases.md](../v1_user_acceptance_cases.md)
 
 ## Operational execution (autonomous v1 loop)
 
-- Execution protocol: [autonomous_v1_loop_a69b9e98.plan.md](autonomous_v1_loop_a69b9e98.plan.md)
-- **Active backlog (что делать следующим):** [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md)
+- Execution checklist: [v1_execution_checklist.md](v1_execution_checklist.md)
+- Execution protocol history/context: [autonomous_v1_loop_a69b9e98.plan.md](autonomous_v1_loop_a69b9e98.plan.md)
+- **Active backlog (что делать следующим прямо сейчас):** [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md)
 - Multi-agent protocol: [multi_agent_execution_protocol.md](multi_agent_execution_protocol.md)
 - Product v1 scope: [autonomous_v1_roadmap_cb6fe0e6.plan.md](autonomous_v1_roadmap_cb6fe0e6.plan.md)
+- Live user gate: [../v1_user_acceptance_cases.md](../v1_user_acceptance_cases.md)
+
+## Execution Contract
+
+Для `v1` запрещено состояние «код написан, validation потом».
+
+Финальный сигнал готовности для пользователя:
+
+- не только зелёные automated tiers;
+- а прохождение **10/10** живых сценариев из [../v1_user_acceptance_cases.md](../v1_user_acceptance_cases.md), где бот реально отвечает, умно роутит, при необходимости устанавливает capability, продолжает выполнение и создаёт ожидаемые артефакты без падений.
+
+Обязательный цикл для каждого slice:
+
+1. `Implement`
+2. `Run scoped validation`
+3. `Run required tiers`
+4. Если есть падение: `fix -> rerun same validation`
+5. Обновить evidence и `resumeFrom` в [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md)
+6. Только после этого переходить к следующему slice или объявлять `blocked`
+
+Репортить `done` можно только если:
+
+- выполнен `doneWhen` активного slice;
+- обязательные tier’ы зелёные;
+- ручные/live шаги либо выполнены, либо явно вынесены в `blocked` с владельцем;
+- следующий чат может продолжить работу без нового discovery.
 
 ## Recent Stage Ladder
 
@@ -85,7 +115,15 @@ Manual или heavier follow-up нужны только когда их реал
 - Docker / VM / Parallels smoke
 - local runtime recovery smoke
 
+Но финальный `v1 ready` определяется не только этой лестницей, а ещё и полным live acceptance-прогоном **10/10**.
+
 ## Chat Handoff Rule
+
+В конце каждого рабочего цикла:
+
+1. Обновляем `status`, `executionState`, `lastValidation`, `blockerOwner`, `resumeFrom` и `evidence` в [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md).
+2. Если slice закрыт, сразу выбираем следующий `open` slice или явно фиксируем блокер.
+3. Если меняется stage-level truth, обновляем этот `master_v1_roadmap.md`.
 
 В конце каждого stage:
 
@@ -96,12 +134,16 @@ Manual или heavier follow-up нужны только когда их реал
 В новом чате:
 
 1. Даём этот `master_v1_roadmap.md`.
-2. Если нужно исполнение, добавляем активный `stage_XX_*.plan.md` и при автономном цикле v1 — [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md).
-3. Не тащим старые промежуточные workflow-планы и длинную историю чата, если они не нужны для конкретного решения.
+2. Даём [v1_execution_checklist.md](v1_execution_checklist.md).
+3. Даём [../v1_user_acceptance_cases.md](../v1_user_acceptance_cases.md).
+4. Если нужно исполнение, добавляем активный `stage_XX_*.plan.md` и при автономном цикле v1 — [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md).
+5. Не тащим старые промежуточные workflow-планы и длинную историю чата, если они не нужны для конкретного решения.
 
 ## Guardrails
 
 - Этот файл не хранит детальные TODO.
+- Этот файл не хранит per-slice evidence; оно живёт в [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md).
 - Этот файл не дублирует `testing.md`.
 - Этот файл не заменяет stage-планы.
-- Детальный scope, todos, validation и implementation truth живут только в отдельном `stage_XX_*.plan.md`.
+- Детальный scope живёт в отдельном `stage_XX_*.plan.md`.
+- Детальный execution truth, validation status и continuation point живут в [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md).

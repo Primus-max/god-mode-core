@@ -10,13 +10,13 @@ import { saveAuthProfileStore } from "./auth-profiles.js";
 import { AUTH_STORE_VERSION } from "./auth-profiles/constants.js";
 import { FailoverError } from "./failover-error.js";
 import { isAnthropicBillingError } from "./live-auth-keys.js";
+import { resetModelCatalogCacheForTest } from "./model-catalog.js";
 import {
   _recentLocalTimeoutInternals,
   modelFallbackOperatorLogTestBuffer,
   runWithImageModelFallback,
   runWithModelFallback,
 } from "./model-fallback.js";
-import { resetModelCatalogCacheForTest } from "./model-catalog.js";
 import { makeModelFallbackCfg } from "./test-helpers/model-fallback-config-fixture.js";
 
 const makeCfg = makeModelFallbackCfg;
@@ -374,11 +374,7 @@ describe("runWithModelFallback route preflight", () => {
         defaults: {
           model: {
             primary: "ollama/qwen2.5-coder:7b",
-            fallbacks: [
-              "hydra/gemini-2.5-pro",
-              "hydra/claude-3.5-haiku",
-              "hydra/deepseek-v3.1",
-            ],
+            fallbacks: ["hydra/gemini-2.5-pro", "hydra/claude-3.5-haiku", "hydra/deepseek-v3.1"],
           },
         },
       },
@@ -492,7 +488,10 @@ describe("runWithModelFallback operator log lines", () => {
 
   it("logs model_fallback line when a candidate fails and a next candidate exists", async () => {
     const cfg = makeCfg();
-    const run = vi.fn().mockRejectedValueOnce(new Error("rate limited")).mockResolvedValueOnce("ok");
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("rate limited"))
+      .mockResolvedValueOnce("ok");
 
     const isolatedStore: AuthProfileStore = {
       version: AUTH_STORE_VERSION,
@@ -606,6 +605,93 @@ describe("runWithModelFallback", () => {
       model: "gpt-4.1-mini",
       firstError: Object.assign(new Error("nope"), { status: 401 }),
     });
+  });
+
+  it("skips remaining same-provider remote fallbacks after auth failure", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "hydra/m1",
+            fallbacks: ["hydra/m2", "groq/ok-model"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockImplementation(async (provider: string, model: string) => {
+      if (provider === "hydra" && model === "m1") {
+        throw new FailoverError(
+          "HTTP 403: Access temporarily forbidden due to excessive errors or requests.",
+          {
+            reason: "auth",
+            provider,
+            model,
+            status: 403,
+          },
+        );
+      }
+      if (provider === "groq" && model === "ok-model") {
+        return "ok";
+      }
+      throw new Error(`unexpected fallback candidate: ${provider}/${model}`);
+    });
+
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "hydra",
+      model: "m1",
+      run,
+    });
+
+    expect(result.result).toBe("ok");
+    expect(run.mock.calls).toEqual([
+      ["hydra", "m1"],
+      ["groq", "ok-model"],
+    ]);
+    expect(result.attempts).toEqual([
+      expect.objectContaining({ provider: "hydra", model: "m1", reason: "auth" }),
+      expect.objectContaining({ provider: "hydra", model: "m2", reason: "auth" }),
+    ]);
+  });
+
+  it("keeps same-provider local fallbacks reachable on auth-like local failures", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "ollama/gemma4:e4b",
+            fallbacks: ["ollama/qwen2.5-coder:7b", "groq/ok-model"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockImplementation(async (provider: string, model: string) => {
+      if (provider === "ollama" && model === "gemma4:e4b") {
+        throw new FailoverError("local auth marker mismatch", {
+          reason: "auth",
+          provider,
+          model,
+          status: 401,
+        });
+      }
+      if (provider === "ollama" && model === "qwen2.5-coder:7b") {
+        return "ok";
+      }
+      throw new Error(`unexpected fallback candidate: ${provider}/${model}`);
+    });
+
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "ollama",
+      model: "gemma4:e4b",
+      run,
+    });
+
+    expect(result.result).toBe("ok");
+    expect(run.mock.calls).toEqual([
+      ["ollama", "gemma4:e4b"],
+      ["ollama", "qwen2.5-coder:7b"],
+    ]);
   });
 
   it("falls back directly to configured primary when an override model fails", async () => {
@@ -1778,7 +1864,7 @@ describe("runWithModelFallback", () => {
       expect(run).toHaveBeenNthCalledWith(2, "hydra", "hydra-gpt-mini");
     });
 
-    it("skips a recently timed-out local model on the next lightweight turn", async () => {
+    it("does not carry a lightweight local timeout into the next independent run", async () => {
       const cfg = makeCfg({
         agents: {
           defaults: {
@@ -1812,13 +1898,16 @@ describe("runWithModelFallback", () => {
         run: firstRun,
       });
 
-      expect(_recentLocalTimeoutInternals.get("ollama", "gemma4:e4b")).toEqual(
-        expect.objectContaining({
-          timeoutCount: 1,
-        }),
-      );
-
-      const secondRun = vi.fn().mockResolvedValueOnce("remote success");
+      const secondRun = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new FailoverError("LLM request timed out.", {
+            reason: "timeout",
+            provider: "ollama",
+            model: "gemma4:e4b",
+          }),
+        )
+        .mockResolvedValueOnce("remote success");
       const result = await runWithModelFallback({
         cfg,
         provider: "ollama",
@@ -1832,8 +1921,11 @@ describe("runWithModelFallback", () => {
       });
 
       expect(result.result).toBe("remote success");
-      expect(secondRun).toHaveBeenCalledTimes(1);
-      expect(secondRun).toHaveBeenNthCalledWith(1, "hydra", "hydra-gpt-mini");
+      expect(secondRun).toHaveBeenCalledTimes(2);
+      expect(secondRun).toHaveBeenNthCalledWith(1, "ollama", "gemma4:e4b", {
+        timeoutMsOverride: 8_000,
+      });
+      expect(secondRun).toHaveBeenNthCalledWith(2, "hydra", "hydra-gpt-mini");
     });
   });
 });
