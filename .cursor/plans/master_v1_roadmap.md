@@ -6,6 +6,7 @@
 
 В новый чат передаётся:
 
+- [master_orchestrator_context.md](master_orchestrator_context.md) как длинный архитектурно-продуктовый контекст;
 - этот `master_v1_roadmap.md`;
 - [v1_execution_checklist.md](v1_execution_checklist.md);
 - [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md);
@@ -24,6 +25,7 @@
 
 ## Canonical References
 
+- Long-form orchestrator context: [master_orchestrator_context.md](master_orchestrator_context.md)
 - Product direction: [VISION.md](../../VISION.md)
 - Contributor expectations: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 - Testing and release ladder: [docs/help/testing.md](../../docs/help/testing.md)
@@ -89,7 +91,8 @@
 - `Stage 86 - Smart routing, bootstrap, Telegram proof`  
   Plan: [stage_86_smart_routing_bootstrap.plan.md](stage_86_smart_routing_bootstrap.plan.md)  
   Backlog slices: [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md)  
-  User acceptance: [../stage86_test_cases.md](../stage86_test_cases.md)
+  User acceptance: [../stage86_test_cases.md](../stage86_test_cases.md)  
+  Current truth: gateway/runtime acceptance is green on `stage86-live-matrix.current.json` (`20/20`, including investor-facing flows), and H1 document/calculation slices are effectively validated on the live runtime. Stage 86 still cannot move to `Done` because the final Telegram proof is externally blocked again: direct `api.telegram.org:443` is unavailable from this host, the previously working proxy no longer connects, and `S86-06` is now an explicit external-network blocker rather than an implementation blocker.
 
 ### Next
 
@@ -134,10 +137,11 @@ Manual или heavier follow-up нужны только когда их реал
 В новом чате:
 
 1. Даём этот `master_v1_roadmap.md`.
-2. Даём [v1_execution_checklist.md](v1_execution_checklist.md).
-3. Даём [../v1_user_acceptance_cases.md](../v1_user_acceptance_cases.md).
-4. Если нужно исполнение, добавляем активный `stage_XX_*.plan.md` и при автономном цикле v1 — [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md).
-5. Не тащим старые промежуточные workflow-планы и длинную историю чата, если они не нужны для конкретного решения.
+2. Даём [master_orchestrator_context.md](master_orchestrator_context.md), если нужен полный продуктовый и архитектурный смысл оркестратора.
+3. Даём [v1_execution_checklist.md](v1_execution_checklist.md).
+4. Даём [../v1_user_acceptance_cases.md](../v1_user_acceptance_cases.md).
+5. Если нужно исполнение, добавляем активный `stage_XX_*.plan.md` и при автономном цикле v1 — [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md).
+6. Не тащим старые промежуточные workflow-планы и длинную историю чата, если они не нужны для конкретного решения.
 
 ## Guardrails
 
@@ -145,5 +149,6 @@ Manual или heavier follow-up нужны только когда их реал
 - Этот файл не хранит per-slice evidence; оно живёт в [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md).
 - Этот файл не дублирует `testing.md`.
 - Этот файл не заменяет stage-планы.
+- Этот файл не заменяет [master_orchestrator_context.md](master_orchestrator_context.md); длинный смысл оркестратора живёт там.
 - Детальный scope живёт в отдельном `stage_XX_*.plan.md`.
 - Детальный execution truth, validation status и continuation point живут в [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md).

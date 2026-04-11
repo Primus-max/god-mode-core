@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { SessionEntry } from "../../config/sessions.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
+import { stripInboundMetadata } from "../../auto-reply/reply/strip-inbound-meta.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
 import {
@@ -161,6 +162,15 @@ const GENERAL_INTENT_HINTS = [
   "перевед",
   "объясн",
 ] as const;
+const ROUTING_CONTEXT_PREFIXES = [
+  "Profile:",
+  "Language continuity:",
+  "Task overlay:",
+  "Planner reasoning:",
+  "Bootstrap required:",
+  "Active specialist profile:",
+  "Planned tools:",
+] as const;
 
 type DecisionInputChannelHints = {
   messageChannel?: string;
@@ -170,6 +180,7 @@ type DecisionInputChannelHints = {
 
 export type BuildExecutionDecisionInputParams = {
   prompt: string;
+  inferencePrompt?: string;
   fileNames?: string[];
   artifactKinds?: RecipePlannerInput["artifactKinds"];
   intent?: RecipePlannerInput["intent"];
@@ -185,7 +196,7 @@ export type BuildExecutionDecisionInputParams = {
 
 export type BuildSessionBackedExecutionDecisionInputParams = Omit<
   BuildExecutionDecisionInputParams,
-  "prompt" | "fileNames"
+  "prompt" | "fileNames" | "inferencePrompt"
 > & {
   draftPrompt?: string;
   fileNames?: string[];
@@ -247,11 +258,32 @@ function promptIncludesAny(prompt: string, hints: readonly string[]): boolean {
 }
 
 function resolveKeywordInferencePrompt(prompt: string): string {
-  const segments = prompt
+  const withoutInboundMetadata = stripInboundMetadata(prompt);
+  const lines = withoutInboundMetadata.split("\n");
+  let index = 0;
+  let strippedContextPrefix = false;
+  while (index < lines.length) {
+    const trimmed = lines[index]?.trim() ?? "";
+    if (!trimmed) {
+      if (strippedContextPrefix) {
+        index += 1;
+        continue;
+      }
+      break;
+    }
+    if (ROUTING_CONTEXT_PREFIXES.some((prefix) => trimmed.startsWith(prefix))) {
+      strippedContextPrefix = true;
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  const normalizedPrompt = lines.slice(index).join("\n").trim();
+  const segments = normalizedPrompt
     .split(/\n\s*\n/iu)
     .map((segment) => segment.trim())
     .filter(Boolean);
-  return segments.at(-1) ?? prompt;
+  return (segments.at(-1) ?? normalizedPrompt) || prompt;
 }
 
 function compareLanguageInPrompt(prompt: string): boolean {
@@ -287,10 +319,14 @@ function inferPromptIntent(prompt: string, fileNames: string[]): RecipePlannerIn
   if (calculationLanguageInPrompt(prompt)) {
     return "calculation";
   }
+  const imageGenerationHint = promptNeedsImageGenerationTool(prompt);
   const documentHint = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
   const developerExecutionHint = DEVELOPER_EXECUTION_KEYWORDS.test(prompt);
   if (documentHint && !developerExecutionHint) {
     return "document";
+  }
+  if (imageGenerationHint) {
+    return undefined;
   }
   if (DEVELOPER_PUBLISH_KEYWORDS.test(prompt)) {
     return "publish";
@@ -333,9 +369,43 @@ function promptSuggestsHeavyDocumentWork(prompt: string): boolean {
   );
 }
 
+function promptSuggestsLightGeneralTask(prompt: string): boolean {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (
+    /\b(rewrite|rephrase|shorten|paraphrase|translate)\b/iu.test(prompt) ||
+    ["перепиши", "перефраз", "сократи", "переведи"].some((hint) => normalized.includes(hint))
+  ) {
+    return true;
+  }
+  const asksForShortList =
+    /\b(name|list|give|share)\s+(?:one|two|three|1|2|3)\b/iu.test(prompt) ||
+    /\b(назови|перечисли|дай)\s+(?:один|одну|два|две|три|1|2|3)\b/iu.test(prompt) ||
+    [
+      "назови 1",
+      "назови 2",
+      "назови 3",
+      "перечисли 1",
+      "перечисли 2",
+      "перечисли 3",
+      "дай 1",
+      "дай 2",
+      "дай 3",
+    ].some((hint) => normalized.includes(hint));
+  const requestsBriefness = ["short", "brief", "quick", "коротк", "кратк"].some((hint) =>
+    normalized.includes(hint),
+  );
+  return asksForShortList && requestsBriefness;
+}
+
 function promptSuggestsComplexReasoning(prompt: string): boolean {
   const normalized = prompt.trim().toLowerCase();
   if (!normalized) {
+    return false;
+  }
+  if (promptSuggestsLightGeneralTask(prompt)) {
     return false;
   }
   let score = 0;
@@ -392,13 +462,20 @@ function inferArtifactKinds(
   const hasDocumentArtifactHintRaw = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
   const hasDocumentArtifactHint =
     hasDocumentArtifactHintRaw && !calculationIntentish && !compareIntentish;
+  const imageGenerationHint = promptNeedsImageGenerationTool(prompt);
   const hasMediaArtifactHint =
     promptIncludesAny(prompt, MEDIA_IMAGE_HINTS) ||
     promptIncludesAny(prompt, MEDIA_VIDEO_HINTS) ||
     promptIncludesAny(prompt, MEDIA_AUDIO_HINTS);
+  const canInferPublishArtifacts =
+    !imageGenerationHint && !hasDocumentArtifactHint && !compareIntentish && !calculationIntentish;
   return toUniqueLowercase([
-    ...(publishTargets.length > 0 || /\bpreview\b/iu.test(prompt) ? ["site"] : []),
-    ...(publishTargets.length > 0 || /\brelease\b/iu.test(prompt) ? ["release"] : []),
+    ...(canInferPublishArtifacts && (publishTargets.length > 0 || /\bpreview\b/iu.test(prompt))
+      ? ["site"]
+      : []),
+    ...(canInferPublishArtifacts && (publishTargets.length > 0 || /\brelease\b/iu.test(prompt))
+      ? ["release"]
+      : []),
     ...(DEVELOPER_EXECUTION_KEYWORDS.test(prompt) &&
     !hasDocumentArtifactHint &&
     !hasMediaArtifactHint
@@ -560,7 +637,11 @@ export function buildExecutionDecisionInput(
         .map((value) => value.trim()),
     ),
   );
-  const inferencePromptCandidate = resolveKeywordInferencePrompt(params.prompt);
+  const explicitInferencePrompt =
+    typeof params.inferencePrompt === "string" && params.inferencePrompt.trim().length > 0
+      ? params.inferencePrompt.trim()
+      : undefined;
+  const inferencePromptCandidate = explicitInferencePrompt ?? resolveKeywordInferencePrompt(params.prompt);
   const candidatePublishTargets = collectPromptHints(
     inferencePromptCandidate,
     DEVELOPER_PUBLISH_TARGET_HINTS,
@@ -568,6 +649,7 @@ export function buildExecutionDecisionInput(
   const candidateIntent = inferPromptIntent(inferencePromptCandidate, fileNames);
   const candidateArtifactKinds = inferArtifactKinds(inferencePromptCandidate, fileNames);
   const inferencePrompt =
+    !explicitInferencePrompt &&
     inferencePromptCandidate !== params.prompt &&
     !candidateIntent &&
     candidatePublishTargets.length === 0 &&
@@ -707,8 +789,13 @@ export function buildSessionBackedExecutionDecisionInput(
   const sessionContext = resolveSessionDecisionInputContext(messages);
   const prompt = [sessionContext.prompt, params.draftPrompt?.trim()].filter(Boolean).join("\n\n");
   const fileNames = Array.from(new Set([...sessionContext.fileNames, ...(params.fileNames ?? [])]));
+  const inferencePrompt =
+    typeof params.draftPrompt === "string" && params.draftPrompt.trim().length > 0
+      ? resolveKeywordInferencePrompt(params.draftPrompt)
+      : undefined;
   return {
     prompt,
+    ...(inferencePrompt ? { inferencePrompt } : {}),
     ...(fileNames.length > 0 ? { fileNames } : {}),
     ...(params.artifactKinds?.length ? { artifactKinds: params.artifactKinds } : {}),
     ...(params.intent ? { intent: params.intent } : {}),

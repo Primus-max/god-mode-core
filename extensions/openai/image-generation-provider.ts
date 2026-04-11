@@ -8,6 +8,7 @@ const DEFAULT_OUTPUT_MIME = "image/png";
 const DEFAULT_SIZE = "1024x1024";
 const OPENAI_SUPPORTED_SIZES = ["1024x1024", "1024x1536", "1536x1024"] as const;
 const HYDRA_SUPPORTED_MODELS = ["hydra-banana", "hydra-banana-pro"] as const;
+const HYDRA_SUPPORTED_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"] as const;
 const HYDRA_MARKDOWN_IMAGE_RE = /!\[[^\]]*]\((data:image\/[a-zA-Z0-9.+-]+;base64,[^)]+|https?:\/\/[^)\s]+)\)/g;
 
 type OpenAIImageApiResponse = {
@@ -163,7 +164,7 @@ export function buildHydraImageGenerationProvider(): ImageGenerationProvider {
       generate: {
         maxCount: 4,
         supportsSize: true,
-        supportsAspectRatio: false,
+        supportsAspectRatio: true,
         supportsResolution: false,
       },
       edit: {
@@ -175,7 +176,7 @@ export function buildHydraImageGenerationProvider(): ImageGenerationProvider {
         supportsResolution: false,
       },
       geometry: {
-        sizes: [...OPENAI_SUPPORTED_SIZES],
+        aspectRatios: [...HYDRA_SUPPORTED_ASPECT_RATIOS],
       },
     },
     async generateImage(req) {
@@ -199,6 +200,10 @@ export function buildHydraImageGenerationProvider(): ImageGenerationProvider {
           ? setTimeout(() => controller.abort(), timeoutMs)
           : undefined;
 
+      const requestedGeometry = resolveHydraRequestedGeometry({
+        size: req.size,
+        aspectRatio: req.aspectRatio,
+      });
       const response = await fetch(
         `${resolveCompatibleBaseUrl(req.cfg, "hydra", DEFAULT_HYDRA_IMAGE_BASE_URL)}/chat/completions`,
         {
@@ -212,7 +217,7 @@ export function buildHydraImageGenerationProvider(): ImageGenerationProvider {
             messages: [
               {
                 role: "user",
-                content: buildHydraImagePrompt(req.prompt, req.count ?? 1, req.size ?? DEFAULT_SIZE),
+                content: buildHydraImagePrompt(req.prompt, req.count ?? 1, requestedGeometry),
               },
             ],
           }),
@@ -246,12 +251,43 @@ export function buildHydraImageGenerationProvider(): ImageGenerationProvider {
   };
 }
 
-function buildHydraImagePrompt(prompt: string, count: number, size: string): string {
+function resolveHydraRequestedGeometry(params: {
+  size?: string;
+  aspectRatio?: string;
+}): { size: string; aspectRatio?: string } {
+  const aspectRatio = params.aspectRatio?.trim();
+  if (params.size?.trim()) {
+    return {
+      size: params.size.trim(),
+      ...(aspectRatio ? { aspectRatio } : {}),
+    };
+  }
+  if (!aspectRatio) {
+    return { size: DEFAULT_SIZE };
+  }
+  switch (aspectRatio) {
+    case "1:1":
+      return { size: "1024x1024", aspectRatio };
+    case "9:16":
+    case "3:4":
+    case "2:3":
+      return { size: "1024x1536", aspectRatio };
+    default:
+      return { size: "1536x1024", aspectRatio };
+  }
+}
+
+function buildHydraImagePrompt(
+  prompt: string,
+  count: number,
+  geometry: { size: string; aspectRatio?: string },
+): string {
   return [
     prompt.trim(),
     "",
     `Generate exactly ${String(count)} image${count === 1 ? "" : "s"}.`,
-    `Requested size: ${size}.`,
+    `Requested size: ${geometry.size}.`,
+    ...(geometry.aspectRatio ? [`Requested aspect ratio: ${geometry.aspectRatio}.`] : []),
     "Return the generated image result directly.",
   ].join("\n");
 }

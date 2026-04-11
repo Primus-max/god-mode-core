@@ -28,6 +28,7 @@ isProject: false
 
 ## Current Truth Sources
 
+- `[.cursor/plans/master_orchestrator_context.md](.cursor/plans/master_orchestrator_context.md)` задаёт длинный архитектурно-продуктовый контекст оркестратора.
 - Главный продуктовый план находится в `[.cursor/plans/autonomous_v1_roadmap_cb6fe0e6.plan.md](.cursor/plans/autonomous_v1_roadmap_cb6fe0e6.plan.md)`.
 - `[.cursor/plans/master_v1_roadmap.md](.cursor/plans/master_v1_roadmap.md)` остаётся коротким handoff и release-context файлом.
 - Текущий active execution stage и multi-agent ownership уже есть в `[.cursor/plans/stage_85_cursor_execution_4d2f9c10.plan.md](.cursor/plans/stage_85_cursor_execution_4d2f9c10.plan.md)`.
@@ -174,6 +175,7 @@ Start from Stage 86 rather than inventing a new frontier.
 После этого агент будет ориентироваться не на очередной пинг пользователя, а на связку:
 
 - `autonomous_v1_roadmap` for product boundary,
+- `master_orchestrator_context` for long-form orchestrator truth,
 - `master_v1_roadmap` for short handoff and release context,
 - [`autonomous_v1_active_backlog.md`](autonomous_v1_active_backlog.md) for next slice,
 - [`stage_86_smart_routing_bootstrap.plan.md`](stage_86_smart_routing_bootstrap.plan.md) (и далее `stage_XX_*.plan.md`) for execution and validation rules,

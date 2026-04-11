@@ -73,6 +73,7 @@ import {
   pickFallbackThinkingLevel,
   type FailoverReason,
 } from "../pi-embedded-helpers.js";
+import { extractAssistantText } from "../pi-embedded-utils.js";
 import { ensureRuntimePluginsLoaded } from "../runtime-plugins.js";
 import { derivePromptTokens, normalizeUsage, type UsageLike } from "../usage.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
@@ -126,6 +127,9 @@ const CONTROL_PLANE_LOCAL_OVERLOAD_FAILOVER_BACKOFF_POLICY: BackoffPolicy = {
 // Avoid Anthropic's refusal test token poisoning session transcripts.
 const ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL = "ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL";
 const ANTHROPIC_MAGIC_STRING_REPLACEMENT = "ANTHROPIC MAGIC STRING TRIGGER REFUSAL (redacted)";
+const STANDALONE_TOOL_NAME_FIELD_RE =
+  /"(?:name|function|function_name|tool|tool_name)"\s*:\s*"[^"\r\n]+"/;
+const STANDALONE_TOOL_ARGUMENTS_FIELD_RE = /"arguments"\s*:\s*\{/;
 
 function scrubAnthropicRefusalMagic(prompt: string): string {
   if (!prompt.includes(ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL)) {
@@ -135,6 +139,51 @@ function scrubAnthropicRefusalMagic(prompt: string): string {
     ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL,
     ANTHROPIC_MAGIC_STRING_REPLACEMENT,
   );
+}
+
+function unwrapStandaloneToolCallEnvelopeText(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenced?.[1]?.trim() || trimmed;
+}
+
+function looksLikeStandaloneToolCallEnvelopeText(text: string | undefined): boolean {
+  if (typeof text !== "string") {
+    return false;
+  }
+  const candidate = unwrapStandaloneToolCallEnvelopeText(text);
+  if (!candidate) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(candidate) as Record<string, unknown>;
+    const hasToolName =
+      typeof parsed.name === "string" ||
+      typeof parsed.function === "string" ||
+      typeof parsed.function_name === "string" ||
+      typeof parsed.tool === "string" ||
+      typeof parsed.tool_name === "string";
+    return (
+      hasToolName &&
+      "arguments" in parsed &&
+      Object.keys(parsed).every((key) =>
+        ["name", "function", "function_name", "tool", "tool_name", "arguments", "id"].includes(
+          key,
+        ),
+      )
+    );
+  } catch {
+    const trimmedCandidate = candidate.trim();
+    return (
+      trimmedCandidate.startsWith("{") &&
+      trimmedCandidate.endsWith("}") &&
+      STANDALONE_TOOL_NAME_FIELD_RE.test(trimmedCandidate) &&
+      STANDALONE_TOOL_ARGUMENTS_FIELD_RE.test(trimmedCandidate)
+    );
+  }
 }
 
 type UsageAccumulator = {
@@ -1917,6 +1966,45 @@ export async function runEmbeddedPiAgent(
             didSendDeterministicApprovalPrompt: attempt.didSendDeterministicApprovalPrompt,
             toolResultMediaUrls: attempt.toolResultMediaUrls,
           });
+          const firstVisibleAssistantText = attempt.assistantTexts.find(
+            (text) => typeof text === "string" && text.trim().length > 0,
+          );
+          const finalAssistantText =
+            firstVisibleAssistantText ??
+            (lastAssistant ? extractAssistantText(lastAssistant) : undefined);
+          if (looksLikeStandaloneToolCallEnvelopeText(finalAssistantText)) {
+            return finalizeRecipeResult({
+              payloads: [],
+              meta: {
+                durationMs: Date.now() - started,
+                agentMeta,
+                aborted,
+                systemPromptReport: attempt.systemPromptReport,
+                stopReason: lastAssistant?.stopReason as string | undefined,
+                ...buildCompletionArtifacts({
+                  runId: params.runId,
+                  sessionKey: params.sessionKey,
+                  requestRunId: params.requestRunId,
+                  parentRunId: params.parentRunId,
+                  hadToolError: Boolean(attempt.lastToolError),
+                  deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                  hasOutput: false,
+                  didSendViaMessagingTool: attempt.didSendViaMessagingTool,
+                  successfulCronAdds: attempt.successfulCronAdds,
+                  executionReceipts: attempt.executionReceipts,
+                  fallbackStatus: aborted ? "failed" : "completed",
+                  executionSurface,
+                  executionIntent,
+                }),
+              },
+              didSendViaMessagingTool: attempt.didSendViaMessagingTool,
+              didSendDeterministicApprovalPrompt: attempt.didSendDeterministicApprovalPrompt,
+              messagingToolSentTexts: attempt.messagingToolSentTexts,
+              messagingToolSentMediaUrls: attempt.messagingToolSentMediaUrls,
+              messagingToolSentTargets: attempt.messagingToolSentTargets,
+              successfulCronAdds: attempt.successfulCronAdds,
+            });
+          }
 
           // Timeout aborts can leave the run without any assistant payloads.
           // Emit an explicit timeout error instead of silently completing, so
@@ -2008,7 +2096,14 @@ export async function runEmbeddedPiAgent(
                 parentRunId: params.parentRunId,
                 hadToolError: Boolean(attempt.lastToolError),
                 deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
-                hasOutput: payloads.some((payload) => Boolean(payload.text?.trim())),
+                hasOutput: payloads.some(
+                  (payload) =>
+                    Boolean(payload.text?.trim()) ||
+                    Boolean(payload.mediaUrl?.trim()) ||
+                    (payload.mediaUrls?.length ?? 0) > 0 ||
+                    (payload.interactive?.blocks?.length ?? 0) > 0 ||
+                    Object.keys(payload.channelData ?? {}).length > 0,
+                ),
                 didSendViaMessagingTool: attempt.didSendViaMessagingTool,
                 successfulCronAdds: attempt.successfulCronAdds,
                 executionReceipts: attempt.executionReceipts,

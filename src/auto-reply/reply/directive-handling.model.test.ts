@@ -214,6 +214,28 @@ describe("/model chat UX", () => {
     });
   });
 
+  it("honors explicit provider/model refs outside the local allowlist", () => {
+    const directives = parseInlineDirectives("/model hydra/gpt-4o hello");
+    const resolved = resolveModelSelectionFromDirective({
+      directives,
+      cfg: { commands: { text: true } } as unknown as OpenClawConfig,
+      agentDir: "/tmp/agent",
+      defaultProvider: "ollama",
+      defaultModel: "gemma4:e4b",
+      aliasIndex: baseAliasIndex(),
+      allowedModelKeys: new Set(["ollama/gemma4:e4b", "hydra/hydra-gpt-mini"]),
+      allowedModelCatalog: [{ provider: "hydra", id: "hydra-gpt-mini" }],
+      provider: "ollama",
+    });
+
+    expect(resolved.errorText).toBeUndefined();
+    expect(resolved.modelSelection).toEqual({
+      provider: "hydra",
+      model: "gpt-4o",
+      isDefault: false,
+    });
+  });
+
   it("treats @YYYYMMDD as a profile override when that profile exists for the resolved provider", () => {
     setAuthProfiles({
       "20251001": {

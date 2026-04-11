@@ -155,4 +155,54 @@ describe("OpenAI image-generation provider", () => {
       },
     });
   });
+
+  it("allows Hydra aspect ratio requests and translates them into prompt geometry", async () => {
+    vi.spyOn(providerAuth, "resolveApiKeyForProvider").mockResolvedValue({
+      apiKey: "sd-test",
+      source: "env",
+      mode: "api-key",
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: `![Generated Image](data:image/png;base64,${Buffer.from("hydra-image-wide").toString("base64")})`,
+            },
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = buildHydraImageGenerationProvider();
+    expect(provider.capabilities.generate.supportsAspectRatio).toBe(true);
+    expect(provider.capabilities.geometry?.aspectRatios).toContain("16:9");
+
+    await provider.generateImage({
+      provider: "hydra",
+      model: "hydra-banana",
+      prompt: "draw a wide release banner",
+      aspectRatio: "16:9",
+      cfg: {},
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api-ru.hydraai.ru/v1/chat/completions",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          model: "hydra-banana",
+          messages: [
+            {
+              role: "user",
+              content:
+                "draw a wide release banner\n\nGenerate exactly 1 image.\nRequested size: 1536x1024.\nRequested aspect ratio: 16:9.\nReturn the generated image result directly.",
+            },
+          ],
+        }),
+      }),
+    );
+  });
 });

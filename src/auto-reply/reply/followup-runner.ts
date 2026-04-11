@@ -529,6 +529,7 @@ export function createFollowupRunner(params: {
         const closureDecision = reevaluateMessagingDecisionForMessagingRun({
           runResult,
           replyPayloads: finalPayloads,
+          runPayloadsForEvidence: payloadArray,
           sourceRun: queued,
           recoveryAttemptCount: queued.automation?.retryCount ?? 0,
         });

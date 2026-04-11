@@ -44,6 +44,10 @@ export type BootstrapRequestService = {
   configure: (params: { stateDir?: string }) => void;
   getAuditPath: () => string | null;
   create: (request: BootstrapRequest) => BootstrapRequestRecord;
+  attachBlockedRunResume: (
+    id: string,
+    resume: BootstrapBlockedRunResume,
+  ) => BootstrapRequestRecordDetail | undefined;
   list: () => BootstrapRequestRecordSummary[];
   get: (id: string) => BootstrapRequestRecordDetail | undefined;
   resolve: (
@@ -129,7 +133,10 @@ async function dispatchBlockedRunResumeAfterBootstrap(params: {
     resolvedQueue: params.resume.settings,
     defaultModel: params.resume.sourceRun.run.model,
   });
-  const resumeLead = `Capability "${params.capabilityId}" was installed and verified. Continue the interrupted task from the approved bootstrap; do not ask for another bootstrap for this capability.\n\n`;
+  const resumeLead =
+    params.capabilityId === "pdf-renderer"
+      ? `Capability "${params.capabilityId}" was installed and verified. Continue the interrupted task from the approved bootstrap and use the pdf tool to create the requested PDF now that the renderer is available. Do not ask for another bootstrap for this capability, and do not fake or manually write PDF bytes with write/exec.\n\n`
+      : `Capability "${params.capabilityId}" was installed and verified. Continue the interrupted task from the approved bootstrap; do not ask for another bootstrap for this capability.\n\n`;
   const sessionKey = params.resume.sourceRun.run.sessionKey ?? params.resume.sessionKey;
   const followupRun: FollowupRun = {
     ...(params.resume.sourceRun as FollowupRun),
@@ -326,6 +333,7 @@ export function createBootstrapRequestService(params?: {
             },
           });
         }
+        appendAuditRecord(stateDir, "request.updated", updated);
         return updated;
       }
       const record = BootstrapRequestRecordSchema.parse({
@@ -394,6 +402,42 @@ export function createBootstrapRequestService(params?: {
       }
       return record;
     },
+    attachBlockedRunResume(id, resume) {
+      const existing = records.get(id);
+      if (!existing) {
+        return undefined;
+      }
+      const sameResume =
+        existing.request.blockedRunResume &&
+        JSON.stringify(existing.request.blockedRunResume) === JSON.stringify(resume);
+      if (sameResume) {
+        return BootstrapRequestRecordDetailSchema.parse(existing);
+      }
+      const updated = BootstrapRequestRecordSchema.parse({
+        ...existing,
+        request: BootstrapRequestSchema.parse({
+          ...existing.request,
+          blockedRunResume: resume,
+        }),
+        updatedAt: new Date().toISOString(),
+      });
+      records.set(id, updated);
+      const checkpoint = runtimeCheckpointService.get(id);
+      if (checkpoint?.continuation) {
+        runtimeCheckpointService.updateCheckpoint(id, {
+          continuation: {
+            ...checkpoint.continuation,
+            input: {
+              blockedRunResume: true,
+              blockedRunId: resume.blockedRunId,
+              queueKey: resume.queueKey,
+            },
+          },
+        });
+      }
+      appendAuditRecord(stateDir, "request.updated", updated);
+      return BootstrapRequestRecordDetailSchema.parse(updated);
+    },
     list() {
       return Array.from(records.values())
         .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -430,9 +474,6 @@ export function createBootstrapRequestService(params?: {
         decision === "approve" ? "request.approved" : "request.denied",
         updated,
       );
-      if (decision === "approve") {
-        void runtimeCheckpointService.dispatchContinuation(id);
-      }
       return BootstrapRequestRecordDetailSchema.parse(updated);
     },
     async run(runParams) {
@@ -522,9 +563,17 @@ export function createBootstrapRequestService(params?: {
       }
       const completedAt = new Date().toISOString();
       const nextState = result.status === "bootstrapped" ? "available" : "degraded";
+      const latestExisting = records.get(running.id);
+      const mergedRequest = BootstrapRequestSchema.parse({
+        ...running.request,
+        ...(latestExisting?.request ?? {}),
+        blockedRunResume:
+          latestExisting?.request.blockedRunResume ?? running.request.blockedRunResume,
+      });
       const updated = BootstrapRequestRecordSchema.parse({
         ...running,
         state: nextState,
+        request: mergedRequest,
         updatedAt: completedAt,
         completedAt,
         result,
@@ -564,12 +613,12 @@ export function createBootstrapRequestService(params?: {
       if (result.lifecycle?.rollbackStatus && result.lifecycle.rollbackStatus !== "not_needed") {
         appendAuditRecord(stateDir, "request.rolled_back", updated);
       }
-      if (result.status === "bootstrapped" && running.request.blockedRunResume) {
+      if (result.status === "bootstrapped" && mergedRequest.blockedRunResume) {
         try {
           const resumeOk = await dispatchBlockedRunResumeAfterBootstrap({
             bootstrapRequestId: updated.id,
             capabilityId: updated.request.capabilityId,
-            resume: running.request.blockedRunResume,
+            resume: mergedRequest.blockedRunResume,
           });
           const resumeAuditRecord = BootstrapRequestRecordSchema.parse({
             ...updated,

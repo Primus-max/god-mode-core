@@ -49,8 +49,11 @@ import { isLikelyContextOverflowError } from "./pi-embedded-helpers.js";
 const log = createSubsystemLogger("model-fallback");
 
 const OPERATOR_LOG_CAPTURE_ENV = "OPENCLAW_CAPTURE_MODEL_FALLBACK_LOGS";
-const LIGHTWEIGHT_LOCAL_PRIMARY_TIMEOUT_MS = 8_000;
-const LIGHTWEIGHT_LOCAL_FALLBACK_TIMEOUT_MS = 6_000;
+// Local-first routes should still have a bounded budget, but 8s is too small
+// for gemma4 on this workstation and causes trivial local turns to spill into
+// remote fallback despite a healthy Ollama endpoint.
+const LIGHTWEIGHT_LOCAL_PRIMARY_TIMEOUT_MS = 45_000;
+const LIGHTWEIGHT_LOCAL_FALLBACK_TIMEOUT_MS = 30_000;
 
 type RecentLocalTimeoutState = {
   timeoutCount: number;

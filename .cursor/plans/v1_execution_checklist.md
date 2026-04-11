@@ -5,10 +5,38 @@
 ## Что читать на старте
 
 1. [master_v1_roadmap.md](master_v1_roadmap.md)
-2. [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md)
-3. Текущий активный `stage_XX_*.plan.md`, если работа идёт внутри stage
-4. [multi_agent_execution_protocol.md](multi_agent_execution_protocol.md), если нужны подагенты
-5. [../v1_user_acceptance_cases.md](../v1_user_acceptance_cases.md) как главный live gate
+2. [master_orchestrator_context.md](master_orchestrator_context.md), если нужен полный продуктовый и архитектурный контекст
+3. [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md)
+4. Текущий активный `stage_XX_*.plan.md`, если работа идёт внутри stage
+5. [multi_agent_execution_protocol.md](multi_agent_execution_protocol.md), если нужны подагенты
+6. [../stage86_test_cases.md](../stage86_test_cases.md) — foundation Stage 86 (**8/8** кейсов, ручной прогон как пользователь)
+7. [../v1_user_acceptance_cases.md](../v1_user_acceptance_cases.md) — главный live gate Horizon 1 (**10/10** сценариев)
+8. [docs/help/testing.md](../../docs/help/testing.md) — полная картина тестовых команд и optional heavy gates
+
+## Validation ladder и live gates
+
+Автоматические tier’ы и ручной прогон **не заменяют** друг друга. Конкретный набор tier’ов для slice задаётся в [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md) (`requiredValidation`). Общая лестница:
+
+| Tier | Тип | Типичная команда / доказательство | Когда обязателен |
+| ---- | --- | ----------------------------------- | ---------------- |
+| T1 | unit/integration | `pnpm test -- <relevant-paths>` | Почти всегда после правок кода |
+| T2 | lint/type/build | `pnpm check`; при необходимости `pnpm build` | Типы, UI bundle, широкий wiring |
+| T3 | e2e smoke (deterministic) | `pnpm test:e2e:smoke` | Затронуты gateway boot, chat, runtime wiring |
+| T4 | v1-gate bundle | `pnpm test:v1-gate` | Recovery/session-event/release-boundary; **всегда** перед заявлением `v1 ready` |
+| T5 | продуктовая приёмка | Ручной прогон по чеклистам ниже | Когда slice требует live proof |
+
+**E2E в CI:** T3 (`pnpm test:e2e:smoke`) — это автоматический интеграционный барьер, не «я написал в бота».
+
+**E2E шире:** при необходимости touched area — broader `pnpm test:e2e` (см. [master_v1_roadmap.md](master_v1_roadmap.md), Release Ladder, и [docs/help/testing.md](../../docs/help/testing.md)).
+
+**Как пользователь (обязательно для T5, не заменяется T1–T4):** отправить реальное сообщение в канал (например Telegram), дождаться ответа, сверить ожидания сценария, снять **gateway log** (шаблон в конце [../stage86_test_cases.md](../stage86_test_cases.md)) и при необходимости проверить control UI (Sessions, bootstrap, usage). Результат зафиксировать в backlog (`lastValidation`, `evidence`).
+
+**Два разных продукта проверки:**
+
+- **Stage 86 foundation** — полный проход **8/8** по [../stage86_test_cases.md](../stage86_test_cases.md).
+- **Точная проверка Horizon 1** — полный проход **10/10** по [../v1_user_acceptance_cases.md](../v1_user_acceptance_cases.md) (включает foundation, но шире; без **10/10** нельзя считать трек полностью проверенным по продукту).
+
+Подробнее по связке automated + manual для runtime track: [runtime_stabilization_recovery_b9c4d525.plan.md](runtime_stabilization_recovery_b9c4d525.plan.md) (раздел «E2E и как пользователь»).
 
 ## Цикл исполнения
 

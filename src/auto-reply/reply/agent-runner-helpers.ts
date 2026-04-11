@@ -168,6 +168,60 @@ function mergeCompletionOutcomeWithRuntimeOutcome(params: {
 
 type MessagingDeliveryReceiptInput = Partial<MessagingDeliveryReceipt> | undefined;
 
+function hasVerifiedMessagingDeliveryReceipt(
+  receipts: PlatformRuntimeExecutionVerification["receipts"] | undefined,
+): boolean {
+  return Boolean(
+    receipts?.some((receipt) => receipt.kind === "messaging_delivery" && receipt.proof === "verified"),
+  );
+}
+
+function shouldDropAdvisoryReadFailure(params: {
+  receipt: PlatformRuntimeExecutionVerification["receipts"][number];
+  receipts: PlatformRuntimeExecutionVerification["receipts"];
+  confirmedDeliveryCount: number;
+}): boolean {
+  if (params.confirmedDeliveryCount === 0) {
+    return false;
+  }
+  if (
+    params.receipt.kind !== "tool" ||
+    params.receipt.name !== "read" ||
+    params.receipt.status !== "failed"
+  ) {
+    return false;
+  }
+  return params.receipts.some(
+    (candidate) =>
+      candidate.kind === "tool" && candidate.name === "read" && candidate.status === "success",
+  );
+}
+
+function normalizeMessagingClosureReceipts(params: {
+  receipts: PlatformRuntimeExecutionVerification["receipts"] | undefined;
+  deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
+}): PlatformRuntimeExecutionVerification["receipts"] {
+  const confirmedDeliveryCount = Math.max(params.deliveryReceipt?.confirmedDeliveryCount ?? 0, 0);
+  const receipts = (params.receipts ?? []).filter(
+    (receipt) =>
+      !shouldDropAdvisoryReadFailure({
+        receipt,
+        receipts: params.receipts ?? [],
+        confirmedDeliveryCount,
+      }),
+  );
+  if (confirmedDeliveryCount > 0 && !hasVerifiedMessagingDeliveryReceipt(receipts)) {
+    receipts.push({
+      kind: "messaging_delivery",
+      name: "delivery.webchat",
+      status: "success",
+      proof: "verified",
+      summary: "confirmed by reply dispatcher",
+    });
+  }
+  return receipts;
+}
+
 export type MessagingDeliveryClosureCandidate = {
   runResult: {
     meta?: {
@@ -276,11 +330,16 @@ export function buildCanonicalMessagingDeliveryReceipt(params: {
 export function buildMessagingAcceptanceEvidence(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads?: ReplyPayload[];
+  runPayloadsForEvidence?: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
 }): PlatformRuntimeAcceptanceEvidence {
+  const evidencePayloads = [
+    ...(params.runPayloadsForEvidence ?? []),
+    ...(params.replyPayloads ?? []),
+  ];
   const deliveryReceipt = buildCanonicalMessagingDeliveryReceipt({
-    replyPayloads: params.replyPayloads,
+    replyPayloads: evidencePayloads,
     receipts: [params.deliveryReceipt],
   });
   return {
@@ -296,8 +355,8 @@ export function buildMessagingAcceptanceEvidence(params: {
     ...(params.runResult.didSendViaMessagingTool !== undefined
       ? { didSendViaMessagingTool: params.runResult.didSendViaMessagingTool }
       : {}),
-    hasOutput: Boolean(params.replyPayloads?.some((payload) => Boolean(payload.text?.trim()))),
-    hasStructuredReplyPayload: Boolean(params.replyPayloads?.some(hasStructuredReplyPayload)),
+    hasOutput: evidencePayloads.some(isDeliverableReplyPayload),
+    hasStructuredReplyPayload: evidencePayloads.some(hasStructuredReplyPayload),
     deliveredReplyCount: deliveryReceipt.confirmedDeliveryCount,
     stagedReplyCount: deliveryReceipt.stagedReplyCount,
     attemptedDeliveryCount: deliveryReceipt.attemptedDeliveryCount,
@@ -337,6 +396,7 @@ export function buildMessagingAcceptanceEvidence(params: {
 function reevaluateMessagingDecision(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads: ReplyPayload[];
+  runPayloadsForEvidence?: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
   sourceRun?: FollowupRun;
@@ -361,9 +421,14 @@ function reevaluateMessagingDecision(params: {
     completionOutcome,
     runtimeOutcome: runtimeService.buildRunOutcome(completionOutcome.runId),
   });
+  const normalizedReceipts = normalizeMessagingClosureReceipts({
+    receipts: params.runResult.meta?.executionVerification?.receipts,
+    deliveryReceipt: params.deliveryReceipt,
+  });
   const baseEvidence = buildMessagingAcceptanceEvidence({
     runResult: params.runResult,
     replyPayloads: params.replyPayloads,
+    runPayloadsForEvidence: params.runPayloadsForEvidence,
     deliveryReceipt: params.deliveryReceipt,
     recoveryAttemptCount: params.recoveryAttemptCount,
   });
@@ -372,7 +437,7 @@ function reevaluateMessagingDecision(params: {
     requestRunId: params.sourceRun?.requestRunId ?? outcome.runId,
     ...(params.sourceRun?.parentRunId ? { parentRunId: params.sourceRun.parentRunId } : {}),
     outcome,
-    receipts: params.runResult.meta?.executionVerification?.receipts,
+    receipts: normalizedReceipts,
     evidence: baseEvidence,
     executionSurface: params.runResult.meta?.executionSurface,
     executionIntent: params.runResult.meta?.executionIntent,
@@ -389,6 +454,7 @@ function reevaluateMessagingDecision(params: {
 export function reevaluateMessagingDecisionForMessagingRun(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads: ReplyPayload[];
+  runPayloadsForEvidence?: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
   sourceRun?: FollowupRun;
@@ -406,6 +472,7 @@ export function reevaluateMessagingDecisionForMessagingRun(params: {
 export function reevaluateAcceptanceForMessagingRun(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads: ReplyPayload[];
+  runPayloadsForEvidence?: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
   sourceRun?: FollowupRun;

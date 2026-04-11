@@ -126,6 +126,7 @@ function mergePostDeliveryRuntimeMeta(params: {
   const reevaluated = reevaluateMessagingDecisionForMessagingRun({
     runResult: params.result as MessagingDeliveryClosureCandidate["runResult"],
     replyPayloads: params.replyPayloads ?? [],
+    runPayloadsForEvidence: params.result.payloads ?? [],
   });
   if (!reevaluated) {
     return params.result.meta;

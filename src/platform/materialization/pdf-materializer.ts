@@ -6,11 +6,15 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveBrowserConfig } from "../../browser/config.js";
 import { loadConfig } from "../../config/config.js";
+import { resolveStateDir } from "../../config/paths.js";
+import {
+  getApprovedCapabilityCatalogEntry,
+  resolvePlatformBootstrapNodeCapabilityInstallDir,
+} from "../bootstrap/index.js";
 import type { MaterializedArtifactOutput } from "./contracts.js";
 import { buildHtmlDocument } from "./html-preview-materializer.js";
 
 const require = createRequire(import.meta.url);
-const PLAYWRIGHT_CORE_MODULE_URL = pathToFileURL(require.resolve("playwright-core")).toString();
 
 function stripHtml(html: string): string {
   return html
@@ -37,6 +41,51 @@ function resolvePdfBrowserLaunchOptions(): {
   return {
     ...(extraArgs.length > 0 ? { extraArgs } : {}),
   };
+}
+
+function resolvePackageImportModuleUrl(packageDir: string): string | undefined {
+  const manifestPath = path.join(packageDir, "package.json");
+  if (!fs.existsSync(manifestPath)) {
+    return undefined;
+  }
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+      exports?: { ".": { import?: string } | string };
+      module?: string;
+      main?: string;
+    };
+    const rootExport = manifest.exports?.["."];
+    const relativeEntry =
+      typeof rootExport === "object" && typeof rootExport.import === "string"
+        ? rootExport.import
+        : typeof manifest.module === "string"
+          ? manifest.module
+          : typeof manifest.main === "string"
+            ? manifest.main
+            : "index.mjs";
+    const entryPath = path.join(packageDir, relativeEntry.replace(/^\.\//u, ""));
+    return fs.existsSync(entryPath) ? pathToFileURL(entryPath).toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolvePdfPlaywrightModuleUrl(): string {
+  const entry = getApprovedCapabilityCatalogEntry("pdf-renderer");
+  if (entry?.install?.method === "node") {
+    const installDir = resolvePlatformBootstrapNodeCapabilityInstallDir({
+      capabilityId: "pdf-renderer",
+      stateDir: resolveStateDir(process.env),
+    });
+    const healthCheckScript = path.join(installDir, ".openclaw-bootstrap-healthcheck.cjs");
+    if (fs.existsSync(healthCheckScript)) {
+      const managedModuleUrl = resolvePackageImportModuleUrl(installDir);
+      if (managedModuleUrl) {
+        return managedModuleUrl;
+      }
+    }
+  }
+  return pathToFileURL(require.resolve("playwright-core")).toString();
 }
 
 function writePlaywrightPdf(params: { htmlPath: string; pdfPath: string }): void {
@@ -81,7 +130,7 @@ function writePlaywrightPdf(params: { htmlPath: string; pdfPath: string }): void
       ...process.env,
       OPENCLAW_PDF_HTML: params.htmlPath,
       OPENCLAW_PDF_OUT: params.pdfPath,
-      OPENCLAW_PDF_PLAYWRIGHT_MODULE: PLAYWRIGHT_CORE_MODULE_URL,
+      OPENCLAW_PDF_PLAYWRIGHT_MODULE: resolvePdfPlaywrightModuleUrl(),
       ...(launchOptions.extraArgs
         ? { OPENCLAW_PDF_BROWSER_ARGS: JSON.stringify(launchOptions.extraArgs) }
         : {}),

@@ -23,7 +23,7 @@ function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapReque
   }
   return {
     capabilityId: "pdf-renderer",
-    installMethod: "download",
+    installMethod: catalogEntry.install?.method ?? "node",
     rollbackStrategy: "restore_previous",
     reason: "renderer_unavailable",
     sourceDomain: "document",
@@ -102,18 +102,18 @@ describe("bootstrap request service", () => {
     const result = await service.run({
       id: created.id,
       installers: {
-        download: async ({ request }) => ({
+        node: async ({ request }) => ({
           ok: true,
           capability: {
             ...request.catalogEntry.capability,
             trusted: true,
             sandboxed: true,
-            installMethod: "download",
+            installMethod: "node",
             status: "available",
           },
         }),
       },
-      availableBins: ["playwright"],
+      availableBins: ["node"],
       runHealthCheckCommand: async () => true,
     });
 
@@ -151,7 +151,7 @@ describe("bootstrap request service", () => {
         ...request.catalogEntry.capability,
         trusted: true,
         sandboxed: true,
-        installMethod: "download" as const,
+        installMethod: "node" as const,
         status: "available" as const,
       },
     }));
@@ -159,17 +159,17 @@ describe("bootstrap request service", () => {
     const first = await service.run({
       id: created.id,
       installers: {
-        download: installer,
+        node: installer,
       },
-      availableBins: ["playwright"],
+      availableBins: ["node"],
       runHealthCheckCommand: async () => true,
     });
     const replay = await service.run({
       id: created.id,
       installers: {
-        download: installer,
+        node: installer,
       },
-      availableBins: ["playwright"],
+      availableBins: ["node"],
       runHealthCheckCommand: async () => true,
     });
 
@@ -227,7 +227,7 @@ describe("bootstrap request service", () => {
     );
   });
 
-  it("after approve, bootstrap continuation run dispatches blocked followup when blockedRunResume is set", async () => {
+  it("keeps explicit approvals idle until platform.bootstrap.run executes", async () => {
     const queueKey = "openclaw-test-bootstrap-approve-resume";
     const blockedRunResume = BootstrapBlockedRunResumeSchema.parse({
       blockedRunId: "run-approve-continuation",
@@ -251,32 +251,11 @@ describe("bootstrap request service", () => {
       },
     });
     const service = createBootstrapRequestService();
-    getPlatformRuntimeCheckpointService().registerContinuationHandler("bootstrap_run", async (checkpoint) => {
-      const id = checkpoint.target?.bootstrapRequestId ?? "";
-      await service.run({
-        id,
-        installers: {
-          download: async ({ request }) => ({
-            ok: true,
-            capability: {
-              ...request.catalogEntry.capability,
-              trusted: true,
-              sandboxed: true,
-              installMethod: "download",
-              status: "available",
-            },
-          }),
-        },
-        availableBins: ["playwright"],
-        runHealthCheckCommand: async () => true,
-      });
-    });
     const created = service.create(buildRequest({ blockedRunResume }));
     expect(created.state).toBe("pending");
-    service.resolve(created.id, "approve");
-    await expect
-      .poll(() => getFollowupQueueDepth(queueKey), { timeout: 3_000, interval: 25 })
-      .toBe(1);
+    const approved = service.resolve(created.id, "approve");
+    expect(approved?.state).toBe("approved");
+    expect(getFollowupQueueDepth(queueKey)).toBe(0);
   });
 
   it("enqueues blocked followup after successful bootstrap when blockedRunResume is present", async () => {
@@ -309,20 +288,77 @@ describe("bootstrap request service", () => {
     await service.run({
       id: created.id,
       installers: {
-        download: async ({ request }) => ({
+        node: async ({ request }) => ({
           ok: true,
           capability: {
             ...request.catalogEntry.capability,
             trusted: true,
             sandboxed: true,
-            installMethod: "download",
+            installMethod: "node",
             status: "available",
           },
         }),
       },
-      availableBins: ["playwright"],
+      availableBins: ["node"],
       runHealthCheckCommand: async () => true,
     });
+    expect(getFollowupQueueDepth(queueKey)).toBe(1);
+  });
+
+  it("preserves blockedRunResume attached after bootstrap run starts", async () => {
+    const queueKey = "openclaw-test-bootstrap-late-resume";
+    const blockedRunResume = BootstrapBlockedRunResumeSchema.parse({
+      blockedRunId: "run-late-bootstrap-resume",
+      queueKey,
+      settings: { mode: "followup" },
+      sourceRun: {
+        prompt: "finish after late attach",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-late-resume",
+          agentDir: "/tmp/agent",
+          sessionId: "sess-late-resume",
+          sessionFile: "/tmp/sess-late-resume.jsonl",
+          workspaceDir: "/tmp/ws-late-resume",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+    });
+    const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
+    const created = service.create(buildRequest());
+    service.resolve(created.id, "approve");
+    const runPromise = service.run({
+      id: created.id,
+      installers: {
+        node: async () => {
+          service.attachBlockedRunResume(created.id, blockedRunResume);
+          return {
+            ok: true,
+            capability: {
+              ...created.request.catalogEntry.capability,
+              trusted: true,
+              sandboxed: true,
+              installMethod: "node",
+              status: "available",
+            },
+          };
+        },
+      },
+      availableBins: ["node"],
+      runHealthCheckCommand: async () => true,
+    });
+    await runPromise;
+    expect(service.get(created.id)?.request.blockedRunResume).toEqual(
+      expect.objectContaining({
+        blockedRunId: "run-late-bootstrap-resume",
+        queueKey,
+      }),
+    );
     expect(getFollowupQueueDepth(queueKey)).toBe(1);
   });
 
@@ -334,18 +370,18 @@ describe("bootstrap request service", () => {
         await service.run({
           id: checkpoint.target?.bootstrapRequestId ?? checkpoint.id,
           installers: {
-            download: async ({ request }) => ({
+            node: async ({ request }) => ({
               ok: true,
               capability: {
                 ...request.catalogEntry.capability,
                 trusted: true,
                 sandboxed: true,
-                installMethod: "download",
+                installMethod: "node",
                 status: "available",
               },
             }),
           },
-          availableBins: ["playwright"],
+          availableBins: ["node"],
           runHealthCheckCommand: async () => true,
         });
       },
@@ -396,18 +432,18 @@ describe("bootstrap request service", () => {
       await service.run({
         id: created.id,
         installers: {
-          download: async ({ request }) => ({
+          node: async ({ request }) => ({
             ok: true,
             capability: {
               ...request.catalogEntry.capability,
               trusted: true,
               sandboxed: true,
-              installMethod: "download",
+              installMethod: "node",
               status: "available",
             },
           }),
         },
-        availableBins: ["playwright"],
+        availableBins: ["node"],
         runHealthCheckCommand: async () => true,
       });
 

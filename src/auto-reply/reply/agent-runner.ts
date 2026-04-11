@@ -711,6 +711,7 @@ export async function runReplyAgent(params: {
       const closureDecision = reevaluateMessagingDecisionForMessagingRun({
         runResult,
         replyPayloads: [],
+        runPayloadsForEvidence: payloadArray,
         sourceRun: followupRun,
       });
       const acceptanceOutcome = closureDecision?.acceptanceOutcome;
@@ -763,13 +764,24 @@ export async function runReplyAgent(params: {
       accountId: sessionCtx.AccountId,
       normalizeMediaPaths: normalizeReplyMediaPaths,
     });
-    const { replyPayloads } = payloadResult;
+    const { replyPayloads, allReplyPayloadsAlreadyDelivered } = payloadResult;
     didLogHeartbeatStrip = payloadResult.didLogHeartbeatStrip;
 
     if (replyPayloads.length === 0) {
+      if (allReplyPayloadsAlreadyDelivered) {
+        captureMessagingDeliveryClosureCandidate({
+          onCandidate: opts?.onDeliveryClosureCandidate,
+          runResult,
+          sourceRun: correlationSourceRun,
+          queueKey,
+          settings: resolvedQueue,
+        });
+        return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
+      }
       const closureDecision = reevaluateMessagingDecisionForMessagingRun({
         runResult,
         replyPayloads: [],
+        runPayloadsForEvidence: payloadArray,
         sourceRun: correlationSourceRun,
       });
       const acceptanceOutcome = closureDecision?.acceptanceOutcome;
@@ -823,6 +835,7 @@ export async function runReplyAgent(params: {
     const closureDecision = reevaluateMessagingDecisionForMessagingRun({
       runResult,
       replyPayloads: guardedReplyPayloads,
+      runPayloadsForEvidence: payloadArray,
       sourceRun: correlationSourceRun,
     });
     const acceptanceOutcome = closureDecision?.acceptanceOutcome;

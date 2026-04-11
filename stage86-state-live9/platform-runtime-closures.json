@@ -1,0 +1,5126 @@
+{
+  "version": 1,
+  "closures": [
+    {
+      "runId": "2acb3f07-9d1d-4a32-a030-1701a22fc846",
+      "requestRunId": "2acb3f07-9d1d-4a32-a030-1701a22fc846",
+      "updatedAtMs": 1775767431062,
+      "outcome": {
+        "runId": "2acb3f07-9d1d-4a32-a030-1701a22fc846",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "2acb3f07-9d1d-4a32-a030-1701a22fc846",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775767412841,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "2acb3f07-9d1d-4a32-a030-1701a22fc846",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "process",
+            "status": "success",
+            "proof": "reported",
+            "summary": "main",
+            "metadata": {
+              "toolCallId": "ollama_call_059ed9b2-7b2a-426b-996d-d01b8c48115b",
+              "toolStatus": "failed"
+            }
+          },
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_75574e1b-8878-475a-b6cb-3e8f7d933297"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 2,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 2,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775767431062
+      },
+      "acceptanceOutcome": {
+        "runId": "2acb3f07-9d1d-4a32-a030-1701a22fc846",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "2acb3f07-9d1d-4a32-a030-1701a22fc846",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 2,
+          "structuredExecutionReceiptCount": 2,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "2acb3f07-9d1d-4a32-a030-1701a22fc846",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "2acb3f07-9d1d-4a32-a030-1701a22fc846",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "2acb3f07-9d1d-4a32-a030-1701a22fc846",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 2,
+            "structuredExecutionReceiptCount": 2,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "2acb3f07-9d1d-4a32-a030-1701a22fc846",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "process",
+              "status": "success",
+              "proof": "reported",
+              "summary": "main",
+              "metadata": {
+                "toolCallId": "ollama_call_059ed9b2-7b2a-426b-996d-d01b8c48115b",
+                "toolStatus": "failed"
+              }
+            },
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_75574e1b-8878-475a-b6cb-3e8f7d933297"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 2,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 2,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775767431062
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775767412841,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "f7995c73-be40-4365-828e-8a2c5832fb39",
+      "requestRunId": "f7995c73-be40-4365-828e-8a2c5832fb39",
+      "updatedAtMs": 1775765626628,
+      "outcome": {
+        "runId": "f7995c73-be40-4365-828e-8a2c5832fb39",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "f7995c73-be40-4365-828e-8a2c5832fb39",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775765612793,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "f7995c73-be40-4365-828e-8a2c5832fb39",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "process",
+            "status": "success",
+            "proof": "reported",
+            "summary": "main",
+            "metadata": {
+              "toolCallId": "ollama_call_b99583a4-8efb-4c06-950d-8ca1a4ba44f3",
+              "toolStatus": "failed"
+            }
+          },
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_fbdd3103-dcaa-4cf6-9411-7af7a8015681"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 2,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 2,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775765626628
+      },
+      "acceptanceOutcome": {
+        "runId": "f7995c73-be40-4365-828e-8a2c5832fb39",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "f7995c73-be40-4365-828e-8a2c5832fb39",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 2,
+          "structuredExecutionReceiptCount": 2,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "f7995c73-be40-4365-828e-8a2c5832fb39",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "f7995c73-be40-4365-828e-8a2c5832fb39",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "f7995c73-be40-4365-828e-8a2c5832fb39",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 2,
+            "structuredExecutionReceiptCount": 2,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "f7995c73-be40-4365-828e-8a2c5832fb39",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "process",
+              "status": "success",
+              "proof": "reported",
+              "summary": "main",
+              "metadata": {
+                "toolCallId": "ollama_call_b99583a4-8efb-4c06-950d-8ca1a4ba44f3",
+                "toolStatus": "failed"
+              }
+            },
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_fbdd3103-dcaa-4cf6-9411-7af7a8015681"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 2,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 2,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775765626628
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775765612793,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "4477d329-4b98-45ca-9e31-dc93ec9dbe9a",
+      "requestRunId": "4477d329-4b98-45ca-9e31-dc93ec9dbe9a",
+      "updatedAtMs": 1775763823883,
+      "outcome": {
+        "runId": "4477d329-4b98-45ca-9e31-dc93ec9dbe9a",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "4477d329-4b98-45ca-9e31-dc93ec9dbe9a",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775763813103,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "4477d329-4b98-45ca-9e31-dc93ec9dbe9a",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_5aea6a31-bb4a-48ea-b8f1-a354878fde94"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775763823882
+      },
+      "acceptanceOutcome": {
+        "runId": "4477d329-4b98-45ca-9e31-dc93ec9dbe9a",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "4477d329-4b98-45ca-9e31-dc93ec9dbe9a",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "4477d329-4b98-45ca-9e31-dc93ec9dbe9a",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "4477d329-4b98-45ca-9e31-dc93ec9dbe9a",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "4477d329-4b98-45ca-9e31-dc93ec9dbe9a",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "4477d329-4b98-45ca-9e31-dc93ec9dbe9a",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_5aea6a31-bb4a-48ea-b8f1-a354878fde94"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775763823882
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775763813103,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "b1662af2-10a3-4cef-ae43-84d95d48823a",
+      "requestRunId": "b1662af2-10a3-4cef-ae43-84d95d48823a",
+      "updatedAtMs": 1775762026330,
+      "outcome": {
+        "runId": "b1662af2-10a3-4cef-ae43-84d95d48823a",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "b1662af2-10a3-4cef-ae43-84d95d48823a",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775762013083,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "b1662af2-10a3-4cef-ae43-84d95d48823a",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_2b8cc08d-727f-48a7-8766-fb749081d683"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775762026330
+      },
+      "acceptanceOutcome": {
+        "runId": "b1662af2-10a3-4cef-ae43-84d95d48823a",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "b1662af2-10a3-4cef-ae43-84d95d48823a",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "b1662af2-10a3-4cef-ae43-84d95d48823a",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "b1662af2-10a3-4cef-ae43-84d95d48823a",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "b1662af2-10a3-4cef-ae43-84d95d48823a",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "b1662af2-10a3-4cef-ae43-84d95d48823a",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_2b8cc08d-727f-48a7-8766-fb749081d683"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775762026330
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775762013083,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "fd9a5b3c-2875-4d86-900e-08e9460e2ccd",
+      "requestRunId": "fd9a5b3c-2875-4d86-900e-08e9460e2ccd",
+      "updatedAtMs": 1775760233241,
+      "outcome": {
+        "runId": "fd9a5b3c-2875-4d86-900e-08e9460e2ccd",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "fd9a5b3c-2875-4d86-900e-08e9460e2ccd",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775760213280,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "fd9a5b3c-2875-4d86-900e-08e9460e2ccd",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_59ef3b68-423a-4d0d-a6a0-79fd5aa7d7ea"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775760233241
+      },
+      "acceptanceOutcome": {
+        "runId": "fd9a5b3c-2875-4d86-900e-08e9460e2ccd",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "fd9a5b3c-2875-4d86-900e-08e9460e2ccd",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "fd9a5b3c-2875-4d86-900e-08e9460e2ccd",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "fd9a5b3c-2875-4d86-900e-08e9460e2ccd",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "fd9a5b3c-2875-4d86-900e-08e9460e2ccd",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "fd9a5b3c-2875-4d86-900e-08e9460e2ccd",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_59ef3b68-423a-4d0d-a6a0-79fd5aa7d7ea"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775760233241
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775760213280,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "2acb6ccf-8612-4198-9321-1ee02af912be",
+      "requestRunId": "2acb6ccf-8612-4198-9321-1ee02af912be",
+      "updatedAtMs": 1775758445761,
+      "outcome": {
+        "runId": "2acb6ccf-8612-4198-9321-1ee02af912be",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "2acb6ccf-8612-4198-9321-1ee02af912be",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775758413129,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "2acb6ccf-8612-4198-9321-1ee02af912be",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_1c8fb201-2ad6-4dc1-acb5-ba4968dd4326"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775758445760
+      },
+      "acceptanceOutcome": {
+        "runId": "2acb6ccf-8612-4198-9321-1ee02af912be",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "2acb6ccf-8612-4198-9321-1ee02af912be",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "2acb6ccf-8612-4198-9321-1ee02af912be",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "2acb6ccf-8612-4198-9321-1ee02af912be",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "2acb6ccf-8612-4198-9321-1ee02af912be",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "2acb6ccf-8612-4198-9321-1ee02af912be",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_1c8fb201-2ad6-4dc1-acb5-ba4968dd4326"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775758445760
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775758413129,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "caad5d05-2cdf-458b-afa5-b4a491f80e3e",
+      "requestRunId": "caad5d05-2cdf-458b-afa5-b4a491f80e3e",
+      "updatedAtMs": 1775756634755,
+      "outcome": {
+        "runId": "caad5d05-2cdf-458b-afa5-b4a491f80e3e",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "caad5d05-2cdf-458b-afa5-b4a491f80e3e",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775756612879,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "caad5d05-2cdf-458b-afa5-b4a491f80e3e",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_e1b818dd-c279-4687-b5c6-fc388cdb6364"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775756634754
+      },
+      "acceptanceOutcome": {
+        "runId": "caad5d05-2cdf-458b-afa5-b4a491f80e3e",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "caad5d05-2cdf-458b-afa5-b4a491f80e3e",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "caad5d05-2cdf-458b-afa5-b4a491f80e3e",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "caad5d05-2cdf-458b-afa5-b4a491f80e3e",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "caad5d05-2cdf-458b-afa5-b4a491f80e3e",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "caad5d05-2cdf-458b-afa5-b4a491f80e3e",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_e1b818dd-c279-4687-b5c6-fc388cdb6364"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775756634754
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775756612879,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "351c379d-5054-4798-93c5-659bc22c78f0",
+      "requestRunId": "351c379d-5054-4798-93c5-659bc22c78f0",
+      "updatedAtMs": 1775754822679,
+      "outcome": {
+        "runId": "351c379d-5054-4798-93c5-659bc22c78f0",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "351c379d-5054-4798-93c5-659bc22c78f0",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775754813078,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "351c379d-5054-4798-93c5-659bc22c78f0",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_88c29d4a-1205-4d05-8b3c-33bb15b06b21"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775754822679
+      },
+      "acceptanceOutcome": {
+        "runId": "351c379d-5054-4798-93c5-659bc22c78f0",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "351c379d-5054-4798-93c5-659bc22c78f0",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "351c379d-5054-4798-93c5-659bc22c78f0",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "351c379d-5054-4798-93c5-659bc22c78f0",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "351c379d-5054-4798-93c5-659bc22c78f0",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "351c379d-5054-4798-93c5-659bc22c78f0",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_88c29d4a-1205-4d05-8b3c-33bb15b06b21"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775754822679
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775754813078,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "ae991134-e1cb-4a96-acc6-25bde455a816",
+      "requestRunId": "ae991134-e1cb-4a96-acc6-25bde455a816",
+      "updatedAtMs": 1775753080729,
+      "outcome": {
+        "runId": "ae991134-e1cb-4a96-acc6-25bde455a816",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "ae991134-e1cb-4a96-acc6-25bde455a816",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775753058725,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "ae991134-e1cb-4a96-acc6-25bde455a816",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected output, but no output evidence was observed."
+        ],
+        "receipts": [],
+        "receiptCounts": {
+          "success": 0,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 0,
+          "verified": 0
+        },
+        "checkedAtMs": 1775753080728
+      },
+      "acceptanceOutcome": {
+        "runId": "ae991134-e1cb-4a96-acc6-25bde455a816",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "ae991134-e1cb-4a96-acc6-25bde455a816",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": false,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 0,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 0,
+          "structuredExecutionReceiptCount": 0,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "ae991134-e1cb-4a96-acc6-25bde455a816",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected output, but no output evidence was observed."
+        ],
+        "acceptance": {
+          "runId": "ae991134-e1cb-4a96-acc6-25bde455a816",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "ae991134-e1cb-4a96-acc6-25bde455a816",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": false,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 0,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 0,
+            "structuredExecutionReceiptCount": 0,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "ae991134-e1cb-4a96-acc6-25bde455a816",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected output, but no output evidence was observed."
+          ],
+          "receipts": [],
+          "receiptCounts": {
+            "success": 0,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 0,
+            "verified": 0
+          },
+          "checkedAtMs": 1775753080728
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775753058725,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "a8bc2b44-e8ce-477b-9103-70353626f00e",
+      "requestRunId": "a8bc2b44-e8ce-477b-9103-70353626f00e",
+      "updatedAtMs": 1775751315749,
+      "outcome": {
+        "runId": "a8bc2b44-e8ce-477b-9103-70353626f00e",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "a8bc2b44-e8ce-477b-9103-70353626f00e",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775751305384,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "a8bc2b44-e8ce-477b-9103-70353626f00e",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [],
+        "receiptCounts": {
+          "success": 0,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 0,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775751315749
+      },
+      "acceptanceOutcome": {
+        "runId": "a8bc2b44-e8ce-477b-9103-70353626f00e",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "a8bc2b44-e8ce-477b-9103-70353626f00e",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 0,
+          "structuredExecutionReceiptCount": 0,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "a8bc2b44-e8ce-477b-9103-70353626f00e",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "a8bc2b44-e8ce-477b-9103-70353626f00e",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "a8bc2b44-e8ce-477b-9103-70353626f00e",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 0,
+            "structuredExecutionReceiptCount": 0,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "a8bc2b44-e8ce-477b-9103-70353626f00e",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [],
+          "receiptCounts": {
+            "success": 0,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 0,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775751315749
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775751305384,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "108b83dc-f1c4-40c7-a1ea-8359c6021f98",
+      "requestRunId": "108b83dc-f1c4-40c7-a1ea-8359c6021f98",
+      "updatedAtMs": 1775749484269,
+      "outcome": {
+        "runId": "108b83dc-f1c4-40c7-a1ea-8359c6021f98",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "108b83dc-f1c4-40c7-a1ea-8359c6021f98",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775749460531,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "108b83dc-f1c4-40c7-a1ea-8359c6021f98",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected output, but no output evidence was observed."
+        ],
+        "receipts": [],
+        "receiptCounts": {
+          "success": 0,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 0,
+          "verified": 0
+        },
+        "checkedAtMs": 1775749484268
+      },
+      "acceptanceOutcome": {
+        "runId": "108b83dc-f1c4-40c7-a1ea-8359c6021f98",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "108b83dc-f1c4-40c7-a1ea-8359c6021f98",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": false,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 0,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 0,
+          "structuredExecutionReceiptCount": 0,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "108b83dc-f1c4-40c7-a1ea-8359c6021f98",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected output, but no output evidence was observed."
+        ],
+        "acceptance": {
+          "runId": "108b83dc-f1c4-40c7-a1ea-8359c6021f98",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "108b83dc-f1c4-40c7-a1ea-8359c6021f98",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": false,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 0,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 0,
+            "structuredExecutionReceiptCount": 0,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "108b83dc-f1c4-40c7-a1ea-8359c6021f98",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected output, but no output evidence was observed."
+          ],
+          "receipts": [],
+          "receiptCounts": {
+            "success": 0,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 0,
+            "verified": 0
+          },
+          "checkedAtMs": 1775749484268
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775749460531,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "4375f05f-c30f-4b59-afa7-e9ffc73a1c19",
+      "requestRunId": "4375f05f-c30f-4b59-afa7-e9ffc73a1c19",
+      "updatedAtMs": 1775747655043,
+      "outcome": {
+        "runId": "4375f05f-c30f-4b59-afa7-e9ffc73a1c19",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "4375f05f-c30f-4b59-afa7-e9ffc73a1c19",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775747613803,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "4375f05f-c30f-4b59-afa7-e9ffc73a1c19",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_27dfaab1-ba10-44c0-b816-cc2d4aea5c0f"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775747655042
+      },
+      "acceptanceOutcome": {
+        "runId": "4375f05f-c30f-4b59-afa7-e9ffc73a1c19",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "4375f05f-c30f-4b59-afa7-e9ffc73a1c19",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "4375f05f-c30f-4b59-afa7-e9ffc73a1c19",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "4375f05f-c30f-4b59-afa7-e9ffc73a1c19",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "4375f05f-c30f-4b59-afa7-e9ffc73a1c19",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "4375f05f-c30f-4b59-afa7-e9ffc73a1c19",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_27dfaab1-ba10-44c0-b816-cc2d4aea5c0f"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775747655042
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775747613803,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "d3015ff1-c0a9-484a-9d56-6ffe531d256f",
+      "requestRunId": "d3015ff1-c0a9-484a-9d56-6ffe531d256f",
+      "updatedAtMs": 1775745919950,
+      "outcome": {
+        "runId": "d3015ff1-c0a9-484a-9d56-6ffe531d256f",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "d3015ff1-c0a9-484a-9d56-6ffe531d256f",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "compare",
+        "artifactKinds": [
+          "data",
+          "report"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775745888415,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "d3015ff1-c0a9-484a-9d56-6ffe531d256f",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [],
+        "receiptCounts": {
+          "success": 0,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 0,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775745919949
+      },
+      "acceptanceOutcome": {
+        "runId": "d3015ff1-c0a9-484a-9d56-6ffe531d256f",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "d3015ff1-c0a9-484a-9d56-6ffe531d256f",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 0,
+          "structuredExecutionReceiptCount": 0,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "modelFallbackAttemptCount": 1,
+          "modelFallbackExhausted": false,
+          "modelFallbackFinalReason": "unknown",
+          "modelFallbackFinalStatus": 408,
+          "providerAuthFailed": false,
+          "providerRateLimited": false,
+          "providerModelNotFound": false,
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "compare",
+          "declaredArtifactKinds": [
+            "data",
+            "report"
+          ],
+          "declaredRequiresOutput": true,
+          "recoveryAttemptCount": 0
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "d3015ff1-c0a9-484a-9d56-6ffe531d256f",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "d3015ff1-c0a9-484a-9d56-6ffe531d256f",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "d3015ff1-c0a9-484a-9d56-6ffe531d256f",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 0,
+            "structuredExecutionReceiptCount": 0,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "modelFallbackAttemptCount": 1,
+            "modelFallbackExhausted": false,
+            "modelFallbackFinalReason": "unknown",
+            "modelFallbackFinalStatus": 408,
+            "providerAuthFailed": false,
+            "providerRateLimited": false,
+            "providerModelNotFound": false,
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "compare",
+            "declaredArtifactKinds": [
+              "data",
+              "report"
+            ],
+            "declaredRequiresOutput": true,
+            "recoveryAttemptCount": 0
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "d3015ff1-c0a9-484a-9d56-6ffe531d256f",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [],
+          "receiptCounts": {
+            "success": 0,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 0,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775745919949
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775745888415,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "7d1d58c9-2d91-49a7-8e03-77d3c553826f",
+      "requestRunId": "7d1d58c9-2d91-49a7-8e03-77d3c553826f",
+      "updatedAtMs": 1775745842065,
+      "outcome": {
+        "runId": "7d1d58c9-2d91-49a7-8e03-77d3c553826f",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "7d1d58c9-2d91-49a7-8e03-77d3c553826f",
+        "profileId": "builder",
+        "recipeId": "doc_ingest",
+        "taskOverlayId": "document_first",
+        "plannerReasoning": "Recipe doc_ingest selected for profile builder. Task overlay: document_first.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requireExplicitApproval": false,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "ready",
+        "ready": true,
+        "checkedAtMs": 1775745813402,
+        "reasons": [],
+        "approvalRequired": false
+      },
+      "executionVerification": {
+        "runId": "7d1d58c9-2d91-49a7-8e03-77d3c553826f",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_aaec97b6-1e97-4fa0-9050-87471a99cf4d"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775745842064
+      },
+      "acceptanceOutcome": {
+        "runId": "7d1d58c9-2d91-49a7-8e03-77d3c553826f",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "semantic_retry",
+        "reasonCode": "contract_mismatch",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe doc_ingest does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "7d1d58c9-2d91-49a7-8e03-77d3c553826f",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "ready",
+          "executionSurfaceDegraded": false,
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "doc_ingest",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "semantic_retry",
+          "recoveryClass": "semantic",
+          "cadence": "immediate",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 1,
+          "remainingAttempts": 1,
+          "exhausted": false,
+          "exhaustedAction": "stop",
+          "nextAttemptDelayMs": 0
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "7d1d58c9-2d91-49a7-8e03-77d3c553826f",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "semantic_retry",
+        "reasonCode": "contract_mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "7d1d58c9-2d91-49a7-8e03-77d3c553826f",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "semantic_retry",
+          "reasonCode": "contract_mismatch",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe doc_ingest does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "7d1d58c9-2d91-49a7-8e03-77d3c553826f",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "ready",
+            "executionSurfaceDegraded": false,
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "doc_ingest",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "semantic_retry",
+            "recoveryClass": "semantic",
+            "cadence": "immediate",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 1,
+            "remainingAttempts": 1,
+            "exhausted": false,
+            "exhaustedAction": "stop",
+            "nextAttemptDelayMs": 0
+          }
+        },
+        "verification": {
+          "runId": "7d1d58c9-2d91-49a7-8e03-77d3c553826f",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_aaec97b6-1e97-4fa0-9050-87471a99cf4d"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775745842064
+        },
+        "surface": {
+          "status": "ready",
+          "ready": true,
+          "checkedAtMs": 1775745813402,
+          "reasons": [],
+          "approvalRequired": false
+        },
+        "recoveryPolicy": {
+          "remediation": "semantic_retry",
+          "recoveryClass": "semantic",
+          "cadence": "immediate",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 1,
+          "remainingAttempts": 1,
+          "exhausted": false,
+          "exhaustedAction": "stop",
+          "nextAttemptDelayMs": 0
+        }
+      }
+    },
+    {
+      "runId": "f2955d7c-aad1-450e-93ce-434c8c6a163f",
+      "requestRunId": "f2955d7c-aad1-450e-93ce-434c8c6a163f",
+      "updatedAtMs": 1775744413693,
+      "outcome": {
+        "runId": "f2955d7c-aad1-450e-93ce-434c8c6a163f",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "f2955d7c-aad1-450e-93ce-434c8c6a163f",
+        "profileId": "builder",
+        "recipeId": "general_reasoning",
+        "plannerReasoning": "Recipe general_reasoning selected for profile builder.",
+        "requireExplicitApproval": false,
+        "policyAutonomy": "chat",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "ready",
+        "ready": true,
+        "checkedAtMs": 1775744374321,
+        "reasons": [],
+        "approvalRequired": false
+      },
+      "executionVerification": {
+        "runId": "f2955d7c-aad1-450e-93ce-434c8c6a163f",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [],
+        "receiptCounts": {
+          "success": 0,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 0,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775744413690
+      },
+      "acceptanceOutcome": {
+        "runId": "f2955d7c-aad1-450e-93ce-434c8c6a163f",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "semantic_retry",
+        "reasonCode": "contract_mismatch",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe general_reasoning does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "f2955d7c-aad1-450e-93ce-434c8c6a163f",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 0,
+          "structuredExecutionReceiptCount": 0,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "ready",
+          "executionSurfaceDegraded": false,
+          "modelFallbackAttemptCount": 0,
+          "modelFallbackExhausted": false,
+          "providerAuthFailed": false,
+          "providerRateLimited": false,
+          "providerModelNotFound": false,
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "general_reasoning",
+          "declaredRequiresOutput": true,
+          "recoveryAttemptCount": 1
+        },
+        "recoveryPolicy": {
+          "remediation": "semantic_retry",
+          "recoveryClass": "semantic",
+          "cadence": "immediate",
+          "continuous": false,
+          "attemptCount": 1,
+          "maxAttempts": 1,
+          "remainingAttempts": 0,
+          "exhausted": true,
+          "exhaustedAction": "stop",
+          "nextAttemptDelayMs": 0
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "f2955d7c-aad1-450e-93ce-434c8c6a163f",
+        "status": "failed",
+        "action": "stop",
+        "remediation": "semantic_retry",
+        "reasonCode": "recovery_budget_exhausted",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe general_reasoning does not match the requested outcome.",
+          "Recovery budget exhausted after 1/1 attempts."
+        ],
+        "acceptance": {
+          "runId": "f2955d7c-aad1-450e-93ce-434c8c6a163f",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "semantic_retry",
+          "reasonCode": "contract_mismatch",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe general_reasoning does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "f2955d7c-aad1-450e-93ce-434c8c6a163f",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 0,
+            "structuredExecutionReceiptCount": 0,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "ready",
+            "executionSurfaceDegraded": false,
+            "modelFallbackAttemptCount": 0,
+            "modelFallbackExhausted": false,
+            "providerAuthFailed": false,
+            "providerRateLimited": false,
+            "providerModelNotFound": false,
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "general_reasoning",
+            "declaredRequiresOutput": true,
+            "recoveryAttemptCount": 1
+          },
+          "recoveryPolicy": {
+            "remediation": "semantic_retry",
+            "recoveryClass": "semantic",
+            "cadence": "immediate",
+            "continuous": false,
+            "attemptCount": 1,
+            "maxAttempts": 1,
+            "remainingAttempts": 0,
+            "exhausted": true,
+            "exhaustedAction": "stop",
+            "nextAttemptDelayMs": 0
+          }
+        },
+        "verification": {
+          "runId": "f2955d7c-aad1-450e-93ce-434c8c6a163f",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [],
+          "receiptCounts": {
+            "success": 0,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 0,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775744413690
+        },
+        "surface": {
+          "status": "ready",
+          "ready": true,
+          "checkedAtMs": 1775744374321,
+          "reasons": [],
+          "approvalRequired": false
+        },
+        "recoveryPolicy": {
+          "remediation": "semantic_retry",
+          "recoveryClass": "semantic",
+          "cadence": "immediate",
+          "continuous": false,
+          "attemptCount": 1,
+          "maxAttempts": 1,
+          "remainingAttempts": 0,
+          "exhausted": true,
+          "exhaustedAction": "stop",
+          "nextAttemptDelayMs": 0
+        }
+      }
+    },
+    {
+      "runId": "e7d3ba2d-b908-4806-8392-cad4f7613186",
+      "requestRunId": "e7d3ba2d-b908-4806-8392-cad4f7613186",
+      "updatedAtMs": 1775744373292,
+      "outcome": {
+        "runId": "e7d3ba2d-b908-4806-8392-cad4f7613186",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "e7d3ba2d-b908-4806-8392-cad4f7613186",
+        "profileId": "builder",
+        "recipeId": "doc_ingest",
+        "taskOverlayId": "document_first",
+        "plannerReasoning": "Recipe doc_ingest selected for profile builder. Task overlay: document_first.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requestedToolNames": [
+          "pdf"
+        ],
+        "requireExplicitApproval": false,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "ready",
+        "ready": true,
+        "checkedAtMs": 1775744348060,
+        "reasons": [],
+        "approvalRequired": false
+      },
+      "executionVerification": {
+        "runId": "e7d3ba2d-b908-4806-8392-cad4f7613186",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "pdf",
+            "status": "success",
+            "proof": "reported",
+            "metadata": {
+              "toolCallId": "call_FSZ3giu8lL523laTWuRmwHK1"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery"
+        ],
+        "checkedAtMs": 1775744373290
+      },
+      "acceptanceOutcome": {
+        "runId": "e7d3ba2d-b908-4806-8392-cad4f7613186",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "semantic_retry",
+        "reasonCode": "contract_mismatch",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe doc_ingest does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "e7d3ba2d-b908-4806-8392-cad4f7613186",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": true,
+          "deliveredReplyCount": 0,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 0,
+          "confirmedDeliveryCount": 0,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "ready",
+          "executionSurfaceDegraded": false,
+          "modelFallbackAttemptCount": 0,
+          "modelFallbackExhausted": false,
+          "providerAuthFailed": false,
+          "providerRateLimited": false,
+          "providerModelNotFound": false,
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "doc_ingest",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true,
+          "recoveryAttemptCount": 0
+        },
+        "recoveryPolicy": {
+          "remediation": "semantic_retry",
+          "recoveryClass": "semantic",
+          "cadence": "immediate",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 1,
+          "remainingAttempts": 1,
+          "exhausted": false,
+          "exhaustedAction": "stop",
+          "nextAttemptDelayMs": 0
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "e7d3ba2d-b908-4806-8392-cad4f7613186",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "semantic_retry",
+        "reasonCode": "contract_mismatch",
+        "reasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery."
+        ],
+        "acceptance": {
+          "runId": "e7d3ba2d-b908-4806-8392-cad4f7613186",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "semantic_retry",
+          "reasonCode": "contract_mismatch",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe doc_ingest does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "e7d3ba2d-b908-4806-8392-cad4f7613186",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": true,
+            "deliveredReplyCount": 0,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 0,
+            "confirmedDeliveryCount": 0,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "ready",
+            "executionSurfaceDegraded": false,
+            "modelFallbackAttemptCount": 0,
+            "modelFallbackExhausted": false,
+            "providerAuthFailed": false,
+            "providerRateLimited": false,
+            "providerModelNotFound": false,
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "doc_ingest",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true,
+            "recoveryAttemptCount": 0
+          },
+          "recoveryPolicy": {
+            "remediation": "semantic_retry",
+            "recoveryClass": "semantic",
+            "cadence": "immediate",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 1,
+            "remainingAttempts": 1,
+            "exhausted": false,
+            "exhaustedAction": "stop",
+            "nextAttemptDelayMs": 0
+          }
+        },
+        "verification": {
+          "runId": "e7d3ba2d-b908-4806-8392-cad4f7613186",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "pdf",
+              "status": "success",
+              "proof": "reported",
+              "metadata": {
+                "toolCallId": "call_FSZ3giu8lL523laTWuRmwHK1"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery"
+          ],
+          "checkedAtMs": 1775744373290
+        },
+        "surface": {
+          "status": "ready",
+          "ready": true,
+          "checkedAtMs": 1775744348060,
+          "reasons": [],
+          "approvalRequired": false
+        },
+        "recoveryPolicy": {
+          "remediation": "semantic_retry",
+          "recoveryClass": "semantic",
+          "cadence": "immediate",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 1,
+          "remainingAttempts": 1,
+          "exhausted": false,
+          "exhaustedAction": "stop",
+          "nextAttemptDelayMs": 0
+        }
+      }
+    },
+    {
+      "runId": "stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06",
+      "requestRunId": "stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06",
+      "updatedAtMs": 1775744182788,
+      "outcome": {
+        "runId": "stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06",
+        "status": "completed",
+        "checkpointIds": [
+          "bootstrap-origin:07840a1f-32fe-4b7c-b10b-01a47b2f85f2:stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06"
+        ],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [
+          "bootstrap-origin:07840a1f-32fe-4b7c-b10b-01a47b2f85f2:stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06"
+        ],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [
+          "07840a1f-32fe-4b7c-b10b-01a47b2f85f2"
+        ],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": [
+          "bootstrap"
+        ]
+      },
+      "executionIntent": {
+        "runId": "stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06",
+        "profileId": "builder",
+        "recipeId": "doc_ingest",
+        "taskOverlayId": "document_first",
+        "plannerReasoning": "Recipe doc_ingest selected for profile builder. Task overlay: document_first.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requestedToolNames": [
+          "pdf"
+        ],
+        "requireExplicitApproval": false,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "ready",
+        "ready": true,
+        "checkedAtMs": 1775744143837,
+        "reasons": [],
+        "approvalRequired": false
+      },
+      "executionVerification": {
+        "runId": "stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected at least 1 verified receipt(s), but only 0 were observed.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery, capability."
+        ],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "pdf",
+            "status": "success",
+            "proof": "reported",
+            "metadata": {
+              "toolCallId": "call_TYQjYhWmLOr8gs5BsjpUvXpP"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "missingReceiptKinds": [
+          "messaging_delivery",
+          "capability"
+        ],
+        "checkedAtMs": 1775744182785
+      },
+      "acceptanceOutcome": {
+        "runId": "stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe doc_ingest does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06",
+          "status": "completed",
+          "checkpointIds": [
+            "bootstrap-origin:07840a1f-32fe-4b7c-b10b-01a47b2f85f2:stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06"
+          ],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [
+            "bootstrap-origin:07840a1f-32fe-4b7c-b10b-01a47b2f85f2:stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06"
+          ],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [
+            "07840a1f-32fe-4b7c-b10b-01a47b2f85f2"
+          ],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": [
+            "bootstrap"
+          ]
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "hasStructuredReplyPayload": false,
+          "deliveredReplyCount": 2,
+          "stagedReplyCount": 1,
+          "attemptedDeliveryCount": 2,
+          "confirmedDeliveryCount": 2,
+          "failedDeliveryCount": 0,
+          "partialDelivery": false,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "ready",
+          "executionSurfaceDegraded": false,
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "doc_ingest",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true,
+          "recoveryAttemptCount": 0
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected at least 1 verified receipt(s), but only 0 were observed.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery, capability."
+        ],
+        "acceptance": {
+          "runId": "stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe doc_ingest does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06",
+            "status": "completed",
+            "checkpointIds": [
+              "bootstrap-origin:07840a1f-32fe-4b7c-b10b-01a47b2f85f2:stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06"
+            ],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [
+              "bootstrap-origin:07840a1f-32fe-4b7c-b10b-01a47b2f85f2:stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06"
+            ],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [
+              "07840a1f-32fe-4b7c-b10b-01a47b2f85f2"
+            ],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": [
+              "bootstrap"
+            ]
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "hasStructuredReplyPayload": false,
+            "deliveredReplyCount": 2,
+            "stagedReplyCount": 1,
+            "attemptedDeliveryCount": 2,
+            "confirmedDeliveryCount": 2,
+            "failedDeliveryCount": 0,
+            "partialDelivery": false,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "ready",
+            "executionSurfaceDegraded": false,
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "doc_ingest",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true,
+            "recoveryAttemptCount": 0
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "stage86-case4-63b31bc7-df89-4c89-869d-8e94bd371c06",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected at least 1 verified receipt(s), but only 0 were observed.",
+            "Execution contract is missing verified receipt kind(s): messaging_delivery, capability."
+          ],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "pdf",
+              "status": "success",
+              "proof": "reported",
+              "metadata": {
+                "toolCallId": "call_TYQjYhWmLOr8gs5BsjpUvXpP"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "missingReceiptKinds": [
+            "messaging_delivery",
+            "capability"
+          ],
+          "checkedAtMs": 1775744182785
+        },
+        "surface": {
+          "status": "ready",
+          "ready": true,
+          "checkedAtMs": 1775744143837,
+          "reasons": [],
+          "approvalRequired": false
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    }
+  ]
+}

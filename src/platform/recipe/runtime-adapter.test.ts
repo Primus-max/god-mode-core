@@ -45,10 +45,14 @@ describe("resolvePlatformRuntimePlan", () => {
       "do not claim completion without producing a real artifact or attachment",
     );
     expect(resolved.runtime.prependContext).toContain("Planner reasoning:");
+    expect(resolved.runtime.prependContext).toContain(
+      "Language continuity: Reply in the same language as the user's latest message",
+    );
     expect(resolved.runtime.prependContext).toContain("Builder domain context:");
     expect(resolved.runtime.prependContext).toMatch(/SNiP\/SP\/GOST/i);
     expect(resolved.runtime.prependContext).toMatch(/assumptions/i);
     expect(resolved.runtime.prependContext).toMatch(/formulas/i);
+    expect(resolved.runtime.prependContext).toMatch(/60 m3\/h per person/i);
   });
 
   it("parses recipe model overrides and fallback chains", () => {
@@ -139,8 +143,17 @@ describe("resolvePlatformRuntimePlan", () => {
       requestedTools: ["image_generate", "pdf"],
     });
 
-    expect(resolved.runtime.prependSystemContext).toContain("call image_generate");
-    expect(resolved.runtime.prependSystemContext).toContain("use the pdf tool");
+    expect(resolved.runtime.prependSystemContext).toContain("must call image_generate before your first final answer");
+    expect(resolved.runtime.prependSystemContext).toContain("must use the pdf tool before your first final answer");
+    expect(resolved.runtime.prependSystemContext).toContain(
+      "pass the requested document content in the pdf tool's `prompt` argument",
+    );
+    expect(resolved.runtime.prependSystemContext).toContain(
+      "Do not call `pdf` with an empty object for a prompt-only PDF task.",
+    );
+    expect(resolved.runtime.prependSystemContext).toContain(
+      "Do not fake PDF output, manually write PDF bytes, or bypass the pdf tool with write/exec",
+    );
   });
 
   it("adds policy preview and bootstrap hints to the execution decision", () => {

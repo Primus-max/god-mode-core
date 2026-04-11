@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "checkpoints": [
+    {
+      "id": "792128a8-c753-483e-9e68-2949b2391ddd",
+      "runId": "792128a8-c753-483e-9e68-2949b2391ddd",
+      "boundary": "bootstrap",
+      "status": "denied",
+      "blockedReason": "Bootstrap checkpoint: capability install is blocked until the operator approves (platform.bootstrap.resolve) and runs install/verify (platform.bootstrap.run).",
+      "nextActions": [
+        {
+          "method": "platform.bootstrap.resolve",
+          "label": "Approve or deny capability bootstrap (install) request",
+          "phase": "approve"
+        },
+        {
+          "method": "platform.bootstrap.run",
+          "label": "Execute approved install, health verification, and resume blocked work if configured",
+          "phase": "resume"
+        }
+      ],
+      "target": {
+        "bootstrapRequestId": "792128a8-c753-483e-9e68-2949b2391ddd",
+        "operation": "bootstrap.run"
+      },
+      "continuation": {
+        "kind": "bootstrap_run",
+        "autoDispatch": true,
+        "input": {
+          "blockedRunResume": true,
+          "blockedRunId": "5f9c897e-a990-43ac-a69f-ec314fa09e02",
+          "queueKey": "agent:main:main"
+        },
+        "state": "completed",
+        "attempts": 1,
+        "lastDispatchedAtMs": 1775801066777,
+        "lastCompletedAtMs": 1775801068390
+      },
+      "executionContext": {
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "compare",
+        "modelRouteTier": "local_eligible",
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "readinessStatus": "bootstrap_required",
+        "readinessReasons": [
+          "Execution receipts contain a failed outcome.",
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery.",
+          "blockedRunId=5f9c897e-a990-43ac-a69f-ec314fa09e02"
+        ],
+        "unattendedBoundary": "bootstrap"
+      },
+      "createdAtMs": 1775801066767,
+      "updatedAtMs": 1775801068390,
+      "approvedAtMs": 1775801066773,
+      "resumedAtMs": 1775801066786,
+      "completedAtMs": 1775801068379
+    }
+  ]
+}

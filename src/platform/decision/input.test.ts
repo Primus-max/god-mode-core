@@ -88,6 +88,73 @@ describe("buildSessionBackedExecutionDecisionInput", () => {
     expect(decisionInput.intent).toBeUndefined();
     expect(decisionInput.artifactKinds ?? []).toEqual([]);
   });
+
+  it("keeps a short follow-up from inheriting stale infographic routing hints", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-decision-input-"));
+    const storePath = path.join(tempDir, "sessions.json");
+    const transcriptPath = resolveSessionTranscriptPathInDir("session-infographic-followup", tempDir);
+    await fs.writeFile(
+      transcriptPath,
+      [
+        {
+          id: "msg-1",
+          message: {
+            role: "user",
+            content:
+              "Сделай презентационную инфографику с веселым бананом и собери итог в PDF на 3 страницы.",
+          },
+        },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join("\n") + "\n",
+      "utf8",
+    );
+
+    const sessionBacked = buildSessionBackedExecutionDecisionInput({
+      draftPrompt: "Проверь, установлен ли mempalace.",
+      storePath,
+      sessionEntry: {
+        sessionId: "session-infographic-followup",
+        sessionFile: "session-infographic-followup.jsonl",
+      },
+    });
+    const routed = buildExecutionDecisionInput(sessionBacked);
+
+    expect(sessionBacked.prompt).toContain("инфографику");
+    expect(sessionBacked.prompt).toContain("установлен ли mempalace");
+    expect(sessionBacked.inferencePrompt).toBe("Проверь, установлен ли mempalace.");
+    expect(routed.requestedTools ?? []).toEqual([]);
+    expect(routed.artifactKinds ?? []).toEqual([]);
+    expect(routed.routing?.localEligible).toBe(true);
+    expect(routed.routing?.remoteProfile).toBe("cheap");
+  });
+
+  it("keeps short chat prompts local-eligible even inside runtime prepend context", () => {
+    const routed = buildExecutionDecisionInput({
+      prompt: `Profile: General.
+Language continuity: Reply in the same language as the user's latest message unless they explicitly ask for another language.
+Task overlay: General Chat.
+Planner reasoning: Recipe general_reasoning selected for profile general. Task overlay: general_chat.
+
+Sender (untrusted metadata):
+\`\`\`json
+{
+  "label": "stage86-live-matrix (cli)",
+  "id": "cli",
+  "name": "stage86-live-matrix",
+  "username": "stage86-live-matrix"
+}
+\`\`\`
+
+[Sat 2026-04-11 14:39 GMT+3] Привет! Как дела? Просто поздоровайся одной короткой фразой.`,
+    });
+
+    expect(routed.intent).toBe("general");
+    expect(routed.requestedTools ?? []).toEqual([]);
+    expect(routed.artifactKinds ?? []).toEqual([]);
+    expect(routed.routing?.localEligible).toBe(true);
+    expect(routed.routing?.remoteProfile).toBe("cheap");
+  });
 });
 
 describe("buildExecutionDecisionInputFromRuntimePlan", () => {
@@ -145,6 +212,16 @@ describe("buildExecutionDecisionInput", () => {
   it("infers image artifact kinds for media-generation prompts", () => {
     const input = buildExecutionDecisionInput({
       prompt: "Generate an image banner with the text Stage 86 OK.",
+    });
+
+    expect(input.intent).toBeUndefined();
+    expect(input.artifactKinds).toEqual(["image"]);
+    expect(input.requestedTools).toEqual(["image_generate"]);
+  });
+
+  it("does not misclassify image generation prompts as publish work when image text mentions release", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Generate a PNG banner with the text Atlas Release Ready and return the image.",
     });
 
     expect(input.intent).toBeUndefined();

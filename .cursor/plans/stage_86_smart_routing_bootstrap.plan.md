@@ -7,19 +7,19 @@ todos:
     status: in_progress
   - id: slice-s86-02
     content: "S86-02: prompt optimization visibility"
-    status: in_progress
+    status: done
   - id: slice-s86-03
     content: "S86-03: bootstrap approve → install → resume"
-    status: in_progress
+    status: done
   - id: slice-s86-04
     content: "S86-04: runtime inspector (route / blocked resume / lifecycle)"
-    status: in_progress
+    status: done
   - id: slice-s86-05
     content: "S86-05: usage / cost visibility"
-    status: in_progress
+    status: done
   - id: slice-s86-06
     content: "S86-06: Telegram E2E + 15m stability proof"
-    status: pending
+    status: in_progress
 isProject: false
 ---
 
@@ -27,14 +27,14 @@ isProject: false
 
 ## Goal
 
-Закрыть видимую ценность investor v1 по треку: **умный маршрут**, **оптимизация промпта**, **bootstrap с авто-resume**, **инспектор сессий**, **usage/cost**, со **сквозным доказательством в Telegram** — в соответствии с [autonomous_v1_roadmap_cb6fe0e6.plan.md](autonomous_v1_roadmap_cb6fe0e6.plan.md).
+Закрыть видимую ценность investor v1 по треку: **умный маршрут**, **оптимизация промпта**, **bootstrap с авто-resume**, **инспектор сессий**, **usage/cost**, со **сквозным доказательством в Telegram** — в соответствии с [autonomous_v1_roadmap_cb6fe0e6.plan.md](autonomous_v1_roadmap_cb6fe0e6.plan.md) и долгим orchestration-контекстом из [master_orchestrator_context.md](master_orchestrator_context.md).
 
 ## Out of scope
 
 - Полный мульти-рантайм codegen (Node/.NET/Python/Docker) как единый продукт.
 - Произвольная установка capability вне approved catalog.
 - Замена `docs/help/testing.md` или изменение инвариантов Stage 84 без отдельного согласования.
-- Редактура `docs/zh-CN/**` (генерируемый слой).
+- Редактура `docs/zh-CN/`** (генерируемый слой).
 
 ## Ordered backlog slices
 
@@ -48,6 +48,7 @@ Post-Stage 86 Horizon 1 doc/report/context slices живут в том же back
 
 Опираемся на [master_v1_roadmap.md](master_v1_roadmap.md), [stage_84_v1_gate_bd5c3d01.plan.md](stage_84_v1_gate_bd5c3d01.plan.md), [docs/help/testing.md](../../docs/help/testing.md).
 
+
 | Tier | Команда                                      | Когда                                                                       |
 | ---- | -------------------------------------------- | --------------------------------------------------------------------------- |
 | T1   | `pnpm test -- <релевантные-paths>`           | Каждый slice после изменений кода                                           |
@@ -55,6 +56,7 @@ Post-Stage 86 Horizon 1 doc/report/context slices живут в том же back
 | T3   | `pnpm test:e2e:smoke`                        | Затронуты gateway boot / networking / runtime старт                         |
 | T4   | `pnpm test:v1-gate`                          | Перед объявлением v1 ready; при касании recovery/session-event поверхностей |
 | T5   | `.cursor/stage86_test_cases.md`              | Продуктовая приёмка smart-routing/bootstrap трека                           |
+
 
 Маппинг кейсов T5 → slices см. в [autonomous_v1_active_backlog.md](autonomous_v1_active_backlog.md) (поля `requiredValidation` / `doneWhen`).
 
@@ -74,7 +76,7 @@ Post-Stage 86 Horizon 1 doc/report/context slices живут в том же back
 
 Полный протокол: **[../stage86_test_cases.md](../stage86_test_cases.md)** (15-минутная сессия, 8 кейсов).
 
-Минимальный success criteria из того файла: 6+/8 кейсов, стабильный gateway 15 минут, bootstrap после approval с авто-продолжением.
+Success criteria из того файла для закрытия Stage 86: **8/8 кейсов**, стабильный gateway 15 минут, bootstrap после approval с авто-продолжением.
 
 Логи: шаблон команд в конце `stage86_test_cases.md` (адаптировать путь лог-файла под хост).
 
@@ -85,6 +87,11 @@ Post-Stage 86 Horizon 1 doc/report/context slices живут в том же back
 1. В [master_v1_roadmap.md](master_v1_roadmap.md): перенести Stage 86 в **Done**, указать **Active** для следующего stage или явный follow-up.
 2. Обновить [autonomous_v1_roadmap_cb6fe0e6.plan.md](autonomous_v1_roadmap_cb6fe0e6.plan.md) (todos `close-stage86` и связанные) по факту.
 3. Сохранить краткий отчёт: автоматические команды (с версиями по возможности) + что оператор проверил руками.
+
+## Session update
+
+2026-04-10: backlog truth синхронизирован с live state: S86-02...05 закрыты по validation evidence, direct Telegram network blocker снят через configured proxy, активный хвост Stage 86 сузился до честного Telegram T5 `8/8` и 15-minute stability proof в `S86-06`.
+2026-04-11: gateway/runtime bundle повторно доведён до зелёного `20/20` на `stage86-live-matrix.current.json`, включая investor-facing H1 flows, но Telegram снова стал внешним blocker: direct `api.telegram.org:443` недоступен с этого хоста, старый proxy перестал коннектиться, поэтому `S86-06` переведён в `blocked_external` в backlog до восстановления user-channel egress.
 
 ## Multi-agent
 

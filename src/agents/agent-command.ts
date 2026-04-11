@@ -660,6 +660,9 @@ export function shouldFailoverEmptySemanticRetryResult(
   const payloads = result.payloads ?? [];
   const CONTINUATION_REFUSAL_RE =
     /\b(?:can(?:not|'t)\s+continue|unable\s+to\s+continue|can(?:not|'t)\s+proceed|unable\s+to\s+proceed)\b/i;
+  const TOOL_NAME_FIELD_RE =
+    /"(?:name|function|function_name|tool|tool_name)"\s*:\s*"[^"\r\n]+"/;
+  const ARGUMENTS_FIELD_RE = /"arguments"\s*:\s*\{/;
   const unwrapStandaloneToolCallEnvelope = (text: string): string | null => {
     const trimmed = text.trim();
     if (!trimmed) {
@@ -678,21 +681,54 @@ export function shouldFailoverEmptySemanticRetryResult(
     }
     try {
       const parsed = JSON.parse(candidate) as unknown;
+      const parsedObject = parsed as Record<string, unknown>;
+      const hasToolName =
+        typeof (parsed as { name?: unknown }).name === "string" ||
+        typeof (parsed as { function?: unknown }).function === "string" ||
+        typeof (parsed as { function_name?: unknown }).function_name === "string" ||
+        typeof (parsed as { tool?: unknown }).tool === "string" ||
+        typeof (parsed as { tool_name?: unknown }).tool_name === "string";
       return Boolean(
         parsed &&
         typeof parsed === "object" &&
         !Array.isArray(parsed) &&
-        typeof (parsed as { name?: unknown }).name === "string" &&
-        "arguments" in (parsed as Record<string, unknown>) &&
-        Object.keys(parsed as Record<string, unknown>).every(
-          (key) => key === "name" || key === "arguments" || key === "id",
+        hasToolName &&
+        "arguments" in parsedObject &&
+        Object.keys(parsedObject).every(
+          (key) =>
+            key === "name" ||
+            key === "function" ||
+            key === "function_name" ||
+            key === "tool" ||
+            key === "tool_name" ||
+            key === "arguments" ||
+            key === "id",
         ),
       );
     } catch {
-      return false;
+      // Some weaker fallback models emit tool-call envelopes that look correct
+      // to users but are not strict JSON (for example raw Windows paths with
+      // unescaped backslashes). Keep the failover heuristic tolerant so these
+      // still trigger a semantic retry instead of leaking pseudo-tool text.
+      const trimmedCandidate = candidate.trim();
+      return (
+        trimmedCandidate.startsWith("{") &&
+        trimmedCandidate.endsWith("}") &&
+        TOOL_NAME_FIELD_RE.test(trimmedCandidate) &&
+        ARGUMENTS_FIELD_RE.test(trimmedCandidate)
+      );
     }
   };
   if (payloads.length > 0) {
+    const firstVisibleTextPayload = payloads.find((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      return !hasMedia && typeof payload.text === "string" && payload.text.trim().length > 0;
+    });
+    if (isStandaloneToolCallEnvelope(firstVisibleTextPayload?.text)) {
+      return true;
+    }
     const onlyContinuationRefusals = payloads.every((payload) => {
       const hasMedia =
         typeof payload.mediaUrl === "string" ||

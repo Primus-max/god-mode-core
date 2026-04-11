@@ -1859,7 +1859,7 @@ describe("runWithModelFallback", () => {
       expect(result.result).toBe("remote success");
       expect(run).toHaveBeenCalledTimes(2);
       expect(run).toHaveBeenNthCalledWith(1, "ollama", "gemma4:e4b", {
-        timeoutMsOverride: 8_000,
+        timeoutMsOverride: 45_000,
       });
       expect(run).toHaveBeenNthCalledWith(2, "hydra", "hydra-gpt-mini");
     });
@@ -1923,7 +1923,7 @@ describe("runWithModelFallback", () => {
       expect(result.result).toBe("remote success");
       expect(secondRun).toHaveBeenCalledTimes(2);
       expect(secondRun).toHaveBeenNthCalledWith(1, "ollama", "gemma4:e4b", {
-        timeoutMsOverride: 8_000,
+        timeoutMsOverride: 45_000,
       });
       expect(secondRun).toHaveBeenNthCalledWith(2, "hydra", "hydra-gpt-mini");
     });

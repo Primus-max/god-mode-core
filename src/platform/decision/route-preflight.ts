@@ -473,10 +473,13 @@ function scorePreferredRemoteModel(
       score += 320;
     }
     if (normalized.includes("gpt-5.4")) {
-      score += 300;
+      score += 230;
     }
     if (normalized.includes("claude-sonnet-4.6") || normalized.includes("claude-sonnet-4.5")) {
       score += 260;
+    }
+    if (normalized.includes("gpt-4o") && !normalized.includes("mini")) {
+      score += 520;
     }
     if (normalized.includes("hydra-gpt-pro") || normalized.includes("hydra-gemini-pro")) {
       score += 240;
@@ -494,7 +497,10 @@ function scorePreferredRemoteModel(
     if (normalized.includes("codex") || normalized.includes("gpt-5.2")) {
       score += 200;
     }
-    if (normalized.includes("hydra-gpt") || normalized.includes("hydra-gemini")) {
+    if (
+      (normalized.includes("hydra-gpt") && !normalized.includes("hydra-gpt-pro")) ||
+      (normalized.includes("hydra-gemini") && !normalized.includes("hydra-gemini-pro"))
+    ) {
       score += 170;
     }
     if (normalized.includes("mini") || normalized.includes("nano")) {
@@ -776,6 +782,31 @@ export function applyModelRoutePreflight(params: {
       }),
     };
   };
+  const findBestRemoteIndex = (profile: RemoteRoutingProfile, needsVision: boolean): number =>
+    list.reduce((bestIndex, candidate, index) => {
+      if (isLikelyControlPlaneLocalProvider(candidate.provider)) {
+        return bestIndex;
+      }
+      if (bestIndex < 0) {
+        return index;
+      }
+      const candidateScore = scorePreferredRemoteModel(
+        candidate,
+        profile,
+        params.catalog ? findModelInCatalog(params.catalog, candidate.provider, candidate.model) : undefined,
+        { needsVision },
+      );
+      const bestCandidate = list[bestIndex];
+      const bestScore = scorePreferredRemoteModel(
+        bestCandidate,
+        profile,
+        params.catalog
+          ? findModelInCatalog(params.catalog, bestCandidate.provider, bestCandidate.model)
+          : undefined,
+        { needsVision },
+      );
+      return candidateScore > bestScore ? index : bestIndex;
+    }, -1);
 
   if (!localEligible) {
     const shouldPreferRemoteFirst =
@@ -785,32 +816,7 @@ export function applyModelRoutePreflight(params: {
     if (shouldPreferRemoteFirst) {
       const profile = plannerInput ? inferRemoteRoutingProfile(plannerInput, false) : "strong";
       const needsVision = plannerInput ? plannerInputNeedsVisionCapability(plannerInput) : false;
-      const bestRemoteIndex = list.reduce((bestIndex, candidate, index) => {
-        if (isLikelyControlPlaneLocalProvider(candidate.provider)) {
-          return bestIndex;
-        }
-        if (bestIndex < 0) {
-          return index;
-        }
-        const candidateScore = scorePreferredRemoteModel(
-          candidate,
-          profile,
-          params.catalog
-            ? findModelInCatalog(params.catalog, candidate.provider, candidate.model)
-            : undefined,
-          { needsVision },
-        );
-        const bestCandidate = list[bestIndex];
-        const bestScore = scorePreferredRemoteModel(
-          bestCandidate,
-          profile,
-          params.catalog
-            ? findModelInCatalog(params.catalog, bestCandidate.provider, bestCandidate.model)
-            : undefined,
-          { needsVision },
-        );
-        return candidateScore > bestScore ? index : bestIndex;
-      }, -1);
+      const bestRemoteIndex = findBestRemoteIndex(profile, needsVision);
       if (bestRemoteIndex > 0) {
         const remoteCandidate = list[bestRemoteIndex];
         const ordered = [remoteCandidate, ...list.filter((_, index) => index !== bestRemoteIndex)];
@@ -864,6 +870,26 @@ export function applyModelRoutePreflight(params: {
             }),
           ),
         };
+      }
+    }
+    const primary = list[0];
+    const shouldPromoteRemoteForStrongerRoute = isLikelyControlPlaneLocalProvider(primary.provider);
+    if (shouldPromoteRemoteForStrongerRoute) {
+      const profile = plannerInput ? inferRemoteRoutingProfile(plannerInput, false) : "strong";
+      const needsVision = plannerInput ? plannerInputNeedsVisionCapability(plannerInput) : false;
+      const bestRemoteIndex = findBestRemoteIndex(profile, needsVision);
+      if (bestRemoteIndex > 0) {
+        const remoteCandidate = list[bestRemoteIndex];
+        const ordered = [remoteCandidate, ...list.filter((_, index) => index !== bestRemoteIndex)];
+        return finalizeResult(
+          ordered,
+          buildDecisionForOrdered(ordered, {
+            reasonCode: "preflight_reordered_remote_first",
+            reason: `Heuristics require a stronger route, so ${remoteCandidate.provider}/${remoteCandidate.model} was promoted ahead of the lightweight local primary.`,
+            localRoutingEligible: false,
+            reordered: true,
+          }),
+        );
       }
     }
     return finalizeResult(

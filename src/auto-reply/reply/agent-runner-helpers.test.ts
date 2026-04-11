@@ -45,6 +45,7 @@ let resetPlatformBootstrapService: typeof import("../../platform/bootstrap/index
 let isAudioPayload: typeof import("./agent-runner-helpers.js").isAudioPayload;
 let reconcileClosureRecoveryOnStartup: typeof import("./closure-outcome-dispatcher.js").reconcileClosureRecoveryOnStartup;
 let reevaluateAcceptanceForMessagingRun: typeof import("./agent-runner-helpers.js").reevaluateAcceptanceForMessagingRun;
+let reevaluateMessagingDecisionForMessagingRun: typeof import("./agent-runner-helpers.js").reevaluateMessagingDecisionForMessagingRun;
 let signalTypingIfNeeded: typeof import("./agent-runner-helpers.js").signalTypingIfNeeded;
 
 describe("agent runner helpers", () => {
@@ -68,6 +69,7 @@ describe("agent runner helpers", () => {
       finalizeWithFollowup,
       isAudioPayload,
       reevaluateAcceptanceForMessagingRun,
+      reevaluateMessagingDecisionForMessagingRun,
       signalTypingIfNeeded,
     } = await import("./agent-runner-helpers.js"));
     ({ reconcileClosureRecoveryOnStartup } = await import("./closure-outcome-dispatcher.js"));
@@ -1470,6 +1472,119 @@ describe("agent runner helpers", () => {
           declaredIntent: "publish",
           declaredRequiresOutput: true,
         }),
+      }),
+    );
+  });
+
+  it("synthesizes verified webchat delivery receipts and ignores advisory read misses", () => {
+    const reevaluated = reevaluateMessagingDecisionForMessagingRun({
+      runResult: {
+        meta: {
+          completionOutcome: {
+            runId: "run-webchat-receipt",
+            status: "completed",
+            checkpointIds: [],
+            blockedCheckpointIds: [],
+            completedCheckpointIds: [],
+            deniedCheckpointIds: [],
+            pendingApprovalIds: [],
+            artifactIds: [],
+            bootstrapRequestIds: [],
+            actionIds: [],
+            attemptedActionIds: [],
+            confirmedActionIds: [],
+            failedActionIds: [],
+            boundaries: [],
+            hadToolError: false,
+            deterministicApprovalPromptSent: false,
+          },
+          executionVerification: {
+            runId: "run-webchat-receipt",
+            status: "mismatch",
+            reasons: [
+              "Execution receipts contain a failed outcome.",
+              "Execution contract is missing verified receipt kind(s): messaging_delivery.",
+            ],
+            receipts: [
+              {
+                kind: "tool",
+                name: "read",
+                status: "failed",
+                proof: "reported",
+                summary: "from ~/.openclaw/workspace/memory/2026-04-09.md",
+              },
+              {
+                kind: "tool",
+                name: "read",
+                status: "success",
+                proof: "reported",
+                summary: "from ~/.openclaw/workspace/MEMORY.md",
+              },
+            ],
+            receiptCounts: {
+              success: 1,
+              warning: 0,
+              partial: 0,
+              degraded: 0,
+              failed: 1,
+              blocked: 0,
+            },
+            receiptProofCounts: {
+              derived: 0,
+              reported: 2,
+              verified: 0,
+            },
+            checkedAtMs: 1,
+            missingReceiptKinds: ["messaging_delivery"],
+          },
+          executionIntent: {
+            runId: "run-webchat-receipt",
+            recipeId: "general_reasoning",
+            profileId: "builder",
+            intent: "general",
+            expectations: {
+              requiresOutput: true,
+              requiresMessagingDelivery: true,
+              requiredReceiptKinds: ["messaging_delivery"],
+            },
+          },
+        },
+      },
+      replyPayloads: [{ text: "Доброе утро, Владимир." }],
+      deliveryReceipt: {
+        attemptedDeliveryCount: 1,
+        confirmedDeliveryCount: 1,
+        failedDeliveryCount: 0,
+      },
+    });
+
+    expect(reevaluated?.executionVerification).toEqual(
+      expect.objectContaining({
+        status: "verified",
+        receipts: expect.arrayContaining([
+          expect.objectContaining({
+            kind: "tool",
+            name: "read",
+            status: "success",
+          }),
+          expect.objectContaining({
+            kind: "messaging_delivery",
+            proof: "verified",
+            status: "success",
+          }),
+        ]),
+      }),
+    );
+    expect(reevaluated?.acceptanceOutcome).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        reasonCode: "completed_with_confirmed_delivery",
+      }),
+    );
+    expect(reevaluated?.supervisorVerdict).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
       }),
     );
   });

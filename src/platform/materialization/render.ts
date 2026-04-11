@@ -14,6 +14,7 @@ import type { PlatformExecutionContextSnapshot } from "../decision/contracts.js"
 import type { PolicyContext } from "../policy/types.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { CapabilityRegistry } from "../registry/types.js";
+import { getPlatformRuntimeCheckpointService } from "../runtime/service.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import type { CapabilityCatalogEntry, CapabilityInstallMethod } from "../schemas/capability.js";
 import {
@@ -74,6 +75,7 @@ export function materializeArtifact(
   requestInput: MaterializationRequest,
   options?: {
     pdfRendererAvailable?: boolean;
+    runId?: string;
     capabilityRegistry?: CapabilityRegistry;
     capabilityCatalog?: CapabilityCatalogEntry[];
     sourceRecipeId?: string;
@@ -142,9 +144,30 @@ export function materializeArtifact(
         renderKind: request.outputTarget === "preview" ? "site_preview" : "html",
       });
       if (bootstrapResolution.request) {
-        (options?.bootstrapService ?? getPlatformBootstrapService()).create(
+        const createdRequest = (options?.bootstrapService ?? getPlatformBootstrapService()).create(
           bootstrapResolution.request,
         );
+        const originRunId = options?.runId?.trim();
+        if (originRunId) {
+          const originCheckpointId = `bootstrap-origin:${createdRequest.id}:${originRunId}`;
+          const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
+          runtimeCheckpointService.createCheckpoint({
+            id: originCheckpointId,
+            runId: originRunId,
+            boundary: "bootstrap",
+            blockedReason:
+              "Bootstrap evidence: the task requested a capability install before it could complete.",
+            target: {
+              bootstrapRequestId: createdRequest.id,
+              operation: "bootstrap.run",
+            },
+            executionContext: request.executionContext,
+          });
+          runtimeCheckpointService.updateCheckpoint(originCheckpointId, {
+            status: "completed",
+            completedAtMs: Date.now(),
+          });
+        }
       }
       return MaterializationResultSchema.parse({
         primary,

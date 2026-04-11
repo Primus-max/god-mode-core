@@ -94,6 +94,8 @@ export function createOpenClawTools(
     senderIsOwner?: boolean;
     /** Ephemeral session UUID — regenerated on /new and /reset. */
     sessionId?: string;
+    /** Stable run identifier for this agent invocation. */
+    runId?: string;
     /**
      * Workspace directory to pass to spawned subagents for inheritance.
      * Defaults to workspaceDir. Use this to pass the actual agent workspace when the
@@ -101,7 +103,7 @@ export function createOpenClawTools(
      * subagents inherit the real workspace path instead of the sandbox copy.
      */
     spawnWorkspaceDir?: string;
-    /** Callback invoked when sessions_yield tool is called. */
+    /** Callback invoked when sessions_yield-compatible tools pause the turn. */
     onYield?: (message: string) => Promise<void> | void;
     /** Allow plugin tools for this tool set to late-bind the gateway subagent. */
     allowGatewaySubagentBinding?: boolean;
@@ -137,6 +139,8 @@ export function createOpenClawTools(
     ? createPdfTool({
         config: options?.config,
         agentDir: options.agentDir,
+        runId: options?.runId,
+        onYield: options?.onYield,
         workspaceDir,
         sandbox,
         fsPolicy: options?.fsPolicy,

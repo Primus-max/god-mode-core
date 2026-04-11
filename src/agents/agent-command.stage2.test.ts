@@ -243,6 +243,75 @@ describe("agent-command Stage 2 wiring helpers", () => {
     ).toBe(true);
   });
 
+  it("fails over when payloads contain only function-style pseudo-tool JSON", () => {
+    expect(
+      shouldFailoverEmptySemanticRetryResult({
+        payloads: [
+          {
+            text: '```json\n{"function":"memory_search","arguments":{"query":"saas metrics"}}\n```',
+            mediaUrl: null,
+          },
+        ],
+        meta: {
+          durationMs: 1,
+        },
+      } as never),
+    ).toBe(true);
+  });
+
+  it("fails over when payloads contain only function_name-style pseudo-tool JSON", () => {
+    expect(
+      shouldFailoverEmptySemanticRetryResult({
+        payloads: [
+          {
+            text: '{"function_name":"read","arguments":{"file_path":"path/to/memory.md"}}',
+            mediaUrl: null,
+          },
+        ],
+        meta: {
+          durationMs: 1,
+        },
+      } as never),
+    ).toBe(true);
+  });
+
+  it("fails over when payloads contain function_name pseudo-tool envelopes with invalid JSON escaping", () => {
+    expect(
+      shouldFailoverEmptySemanticRetryResult({
+        payloads: [
+          {
+            text:
+              '```json\n{\n  "function_name": "read",\n  "arguments": {\n    "file_path": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\docs\\metrics.md"\n  }\n}\n```',
+            mediaUrl: null,
+          },
+        ],
+        meta: {
+          durationMs: 1,
+        },
+      } as never),
+    ).toBe(true);
+  });
+
+  it("fails over when the first visible payload is pseudo-tool JSON even if later payloads exist", () => {
+    expect(
+      shouldFailoverEmptySemanticRetryResult({
+        payloads: [
+          {
+            text: '```json\n{"function":"read","arguments":{"file_path":"/tmp/demo.md"}}\n```',
+            mediaUrl: null,
+          },
+          {
+            text: "I should have answered in prose instead.",
+            mediaUrl: null,
+          },
+        ],
+        meta: {
+          durationMs: 1,
+        },
+      } as never),
+    ).toBe(true);
+  });
+
   it("fails over when payloads contain only continuation-refusal text", () => {
     expect(
       shouldFailoverEmptySemanticRetryResult({

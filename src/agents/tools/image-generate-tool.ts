@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
 import { loadConfig } from "../../config/config.js";
 import {
+  buildNoImageGenerationModelConfiguredMessage,
   generateImage,
   listRuntimeImageGenerationProviders,
 } from "../../image-generation/runtime.js";
@@ -40,6 +41,12 @@ const DEFAULT_COUNT = 1;
 const MAX_COUNT = 4;
 const MAX_INPUT_IMAGES = 5;
 const DEFAULT_RESOLUTION: ImageGenerationResolution = "1K";
+
+/** When unset/false, image_generate does not pretend SVG prompt-text is a real generated image. */
+function isLocalImageFallbackAllowed(): boolean {
+  const raw = process.env.OPENCLAW_ALLOW_LOCAL_IMAGE_FALLBACK?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
 const SUPPORTED_ASPECT_RATIOS = new Set([
   "1:1",
   "2:3",
@@ -554,7 +561,7 @@ export function createImageGenerateTool(options?: {
     label: "Image Generation",
     name: "image_generate",
     description:
-      'Generate new images or edit reference images with the configured or inferred image-generation model. Set agents.defaults.imageGenerationModel.primary to pick a provider/model. If no external image provider is configured, the tool can still generate a simple local image artifact from the prompt. Use action="list" to inspect available providers, models, and auth hints. Generated images are delivered automatically from the tool result as MEDIA paths.',
+      'Generate new images or edit reference images with the configured or inferred image-generation model. Set agents.defaults.imageGenerationModel.primary to pick a provider/model. Without a configured provider, generation fails unless OPENCLAW_ALLOW_LOCAL_IMAGE_FALLBACK is set (dev-only: renders prompt text as a simple local PNG). Remote failures are not masked by that fallback unless the same env flag is set. Use action="list" to inspect available providers, models, and auth hints. Generated images are delivered automatically from the tool result as MEDIA paths.',
     parameters: ImageGenerateToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
@@ -656,6 +663,9 @@ export function createImageGenerateTool(options?: {
         resolution,
       });
       if (!imageGenerationModelConfig && inputImages.length === 0) {
+        if (!isLocalImageFallbackAllowed()) {
+          throw new Error(buildNoImageGenerationModelConfiguredMessage(effectiveCfg));
+        }
         const local = await generateLocalImageFallback({ prompt, filename });
         return {
           content: [{ type: "text", text: `Generated 1 image with local/simple-svg.` }],
@@ -740,6 +750,9 @@ export function createImageGenerateTool(options?: {
         };
       } catch (error) {
         if (inputImages.length > 0) {
+          throw error;
+        }
+        if (!isLocalImageFallbackAllowed()) {
           throw error;
         }
         const local = await generateLocalImageFallback({ prompt, filename });

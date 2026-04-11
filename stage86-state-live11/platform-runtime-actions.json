@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "actionId": "bootstrap:a06b64ca-b161-491d-9244-910e009b5ac2:run",
+      "runId": "a06b64ca-b161-491d-9244-910e009b5ac2",
+      "kind": "bootstrap",
+      "state": "failed",
+      "boundary": "bootstrap",
+      "checkpointId": "a06b64ca-b161-491d-9244-910e009b5ac2",
+      "target": {
+        "bootstrapRequestId": "a06b64ca-b161-491d-9244-910e009b5ac2",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "a06b64ca-b161-491d-9244-910e009b5ac2",
+        "capabilityId": "table-parser",
+        "operation": "bootstrap.run",
+        "resultStatus": "degraded"
+      },
+      "attemptCount": 1,
+      "retryable": true,
+      "lastError": "Package not found on npm: @openclaw/table-parser@1.0.0. See https://docs.openclaw.ai/tools/plugin for installable plugins.",
+      "createdAtMs": 1775749549743,
+      "updatedAtMs": 1775749551574,
+      "stagedAtMs": 1775749549743,
+      "attemptedAtMs": 1775749549753,
+      "failedAtMs": 1775749551574
+    },
+    {
+      "actionId": "bootstrap:475c2572-2152-4be6-9ca4-d4c37478e465:run",
+      "runId": "475c2572-2152-4be6-9ca4-d4c37478e465",
+      "kind": "bootstrap",
+      "state": "confirmed",
+      "boundary": "bootstrap",
+      "checkpointId": "475c2572-2152-4be6-9ca4-d4c37478e465",
+      "target": {
+        "bootstrapRequestId": "475c2572-2152-4be6-9ca4-d4c37478e465",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "475c2572-2152-4be6-9ca4-d4c37478e465",
+        "capabilityId": "pdf-renderer",
+        "operation": "bootstrap.run",
+        "resultStatus": "bootstrapped",
+        "operatorDecision": {
+          "action": "run",
+          "atMs": 1775747833554,
+          "actor": {
+            "id": "cli",
+            "displayName": "stage86-live-probe",
+            "deviceId": "bf4f0d0a5691ed6a5eca5b8ed067526161a54a53d18161ddaaee0615b7a6e48b",
+            "connId": "9e4ae2e3-1c2c-4238-ac58-b59c998485db"
+          },
+          "source": "platform.bootstrap.run"
+        }
+      },
+      "attemptCount": 1,
+      "retryable": false,
+      "createdAtMs": 1775747833555,
+      "updatedAtMs": 1775747839608,
+      "stagedAtMs": 1775747833555,
+      "attemptedAtMs": 1775747833563,
+      "confirmedAtMs": 1775747839608
+    }
+  ]
+}

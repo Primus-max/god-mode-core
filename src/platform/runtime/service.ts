@@ -62,6 +62,7 @@ const PLATFORM_RUNTIME_SERVICE_KEY = Symbol.for("openclaw.platform.runtime.servi
 const PLATFORM_RUNTIME_CHECKPOINTS_FILENAME = "platform-runtime-checkpoints.json";
 const PLATFORM_RUNTIME_ACTIONS_FILENAME = "platform-runtime-actions.json";
 const PLATFORM_RUNTIME_CLOSURES_FILENAME = "platform-runtime-closures.json";
+const WINDOWS_PERSIST_RETRY_DELAYS_MS = [10, 25, 50] as const;
 
 const STRUCTURED_OUTPUT_ARTIFACT_KINDS = new Set<ArtifactKind>([
   "document",
@@ -74,6 +75,29 @@ const STRUCTURED_OUTPUT_ARTIFACT_KINDS = new Set<ArtifactKind>([
   "audio",
   "archive",
 ]);
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function isRetryableRenameError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EPERM" || code === "EBUSY";
+}
+
+function renameWithRetry(tmpPath: string, targetPath: string): void {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.renameSync(tmpPath, targetPath);
+      return;
+    } catch (error) {
+      if (attempt >= WINDOWS_PERSIST_RETRY_DELAYS_MS.length || !isRetryableRenameError(error)) {
+        throw error;
+      }
+      sleepSync(WINDOWS_PERSIST_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+}
 
 /**
  * Checks whether the declared artifact kinds require a tangible structured
@@ -902,9 +926,10 @@ export function createPlatformRuntimeCheckpointService(params?: {
     const actionPath = resolveRuntimeActionStorePath(stateDir);
     const closurePath = resolveRuntimeClosureStorePath(stateDir);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    const tmpPath = `${filePath}.${process.pid}.tmp`;
-    const actionTmpPath = `${actionPath}.${process.pid}.tmp`;
-    const closureTmpPath = `${closurePath}.${process.pid}.tmp`;
+    const persistId = randomUUID();
+    const tmpPath = `${filePath}.${process.pid}.${persistId}.tmp`;
+    const actionTmpPath = `${actionPath}.${process.pid}.${persistId}.tmp`;
+    const closureTmpPath = `${closurePath}.${process.pid}.${persistId}.tmp`;
     const payload = buildStorePayload(checkpoints);
     const actionPayload = buildActionStorePayload(actions);
     const closurePayload = buildClosureStorePayload(closures);
@@ -917,9 +942,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
       encoding: "utf8",
       mode: 0o600,
     });
-    fs.renameSync(tmpPath, filePath);
-    fs.renameSync(actionTmpPath, actionPath);
-    fs.renameSync(closureTmpPath, closurePath);
+    renameWithRetry(tmpPath, filePath);
+    renameWithRetry(actionTmpPath, actionPath);
+    renameWithRetry(closureTmpPath, closurePath);
   };
 
   const saveAction = (action: PlatformRuntimeAction) => {
@@ -1585,7 +1610,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
         evidence.declaredArtifactKinds,
       );
       const hasOutput = requiresStructuredOutput
-        ? evidence.hasStructuredReplyPayload === true ||
+        ? evidence.hasOutput === true ||
+          evidence.hasStructuredReplyPayload === true ||
           (params.outcome?.artifactIds.length ?? 0) > 0 ||
           (params.outcome?.bootstrapRequestIds.length ?? 0) > 0
         : evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
@@ -1784,7 +1810,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
           action: "retry",
           reasonCode:
             evidence.executionSurfaceStatus === "bootstrap_required" ||
-            evidence.executionUnattendedBoundary === "bootstrap"
+            evidence.executionUnattendedBoundary === "bootstrap" ||
+            (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
               ? "bootstrap_required"
               : classifyProviderEvidence(evidence) === "auth_refresh"
                 ? "provider_auth_required"
@@ -1807,7 +1834,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
           action: "retry",
           reasonCode:
             evidence.executionSurfaceStatus === "bootstrap_required" ||
-            evidence.executionUnattendedBoundary === "bootstrap"
+            evidence.executionUnattendedBoundary === "bootstrap" ||
+            (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
               ? "bootstrap_required"
               : classifyProviderEvidence(evidence) === "auth_refresh"
                 ? "provider_auth_required"
@@ -1869,9 +1897,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
+      const artifactReceiptCount = evidence.artifactReceiptCount ?? params.outcome.artifactIds.length;
+      const bootstrapReceiptCount =
+        evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length;
       const hasDeliverableEvidence =
-        (evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
-        (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0 ||
+        artifactReceiptCount > 0 ||
         evidence.didSendViaMessagingTool === true ||
         evidence.hasOutput === true ||
         evidence.hasStructuredReplyPayload === true ||
@@ -1881,8 +1911,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const requiresVerifiedNonMessagingClosure =
         attemptedDeliveryCount === 0 &&
         confirmedDeliveryCount === 0 &&
-        ((evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
-          (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0 ||
+        (artifactReceiptCount > 0 ||
+          bootstrapReceiptCount > 0 ||
           attemptedActionCount > 0 ||
           confirmedActionCount > 0 ||
           failedActionCount > 0);
@@ -1921,13 +1951,26 @@ export function createPlatformRuntimeCheckpointService(params?: {
           action: "retry",
           reasonCode:
             evidence.executionSurfaceStatus === "bootstrap_required" ||
-            evidence.executionUnattendedBoundary === "bootstrap"
+            evidence.executionUnattendedBoundary === "bootstrap" ||
+            bootstrapReceiptCount > 0
               ? "bootstrap_required"
               : classifyProviderEvidence(evidence) === "auth_refresh"
                 ? "provider_auth_required"
                 : classifyProviderEvidence(evidence) === "provider_fallback"
                   ? "provider_fallback_exhausted"
                   : "contract_mismatch",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (bootstrapReceiptCount > 0) {
+        reasons.push("Run paused while capability bootstrap is still required before completion.");
+        return parseAcceptanceResult({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode: "bootstrap_required",
           reasons,
           outcome: params.outcome,
           evidence,
@@ -1947,13 +1990,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
-      if (
-        (evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
-        (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
-      ) {
-        reasons.push(
-          "Run completed and produced structured platform artifacts or bootstrap output.",
-        );
+      if (artifactReceiptCount > 0) {
+        reasons.push("Run completed and produced structured platform artifacts.");
         return parseAcceptanceResult({
           runId: params.runId,
           status: "satisfied",

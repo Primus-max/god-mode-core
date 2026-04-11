@@ -78,9 +78,9 @@ describe("bootstrap runtime", () => {
       policyContext: makePolicyContext(true),
       registry,
       installers: {
-        download: makeSuccessfulInstaller(),
+        node: makeSuccessfulInstaller(),
       },
-      availableBins: ["playwright"],
+      availableBins: ["node"],
       runHealthCheckCommand: async () => true,
     });
 
@@ -103,7 +103,7 @@ describe("bootstrap runtime", () => {
       label: "PDF Renderer",
       status: "missing" as const,
       trusted: true,
-      installMethod: "download" as const,
+      installMethod: "node" as const,
     };
     const registry = createCapabilityRegistry([previous], TRUSTED_CAPABILITY_CATALOG);
     const resolution = resolveBootstrapRequest({
@@ -122,7 +122,18 @@ describe("bootstrap runtime", () => {
       policyContext: makePolicyContext(true),
       registry,
       installers: {
-        download: makeSuccessfulInstaller(),
+        node: async ({ request }) => ({
+          ok: true,
+          capability: {
+            ...request.catalogEntry.capability,
+            status: "available",
+            trusted: true,
+            installMethod: "node",
+            sandboxed: true,
+            requiredBins: ["node"],
+            healthCheckCommand: "node --version",
+          },
+        }),
       },
       availableBins: [],
       runHealthCheckCommand: async () => false,

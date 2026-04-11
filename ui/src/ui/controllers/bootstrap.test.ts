@@ -92,7 +92,7 @@ describe("bootstrap controller", () => {
     expect(state.bootstrapDetail?.id).toBe("bootstrap-1");
   });
 
-  it("resolves and runs a request, then refreshes the list", async () => {
+  it("auto-runs an approved request, then refreshes the list", async () => {
     let runInvoked = false;
     const request = vi.fn(async (method: string, params?: unknown) => {
       if (method === "platform.bootstrap.resolve") {
@@ -252,9 +252,6 @@ describe("bootstrap controller", () => {
     const state = createState(request, { bootstrapSelectedId: "bootstrap-1" });
 
     await resolveBootstrapRequest(state, "bootstrap-1", "approve");
-    expect(state.bootstrapDetail?.state).toBe("approved");
-
-    await runBootstrapRequest(state, "bootstrap-1");
     expect(state.bootstrapDetail?.state).toBe("available");
     expect(state.bootstrapPendingCount).toBe(0);
   });

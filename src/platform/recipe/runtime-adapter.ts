@@ -176,12 +176,12 @@ function buildRequestedToolGuardrails(requestedToolNames?: string[]): string | u
   const guardrails: string[] = [];
   if (toolSet.has("image_generate")) {
     guardrails.push(
-      "Image artifact contract: when the user asks you to generate or edit an image, call image_generate and return the actual generated image instead of a text-only description or brainstorm.",
+      "Image artifact contract: when the user asks you to generate or edit an image, you must call image_generate before your first final answer and return the actual generated image instead of a text-only description, acknowledgement, or brainstorm.",
     );
   }
   if (toolSet.has("pdf")) {
     guardrails.push(
-      "PDF artifact contract: when the user asks for a PDF or slide-style document from prompt text, use the pdf tool to create the deliverable instead of replying with instructions or a plan.",
+      "PDF artifact contract: when the user asks for a PDF or slide-style document from prompt text, you must use the pdf tool before your first final answer to create the deliverable instead of replying with instructions, an acknowledgement, or a plan. For prompt-only PDF generation, pass the requested document content in the pdf tool's `prompt` argument and include `filename` when the user implies a saved file. Do not call `pdf` with an empty object for a prompt-only PDF task. Do not fake PDF output, manually write PDF bytes, or bypass the pdf tool with write/exec when the task requires a real PDF deliverable.",
     );
   }
   return guardrails.length > 0 ? guardrails.join(" ") : undefined;
@@ -236,6 +236,7 @@ function buildBuilderDomainContextSegment(): string {
     "label explicit assumptions (loads, losses, price basis);",
     "show formulas and calculation steps when deriving quantities, costs, or spreadsheet totals;",
     "for ventilation/air exchange cite applicable SNiP/SP/GOST-class norm references as bibliographic pointers only, not legal advice;",
+    "for office ventilation baseline, assume 60 m3/h per person unless the user or source documents provide a different project-specific norm;",
     "for supplier comparison align scope, units, incoterms or delivery terms, lead times, and warranty.",
   ].join(" ");
 }
@@ -250,6 +251,7 @@ function buildPrependContext(
 ): string {
   return [
     `Profile: ${plan.profile.selectedProfile.label}.`,
+    `Language continuity: ${buildReplyLanguageGuardrail()}`,
     plan.profile.selectedProfile.id === "builder" ? buildBuilderDomainContextSegment() : undefined,
     plan.profile.effective.taskOverlay?.label
       ? `Task overlay: ${plan.profile.effective.taskOverlay.label}.`

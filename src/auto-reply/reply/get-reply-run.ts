@@ -512,8 +512,13 @@ export async function runPreparedReply(
   const authProfileIdSource = sessionEntry?.authProfileOverrideSource;
   const requestRunId =
     typeof opts?.runId === "string" && opts.runId.trim() ? opts.runId.trim() : undefined;
+  // Respect an explicit per-turn `model:` directive immediately. Persisted session
+  // overrides should also pin the route, but waiting for session state alone can let
+  // same-turn preflight reorder the fallback chain before the pin is observed.
   const sessionPinsModelRoute =
-    Boolean(sessionEntry?.providerOverride?.trim()) || Boolean(sessionEntry?.modelOverride?.trim());
+    directives.hasModelDirective ||
+    Boolean(sessionEntry?.providerOverride?.trim()) ||
+    Boolean(sessionEntry?.modelOverride?.trim());
   const followupRun = {
     prompt: queuedBody,
     messageId: sessionCtx.MessageSidFull ?? sessionCtx.MessageSid,

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "actionId": "bootstrap:6be2c6fc-ea36-4cac-af69-52174768237f:run",
+      "runId": "6be2c6fc-ea36-4cac-af69-52174768237f",
+      "kind": "bootstrap",
+      "state": "confirmed",
+      "boundary": "bootstrap",
+      "checkpointId": "6be2c6fc-ea36-4cac-af69-52174768237f",
+      "target": {
+        "bootstrapRequestId": "6be2c6fc-ea36-4cac-af69-52174768237f",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "6be2c6fc-ea36-4cac-af69-52174768237f",
+        "capabilityId": "pdf-renderer",
+        "operation": "bootstrap.run",
+        "resultStatus": "bootstrapped",
+        "operatorDecision": {
+          "action": "run",
+          "atMs": 1775747074004,
+          "actor": {
+            "id": "cli",
+            "displayName": "stage86-live-probe",
+            "deviceId": "bf4f0d0a5691ed6a5eca5b8ed067526161a54a53d18161ddaaee0615b7a6e48b",
+            "connId": "24beee0e-b995-403a-81f3-aa8325cb5386"
+          },
+          "source": "platform.bootstrap.run"
+        }
+      },
+      "attemptCount": 1,
+      "retryable": false,
+      "createdAtMs": 1775747074005,
+      "updatedAtMs": 1775747078647,
+      "stagedAtMs": 1775747074005,
+      "attemptedAtMs": 1775747074011,
+      "confirmedAtMs": 1775747078647
+    }
+  ]
+}

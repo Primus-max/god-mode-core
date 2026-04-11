@@ -10,7 +10,8 @@
 - [ ] Ollama available at :11434
 - [ ] Hydra/SD1 key configured (или другой remote OpenAI-compatible provider с моделью `hydra/gpt-4o`, если так настроен current profile)
 - [ ] UI connected to http://127.0.0.1:18789
-- [ ] Telegram bot @gode_mode_admin_bot responsive
+- [ ] Telegram bot `@gode_mode_0_bot` responsive
+- [ ] Если direct egress до `api.telegram.org` из этой среды не работает, в `channels.telegram.proxy` уже прописан рабочий proxy path
 
 ---
 
@@ -27,7 +28,7 @@
 **Expected:**
 
 - [ ] Ответ приходит быстро (< 5 сек)
-- [ ] В UI → Sessions видно `model: ollama/qwen2.5-coder:7b`
+- [ ] В UI → Sessions видно локальную модель текущего профиля (`ollama/gemma4:e4b` на current Stage 86 runtime)
 - [ ] В логе gateway: `preflightMode: local_eligible`
 
 ---
@@ -63,7 +64,7 @@
 
 **Expected:**
 
-- [ ] В логе: `model_fallback: hydra/gpt-4o failed, trying ollama/qwen2.5-coder:7b`
+- [ ] В логе: `model_fallback: hydra/gpt-4o failed, trying ollama/gemma4:e4b` (или текущую локальную fallback-модель профиля, если runtime был осознанно перенастроен)
 - [ ] Ответ от Ollama (может медленнее, но работает)
 
 **After:** Включи интернет обратно
@@ -109,7 +110,9 @@
 
 **Expected:**
 
-- [ ] В логе gateway: `promptOptimization: { normalized: true, trimmedWhitespace: 24, collapsedLines: 5 }`
+- [ ] В логе gateway есть `promptOptimization:` c `applied: true`
+- [ ] Для exact raw текста выше deterministic contract: `normalized: false`, `trimmedWhitespace: 7`, `collapsedLines: 2`
+- [ ] Для live `chat.send`/Telegram/webchat path contract сейчас: `normalized: false`, `trimmedWhitespace: 1`, `collapsedLines: 1` because gateway injects timestamp before prompt optimization
 - [ ] Оптимизированный промт уходит в модель (меньше токенов)
 
 ---

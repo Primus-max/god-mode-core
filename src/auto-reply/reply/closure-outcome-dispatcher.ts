@@ -122,6 +122,7 @@ const FollowupRunSnapshotSchema = z
         inputProvenance: z.unknown().optional(),
         extraSystemPrompt: z.string().min(1).optional(),
         enforceFinalTag: z.boolean().optional(),
+        modelRoutePreflightDisabled: z.boolean().optional(),
       })
       .strict(),
   })
@@ -207,6 +208,90 @@ function buildClosureRecoveryContinuationPayload(params: {
     settings: params.settings,
     sourceRun: params.sourceRun,
   }) as ClosureRecoveryContinuationPayload;
+}
+
+function buildBootstrapBlockedRunResume(params: {
+  blockedRunId: string;
+  queueKey?: string;
+  settings?: QueueSettings;
+  sourceRun?: FollowupRun;
+}) {
+  const queueKey = params.queueKey?.trim();
+  if (!queueKey || !params.settings || !params.sourceRun) {
+    return undefined;
+  }
+  const sourceRun = params.sourceRun;
+  return BootstrapBlockedRunResumeSchema.parse({
+    blockedRunId: params.blockedRunId,
+    sessionKey: sourceRun.run.sessionKey,
+    queueKey,
+    settings: params.settings,
+    sourceRun: {
+      prompt: sourceRun.prompt,
+      ...(sourceRun.messageId ? { messageId: sourceRun.messageId } : {}),
+      ...(sourceRun.summaryLine ? { summaryLine: sourceRun.summaryLine } : {}),
+      enqueuedAt: sourceRun.enqueuedAt,
+      ...(sourceRun.requestRunId ? { requestRunId: sourceRun.requestRunId } : {}),
+      ...(sourceRun.parentRunId ? { parentRunId: sourceRun.parentRunId } : {}),
+      ...(sourceRun.automation ? { automation: sourceRun.automation } : {}),
+      ...(sourceRun.originatingChannel ? { originatingChannel: sourceRun.originatingChannel } : {}),
+      ...(sourceRun.originatingTo ? { originatingTo: sourceRun.originatingTo } : {}),
+      ...(sourceRun.originatingAccountId
+        ? { originatingAccountId: sourceRun.originatingAccountId }
+        : {}),
+      ...(sourceRun.originatingThreadId !== undefined
+        ? { originatingThreadId: sourceRun.originatingThreadId }
+        : {}),
+      ...(sourceRun.originatingChatType ? { originatingChatType: sourceRun.originatingChatType } : {}),
+      run: {
+        agentId: sourceRun.run.agentId,
+        agentDir: sourceRun.run.agentDir,
+        sessionId: sourceRun.run.sessionId,
+        ...(sourceRun.run.sessionKey ? { sessionKey: sourceRun.run.sessionKey } : {}),
+        ...(sourceRun.run.messageProvider ? { messageProvider: sourceRun.run.messageProvider } : {}),
+        ...(sourceRun.run.agentAccountId ? { agentAccountId: sourceRun.run.agentAccountId } : {}),
+        ...(sourceRun.run.groupId ? { groupId: sourceRun.run.groupId } : {}),
+        ...(sourceRun.run.groupChannel ? { groupChannel: sourceRun.run.groupChannel } : {}),
+        ...(sourceRun.run.groupSpace ? { groupSpace: sourceRun.run.groupSpace } : {}),
+        ...(sourceRun.run.senderId ? { senderId: sourceRun.run.senderId } : {}),
+        ...(sourceRun.run.senderName ? { senderName: sourceRun.run.senderName } : {}),
+        ...(sourceRun.run.senderUsername ? { senderUsername: sourceRun.run.senderUsername } : {}),
+        ...(sourceRun.run.senderE164 ? { senderE164: sourceRun.run.senderE164 } : {}),
+        ...(sourceRun.run.senderIsOwner !== undefined
+          ? { senderIsOwner: sourceRun.run.senderIsOwner }
+          : {}),
+        sessionFile: sourceRun.run.sessionFile,
+        workspaceDir: sourceRun.run.workspaceDir,
+        config: sourceRun.run.config,
+        ...(sourceRun.run.skillsSnapshot ? { skillsSnapshot: sourceRun.run.skillsSnapshot } : {}),
+        provider: sourceRun.run.provider,
+        model: sourceRun.run.model,
+        ...(sourceRun.run.authProfileId ? { authProfileId: sourceRun.run.authProfileId } : {}),
+        ...(sourceRun.run.authProfileIdSource
+          ? { authProfileIdSource: sourceRun.run.authProfileIdSource }
+          : {}),
+        ...(sourceRun.run.thinkLevel ? { thinkLevel: sourceRun.run.thinkLevel } : {}),
+        ...(sourceRun.run.verboseLevel ? { verboseLevel: sourceRun.run.verboseLevel } : {}),
+        ...(sourceRun.run.reasoningLevel ? { reasoningLevel: sourceRun.run.reasoningLevel } : {}),
+        ...(sourceRun.run.elevatedLevel ? { elevatedLevel: sourceRun.run.elevatedLevel } : {}),
+        ...(sourceRun.run.execOverrides ? { execOverrides: sourceRun.run.execOverrides } : {}),
+        ...(sourceRun.run.bashElevated ? { bashElevated: sourceRun.run.bashElevated } : {}),
+        timeoutMs: sourceRun.run.timeoutMs,
+        blockReplyBreak: sourceRun.run.blockReplyBreak,
+        ...(sourceRun.run.ownerNumbers ? { ownerNumbers: sourceRun.run.ownerNumbers } : {}),
+        ...(sourceRun.run.inputProvenance ? { inputProvenance: sourceRun.run.inputProvenance } : {}),
+        ...(sourceRun.run.extraSystemPrompt
+          ? { extraSystemPrompt: sourceRun.run.extraSystemPrompt }
+          : {}),
+        ...(sourceRun.run.enforceFinalTag !== undefined
+          ? { enforceFinalTag: sourceRun.run.enforceFinalTag }
+          : {}),
+        ...(sourceRun.run.modelRoutePreflightDisabled !== undefined
+          ? { modelRoutePreflightDisabled: sourceRun.run.modelRoutePreflightDisabled }
+          : {}),
+      },
+    },
+  });
 }
 
 function parseClosureRecoveryContinuationPayload(
@@ -623,22 +708,20 @@ function ensureBootstrapRequests(params: {
   settings?: QueueSettings;
 }): string[] {
   const outcome = resolveDecisionOutcome(params.decision);
+  const existingRequestIds = outcome?.bootstrapRequestIds ?? [];
   const capabilityIds = Array.from(
     new Set(params.executionIntent?.bootstrapRequiredCapabilities ?? []),
   );
   const queueKey = params.queueKey?.trim();
-  const resumeCandidate =
-    capabilityIds.length === 1 && queueKey && params.sourceRun && params.settings
-      ? BootstrapBlockedRunResumeSchema.safeParse({
+  const blockedRunResume =
+    (capabilityIds.length === 1 || existingRequestIds.length === 1) && queueKey
+      ? buildBootstrapBlockedRunResume({
           blockedRunId: params.decision.runId,
-          sessionKey: params.sourceRun.run.sessionKey,
           queueKey,
           settings: params.settings,
           sourceRun: params.sourceRun,
         })
       : undefined;
-  const blockedRunResume = resumeCandidate?.success ? resumeCandidate.data : undefined;
-  const existingRequestIds = outcome?.bootstrapRequestIds ?? [];
   if (existingRequestIds.length > 0) {
     if (blockedRunResume) {
       const service = getPlatformBootstrapService();
@@ -647,10 +730,7 @@ function ensureBootstrapRequests(params: {
         if (!existing || existing.request.blockedRunResume) {
           continue;
         }
-        service.create({
-          ...existing.request,
-          blockedRunResume,
-        });
+        service.attachBlockedRunResume(requestId, blockedRunResume);
       }
     }
     return existingRequestIds;

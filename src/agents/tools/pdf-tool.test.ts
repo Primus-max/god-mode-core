@@ -39,6 +39,7 @@ async function withTempAgentDir<T>(run: (agentDir: string) => Promise<T>): Promi
 }
 
 const ANTHROPIC_PDF_MODEL = "anthropic/claude-opus-4-6";
+const HYDRA_PDF_MODEL = "hydra/gpt-4o";
 const OPENAI_PDF_MODEL = "openai/gpt-5-mini";
 const TEST_PDF_INPUT = { base64: "dGVzdA==", filename: "doc.pdf" } as const;
 const FAKE_PDF_MEDIA = {
@@ -323,6 +324,33 @@ describe("resolvePdfModelConfigForTool", () => {
       expect(config?.primary).toBe(ANTHROPIC_PDF_MODEL);
     });
   });
+
+  it("falls back to hydra when only hydra auth is available", async () => {
+    await withTempAgentDir(async (agentDir) => {
+      await fs.writeFile(
+        path.join(agentDir, "auth-profiles.json"),
+        JSON.stringify(
+          {
+            version: 1,
+            profiles: {
+              "hydra:default": {
+                type: "api_key",
+                provider: "hydra",
+                key: "hydra-test",
+              },
+            },
+            usageStats: {},
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+      const cfg = withDefaultModel(ANTHROPIC_PDF_MODEL);
+      const config = resolvePdfModelConfigForTool({ cfg, agentDir });
+      expect(config?.primary).toBe(HYDRA_PDF_MODEL);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -366,7 +394,7 @@ describe("createPdfTool", () => {
     await withAnthropicPdfTool(async (tool) => {
       expect(tool.name).toBe("pdf");
       expect(tool.label).toBe("PDF");
-      expect(tool.description).toContain("simple one-page PDF");
+      expect(tool.description).toContain("prompt-only PDF");
     });
   });
 
@@ -380,7 +408,7 @@ describe("createPdfTool", () => {
         content: [{ type: "text", text: "Generated 1 PDF locally from the prompt text." }],
         details: {
           provider: "local",
-          model: "minimal-pdf",
+          model: "pdf-renderer",
           media: { mediaUrls: [expect.stringContaining("stage-86-test")] },
         },
       });
@@ -399,12 +427,211 @@ describe("createPdfTool", () => {
         content: [{ type: "text", text: "Generated 1 PDF locally from the prompt text." }],
         details: {
           provider: "local",
-          model: "minimal-pdf",
+          model: "pdf-renderer",
           media: { mediaUrls: [expect.stringContaining("stage-86-raw-text")] },
         },
       });
       const mediaPath = (result as { details: { paths: string[] } }).details.paths[0];
       await expect(fs.stat(mediaPath)).resolves.toMatchObject({ isFile: expect.any(Function) });
+    });
+  });
+
+  it("uses a model-drafted layout for prompt-only infographic requests without source images", async () => {
+    await withTempAgentDir(async (agentDir) => {
+      await stubPdfToolInfra(agentDir, { provider: "openai", input: ["text"] });
+      completeMock.mockResolvedValue({
+        role: "assistant",
+        stopReason: "stop",
+        content: [
+          {
+            type: "text",
+            text: [
+              "# Жизнь весёлого банана",
+              "",
+              "- Харизма: 100%",
+              "- Мемность: 98%",
+              "",
+              "---",
+              "",
+              "## Страница 2",
+              "",
+              "- График зрелости",
+            ].join("\n"),
+          },
+        ],
+      } as never);
+
+      const tool = requirePdfTool(
+        createPdfTool({ config: withPdfModel(OPENAI_PDF_MODEL), agentDir }),
+      );
+      const result = await tool.execute("t-rich", {
+        prompt:
+          "Сделай крутую инфографику в PDF на 3 страницы про жизнь веселого банана, с графиками и визуальными блоками.",
+        filename: "banana-rich.pdf",
+      });
+
+      expect(completeMock).toHaveBeenCalledTimes(1);
+      const richPrompt = ((completeMock.mock.calls[0]?.[1] as { messages?: Array<{ content?: unknown[] }> })?.messages?.[0]
+        ?.content?.find?.((entry) => (entry as { type?: string }).type === "text") as
+        | { text?: string }
+        | undefined)?.text;
+      expect(richPrompt).toContain("Target exactly 3 page(s)/slide(s)");
+      expect(richPrompt).toContain("Open with a strong cover page");
+      expect(result).toMatchObject({
+        details: {
+          provider: "openai",
+          model: "gpt-5-mini",
+          media: { mediaUrls: [expect.stringContaining("banana-rich")] },
+        },
+      });
+      const mediaPath = (result as { details: { paths: string[] } }).details.paths[0];
+      await expect(fs.stat(mediaPath)).resolves.toMatchObject({ isFile: expect.any(Function) });
+    });
+  });
+
+  it("returns an html draft and bootstrap request when the pdf renderer is unavailable", async () => {
+    await withTempAgentDir(async (agentDir) => {
+      vi.stubEnv("ANTHROPIC_API_KEY", "anthropic-test");
+      vi.doMock("../../platform/bootstrap/index.js", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("../../platform/bootstrap/index.js")>();
+        return {
+          ...actual,
+          verifyCapabilityHealth: vi.fn(async () => ({
+            ok: false,
+            reasons: ["required bin missing: playwright"],
+          })),
+        };
+      });
+      try {
+        ({ createPdfTool } = await importPdfToolModule());
+        const cfg = withDefaultModel(ANTHROPIC_PDF_MODEL);
+        const tool = requirePdfTool(createPdfTool({ config: cfg, agentDir }));
+        const result = await tool.execute("t1", {
+          prompt: "Create a one-page PDF with the text Stage 86 degraded test.",
+          filename: "stage-86-degraded.pdf",
+        });
+        expect(result).toMatchObject({
+          content: [
+            {
+              type: "text",
+              text: expect.stringContaining("HTML draft"),
+            },
+          ],
+          details: {
+            renderKind: "html",
+            degraded: true,
+            bootstrapRequest: {
+              capabilityId: "pdf-renderer",
+              reason: "renderer_unavailable",
+            },
+            warnings: [expect.stringContaining("pdf renderer unavailable")],
+          },
+        });
+        const htmlPath = (result as { details: { paths: string[] } }).details.paths[0];
+        await expect(fs.stat(htmlPath)).resolves.toMatchObject({ isFile: expect.any(Function) });
+      } finally {
+        vi.doUnmock("../../platform/bootstrap/index.js");
+      }
+    });
+  });
+
+  it("yields the turn when bootstrap is required for prompt-only pdf generation", async () => {
+    await withTempAgentDir(async (agentDir) => {
+      vi.stubEnv("ANTHROPIC_API_KEY", "anthropic-test");
+      vi.doMock("../../platform/bootstrap/index.js", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("../../platform/bootstrap/index.js")>();
+        return {
+          ...actual,
+          verifyCapabilityHealth: vi.fn(async () => ({
+            ok: false,
+            reasons: ["required bin missing: playwright"],
+          })),
+        };
+      });
+      try {
+        ({ createPdfTool } = await importPdfToolModule());
+        const onYield = vi.fn();
+        const cfg = withDefaultModel(ANTHROPIC_PDF_MODEL);
+        const tool = requirePdfTool(createPdfTool({ config: cfg, agentDir, onYield }));
+        await tool.execute("t1", {
+          prompt: "Create a one-page PDF with the text Stage 86 degraded test.",
+          filename: "stage-86-degraded.pdf",
+        });
+        expect(onYield).toHaveBeenCalledWith(
+          'Waiting for "pdf-renderer" approval and install before the PDF task can continue.',
+        );
+      } finally {
+        vi.doUnmock("../../platform/bootstrap/index.js");
+      }
+    });
+  });
+
+  it("requires managed bootstrap for structured prompt-only PDF reports", async () => {
+    await withTempAgentDir(async (agentDir) => {
+      vi.stubEnv("ANTHROPIC_API_KEY", "anthropic-test");
+      const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-pdf-bootstrap-"));
+      vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+      try {
+        const cfg = withDefaultModel(ANTHROPIC_PDF_MODEL);
+        const tool = requirePdfTool(createPdfTool({ config: cfg, agentDir }));
+        const result = await tool.execute("t1", {
+          prompt: "Сгенерируй PDF отчет с таблицей: название, количество, цена. Сохрани на диск.",
+          filename: "stage-86-report.pdf",
+        });
+        expect(result).toMatchObject({
+          content: [
+            {
+              type: "text",
+              text: expect.stringContaining("HTML draft"),
+            },
+          ],
+          details: {
+            renderKind: "html",
+            degraded: true,
+            bootstrapRequest: {
+              capabilityId: "pdf-renderer",
+              reason: "renderer_unavailable",
+            },
+          },
+        });
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+  });
+
+  it("requires managed bootstrap when prompt-only PDF generation references an html file", async () => {
+    await withTempAgentDir(async (agentDir) => {
+      vi.stubEnv("ANTHROPIC_API_KEY", "anthropic-test");
+      const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-pdf-bootstrap-html-"));
+      vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+      try {
+        const cfg = withDefaultModel(ANTHROPIC_PDF_MODEL);
+        const tool = requirePdfTool(createPdfTool({ config: cfg, agentDir }));
+        const result = await tool.execute("t1", {
+          prompt: "Используй HTML-файл report_table.html и сгенерируй PDF report_table.pdf.",
+          pdf: "report_table.html",
+          filename: "report_table.pdf",
+        });
+        expect(result).toMatchObject({
+          content: [
+            {
+              type: "text",
+              text: expect.stringContaining("HTML draft"),
+            },
+          ],
+          details: {
+            renderKind: "html",
+            degraded: true,
+            bootstrapRequest: {
+              capabilityId: "pdf-renderer",
+              reason: "renderer_unavailable",
+            },
+          },
+        });
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
   });
 

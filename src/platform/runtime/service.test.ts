@@ -331,6 +331,37 @@ describe("platform runtime checkpoint service", () => {
       }),
     );
 
+    const bootstrapPaused = service.evaluateAcceptance({
+      runId: "run-bootstrap-paused",
+      outcome: {
+        runId: "run-bootstrap-paused",
+        status: "completed",
+        checkpointIds: ["bootstrap-checkpoint"],
+        blockedCheckpointIds: [],
+        completedCheckpointIds: ["bootstrap-checkpoint"],
+        deniedCheckpointIds: [],
+        pendingApprovalIds: [],
+        artifactIds: [],
+        bootstrapRequestIds: ["bootstrap-request-1"],
+        actionIds: [],
+        attemptedActionIds: [],
+        confirmedActionIds: [],
+        failedActionIds: [],
+        boundaries: ["bootstrap"],
+      },
+      evidence: {
+        hasOutput: true,
+      },
+    });
+    expect(bootstrapPaused).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        action: "retry",
+        remediation: "bootstrap",
+        reasonCode: "bootstrap_required",
+      }),
+    );
+
     const escalate = service.evaluateAcceptance({
       runId: "run-human",
       outcome: {
@@ -591,7 +622,7 @@ describe("platform runtime checkpoint service", () => {
     );
   });
 
-  it("treats text-only delivery as missing output for physical artifact requests", () => {
+  it("accepts text-confirmed output for physical artifact requests", () => {
     const service = createPlatformRuntimeCheckpointService();
     const outcome: PlatformRuntimeRunOutcome = {
       runId: "run-structured-artifact-required",
@@ -648,8 +679,8 @@ describe("platform runtime checkpoint service", () => {
         declaredArtifactKinds: ["document"],
       },
     });
-    expect(verification.status).toBe("mismatch");
-    expect(verification.reasons.join(" ")).toContain("expected output");
+    expect(verification.status).toBe("verified");
+    expect(verification.reasons.join(" ")).not.toContain("expected output");
 
     const evidence = service.buildAcceptanceEvidence({
       outcome,
@@ -676,10 +707,10 @@ describe("platform runtime checkpoint service", () => {
     });
     expect(acceptance).toEqual(
       expect.objectContaining({
-        status: "retryable",
-        action: "retry",
-        remediation: "semantic_retry",
-        reasonCode: "contract_mismatch",
+        status: "satisfied",
+        action: "close",
+        remediation: "none",
+        reasonCode: "completed_with_confirmed_delivery",
       }),
     );
   });

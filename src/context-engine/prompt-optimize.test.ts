@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { injectTimestamp } from "../gateway/server-methods/agent-timestamp.js";
 import { deterministicPromptOptimize, mergePromptOptimizationReports } from "./prompt-optimize.js";
 
 describe("deterministicPromptOptimize", () => {
@@ -43,6 +44,30 @@ describe("deterministicPromptOptimize", () => {
     );
     expect(prompt).toBe("Сильно сожми этот раздутый запрос и ответь одной фразой.");
     expect(meta.applied).toBe(true);
+  });
+
+  it("matches the Stage 86 prompt optimization checklist example", () => {
+    const { prompt, meta } = deterministicPromptOptimize(
+      "\n\n\n   Привет!     Как работает   routing в OpenClaw?\n\n\n",
+    );
+    expect(prompt).toBe("Привет! Как работает routing в OpenClaw?");
+    expect(meta.applied).toBe(true);
+    expect(meta.normalized).toBe(false);
+    expect(meta.trimmedWhitespace).toBe(7);
+    expect(meta.collapsedLines).toBe(2);
+  });
+
+  it("matches the live gateway Stage 86 contract after timestamp injection", () => {
+    const stamped = injectTimestamp("\n\n\n   Привет!     Как работает   routing в OpenClaw?", {
+      now: new Date("2026-04-09T09:06:14.000Z"),
+      timezone: "UTC",
+    });
+    const { prompt, meta } = deterministicPromptOptimize(stamped);
+    expect(prompt).toContain("Привет! Как работает routing в OpenClaw?");
+    expect(meta.applied).toBe(true);
+    expect(meta.normalized).toBe(false);
+    expect(meta.trimmedWhitespace).toBe(1);
+    expect(meta.collapsedLines).toBe(1);
   });
 
   it("preserves fenced and inline code spacing", () => {
