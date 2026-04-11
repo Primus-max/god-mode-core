@@ -1,7 +1,7 @@
 {
   "agent:dev:main": {
     "sessionId": "7da8429a-21ce-46d5-8006-72cf8cd120c9",
-    "updatedAt": 1775920056420,
+    "updatedAt": 1775924511987,
     "systemSent": true,
     "abortedLastRun": false,
     "chatType": "direct",
@@ -12,8 +12,8 @@
     },
     "lastTo": "telegram:6533456892",
     "origin": {
-      "label": "Vladimir (@valosya) id:6533456892",
-      "provider": "telegram",
+      "label": "telegram:6533456892",
+      "provider": "heartbeat",
       "from": "telegram:6533456892",
       "to": "telegram:6533456892",
       "surface": "telegram",
@@ -123,18 +123,18 @@
       ],
       "version": 0
     },
-    "status": "done",
-    "startedAt": 1775920047047,
-    "modelProvider": "ollama",
-    "model": "gemma4:e4b",
-    "contextTokens": 131072,
+    "status": "blocked",
+    "startedAt": 1775924506230,
+    "modelProvider": "hydra",
+    "model": "gpt-4o",
+    "contextTokens": 200000,
     "systemPromptReport": {
       "source": "run",
-      "generatedAt": 1775920046836,
+      "generatedAt": 1775924505894,
       "sessionId": "7da8429a-21ce-46d5-8006-72cf8cd120c9",
       "sessionKey": "agent:dev:main",
-      "provider": "ollama",
-      "model": "gemma4:e4b",
+      "provider": "hydra",
+      "model": "gpt-4o",
       "workspaceDir": "C:\\Users\\Tanya\\.openclaw\\workspace-dev",
       "bootstrapMaxChars": 20000,
       "bootstrapTotalMaxChars": 150000,
@@ -150,11 +150,68 @@
         "sandboxed": false
       },
       "systemPrompt": {
-        "chars": 15467,
-        "projectContextChars": 0,
-        "nonProjectContextChars": 15467
+        "chars": 24302,
+        "projectContextChars": 9253,
+        "nonProjectContextChars": 15049
       },
-      "injectedWorkspaceFiles": [],
+      "injectedWorkspaceFiles": [
+        {
+          "name": "AGENTS.md",
+          "path": "C:\\Users\\Tanya\\.openclaw\\workspace-dev\\AGENTS.md",
+          "missing": false,
+          "rawChars": 2518,
+          "injectedChars": 2518,
+          "truncated": false
+        },
+        {
+          "name": "SOUL.md",
+          "path": "C:\\Users\\Tanya\\.openclaw\\workspace-dev\\SOUL.md",
+          "missing": false,
+          "rawChars": 3581,
+          "injectedChars": 3581,
+          "truncated": false
+        },
+        {
+          "name": "TOOLS.md",
+          "path": "C:\\Users\\Tanya\\.openclaw\\workspace-dev\\TOOLS.md",
+          "missing": false,
+          "rawChars": 495,
+          "injectedChars": 495,
+          "truncated": false
+        },
+        {
+          "name": "IDENTITY.md",
+          "path": "C:\\Users\\Tanya\\.openclaw\\workspace-dev\\IDENTITY.md",
+          "missing": false,
+          "rawChars": 1446,
+          "injectedChars": 1446,
+          "truncated": false
+        },
+        {
+          "name": "USER.md",
+          "path": "C:\\Users\\Tanya\\.openclaw\\workspace-dev\\USER.md",
+          "missing": false,
+          "rawChars": 468,
+          "injectedChars": 468,
+          "truncated": false
+        },
+        {
+          "name": "HEARTBEAT.md",
+          "path": "C:\\Users\\Tanya\\.openclaw\\workspace-dev\\HEARTBEAT.md",
+          "missing": true,
+          "rawChars": 0,
+          "injectedChars": 74,
+          "truncated": false
+        },
+        {
+          "name": "BOOTSTRAP.md",
+          "path": "C:\\Users\\Tanya\\.openclaw\\workspace-dev\\BOOTSTRAP.md",
+          "missing": true,
+          "rawChars": 0,
+          "injectedChars": 74,
+          "truncated": false
+        }
+      ],
       "skills": {
         "promptChars": 4332,
         "entries": [
@@ -194,7 +251,7 @@
       },
       "tools": {
         "listChars": 2266,
-        "schemaChars": 19192,
+        "schemaChars": 19204,
         "entries": [
           {
             "name": "read",
@@ -240,8 +297,8 @@
           },
           {
             "name": "message",
-            "summaryChars": 150,
-            "schemaChars": 6645,
+            "summaryChars": 142,
+            "schemaChars": 6657,
             "propertiesCount": 108
           },
           {
@@ -343,38 +400,42 @@
         ]
       }
     },
-    "inputTokens": 37597,
-    "outputTokens": 262,
+    "inputTokens": 86929,
+    "outputTokens": 36,
     "cacheRead": 0,
     "cacheWrite": 0,
     "estimatedCostUsd": 0,
-    "totalTokens": 37597,
+    "totalTokens": 43509,
     "totalTokensFresh": true,
     "lastChannel": "telegram",
     "lastAccountId": "default",
     "memoryFlushAt": 1775895705306,
     "memoryFlushCompactionCount": 0,
     "memoryFlushContextHash": "91e39cc65b57514e",
-    "endedAt": 1775920056286,
-    "runtimeMs": 9239,
+    "fallbackNoticeSelectedModel": "ollama/gemma4:e4b",
+    "fallbackNoticeActiveModel": "hydra/gpt-4o",
+    "fallbackNoticeReason": "selected model unavailable",
+    "endedAt": 1775924511851,
+    "runtimeMs": 5621,
     "runClosureSummary": {
-      "runId": "5b62a8d7-4fb7-4949-ac43-7eb3c7861065",
-      "requestRunId": "5b62a8d7-4fb7-4949-ac43-7eb3c7861065",
+      "runId": "1f558bbc-eb7e-47a1-bd23-87f36c8c61f5",
+      "requestRunId": "1f558bbc-eb7e-47a1-bd23-87f36c8c61f5",
       "sessionKey": "agent:dev:main",
-      "updatedAtMs": 1775920056291,
+      "updatedAtMs": 1775924511859,
       "outcomeStatus": "completed",
-      "verificationStatus": "verified",
-      "acceptanceStatus": "satisfied",
-      "action": "close",
-      "remediation": "none",
-      "reasonCode": "verified_execution",
+      "verificationStatus": "mismatch",
+      "acceptanceStatus": "retryable",
+      "action": "retry",
+      "remediation": "bootstrap",
+      "reasonCode": "bootstrap_recovery",
       "reasons": [
-        "Run completed with evidence matching the declared recipe ops_orchestration."
+        "Execution receipts contain a failed outcome."
       ],
-      "declaredProfileId": "operator",
-      "declaredRecipeId": "ops_orchestration",
+      "declaredIntent": "document",
+      "declaredProfileId": "builder",
+      "declaredRecipeId": "table_compare",
       "requiresOutput": true,
-      "surfaceStatus": "ready"
+      "surfaceStatus": "bootstrap_required"
     }
   },
   "agent:dev:subagent:22b1a9cf-b65a-490c-bfc5-94e7018f970f": {

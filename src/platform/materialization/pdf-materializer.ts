@@ -11,7 +11,11 @@ import {
   getApprovedCapabilityCatalogEntry,
   resolvePlatformBootstrapNodeCapabilityInstallDir,
 } from "../bootstrap/index.js";
-import type { MaterializedArtifactOutput } from "./contracts.js";
+import type {
+  MaterializationDocumentInputKind,
+  MaterializationRendererTarget,
+  MaterializedArtifactOutput,
+} from "./contracts.js";
 import { buildHtmlDocument } from "./html-preview-materializer.js";
 
 const require = createRequire(import.meta.url);
@@ -187,6 +191,9 @@ export function writePdfMaterialization(params: {
   html: string;
   title?: string;
   summary?: string;
+  documentInputKind?: MaterializationDocumentInputKind;
+  rendererTarget?: MaterializationRendererTarget;
+  rendererId?: string;
 }): MaterializedArtifactOutput {
   const text = stripHtml(params.html);
   const { path: filePath, sizeBytes } = writePdfFileFromHtml({
@@ -198,6 +205,9 @@ export function writePdfMaterialization(params: {
   });
   return {
     renderKind: "pdf",
+    ...(params.documentInputKind ? { documentInputKind: params.documentInputKind } : {}),
+    ...(params.rendererTarget ? { rendererTarget: params.rendererTarget } : {}),
+    ...(params.rendererId ? { rendererId: params.rendererId } : {}),
     outputTarget: "file",
     path: filePath,
     mimeType: "application/pdf",

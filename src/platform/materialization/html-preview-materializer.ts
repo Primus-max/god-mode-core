@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { MaterializationOutputTarget, MaterializedArtifactOutput } from "./contracts.js";
+import type {
+  MaterializationDocumentInputKind,
+  MaterializationOutputTarget,
+  MaterializationRendererTarget,
+  MaterializedArtifactOutput,
+} from "./contracts.js";
 import { escapeHtml, renderMarkdownToHtml } from "./markdown-report-materializer.js";
 
 function renderJsonBlock(jsonData: unknown): string {
@@ -60,12 +65,16 @@ export function buildHtmlDocument(params: {
 
 export function resolveHtmlBody(params: {
   html?: string;
+  spec?: unknown;
   markdown?: string;
   text?: string;
   jsonData?: unknown;
 }): string {
   if (params.html) {
     return params.html;
+  }
+  if (params.spec !== undefined) {
+    return renderJsonBlock(params.spec);
   }
   if (params.markdown) {
     return renderMarkdownToHtml(params.markdown);
@@ -84,6 +93,9 @@ export function writeHtmlMaterialization(params: {
   summary?: string;
   outputTarget: MaterializationOutputTarget;
   renderKind: "html" | "site_preview";
+  documentInputKind?: MaterializationDocumentInputKind;
+  rendererTarget?: MaterializationRendererTarget;
+  rendererId?: string;
 }): MaterializedArtifactOutput {
   fs.mkdirSync(params.outputDir, { recursive: true });
   const filePath = path.join(params.outputDir, `${params.baseFileName}.html`);
@@ -96,6 +108,9 @@ export function writeHtmlMaterialization(params: {
   const sizeBytes = fs.statSync(filePath).size;
   return {
     renderKind: params.renderKind,
+    ...(params.documentInputKind ? { documentInputKind: params.documentInputKind } : {}),
+    ...(params.rendererTarget ? { rendererTarget: params.rendererTarget } : {}),
+    ...(params.rendererId ? { rendererId: params.rendererId } : {}),
     outputTarget: params.outputTarget,
     path: filePath,
     url: params.outputTarget === "preview" ? pathToFileURL(filePath).toString() : undefined,

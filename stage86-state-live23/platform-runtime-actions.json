@@ -2,6 +2,90 @@
   "version": 1,
   "actions": [
     {
+      "actionId": "messaging:b03938a5-acb5-41b0-87cd-cb382c0cdb1f",
+      "runId": "b03938a5-acb5-41b0-87cd-cb382c0cdb1f",
+      "sessionKey": "agent:dev:main",
+      "kind": "messaging_delivery",
+      "state": "confirmed",
+      "idempotencyKey": "b03938a5-acb5-41b0-87cd-cb382c0cdb1f",
+      "target": {
+        "operation": "deliver"
+      },
+      "receipt": {
+        "deliveryResults": [
+          {
+            "channel": "telegram",
+            "messageId": "603",
+            "chatId": "6533456892"
+          }
+        ],
+        "operation": "deliver"
+      },
+      "attemptCount": 1,
+      "retryable": false,
+      "createdAtMs": 1775921895192,
+      "updatedAtMs": 1775921896308,
+      "stagedAtMs": 1775921895192,
+      "attemptedAtMs": 1775921895353,
+      "confirmedAtMs": 1775921896308
+    },
+    {
+      "actionId": "messaging:08d12b1e-63d5-46f4-8134-5bd861e768ed",
+      "runId": "08d12b1e-63d5-46f4-8134-5bd861e768ed",
+      "sessionKey": "agent:dev:main",
+      "kind": "messaging_delivery",
+      "state": "confirmed",
+      "idempotencyKey": "08d12b1e-63d5-46f4-8134-5bd861e768ed",
+      "target": {
+        "operation": "deliver"
+      },
+      "receipt": {
+        "deliveryResults": [
+          {
+            "channel": "telegram",
+            "messageId": "598",
+            "chatId": "6533456892"
+          }
+        ],
+        "operation": "deliver"
+      },
+      "attemptCount": 1,
+      "retryable": false,
+      "createdAtMs": 1775921810288,
+      "updatedAtMs": 1775921811887,
+      "stagedAtMs": 1775921810288,
+      "attemptedAtMs": 1775921810435,
+      "confirmedAtMs": 1775921811887
+    },
+    {
+      "actionId": "messaging:b773949b-058c-4ff2-84ec-784710be1812",
+      "runId": "b773949b-058c-4ff2-84ec-784710be1812",
+      "sessionKey": "agent:dev:main",
+      "kind": "messaging_delivery",
+      "state": "confirmed",
+      "idempotencyKey": "b773949b-058c-4ff2-84ec-784710be1812",
+      "target": {
+        "operation": "deliver"
+      },
+      "receipt": {
+        "deliveryResults": [
+          {
+            "channel": "telegram",
+            "messageId": "597",
+            "chatId": "6533456892"
+          }
+        ],
+        "operation": "deliver"
+      },
+      "attemptCount": 1,
+      "retryable": false,
+      "createdAtMs": 1775921765671,
+      "updatedAtMs": 1775921766770,
+      "stagedAtMs": 1775921765671,
+      "attemptedAtMs": 1775921765787,
+      "confirmedAtMs": 1775921766770
+    },
+    {
       "actionId": "bootstrap:409be0da-387a-4523-8f3b-0e165f8d745b:run",
       "runId": "409be0da-387a-4523-8f3b-0e165f8d745b",
       "kind": "bootstrap",

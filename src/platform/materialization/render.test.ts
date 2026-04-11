@@ -65,6 +65,9 @@ describe("materialization render layer", () => {
 
     expect(result.primary.path.endsWith(".md")).toBe(true);
     expect(fs.existsSync(result.primary.path)).toBe(true);
+    expect(result.primary.documentInputKind).toBe("markdown");
+    expect(result.primary.rendererTarget).toBe("markdown");
+    expect(result.primary.rendererId).toBe("markdown-file");
     expect(result.supporting?.some((output) => output.renderKind === "pdf")).toBe(true);
   });
 
@@ -84,6 +87,8 @@ describe("materialization render layer", () => {
     });
 
     expect(result.primary.mimeType).toBe("text/html");
+    expect(result.primary.rendererTarget).toBe("preview");
+    expect(result.primary.rendererId).toBe("html-preview");
     expect(result.primary.url?.startsWith("file:///")).toBe(true);
   });
 
@@ -107,6 +112,8 @@ describe("materialization render layer", () => {
 
     expect(result.degraded).toBe(true);
     expect(result.primary.renderKind).toBe("html");
+    expect(result.primary.rendererTarget).toBe("html");
+    expect(result.primary.rendererId).toBe("html-file");
     expect(result.warnings).toContain("pdf renderer unavailable; fell back to html output");
     expect(result.bootstrapRequest).toMatchObject({
       capabilityId: "pdf-renderer",
@@ -192,5 +199,26 @@ describe("materialization render layer", () => {
     expect(bootstrap?.status).toBe("bootstrapped");
     expect(bootstrap?.lifecycle?.status).toBe("available");
     expect(registry.get("pdf-renderer")?.status).toBe("available");
+  });
+
+  it("derives canonical contract fields from legacy html requests", () => {
+    const outputDir = path.join(os.tmpdir(), "openclaw-materialization-tests", "legacy-html");
+    const result = materializeArtifact({
+      artifactId: "html-legacy-1",
+      label: "Legacy HTML",
+      sourceDomain: "document",
+      renderKind: "html",
+      outputTarget: "file",
+      outputDir,
+      payload: {
+        title: "Legacy HTML",
+        markdown: "# Legacy",
+      },
+    });
+
+    expect(result.primary.renderKind).toBe("html");
+    expect(result.primary.documentInputKind).toBe("markdown");
+    expect(result.primary.rendererTarget).toBe("html");
+    expect(result.primary.rendererId).toBe("html-file");
   });
 });

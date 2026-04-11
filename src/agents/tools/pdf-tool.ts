@@ -852,6 +852,8 @@ export function createPdfTool(options?: {
           label: title,
           sourceDomain: "document" as const,
           renderKind: "pdf" as const,
+          documentInputKind: "html" as const,
+          rendererTarget: "pdf" as const,
           outputTarget: "file" as const,
           outputDir: path.join(os.tmpdir(), "openclaw-pdf-tool"),
           baseFileName,
