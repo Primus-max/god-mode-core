@@ -1,1 +1,3 @@
-Project name: Atlas. Team size: 7 people. Business type: B2B SaaS.
+Проект: Atlas.
+Команда: 7 человек.
+Тип продукта: B2B SaaS.

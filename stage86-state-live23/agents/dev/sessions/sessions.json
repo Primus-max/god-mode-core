@@ -1,7 +1,7 @@
 {
   "agent:dev:main": {
     "sessionId": "7da8429a-21ce-46d5-8006-72cf8cd120c9",
-    "updatedAt": 1775924511987,
+    "updatedAt": 1775926316400,
     "systemSent": true,
     "abortedLastRun": false,
     "chatType": "direct",
@@ -124,13 +124,13 @@
       "version": 0
     },
     "status": "blocked",
-    "startedAt": 1775924506230,
+    "startedAt": 1775926310067,
     "modelProvider": "hydra",
     "model": "gpt-4o",
     "contextTokens": 200000,
     "systemPromptReport": {
       "source": "run",
-      "generatedAt": 1775924505894,
+      "generatedAt": 1775926309894,
       "sessionId": "7da8429a-21ce-46d5-8006-72cf8cd120c9",
       "sessionKey": "agent:dev:main",
       "provider": "hydra",
@@ -400,12 +400,12 @@
         ]
       }
     },
-    "inputTokens": 86929,
+    "inputTokens": 87669,
     "outputTokens": 36,
     "cacheRead": 0,
     "cacheWrite": 0,
     "estimatedCostUsd": 0,
-    "totalTokens": 43509,
+    "totalTokens": 43879,
     "totalTokensFresh": true,
     "lastChannel": "telegram",
     "lastAccountId": "default",
@@ -415,13 +415,13 @@
     "fallbackNoticeSelectedModel": "ollama/gemma4:e4b",
     "fallbackNoticeActiveModel": "hydra/gpt-4o",
     "fallbackNoticeReason": "selected model unavailable",
-    "endedAt": 1775924511851,
-    "runtimeMs": 5621,
+    "endedAt": 1775926316247,
+    "runtimeMs": 6180,
     "runClosureSummary": {
-      "runId": "1f558bbc-eb7e-47a1-bd23-87f36c8c61f5",
-      "requestRunId": "1f558bbc-eb7e-47a1-bd23-87f36c8c61f5",
+      "runId": "9f147a3b-f021-46d4-af3a-7715ac7b7eca",
+      "requestRunId": "9f147a3b-f021-46d4-af3a-7715ac7b7eca",
       "sessionKey": "agent:dev:main",
-      "updatedAtMs": 1775924511859,
+      "updatedAtMs": 1775926316256,
       "outcomeStatus": "completed",
       "verificationStatus": "mismatch",
       "acceptanceStatus": "retryable",

@@ -2,6 +2,69 @@
   "version": 1,
   "checkpoints": [
     {
+      "id": "e0e42be8-125f-4e52-8375-efbef492b4f8",
+      "runId": "e0e42be8-125f-4e52-8375-efbef492b4f8",
+      "boundary": "bootstrap",
+      "status": "denied",
+      "blockedReason": "Bootstrap checkpoint: capability install is blocked until the operator approves (platform.bootstrap.resolve) and runs install/verify (platform.bootstrap.run).",
+      "nextActions": [
+        {
+          "method": "platform.bootstrap.resolve",
+          "label": "Approve or deny capability bootstrap (install) request",
+          "phase": "approve"
+        },
+        {
+          "method": "platform.bootstrap.run",
+          "label": "Execute approved install, health verification, and resume blocked work if configured",
+          "phase": "resume"
+        }
+      ],
+      "target": {
+        "bootstrapRequestId": "e0e42be8-125f-4e52-8375-efbef492b4f8",
+        "operation": "bootstrap.run"
+      },
+      "continuation": {
+        "kind": "bootstrap_run",
+        "autoDispatch": true,
+        "input": {
+          "blockedRunResume": true,
+          "blockedRunId": "agent:main:thread:case05-remote-architecture-1775926738247-bb6920d4-5779-4f67-98b6-f75c6c736a71",
+          "queueKey": "agent:main:thread:case05-remote-architecture-1775926738247"
+        },
+        "state": "completed",
+        "attempts": 1,
+        "lastDispatchedAtMs": 1775926750836,
+        "lastCompletedAtMs": 1775926754664
+      },
+      "executionContext": {
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "taskOverlayId": "document_first",
+        "plannerReasoning": "Recipe table_compare selected for profile builder. Task overlay: document_first.",
+        "intent": "compare",
+        "modelRouteTier": "local_eligible",
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "readinessStatus": "bootstrap_required",
+        "readinessReasons": [
+          "Run completed and delivery was confirmed by the outbound runtime.",
+          "blockedRunId=agent:main:thread:case05-remote-architecture-1775926738247-bb6920d4-5779-4f67-98b6-f75c6c736a71"
+        ],
+        "unattendedBoundary": "bootstrap"
+      },
+      "createdAtMs": 1775926750556,
+      "updatedAtMs": 1775926754664,
+      "approvedAtMs": 1775926750666,
+      "resumedAtMs": 1775926751104,
+      "completedAtMs": 1775926754419
+    },
+    {
       "id": "409be0da-387a-4523-8f3b-0e165f8d745b",
       "runId": "409be0da-387a-4523-8f3b-0e165f8d745b",
       "boundary": "bootstrap",

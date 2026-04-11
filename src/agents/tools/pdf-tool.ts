@@ -42,6 +42,15 @@ import {
   resolvePdfToolMaxTokens,
 } from "./pdf-tool.helpers.js";
 import {
+  buildGeneratedPdfText,
+  buildPromptOnlyPdfHtml,
+  buildPromptOnlyPdfMaterializationRequest,
+  inferRequestedPageCount,
+  promptOnlyPdfNeedsManagedRenderer,
+  promptOnlyPdfWantsRichDraft,
+  type PromptOnlyPdfImageAsset,
+} from "./pdf-tool.prompt-only.js";
+import {
   createSandboxBridgeReadFile,
   discoverAuthStorage,
   discoverModels,
@@ -64,30 +73,6 @@ const HYDRA_PDF_PRIMARY = "hydra/gpt-4o";
 
 const PDF_MIN_TEXT_CHARS = 200;
 const PDF_MAX_PIXELS = 4_000_000;
-
-function promptOnlyPdfNeedsManagedRenderer(prompt: string): boolean {
-  return /(?:\b(?:report|table|invoice|formatted|layout|spreadsheet|save|html|infographic|presentation|slides|chart|graph|visual)\b|\.html?\b|html[-\s]?file|html[-\s]?файл|отч[её]т|таблиц|сохрани|сохранить|инфограф|презентац|слайд|график|диаграм|визуал)/iu.test(
-    prompt,
-  );
-}
-
-function promptOnlyPdfWantsRichDraft(prompt: string): boolean {
-  return /(?:\b(?:infographic|presentation|slides|magazine|brochure|visual|chart|graph)\b|инфограф|презентац|слайд|журнал|брошюр|визуал|график|диаграм)/iu.test(
-    prompt,
-  );
-}
-
-function inferRequestedPageCount(prompt: string): number | null {
-  const match = prompt.match(
-    /(\d{1,2})\s*(?:pages?|slides?|страниц(?:а|ы|е)?|страниц|слайд(?:а|ов)?)/iu,
-  );
-  const raw = match?.[1];
-  if (!raw) {
-    return null;
-  }
-  const count = Number.parseInt(raw, 10);
-  return Number.isFinite(count) && count > 0 && count <= 12 ? count : null;
-}
 
 async function isPdfRendererAvailable(options?: { requireManagedInstall?: boolean }): Promise<boolean> {
   const entry = getApprovedCapabilityCatalogEntry("pdf-renderer");
@@ -134,14 +119,6 @@ async function isPdfRendererAvailable(options?: { requireManagedInstall?: boolea
   }
   const health = await verifyCapabilityHealth({ capability });
   return health.ok;
-}
-
-function buildGeneratedPdfText(prompt: string): string {
-  return prompt
-    .replace(/\s+/gu, " ")
-    .replace(/^(create|generate|make|создай|сгенерируй|сделай)\s+/iu, "")
-    .trim()
-    .slice(0, 4000);
 }
 
 function looksLikePdfReference(value: string): boolean {
@@ -196,12 +173,6 @@ function looksLikeImageReference(value: string): boolean {
   }
   return /^[^\\/\r\n]+\.(png|jpe?g|webp|gif|svg)$/iu.test(trimmed);
 }
-
-type PromptOnlyPdfImageAsset = {
-  fileName: string;
-  mimeType: string;
-  base64: string;
-};
 
 function extractImageReferencesFromText(text: string): string[] {
   const refs = text.match(
@@ -307,41 +278,6 @@ async function loadPromptOnlyPdfImageAsset(params: {
     mimeType: media.contentType ?? "image/png",
     base64: media.buffer.toString("base64"),
   };
-}
-
-function buildPromptOnlyPdfHtml(params: {
-  bodyMarkdown: string;
-  images: PromptOnlyPdfImageAsset[];
-}): string {
-  const imagesHtml = params.images
-    .map(
-      (image) => `
-        <figure style="margin:0 0 24px 0;padding:24px;border-radius:28px;background:linear-gradient(135deg,#fffbe8,#eef8ff);border:1px solid rgba(17,24,39,.08);">
-          <img src="data:${image.mimeType};base64,${image.base64}" alt="${image.fileName}" style="display:block;width:100%;max-width:520px;margin:0 auto;border-radius:24px;box-shadow:0 20px 50px rgba(15,23,42,.15);" />
-        </figure>
-      `,
-    )
-    .join("\n");
-  const pages = params.bodyMarkdown
-    .split(/\n\s*---+\s*\n/iu)
-    .map((pageMarkdown) => pageMarkdown.trim())
-    .filter(Boolean);
-  const pageSections = (pages.length > 0 ? pages : [params.bodyMarkdown.trim()])
-    .map((pageMarkdown, index) => {
-      const bodyHtml = resolveHtmlBody({ markdown: pageMarkdown });
-      return `
-        <section style="min-height:960px;padding:40px 44px;border-radius:32px;background:${index % 2 === 0 ? "linear-gradient(180deg,#fffdf5,#ffffff)" : "linear-gradient(180deg,#f7fbff,#ffffff)"};border:1px solid rgba(17,24,39,.08);box-shadow:0 24px 60px rgba(15,23,42,.08);${index > 0 ? "break-before:page;page-break-before:always;" : ""}">
-          ${index === 0 && imagesHtml ? `<div style="margin-bottom:28px;">${imagesHtml}</div>` : ""}
-          <div style="font-size:15px;line-height:1.65;">${bodyHtml}</div>
-        </section>
-      `.trim();
-    })
-    .join("\n");
-  return `
-    <section style="font-family:'Open Sans',Arial,sans-serif;color:#111827;">
-      <div style="display:grid;gap:28px;">${pageSections}</div>
-    </section>
-  `.trim();
 }
 
 async function draftPromptOnlyPdfMarkdown(params: {
@@ -838,7 +774,6 @@ export function createPdfTool(options?: {
                 images: imageAssets,
               }).catch(() => null)
             : null;
-        const baseFileName = path.parse(filename).name || "generated-pdf";
         const title = path.parse(filename).name || "Generated PDF";
         const bodyHtml =
           drafted || imageAssets.length > 0
@@ -847,21 +782,12 @@ export function createPdfTool(options?: {
                 images: imageAssets,
               })
             : resolveHtmlBody({ text: generatedText });
-        const materializationRequest = {
-          artifactId: `pdf-tool-${baseFileName}`,
-          label: title,
-          sourceDomain: "document" as const,
-          renderKind: "pdf" as const,
-          documentInputKind: "html" as const,
-          rendererTarget: "pdf" as const,
-          outputTarget: "file" as const,
+        const materializationRequest = buildPromptOnlyPdfMaterializationRequest({
+          filename,
+          title,
+          bodyHtml,
           outputDir: path.join(os.tmpdir(), "openclaw-pdf-tool"),
-          baseFileName,
-          payload: {
-            title,
-            html: bodyHtml,
-          },
-        };
+        });
         const rendererAvailable = await isPdfRendererAvailable({
           requireManagedInstall: promptOnlyPdfNeedsManagedRenderer(fallbackPrompt),
         });

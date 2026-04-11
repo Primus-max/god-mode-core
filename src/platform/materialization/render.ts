@@ -21,14 +21,22 @@ import {
   MaterializationRequestSchema,
   MaterializationResultSchema,
   type MaterializationDocumentInputKind,
-  type MaterializationOutputTarget,
   type MaterializationRenderKind,
-  type MaterializationRendererTarget,
   type MaterializationRequest,
   type MaterializationResult,
 } from "./contracts.js";
-import { resolveHtmlBody, writeHtmlMaterialization } from "./html-preview-materializer.js";
+import { writeHtmlMaterialization } from "./html-preview-materializer.js";
 import { writePdfMaterialization } from "./pdf-materializer.js";
+import {
+  DEFAULT_RENDERER_REGISTRY,
+  resolveFallbackRenderer,
+  resolveRendererDefinition,
+  type RendererDefinition,
+} from "./renderer-registry.js";
+import {
+  canonicalizeMaterializationRequest,
+  type CanonicalMaterializationRequest,
+} from "./request-normalizer.js";
 
 function sanitizeFilePart(value: string): string {
   return value
@@ -52,122 +60,6 @@ function resolveOutputDir(request: MaterializationRequest): string {
 
 function resolveBaseFileName(request: MaterializationRequest): string {
   return sanitizeFilePart(request.baseFileName ?? request.label) || "artifact";
-}
-
-type CanonicalMaterializationRequest = MaterializationRequest & {
-  documentInputKind: MaterializationDocumentInputKind;
-  rendererTarget: MaterializationRendererTarget;
-  title: string;
-  htmlBody: string;
-};
-
-type RendererDefinition = {
-  id: string;
-  renderKind: MaterializationRenderKind;
-  rendererTarget: MaterializationRendererTarget;
-  outputTarget: MaterializationOutputTarget;
-  requiredCapabilityId?: string;
-  bootstrapReason?: string;
-  unavailableWarning?: string;
-  fallbackRendererId?: string;
-};
-
-const RENDERER_REGISTRY: RendererDefinition[] = [
-  {
-    id: "markdown-file",
-    renderKind: "markdown",
-    rendererTarget: "markdown",
-    outputTarget: "file",
-  },
-  {
-    id: "html-file",
-    renderKind: "html",
-    rendererTarget: "html",
-    outputTarget: "file",
-  },
-  {
-    id: "html-preview",
-    renderKind: "site_preview",
-    rendererTarget: "preview",
-    outputTarget: "preview",
-  },
-  {
-    id: "pdf-from-html",
-    renderKind: "pdf",
-    rendererTarget: "pdf",
-    outputTarget: "file",
-    requiredCapabilityId: "pdf-renderer",
-    bootstrapReason: "renderer_unavailable",
-    unavailableWarning: "pdf renderer unavailable; fell back to html output",
-    fallbackRendererId: "html-file",
-  },
-];
-
-function inferDocumentInputKind(request: MaterializationRequest): MaterializationDocumentInputKind {
-  if (request.documentInputKind) {
-    return request.documentInputKind;
-  }
-  if (request.payload.html) {
-    return "html";
-  }
-  if (request.payload.spec !== undefined || request.payload.jsonData !== undefined) {
-    return "spec";
-  }
-  if (request.payload.markdown) {
-    return "markdown";
-  }
-  if (request.payload.text) {
-    return "text";
-  }
-  return request.renderKind === "markdown" ? "markdown" : "html";
-}
-
-function inferRendererTarget(request: MaterializationRequest): MaterializationRendererTarget {
-  if (request.rendererTarget) {
-    return request.rendererTarget;
-  }
-  if (request.outputTarget === "preview" || request.renderKind === "site_preview") {
-    return "preview";
-  }
-  if (request.renderKind === "pdf") {
-    return "pdf";
-  }
-  if (request.renderKind === "markdown") {
-    return "markdown";
-  }
-  return "html";
-}
-
-function canonicalizeMaterializationRequest(request: MaterializationRequest): CanonicalMaterializationRequest {
-  const documentInputKind = inferDocumentInputKind(request);
-  const rendererTarget = inferRendererTarget(request);
-  return {
-    ...request,
-    documentInputKind,
-    rendererTarget,
-    title: request.payload.title ?? request.label,
-    htmlBody: resolveHtmlBody({
-      html: request.payload.html,
-      spec: request.payload.spec ?? request.payload.jsonData,
-      markdown: request.payload.markdown,
-      text: request.payload.text,
-      jsonData: request.payload.jsonData,
-    }),
-  };
-}
-
-function resolveRendererDefinition(request: CanonicalMaterializationRequest): RendererDefinition {
-  const definition = RENDERER_REGISTRY.find(
-    (candidate) =>
-      candidate.rendererTarget === request.rendererTarget &&
-      candidate.outputTarget === request.outputTarget,
-  );
-  if (!definition) {
-    throw new Error(
-      `No materialization renderer registered for ${request.rendererTarget}:${request.outputTarget}`,
-    );
-  }
-  return definition;
 }
 
 function writeTextFile(params: {
@@ -275,14 +167,10 @@ function materializeUnavailableRenderer(params: {
     sourceRecipeId: params.options?.sourceRecipeId,
     executionContext: params.options?.executionContext,
   });
-  const fallbackRenderer =
-    (params.renderer.fallbackRendererId
-      ? RENDERER_REGISTRY.find((candidate) => candidate.id === params.renderer.fallbackRendererId)
-      : undefined) ??
-    RENDERER_REGISTRY.find((candidate) => candidate.id === "html-file");
-  if (!fallbackRenderer) {
-    throw new Error(`Fallback renderer is missing for "${params.renderer.id}"`);
-  }
+  const fallbackRenderer = resolveFallbackRenderer({
+    renderer: params.renderer,
+    registry: DEFAULT_RENDERER_REGISTRY,
+  });
   const primary = writeHtmlMaterialization({
     outputDir: params.outputDir,
     baseFileName: params.baseFileName,
@@ -329,7 +217,11 @@ export function materializeArtifact(
   const outputDir = resolveOutputDir(request);
   const baseFileName = resolveBaseFileName(request);
   const canonicalRequest = canonicalizeMaterializationRequest(request);
-  const renderer = resolveRendererDefinition(canonicalRequest);
+  const renderer = resolveRendererDefinition({
+    rendererTarget: canonicalRequest.rendererTarget,
+    outputTarget: canonicalRequest.outputTarget,
+    registry: DEFAULT_RENDERER_REGISTRY,
+  });
   const supporting: NonNullable<MaterializationResult["supporting"]> = [];
 
   if (renderer.id === "markdown-file") {
