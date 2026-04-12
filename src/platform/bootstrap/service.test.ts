@@ -126,18 +126,20 @@ describe("bootstrap request service", () => {
         runId: created.id,
         outcome: getPlatformRuntimeCheckpointService().buildRunOutcome(created.id),
       }),
-    ).toEqual([
-      expect.objectContaining({
-        kind: "capability",
-        name: "bootstrap.run",
-        status: "success",
-        proof: "verified",
-        metadata: expect.objectContaining({
-          bootstrapRequestId: created.id,
-          capabilityId: "pdf-renderer",
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "capability",
+          name: "bootstrap.run",
+          status: "success",
+          proof: "verified",
+          metadata: expect.objectContaining({
+            bootstrapRequestId: created.id,
+            capabilityId: "pdf-renderer",
+          }),
         }),
-      }),
-    ]);
+      ]),
+    );
   });
 
   it("does not execute a confirmed bootstrap continuation twice on replay", async () => {
@@ -179,6 +181,64 @@ describe("bootstrap request service", () => {
     expect(getPlatformRuntimeCheckpointService().getAction(`bootstrap:${created.id}:run`)).toEqual(
       expect.objectContaining({
         state: "confirmed",
+      }),
+    );
+  });
+
+  it("reruns a stale confirmed bootstrap action when the request is not terminal", async () => {
+    const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
+    const created = service.create(buildRequest());
+    service.resolve(created.id, "approve");
+    const actionId = `bootstrap:${created.id}:run`;
+    const runtime = getPlatformRuntimeCheckpointService();
+    runtime.stageAction({
+      actionId,
+      runId: created.id,
+      kind: "bootstrap",
+      boundary: "bootstrap",
+      checkpointId: created.id,
+      target: {
+        bootstrapRequestId: created.id,
+        operation: "bootstrap.run",
+      },
+    });
+    runtime.markActionConfirmed(actionId, {
+      receipt: {
+        bootstrapRequestId: created.id,
+        capabilityId: "pdf-renderer",
+        operation: "bootstrap.run",
+        resultStatus: "bootstrapped",
+      },
+    });
+
+    const installer = vi.fn(async ({ request }: { request: BootstrapRequest }) => ({
+      ok: true,
+      capability: {
+        ...request.catalogEntry.capability,
+        trusted: true,
+        sandboxed: true,
+        installMethod: "node" as const,
+        status: "available" as const,
+      },
+    }));
+
+    const rerun = await service.run({
+      id: created.id,
+      installers: {
+        node: installer,
+      },
+      availableBins: ["node"],
+      runHealthCheckCommand: async () => true,
+    });
+
+    expect(installer).toHaveBeenCalledTimes(1);
+    expect(rerun?.state).toBe("available");
+    expect(rerun?.result?.status).toBe("bootstrapped");
+    expect(getPlatformRuntimeCheckpointService().getAction(actionId)).toEqual(
+      expect.objectContaining({
+        state: "confirmed",
+        attemptCount: 1,
       }),
     );
   });
@@ -225,6 +285,58 @@ describe("bootstrap request service", () => {
         queueKey,
       }),
     );
+  });
+
+  it("creates a fresh request when an active bootstrap belongs to another blocked run", () => {
+    const firstResume = BootstrapBlockedRunResumeSchema.parse({
+      blockedRunId: "run-first",
+      queueKey: "queue-first",
+      settings: { mode: "followup" },
+      sourceRun: {
+        prompt: "resume first run",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-first",
+          agentDir: "/tmp/agent-first",
+          sessionId: "sess-first",
+          sessionFile: "/tmp/sess-first.jsonl",
+          workspaceDir: "/tmp/ws-first",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+    });
+    const secondResume = BootstrapBlockedRunResumeSchema.parse({
+      blockedRunId: "run-second",
+      queueKey: "queue-second",
+      settings: { mode: "followup" },
+      sourceRun: {
+        prompt: "resume second run",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-second",
+          agentDir: "/tmp/agent-second",
+          sessionId: "sess-second",
+          sessionFile: "/tmp/sess-second.jsonl",
+          workspaceDir: "/tmp/ws-second",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+    });
+    const service = createBootstrapRequestService();
+    const first = service.create(buildRequest({ blockedRunResume: firstResume }));
+    const second = service.create(buildRequest({ blockedRunResume: secondResume }));
+
+    expect(second.id).not.toBe(first.id);
+    expect(service.get(first.id)?.request.blockedRunResume).toEqual(firstResume);
+    expect(service.get(second.id)?.request.blockedRunResume).toEqual(secondResume);
   });
 
   it("keeps explicit approvals idle until platform.bootstrap.run executes", async () => {

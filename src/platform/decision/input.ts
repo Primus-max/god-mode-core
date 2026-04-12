@@ -23,6 +23,7 @@ const DEVELOPER_EXECUTION_KEYWORDS =
 const DEVELOPER_PUBLISH_KEYWORDS = /\b(preview|publish|release|deploy|ship|rollout)\b/iu;
 const DOCUMENT_ARTIFACT_HINTS = [
   "pdf",
+  "пдф",
   "document",
   "doc",
   "docx",
@@ -358,14 +359,61 @@ function promptNeedsImageGenerationTool(prompt: string): boolean {
 function promptNeedsPdfTool(prompt: string): boolean {
   return (
     PDF_GENERATION_VERB_RE.test(prompt) &&
-    (/\bpdf\b/iu.test(prompt) || promptIncludesAny(prompt, PRESENTATION_ARTIFACT_HINTS))
+    (promptIncludesAny(prompt, ["pdf", "пдф"]) ||
+      promptIncludesAny(prompt, PRESENTATION_ARTIFACT_HINTS))
   );
+}
+
+function promptTargetsPdfArtifact(prompt: string, fileNames: string[]): boolean {
+  return (
+    promptIncludesAny(prompt, ["pdf", "пдф"]) ||
+    promptIncludesAny(prompt, PRESENTATION_ARTIFACT_HINTS) ||
+    fileNames.some((name) => /\.pdf$/iu.test(name))
+  );
+}
+
+type ArtifactDrivenToolRule = {
+  toolName: string;
+  matches: (params: {
+    prompt: string;
+    fileNames: string[];
+    artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
+    pdfTarget: boolean;
+  }) => boolean;
+};
+
+const ARTIFACT_DRIVEN_TOOL_RULES: readonly ArtifactDrivenToolRule[] = [
+  {
+    toolName: "pdf",
+    matches: ({ artifactKinds, pdfTarget }) => artifactKinds.includes("document") && pdfTarget,
+  },
+  {
+    toolName: "image_generate",
+    matches: ({ artifactKinds, pdfTarget }) =>
+      artifactKinds.includes("image") && artifactKinds.includes("document") && pdfTarget,
+  },
+] as const;
+
+function inferArtifactDrivenTools(params: {
+  prompt: string;
+  fileNames: string[];
+  artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
+}): string[] {
+  const pdfTarget = promptTargetsPdfArtifact(params.prompt, params.fileNames);
+  return ARTIFACT_DRIVEN_TOOL_RULES.filter((rule) =>
+    rule.matches({
+      prompt: params.prompt,
+      fileNames: params.fileNames,
+      artifactKinds: params.artifactKinds,
+      pdfTarget,
+    }),
+  ).map((rule) => rule.toolName);
 }
 
 function promptSuggestsHeavyDocumentWork(prompt: string): boolean {
   return (
     /\b(pdf|png|jpe?g|webp|gif|scan|scanned|screenshot|ocr|invoice|diagram)\b/iu.test(prompt) ||
-    /\b(pdf|png|скан|скриншот|чертеж)\b/iu.test(prompt)
+    /\b(pdf|пдф|png|скан|скриншот|чертеж)\b/iu.test(prompt)
   );
 }
 
@@ -694,6 +742,11 @@ export function buildExecutionDecisionInput(
   ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
   const requestedTools = toUniqueLowercase([
     ...inferredRequestedTools,
+    ...inferArtifactDrivenTools({
+      prompt: inferencePrompt,
+      fileNames,
+      artifactKinds,
+    }),
     ...(params.requestedTools ?? []),
   ]);
   const localRoutingEligible = inferLocalRoutingEligible({

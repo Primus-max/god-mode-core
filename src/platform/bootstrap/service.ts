@@ -114,6 +114,13 @@ function buildRecordSignature(request: BootstrapRequest): string {
   ].join("::");
 }
 
+function blockedRunResumeMatches(
+  left: BootstrapRequest["blockedRunResume"],
+  right: BootstrapRequest["blockedRunResume"],
+): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
 async function dispatchBlockedRunResumeAfterBootstrap(params: {
   bootstrapRequestId: string;
   capabilityId: string;
@@ -202,6 +209,10 @@ async function dispatchBlockedRunResumeAfterBootstrap(params: {
 
 function resolveBootstrapRunActionId(requestId: string): string {
   return `bootstrap:${requestId}:run`;
+}
+
+function isBootstrapRunReplaySafe(record: BootstrapRequestRecord): boolean {
+  return record.state === "available" && record.result?.status === "bootstrapped";
 }
 
 function resolveBootstrapDecisionPrompt(request: BootstrapRequest): string {
@@ -302,9 +313,14 @@ export function createBootstrapRequestService(params?: {
       const normalizedRequest = request;
       const signature = buildRecordSignature(normalizedRequest);
       const existing = Array.from(records.values()).find((record) => {
+        const blockedRunResumeConflict =
+          normalizedRequest.blockedRunResume &&
+          record.request.blockedRunResume &&
+          !blockedRunResumeMatches(normalizedRequest.blockedRunResume, record.request.blockedRunResume);
         return (
           buildRecordSignature(record.request) === signature &&
-          (record.state === "pending" || record.state === "approved" || record.state === "running")
+          (record.state === "pending" || record.state === "approved" || record.state === "running") &&
+          !blockedRunResumeConflict
         );
       });
       if (existing) {
@@ -483,7 +499,7 @@ export function createBootstrapRequestService(params?: {
       }
       const actionId = resolveBootstrapRunActionId(runParams.id);
       const existingAction = runtimeCheckpointService.getAction(actionId);
-      if (existingAction?.state === "confirmed") {
+      if (existingAction?.state === "confirmed" && isBootstrapRunReplaySafe(existing)) {
         runtimeCheckpointService.updateCheckpoint(runParams.id, {
           status: "completed",
           completedAtMs: existingAction.confirmedAtMs ?? Date.now(),

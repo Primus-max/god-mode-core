@@ -76,6 +76,13 @@ const STRUCTURED_OUTPUT_ARTIFACT_KINDS = new Set<ArtifactKind>([
   "archive",
 ]);
 
+const ARTIFACT_OUTPUT_TOOL_NAMES_BY_KIND: Partial<Record<ArtifactKind, readonly string[]>> = {
+  document: ["pdf"],
+  image: ["image_generate", "image"],
+  video: ["video_generate", "video"],
+  audio: ["audio_generate", "audio", "tts", "voiceover"],
+};
+
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -109,6 +116,27 @@ function renameWithRetry(tmpPath: string, targetPath: string): void {
 function hasStructuredOutputArtifactKinds(artifactKinds?: readonly string[]): boolean {
   return Boolean(
     artifactKinds?.some((kind) => STRUCTURED_OUTPUT_ARTIFACT_KINDS.has(kind as ArtifactKind)),
+  );
+}
+
+function hasStructuredArtifactToolOutputReceipt(params: {
+  receipts: PlatformRuntimeExecutionReceipt[];
+  artifactKinds?: readonly string[];
+}): boolean {
+  const expectedToolNames = new Set<string>();
+  for (const kind of params.artifactKinds ?? []) {
+    for (const toolName of ARTIFACT_OUTPUT_TOOL_NAMES_BY_KIND[kind as ArtifactKind] ?? []) {
+      expectedToolNames.add(toolName);
+    }
+  }
+  if (expectedToolNames.size === 0) {
+    return false;
+  }
+  return params.receipts.some(
+    (receipt) =>
+      receipt.kind === "tool" &&
+      receipt.status === "success" &&
+      expectedToolNames.has(receipt.name.trim().toLowerCase()),
   );
 }
 
@@ -906,6 +934,50 @@ function buildExecutionReceiptFromAction(
   });
 }
 
+function buildExecutionReceiptFromCheckpoint(
+  checkpoint: PlatformRuntimeCheckpoint,
+): PlatformRuntimeExecutionReceipt | undefined {
+  if (checkpoint.boundary !== "bootstrap" || !checkpoint.target?.bootstrapRequestId) {
+    return undefined;
+  }
+  const capabilityId =
+    checkpoint.executionContext?.bootstrapRequiredCapabilities?.length === 1
+      ? checkpoint.executionContext.bootstrapRequiredCapabilities[0]
+      : undefined;
+  let status: PlatformRuntimeExecutionReceipt["status"];
+  if (checkpoint.status === "completed") {
+    status = "success";
+  } else if (checkpoint.status === "denied" || checkpoint.status === "cancelled") {
+    status = "failed";
+  } else if (checkpoint.status === "approved" || checkpoint.status === "resumed") {
+    status = "partial";
+  } else {
+    status = "blocked";
+  }
+  return PlatformRuntimeExecutionReceiptSchema.parse({
+    kind: "capability",
+    name: checkpoint.target.operation ?? "bootstrap.run",
+    status,
+    proof: checkpoint.status === "completed" ? "verified" : "derived",
+    summary:
+      checkpoint.status === "completed"
+        ? "bootstrap checkpoint completed"
+        : checkpoint.status === "denied"
+          ? "bootstrap checkpoint denied"
+          : checkpoint.status === "cancelled"
+            ? "bootstrap checkpoint cancelled"
+            : checkpoint.status === "approved" || checkpoint.status === "resumed"
+              ? "bootstrap checkpoint awaiting completion"
+              : "bootstrap checkpoint blocked",
+    metadata: {
+      checkpointId: checkpoint.id,
+      bootstrapRequestId: checkpoint.target.bootstrapRequestId,
+      ...(capabilityId ? { capabilityId } : {}),
+      ...(checkpoint.boundary ? { boundary: checkpoint.boundary } : {}),
+    },
+  });
+}
+
 export function createPlatformRuntimeCheckpointService(params?: {
   stateDir?: string;
 }): PlatformRuntimeCheckpointService {
@@ -1360,6 +1432,15 @@ export function createPlatformRuntimeCheckpointService(params?: {
           merged.executionUnattendedBoundary = params.executionSurface.unattendedBoundary;
         }
       }
+      if (
+        params.executionVerification &&
+        hasStructuredArtifactToolOutputReceipt({
+          receipts: params.executionVerification.receipts,
+          artifactKinds: merged.declaredArtifactKinds,
+        })
+      ) {
+        merged.hasOutput = true;
+      }
       return merged;
     },
     buildExecutionIntent(params) {
@@ -1479,7 +1560,13 @@ export function createPlatformRuntimeCheckpointService(params?: {
         .filter((action) => actionIds.size === 0 || actionIds.has(action.actionId))
         .map((action) => buildExecutionReceiptFromAction(action))
         .filter((receipt): receipt is PlatformRuntimeExecutionReceipt => Boolean(receipt));
-      return [...explicitReceipts, ...actionReceipts]
+      const checkpointIds = new Set(params.outcome?.checkpointIds ?? []);
+      const checkpointReceipts = Array.from(checkpoints.values())
+        .filter((checkpoint) => checkpoint.runId === normalizedRunId)
+        .filter((checkpoint) => checkpointIds.size === 0 || checkpointIds.has(checkpoint.id))
+        .map((checkpoint) => buildExecutionReceiptFromCheckpoint(checkpoint))
+        .filter((receipt): receipt is PlatformRuntimeExecutionReceipt => Boolean(receipt));
+      return [...explicitReceipts, ...actionReceipts, ...checkpointReceipts]
         .toSorted((left, right) =>
           buildExecutionReceiptKey(left).localeCompare(buildExecutionReceiptKey(right)),
         )
@@ -1514,6 +1601,10 @@ export function createPlatformRuntimeCheckpointService(params?: {
         runId: params.runId,
         executionIntent: params.executionIntent,
       });
+      const verificationEvidence = buildIntentAwareEvidence({
+        evidence: params.evidence ?? {},
+        executionIntent,
+      });
       const contract = this.buildExecutionContract({
         runId: params.runId,
         outcome,
@@ -1524,7 +1615,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const executionVerification = this.verifyExecutionContract({
         contract,
         outcome,
-        evidence: params.evidence,
+        evidence: verificationEvidence,
       });
       const evidence = this.buildAcceptanceEvidence({
         outcome,
@@ -1609,11 +1700,16 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const requiresStructuredOutput = hasStructuredOutputArtifactKinds(
         evidence.declaredArtifactKinds,
       );
+      const hasToolArtifactOutput = hasStructuredArtifactToolOutputReceipt({
+        receipts,
+        artifactKinds: evidence.declaredArtifactKinds,
+      });
       const hasOutput = requiresStructuredOutput
         ? evidence.hasOutput === true ||
           evidence.hasStructuredReplyPayload === true ||
           (params.outcome?.artifactIds.length ?? 0) > 0 ||
-          (params.outcome?.bootstrapRequestIds.length ?? 0) > 0
+          (params.outcome?.bootstrapRequestIds.length ?? 0) > 0 ||
+          hasToolArtifactOutput
         : evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
       const declaredIntent = describeDeclaredIntent(evidence);
       const confirmedActionCount =
@@ -1900,6 +1996,13 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const artifactReceiptCount = evidence.artifactReceiptCount ?? params.outcome.artifactIds.length;
       const bootstrapReceiptCount =
         evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length;
+      const bootstrapStillRequired =
+        evidence.executionSurfaceStatus === "bootstrap_required" ||
+        evidence.executionUnattendedBoundary === "bootstrap" ||
+        params.outcome.blockedCheckpointIds.length > 0 ||
+        params.outcome.pendingApprovalIds.length > 0
+          ? bootstrapReceiptCount
+          : 0;
       const hasDeliverableEvidence =
         artifactReceiptCount > 0 ||
         evidence.didSendViaMessagingTool === true ||
@@ -1912,7 +2015,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         attemptedDeliveryCount === 0 &&
         confirmedDeliveryCount === 0 &&
         (artifactReceiptCount > 0 ||
-          bootstrapReceiptCount > 0 ||
+          bootstrapStillRequired > 0 ||
           attemptedActionCount > 0 ||
           confirmedActionCount > 0 ||
           failedActionCount > 0);
@@ -1952,7 +2055,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
           reasonCode:
             evidence.executionSurfaceStatus === "bootstrap_required" ||
             evidence.executionUnattendedBoundary === "bootstrap" ||
-            bootstrapReceiptCount > 0
+            bootstrapStillRequired > 0
               ? "bootstrap_required"
               : classifyProviderEvidence(evidence) === "auth_refresh"
                 ? "provider_auth_required"
@@ -1964,7 +2067,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
-      if (bootstrapReceiptCount > 0) {
+      if (bootstrapStillRequired > 0) {
         reasons.push("Run paused while capability bootstrap is still required before completion.");
         return parseAcceptanceResult({
           runId: params.runId,

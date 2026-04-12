@@ -67,6 +67,7 @@ type ProbeStep = {
   expectModelIncludes?: string;
   expectTextIncludes?: string[];
   expectTool?: ToolExpectation;
+  expectTools?: ToolExpectation[];
 };
 
 type Scenario =
@@ -96,6 +97,27 @@ function requireEnv(name: string): string {
     throw new Error(`Missing required env: ${name}`);
   }
   return value;
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readScenarioFilter(): Set<string> | null {
+  const raw = process.env.STAGE86_MATRIX_CASES?.trim();
+  if (!raw) {
+    return null;
+  }
+  const ids = raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return ids.length > 0 ? new Set(ids) : null;
 }
 
 function toBase64(value: string): string {
@@ -407,6 +429,34 @@ function buildScenarios(): Scenario[] {
             renderKind: "pdf",
             minMediaCount: 1,
           },
+        },
+      ],
+      expectNoDuplicates: true,
+      expectNoRecoveryLeaks: true,
+    },
+    {
+      id: "case14b-mixed-image-pdf-delivery",
+      kind: "turns",
+      description:
+        "Смешанный запрос image + PDF должен вернуть оба артефакта без recovery leak и без повторного финала.",
+      steps: [
+        {
+          prompt:
+            "Можешь сгенерировать картинку котёнка и создать PDF-файл с его расписанием и жизнью, в графиках и таблицах. Верни и картинку, и сам PDF.",
+          timeoutMs: 300_000,
+          expectTools: [
+            {
+              toolName: "image_generate",
+              pathExt: ".png",
+              minMediaCount: 1,
+            },
+            {
+              toolName: "pdf",
+              pathExt: ".pdf",
+              renderKind: "pdf",
+              minMediaCount: 1,
+            },
+          ],
         },
       ],
       expectNoDuplicates: true,
@@ -758,60 +808,66 @@ async function evaluateToolExpectation(params: {
   allMessages?: NormalizedSessionMessage[];
 }): Promise<string[]> {
   const failures: string[] = [];
-  const expectation = params.step.expectTool;
-  if (!expectation) {
+  const expectations = params.step.expectTools?.length
+    ? params.step.expectTools
+    : params.step.expectTool
+      ? [params.step.expectTool]
+      : [];
+  if (expectations.length === 0) {
     return failures;
   }
-  const toolMessages = params.deltaMessages.filter(
-    (message) => message.role === "toolResult" && message.toolName === expectation.toolName,
-  );
-  const successfulToolMessage =
-    [...toolMessages].reverse().find((message) => message.isError !== true) ?? toolMessages.at(-1);
-  const fallbackToolMessage =
-    successfulToolMessage ??
-    [...(params.allMessages ?? [])]
-      .reverse()
-      .find(
-        (message) =>
-          message.role === "toolResult" &&
-          message.toolName === expectation.toolName &&
-          message.isError !== true,
-      );
-  if (!fallbackToolMessage) {
-    failures.push(`missing toolResult for ${expectation.toolName}`);
-    return failures;
-  }
-  const resolvedToolMessage = fallbackToolMessage;
-  if (expectation.renderKind) {
-    const renderKind =
-      resolvedToolMessage.details && typeof resolvedToolMessage.details.renderKind === "string"
-        ? resolvedToolMessage.details.renderKind
-        : undefined;
-    if (renderKind !== expectation.renderKind) {
-      failures.push(`expected renderKind=${expectation.renderKind}, got=${renderKind ?? "unknown"}`);
+  for (const expectation of expectations) {
+    const toolMessages = params.deltaMessages.filter(
+      (message) => message.role === "toolResult" && message.toolName === expectation.toolName,
+    );
+    const successfulToolMessage =
+      [...toolMessages].reverse().find((message) => message.isError !== true) ?? toolMessages.at(-1);
+    const fallbackToolMessage =
+      successfulToolMessage ??
+      [...(params.allMessages ?? [])]
+        .reverse()
+        .find(
+          (message) =>
+            message.role === "toolResult" &&
+            message.toolName === expectation.toolName &&
+            message.isError !== true,
+        );
+    if (!fallbackToolMessage) {
+      failures.push(`missing toolResult for ${expectation.toolName}`);
+      continue;
     }
-  }
-  const mediaPaths = extractMediaPaths(resolvedToolMessage);
-  if (mediaPaths.length < (expectation.minMediaCount ?? 1)) {
-    failures.push(`expected at least ${String(expectation.minMediaCount ?? 1)} media path(s), got=${String(mediaPaths.length)}`);
-    return failures;
-  }
-  if (expectation.pathExt) {
-    const normalizedExt = expectation.pathExt.toLowerCase();
-    if (!mediaPaths.some((entry) => entry.toLowerCase().endsWith(normalizedExt))) {
-      failures.push(`expected artifact path ending with ${expectation.pathExt}`);
+    const resolvedToolMessage = fallbackToolMessage;
+    if (expectation.renderKind) {
+      const renderKind =
+        resolvedToolMessage.details && typeof resolvedToolMessage.details.renderKind === "string"
+          ? resolvedToolMessage.details.renderKind
+          : undefined;
+      if (renderKind !== expectation.renderKind) {
+        failures.push(`expected renderKind=${expectation.renderKind}, got=${renderKind ?? "unknown"}`);
+      }
     }
-  }
-  const missingPaths: string[] = [];
-  for (const mediaPath of mediaPaths) {
-    try {
-      await fs.access(mediaPath);
-    } catch {
-      missingPaths.push(mediaPath);
+    const mediaPaths = extractMediaPaths(resolvedToolMessage);
+    if (mediaPaths.length < (expectation.minMediaCount ?? 1)) {
+      failures.push(`expected at least ${String(expectation.minMediaCount ?? 1)} media path(s), got=${String(mediaPaths.length)}`);
+      continue;
     }
-  }
-  if (missingPaths.length > 0) {
-    failures.push(`artifact path missing on disk: ${missingPaths[0]}`);
+    if (expectation.pathExt) {
+      const normalizedExt = expectation.pathExt.toLowerCase();
+      if (!mediaPaths.some((entry) => entry.toLowerCase().endsWith(normalizedExt))) {
+        failures.push(`expected artifact path ending with ${expectation.pathExt}`);
+      }
+    }
+    const missingPaths: string[] = [];
+    for (const mediaPath of mediaPaths) {
+      try {
+        await fs.access(mediaPath);
+      } catch {
+        missingPaths.push(mediaPath);
+      }
+    }
+    if (missingPaths.length > 0) {
+      failures.push(`artifact path missing on disk: ${missingPaths[0]}`);
+    }
   }
   return failures;
 }
@@ -1139,7 +1195,15 @@ async function main() {
   const token = requireEnv("OPENCLAW_GATEWAY_TOKEN");
   const events: ChatEventPayload[] = [];
   let grantedScopes: string[] = [];
-  const scenarios = buildScenarios();
+  const scenarioFilter = readScenarioFilter();
+  const repeatCount = readPositiveIntEnv("STAGE86_MATRIX_REPEAT", 1);
+  const allScenarios = buildScenarios();
+  const scenarios = scenarioFilter
+    ? allScenarios.filter((scenario) => scenarioFilter.has(scenario.id))
+    : allScenarios;
+  if (scenarios.length === 0) {
+    throw new Error("No stage86 live matrix scenarios matched STAGE86_MATRIX_CASES.");
+  }
 
   const client = await connectGatewayClient({
     url,
@@ -1170,34 +1234,40 @@ async function main() {
   try {
     const startedAt = Date.now();
     const results: Array<Record<string, unknown>> = [];
-    for (const scenario of scenarios) {
-      try {
-        if (scenario.kind === "turns") {
-          results.push(
-            await runTurnsScenario({
-              scenario,
-              client,
-              events,
-            }),
-          );
-        } else {
-          results.push(
-            await runBootstrapResumeScenario({
-              scenario,
-              client,
-              events,
-            }),
-          );
+    for (let iteration = 1; iteration <= repeatCount; iteration += 1) {
+      for (const scenario of scenarios) {
+        const scenarioRun =
+          repeatCount > 1
+            ? ({ ...scenario, id: `${scenario.id}#run${iteration}` } as Scenario)
+            : scenario;
+        try {
+          if (scenarioRun.kind === "turns") {
+            results.push(
+              await runTurnsScenario({
+                scenario: scenarioRun,
+                client,
+                events,
+              }),
+            );
+          } else {
+            results.push(
+              await runBootstrapResumeScenario({
+                scenario: scenarioRun,
+                client,
+                events,
+              }),
+            );
+          }
+        } catch (err) {
+          results.push({
+            id: scenarioRun.id,
+            description: scenarioRun.description,
+            kind: scenarioRun.kind,
+            ok: false,
+            failures: [err instanceof Error ? err.message : String(err)],
+            fatal: true,
+          });
         }
-      } catch (err) {
-        results.push({
-          id: scenario.id,
-          description: scenario.description,
-          kind: scenario.kind,
-          ok: false,
-          failures: [err instanceof Error ? err.message : String(err)],
-          fatal: true,
-        });
       }
     }
     const failed = results.filter((result) => result.ok === false);
@@ -1205,6 +1275,8 @@ async function main() {
       action: "run-live-matrix",
       url,
       grantedScopes,
+      scenarioFilter: scenarioFilter ? Array.from(scenarioFilter) : null,
+      repeatCount,
       startedAt: new Date(startedAt).toISOString(),
       elapsedMs: Date.now() - startedAt,
       total: results.length,

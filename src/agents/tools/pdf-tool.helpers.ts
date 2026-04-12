@@ -75,6 +75,9 @@ export function coercePdfAssistantText(params: {
   }
   const text = extractAssistantText(params.message);
   const trimmed = text.trim();
+  if (/\bdata:image\/[a-z0-9.+-]+;base64,/iu.test(trimmed)) {
+    fail("returned inline image data instead of PDF-ready markdown");
+  }
   if (trimmed) {
     return trimmed;
   }

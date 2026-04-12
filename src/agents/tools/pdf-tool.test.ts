@@ -288,13 +288,14 @@ describe("resolvePdfModelConfigForTool", () => {
     });
   });
 
-  it("falls back to imageModel config when no pdfModel set", async () => {
+  it("does not inherit imageModel config for prompt-only pdf drafting", async () => {
     await withTempAgentDir(async (agentDir) => {
+      vi.stubEnv("OPENAI_API_KEY", "openai-test");
       const cfg: OpenClawConfig = {
         agents: {
           defaults: {
             model: { primary: "openai/gpt-5.4" },
-            imageModel: { primary: "openai/gpt-5-mini" },
+            imageModel: { primary: "google/gemini-3-pro-image-preview" },
           },
         },
       };
@@ -1044,6 +1045,20 @@ describe("pdf-tool.helpers", () => {
       } as never,
     });
     expect(text).toBe("summary");
+  });
+
+  it("coercePdfAssistantText rejects inline image data payloads", () => {
+    expect(() =>
+      coercePdfAssistantText({
+        provider: "hydra",
+        model: "hydra-banana",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "![image](data:image/png;base64,AAAA)" }],
+        } as never,
+      }),
+    ).toThrow(/inline image data/i);
   });
 
   it("coercePdfAssistantText throws clear error for failed model output", () => {

@@ -1,7 +1,7 @@
 {
   "agent:dev:main": {
-    "sessionId": "7da8429a-21ce-46d5-8006-72cf8cd120c9",
-    "updatedAt": 1775926316400,
+    "sessionId": "55e0c19e-6eb2-4e30-9579-d0c5d02b25f2",
+    "updatedAt": 1775997209296,
     "systemSent": true,
     "abortedLastRun": false,
     "chatType": "direct",
@@ -20,7 +20,7 @@
       "chatType": "direct",
       "accountId": "default"
     },
-    "sessionFile": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\stage86-state-live23\\agents\\dev\\sessions\\7da8429a-21ce-46d5-8006-72cf8cd120c9.jsonl",
+    "sessionFile": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\stage86-state-live23\\agents\\dev\\sessions\\55e0c19e-6eb2-4e30-9579-d0c5d02b25f2.jsonl",
     "compactionCount": 0,
     "skillsSnapshot": {
       "prompt": "\n\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>clawhub</name>\n    <description>Use the ClawHub CLI to search, install, update, and publish agent skills from clawhub.com. Use when you need to fetch new skills on the fly, sync installed skills to latest or a specific version, or publish new/updated skill folders with the npm-installed clawhub CLI.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\clawhub\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>coding-agent</name>\n    <description>Delegate coding tasks to Codex, Claude Code, or Pi agents via background process. Use when: (1) building/creating new features or apps, (2) reviewing PRs (spawn in temp dir), (3) refactoring large codebases, (4) iterative coding that needs file exploration. NOT for: simple one-liner fixes (just edit), reading code (use read tool), thread-bound ACP harness requests in chat (for example spawn/run Codex or Claude Code in a Discord thread; use sessions_spawn with runtime:&quot;acp&quot;), or any work in ~/clawd workspace (never spawn agents here). Claude Code: use --print --permission-mode bypassPermissions (no PTY). Codex/Pi/OpenCode: pty:true required.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\coding-agent\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>healthcheck</name>\n    <description>Host security hardening and risk-tolerance configuration for OpenClaw deployments. Use when a user asks for security audits, firewall/SSH/update hardening, risk posture, exposure review, OpenClaw cron scheduling for periodic checks, or version status checks on a machine running OpenClaw (laptop, workstation, Pi, VPS).</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\healthcheck\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>mcporter</name>\n    <description>Use the mcporter CLI to list, configure, auth, and call MCP servers/tools directly (HTTP or stdio), including ad-hoc servers, config edits, and CLI/type generation.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\mcporter\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>node-connect</name>\n    <description>Diagnose OpenClaw node connection and pairing failures for Android, iOS, and macOS companion apps. Use when QR/setup code/manual connect fails, local Wi-Fi works but VPS/tailnet does not, or errors mention pairing required, unauthorized, bootstrap token invalid or expired, gateway.bind, gateway.remote.url, Tailscale, or plugins.entries.device-pair.config.publicUrl.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\node-connect\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>skill-creator</name>\n    <description>Create, edit, improve, or audit AgentSkills. Use when creating a new skill from scratch or when asked to improve, review, audit, tidy up, or clean up an existing skill or SKILL.md file. Also use when editing or restructuring a skill directory (moving files to references/ or scripts/, removing stale content, validating against the AgentSkills spec). Triggers on phrases like &quot;create a skill&quot;, &quot;author a skill&quot;, &quot;tidy up a skill&quot;, &quot;improve this skill&quot;, &quot;review the skill&quot;, &quot;clean up the skill&quot;, &quot;audit the skill&quot;.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\skill-creator\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>video-frames</name>\n    <description>Extract frames or short clips from videos using ffmpeg.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\video-frames\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>weather</name>\n    <description>Get current weather and forecasts via wttr.in or Open-Meteo. Use when: user asks about weather, temperature, or forecasts for any location. NOT for: historical weather data, severe weather alerts, or detailed meteorological analysis. No API key needed.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\weather\\SKILL.md</location>\n  </skill>\n</available_skills>",
@@ -123,15 +123,15 @@
       ],
       "version": 0
     },
-    "status": "blocked",
-    "startedAt": 1775926310067,
+    "status": "done",
+    "startedAt": 1775997204731,
+    "totalTokensFresh": true,
     "modelProvider": "hydra",
     "model": "gpt-4o",
-    "contextTokens": 200000,
     "systemPromptReport": {
       "source": "run",
-      "generatedAt": 1775926309894,
-      "sessionId": "7da8429a-21ce-46d5-8006-72cf8cd120c9",
+      "generatedAt": 1775997204704,
+      "sessionId": "55e0c19e-6eb2-4e30-9579-d0c5d02b25f2",
       "sessionKey": "agent:dev:main",
       "provider": "hydra",
       "model": "gpt-4o",
@@ -400,36 +400,34 @@
         ]
       }
     },
-    "inputTokens": 87669,
-    "outputTokens": 36,
     "cacheRead": 0,
     "cacheWrite": 0,
+    "contextTokens": 200000,
+    "inputTokens": 36350,
+    "outputTokens": 6,
     "estimatedCostUsd": 0,
-    "totalTokens": 43879,
-    "totalTokensFresh": true,
+    "totalTokens": 36350,
     "lastChannel": "telegram",
     "lastAccountId": "default",
-    "memoryFlushAt": 1775895705306,
-    "memoryFlushCompactionCount": 0,
-    "memoryFlushContextHash": "91e39cc65b57514e",
+    "channel": "telegram",
     "fallbackNoticeSelectedModel": "ollama/gemma4:e4b",
     "fallbackNoticeActiveModel": "hydra/gpt-4o",
     "fallbackNoticeReason": "selected model unavailable",
-    "endedAt": 1775926316247,
-    "runtimeMs": 6180,
+    "endedAt": 1775997209250,
+    "runtimeMs": 4519,
     "runClosureSummary": {
-      "runId": "9f147a3b-f021-46d4-af3a-7715ac7b7eca",
-      "requestRunId": "9f147a3b-f021-46d4-af3a-7715ac7b7eca",
+      "runId": "b2eb4bb7-a04f-4d40-ace6-d98de2e37ba1",
+      "requestRunId": "b2eb4bb7-a04f-4d40-ace6-d98de2e37ba1",
       "sessionKey": "agent:dev:main",
-      "updatedAtMs": 1775926316256,
+      "updatedAtMs": 1775997209261,
       "outcomeStatus": "completed",
-      "verificationStatus": "mismatch",
-      "acceptanceStatus": "retryable",
-      "action": "retry",
+      "verificationStatus": "verified",
+      "acceptanceStatus": "satisfied",
+      "action": "close",
       "remediation": "bootstrap",
       "reasonCode": "bootstrap_recovery",
       "reasons": [
-        "Execution receipts contain a failed outcome."
+        "Run completed with evidence matching the declared recipe table_compare."
       ],
       "declaredIntent": "document",
       "declaredProfileId": "builder",
@@ -770,6 +768,620 @@
     "inputTokens": 26221,
     "outputTokens": 185,
     "totalTokens": 9022,
+    "totalTokensFresh": true,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "estimatedCostUsd": 0
+  },
+  "agent:dev:subagent:eed9b950-e2fc-4d1e-9c12-3707b3673ea6": {
+    "sessionId": "69642660-f7d8-4708-902b-71c14fc133b8",
+    "updatedAt": 1775955870352,
+    "spawnDepth": 1,
+    "subagentRole": "leaf",
+    "subagentControlScope": "none",
+    "model": "hydra-gpt-mini",
+    "modelProvider": "hydra",
+    "spawnedBy": "agent:dev:main",
+    "spawnedWorkspaceDir": "C:\\Users\\Tanya\\.openclaw\\workspace-dev",
+    "label": "Bootstrap Table Parser",
+    "skillsSnapshot": {
+      "prompt": "\n\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>clawhub</name>\n    <description>Use the ClawHub CLI to search, install, update, and publish agent skills from clawhub.com. Use when you need to fetch new skills on the fly, sync installed skills to latest or a specific version, or publish new/updated skill folders with the npm-installed clawhub CLI.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\clawhub\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>coding-agent</name>\n    <description>Delegate coding tasks to Codex, Claude Code, or Pi agents via background process. Use when: (1) building/creating new features or apps, (2) reviewing PRs (spawn in temp dir), (3) refactoring large codebases, (4) iterative coding that needs file exploration. NOT for: simple one-liner fixes (just edit), reading code (use read tool), thread-bound ACP harness requests in chat (for example spawn/run Codex or Claude Code in a Discord thread; use sessions_spawn with runtime:&quot;acp&quot;), or any work in ~/clawd workspace (never spawn agents here). Claude Code: use --print --permission-mode bypassPermissions (no PTY). Codex/Pi/OpenCode: pty:true required.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\coding-agent\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>healthcheck</name>\n    <description>Host security hardening and risk-tolerance configuration for OpenClaw deployments. Use when a user asks for security audits, firewall/SSH/update hardening, risk posture, exposure review, OpenClaw cron scheduling for periodic checks, or version status checks on a machine running OpenClaw (laptop, workstation, Pi, VPS).</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\healthcheck\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>mcporter</name>\n    <description>Use the mcporter CLI to list, configure, auth, and call MCP servers/tools directly (HTTP or stdio), including ad-hoc servers, config edits, and CLI/type generation.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\mcporter\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>node-connect</name>\n    <description>Diagnose OpenClaw node connection and pairing failures for Android, iOS, and macOS companion apps. Use when QR/setup code/manual connect fails, local Wi-Fi works but VPS/tailnet does not, or errors mention pairing required, unauthorized, bootstrap token invalid or expired, gateway.bind, gateway.remote.url, Tailscale, or plugins.entries.device-pair.config.publicUrl.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\node-connect\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>skill-creator</name>\n    <description>Create, edit, improve, or audit AgentSkills. Use when creating a new skill from scratch or when asked to improve, review, audit, tidy up, or clean up an existing skill or SKILL.md file. Also use when editing or restructuring a skill directory (moving files to references/ or scripts/, removing stale content, validating against the AgentSkills spec). Triggers on phrases like &quot;create a skill&quot;, &quot;author a skill&quot;, &quot;tidy up a skill&quot;, &quot;improve this skill&quot;, &quot;review the skill&quot;, &quot;clean up the skill&quot;, &quot;audit the skill&quot;.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\skill-creator\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>video-frames</name>\n    <description>Extract frames or short clips from videos using ffmpeg.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\video-frames\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>weather</name>\n    <description>Get current weather and forecasts via wttr.in or Open-Meteo. Use when: user asks about weather, temperature, or forecasts for any location. NOT for: historical weather data, severe weather alerts, or detailed meteorological analysis. No API key needed.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\weather\\SKILL.md</location>\n  </skill>\n</available_skills>",
+      "skills": [
+        {
+          "name": "clawhub",
+          "requiredEnv": []
+        },
+        {
+          "name": "coding-agent",
+          "requiredEnv": []
+        },
+        {
+          "name": "healthcheck"
+        },
+        {
+          "name": "mcporter",
+          "requiredEnv": []
+        },
+        {
+          "name": "node-connect"
+        },
+        {
+          "name": "skill-creator"
+        },
+        {
+          "name": "video-frames",
+          "requiredEnv": []
+        },
+        {
+          "name": "weather",
+          "requiredEnv": []
+        }
+      ],
+      "resolvedSkills": [
+        {
+          "name": "clawhub",
+          "description": "Use the ClawHub CLI to search, install, update, and publish agent skills from clawhub.com. Use when you need to fetch new skills on the fly, sync installed skills to latest or a specific version, or publish new/updated skill folders with the npm-installed clawhub CLI.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\clawhub\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\clawhub",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "coding-agent",
+          "description": "Delegate coding tasks to Codex, Claude Code, or Pi agents via background process. Use when: (1) building/creating new features or apps, (2) reviewing PRs (spawn in temp dir), (3) refactoring large codebases, (4) iterative coding that needs file exploration. NOT for: simple one-liner fixes (just edit), reading code (use read tool), thread-bound ACP harness requests in chat (for example spawn/run Codex or Claude Code in a Discord thread; use sessions_spawn with runtime:\"acp\"), or any work in ~/clawd workspace (never spawn agents here). Claude Code: use --print --permission-mode bypassPermissions (no PTY). Codex/Pi/OpenCode: pty:true required.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\coding-agent\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\coding-agent",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "healthcheck",
+          "description": "Host security hardening and risk-tolerance configuration for OpenClaw deployments. Use when a user asks for security audits, firewall/SSH/update hardening, risk posture, exposure review, OpenClaw cron scheduling for periodic checks, or version status checks on a machine running OpenClaw (laptop, workstation, Pi, VPS).",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\healthcheck\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\healthcheck",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "mcporter",
+          "description": "Use the mcporter CLI to list, configure, auth, and call MCP servers/tools directly (HTTP or stdio), including ad-hoc servers, config edits, and CLI/type generation.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\mcporter\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\mcporter",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "node-connect",
+          "description": "Diagnose OpenClaw node connection and pairing failures for Android, iOS, and macOS companion apps. Use when QR/setup code/manual connect fails, local Wi-Fi works but VPS/tailnet does not, or errors mention pairing required, unauthorized, bootstrap token invalid or expired, gateway.bind, gateway.remote.url, Tailscale, or plugins.entries.device-pair.config.publicUrl.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\node-connect\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\node-connect",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "skill-creator",
+          "description": "Create, edit, improve, or audit AgentSkills. Use when creating a new skill from scratch or when asked to improve, review, audit, tidy up, or clean up an existing skill or SKILL.md file. Also use when editing or restructuring a skill directory (moving files to references/ or scripts/, removing stale content, validating against the AgentSkills spec). Triggers on phrases like \"create a skill\", \"author a skill\", \"tidy up a skill\", \"improve this skill\", \"review the skill\", \"clean up the skill\", \"audit the skill\".",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\skill-creator\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\skill-creator",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "video-frames",
+          "description": "Extract frames or short clips from videos using ffmpeg.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\video-frames\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\video-frames",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "weather",
+          "description": "Get current weather and forecasts via wttr.in or Open-Meteo. Use when: user asks about weather, temperature, or forecasts for any location. NOT for: historical weather data, severe weather alerts, or detailed meteorological analysis. No API key needed.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\weather\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\weather",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        }
+      ],
+      "version": 0
+    },
+    "sessionFile": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\stage86-state-live23\\agents\\dev\\sessions\\69642660-f7d8-4708-902b-71c14fc133b8.jsonl",
+    "status": "done",
+    "startedAt": 1775955813476,
+    "abortedLastRun": false,
+    "endedAt": 1775955865583,
+    "runtimeMs": 4543,
+    "runClosureSummary": {
+      "runId": "b719d777-379b-4b25-bbd5-eb1f71db6c35",
+      "requestRunId": "b719d777-379b-4b25-bbd5-eb1f71db6c35",
+      "sessionKey": "agent:dev:subagent:eed9b950-e2fc-4d1e-9c12-3707b3673ea6",
+      "updatedAtMs": 1775955865583,
+      "outcomeStatus": "completed",
+      "verificationStatus": "verified",
+      "acceptanceStatus": "satisfied",
+      "action": "close",
+      "remediation": "none",
+      "reasonCode": "verified_execution",
+      "reasons": [
+        "Run completed with evidence matching the declared recipe ops_orchestration."
+      ],
+      "declaredProfileId": "operator",
+      "declaredRecipeId": "ops_orchestration",
+      "requiresOutput": true,
+      "surfaceStatus": "ready"
+    },
+    "contextTokens": 200000,
+    "systemPromptReport": {
+      "source": "run",
+      "generatedAt": 1775955861018,
+      "sessionId": "69642660-f7d8-4708-902b-71c14fc133b8",
+      "sessionKey": "agent:dev:subagent:eed9b950-e2fc-4d1e-9c12-3707b3673ea6",
+      "provider": "hydra",
+      "model": "hydra-gpt-mini",
+      "workspaceDir": "C:\\Users\\Tanya\\.openclaw\\workspace-dev",
+      "bootstrapMaxChars": 20000,
+      "bootstrapTotalMaxChars": 150000,
+      "bootstrapTruncation": {
+        "warningMode": "once",
+        "warningShown": false,
+        "truncatedFiles": 0,
+        "nearLimitFiles": 0,
+        "totalNearLimit": false
+      },
+      "sandbox": {
+        "mode": "off",
+        "sandboxed": false
+      },
+      "systemPrompt": {
+        "chars": 11074,
+        "projectContextChars": 0,
+        "nonProjectContextChars": 11074
+      },
+      "injectedWorkspaceFiles": [],
+      "skills": {
+        "promptChars": 4332,
+        "entries": [
+          {
+            "name": "clawhub",
+            "blockChars": 421
+          },
+          {
+            "name": "coding-agent",
+            "blockChars": 821
+          },
+          {
+            "name": "healthcheck",
+            "blockChars": 480
+          },
+          {
+            "name": "mcporter",
+            "blockChars": 319
+          },
+          {
+            "name": "node-connect",
+            "blockChars": 530
+          },
+          {
+            "name": "skill-creator",
+            "blockChars": 748
+          },
+          {
+            "name": "video-frames",
+            "blockChars": 218
+          },
+          {
+            "name": "weather",
+            "blockChars": 405
+          }
+        ]
+      },
+      "tools": {
+        "listChars": 973,
+        "schemaChars": 15669,
+        "entries": [
+          {
+            "name": "read",
+            "summaryChars": 298,
+            "schemaChars": 392,
+            "propertiesCount": 4
+          },
+          {
+            "name": "edit",
+            "summaryChars": 129,
+            "schemaChars": 591,
+            "propertiesCount": 6
+          },
+          {
+            "name": "write",
+            "summaryChars": 127,
+            "schemaChars": 313,
+            "propertiesCount": 3
+          },
+          {
+            "name": "exec",
+            "summaryChars": 181,
+            "schemaChars": 1086,
+            "propertiesCount": 12
+          },
+          {
+            "name": "process",
+            "summaryChars": 85,
+            "schemaChars": 961,
+            "propertiesCount": 12
+          },
+          {
+            "name": "browser",
+            "summaryChars": 1066,
+            "schemaChars": 2799,
+            "propertiesCount": 48
+          },
+          {
+            "name": "canvas",
+            "summaryChars": 208,
+            "schemaChars": 661,
+            "propertiesCount": 18
+          },
+          {
+            "name": "message",
+            "summaryChars": 142,
+            "schemaChars": 5528,
+            "propertiesCount": 106
+          },
+          {
+            "name": "tts",
+            "summaryChars": 152,
+            "schemaChars": 223,
+            "propertiesCount": 2
+          },
+          {
+            "name": "image_generate",
+            "summaryChars": 565,
+            "schemaChars": 1195,
+            "propertiesCount": 10
+          },
+          {
+            "name": "sessions_yield",
+            "summaryChars": 97,
+            "schemaChars": 60,
+            "propertiesCount": 1
+          },
+          {
+            "name": "web_search",
+            "summaryChars": 93,
+            "schemaChars": 446,
+            "propertiesCount": 4
+          },
+          {
+            "name": "web_fetch",
+            "summaryChars": 129,
+            "schemaChars": 374,
+            "propertiesCount": 3
+          },
+          {
+            "name": "image",
+            "summaryChars": 295,
+            "schemaChars": 371,
+            "propertiesCount": 7
+          },
+          {
+            "name": "pdf",
+            "summaryChars": 403,
+            "schemaChars": 669,
+            "propertiesCount": 7
+          }
+        ]
+      }
+    },
+    "inputTokens": 7094,
+    "outputTokens": 354,
+    "totalTokens": 7094,
+    "totalTokensFresh": true,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "estimatedCostUsd": 0
+  },
+  "agent:dev:subagent:eed27c57-4abe-4dc2-8f82-8986b70aece3": {
+    "sessionId": "fdfd2b4d-d959-4db0-b028-eda9dd3b8cd8",
+    "updatedAt": 1775986470448,
+    "spawnDepth": 1,
+    "subagentRole": "leaf",
+    "subagentControlScope": "none",
+    "model": "hydra-gpt-mini",
+    "modelProvider": "hydra",
+    "spawnedBy": "agent:dev:main",
+    "spawnedWorkspaceDir": "C:\\Users\\Tanya\\.openclaw\\workspace-dev",
+    "label": "Bootstrap Table Parser",
+    "skillsSnapshot": {
+      "prompt": "\n\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>clawhub</name>\n    <description>Use the ClawHub CLI to search, install, update, and publish agent skills from clawhub.com. Use when you need to fetch new skills on the fly, sync installed skills to latest or a specific version, or publish new/updated skill folders with the npm-installed clawhub CLI.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\clawhub\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>coding-agent</name>\n    <description>Delegate coding tasks to Codex, Claude Code, or Pi agents via background process. Use when: (1) building/creating new features or apps, (2) reviewing PRs (spawn in temp dir), (3) refactoring large codebases, (4) iterative coding that needs file exploration. NOT for: simple one-liner fixes (just edit), reading code (use read tool), thread-bound ACP harness requests in chat (for example spawn/run Codex or Claude Code in a Discord thread; use sessions_spawn with runtime:&quot;acp&quot;), or any work in ~/clawd workspace (never spawn agents here). Claude Code: use --print --permission-mode bypassPermissions (no PTY). Codex/Pi/OpenCode: pty:true required.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\coding-agent\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>healthcheck</name>\n    <description>Host security hardening and risk-tolerance configuration for OpenClaw deployments. Use when a user asks for security audits, firewall/SSH/update hardening, risk posture, exposure review, OpenClaw cron scheduling for periodic checks, or version status checks on a machine running OpenClaw (laptop, workstation, Pi, VPS).</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\healthcheck\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>mcporter</name>\n    <description>Use the mcporter CLI to list, configure, auth, and call MCP servers/tools directly (HTTP or stdio), including ad-hoc servers, config edits, and CLI/type generation.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\mcporter\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>node-connect</name>\n    <description>Diagnose OpenClaw node connection and pairing failures for Android, iOS, and macOS companion apps. Use when QR/setup code/manual connect fails, local Wi-Fi works but VPS/tailnet does not, or errors mention pairing required, unauthorized, bootstrap token invalid or expired, gateway.bind, gateway.remote.url, Tailscale, or plugins.entries.device-pair.config.publicUrl.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\node-connect\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>skill-creator</name>\n    <description>Create, edit, improve, or audit AgentSkills. Use when creating a new skill from scratch or when asked to improve, review, audit, tidy up, or clean up an existing skill or SKILL.md file. Also use when editing or restructuring a skill directory (moving files to references/ or scripts/, removing stale content, validating against the AgentSkills spec). Triggers on phrases like &quot;create a skill&quot;, &quot;author a skill&quot;, &quot;tidy up a skill&quot;, &quot;improve this skill&quot;, &quot;review the skill&quot;, &quot;clean up the skill&quot;, &quot;audit the skill&quot;.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\skill-creator\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>video-frames</name>\n    <description>Extract frames or short clips from videos using ffmpeg.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\video-frames\\SKILL.md</location>\n  </skill>\n  <skill>\n    <name>weather</name>\n    <description>Get current weather and forecasts via wttr.in or Open-Meteo. Use when: user asks about weather, temperature, or forecasts for any location. NOT for: historical weather data, severe weather alerts, or detailed meteorological analysis. No API key needed.</description>\n    <location>~/source\\repos\\god-mode-core\\skills\\weather\\SKILL.md</location>\n  </skill>\n</available_skills>",
+      "skills": [
+        {
+          "name": "clawhub",
+          "requiredEnv": []
+        },
+        {
+          "name": "coding-agent",
+          "requiredEnv": []
+        },
+        {
+          "name": "healthcheck"
+        },
+        {
+          "name": "mcporter",
+          "requiredEnv": []
+        },
+        {
+          "name": "node-connect"
+        },
+        {
+          "name": "skill-creator"
+        },
+        {
+          "name": "video-frames",
+          "requiredEnv": []
+        },
+        {
+          "name": "weather",
+          "requiredEnv": []
+        }
+      ],
+      "resolvedSkills": [
+        {
+          "name": "clawhub",
+          "description": "Use the ClawHub CLI to search, install, update, and publish agent skills from clawhub.com. Use when you need to fetch new skills on the fly, sync installed skills to latest or a specific version, or publish new/updated skill folders with the npm-installed clawhub CLI.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\clawhub\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\clawhub",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "coding-agent",
+          "description": "Delegate coding tasks to Codex, Claude Code, or Pi agents via background process. Use when: (1) building/creating new features or apps, (2) reviewing PRs (spawn in temp dir), (3) refactoring large codebases, (4) iterative coding that needs file exploration. NOT for: simple one-liner fixes (just edit), reading code (use read tool), thread-bound ACP harness requests in chat (for example spawn/run Codex or Claude Code in a Discord thread; use sessions_spawn with runtime:\"acp\"), or any work in ~/clawd workspace (never spawn agents here). Claude Code: use --print --permission-mode bypassPermissions (no PTY). Codex/Pi/OpenCode: pty:true required.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\coding-agent\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\coding-agent",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "healthcheck",
+          "description": "Host security hardening and risk-tolerance configuration for OpenClaw deployments. Use when a user asks for security audits, firewall/SSH/update hardening, risk posture, exposure review, OpenClaw cron scheduling for periodic checks, or version status checks on a machine running OpenClaw (laptop, workstation, Pi, VPS).",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\healthcheck\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\healthcheck",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "mcporter",
+          "description": "Use the mcporter CLI to list, configure, auth, and call MCP servers/tools directly (HTTP or stdio), including ad-hoc servers, config edits, and CLI/type generation.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\mcporter\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\mcporter",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "node-connect",
+          "description": "Diagnose OpenClaw node connection and pairing failures for Android, iOS, and macOS companion apps. Use when QR/setup code/manual connect fails, local Wi-Fi works but VPS/tailnet does not, or errors mention pairing required, unauthorized, bootstrap token invalid or expired, gateway.bind, gateway.remote.url, Tailscale, or plugins.entries.device-pair.config.publicUrl.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\node-connect\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\node-connect",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "skill-creator",
+          "description": "Create, edit, improve, or audit AgentSkills. Use when creating a new skill from scratch or when asked to improve, review, audit, tidy up, or clean up an existing skill or SKILL.md file. Also use when editing or restructuring a skill directory (moving files to references/ or scripts/, removing stale content, validating against the AgentSkills spec). Triggers on phrases like \"create a skill\", \"author a skill\", \"tidy up a skill\", \"improve this skill\", \"review the skill\", \"clean up the skill\", \"audit the skill\".",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\skill-creator\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\skill-creator",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "video-frames",
+          "description": "Extract frames or short clips from videos using ffmpeg.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\video-frames\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\video-frames",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        },
+        {
+          "name": "weather",
+          "description": "Get current weather and forecasts via wttr.in or Open-Meteo. Use when: user asks about weather, temperature, or forecasts for any location. NOT for: historical weather data, severe weather alerts, or detailed meteorological analysis. No API key needed.",
+          "filePath": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\weather\\SKILL.md",
+          "baseDir": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\skills\\weather",
+          "source": "openclaw-bundled",
+          "disableModelInvocation": false
+        }
+      ],
+      "version": 0
+    },
+    "sessionFile": "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\stage86-state-live23\\agents\\dev\\sessions\\fdfd2b4d-d959-4db0-b028-eda9dd3b8cd8.jsonl",
+    "status": "failed",
+    "startedAt": 1775986413810,
+    "abortedLastRun": false,
+    "endedAt": 1775986470403,
+    "runtimeMs": 10053,
+    "runClosureSummary": {
+      "runId": "ea239b48-beea-4387-8798-5cffedd9c4fa",
+      "requestRunId": "ea239b48-beea-4387-8798-5cffedd9c4fa",
+      "sessionKey": "agent:dev:subagent:eed27c57-4abe-4dc2-8f82-8986b70aece3",
+      "updatedAtMs": 1775986470403,
+      "outcomeStatus": "completed",
+      "verificationStatus": "mismatch",
+      "acceptanceStatus": "retryable",
+      "action": "retry",
+      "remediation": "semantic_retry",
+      "reasonCode": "contract_mismatch",
+      "reasons": [
+        "Execution receipts contain a failed outcome."
+      ],
+      "declaredProfileId": "operator",
+      "declaredRecipeId": "ops_orchestration",
+      "requiresOutput": true,
+      "surfaceStatus": "ready"
+    },
+    "contextTokens": 200000,
+    "systemPromptReport": {
+      "source": "run",
+      "generatedAt": 1775986460332,
+      "sessionId": "fdfd2b4d-d959-4db0-b028-eda9dd3b8cd8",
+      "sessionKey": "agent:dev:subagent:eed27c57-4abe-4dc2-8f82-8986b70aece3",
+      "provider": "hydra",
+      "model": "hydra-gpt-mini",
+      "workspaceDir": "C:\\Users\\Tanya\\.openclaw\\workspace-dev",
+      "bootstrapMaxChars": 20000,
+      "bootstrapTotalMaxChars": 150000,
+      "bootstrapTruncation": {
+        "warningMode": "once",
+        "warningShown": false,
+        "truncatedFiles": 0,
+        "nearLimitFiles": 0,
+        "totalNearLimit": false
+      },
+      "sandbox": {
+        "mode": "off",
+        "sandboxed": false
+      },
+      "systemPrompt": {
+        "chars": 11074,
+        "projectContextChars": 0,
+        "nonProjectContextChars": 11074
+      },
+      "injectedWorkspaceFiles": [],
+      "skills": {
+        "promptChars": 4332,
+        "entries": [
+          {
+            "name": "clawhub",
+            "blockChars": 421
+          },
+          {
+            "name": "coding-agent",
+            "blockChars": 821
+          },
+          {
+            "name": "healthcheck",
+            "blockChars": 480
+          },
+          {
+            "name": "mcporter",
+            "blockChars": 319
+          },
+          {
+            "name": "node-connect",
+            "blockChars": 530
+          },
+          {
+            "name": "skill-creator",
+            "blockChars": 748
+          },
+          {
+            "name": "video-frames",
+            "blockChars": 218
+          },
+          {
+            "name": "weather",
+            "blockChars": 405
+          }
+        ]
+      },
+      "tools": {
+        "listChars": 973,
+        "schemaChars": 15669,
+        "entries": [
+          {
+            "name": "read",
+            "summaryChars": 298,
+            "schemaChars": 392,
+            "propertiesCount": 4
+          },
+          {
+            "name": "edit",
+            "summaryChars": 129,
+            "schemaChars": 591,
+            "propertiesCount": 6
+          },
+          {
+            "name": "write",
+            "summaryChars": 127,
+            "schemaChars": 313,
+            "propertiesCount": 3
+          },
+          {
+            "name": "exec",
+            "summaryChars": 181,
+            "schemaChars": 1086,
+            "propertiesCount": 12
+          },
+          {
+            "name": "process",
+            "summaryChars": 85,
+            "schemaChars": 961,
+            "propertiesCount": 12
+          },
+          {
+            "name": "browser",
+            "summaryChars": 1066,
+            "schemaChars": 2799,
+            "propertiesCount": 48
+          },
+          {
+            "name": "canvas",
+            "summaryChars": 208,
+            "schemaChars": 661,
+            "propertiesCount": 18
+          },
+          {
+            "name": "message",
+            "summaryChars": 142,
+            "schemaChars": 5528,
+            "propertiesCount": 106
+          },
+          {
+            "name": "tts",
+            "summaryChars": 152,
+            "schemaChars": 223,
+            "propertiesCount": 2
+          },
+          {
+            "name": "image_generate",
+            "summaryChars": 565,
+            "schemaChars": 1195,
+            "propertiesCount": 10
+          },
+          {
+            "name": "sessions_yield",
+            "summaryChars": 97,
+            "schemaChars": 60,
+            "propertiesCount": 1
+          },
+          {
+            "name": "web_search",
+            "summaryChars": 93,
+            "schemaChars": 446,
+            "propertiesCount": 4
+          },
+          {
+            "name": "web_fetch",
+            "summaryChars": 129,
+            "schemaChars": 374,
+            "propertiesCount": 3
+          },
+          {
+            "name": "image",
+            "summaryChars": 295,
+            "schemaChars": 371,
+            "propertiesCount": 7
+          },
+          {
+            "name": "pdf",
+            "summaryChars": 403,
+            "schemaChars": 669,
+            "propertiesCount": 7
+          }
+        ]
+      }
+    },
+    "inputTokens": 22678,
+    "outputTokens": 396,
+    "totalTokens": 8719,
     "totalTokensFresh": true,
     "cacheRead": 0,
     "cacheWrite": 0,

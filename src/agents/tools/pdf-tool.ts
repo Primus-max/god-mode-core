@@ -20,7 +20,6 @@ import {
 } from "../../platform/materialization/index.js";
 import { resolveUserPath } from "../../utils.js";
 import {
-  coerceImageModelConfig,
   type ImageModelConfig,
   resolveProviderVisionModelFromConfig,
 } from "./image-tool.helpers.js";
@@ -365,7 +364,7 @@ async function draftPromptOnlyPdfMarkdown(params: {
 
 /**
  * Resolve the effective PDF model config.
- * Falls back to the image model config, then to provider-specific defaults.
+ * Falls back to provider-specific text/pdf-capable defaults.
  */
 export function resolvePdfModelConfigForTool(params: {
   cfg?: OpenClawConfig;
@@ -375,12 +374,6 @@ export function resolvePdfModelConfigForTool(params: {
   const explicitPdf = coercePdfModelConfig(params.cfg);
   if (explicitPdf.primary?.trim() || (explicitPdf.fallbacks?.length ?? 0) > 0) {
     return explicitPdf;
-  }
-
-  // Fall back to the image model config
-  const explicitImage = coerceImageModelConfig(params.cfg);
-  if (explicitImage.primary?.trim() || (explicitImage.fallbacks?.length ?? 0) > 0) {
-    return explicitImage;
   }
 
   // Auto-detect from available providers

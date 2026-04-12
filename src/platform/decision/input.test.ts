@@ -244,6 +244,53 @@ describe("buildExecutionDecisionInput", () => {
     expect(pdfInput.requestedTools).toEqual(["pdf"]);
   });
 
+  it("infers both image and document artifacts for Russian media plus пдф requests", () => {
+    const input = buildExecutionDecisionInput({
+      prompt:
+        "Можешь сгенерировать картинку котёнка и создать файл пдф с его расписанием и жизнью, в графиках и таблицах?",
+    });
+
+    expect(input.artifactKinds).toEqual(expect.arrayContaining(["image", "document"]));
+    expect(input.requestedTools).toEqual(expect.arrayContaining(["image_generate", "pdf"]));
+  });
+
+  it.each([
+    {
+      name: "explicit mixed artifacts without generation verbs",
+      params: {
+        prompt: "kitten life layout in pdf with charts and tables",
+        artifactKinds: ["image", "document"] as const,
+      },
+      expectedTools: ["image_generate", "pdf"],
+    },
+    {
+      name: "pdf artifact inferred from target filename",
+      params: {
+        prompt: "Customer summary for April",
+        fileNames: ["april-summary.pdf"],
+        artifactKinds: ["document"] as const,
+      },
+      expectedTools: ["pdf"],
+    },
+    {
+      name: "mixed artifacts inferred from filename target and image artifact",
+      params: {
+        prompt: "Kitten schedule and life overview",
+        fileNames: ["kitten-life.pdf"],
+        artifactKinds: ["image", "document"] as const,
+      },
+      expectedTools: ["image_generate", "pdf"],
+    },
+  ])("derives requested tools from artifact requirements: $name", ({ params, expectedTools }) => {
+    const input = buildExecutionDecisionInput({
+      prompt: params.prompt,
+      fileNames: params.fileNames ? [...params.fileNames] : undefined,
+      artifactKinds: [...params.artifactKinds],
+    });
+
+    expect(input.requestedTools).toEqual(expect.arrayContaining(expectedTools));
+  });
+
   it("infers both image and pdf tools for infographic presentation requests", () => {
     const input = buildExecutionDecisionInput({
       prompt:
