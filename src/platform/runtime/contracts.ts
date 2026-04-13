@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  OutcomeContractSchema,
+  QualificationExecutionContractSchema,
+  RequestedEvidenceKindSchema,
+} from "../decision/qualification-contract.js";
 import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
 import { ArtifactKindSchema } from "../schemas/artifact.js";
 
@@ -545,6 +550,9 @@ export const PlatformRuntimeExecutionIntentSchema = z
     publishTargets: z.array(z.string().min(1)).optional(),
     artifactKinds: z.array(ArtifactKindSchema).optional(),
     requestedToolNames: z.array(z.string().min(1)).optional(),
+    outcomeContract: OutcomeContractSchema.optional(),
+    executionContract: QualificationExecutionContractSchema.optional(),
+    requestedEvidence: z.array(RequestedEvidenceKindSchema).optional(),
     requiredCapabilities: z.array(z.string().min(1)).optional(),
     bootstrapRequiredCapabilities: z.array(z.string().min(1)).optional(),
     requireExplicitApproval: z.boolean().optional(),
@@ -620,6 +628,9 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     declaredRecipeId: z.string().min(1).optional(),
     declaredIntent: PlatformRuntimeExecutionIntentSchema.shape.intent.optional(),
     declaredArtifactKinds: z.array(ArtifactKindSchema).optional(),
+    declaredOutcomeContract: OutcomeContractSchema.optional(),
+    declaredExecutionContract: QualificationExecutionContractSchema.optional(),
+    declaredRequestedEvidence: z.array(RequestedEvidenceKindSchema).optional(),
     declaredRequiresOutput: z.boolean().optional(),
     declaredRequiresMessagingDelivery: z.boolean().optional(),
     declaredRequiresConfirmedAction: z.boolean().optional(),
@@ -716,6 +727,7 @@ export const PlatformRuntimeRunClosureSummarySchema = z
     reasonCode: PlatformRuntimeSupervisorVerdictReasonCodeSchema,
     reasons: z.array(z.string().min(1)),
     declaredIntent: PlatformRuntimeExecutionIntentSchema.shape.intent.optional(),
+    declaredOutcomeContract: OutcomeContractSchema.optional(),
     declaredProfileId: z.string().min(1).optional(),
     declaredRecipeId: z.string().min(1).optional(),
     requiresOutput: z.boolean().optional(),

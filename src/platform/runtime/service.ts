@@ -4,8 +4,10 @@ import path from "node:path";
 import { resolveStateDir } from "../../config/paths.js";
 import { emitRunClosureSummary, emitRuntimeRecoveryTelemetry } from "../../infra/agent-events.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
-import type { ArtifactKind } from "../schemas/index.js";
 import {
+  OutcomeContractSchema,
+  QualificationExecutionContractSchema,
+  RequestedEvidenceKindSchema,
   PlatformRuntimeAcceptanceResultSchema,
   PlatformRuntimeActionSchema,
   PlatformRuntimeActionStoreSchema,
@@ -57,32 +59,18 @@ import {
   type PlatformRuntimeSupervisorVerdict,
   type PlatformRuntimeTarget,
 } from "./contracts.js";
+import {
+  hasStructuredArtifactToolOutputReceipt,
+  isCompletionEvidenceSufficient,
+  mapQualificationToEvidenceRequirements,
+  requiresStructuredEvidence,
+} from "./evidence-sufficiency.js";
 
 const PLATFORM_RUNTIME_SERVICE_KEY = Symbol.for("openclaw.platform.runtime.service");
 const PLATFORM_RUNTIME_CHECKPOINTS_FILENAME = "platform-runtime-checkpoints.json";
 const PLATFORM_RUNTIME_ACTIONS_FILENAME = "platform-runtime-actions.json";
 const PLATFORM_RUNTIME_CLOSURES_FILENAME = "platform-runtime-closures.json";
 const WINDOWS_PERSIST_RETRY_DELAYS_MS = [10, 25, 50] as const;
-
-const STRUCTURED_OUTPUT_ARTIFACT_KINDS = new Set<ArtifactKind>([
-  "document",
-  "estimate",
-  "site",
-  "release",
-  "binary",
-  "video",
-  "image",
-  "audio",
-  "archive",
-]);
-
-const ARTIFACT_OUTPUT_TOOL_NAMES_BY_KIND: Partial<Record<ArtifactKind, readonly string[]>> = {
-  document: ["pdf"],
-  image: ["image_generate", "image"],
-  video: ["video_generate", "video"],
-  audio: ["audio_generate", "audio", "tts", "voiceover"],
-  site: ["exec", "write", "apply_patch"],
-};
 
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -105,40 +93,6 @@ function renameWithRetry(tmpPath: string, targetPath: string): void {
       sleepSync(WINDOWS_PERSIST_RETRY_DELAYS_MS[attempt]);
     }
   }
-}
-
-/**
- * Checks whether the declared artifact kinds require a tangible structured
- * deliverable instead of a plain text-only completion.
- *
- * @param {readonly string[] | undefined} artifactKinds - Artifact kinds declared by planner/runtime metadata.
- * @returns {boolean} True when the run must close with structured artifact evidence.
- */
-function hasStructuredOutputArtifactKinds(artifactKinds?: readonly string[]): boolean {
-  return Boolean(
-    artifactKinds?.some((kind) => STRUCTURED_OUTPUT_ARTIFACT_KINDS.has(kind as ArtifactKind)),
-  );
-}
-
-function hasStructuredArtifactToolOutputReceipt(params: {
-  receipts: PlatformRuntimeExecutionReceipt[];
-  artifactKinds?: readonly string[];
-}): boolean {
-  const expectedToolNames = new Set<string>();
-  for (const kind of params.artifactKinds ?? []) {
-    for (const toolName of ARTIFACT_OUTPUT_TOOL_NAMES_BY_KIND[kind as ArtifactKind] ?? []) {
-      expectedToolNames.add(toolName);
-    }
-  }
-  if (expectedToolNames.size === 0) {
-    return false;
-  }
-  return params.receipts.some(
-    (receipt) =>
-      receipt.kind === "tool" &&
-      receipt.status === "success" &&
-      expectedToolNames.has(receipt.name.trim().toLowerCase()),
-  );
 }
 
 export type PlatformRuntimeCheckpointService = {
@@ -325,6 +279,9 @@ function buildRunClosureSummary(
     reasonCode: closure.supervisorVerdict.reasonCode,
     reasons: closure.supervisorVerdict.reasons,
     ...(closure.executionIntent.intent ? { declaredIntent: closure.executionIntent.intent } : {}),
+    ...(closure.executionIntent.outcomeContract
+      ? { declaredOutcomeContract: closure.executionIntent.outcomeContract }
+      : {}),
     ...(closure.executionIntent.profileId
       ? { declaredProfileId: closure.executionIntent.profileId }
       : {}),
@@ -701,26 +658,16 @@ function deriveRequiredReceiptKinds(params: {
   return kinds.size > 0 ? Array.from(kinds) : undefined;
 }
 
-/**
- * Determines whether the declared execution intent expects a tangible artifact
- * rather than a plain text-only completion message.
- *
- * @param {PlatformRuntimeExecutionIntent | undefined} executionIntent - Declared execution intent for the run.
- * @returns {boolean} True when the run should only close after structured artifact evidence exists.
- */
-function requiresStructuredArtifactOutput(
-  executionIntent?: PlatformRuntimeExecutionIntent,
-): boolean {
-  return hasStructuredOutputArtifactKinds(executionIntent?.artifactKinds);
-}
-
 function deriveExecutionContractExpectations(params: {
   outcome: PlatformRuntimeRunOutcome;
   evidence: PlatformRuntimeAcceptanceEvidence;
   executionIntent?: PlatformRuntimeExecutionIntent;
 }): PlatformRuntimeExecutionContract["expectations"] {
   const declared = params.executionIntent?.expectations ?? {};
-  const needsStructuredArtifactOutput = requiresStructuredArtifactOutput(params.executionIntent);
+  const qualificationRequirements = mapQualificationToEvidenceRequirements({
+    executionIntent: params.executionIntent,
+    expectations: declared,
+  });
   const requiresMessagingDelivery =
     declared.requiresMessagingDelivery ??
     (params.evidence.didSendViaMessagingTool === true ||
@@ -734,7 +681,7 @@ function deriveExecutionContractExpectations(params: {
   return PlatformRuntimeExecutionContractSchema.shape.expectations.parse({
     requiresOutput:
       declared.requiresOutput ??
-      (needsStructuredArtifactOutput ||
+      (qualificationRequirements.requiresStructuredEvidence ||
         params.evidence.hasOutput === true ||
         params.evidence.hasStructuredReplyPayload === true),
     requiresMessagingDelivery,
@@ -772,6 +719,15 @@ function buildIntentAwareEvidence(params: {
     ...(params.executionIntent.artifactKinds?.length
       ? { declaredArtifactKinds: params.executionIntent.artifactKinds }
       : {}),
+    ...(params.executionIntent.outcomeContract
+      ? { declaredOutcomeContract: params.executionIntent.outcomeContract }
+      : {}),
+    ...(params.executionIntent.executionContract
+      ? { declaredExecutionContract: params.executionIntent.executionContract }
+      : {}),
+    ...(params.executionIntent.requestedEvidence?.length
+      ? { declaredRequestedEvidence: params.executionIntent.requestedEvidence }
+      : {}),
     ...(expectations.requiresOutput !== undefined
       ? { declaredRequiresOutput: expectations.requiresOutput }
       : {}),
@@ -782,6 +738,56 @@ function buildIntentAwareEvidence(params: {
       ? { declaredRequiresConfirmedAction: expectations.requiresConfirmedAction }
       : {}),
   };
+}
+
+function buildExecutionIntentFromEvidence(params: {
+  runId: string;
+  evidence: PlatformRuntimeAcceptanceEvidence;
+  expectations?: PlatformRuntimeExecutionContract["expectations"];
+}): PlatformRuntimeExecutionIntent {
+  return PlatformRuntimeExecutionIntentSchema.parse({
+    runId: params.runId.trim(),
+    ...(params.evidence.declaredProfileId ? { profileId: params.evidence.declaredProfileId } : {}),
+    ...(params.evidence.declaredRecipeId ? { recipeId: params.evidence.declaredRecipeId } : {}),
+    ...(params.evidence.declaredIntent ? { intent: params.evidence.declaredIntent } : {}),
+    ...(params.evidence.declaredArtifactKinds?.length
+      ? { artifactKinds: params.evidence.declaredArtifactKinds }
+      : {}),
+    ...(params.evidence.declaredOutcomeContract
+      ? { outcomeContract: OutcomeContractSchema.parse(params.evidence.declaredOutcomeContract) }
+      : {}),
+    ...(params.evidence.declaredExecutionContract
+      ? {
+          executionContract: QualificationExecutionContractSchema.parse(
+            params.evidence.declaredExecutionContract,
+          ),
+        }
+      : {}),
+    ...(params.evidence.declaredRequestedEvidence?.length
+      ? {
+          requestedEvidence: params.evidence.declaredRequestedEvidence.map((kind) =>
+            RequestedEvidenceKindSchema.parse(kind),
+          ),
+        }
+      : {}),
+    expectations: PlatformRuntimeExecutionContractSchema.shape.expectations.parse(
+      params.expectations ?? {
+        ...(params.evidence.declaredRequiresOutput !== undefined
+          ? { requiresOutput: params.evidence.declaredRequiresOutput }
+          : {}),
+        ...(params.evidence.declaredRequiresMessagingDelivery !== undefined
+          ? {
+              requiresMessagingDelivery: params.evidence.declaredRequiresMessagingDelivery,
+            }
+          : {}),
+        ...(params.evidence.declaredRequiresConfirmedAction !== undefined
+          ? {
+              requiresConfirmedAction: params.evidence.declaredRequiresConfirmedAction,
+            }
+          : {}),
+      },
+    ),
+  });
 }
 
 function describeDeclaredIntent(evidence: PlatformRuntimeAcceptanceEvidence): string | undefined {
@@ -1462,6 +1468,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
         ...(normalizeOptionalStringArray(seed.requestedToolNames)
           ? { requestedToolNames: normalizeOptionalStringArray(seed.requestedToolNames) }
           : {}),
+        ...(seed.outcomeContract ? { outcomeContract: seed.outcomeContract } : {}),
+        ...(seed.executionContract ? { executionContract: seed.executionContract } : {}),
+        ...(normalizeOptionalStringArray(seed.requestedEvidence)
+          ? { requestedEvidence: normalizeOptionalStringArray(seed.requestedEvidence) }
+          : {}),
         ...(normalizeOptionalStringArray(seed.requiredCapabilities)
           ? { requiredCapabilities: normalizeOptionalStringArray(seed.requiredCapabilities) }
           : {}),
@@ -1698,19 +1709,26 @@ export function createPlatformRuntimeCheckpointService(params?: {
         evidence.deliveredReplyCount ?? 0,
         verifiedConfirmedDeliveryCount,
       );
-      const requiresStructuredOutput = hasStructuredOutputArtifactKinds(
-        evidence.declaredArtifactKinds,
-      );
-      const hasToolArtifactOutput = hasStructuredArtifactToolOutputReceipt({
+      const sufficiency = isCompletionEvidenceSufficient({
+        executionIntent: buildExecutionIntentFromEvidence({
+          runId: contract.runId,
+          evidence,
+          expectations,
+        }),
+        expectations,
         receipts,
+        evidence,
+        outcome: params.outcome,
+      });
+      const requiresStructuredOutput = requiresStructuredEvidence({
+        outcomeContract: sufficiency.requirements.outcomeContract,
         artifactKinds: evidence.declaredArtifactKinds,
+        executionContract: sufficiency.requirements.executionContract,
       });
       const hasOutput = requiresStructuredOutput
-        ? evidence.hasOutput === true ||
-          evidence.hasStructuredReplyPayload === true ||
-          (params.outcome?.artifactIds.length ?? 0) > 0 ||
-          (params.outcome?.bootstrapRequestIds.length ?? 0) > 0 ||
-          hasToolArtifactOutput
+        ? sufficiency.observed.artifactDescriptor ||
+          sufficiency.observed.toolReceipt ||
+          sufficiency.observed.processReceipt
         : evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
       const declaredIntent = describeDeclaredIntent(evidence);
       const confirmedActionCount =
@@ -1728,6 +1746,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
       }
       if (hasTerminalFailedReceipt) {
         reasons.push("Execution receipts contain a failed outcome.");
+      }
+      if (requiresStructuredOutput && !sufficiency.sufficient) {
+        reasons.push(...sufficiency.reasons);
       }
       if (expectations?.requiresMessagingDelivery && confirmedDeliveryCount === 0) {
         reasons.push(
@@ -1840,6 +1861,15 @@ export function createPlatformRuntimeCheckpointService(params?: {
         outcome: params.outcome,
         evidence: params.evidence,
       });
+      const sufficiency = isCompletionEvidenceSufficient({
+        executionIntent: buildExecutionIntentFromEvidence({
+          runId: params.runId,
+          evidence,
+        }),
+        receipts: [],
+        evidence,
+        outcome: params.outcome,
+      });
       const declaredIntent = describeDeclaredIntent(evidence);
       const reasons: string[] = [];
       if (params.outcome.pendingApprovalIds.length > 0) {
@@ -1940,6 +1970,23 @@ export function createPlatformRuntimeCheckpointService(params?: {
                   ? "provider_fallback_exhausted"
                   : "execution_degraded",
           reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (sufficiency.requirements.requiresStructuredEvidence && !sufficiency.sufficient) {
+        reasons.push(...sufficiency.reasons);
+        return parseAcceptanceResult({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode:
+            evidence.executionSurfaceStatus === "bootstrap_required" ||
+            evidence.executionUnattendedBoundary === "bootstrap" ||
+            (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
+              ? "bootstrap_required"
+              : "completed_without_evidence",
+          reasons: Array.from(new Set(reasons)),
           outcome: params.outcome,
           evidence,
         });

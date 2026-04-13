@@ -662,7 +662,7 @@ describe("platform runtime checkpoint service", () => {
     );
   });
 
-  it("accepts text-confirmed output for physical artifact requests", () => {
+  it("does not close physical artifact requests from text-only confirmed delivery", () => {
     const service = createPlatformRuntimeCheckpointService();
     const outcome: PlatformRuntimeRunOutcome = {
       runId: "run-structured-artifact-required",
@@ -719,8 +719,10 @@ describe("platform runtime checkpoint service", () => {
         declaredArtifactKinds: ["document"],
       },
     });
-    expect(verification.status).toBe("verified");
-    expect(verification.reasons.join(" ")).not.toContain("expected output");
+    expect(verification.status).toBe("mismatch");
+    expect(verification.reasons.join(" ")).toContain(
+      "Structured artifact completion requires a matching successful tool receipt.",
+    );
 
     const evidence = service.buildAcceptanceEvidence({
       outcome,
@@ -747,10 +749,10 @@ describe("platform runtime checkpoint service", () => {
     });
     expect(acceptance).toEqual(
       expect.objectContaining({
-        status: "satisfied",
-        action: "close",
-        remediation: "none",
-        reasonCode: "completed_with_confirmed_delivery",
+        status: "retryable",
+        action: "retry",
+        remediation: "semantic_retry",
+        reasonCode: "contract_mismatch",
       }),
     );
   });

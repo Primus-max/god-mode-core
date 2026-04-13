@@ -17,6 +17,13 @@ import {
   promptSuggestsCompareIntent,
   promptSuggestsWebsiteFrontendWork,
 } from "./intent-signals.js";
+import type {
+  CandidateExecutionFamily,
+  OutcomeContract,
+  QualificationExecutionContract,
+  QualificationResult,
+  RequestedEvidenceKind,
+} from "./qualification-contract.js";
 
 const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
 const DEVELOPER_EXECUTION_KEYWORDS =
@@ -179,6 +186,11 @@ type DecisionInputChannelHints = {
   channel?: string;
   replyChannel?: string;
 };
+
+type QualificationBridgePlannerInput = Pick<
+  RecipePlannerInput,
+  "intent" | "artifactKinds" | "requestedTools" | "publishTargets"
+>;
 
 export type BuildExecutionDecisionInputParams = {
   prompt: string;
@@ -938,5 +950,164 @@ export function resolveSessionDecisionInputContext(messages: unknown[]): {
   return {
     prompt: recentTexts.join("\n\n"),
     fileNames: Array.from(fileNames).slice(-8),
+  };
+}
+
+function inferOutcomeContractFromLegacyPlannerInput(
+  input: QualificationBridgePlannerInput,
+): OutcomeContract {
+  const artifactKinds = input.artifactKinds ?? [];
+  if (artifactKinds.includes("site")) {
+    return "interactive_local_result";
+  }
+  if (
+    artifactKinds.some((kind) =>
+      ["document", "estimate", "image", "video", "audio", "archive", "release", "binary"].includes(
+        kind,
+      ),
+    )
+  ) {
+    return "structured_artifact";
+  }
+  if (input.intent === "publish" || (input.publishTargets?.length ?? 0) > 0) {
+    return "external_operation";
+  }
+  if (input.intent === "code") {
+    return "workspace_change";
+  }
+  return "text_response";
+}
+
+function inferExecutionContractFromLegacyPlannerInput(
+  outcomeContract: OutcomeContract,
+  input: QualificationBridgePlannerInput,
+): QualificationExecutionContract {
+  const requestedTools = input.requestedTools ?? [];
+  const requiresTools = requestedTools.length > 0 || outcomeContract !== "text_response";
+  const requiresLocalProcess =
+    requestedTools.some((tool) => ["exec", "process"].includes(tool)) ||
+    outcomeContract === "interactive_local_result";
+
+  switch (outcomeContract) {
+    case "structured_artifact":
+      return {
+        requiresTools,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: requestedTools.some((tool) => tool === "pdf" || tool === "image_generate"),
+      };
+    case "workspace_change":
+      return {
+        requiresTools,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: requiresLocalProcess,
+      };
+    case "interactive_local_result":
+      return {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      };
+    case "external_operation":
+      return {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      };
+    case "text_response":
+    default:
+      return {
+        requiresTools,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      };
+  }
+}
+
+function inferRequestedEvidenceFromLegacyPlannerInput(
+  outcomeContract: OutcomeContract,
+  executionContract: QualificationExecutionContract,
+): RequestedEvidenceKind[] {
+  const requestedEvidence = new Set<RequestedEvidenceKind>();
+  switch (outcomeContract) {
+    case "structured_artifact":
+      requestedEvidence.add("tool_receipt");
+      requestedEvidence.add("artifact_descriptor");
+      break;
+    case "interactive_local_result":
+      requestedEvidence.add("tool_receipt");
+      requestedEvidence.add("process_receipt");
+      break;
+    case "workspace_change":
+    case "external_operation":
+      requestedEvidence.add("tool_receipt");
+      break;
+    case "text_response":
+    default:
+      requestedEvidence.add("assistant_text");
+      break;
+  }
+  if (executionContract.requiresDeliveryEvidence) {
+    requestedEvidence.add("delivery_receipt");
+  }
+  if (executionContract.mayNeedBootstrap) {
+    requestedEvidence.add("capability_receipt");
+  }
+  return Array.from(requestedEvidence);
+}
+
+function inferCandidateFamiliesFromLegacyPlannerInput(
+  outcomeContract: OutcomeContract,
+  input: QualificationBridgePlannerInput,
+): CandidateExecutionFamily[] {
+  switch (outcomeContract) {
+    case "structured_artifact":
+      if (input.artifactKinds?.some((kind) => ["image", "video", "audio"].includes(kind))) {
+        return ["media_generation", "document_render"];
+      }
+      return ["document_render", "analysis_transform"];
+    case "workspace_change":
+    case "interactive_local_result":
+      return ["code_build"];
+    case "external_operation":
+      return ["ops_execution"];
+    case "text_response":
+    default:
+      if (input.intent === "compare" || input.intent === "calculation") {
+        return ["analysis_transform"];
+      }
+      return ["general_assistant"];
+  }
+}
+
+export function buildQualificationResultFromPlannerInput(
+  input: QualificationBridgePlannerInput,
+): QualificationResult {
+  const outcomeContract = inferOutcomeContractFromLegacyPlannerInput(input);
+  const executionContract = inferExecutionContractFromLegacyPlannerInput(outcomeContract, input);
+  return {
+    outcomeContract,
+    executionContract,
+    requestedEvidence: inferRequestedEvidenceFromLegacyPlannerInput(
+      outcomeContract,
+      executionContract,
+    ),
+    confidence: outcomeContract === "text_response" ? "medium" : "high",
+    ambiguityReasons: [],
+    candidateFamilies: inferCandidateFamiliesFromLegacyPlannerInput(outcomeContract, input),
   };
 }
