@@ -757,6 +757,111 @@ describe("platform runtime checkpoint service", () => {
     );
   });
 
+  it("accepts clarify follow-up turns without rewriting the original qualified contract", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-clarify-followup",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const contract = service.buildExecutionContract({
+      runId: outcome.runId,
+      outcome,
+      executionIntent: {
+        runId: outcome.runId,
+        recipeId: "general_reasoning",
+        intent: "publish",
+        outcomeContract: "external_operation",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: true,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: true,
+        },
+        requestedEvidence: ["tool_receipt", "capability_receipt"],
+        lowConfidenceStrategy: "clarify",
+        expectations: {},
+      },
+      evidence: {
+        hasOutput: true,
+      },
+    });
+    const verification = service.verifyExecutionContract({
+      contract,
+      outcome,
+      evidence: {
+        hasOutput: true,
+        declaredIntent: "publish",
+        declaredOutcomeContract: "external_operation",
+        declaredExecutionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: true,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: true,
+        },
+        declaredRequestedEvidence: ["tool_receipt", "capability_receipt"],
+        declaredLowConfidenceStrategy: "clarify",
+      },
+    });
+    expect(verification.status).toBe("verified");
+
+    const evidence = service.buildAcceptanceEvidence({
+      outcome,
+      evidence: {
+        hasOutput: true,
+      },
+      executionIntent: {
+        runId: outcome.runId,
+        recipeId: "general_reasoning",
+        intent: "publish",
+        outcomeContract: "external_operation",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: true,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: true,
+        },
+        requestedEvidence: ["tool_receipt", "capability_receipt"],
+        lowConfidenceStrategy: "clarify",
+        expectations: {},
+      },
+      executionVerification: verification,
+    });
+    expect(evidence.declaredOutcomeContract).toBe("external_operation");
+    expect(evidence.declaredLowConfidenceStrategy).toBe("clarify");
+
+    const acceptance = service.evaluateAcceptance({
+      runId: outcome.runId,
+      outcome,
+      evidence,
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+        remediation: "none",
+        reasonCode: "completed_with_output",
+      }),
+    );
+  });
+
   it("does not close non-messaging runs without a verified structured receipt", () => {
     const service = createPlatformRuntimeCheckpointService();
     const outcome: PlatformRuntimeRunOutcome = {

@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   OutcomeContractSchema,
   QualificationExecutionContractSchema,
+  QualificationLowConfidenceStrategySchema,
   RequestedEvidenceKindSchema,
 } from "../decision/qualification-contract.js";
 import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
@@ -553,6 +554,7 @@ export const PlatformRuntimeExecutionIntentSchema = z
     outcomeContract: OutcomeContractSchema.optional(),
     executionContract: QualificationExecutionContractSchema.optional(),
     requestedEvidence: z.array(RequestedEvidenceKindSchema).optional(),
+    lowConfidenceStrategy: QualificationLowConfidenceStrategySchema.optional(),
     requiredCapabilities: z.array(z.string().min(1)).optional(),
     bootstrapRequiredCapabilities: z.array(z.string().min(1)).optional(),
     requireExplicitApproval: z.boolean().optional(),
@@ -631,6 +633,7 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     declaredOutcomeContract: OutcomeContractSchema.optional(),
     declaredExecutionContract: QualificationExecutionContractSchema.optional(),
     declaredRequestedEvidence: z.array(RequestedEvidenceKindSchema).optional(),
+    declaredLowConfidenceStrategy: QualificationLowConfidenceStrategySchema.optional(),
     declaredRequiresOutput: z.boolean().optional(),
     declaredRequiresMessagingDelivery: z.boolean().optional(),
     declaredRequiresConfirmedAction: z.boolean().optional(),

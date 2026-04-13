@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { planExecutionRecipe } from "./planner.js";
+import { buildExecutionDecisionInput } from "../decision/input.js";
 
 describe("planExecutionRecipe", () => {
   it("selects doc_ingest for document-first work", () => {
@@ -172,5 +173,58 @@ describe("planExecutionRecipe", () => {
     });
 
     expect(plan.recipe.id).toBe("calculation_report");
+  });
+
+  it("uses candidateFamilies as the primary family-selection input", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Fix the failing build and publish to GitHub",
+      fileNames: ["app.ts"],
+      publishTargets: ["github"],
+      requestedTools: ["exec"],
+      intent: "publish",
+      candidateFamilies: ["general_assistant", "ops_execution"],
+      outcomeContract: "external_operation",
+    });
+
+    expect(plan.recipe.id).toBe("integration_delivery");
+    expect(plan.plannerOutput.reasoning).toContain("Family: ops_execution.");
+  });
+
+  it("prefers the simplest valid family instead of a broader execution family", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Compare these two CSV exports and summarize row-level differences.",
+      fileNames: ["old.csv", "new.csv"],
+      artifactKinds: ["data", "report"],
+      intent: "compare",
+      outcomeContract: "structured_artifact",
+      candidateFamilies: ["document_render", "analysis_transform"],
+    });
+
+    expect(plan.recipe.id).toBe("table_compare");
+    expect(plan.plannerOutput.reasoning).toContain("Family: analysis_transform.");
+  });
+
+  it("falls back to legacy scoring only when candidateFamilies are absent", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Generate a thumbnail image and caption the audio track",
+      artifactKinds: ["image", "audio"],
+      publishTargets: ["site"],
+    });
+
+    expect(plan.recipe.id).toBe("media_production");
+  });
+
+  it("uses clarify strategy to avoid forced execution on ambiguous publish prompts", () => {
+    const plan = planExecutionRecipe(
+      buildExecutionDecisionInput({
+        prompt: "Ship it.",
+      }),
+    );
+
+    expect(plan.recipe.id).toBe("general_reasoning");
+    expect(plan.plannerOutput.reasoning).toContain("Low-confidence strategy: clarify.");
+    expect(plan.plannerOutput.reasoning).toContain(
+      "external operation is inferred without an explicit publish target",
+    );
   });
 });

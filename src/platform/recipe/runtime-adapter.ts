@@ -9,6 +9,8 @@ import type {
   PlatformExecutionContextReadinessStatus,
   PlatformExecutionContextUnattendedBoundary,
 } from "../decision/contracts.js";
+import { inferExecutionContract, inferRequestedEvidence } from "../decision/execution-contract.js";
+import { inferOutcomeContract } from "../decision/outcome-contract.js";
 import { evaluatePolicy } from "../policy/engine.js";
 import type { PolicyContext, PolicyDecision } from "../policy/types.js";
 import { getInitialProfile, getTaskOverlay } from "../profile/defaults.js";
@@ -22,6 +24,14 @@ import {
 import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 import type { ArtifactKind } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
+import type {
+  CandidateExecutionFamily,
+  OutcomeContract,
+  QualificationConfidence,
+  QualificationExecutionContract,
+  QualificationLowConfidenceStrategy,
+  RequestedEvidenceKind,
+} from "../decision/qualification-contract.js";
 import type { RecipePlannerInput, RecipeRoutingHints } from "./planner.js";
 import { planExecutionRecipe, type ExecutionPlan } from "./planner.js";
 
@@ -38,6 +48,13 @@ export type RecipeRuntimePlan = {
   timeoutSeconds?: number;
   artifactKinds?: ArtifactKind[];
   requestedToolNames?: string[];
+  confidence?: QualificationConfidence;
+  ambiguityReasons?: string[];
+  lowConfidenceStrategy?: QualificationLowConfidenceStrategy;
+  candidateFamilies?: CandidateExecutionFamily[];
+  outcomeContract?: OutcomeContract;
+  executionContract?: QualificationExecutionContract;
+  requestedEvidence?: RequestedEvidenceKind[];
   publishTargets?: string[];
   requiredCapabilities?: string[];
   bootstrapRequiredCapabilities?: string[];
@@ -193,6 +210,21 @@ function buildRequestedToolGuardrails(requestedToolNames?: string[]): string | u
   return guardrails.length > 0 ? guardrails.join(" ") : undefined;
 }
 
+function buildClarificationGuardrails(params: {
+  lowConfidenceStrategy?: QualificationLowConfidenceStrategy;
+  ambiguityReasons?: string[];
+}): string | undefined {
+  if (params.lowConfidenceStrategy !== "clarify") {
+    return undefined;
+  }
+  return [
+    "Clarification path: preserve the original qualified task semantics, but do not execute tools, mutate the workspace, or claim completion on this turn.",
+    params.ambiguityReasons?.length
+      ? `Ask one concise clarifying question that resolves the blocking ambiguity: ${params.ambiguityReasons.join("; ")}.`
+      : "Ask one concise clarifying question that resolves the blocking ambiguity before execution continues.",
+  ].join(" ");
+}
+
 /**
  * Keeps reply language aligned with the user's latest turn so lightweight local
  * models do not drift into an unrelated language on simple chat requests.
@@ -216,7 +248,13 @@ function buildSystemContext(
   capabilitySummary?: PlatformCapabilitySummary,
   artifactKinds?: ArtifactKind[],
   requestedToolNames?: string[],
+  lowConfidenceStrategy?: QualificationLowConfidenceStrategy,
+  ambiguityReasons?: string[],
 ): string {
+  const clarificationGuardrails = buildClarificationGuardrails({
+    lowConfidenceStrategy,
+    ambiguityReasons,
+  });
   return [
     `Execution recipe: ${plan.recipe.id}.`,
     plan.recipe.summary ? `Recipe summary: ${plan.recipe.summary}` : undefined,
@@ -224,8 +262,9 @@ function buildSystemContext(
       ? `Required capabilities: ${capabilitySummary.requiredCapabilities.join(", ")}.`
       : undefined,
     buildReplyLanguageGuardrail(),
-    buildArtifactOutputGuardrails(artifactKinds),
-    buildRequestedToolGuardrails(requestedToolNames),
+    clarificationGuardrails,
+    clarificationGuardrails ? undefined : buildArtifactOutputGuardrails(artifactKinds),
+    clarificationGuardrails ? undefined : buildRequestedToolGuardrails(requestedToolNames),
     plan.recipe.systemPrompt,
   ]
     .filter(Boolean)
@@ -560,11 +599,40 @@ export function adaptExecutionPlanToRuntime(
 ): RecipeRuntimePlan {
   const overrideModel = plan.plannerOutput.overrides?.model;
   const parsedModel = overrideModel ? parseModelRef(overrideModel, DEFAULT_PROVIDER) : null;
+  const outcomeContract =
+    params?.input?.outcomeContract ??
+    inferOutcomeContract({
+      ...(params?.input?.intent ? { intent: params.input.intent } : {}),
+      ...(params?.input?.artifactKinds?.length ? { artifactKinds: params.input.artifactKinds } : {}),
+      ...(params?.input?.requestedTools?.length
+        ? { requestedTools: params.input.requestedTools }
+        : {}),
+      ...(params?.input?.publishTargets?.length
+        ? { publishTargets: params.input.publishTargets }
+        : {}),
+    });
+  const executionContract =
+    params?.input?.executionContract ??
+    inferExecutionContract(outcomeContract, {
+      ...(params?.input?.intent ? { intent: params.input.intent } : {}),
+      ...(params?.input?.artifactKinds?.length ? { artifactKinds: params.input.artifactKinds } : {}),
+      ...(params?.input?.requestedTools?.length
+        ? { requestedTools: params.input.requestedTools }
+        : {}),
+      ...(params?.input?.publishTargets?.length
+        ? { publishTargets: params.input.publishTargets }
+        : {}),
+    });
+  const requestedEvidence =
+    params?.input?.requestedEvidence ??
+    inferRequestedEvidence(outcomeContract, executionContract);
   const prependSystemContext = buildSystemContext(
     plan,
     params?.capabilitySummary,
     params?.input?.artifactKinds,
     params?.input?.requestedTools,
+    params?.input?.lowConfidenceStrategy,
+    params?.input?.ambiguityReasons,
   );
   const prependContext = buildPrependContext(plan, {
     capabilitySummary: params?.capabilitySummary,
@@ -591,6 +659,19 @@ export function adaptExecutionPlanToRuntime(
     ...(params?.input?.requestedTools?.length
       ? { requestedToolNames: params.input.requestedTools }
       : {}),
+    ...(params?.input?.confidence ? { confidence: params.input.confidence } : {}),
+    ...(params?.input?.ambiguityReasons?.length
+      ? { ambiguityReasons: params.input.ambiguityReasons }
+      : {}),
+    ...(params?.input?.lowConfidenceStrategy
+      ? { lowConfidenceStrategy: params.input.lowConfidenceStrategy }
+      : {}),
+    ...(params?.input?.candidateFamilies?.length
+      ? { candidateFamilies: params.input.candidateFamilies }
+      : {}),
+    ...(outcomeContract ? { outcomeContract } : {}),
+    ...(executionContract ? { executionContract } : {}),
+    ...(requestedEvidence.length ? { requestedEvidence } : {}),
     ...(params?.input?.publishTargets?.length
       ? { publishTargets: params.input.publishTargets }
       : {}),
@@ -711,6 +792,15 @@ export function buildRecipePlannerInputFromRuntimePlan(
     ...(runtime.artifactKinds?.length
       ? { artifactKinds: runtime.artifactKinds as ArtifactKind[] }
       : {}),
+    ...(runtime.confidence ? { confidence: runtime.confidence } : {}),
+    ...(runtime.ambiguityReasons?.length ? { ambiguityReasons: runtime.ambiguityReasons } : {}),
+    ...(runtime.lowConfidenceStrategy
+      ? { lowConfidenceStrategy: runtime.lowConfidenceStrategy }
+      : {}),
+    ...(runtime.candidateFamilies?.length ? { candidateFamilies: runtime.candidateFamilies } : {}),
+    ...(runtime.outcomeContract ? { outcomeContract: runtime.outcomeContract } : {}),
+    ...(runtime.executionContract ? { executionContract: runtime.executionContract } : {}),
+    ...(runtime.requestedEvidence?.length ? { requestedEvidence: runtime.requestedEvidence } : {}),
     ...(runtime.publishTargets?.length ? { publishTargets: runtime.publishTargets } : {}),
     ...(runtime.requestedToolNames?.length ? { requestedTools: runtime.requestedToolNames } : {}),
   };

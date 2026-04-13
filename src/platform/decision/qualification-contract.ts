@@ -22,6 +22,15 @@ export type RequestedEvidenceKind = z.infer<typeof RequestedEvidenceKindSchema>;
 export const QualificationConfidenceSchema = z.enum(["high", "medium", "low"]);
 export type QualificationConfidence = z.infer<typeof QualificationConfidenceSchema>;
 
+export const QualificationLowConfidenceStrategySchema = z.enum([
+  "clarify",
+  "safe_broad_family_execution",
+  "bounded_attempt_with_strict_verification",
+]);
+export type QualificationLowConfidenceStrategy = z.infer<
+  typeof QualificationLowConfidenceStrategySchema
+>;
+
 export const CandidateExecutionFamilySchema = z.enum([
   "general_assistant",
   "document_render",
@@ -52,6 +61,7 @@ export const QualificationResultSchema = z
     confidence: QualificationConfidenceSchema,
     ambiguityReasons: z.array(z.string().min(1)),
     candidateFamilies: z.array(CandidateExecutionFamilySchema),
+    lowConfidenceStrategy: QualificationLowConfidenceStrategySchema.optional(),
   })
   .strict();
 export type QualificationResult = z.infer<typeof QualificationResultSchema>;

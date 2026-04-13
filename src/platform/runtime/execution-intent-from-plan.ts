@@ -17,7 +17,13 @@ export type PlatformRuntimeExecutionIntentSeed = Partial<
 export function deriveExecutionContractExpectationsFromRuntimePlan(
   runtime: RecipeRuntimePlan,
 ): PlatformRuntimeExecutionContractExpectation {
+  if (runtime.lowConfidenceStrategy === "clarify") {
+    return {};
+  }
   const declaredRequiresOutput =
+    runtime.executionContract?.requiresArtifactEvidence === true ||
+    runtime.executionContract?.requiresWorkspaceMutation === true ||
+    runtime.executionContract?.requiresLocalProcess === true ||
     runtime.intent !== "general" ||
     (runtime.publishTargets?.length ?? 0) > 0 ||
     (runtime.artifactKinds?.length ?? 0) > 0;
@@ -40,6 +46,10 @@ export function buildExecutionIntentSeedFromRecipeRuntimePlan(
     ...(runtime.requestedToolNames?.length
       ? { requestedToolNames: runtime.requestedToolNames }
       : {}),
+    ...(runtime.outcomeContract ? { outcomeContract: runtime.outcomeContract } : {}),
+    ...(runtime.executionContract ? { executionContract: runtime.executionContract } : {}),
+    ...(runtime.requestedEvidence?.length ? { requestedEvidence: runtime.requestedEvidence } : {}),
+    ...(runtime.lowConfidenceStrategy ? { lowConfidenceStrategy: runtime.lowConfidenceStrategy } : {}),
     ...(runtime.requiredCapabilities?.length
       ? { requiredCapabilities: runtime.requiredCapabilities }
       : {}),

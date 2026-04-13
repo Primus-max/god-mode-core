@@ -242,10 +242,31 @@ function buildDefaultRequestedEvidence(
   return Array.from(evidence);
 }
 
+function buildClarificationTurnRequirements(): CompletionEvidenceRequirements {
+  const outcomeContract: OutcomeContract = "text_response";
+  const executionContract: QualificationExecutionContract = {
+    requiresTools: false,
+    requiresWorkspaceMutation: false,
+    requiresLocalProcess: false,
+    requiresArtifactEvidence: false,
+    requiresDeliveryEvidence: false,
+    mayNeedBootstrap: false,
+  };
+  return {
+    outcomeContract,
+    executionContract,
+    requestedEvidence: buildDefaultRequestedEvidence(outcomeContract, executionContract),
+    requiresStructuredEvidence: false,
+  };
+}
+
 export function mapQualificationToEvidenceRequirements(params: {
   executionIntent?: PlatformRuntimeExecutionIntent;
   expectations?: PlatformRuntimeExecutionContract["expectations"];
 }): CompletionEvidenceRequirements {
+  if (params.executionIntent?.lowConfidenceStrategy === "clarify") {
+    return buildClarificationTurnRequirements();
+  }
   const outcomeContract = inferOutcomeContract(params.executionIntent);
   const executionContract = mergeExecutionContract({
     outcomeContract,

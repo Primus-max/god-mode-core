@@ -5,6 +5,14 @@ import {
   promptSuggestsWebsiteFrontendWork,
   TABULAR_ATTACHMENT_EXTENSION,
 } from "../decision/intent-signals.js";
+import type {
+  CandidateExecutionFamily,
+  OutcomeContract,
+  QualificationConfidence,
+  QualificationExecutionContract,
+  QualificationLowConfidenceStrategy,
+  RequestedEvidenceKind,
+} from "../decision/qualification-contract.js";
 import {
   resolveProfile,
   type ProfileResolution,
@@ -24,6 +32,13 @@ export type RecipeRoutingHints = {
 
 export type RecipePlannerInput = ProfileResolverInput & {
   intent?: "general" | "document" | "code" | "publish" | "compare" | "calculation";
+  outcomeContract?: OutcomeContract;
+  executionContract?: QualificationExecutionContract;
+  requestedEvidence?: RequestedEvidenceKind[];
+  confidence?: QualificationConfidence;
+  ambiguityReasons?: string[];
+  lowConfidenceStrategy?: QualificationLowConfidenceStrategy;
+  candidateFamilies?: CandidateExecutionFamily[];
   recipes?: ExecutionRecipe[];
   routing?: RecipeRoutingHints;
 };
@@ -35,8 +50,34 @@ export type ExecutionPlan = {
   candidateRecipes: ExecutionRecipe[];
 };
 
+const FAMILY_SIMPLICITY_ORDER: CandidateExecutionFamily[] = [
+  "general_assistant",
+  "analysis_transform",
+  "document_render",
+  "media_generation",
+  "code_build",
+  "ops_execution",
+];
+
+const RECIPE_FAMILIES: Record<string, CandidateExecutionFamily[]> = {
+  general_reasoning: ["general_assistant"],
+  doc_ingest: ["document_render"],
+  ocr_extract: ["document_render"],
+  table_extract: ["document_render"],
+  table_compare: ["analysis_transform"],
+  calculation_report: ["analysis_transform"],
+  code_build_publish: ["code_build"],
+  integration_delivery: ["ops_execution"],
+  ops_orchestration: ["ops_execution"],
+  media_production: ["media_generation"],
+};
+
 function recipeMatchesProfile(recipe: ExecutionRecipe, profileId: ProfileId): boolean {
   return !recipe.allowedProfiles || recipe.allowedProfiles.includes(profileId);
+}
+
+function getRecipeFamilies(recipe: ExecutionRecipe): CandidateExecutionFamily[] {
+  return RECIPE_FAMILIES[recipe.id] ?? [];
 }
 
 function hasMatchingTarget(recipe: ExecutionRecipe, publishTargets: string[]): boolean {
@@ -61,6 +102,10 @@ function hasCodeArtifact(artifactKinds: ArtifactKind[]): boolean {
 
 function hasMediaArtifact(artifactKinds: ArtifactKind[]): boolean {
   return artifactKinds.some((kind) => kind === "image" || kind === "video" || kind === "audio");
+}
+
+function hasReportOrDataArtifact(artifactKinds: ArtifactKind[]): boolean {
+  return artifactKinds.some((kind) => kind === "report" || kind === "data");
 }
 
 function hasOcrSignal(input: RecipePlannerInput, files: string[]): boolean {
@@ -133,6 +178,82 @@ function hasCompareSignal(input: RecipePlannerInput, files: string[]): boolean {
 
 function hasCalculationSignal(input: RecipePlannerInput): boolean {
   return promptSuggestsCalculationIntent(input.prompt ?? "");
+}
+
+function familyIsValidForInput(
+  family: CandidateExecutionFamily,
+  input: RecipePlannerInput,
+): boolean {
+  const artifactKinds = input.artifactKinds ?? [];
+  const hasMedia = hasMediaArtifact(artifactKinds);
+  const hasCode = hasCodeArtifact(artifactKinds);
+  const hasDocument = hasDocumentArtifact(artifactKinds);
+  const hasReportOrData = hasReportOrDataArtifact(artifactKinds);
+
+  switch (family) {
+    case "general_assistant":
+      return input.outcomeContract === "text_response" || input.intent === "general";
+    case "analysis_transform":
+      return (
+        input.intent === "compare" ||
+        input.intent === "calculation" ||
+        (input.outcomeContract === "structured_artifact" &&
+          hasReportOrData &&
+          !hasDocument &&
+          !hasMedia &&
+          !hasCode)
+      );
+    case "document_render":
+      return (
+        input.intent === "document" ||
+        (input.outcomeContract === "structured_artifact" && !hasMedia && !hasCode)
+      );
+    case "media_generation":
+      return input.outcomeContract === "structured_artifact" && hasMedia;
+    case "code_build":
+      return (
+        input.outcomeContract === "workspace_change" ||
+        input.outcomeContract === "interactive_local_result" ||
+        input.intent === "code"
+      );
+    case "ops_execution":
+      return input.outcomeContract === "external_operation" || input.intent === "publish";
+    default:
+      return false;
+  }
+}
+
+function selectRecipesForCandidateFamily(params: {
+  candidateRecipes: ExecutionRecipe[];
+  input: RecipePlannerInput;
+}): { selectedFamily?: CandidateExecutionFamily; recipes: ExecutionRecipe[] } {
+  const requestedFamilies = Array.from(new Set(params.input.candidateFamilies ?? []));
+  if (requestedFamilies.length === 0) {
+    return {
+      recipes: params.candidateRecipes,
+    };
+  }
+
+  const availableFamilies = requestedFamilies.filter((family) =>
+    params.candidateRecipes.some((recipe) => getRecipeFamilies(recipe).includes(family)),
+  );
+  const validFamilies = availableFamilies
+    .filter((family) => familyIsValidForInput(family, params.input))
+    .toSorted(
+      (left, right) =>
+        FAMILY_SIMPLICITY_ORDER.indexOf(left) - FAMILY_SIMPLICITY_ORDER.indexOf(right),
+    );
+  const selectedFamily = validFamilies[0];
+  if (!selectedFamily) {
+    return {
+      recipes: params.candidateRecipes,
+    };
+  }
+
+  return {
+    selectedFamily,
+    recipes: params.candidateRecipes.filter((recipe) => getRecipeFamilies(recipe).includes(selectedFamily)),
+  };
 }
 
 function buildRecipeScore(params: {
@@ -399,10 +520,12 @@ function buildRecipeScore(params: {
 function resolvePlannerReason(params: {
   recipe: ExecutionRecipe;
   profile: ProfileResolution;
+  selectedFamily?: CandidateExecutionFamily;
 }): string {
   const overlayId = params.profile.activeProfile.taskOverlay;
   const overlayText = overlayId ? ` Task overlay: ${overlayId}.` : "";
-  return `Recipe ${params.recipe.id} selected for profile ${params.profile.selectedProfile.id}.${overlayText}`;
+  const familyText = params.selectedFamily ? ` Family: ${params.selectedFamily}.` : "";
+  return `Recipe ${params.recipe.id} selected for profile ${params.profile.selectedProfile.id}.${familyText}${overlayText}`;
 }
 
 export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
@@ -411,8 +534,36 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
   const candidateRecipes = recipes.filter((recipe) =>
     recipeMatchesProfile(recipe, profile.selectedProfile.id),
   );
+  if (input.lowConfidenceStrategy === "clarify") {
+    const selectedRecipe = getInitialRecipe("general_reasoning") ?? INITIAL_RECIPES[0];
+    const plannerOutput = PlannerOutputSchema.parse({
+      selectedRecipeId: selectedRecipe.id,
+      reasoning: [
+        resolvePlannerReason({ recipe: selectedRecipe, profile }),
+        input.confidence ? `Qualification confidence: ${input.confidence}.` : undefined,
+        input.lowConfidenceStrategy
+          ? `Low-confidence strategy: ${input.lowConfidenceStrategy}.`
+          : undefined,
+        input.ambiguityReasons?.length
+          ? `Ambiguity: ${input.ambiguityReasons.join("; ")}.`
+          : undefined,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      ...(selectedRecipe.defaultModel ? { overrides: { model: selectedRecipe.defaultModel } } : {}),
+    });
+    return {
+      profile,
+      recipe: selectedRecipe,
+      plannerOutput,
+      candidateRecipes,
+    };
+  }
+  const familySelection = selectRecipesForCandidateFamily({ candidateRecipes, input });
+  const familyScopedRecipes =
+    familySelection.recipes.length > 0 ? familySelection.recipes : candidateRecipes;
 
-  const rankedRecipes = candidateRecipes
+  const rankedRecipes = familyScopedRecipes
     .map((recipe) => ({
       recipe,
       score: buildRecipeScore({ recipe, profile, input }),
@@ -429,7 +580,22 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
 
   const plannerOutput = PlannerOutputSchema.parse({
     selectedRecipeId: selectedRecipe.id,
-    reasoning: resolvePlannerReason({ recipe: selectedRecipe, profile }),
+    reasoning: [
+      resolvePlannerReason({
+        recipe: selectedRecipe,
+        profile,
+        selectedFamily: familySelection.selectedFamily,
+      }),
+      input.confidence ? `Qualification confidence: ${input.confidence}.` : undefined,
+      input.lowConfidenceStrategy
+        ? `Low-confidence strategy: ${input.lowConfidenceStrategy}.`
+        : undefined,
+      input.ambiguityReasons?.length
+        ? `Ambiguity: ${input.ambiguityReasons.join("; ")}.`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(" "),
     ...(Object.keys(selectedOverrideEntries).length > 0
       ? { overrides: selectedOverrideEntries }
       : {}),

@@ -1,7 +1,6 @@
 import path from "node:path";
 import type { SessionEntry } from "../../config/sessions.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
-import { stripInboundMetadata } from "../../auto-reply/reply/strip-inbound-meta.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
 import {
@@ -11,19 +10,31 @@ import {
   type ResolvedPlatformRuntimePlan,
   type ResolvePlatformExecutionDecisionOptions,
 } from "../recipe/runtime-adapter.js";
+import { inferCandidateExecutionFamilies } from "./family-candidates.js";
 import {
   countTabularFiles,
   promptSuggestsCalculationIntent,
   promptSuggestsCompareIntent,
   promptSuggestsWebsiteFrontendWork,
 } from "./intent-signals.js";
-import type {
-  CandidateExecutionFamily,
-  OutcomeContract,
-  QualificationExecutionContract,
-  QualificationResult,
-  RequestedEvidenceKind,
-} from "./qualification-contract.js";
+import { computeQualificationConfidence } from "./qualification-confidence.js";
+import {
+  inferQualificationAmbiguityReasons,
+  resolveLowConfidenceStrategy,
+} from "./qualification-confidence.js";
+import type { QualificationResult } from "./qualification-contract.js";
+import { inferExecutionContract, inferRequestedEvidence } from "./execution-contract.js";
+import {
+  inferOutcomeContract,
+  type QualificationBridgePlannerInput,
+} from "./outcome-contract.js";
+import {
+  collectPromptHints,
+  normalizeExecutionTurn,
+  promptIncludesAny,
+  resolveKeywordInferencePrompt,
+  toUniqueLowercase,
+} from "./turn-normalizer.js";
 
 const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
 const DEVELOPER_EXECUTION_KEYWORDS =
@@ -171,26 +182,11 @@ const GENERAL_INTENT_HINTS = [
   "перевед",
   "объясн",
 ] as const;
-const ROUTING_CONTEXT_PREFIXES = [
-  "Profile:",
-  "Language continuity:",
-  "Task overlay:",
-  "Planner reasoning:",
-  "Bootstrap required:",
-  "Active specialist profile:",
-  "Planned tools:",
-] as const;
-
 type DecisionInputChannelHints = {
   messageChannel?: string;
   channel?: string;
   replyChannel?: string;
 };
-
-type QualificationBridgePlannerInput = Pick<
-  RecipePlannerInput,
-  "intent" | "artifactKinds" | "requestedTools" | "publishTargets"
->;
 
 export type BuildExecutionDecisionInputParams = {
   prompt: string;
@@ -244,60 +240,6 @@ export function shouldUseLightweightBootstrapContext(
     return false;
   }
   return plannerInput.intent === "general" || plannerInput.intent === undefined;
-}
-
-function collectPromptHints(prompt: string, candidates: readonly string[]): string[] {
-  const normalized = prompt.toLowerCase();
-  return candidates.filter((candidate) =>
-    new RegExp(
-      `(^|[^\\p{L}\\p{N}_])${candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[^\\p{L}\\p{N}_]|$)`,
-      "iu",
-    ).test(normalized),
-  );
-}
-
-function toUniqueLowercase(values: Array<string | undefined> | undefined): string[] {
-  return Array.from(
-    new Set(
-      (values ?? [])
-        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        .map((value) => value.trim().toLowerCase()),
-    ),
-  );
-}
-
-function promptIncludesAny(prompt: string, hints: readonly string[]): boolean {
-  const normalized = prompt.toLowerCase();
-  return hints.some((hint) => normalized.includes(hint));
-}
-
-function resolveKeywordInferencePrompt(prompt: string): string {
-  const withoutInboundMetadata = stripInboundMetadata(prompt);
-  const lines = withoutInboundMetadata.split("\n");
-  let index = 0;
-  let strippedContextPrefix = false;
-  while (index < lines.length) {
-    const trimmed = lines[index]?.trim() ?? "";
-    if (!trimmed) {
-      if (strippedContextPrefix) {
-        index += 1;
-        continue;
-      }
-      break;
-    }
-    if (ROUTING_CONTEXT_PREFIXES.some((prefix) => trimmed.startsWith(prefix))) {
-      strippedContextPrefix = true;
-      index += 1;
-      continue;
-    }
-    break;
-  }
-  const normalizedPrompt = lines.slice(index).join("\n").trim();
-  const segments = normalizedPrompt
-    .split(/\n\s*\n/iu)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-  return (segments.at(-1) ?? normalizedPrompt) || prompt;
 }
 
 function compareLanguageInPrompt(prompt: string): boolean {
@@ -695,18 +637,13 @@ function inferNeedsVision(params: { prompt: string; fileNames: string[] }): bool
 export function buildExecutionDecisionInput(
   params: BuildExecutionDecisionInputParams,
 ): RecipePlannerInput {
-  const fileNames = Array.from(
-    new Set(
-      (params.fileNames ?? [])
-        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        .map((value) => value.trim()),
-    ),
-  );
-  const explicitInferencePrompt =
-    typeof params.inferencePrompt === "string" && params.inferencePrompt.trim().length > 0
-      ? params.inferencePrompt.trim()
-      : undefined;
-  const inferencePromptCandidate = explicitInferencePrompt ?? resolveKeywordInferencePrompt(params.prompt);
+  const normalizedTurn = normalizeExecutionTurn({
+    prompt: params.prompt,
+    inferencePrompt: params.inferencePrompt,
+    fileNames: params.fileNames,
+  });
+  const fileNames = normalizedTurn.fileNames;
+  const inferencePromptCandidate = normalizedTurn.inferencePrompt;
   const candidatePublishTargets = collectPromptHints(
     inferencePromptCandidate,
     DEVELOPER_PUBLISH_TARGET_HINTS,
@@ -714,7 +651,7 @@ export function buildExecutionDecisionInput(
   const candidateIntent = inferPromptIntent(inferencePromptCandidate, fileNames);
   const candidateArtifactKinds = inferArtifactKinds(inferencePromptCandidate, fileNames);
   const inferencePrompt =
-    !explicitInferencePrompt &&
+    !params.inferencePrompt &&
     inferencePromptCandidate !== params.prompt &&
     !candidateIntent &&
     candidatePublishTargets.length === 0 &&
@@ -787,7 +724,12 @@ export function buildExecutionDecisionInput(
     artifactKinds,
   });
   const needsVision = inferNeedsVision({ prompt: inferencePrompt, fileNames });
-
+  const qualification = buildQualificationResultFromPlannerInput({
+    ...(effectiveIntent ? { intent: effectiveIntent } : {}),
+    ...(artifactKinds.length > 0 ? { artifactKinds } : {}),
+    ...(requestedTools.length > 0 ? { requestedTools } : {}),
+    ...(publishTargets.length > 0 ? { publishTargets } : {}),
+  });
   return applySessionSpecialistOverrideToPlannerInput(
     {
       prompt: params.prompt,
@@ -797,6 +739,13 @@ export function buildExecutionDecisionInput(
       ...(integrations.length > 0 ? { integrations } : {}),
       ...(requestedTools.length > 0 ? { requestedTools } : {}),
       ...(artifactKinds.length > 0 ? { artifactKinds } : {}),
+      outcomeContract: qualification.outcomeContract,
+      executionContract: qualification.executionContract,
+      requestedEvidence: [...qualification.requestedEvidence],
+      confidence: qualification.confidence,
+      ambiguityReasons: qualification.ambiguityReasons,
+      lowConfidenceStrategy: qualification.lowConfidenceStrategy,
+      candidateFamilies: [...qualification.candidateFamilies],
       routing: {
         localEligible: localRoutingEligible,
         remoteProfile,
@@ -953,161 +902,48 @@ export function resolveSessionDecisionInputContext(messages: unknown[]): {
   };
 }
 
-function inferOutcomeContractFromLegacyPlannerInput(
-  input: QualificationBridgePlannerInput,
-): OutcomeContract {
-  const artifactKinds = input.artifactKinds ?? [];
-  if (artifactKinds.includes("site")) {
-    return "interactive_local_result";
-  }
-  if (
-    artifactKinds.some((kind) =>
-      ["document", "estimate", "image", "video", "audio", "archive", "release", "binary"].includes(
-        kind,
-      ),
-    )
-  ) {
-    return "structured_artifact";
-  }
-  if (input.intent === "publish" || (input.publishTargets?.length ?? 0) > 0) {
-    return "external_operation";
-  }
-  if (input.intent === "code") {
-    return "workspace_change";
-  }
-  return "text_response";
-}
-
-function inferExecutionContractFromLegacyPlannerInput(
-  outcomeContract: OutcomeContract,
-  input: QualificationBridgePlannerInput,
-): QualificationExecutionContract {
-  const requestedTools = input.requestedTools ?? [];
-  const requiresTools = requestedTools.length > 0 || outcomeContract !== "text_response";
-  const requiresLocalProcess =
-    requestedTools.some((tool) => ["exec", "process"].includes(tool)) ||
-    outcomeContract === "interactive_local_result";
-
-  switch (outcomeContract) {
-    case "structured_artifact":
-      return {
-        requiresTools,
-        requiresWorkspaceMutation: false,
-        requiresLocalProcess,
-        requiresArtifactEvidence: true,
-        requiresDeliveryEvidence: false,
-        mayNeedBootstrap: requestedTools.some((tool) => tool === "pdf" || tool === "image_generate"),
-      };
-    case "workspace_change":
-      return {
-        requiresTools,
-        requiresWorkspaceMutation: true,
-        requiresLocalProcess,
-        requiresArtifactEvidence: false,
-        requiresDeliveryEvidence: false,
-        mayNeedBootstrap: requiresLocalProcess,
-      };
-    case "interactive_local_result":
-      return {
-        requiresTools: true,
-        requiresWorkspaceMutation: true,
-        requiresLocalProcess: true,
-        requiresArtifactEvidence: false,
-        requiresDeliveryEvidence: false,
-        mayNeedBootstrap: true,
-      };
-    case "external_operation":
-      return {
-        requiresTools: true,
-        requiresWorkspaceMutation: false,
-        requiresLocalProcess,
-        requiresArtifactEvidence: false,
-        requiresDeliveryEvidence: false,
-        mayNeedBootstrap: true,
-      };
-    case "text_response":
-    default:
-      return {
-        requiresTools,
-        requiresWorkspaceMutation: false,
-        requiresLocalProcess,
-        requiresArtifactEvidence: false,
-        requiresDeliveryEvidence: false,
-        mayNeedBootstrap: false,
-      };
-  }
-}
-
-function inferRequestedEvidenceFromLegacyPlannerInput(
-  outcomeContract: OutcomeContract,
-  executionContract: QualificationExecutionContract,
-): RequestedEvidenceKind[] {
-  const requestedEvidence = new Set<RequestedEvidenceKind>();
-  switch (outcomeContract) {
-    case "structured_artifact":
-      requestedEvidence.add("tool_receipt");
-      requestedEvidence.add("artifact_descriptor");
-      break;
-    case "interactive_local_result":
-      requestedEvidence.add("tool_receipt");
-      requestedEvidence.add("process_receipt");
-      break;
-    case "workspace_change":
-    case "external_operation":
-      requestedEvidence.add("tool_receipt");
-      break;
-    case "text_response":
-    default:
-      requestedEvidence.add("assistant_text");
-      break;
-  }
-  if (executionContract.requiresDeliveryEvidence) {
-    requestedEvidence.add("delivery_receipt");
-  }
-  if (executionContract.mayNeedBootstrap) {
-    requestedEvidence.add("capability_receipt");
-  }
-  return Array.from(requestedEvidence);
-}
-
-function inferCandidateFamiliesFromLegacyPlannerInput(
-  outcomeContract: OutcomeContract,
-  input: QualificationBridgePlannerInput,
-): CandidateExecutionFamily[] {
-  switch (outcomeContract) {
-    case "structured_artifact":
-      if (input.artifactKinds?.some((kind) => ["image", "video", "audio"].includes(kind))) {
-        return ["media_generation", "document_render"];
-      }
-      return ["document_render", "analysis_transform"];
-    case "workspace_change":
-    case "interactive_local_result":
-      return ["code_build"];
-    case "external_operation":
-      return ["ops_execution"];
-    case "text_response":
-    default:
-      if (input.intent === "compare" || input.intent === "calculation") {
-        return ["analysis_transform"];
-      }
-      return ["general_assistant"];
-  }
-}
-
 export function buildQualificationResultFromPlannerInput(
   input: QualificationBridgePlannerInput,
 ): QualificationResult {
-  const outcomeContract = inferOutcomeContractFromLegacyPlannerInput(input);
-  const executionContract = inferExecutionContractFromLegacyPlannerInput(outcomeContract, input);
+  const outcomeContract = inferOutcomeContract(input);
+  const executionContract = inferExecutionContract(outcomeContract, input);
+  const candidateFamilies = inferCandidateExecutionFamilies(outcomeContract, input);
+  const ambiguityReasons = inferQualificationAmbiguityReasons({
+    outcomeContract,
+    executionContract,
+    candidateFamilies,
+    intent: input.intent,
+    artifactKinds: input.artifactKinds,
+    requestedTools: input.requestedTools,
+    publishTargets: input.publishTargets,
+  });
+  const confidence = computeQualificationConfidence({
+    outcomeContract,
+    executionContract,
+    candidateFamilies,
+    ambiguityReasons,
+    intent: input.intent,
+    artifactKinds: input.artifactKinds,
+    requestedTools: input.requestedTools,
+    publishTargets: input.publishTargets,
+  });
   return {
     outcomeContract,
     executionContract,
-    requestedEvidence: inferRequestedEvidenceFromLegacyPlannerInput(
+    requestedEvidence: inferRequestedEvidence(outcomeContract, executionContract),
+    confidence,
+    ambiguityReasons,
+    lowConfidenceStrategy: resolveLowConfidenceStrategy({
       outcomeContract,
       executionContract,
-    ),
-    confidence: outcomeContract === "text_response" ? "medium" : "high",
-    ambiguityReasons: [],
-    candidateFamilies: inferCandidateFamiliesFromLegacyPlannerInput(outcomeContract, input),
+      candidateFamilies,
+      confidence,
+      ambiguityReasons,
+      intent: input.intent,
+      artifactKinds: input.artifactKinds,
+      requestedTools: input.requestedTools,
+      publishTargets: input.publishTargets,
+    }),
+    candidateFamilies,
   };
 }

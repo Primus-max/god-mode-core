@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
+import { buildExecutionDecisionInput } from "../decision/input.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/index.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { ExecutionRecipe } from "../schemas/index.js";
@@ -23,6 +24,13 @@ describe("resolvePlatformRuntimePlan", () => {
     expect(resolved.runtime.selectedProfileId).toBe("builder");
     expect(resolved.runtime.taskOverlayId).toBe("document_first");
     expect(resolved.runtime.plannerReasoning).toContain("doc_ingest");
+    expect(resolved.runtime.outcomeContract).toBe("structured_artifact");
+    expect(resolved.runtime.executionContract).toEqual(
+      expect.objectContaining({
+        requiresArtifactEvidence: true,
+      }),
+    );
+    expect(resolved.runtime.requestedEvidence).toEqual(["tool_receipt", "artifact_descriptor"]);
     expect(resolved.runtime.timeoutSeconds).toBe(180);
     expect(resolved.runtime.requiredCapabilities).toEqual(["pdf-parser"]);
     expect(resolved.capabilitySummary.requirements).toEqual([
@@ -240,6 +248,7 @@ describe("buildRecipePlannerInputFromRuntimePlan", () => {
       publishTargets: ["vercel"],
       requestedTools: ["exec"],
       intent: "publish" as const,
+      candidateFamilies: ["ops_execution"] as const,
     };
     const plan = planExecutionRecipe(input);
     const runtime = adaptExecutionPlanToRuntime(plan, { input });
@@ -248,8 +257,53 @@ describe("buildRecipePlannerInputFromRuntimePlan", () => {
     });
     expect(replay.prompt).toBe("hello");
     expect(replay.intent).toBe("publish");
+    expect(replay.candidateFamilies).toEqual(["ops_execution"]);
+    expect(replay.outcomeContract).toBe("external_operation");
+    expect(replay.executionContract).toEqual(
+      expect.objectContaining({
+        requiresTools: true,
+      }),
+    );
+    expect(replay.requestedEvidence).toEqual(["tool_receipt", "capability_receipt"]);
     expect(replay.publishTargets).toEqual(["vercel"]);
     expect(replay.requestedTools).toEqual(["exec"]);
     expect(replay.fileNames).toEqual(["app.ts"]);
+  });
+
+  it("preserves low-confidence clarification state across runtime replay", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Ship it.",
+    });
+    const plan = planExecutionRecipe(input);
+    const runtime = adaptExecutionPlanToRuntime(plan, { input });
+    const replay = buildRecipePlannerInputFromRuntimePlan(runtime, "continue");
+
+    expect(replay.confidence).toBe("medium");
+    expect(replay.ambiguityReasons).toEqual([
+      "external operation is inferred without an explicit publish target",
+    ]);
+    expect(replay.lowConfidenceStrategy).toBe("clarify");
+    expect(replay.outcomeContract).toBe("external_operation");
+    expect(replay.requestedTools ?? []).toEqual(["exec", "apply_patch", "process"]);
+  });
+
+  it("keeps qualified publish semantics in runtime while switching clarify turns into follow-up mode", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Ship it.",
+    });
+    const resolved = resolvePlatformRuntimePlan(input);
+
+    expect(resolved.runtime.outcomeContract).toBe("external_operation");
+    expect(resolved.runtime.executionContract).toEqual(
+      expect.objectContaining({
+        requiresTools: true,
+        requiresLocalProcess: true,
+      }),
+    );
+    expect(resolved.runtime.requestedToolNames).toEqual(["exec", "apply_patch", "process"]);
+    expect(resolved.runtime.prependSystemContext).toContain("Clarification path:");
+    expect(resolved.runtime.prependSystemContext).not.toContain(
+      "must call image_generate before your first final answer",
+    );
   });
 });

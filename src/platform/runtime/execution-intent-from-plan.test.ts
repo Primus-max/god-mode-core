@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { planExecutionRecipe } from "../recipe/planner.js";
 import { adaptExecutionPlanToRuntime } from "../recipe/runtime-adapter.js";
+import { buildExecutionDecisionInput } from "../decision/input.js";
 import {
   buildExecutionIntentSeedFromRecipeRuntimePlan,
   deriveExecutionContractExpectationsFromRuntimePlan,
@@ -44,6 +45,33 @@ describe("execution intent from recipe runtime plan", () => {
     });
     expect(intent.profileId).toBe(runtime.selectedProfileId);
     expect(intent.recipeId).toBe(runtime.selectedRecipeId);
+    expect(intent.outcomeContract).toBe("structured_artifact");
+    expect(intent.executionContract).toEqual(
+      expect.objectContaining({
+        requiresArtifactEvidence: true,
+      }),
+    );
+    expect(intent.requestedEvidence).toEqual(["tool_receipt", "artifact_descriptor"]);
     expect(intent.expectations.requiresOutput).toBe(true);
+  });
+
+  it("keeps clarify as a follow-up mode instead of rewriting the qualified contract", () => {
+    const runtime = adaptExecutionPlanToRuntime(
+      planExecutionRecipe(
+        buildExecutionDecisionInput({
+          prompt: "Ship it.",
+        }),
+      ),
+      {
+        input: buildExecutionDecisionInput({
+          prompt: "Ship it.",
+        }),
+      },
+    );
+    const seed = buildExecutionIntentSeedFromRecipeRuntimePlan(runtime);
+
+    expect(seed.outcomeContract).toBe("external_operation");
+    expect(seed.lowConfidenceStrategy).toBe("clarify");
+    expect(seed.expectations).toEqual({});
   });
 });

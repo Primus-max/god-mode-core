@@ -175,6 +175,9 @@ describe("buildExecutionDecisionInputFromRuntimePlan", () => {
 
     expect(replayInput.intent).toBe("document");
     expect(replayInput.artifactKinds).toEqual(["document", "report"]);
+    expect(replayInput.outcomeContract).toBe(priorRuntime.outcomeContract);
+    expect(replayInput.executionContract).toEqual(priorRuntime.executionContract);
+    expect(replayInput.requestedEvidence).toEqual(priorRuntime.requestedEvidence);
     expect(replayInput.routing).toEqual(priorRuntime.routing);
     expect(fromScratch.intent).toBeUndefined();
     expect(fromScratch.artifactKinds?.length ?? 0).toBe(0);
@@ -207,6 +210,21 @@ describe("buildExecutionDecisionInput", () => {
 
     expect(input.intent).toBe("document");
     expect(input.artifactKinds).toEqual(["document", "report"]);
+    expect(input.outcomeContract).toBe("structured_artifact");
+    expect(input.executionContract).toEqual(
+      expect.objectContaining({
+        requiresArtifactEvidence: true,
+        requiresTools: true,
+      }),
+    );
+    expect(input.requestedEvidence).toEqual([
+      "tool_receipt",
+      "artifact_descriptor",
+      "capability_receipt",
+    ]);
+    expect(input.confidence).toBe("high");
+    expect(input.ambiguityReasons).toEqual([]);
+    expect(input.lowConfidenceStrategy).toBeUndefined();
   });
 
   it("infers site artifact kinds and code intent for website prompts", () => {
@@ -216,9 +234,59 @@ describe("buildExecutionDecisionInput", () => {
 
     expect(input.intent).toBe("code");
     expect(input.artifactKinds ?? []).toEqual(expect.arrayContaining(["site"]));
+    expect(input.outcomeContract).toBe("interactive_local_result");
+    expect(input.executionContract).toEqual(
+      expect.objectContaining({
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+      }),
+    );
+    expect(input.requestedEvidence).toEqual(["tool_receipt", "process_receipt", "capability_receipt"]);
     expect(input.requestedTools ?? []).toEqual(
       expect.arrayContaining(["exec", "apply_patch", "process"]),
     );
+    expect(input.confidence).toBe("high");
+    expect(input.ambiguityReasons).toEqual([]);
+    expect(input.lowConfidenceStrategy).toBeUndefined();
+  });
+
+  it("routes underspecified publish requests into explicit clarification instead of forced execution", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Ship it.",
+    });
+
+    expect(input.intent).toBe("publish");
+    expect(input.confidence).toBe("medium");
+    expect(input.ambiguityReasons).toEqual([
+      "external operation is inferred without an explicit publish target",
+    ]);
+    expect(input.lowConfidenceStrategy).toBe("clarify");
+    expect(input.outcomeContract).toBe("external_operation");
+    expect(input.requestedEvidence).toEqual(["tool_receipt", "capability_receipt"]);
+    expect(input.candidateFamilies).toEqual(["ops_execution"]);
+    expect(input.requestedTools ?? []).toEqual(["exec", "apply_patch", "process"]);
+  });
+
+  it.each([
+    "Сделай простой сайт на Vue, localhost на 5173",
+    "Собери локальный Vite preview для простого сайта и запусти его на localhost",
+  ])("keeps interactive-local-result paraphrases on the same contract: %s", (prompt) => {
+    const input = buildExecutionDecisionInput({ prompt });
+
+    expect(input.outcomeContract).toBe("interactive_local_result");
+    expect(input.confidence).toBe("high");
+    expect(input.lowConfidenceStrategy).toBeUndefined();
+  });
+
+  it.each([
+    "Create a PDF report with a short summary for the customer.",
+    "Assemble a one-page PDF summary for the customer with the same report content.",
+  ])("keeps structured-artifact paraphrases on the same contract: %s", (prompt) => {
+    const input = buildExecutionDecisionInput({ prompt });
+
+    expect(input.outcomeContract).toBe("structured_artifact");
+    expect(input.confidence).toBe("high");
+    expect(input.lowConfidenceStrategy).toBeUndefined();
   });
 
   it("infers image artifact kinds for media-generation prompts", () => {

@@ -5,9 +5,6 @@ import { resolveStateDir } from "../../config/paths.js";
 import { emitRunClosureSummary, emitRuntimeRecoveryTelemetry } from "../../infra/agent-events.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import {
-  OutcomeContractSchema,
-  QualificationExecutionContractSchema,
-  RequestedEvidenceKindSchema,
   PlatformRuntimeAcceptanceResultSchema,
   PlatformRuntimeActionSchema,
   PlatformRuntimeActionStoreSchema,
@@ -59,6 +56,11 @@ import {
   type PlatformRuntimeSupervisorVerdict,
   type PlatformRuntimeTarget,
 } from "./contracts.js";
+import {
+  OutcomeContractSchema,
+  QualificationExecutionContractSchema,
+  RequestedEvidenceKindSchema,
+} from "../decision/qualification-contract.js";
 import {
   hasStructuredArtifactToolOutputReceipt,
   isCompletionEvidenceSufficient,
@@ -728,6 +730,9 @@ function buildIntentAwareEvidence(params: {
     ...(params.executionIntent.requestedEvidence?.length
       ? { declaredRequestedEvidence: params.executionIntent.requestedEvidence }
       : {}),
+    ...(params.executionIntent.lowConfidenceStrategy
+      ? { declaredLowConfidenceStrategy: params.executionIntent.lowConfidenceStrategy }
+      : {}),
     ...(expectations.requiresOutput !== undefined
       ? { declaredRequiresOutput: expectations.requiresOutput }
       : {}),
@@ -769,6 +774,9 @@ function buildExecutionIntentFromEvidence(params: {
             RequestedEvidenceKindSchema.parse(kind),
           ),
         }
+      : {}),
+    ...(params.evidence.declaredLowConfidenceStrategy
+      ? { lowConfidenceStrategy: params.evidence.declaredLowConfidenceStrategy }
       : {}),
     expectations: PlatformRuntimeExecutionContractSchema.shape.expectations.parse(
       params.expectations ?? {
@@ -1472,6 +1480,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
         ...(seed.executionContract ? { executionContract: seed.executionContract } : {}),
         ...(normalizeOptionalStringArray(seed.requestedEvidence)
           ? { requestedEvidence: normalizeOptionalStringArray(seed.requestedEvidence) }
+          : {}),
+        ...(seed.lowConfidenceStrategy
+          ? { lowConfidenceStrategy: seed.lowConfidenceStrategy }
           : {}),
         ...(normalizeOptionalStringArray(seed.requiredCapabilities)
           ? { requiredCapabilities: normalizeOptionalStringArray(seed.requiredCapabilities) }
