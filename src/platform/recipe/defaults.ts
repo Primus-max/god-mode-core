@@ -124,7 +124,7 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
       { type: "release", description: "Published release" },
     ],
     requiredCapabilities: ["node", "git"],
-    allowedProfiles: ["developer"],
+    allowedProfiles: ["developer", "media_creator"],
     riskLevel: "high",
     publishTargets: ["github", "npm", "docker", "vercel", "netlify"],
     systemPrompt:

@@ -2,6 +2,7 @@ import {
   countTabularFiles,
   promptSuggestsCalculationIntent,
   promptSuggestsCompareIntent,
+  promptSuggestsWebsiteFrontendWork,
   TABULAR_ATTACHMENT_EXTENSION,
 } from "../decision/intent-signals.js";
 import {
@@ -299,6 +300,8 @@ function buildRecipeScore(params: {
       score += 1;
     } else if (profile.selectedProfile.id === "integrator") {
       score += 0.45;
+    } else if (profile.selectedProfile.id === "media_creator") {
+      score += 0.35;
     }
     if (overlayId === "code_first" || overlayId === "publish_release") {
       score += 1.4;
@@ -317,6 +320,9 @@ function buildRecipeScore(params: {
     }
     if (tools.some((tool) => tool === "exec" || tool === "process" || tool === "apply_patch")) {
       score += 0.6;
+    }
+    if (promptSuggestsWebsiteFrontendWork(input.prompt ?? "")) {
+      score += 3.6;
     }
     return score;
   }

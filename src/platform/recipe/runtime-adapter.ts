@@ -162,10 +162,16 @@ function buildArtifactOutputGuardrails(artifactKinds?: ArtifactKind[]): string |
   if (!artifactKinds?.some((kind) => STRUCTURED_OUTPUT_ARTIFACT_KINDS.has(kind))) {
     return undefined;
   }
-  return [
+  const lines = [
     "Artifact contract: do not claim completion without producing a real artifact or attachment.",
     "When a file-like deliverable is requested, use the appropriate tool and return the actual deliverable instead of a text-only status update.",
-  ].join(" ");
+  ];
+  if (artifactKinds?.includes("site")) {
+    lines.push(
+      "Site / web UI contract: when the user asks for a website, SPA, or local preview, you must call `write` and/or `exec` (install, build, or dev server as needed) before your final reply. Do not answer with only a plan, apology, or a localhost URL unless tools ran and project files were updated in this turn.",
+    );
+  }
+  return lines.join(" ");
 }
 
 function buildRequestedToolGuardrails(requestedToolNames?: string[]): string | undefined {

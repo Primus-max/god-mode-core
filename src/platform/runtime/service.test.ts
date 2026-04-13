@@ -930,6 +930,71 @@ describe("platform runtime checkpoint service", () => {
     );
   });
 
+  it("treats exec/write tool receipts as output evidence for structured site runs", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-structured-site-tools",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const contract = service.buildExecutionContract({
+      runId: "run-structured-site-tools",
+      outcome,
+      receipts: [
+        {
+          kind: "messaging_delivery",
+          name: "delivery.telegram",
+          status: "success",
+          proof: "verified",
+          summary: "confirmed by reply dispatcher",
+        },
+        {
+          kind: "tool",
+          name: "exec",
+          status: "success",
+          proof: "reported",
+        },
+      ],
+      executionIntent: {
+        recipeId: "code_build_publish",
+        intent: "code",
+        artifactKinds: ["site"],
+      },
+      evidence: {
+        hasOutput: false,
+        hasStructuredReplyPayload: false,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+      },
+    });
+    const verification = service.verifyExecutionContract({
+      contract,
+      outcome,
+      evidence: {
+        hasOutput: false,
+        hasStructuredReplyPayload: false,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+        declaredIntent: "code",
+        declaredRecipeId: "code_build_publish",
+        declaredArtifactKinds: ["site"],
+      },
+    });
+    expect(verification.status).toBe("verified");
+    expect(verification.reasons.join(" ")).not.toContain("expected output");
+  });
+
   it("propagates intent-aware artifact evidence through buildRunClosure", () => {
     const service = createPlatformRuntimeCheckpointService();
     const closure = service.buildRunClosure({

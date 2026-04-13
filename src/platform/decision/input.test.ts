@@ -209,6 +209,18 @@ describe("buildExecutionDecisionInput", () => {
     expect(input.artifactKinds).toEqual(["document", "report"]);
   });
 
+  it("infers site artifact kinds and code intent for website prompts", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Сделай простой сайт на Vue, localhost на 5173",
+    });
+
+    expect(input.intent).toBe("code");
+    expect(input.artifactKinds ?? []).toEqual(expect.arrayContaining(["site"]));
+    expect(input.requestedTools ?? []).toEqual(
+      expect.arrayContaining(["exec", "apply_patch", "process"]),
+    );
+  });
+
   it("infers image artifact kinds for media-generation prompts", () => {
     const input = buildExecutionDecisionInput({
       prompt: "Generate an image banner with the text Stage 86 OK.",

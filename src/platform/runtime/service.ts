@@ -81,6 +81,7 @@ const ARTIFACT_OUTPUT_TOOL_NAMES_BY_KIND: Partial<Record<ArtifactKind, readonly 
   image: ["image_generate", "image"],
   video: ["video_generate", "video"],
   audio: ["audio_generate", "audio", "tts", "voiceover"],
+  site: ["exec", "write", "apply_patch"],
 };
 
 function sleepSync(ms: number): void {

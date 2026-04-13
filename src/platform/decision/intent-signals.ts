@@ -98,3 +98,46 @@ export function promptSuggestsCalculationIntent(prompt: string): boolean {
 export function countTabularFiles(fileNames: string[]): number {
   return fileNames.filter((fileName) => TABULAR_ATTACHMENT_EXTENSION.test(fileName)).length;
 }
+
+/**
+ * Detects website / frontend build language so planners can route to code/site recipes and
+ * attach a `site` artifact contract (tool-backed deliverable, not text-only).
+ *
+ * @param {string} prompt - User prompt to inspect.
+ * @returns {boolean} Whether the prompt asks for a web UI, SPA, or local dev site work.
+ */
+const CYRILLIC_SITE_FRONT_HINTS = [
+  "сайт",
+  "сайта",
+  "сайтом",
+  "сайте",
+  "веб-сайт",
+  "вебстраниц",
+  "веб-страниц",
+  "лендинг",
+  "лендинга",
+  "вёрстк",
+  "верстк",
+  "фронтенд",
+  "фронт",
+  "локалхост",
+  "localhost",
+] as const;
+
+export function promptSuggestsWebsiteFrontendWork(prompt: string): boolean {
+  if (!prompt.trim()) {
+    return false;
+  }
+  if (
+    /\b(site|website|webpage|landing|landing page|frontend|front-end|web app|webapp|web application|vite|vue(\.js)?|svelte|next\.js|nuxt|spa)\b/iu.test(
+      prompt,
+    )
+  ) {
+    return true;
+  }
+  const lower = prompt.toLowerCase();
+  if (CYRILLIC_SITE_FRONT_HINTS.some((hint) => lower.includes(hint))) {
+    return true;
+  }
+  return false;
+}

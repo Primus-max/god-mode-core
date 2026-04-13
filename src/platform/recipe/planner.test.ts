@@ -107,6 +107,18 @@ describe("planExecutionRecipe", () => {
     expect(plan.recipe.id).toBe("media_production");
   });
 
+  it("selects code_build_publish for website work even when the specialist profile is media_creator", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Сделай сайт на Vue и Vite, запущу на localhost",
+      sessionProfile: "media_creator",
+      intent: "code",
+      artifactKinds: ["site"],
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("media_creator");
+    expect(plan.recipe.id).toBe("code_build_publish");
+  });
+
   it("avoids code_build_publish for PDF-only artifact requests", () => {
     const plan = planExecutionRecipe({
       prompt: "Create a one-page PDF report with Stage 86 test results.",

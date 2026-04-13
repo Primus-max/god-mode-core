@@ -15,6 +15,7 @@ import {
   countTabularFiles,
   promptSuggestsCalculationIntent,
   promptSuggestsCompareIntent,
+  promptSuggestsWebsiteFrontendWork,
 } from "./intent-signals.js";
 
 const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
@@ -320,6 +321,9 @@ function inferPromptIntent(prompt: string, fileNames: string[]): RecipePlannerIn
   if (calculationLanguageInPrompt(prompt)) {
     return "calculation";
   }
+  if (promptSuggestsWebsiteFrontendWork(prompt)) {
+    return "code";
+  }
   const imageGenerationHint = promptNeedsImageGenerationTool(prompt);
   const documentHint = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
   const developerExecutionHint = DEVELOPER_EXECUTION_KEYWORDS.test(prompt);
@@ -518,6 +522,7 @@ function inferArtifactKinds(
   const canInferPublishArtifacts =
     !imageGenerationHint && !hasDocumentArtifactHint && !compareIntentish && !calculationIntentish;
   return toUniqueLowercase([
+    ...(promptSuggestsWebsiteFrontendWork(prompt) ? ["site"] : []),
     ...(canInferPublishArtifacts && (publishTargets.length > 0 || /\bpreview\b/iu.test(prompt))
       ? ["site"]
       : []),
