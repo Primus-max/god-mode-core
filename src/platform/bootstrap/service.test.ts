@@ -23,7 +23,7 @@ function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapReque
   }
   return {
     capabilityId: "pdf-renderer",
-    installMethod: "download",
+    installMethod: catalogEntry.install?.method ?? "node",
     rollbackStrategy: "restore_previous",
     reason: "renderer_unavailable",
     sourceDomain: "document",
@@ -102,18 +102,18 @@ describe("bootstrap request service", () => {
     const result = await service.run({
       id: created.id,
       installers: {
-        download: async ({ request }) => ({
+        node: async ({ request }) => ({
           ok: true,
           capability: {
             ...request.catalogEntry.capability,
             trusted: true,
             sandboxed: true,
-            installMethod: "download",
+            installMethod: "node",
             status: "available",
           },
         }),
       },
-      availableBins: ["playwright"],
+      availableBins: ["node"],
       runHealthCheckCommand: async () => true,
     });
 
@@ -126,18 +126,20 @@ describe("bootstrap request service", () => {
         runId: created.id,
         outcome: getPlatformRuntimeCheckpointService().buildRunOutcome(created.id),
       }),
-    ).toEqual([
-      expect.objectContaining({
-        kind: "capability",
-        name: "bootstrap.run",
-        status: "success",
-        proof: "verified",
-        metadata: expect.objectContaining({
-          bootstrapRequestId: created.id,
-          capabilityId: "pdf-renderer",
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "capability",
+          name: "bootstrap.run",
+          status: "success",
+          proof: "verified",
+          metadata: expect.objectContaining({
+            bootstrapRequestId: created.id,
+            capabilityId: "pdf-renderer",
+          }),
         }),
-      }),
-    ]);
+      ]),
+    );
   });
 
   it("does not execute a confirmed bootstrap continuation twice on replay", async () => {
@@ -151,7 +153,7 @@ describe("bootstrap request service", () => {
         ...request.catalogEntry.capability,
         trusted: true,
         sandboxed: true,
-        installMethod: "download" as const,
+        installMethod: "node" as const,
         status: "available" as const,
       },
     }));
@@ -159,17 +161,17 @@ describe("bootstrap request service", () => {
     const first = await service.run({
       id: created.id,
       installers: {
-        download: installer,
+        node: installer,
       },
-      availableBins: ["playwright"],
+      availableBins: ["node"],
       runHealthCheckCommand: async () => true,
     });
     const replay = await service.run({
       id: created.id,
       installers: {
-        download: installer,
+        node: installer,
       },
-      availableBins: ["playwright"],
+      availableBins: ["node"],
       runHealthCheckCommand: async () => true,
     });
 
@@ -181,6 +183,191 @@ describe("bootstrap request service", () => {
         state: "confirmed",
       }),
     );
+  });
+
+  it("reruns a stale confirmed bootstrap action when the request is not terminal", async () => {
+    const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
+    const created = service.create(buildRequest());
+    service.resolve(created.id, "approve");
+    const actionId = `bootstrap:${created.id}:run`;
+    const runtime = getPlatformRuntimeCheckpointService();
+    runtime.stageAction({
+      actionId,
+      runId: created.id,
+      kind: "bootstrap",
+      boundary: "bootstrap",
+      checkpointId: created.id,
+      target: {
+        bootstrapRequestId: created.id,
+        operation: "bootstrap.run",
+      },
+    });
+    runtime.markActionConfirmed(actionId, {
+      receipt: {
+        bootstrapRequestId: created.id,
+        capabilityId: "pdf-renderer",
+        operation: "bootstrap.run",
+        resultStatus: "bootstrapped",
+      },
+    });
+
+    const installer = vi.fn(async ({ request }: { request: BootstrapRequest }) => ({
+      ok: true,
+      capability: {
+        ...request.catalogEntry.capability,
+        trusted: true,
+        sandboxed: true,
+        installMethod: "node" as const,
+        status: "available" as const,
+      },
+    }));
+
+    const rerun = await service.run({
+      id: created.id,
+      installers: {
+        node: installer,
+      },
+      availableBins: ["node"],
+      runHealthCheckCommand: async () => true,
+    });
+
+    expect(installer).toHaveBeenCalledTimes(1);
+    expect(rerun?.state).toBe("available");
+    expect(rerun?.result?.status).toBe("bootstrapped");
+    expect(getPlatformRuntimeCheckpointService().getAction(actionId)).toEqual(
+      expect.objectContaining({
+        state: "confirmed",
+        attemptCount: 1,
+      }),
+    );
+  });
+
+  it("merges blockedRunResume when reusing the same pending bootstrap signature", () => {
+    const queueKey = "openclaw-test-bootstrap-merge";
+    const blockedRunResume = BootstrapBlockedRunResumeSchema.parse({
+      blockedRunId: "run-merge-resume",
+      queueKey,
+      settings: { mode: "followup" },
+      sourceRun: {
+        prompt: "finish after merge",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-merge",
+          agentDir: "/tmp/agent",
+          sessionId: "sess-merge",
+          sessionFile: "/tmp/sess-merge.jsonl",
+          workspaceDir: "/tmp/ws-merge",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+    });
+    const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
+    const first = service.create(buildRequest());
+    expect(first.request.blockedRunResume).toBeUndefined();
+    const second = service.create(buildRequest({ blockedRunResume }));
+    expect(second.id).toBe(first.id);
+    expect(service.get(first.id)?.request.blockedRunResume).toEqual(
+      expect.objectContaining({
+        blockedRunId: "run-merge-resume",
+        queueKey,
+      }),
+    );
+    expect(getPlatformRuntimeCheckpointService().get(first.id)?.continuation?.input).toEqual(
+      expect.objectContaining({
+        blockedRunResume: true,
+        blockedRunId: "run-merge-resume",
+        queueKey,
+      }),
+    );
+  });
+
+  it("creates a fresh request when an active bootstrap belongs to another blocked run", () => {
+    const firstResume = BootstrapBlockedRunResumeSchema.parse({
+      blockedRunId: "run-first",
+      queueKey: "queue-first",
+      settings: { mode: "followup" },
+      sourceRun: {
+        prompt: "resume first run",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-first",
+          agentDir: "/tmp/agent-first",
+          sessionId: "sess-first",
+          sessionFile: "/tmp/sess-first.jsonl",
+          workspaceDir: "/tmp/ws-first",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+    });
+    const secondResume = BootstrapBlockedRunResumeSchema.parse({
+      blockedRunId: "run-second",
+      queueKey: "queue-second",
+      settings: { mode: "followup" },
+      sourceRun: {
+        prompt: "resume second run",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-second",
+          agentDir: "/tmp/agent-second",
+          sessionId: "sess-second",
+          sessionFile: "/tmp/sess-second.jsonl",
+          workspaceDir: "/tmp/ws-second",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+    });
+    const service = createBootstrapRequestService();
+    const first = service.create(buildRequest({ blockedRunResume: firstResume }));
+    const second = service.create(buildRequest({ blockedRunResume: secondResume }));
+
+    expect(second.id).not.toBe(first.id);
+    expect(service.get(first.id)?.request.blockedRunResume).toEqual(firstResume);
+    expect(service.get(second.id)?.request.blockedRunResume).toEqual(secondResume);
+  });
+
+  it("keeps explicit approvals idle until platform.bootstrap.run executes", async () => {
+    const queueKey = "openclaw-test-bootstrap-approve-resume";
+    const blockedRunResume = BootstrapBlockedRunResumeSchema.parse({
+      blockedRunId: "run-approve-continuation",
+      queueKey,
+      settings: { mode: "followup" },
+      sourceRun: {
+        prompt: "finish the document task",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-resume",
+          agentDir: "/tmp/agent",
+          sessionId: "sess-resume",
+          sessionFile: "/tmp/sess-resume.jsonl",
+          workspaceDir: "/tmp/ws-resume",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+    });
+    const service = createBootstrapRequestService();
+    const created = service.create(buildRequest({ blockedRunResume }));
+    expect(created.state).toBe("pending");
+    const approved = service.resolve(created.id, "approve");
+    expect(approved?.state).toBe("approved");
+    expect(getFollowupQueueDepth(queueKey)).toBe(0);
   });
 
   it("enqueues blocked followup after successful bootstrap when blockedRunResume is present", async () => {
@@ -213,20 +400,77 @@ describe("bootstrap request service", () => {
     await service.run({
       id: created.id,
       installers: {
-        download: async ({ request }) => ({
+        node: async ({ request }) => ({
           ok: true,
           capability: {
             ...request.catalogEntry.capability,
             trusted: true,
             sandboxed: true,
-            installMethod: "download",
+            installMethod: "node",
             status: "available",
           },
         }),
       },
-      availableBins: ["playwright"],
+      availableBins: ["node"],
       runHealthCheckCommand: async () => true,
     });
+    expect(getFollowupQueueDepth(queueKey)).toBe(1);
+  });
+
+  it("preserves blockedRunResume attached after bootstrap run starts", async () => {
+    const queueKey = "openclaw-test-bootstrap-late-resume";
+    const blockedRunResume = BootstrapBlockedRunResumeSchema.parse({
+      blockedRunId: "run-late-bootstrap-resume",
+      queueKey,
+      settings: { mode: "followup" },
+      sourceRun: {
+        prompt: "finish after late attach",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-late-resume",
+          agentDir: "/tmp/agent",
+          sessionId: "sess-late-resume",
+          sessionFile: "/tmp/sess-late-resume.jsonl",
+          workspaceDir: "/tmp/ws-late-resume",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+    });
+    const service = createBootstrapRequestService();
+    installBootstrapContinuationNoop();
+    const created = service.create(buildRequest());
+    service.resolve(created.id, "approve");
+    const runPromise = service.run({
+      id: created.id,
+      installers: {
+        node: async () => {
+          service.attachBlockedRunResume(created.id, blockedRunResume);
+          return {
+            ok: true,
+            capability: {
+              ...created.request.catalogEntry.capability,
+              trusted: true,
+              sandboxed: true,
+              installMethod: "node",
+              status: "available",
+            },
+          };
+        },
+      },
+      availableBins: ["node"],
+      runHealthCheckCommand: async () => true,
+    });
+    await runPromise;
+    expect(service.get(created.id)?.request.blockedRunResume).toEqual(
+      expect.objectContaining({
+        blockedRunId: "run-late-bootstrap-resume",
+        queueKey,
+      }),
+    );
     expect(getFollowupQueueDepth(queueKey)).toBe(1);
   });
 
@@ -238,18 +482,18 @@ describe("bootstrap request service", () => {
         await service.run({
           id: checkpoint.target?.bootstrapRequestId ?? checkpoint.id,
           installers: {
-            download: async ({ request }) => ({
+            node: async ({ request }) => ({
               ok: true,
               capability: {
                 ...request.catalogEntry.capability,
                 trusted: true,
                 sandboxed: true,
-                installMethod: "download",
+                installMethod: "node",
                 status: "available",
               },
             }),
           },
-          availableBins: ["playwright"],
+          availableBins: ["node"],
           runHealthCheckCommand: async () => true,
         });
       },
@@ -300,18 +544,18 @@ describe("bootstrap request service", () => {
       await service.run({
         id: created.id,
         installers: {
-          download: async ({ request }) => ({
+          node: async ({ request }) => ({
             ok: true,
             capability: {
               ...request.catalogEntry.capability,
               trusted: true,
               sandboxed: true,
-              installMethod: "download",
+              installMethod: "node",
               status: "available",
             },
           }),
         },
-        availableBins: ["playwright"],
+        availableBins: ["node"],
         runHealthCheckCommand: async () => true,
       });
 

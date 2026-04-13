@@ -279,6 +279,58 @@ describe("sessions view", () => {
     await i18n.setLocale("en");
   });
 
+  it("renders resolved model as provider/model in the sessions table", async () => {
+    const container = document.createElement("div");
+    render(
+      renderSessions(
+        buildProps(
+          buildResult(
+            buildSession({
+              modelProvider: "ollama",
+              model: "qwen2.5-coder:7b",
+            }),
+          ),
+        ),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("ollama/qwen2.5-coder:7b");
+  });
+
+  it("shows usage stats in runtime inspector when session scope matches row with tokens and cost", async () => {
+    const sessionKey = "agent:main:usage-stats";
+    const container = document.createElement("div");
+    render(
+      renderSessions({
+        ...buildProps(
+          buildResult(
+            buildSession({
+              key: sessionKey,
+              inputTokens: 400,
+              outputTokens: 200,
+              estimatedCostUsd: 0.0512,
+            }),
+          ),
+        ),
+        runtimeSessionKey: sessionKey,
+        runtimeCheckpoints: [],
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.querySelector("[data-runtime-usage-stats]")).not.toBeNull();
+    expect(container.textContent).toContain("Usage stats");
+    expect(container.textContent).toContain("Input tokens");
+    expect(container.textContent).toContain("Output tokens");
+    expect(container.textContent).toContain("Estimated cost");
+    expect(container.textContent).toContain("400");
+    expect(container.textContent).toContain("200");
+    expect(container.textContent).toContain("$0.051");
+  });
+
   it("renders recovery hints and runtime inspector panel", async () => {
     const onInspectRuntimeSession = vi.fn();
     const container = document.createElement("div");
@@ -382,6 +434,64 @@ describe("sessions view", () => {
 
     expect(container.textContent).toContain("Bootstrap checkpoint");
     expect(container.textContent).toMatch(/paused|Bootstrap tab/i);
+  });
+
+  it("renders routing and planning context for bootstrap runtime checkpoints", async () => {
+    const container = document.createElement("div");
+    render(
+      renderSessions({
+        ...buildProps(buildResult(buildSession())),
+        runtimeCheckpoints: [
+          {
+            id: "cp-planning",
+            runId: "run-planning",
+            sessionKey: "agent:main:main",
+            boundary: "bootstrap",
+            status: "blocked",
+            createdAtMs: 1,
+            updatedAtMs: 2,
+            executionContext: {
+              profileId: "builder",
+              recipeId: "table_extract",
+              providerOverride: "ollama",
+              modelOverride: "qwen2.5-coder:7b",
+              modelRouteTier: "local_eligible",
+              fallbackModels: ["hydra/gpt-4o-mini"],
+              requiredCapabilities: ["table-parser"],
+              plannerReasoning: "Prefer local parsing before remote formatting.",
+            },
+          },
+        ],
+        runtimeSelectedCheckpointId: "cp-planning",
+        runtimeCheckpointDetail: {
+          id: "cp-planning",
+          runId: "run-planning",
+          sessionKey: "agent:main:main",
+          boundary: "bootstrap",
+          status: "blocked",
+          createdAtMs: 1,
+          updatedAtMs: 2,
+          executionContext: {
+            profileId: "builder",
+            recipeId: "table_extract",
+            providerOverride: "ollama",
+            modelOverride: "qwen2.5-coder:7b",
+            modelRouteTier: "local_eligible",
+            fallbackModels: ["hydra/gpt-4o-mini"],
+            requiredCapabilities: ["table-parser"],
+            plannerReasoning: "Prefer local parsing before remote formatting.",
+          },
+        },
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Routing & planning context");
+    expect(container.textContent).toContain("Model route tier");
+    expect(container.textContent).toContain("Local eligible");
+    expect(container.textContent).toContain("ollama/qwen2.5-coder:7b");
+    expect(container.textContent).toContain("table-parser");
   });
 
   it("prefers recovery handoff truth over stale closure history when inspecting runtime", async () => {
@@ -778,8 +888,10 @@ describe("sessions view", () => {
       renderSessions({
         ...buildProps(buildResult(buildSession())),
         onNavigateRuntimeLinkedRecord,
-        buildRuntimeBootstrapHref: () => "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
-        buildRuntimeArtifactHref: () => "/ui/artifacts?session=agent%3Amain%3Amain&artifact=artifact-1",
+        buildRuntimeBootstrapHref: () =>
+          "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
+        buildRuntimeArtifactHref: () =>
+          "/ui/artifacts?session=agent%3Amain%3Amain&artifact=artifact-1",
         runtimeSelectedCheckpointId: "cp-1",
         runtimeCheckpointDetail: {
           id: "cp-1",
@@ -843,8 +955,10 @@ describe("sessions view", () => {
       renderSessions({
         ...buildProps(buildResult(buildSession())),
         onNavigateRuntimeLinkedRecord,
-        buildRuntimeBootstrapHref: () => "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
-        buildRuntimeArtifactHref: () => "/ui/artifacts?session=agent%3Amain%3Amain&artifact=artifact-1",
+        buildRuntimeBootstrapHref: () =>
+          "/ui/bootstrap?session=agent%3Amain%3Amain&bootstrapRequest=bootstrap-1",
+        buildRuntimeArtifactHref: () =>
+          "/ui/artifacts?session=agent%3Amain%3Amain&artifact=artifact-1",
         runtimeSelectedCheckpointId: "cp-1",
         runtimeCheckpointDetail: {
           id: "cp-1",
@@ -968,15 +1082,15 @@ describe("sessions view", () => {
     );
     await Promise.resolve();
 
-    const keySortLink = Array.from(container.querySelectorAll("a.data-table-sort-link")).find((link) =>
-      link.textContent?.includes("Key"),
+    const keySortLink = Array.from(container.querySelectorAll("a.data-table-sort-link")).find(
+      (link) => link.textContent?.includes("Key"),
     );
     const previousPageLink = Array.from(
       container.querySelectorAll("a.data-table-pagination__link"),
     ).find((link) => link.textContent?.includes("Previous"));
-    const nextPageLink = Array.from(container.querySelectorAll("a.data-table-pagination__link")).find(
-      (link) => link.textContent?.includes("Next"),
-    );
+    const nextPageLink = Array.from(
+      container.querySelectorAll("a.data-table-pagination__link"),
+    ).find((link) => link.textContent?.includes("Next"));
 
     expect(keySortLink).not.toBeNull();
     expect(keySortLink?.getAttribute("href")).toBe(

@@ -28,6 +28,28 @@ import { createTtsTool } from "./tools/tts-tool.js";
 import { createWebFetchTool, createWebSearchTool } from "./tools/web-tools.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
+/**
+ * Hides runtime web_search from agent tool lists when the active runtime secret
+ * snapshot already knows there is no usable provider key. This prevents models
+ * from spending turns on a tool that can only come back with a setup hint.
+ *
+ * @param {ReturnType<typeof getActiveRuntimeWebToolsMetadata>} runtimeWebTools - Active runtime web tool metadata snapshot.
+ * @returns {boolean} True when web_search should be exposed to the agent.
+ */
+function shouldExposeRuntimeWebSearchTool(
+  runtimeWebTools: ReturnType<typeof getActiveRuntimeWebToolsMetadata> | undefined,
+): boolean {
+  if (!runtimeWebTools) {
+    return true;
+  }
+  if (runtimeWebTools.search.selectedProviderKeySource === "missing") {
+    return false;
+  }
+  return !runtimeWebTools.search.diagnostics.some(
+    (diagnostic) => diagnostic.code === "WEB_SEARCH_KEY_UNRESOLVED_NO_FALLBACK",
+  );
+}
+
 export function createOpenClawTools(
   options?: {
     sandboxBrowserBridgeUrl?: string;
@@ -72,6 +94,8 @@ export function createOpenClawTools(
     senderIsOwner?: boolean;
     /** Ephemeral session UUID — regenerated on /new and /reset. */
     sessionId?: string;
+    /** Stable run identifier for this agent invocation. */
+    runId?: string;
     /**
      * Workspace directory to pass to spawned subagents for inheritance.
      * Defaults to workspaceDir. Use this to pass the actual agent workspace when the
@@ -79,7 +103,7 @@ export function createOpenClawTools(
      * subagents inherit the real workspace path instead of the sandbox copy.
      */
     spawnWorkspaceDir?: string;
-    /** Callback invoked when sessions_yield tool is called. */
+    /** Callback invoked when sessions_yield-compatible tools pause the turn. */
     onYield?: (message: string) => Promise<void> | void;
     /** Allow plugin tools for this tool set to late-bind the gateway subagent. */
     allowGatewaySubagentBinding?: boolean;
@@ -115,6 +139,8 @@ export function createOpenClawTools(
     ? createPdfTool({
         config: options?.config,
         agentDir: options.agentDir,
+        runId: options?.runId,
+        onYield: options?.onYield,
         workspaceDir,
         sandbox,
         fsPolicy: options?.fsPolicy,
@@ -125,6 +151,9 @@ export function createOpenClawTools(
     sandboxed: options?.sandboxed,
     runtimeWebSearch: runtimeWebTools?.search,
   });
+  const effectiveWebSearchTool = shouldExposeRuntimeWebSearchTool(runtimeWebTools)
+    ? webSearchTool
+    : null;
   const webFetchTool = createWebFetchTool({
     config: options?.config,
     sandboxed: options?.sandboxed,
@@ -222,7 +251,7 @@ export function createOpenClawTools(
       config: options?.config,
       sandboxed: options?.sandboxed,
     }),
-    ...(webSearchTool ? [webSearchTool] : []),
+    ...(effectiveWebSearchTool ? [effectiveWebSearchTool] : []),
     ...(webFetchTool ? [webFetchTool] : []),
     ...(imageTool ? [imageTool] : []),
     ...(pdfTool ? [pdfTool] : []),

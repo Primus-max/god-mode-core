@@ -101,7 +101,7 @@ function throwImageGenerationFailure(params: {
   });
 }
 
-function buildNoImageGenerationModelConfiguredMessage(cfg: OpenClawConfig): string {
+export function buildNoImageGenerationModelConfiguredMessage(cfg: OpenClawConfig): string {
   const providers = listImageGenerationProviders(cfg);
   const sampleModel =
     providers.find((provider) => provider.defaultModel) ??

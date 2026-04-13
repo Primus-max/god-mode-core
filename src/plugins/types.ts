@@ -1491,7 +1491,7 @@ export type PluginHookPlatformExecutionContext = {
   recipeId: string;
   taskOverlayId?: string;
   plannerReasoning?: string;
-  intent?: "general" | "document" | "code" | "publish";
+  intent?: "general" | "document" | "compare" | "calculation" | "code" | "publish";
   providerOverride?: string;
   modelOverride?: string;
   timeoutSeconds?: number;

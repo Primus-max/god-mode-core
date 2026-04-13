@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { MaterializationOutputTarget, MaterializedArtifactOutput } from "./contracts.js";
+import type {
+  MaterializationDocumentInputKind,
+  MaterializationOutputTarget,
+  MaterializationRendererTarget,
+  MaterializedArtifactOutput,
+} from "./contracts.js";
 import { escapeHtml, renderMarkdownToHtml } from "./markdown-report-materializer.js";
 
 function renderJsonBlock(jsonData: unknown): string {
@@ -30,12 +35,22 @@ export function buildHtmlDocument(params: {
     `  <title>${escapedTitle}</title>`,
     "  <style>",
     "    :root { color-scheme: light dark; }",
-    "    body { font-family: Georgia, 'Times New Roman', serif; margin: 40px auto; max-width: 900px; line-height: 1.6; padding: 0 24px; }",
-    "    h1, h2, h3, h4, h5, h6 { line-height: 1.25; }",
-    "    pre { overflow-x: auto; padding: 16px; background: rgba(127, 127, 127, 0.12); border-radius: 8px; }",
+    "    body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px auto; max-width: 960px; line-height: 1.6; padding: 0 24px; color: #111827; background: #fff; }",
+    "    h1, h2, h3, h4, h5, h6 { line-height: 1.25; letter-spacing: -0.02em; }",
+    "    h1 { font-size: 2.2rem; margin-bottom: 0.5rem; }",
+    "    h2 { margin-top: 1.8rem; font-size: 1.45rem; }",
+    "    h3 { margin-top: 1.4rem; font-size: 1.15rem; }",
+    "    p, li { font-size: 0.98rem; }",
+    "    pre { overflow-x: auto; padding: 16px; background: rgba(127, 127, 127, 0.12); border-radius: 12px; }",
     "    code { font-family: 'Cascadia Code', Consolas, monospace; }",
-    "    table { border-collapse: collapse; width: 100%; margin: 16px 0; }",
-    "    th, td { border: 1px solid rgba(127, 127, 127, 0.35); padding: 8px 10px; text-align: left; }",
+    "    table { border-collapse: separate; border-spacing: 0; width: 100%; margin: 18px 0 24px; overflow: hidden; border-radius: 14px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); }",
+    "    th, td { border: 1px solid rgba(127, 127, 127, 0.22); padding: 10px 12px; text-align: left; vertical-align: top; }",
+    "    th { background: linear-gradient(180deg, rgba(241, 245, 249, 0.95), rgba(226, 232, 240, 0.95)); font-weight: 700; }",
+    "    tr:nth-child(even) td { background: rgba(248, 250, 252, 0.9); }",
+    "    blockquote { margin: 18px 0; padding: 14px 18px; border-left: 4px solid #2563eb; background: rgba(239, 246, 255, 0.95); border-radius: 0 12px 12px 0; }",
+    "    blockquote p { margin: 0; }",
+    "    hr { border: 0; border-top: 1px solid rgba(148, 163, 184, 0.45); margin: 28px 0; }",
+    "    ul, ol { padding-left: 1.35rem; }",
     "    .summary { color: rgba(127, 127, 127, 0.95); }",
     "  </style>",
     "</head>",
@@ -50,12 +65,16 @@ export function buildHtmlDocument(params: {
 
 export function resolveHtmlBody(params: {
   html?: string;
+  spec?: unknown;
   markdown?: string;
   text?: string;
   jsonData?: unknown;
 }): string {
   if (params.html) {
     return params.html;
+  }
+  if (params.spec !== undefined) {
+    return renderJsonBlock(params.spec);
   }
   if (params.markdown) {
     return renderMarkdownToHtml(params.markdown);
@@ -74,6 +93,9 @@ export function writeHtmlMaterialization(params: {
   summary?: string;
   outputTarget: MaterializationOutputTarget;
   renderKind: "html" | "site_preview";
+  documentInputKind?: MaterializationDocumentInputKind;
+  rendererTarget?: MaterializationRendererTarget;
+  rendererId?: string;
 }): MaterializedArtifactOutput {
   fs.mkdirSync(params.outputDir, { recursive: true });
   const filePath = path.join(params.outputDir, `${params.baseFileName}.html`);
@@ -86,6 +108,9 @@ export function writeHtmlMaterialization(params: {
   const sizeBytes = fs.statSync(filePath).size;
   return {
     renderKind: params.renderKind,
+    ...(params.documentInputKind ? { documentInputKind: params.documentInputKind } : {}),
+    ...(params.rendererTarget ? { rendererTarget: params.rendererTarget } : {}),
+    ...(params.rendererId ? { rendererId: params.rendererId } : {}),
     outputTarget: params.outputTarget,
     path: filePath,
     url: params.outputTarget === "preview" ? pathToFileURL(filePath).toString() : undefined,

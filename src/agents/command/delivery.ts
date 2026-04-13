@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import {
   reevaluateMessagingDecisionForMessagingRun,
   type MessagingDeliveryClosureCandidate,
@@ -11,6 +12,7 @@ import {
   resolveAgentOutboundTarget,
 } from "../../infra/outbound/agent-delivery.js";
 import { resolveMessageChannelSelection } from "../../infra/outbound/channel-selection.js";
+import { resolveOutboundChannelPlugin } from "../../infra/outbound/channel-resolution.js";
 import { deliverOutboundPayloads } from "../../infra/outbound/deliver.js";
 import { buildOutboundResultEnvelope } from "../../infra/outbound/envelope.js";
 import {
@@ -29,6 +31,56 @@ type RunResult = Awaited<ReturnType<(typeof import("../pi-embedded.js"))["runEmb
 type AgentReplyPayloads = NonNullable<RunResult["payloads"]>;
 
 const NESTED_LOG_PREFIX = "[agent:nested]";
+
+/**
+ * [DEBUG] Временная функция для добавления debug-логов маршрутизации в сообщения.
+ * Формирует quote-блок с информацией о модели, провайдере и fallback-цепочке.
+ */
+function formatRoutingDebugLog(result: RunResult): string {
+  const meta = result.meta;
+  const agentMeta = meta?.agentMeta;
+  const fallback = meta?.modelFallback;
+
+  if (!agentMeta) {
+    return "";
+  }
+
+  const lines: string[] = [];
+  lines.push("📊 [DEBUG ROUTING]");
+  lines.push("");
+  lines.push(`🎯 Model: \`${agentMeta.provider}/${agentMeta.model}\``);
+
+  if (fallback && fallback.attempts.length > 0) {
+    lines.push("");
+    lines.push("🔗 Fallback chain:");
+    const seen = new Set<string>();
+    for (const attempt of fallback.attempts) {
+      const key = `${attempt.provider}/${attempt.model}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const status = attempt.error ? `❌ (${attempt.reason || attempt.code || "failed"})` : "✅";
+      lines.push(`   ${status} ${key}`);
+    }
+    if (fallback.exhausted && fallback.finalReason) {
+      lines.push(`   ⏱️  exhausted (${fallback.finalReason})`);
+    }
+  }
+
+  // Tools from execution surface (via supervisor verdict)
+  const surface = meta?.supervisorVerdict?.surface;
+  if (surface?.failingTools && surface.failingTools.length > 0) {
+    lines.push(`⚠️  Failing tools: ${surface.failingTools.join(", ")}`);
+  }
+
+  if (meta.executionVerification?.status) {
+    lines.push(`✅ Verification: ${meta.executionVerification.status}`);
+  }
+
+  lines.push("");
+  lines.push("---");
+
+  return lines.join("\n");
+}
 
 function formatNestedLogPrefix(opts: AgentCommandOpts, sessionKey?: string): string {
   const parts = [NESTED_LOG_PREFIX];
@@ -74,6 +126,7 @@ function mergePostDeliveryRuntimeMeta(params: {
   const reevaluated = reevaluateMessagingDecisionForMessagingRun({
     runResult: params.result as MessagingDeliveryClosureCandidate["runResult"],
     replyPayloads: params.replyPayloads ?? [],
+    runPayloadsForEvidence: params.result.payloads ?? [],
   });
   if (!reevaluated) {
     return params.result.meta;
@@ -89,6 +142,58 @@ function mergePostDeliveryRuntimeMeta(params: {
   };
 }
 
+/**
+ * Resolves the runtime run id used to correlate outbound delivery actions with the
+ * run closure verification path. CLI turns often omit `opts.runId`, so we fall back
+ * to the completion outcome's run id to preserve verified delivery receipts.
+ *
+ * @param {AgentCommandOpts} opts - Agent command options for the current run.
+ * @param {RunResult} result - Embedded run result that may already contain closure metadata.
+ * @returns {string | undefined} Run id for durable delivery action correlation.
+ */
+function resolveDeliveryActionRunId(opts: AgentCommandOpts, result: RunResult): string | undefined {
+  const explicitRunId = opts.runId?.trim();
+  if (explicitRunId) {
+    return explicitRunId;
+  }
+  const completionRunId = result.meta?.completionOutcome?.runId?.trim();
+  return completionRunId ? completionRunId : undefined;
+}
+
+function createDeterministicDeliveryActionId(params: {
+  actionRunId?: string;
+  sessionKey?: string;
+  channel?: string;
+  to?: string;
+  accountId?: string;
+  threadId?: string | number | null;
+  replyToId?: string | null;
+  payloads: ReturnType<typeof normalizeOutboundPayloadsForJson>;
+}): string | undefined {
+  const actionRunId = params.actionRunId?.trim();
+  const channel = params.channel?.trim();
+  const to = params.to?.trim();
+  if (!actionRunId || !channel || !to) {
+    return undefined;
+  }
+  const fingerprint = crypto
+    .createHash("sha1")
+    .update(
+      JSON.stringify({
+        sessionKey: params.sessionKey ?? null,
+        channel,
+        to,
+        accountId: params.accountId ?? null,
+        threadId: params.threadId ?? null,
+        replyToId: params.replyToId ?? null,
+        payloads: params.payloads,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 20);
+  return `messaging:${actionRunId}:${fingerprint}`;
+}
+
 export async function deliverAgentCommandResult(params: {
   cfg: OpenClawConfig;
   deps: CliDeps;
@@ -100,6 +205,7 @@ export async function deliverAgentCommandResult(params: {
   payloads: RunResult["payloads"];
 }) {
   const { cfg, deps, runtime, opts, outboundSession, sessionEntry, payloads, result } = params;
+  const actionRunId = resolveDeliveryActionRunId(opts, result);
   const effectiveSessionKey = outboundSession?.key ?? opts.sessionKey;
   const deliver = opts.deliver === true;
   const bestEffortDeliver = opts.bestEffortDeliver === true;
@@ -138,7 +244,10 @@ export async function deliverAgentCommandResult(params: {
         };
   // Channel docking: delivery channels are resolved via plugin registry.
   const deliveryPlugin = !isInternalMessageChannel(deliveryChannel)
-    ? getChannelPlugin(normalizeChannelId(deliveryChannel) ?? deliveryChannel)
+    ? resolveOutboundChannelPlugin({
+        channel: normalizeChannelId(deliveryChannel) ?? deliveryChannel,
+        cfg,
+      })
     : undefined;
 
   const isDeliveryChannelKnown =
@@ -200,7 +309,29 @@ export async function deliverAgentCommandResult(params: {
     }
   }
 
-  const normalizedPayloads = normalizeOutboundPayloadsForJson(payloads ?? []);
+  // [DEBUG] Добавляем debug-лог маршрутизации к каждому текстовому сообщению
+  const debugLog = formatRoutingDebugLog(result);
+  const payloadsWithDebug = (payloads ?? []).map((payload) => {
+    if (!payload.text || !debugLog) {
+      return payload;
+    }
+    return {
+      ...payload,
+      text: `${payload.text}\n\n> ${debugLog.split("\n").join("\n> ")}`,
+    };
+  });
+
+  const normalizedPayloads = normalizeOutboundPayloadsForJson(payloadsWithDebug);
+  const deterministicActionId = createDeterministicDeliveryActionId({
+    actionRunId,
+    sessionKey: effectiveSessionKey,
+    channel: deliveryChannel,
+    to: deliveryTarget ?? undefined,
+    accountId: resolvedAccountId,
+    threadId: resolvedThreadTarget ?? null,
+    replyToId: resolvedReplyToId ?? null,
+    payloads: normalizedPayloads,
+  });
   if (opts.json) {
     runtime.log(
       JSON.stringify(
@@ -217,12 +348,12 @@ export async function deliverAgentCommandResult(params: {
     }
   }
 
-  if (!payloads || payloads.length === 0) {
+  if (!payloadsWithDebug || payloadsWithDebug.length === 0) {
     runtime.log("No reply from agent.");
     return { payloads: [], meta: result.meta };
   }
 
-  const deliveryPayloads = normalizeOutboundPayloads(payloads);
+  const deliveryPayloads = normalizeOutboundPayloads(payloadsWithDebug);
   const logPayload = (payload: NormalizedOutboundPayload) => {
     if (opts.json) {
       return;
@@ -245,7 +376,8 @@ export async function deliverAgentCommandResult(params: {
   if (deliver && deliveryChannel && !isInternalMessageChannel(deliveryChannel)) {
     if (deliveryTarget) {
       await deliverOutboundPayloads({
-        ...(opts.runId ? { actionRunId: opts.runId } : {}),
+        ...(deterministicActionId ? { actionId: deterministicActionId } : {}),
+        ...(actionRunId ? { actionRunId } : {}),
         cfg,
         channel: deliveryChannel,
         to: deliveryTarget,
@@ -259,13 +391,13 @@ export async function deliverAgentCommandResult(params: {
         onPayload: logPayload,
         deps: createOutboundSendDeps(deps),
       });
-      return {
-        payloads: normalizedPayloads,
-        meta: mergePostDeliveryRuntimeMeta({
-          result,
-          replyPayloads: payloads,
-        }),
-      };
+  return {
+    payloads: normalizedPayloads,
+    meta: mergePostDeliveryRuntimeMeta({
+      result,
+      replyPayloads: payloadsWithDebug,
+    }),
+  };
     }
   }
 

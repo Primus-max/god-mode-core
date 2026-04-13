@@ -268,7 +268,16 @@ export async function resolveReplyDirectives(params: {
       const directiveOnlyCheck = parseInlineDirectives(noMentions, {
         modelAliases: configuredAliases,
       });
-      if (directiveOnlyCheck.cleaned.trim().length > 0) {
+      const remainingTextStillHasDirective =
+        directiveOnlyCheck.hasThinkDirective ||
+        directiveOnlyCheck.hasVerboseDirective ||
+        directiveOnlyCheck.hasFastDirective ||
+        directiveOnlyCheck.hasReasoningDirective ||
+        directiveOnlyCheck.hasElevatedDirective ||
+        directiveOnlyCheck.hasExecDirective ||
+        directiveOnlyCheck.hasModelDirective ||
+        directiveOnlyCheck.hasQueueDirective;
+      if (remainingTextStillHasDirective) {
         const allowInlineStatus =
           parsedDirectives.hasStatusDirective && allowTextCommands && command.isAuthorizedSender;
         parsedDirectives = allowInlineStatus

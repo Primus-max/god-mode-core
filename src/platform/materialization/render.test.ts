@@ -7,6 +7,10 @@ import { getPlatformBootstrapService, resetPlatformBootstrapService } from "../b
 import { getInitialProfile } from "../profile/defaults.js";
 import { applyTaskOverlay } from "../profile/overlay.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../runtime/service.js";
 import { materializeArtifact, renderMarkdownToHtml, runMaterializationBootstrap } from "./index.js";
 
 function makePolicyContext(explicitApproval: boolean) {
@@ -26,12 +30,20 @@ function makePolicyContext(explicitApproval: boolean) {
 describe("materialization render layer", () => {
   afterEach(() => {
     resetPlatformBootstrapService();
+    resetPlatformRuntimeCheckpointService();
   });
 
-  it("renders markdown to html with basic structure", () => {
-    const html = renderMarkdownToHtml("# Title\n\n- one\n- two\n\n`code`");
+  it("renders markdown to html with structural markdown blocks", () => {
+    const html = renderMarkdownToHtml(
+      "# Title\n\n- one\n- two\n\n1. first\n2. second\n\n| Name | Value |\n| --- | --- |\n| Bananas | 42 |\n\n> highlighted note\n\n`code`",
+    );
     expect(html).toContain("<h1>Title</h1>");
     expect(html).toContain("<ul>");
+    expect(html).toContain("<ol>");
+    expect(html).toContain("<table>");
+    expect(html).toContain("<th>Name</th>");
+    expect(html).toContain("<td>42</td>");
+    expect(html).toContain("<blockquote>");
     expect(html).toContain("<code>code</code>");
   });
 
@@ -53,6 +65,9 @@ describe("materialization render layer", () => {
 
     expect(result.primary.path.endsWith(".md")).toBe(true);
     expect(fs.existsSync(result.primary.path)).toBe(true);
+    expect(result.primary.documentInputKind).toBe("markdown");
+    expect(result.primary.rendererTarget).toBe("markdown");
+    expect(result.primary.rendererId).toBe("markdown-file");
     expect(result.supporting?.some((output) => output.renderKind === "pdf")).toBe(true);
   });
 
@@ -72,6 +87,8 @@ describe("materialization render layer", () => {
     });
 
     expect(result.primary.mimeType).toBe("text/html");
+    expect(result.primary.rendererTarget).toBe("preview");
+    expect(result.primary.rendererId).toBe("html-preview");
     expect(result.primary.url?.startsWith("file:///")).toBe(true);
   });
 
@@ -95,10 +112,12 @@ describe("materialization render layer", () => {
 
     expect(result.degraded).toBe(true);
     expect(result.primary.renderKind).toBe("html");
+    expect(result.primary.rendererTarget).toBe("html");
+    expect(result.primary.rendererId).toBe("html-file");
     expect(result.warnings).toContain("pdf renderer unavailable; fell back to html output");
     expect(result.bootstrapRequest).toMatchObject({
       capabilityId: "pdf-renderer",
-      installMethod: "download",
+      installMethod: "node",
       reason: "renderer_unavailable",
       sourceDomain: "document",
     });
@@ -108,6 +127,34 @@ describe("materialization render layer", () => {
         state: "pending",
       }),
     ]);
+  });
+
+  it("records bootstrap evidence on the originating run when a pdf tool request degrades", () => {
+    const outputDir = path.join(os.tmpdir(), "openclaw-materialization-tests", "degraded-origin");
+    const result = materializeArtifact(
+      {
+        artifactId: "pdf-origin-1",
+        label: "PDF Report",
+        sourceDomain: "document",
+        renderKind: "pdf",
+        outputTarget: "file",
+        outputDir,
+        payload: {
+          title: "PDF Report",
+          markdown: "# Fallback",
+        },
+      },
+      { pdfRendererAvailable: false, runId: "run-origin-bootstrap" },
+    );
+
+    expect(result.bootstrapRequest).toBeTruthy();
+    expect(getPlatformRuntimeCheckpointService().buildRunOutcome("run-origin-bootstrap")).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        bootstrapRequestIds: [expect.any(String)],
+        boundaries: ["bootstrap"],
+      }),
+    );
   });
 
   it("runs bootstrap orchestration for degraded pdf materialization on explicit approval", async () => {
@@ -134,23 +181,44 @@ describe("materialization render layer", () => {
       policyContext: makePolicyContext(true),
       registry,
       installers: {
-        download: async ({ request }) => ({
+        node: async ({ request }) => ({
           ok: true,
           capability: {
             ...request.catalogEntry.capability,
             status: "available",
             trusted: true,
-            installMethod: "download",
+            installMethod: "node",
             sandboxed: true,
           },
         }),
       },
-      availableBins: ["playwright"],
+      availableBins: ["node"],
       runHealthCheckCommand: async () => true,
     });
 
     expect(bootstrap?.status).toBe("bootstrapped");
     expect(bootstrap?.lifecycle?.status).toBe("available");
     expect(registry.get("pdf-renderer")?.status).toBe("available");
+  });
+
+  it("derives canonical contract fields from legacy html requests", () => {
+    const outputDir = path.join(os.tmpdir(), "openclaw-materialization-tests", "legacy-html");
+    const result = materializeArtifact({
+      artifactId: "html-legacy-1",
+      label: "Legacy HTML",
+      sourceDomain: "document",
+      renderKind: "html",
+      outputTarget: "file",
+      outputDir,
+      payload: {
+        title: "Legacy HTML",
+        markdown: "# Legacy",
+      },
+    });
+
+    expect(result.primary.renderKind).toBe("html");
+    expect(result.primary.documentInputKind).toBe("markdown");
+    expect(result.primary.rendererTarget).toBe("html");
+    expect(result.primary.rendererId).toBe("html-file");
   });
 });

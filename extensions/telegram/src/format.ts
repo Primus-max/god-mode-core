@@ -71,6 +71,32 @@ function renderTelegramHtml(ir: MarkdownIR): string {
   });
 }
 
+/**
+ * OPENCLAW_DEBUG_REPLY_ROUTING appends two root blockquotes: a one-line "[debug] …" summary
+ * and a details quote. Telegram spoilers (<tg-spoiler>) look like a static noise mask; an
+ * expandable blockquote collapses to a short preview and opens cleanly on tap (Bot API 7+).
+ */
+function applyExpandableBlockquoteAfterOpenClawDebug(html: string): string {
+  const re = /<blockquote>([\s\S]*?)<\/blockquote>(\s*)<blockquote>/g;
+  let best: { index: number; len: number; inner: string; ws: string } | null = null;
+  for (const m of html.matchAll(re)) {
+    const inner1 = (m[1] ?? "").replace(/^\s+/, "");
+    if (!inner1.startsWith("[debug]")) {
+      continue;
+    }
+    best = { index: m.index, len: m[0].length, inner: m[1] ?? "", ws: m[2] ?? "" };
+  }
+  if (!best) {
+    return html;
+  }
+  const { index, len, inner, ws } = best;
+  return (
+    html.slice(0, index) +
+    `<blockquote>${inner}</blockquote>${ws}<blockquote expandable>` +
+    html.slice(index + len)
+  );
+}
+
 export function markdownToTelegramHtml(
   markdown: string,
   options: { tableMode?: MarkdownTableMode; wrapFileRefs?: boolean } = {},
@@ -82,7 +108,8 @@ export function markdownToTelegramHtml(
     blockquotePrefix: "",
     tableMode: options.tableMode,
   });
-  const html = renderTelegramHtml(ir);
+  let html = renderTelegramHtml(ir);
+  html = applyExpandableBlockquoteAfterOpenClawDebug(html);
   // Apply file reference wrapping if requested (for chunked rendering)
   if (options.wrapFileRefs !== false) {
     return wrapFileReferencesInHtml(html);

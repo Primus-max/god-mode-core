@@ -97,6 +97,16 @@ export async function resolveBootstrapRequest(
       state.bootstrapSelectedId = res.detail.id;
       state.bootstrapDetailError = null;
     }
+    if (decision === "approve" && res?.detail?.state === "approved") {
+      const runRes = await state.client.request<BootstrapDetailResult>("platform.bootstrap.run", {
+        requestId,
+      });
+      if (runRes?.detail) {
+        state.bootstrapDetail = runRes.detail;
+        state.bootstrapSelectedId = runRes.detail.id;
+        state.bootstrapDetailError = null;
+      }
+    }
     await loadBootstrapRequests(state);
   } catch (err) {
     state.bootstrapError = String(err);

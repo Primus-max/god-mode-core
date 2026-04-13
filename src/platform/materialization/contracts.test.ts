@@ -8,6 +8,8 @@ describe("materialization contracts", () => {
       label: "Document Summary",
       sourceDomain: "document",
       renderKind: "markdown",
+      documentInputKind: "markdown",
+      rendererTarget: "markdown",
       outputTarget: "file",
       includePdf: true,
       payload: {
@@ -22,6 +24,9 @@ describe("materialization contracts", () => {
     const result = {
       primary: {
         renderKind: "html",
+        documentInputKind: "html",
+        rendererTarget: "html",
+        rendererId: "html-file",
         outputTarget: "file",
         path: "artifact.html",
         mimeType: "text/html",

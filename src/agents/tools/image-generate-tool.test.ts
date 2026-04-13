@@ -75,6 +75,7 @@ describe("createImageGenerateTool", () => {
   });
 
   it("keeps image_generate available with a local fallback when no provider is inferred", async () => {
+    vi.stubEnv("OPENCLAW_ALLOW_LOCAL_IMAGE_FALLBACK", "1");
     stubImageGenerationProviders();
     const tool = createImageGenerateTool({ config: {} });
     expect(tool).not.toBeNull();
@@ -101,6 +102,43 @@ describe("createImageGenerateTool", () => {
     });
   });
 
+  it("fails closed without local fallback env when no image provider is configured", async () => {
+    stubImageGenerationProviders();
+    const tool = createImageGenerateTool({ config: {} });
+    expect(tool).not.toBeNull();
+    if (!tool) {
+      throw new Error("expected image_generate tool");
+    }
+    await expect(
+      tool.execute("call-no-fallback", { prompt: "A banana" }),
+    ).rejects.toThrow(/No image-generation model configured/);
+  });
+
+  it("does not mask remote image generation errors without local fallback env", async () => {
+    stubImageGenerationProviders();
+    vi.spyOn(imageGenerationRuntime, "generateImage").mockRejectedValue(
+      new Error("Hydra image generation returned no markdown images."),
+    );
+    const tool = createImageGenerateTool({
+      config: {
+        agents: {
+          defaults: {
+            imageGenerationModel: {
+              primary: "openai/gpt-image-1",
+            },
+          },
+        },
+      },
+    });
+    expect(tool).not.toBeNull();
+    if (!tool) {
+      throw new Error("expected image_generate tool");
+    }
+    await expect(tool.execute("call-remote-fail", { prompt: "A banana" })).rejects.toThrow(
+      "Hydra image generation returned no markdown images.",
+    );
+  });
+
   it("infers an OpenAI image-generation model from env-backed auth", () => {
     stubImageGenerationProviders();
     vi.stubEnv("OPENAI_API_KEY", "openai-test");
@@ -123,6 +161,27 @@ describe("createImageGenerateTool", () => {
             defaults: {
               model: {
                 primary: "google/gemini-3.1-pro-preview",
+              },
+            },
+          },
+        },
+      }),
+    ).toEqual({
+      primary: "google/gemini-3.1-flash-image-preview",
+      fallbacks: ["openai/gpt-image-1"],
+    });
+  });
+
+  it("reuses agents.defaults.imageModel when imageGenerationModel is not configured", () => {
+    stubImageGenerationProviders();
+    expect(
+      resolveImageGenerationModelConfigForTool({
+        cfg: {
+          agents: {
+            defaults: {
+              imageModel: {
+                primary: "google/gemini-3.1-flash-image-preview",
+                fallbacks: ["openai/gpt-image-1"],
               },
             },
           },
@@ -527,7 +586,9 @@ describe("createImageGenerateTool", () => {
     expect(text).not.toContain("auth: set");
     expect(result).toMatchObject({
       details: {
-        providers: [expect.objectContaining({ id: "__proto__", authEnvVars: [] })],
+        providers: expect.arrayContaining([
+          expect.objectContaining({ id: "__proto__", authEnvVars: [] }),
+        ]),
       },
     });
   });

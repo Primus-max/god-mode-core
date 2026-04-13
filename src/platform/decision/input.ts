@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { SessionEntry } from "../../config/sessions.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
+import { stripInboundMetadata } from "../../auto-reply/reply/strip-inbound-meta.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
 import {
@@ -10,13 +11,20 @@ import {
   type ResolvedPlatformRuntimePlan,
   type ResolvePlatformExecutionDecisionOptions,
 } from "../recipe/runtime-adapter.js";
+import {
+  countTabularFiles,
+  promptSuggestsCalculationIntent,
+  promptSuggestsCompareIntent,
+  promptSuggestsWebsiteFrontendWork,
+} from "./intent-signals.js";
 
 const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
 const DEVELOPER_EXECUTION_KEYWORDS =
-  /\b(build|test|fix|refactor|repo|repository|compile|ci|code)\b/iu;
+  /\b(build|test|fix|refactor|repo|repository|compile|ci|code|e2e|bug|tests?|тест|тесты|исправ|почин|баг|код|сборк|проверк|рефактор)\b/iu;
 const DEVELOPER_PUBLISH_KEYWORDS = /\b(preview|publish|release|deploy|ship|rollout)\b/iu;
 const DOCUMENT_ARTIFACT_HINTS = [
   "pdf",
+  "пдф",
   "document",
   "doc",
   "docx",
@@ -42,6 +50,7 @@ const MEDIA_IMAGE_HINTS = [
   "banner",
   "icon",
   "logo",
+  "infographic",
   "render",
   "изображени",
   "картин",
@@ -51,6 +60,7 @@ const MEDIA_IMAGE_HINTS = [
   "баннер",
   "иконк",
   "логотип",
+  "инфограф",
   "рендер",
 ] as const;
 const MEDIA_VIDEO_HINTS = [
@@ -79,6 +89,90 @@ const MEDIA_AUDIO_HINTS = [
   "саундтрек",
   "музык",
 ] as const;
+const BROWSER_TOOL_HINTS = [
+  "browser",
+  "browse",
+  "website",
+  "web page",
+  "webpage",
+  "page title",
+  "navigate",
+  "open tab",
+  "открой в браузере",
+  "в браузере",
+  "сайт",
+  "страниц",
+  "заголовок страницы",
+] as const;
+const WEB_SEARCH_TOOL_HINTS = [
+  "web search",
+  "search the web",
+  "search online",
+  "find online",
+  "internet",
+  "latest public",
+  "найди в интернете",
+  "поищи в интернете",
+  "поиск в интернете",
+  "в интернете",
+] as const;
+const PRESENTATION_ARTIFACT_HINTS = [
+  "presentation",
+  "slides",
+  "slide deck",
+  "deck",
+  "infographic",
+  "презентац",
+  "слайд",
+  "инфограф",
+] as const;
+const IMAGE_GENERATION_VERB_RE =
+  /generate|create|make|draw|render|paint|сгенерируй|создай|сделай|нарисуй|отрендери/iu;
+const PDF_GENERATION_VERB_RE =
+  /generate|create|make|export|render|assemble|сгенерируй|создай|сделай|экспортируй|собери/iu;
+const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process", "browser", "web_search"]);
+const HEAVY_ARTIFACT_KINDS = new Set([
+  "image",
+  "video",
+  "audio",
+  "document",
+  "site",
+  "release",
+  "binary",
+  "archive",
+]);
+const TABULAR_ATTACHMENT_EXTENSION = /\.(csv|tsv|xlsx?|ods)$/iu;
+
+const GENERAL_INTENT_HINTS = [
+  "hello",
+  "hi",
+  "how are you",
+  "joke",
+  "fun",
+  "story",
+  "chat",
+  "translate",
+  "explain",
+  "brainstorm",
+  "привет",
+  "здравств",
+  "как дела",
+  "пошут",
+  "шутк",
+  "истори",
+  "поболта",
+  "перевед",
+  "объясн",
+] as const;
+const ROUTING_CONTEXT_PREFIXES = [
+  "Profile:",
+  "Language continuity:",
+  "Task overlay:",
+  "Planner reasoning:",
+  "Bootstrap required:",
+  "Active specialist profile:",
+  "Planned tools:",
+] as const;
 
 type DecisionInputChannelHints = {
   messageChannel?: string;
@@ -88,6 +182,7 @@ type DecisionInputChannelHints = {
 
 export type BuildExecutionDecisionInputParams = {
   prompt: string;
+  inferencePrompt?: string;
   fileNames?: string[];
   artifactKinds?: RecipePlannerInput["artifactKinds"];
   intent?: RecipePlannerInput["intent"];
@@ -103,7 +198,7 @@ export type BuildExecutionDecisionInputParams = {
 
 export type BuildSessionBackedExecutionDecisionInputParams = Omit<
   BuildExecutionDecisionInputParams,
-  "prompt" | "fileNames"
+  "prompt" | "fileNames" | "inferencePrompt"
 > & {
   draftPrompt?: string;
   fileNames?: string[];
@@ -118,9 +213,35 @@ export type BuildSessionBackedExecutionDecisionInputParams = Omit<
   > | null;
 };
 
+export function shouldUseLightweightBootstrapContext(
+  plannerInput: Pick<
+    RecipePlannerInput,
+    "intent" | "requestedTools" | "artifactKinds" | "fileNames" | "publishTargets"
+  >,
+): boolean {
+  if ((plannerInput.fileNames?.length ?? 0) > 0) {
+    return false;
+  }
+  if ((plannerInput.requestedTools?.length ?? 0) > 0) {
+    return false;
+  }
+  if ((plannerInput.artifactKinds?.length ?? 0) > 0) {
+    return false;
+  }
+  if ((plannerInput.publishTargets?.length ?? 0) > 0) {
+    return false;
+  }
+  return plannerInput.intent === "general" || plannerInput.intent === undefined;
+}
+
 function collectPromptHints(prompt: string, candidates: readonly string[]): string[] {
   const normalized = prompt.toLowerCase();
-  return candidates.filter((candidate) => normalized.includes(candidate));
+  return candidates.filter((candidate) =>
+    new RegExp(
+      `(^|[^\\p{L}\\p{N}_])${candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[^\\p{L}\\p{N}_]|$)`,
+      "iu",
+    ).test(normalized),
+  );
 }
 
 function toUniqueLowercase(values: Array<string | undefined> | undefined): string[] {
@@ -138,35 +259,284 @@ function promptIncludesAny(prompt: string, hints: readonly string[]): boolean {
   return hints.some((hint) => normalized.includes(hint));
 }
 
-function inferPromptIntent(prompt: string): RecipePlannerInput["intent"] {
+function resolveKeywordInferencePrompt(prompt: string): string {
+  const withoutInboundMetadata = stripInboundMetadata(prompt);
+  const lines = withoutInboundMetadata.split("\n");
+  let index = 0;
+  let strippedContextPrefix = false;
+  while (index < lines.length) {
+    const trimmed = lines[index]?.trim() ?? "";
+    if (!trimmed) {
+      if (strippedContextPrefix) {
+        index += 1;
+        continue;
+      }
+      break;
+    }
+    if (ROUTING_CONTEXT_PREFIXES.some((prefix) => trimmed.startsWith(prefix))) {
+      strippedContextPrefix = true;
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  const normalizedPrompt = lines.slice(index).join("\n").trim();
+  const segments = normalizedPrompt
+    .split(/\n\s*\n/iu)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  return (segments.at(-1) ?? normalizedPrompt) || prompt;
+}
+
+function compareLanguageInPrompt(prompt: string): boolean {
+  return promptSuggestsCompareIntent(prompt);
+}
+
+function calculationLanguageInPrompt(prompt: string): boolean {
+  return promptSuggestsCalculationIntent(prompt);
+}
+
+function generalLanguageInPrompt(prompt: string): boolean {
+  return promptIncludesAny(prompt, GENERAL_INTENT_HINTS);
+}
+
+function tabularAttachmentCount(fileNames: string[]): number {
+  return countTabularFiles(fileNames);
+}
+
+function inferCompareIntentFromAttachments(prompt: string, fileNames: string[]): boolean {
+  if (tabularAttachmentCount(fileNames) < 2) {
+    return false;
+  }
+  if (/\b(merge|concat|append|stack|объедин)\w*\b/iu.test(prompt)) {
+    return false;
+  }
+  return true;
+}
+
+function inferPromptIntent(prompt: string, fileNames: string[]): RecipePlannerInput["intent"] {
+  if (compareLanguageInPrompt(prompt) || inferCompareIntentFromAttachments(prompt, fileNames)) {
+    return "compare";
+  }
+  if (calculationLanguageInPrompt(prompt)) {
+    return "calculation";
+  }
+  if (promptSuggestsWebsiteFrontendWork(prompt)) {
+    return "code";
+  }
+  const imageGenerationHint = promptNeedsImageGenerationTool(prompt);
+  const documentHint = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
+  const developerExecutionHint = DEVELOPER_EXECUTION_KEYWORDS.test(prompt);
+  if (documentHint && !developerExecutionHint) {
+    return "document";
+  }
+  if (imageGenerationHint) {
+    return undefined;
+  }
   if (DEVELOPER_PUBLISH_KEYWORDS.test(prompt)) {
     return "publish";
   }
-  if (promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS)) {
+  if (documentHint) {
     return "document";
   }
   if (DEVELOPER_EXECUTION_KEYWORDS.test(prompt)) {
     return "code";
   }
+  if (generalLanguageInPrompt(prompt) && fileNames.length === 0) {
+    return "general";
+  }
   return undefined;
 }
 
-function inferArtifactKinds(prompt: string): NonNullable<RecipePlannerInput["artifactKinds"]> {
+function promptNeedsBrowserTool(prompt: string): boolean {
+  return /https?:\/\//iu.test(prompt) || promptIncludesAny(prompt, BROWSER_TOOL_HINTS);
+}
+
+function promptNeedsWebSearchTool(prompt: string): boolean {
+  return promptIncludesAny(prompt, WEB_SEARCH_TOOL_HINTS);
+}
+
+function promptNeedsImageGenerationTool(prompt: string): boolean {
+  return IMAGE_GENERATION_VERB_RE.test(prompt) && promptIncludesAny(prompt, MEDIA_IMAGE_HINTS);
+}
+
+function promptNeedsPdfTool(prompt: string): boolean {
+  return (
+    PDF_GENERATION_VERB_RE.test(prompt) &&
+    (promptIncludesAny(prompt, ["pdf", "пдф"]) ||
+      promptIncludesAny(prompt, PRESENTATION_ARTIFACT_HINTS))
+  );
+}
+
+function promptTargetsPdfArtifact(prompt: string, fileNames: string[]): boolean {
+  return (
+    promptIncludesAny(prompt, ["pdf", "пдф"]) ||
+    promptIncludesAny(prompt, PRESENTATION_ARTIFACT_HINTS) ||
+    fileNames.some((name) => /\.pdf$/iu.test(name))
+  );
+}
+
+type ArtifactDrivenToolRule = {
+  toolName: string;
+  matches: (params: {
+    prompt: string;
+    fileNames: string[];
+    artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
+    pdfTarget: boolean;
+  }) => boolean;
+};
+
+const ARTIFACT_DRIVEN_TOOL_RULES: readonly ArtifactDrivenToolRule[] = [
+  {
+    toolName: "pdf",
+    matches: ({ artifactKinds, pdfTarget }) => artifactKinds.includes("document") && pdfTarget,
+  },
+  {
+    toolName: "image_generate",
+    matches: ({ artifactKinds, pdfTarget }) =>
+      artifactKinds.includes("image") && artifactKinds.includes("document") && pdfTarget,
+  },
+] as const;
+
+function inferArtifactDrivenTools(params: {
+  prompt: string;
+  fileNames: string[];
+  artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
+}): string[] {
+  const pdfTarget = promptTargetsPdfArtifact(params.prompt, params.fileNames);
+  return ARTIFACT_DRIVEN_TOOL_RULES.filter((rule) =>
+    rule.matches({
+      prompt: params.prompt,
+      fileNames: params.fileNames,
+      artifactKinds: params.artifactKinds,
+      pdfTarget,
+    }),
+  ).map((rule) => rule.toolName);
+}
+
+function promptSuggestsHeavyDocumentWork(prompt: string): boolean {
+  return (
+    /\b(pdf|png|jpe?g|webp|gif|scan|scanned|screenshot|ocr|invoice|diagram)\b/iu.test(prompt) ||
+    /\b(pdf|пдф|png|скан|скриншот|чертеж)\b/iu.test(prompt)
+  );
+}
+
+function promptSuggestsLightGeneralTask(prompt: string): boolean {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (
+    /\b(rewrite|rephrase|shorten|paraphrase|translate)\b/iu.test(prompt) ||
+    ["перепиши", "перефраз", "сократи", "переведи"].some((hint) => normalized.includes(hint))
+  ) {
+    return true;
+  }
+  const asksForShortList =
+    /\b(name|list|give|share)\s+(?:one|two|three|1|2|3)\b/iu.test(prompt) ||
+    /\b(назови|перечисли|дай)\s+(?:один|одну|два|две|три|1|2|3)\b/iu.test(prompt) ||
+    [
+      "назови 1",
+      "назови 2",
+      "назови 3",
+      "перечисли 1",
+      "перечисли 2",
+      "перечисли 3",
+      "дай 1",
+      "дай 2",
+      "дай 3",
+    ].some((hint) => normalized.includes(hint));
+  const requestsBriefness = ["short", "brief", "quick", "коротк", "кратк"].some((hint) =>
+    normalized.includes(hint),
+  );
+  return asksForShortList && requestsBriefness;
+}
+
+function promptSuggestsComplexReasoning(prompt: string): boolean {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (promptSuggestsLightGeneralTask(prompt)) {
+    return false;
+  }
+  let score = 0;
+  if (normalized.length >= 120) {
+    score += 1;
+  }
+  if (
+    /\b(analy[sz]e|analysis|deep dive|detailed|trade[- ]?offs?|framework|metrics?|kpis?|examples?|rationale|prioriti[sz]e|step[- ]by[- ]step)\b/iu.test(
+      prompt,
+    ) ||
+    [
+      "анализ",
+      "подробн",
+      "развернут",
+      "развёрнут",
+      "почему",
+      "пример",
+      "метрик",
+      "пошагов",
+      "приорит",
+      "обоснован",
+    ].some((hint) => normalized.includes(hint))
+  ) {
+    score += 2;
+  }
+  if (
+    /\b(three|four|five|six|seven|eight|nine|ten|3|4|5|6|7|8|9|10)\b/iu.test(prompt) ||
+    ["три", "четыре", "пять", "шесть", "семь", "восемь", "девять", "десять"].some((hint) =>
+      normalized.includes(hint),
+    )
+  ) {
+    score += 1;
+  }
+  if (
+    /[:;]/.test(prompt) &&
+    (/\b(why|because|with examples?)\b/iu.test(prompt) ||
+      normalized.includes("с примерами") ||
+      normalized.includes("почему") ||
+      normalized.includes("например"))
+  ) {
+    score += 1;
+  }
+  return score >= 2;
+}
+
+function inferArtifactKinds(
+  prompt: string,
+  fileNames: string[],
+): NonNullable<RecipePlannerInput["artifactKinds"]> {
   const publishTargets = collectPromptHints(prompt, DEVELOPER_PUBLISH_TARGET_HINTS);
-  const hasDocumentArtifactHint = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
+  const compareIntentish =
+    compareLanguageInPrompt(prompt) || inferCompareIntentFromAttachments(prompt, fileNames);
+  const calculationIntentish = calculationLanguageInPrompt(prompt);
+  const hasDocumentArtifactHintRaw = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
+  const hasDocumentArtifactHint =
+    hasDocumentArtifactHintRaw && !calculationIntentish && !compareIntentish;
+  const imageGenerationHint = promptNeedsImageGenerationTool(prompt);
   const hasMediaArtifactHint =
     promptIncludesAny(prompt, MEDIA_IMAGE_HINTS) ||
     promptIncludesAny(prompt, MEDIA_VIDEO_HINTS) ||
     promptIncludesAny(prompt, MEDIA_AUDIO_HINTS);
+  const canInferPublishArtifacts =
+    !imageGenerationHint && !hasDocumentArtifactHint && !compareIntentish && !calculationIntentish;
   return toUniqueLowercase([
-    ...(publishTargets.length > 0 || /\bpreview\b/iu.test(prompt) ? ["site"] : []),
-    ...(publishTargets.length > 0 || /\brelease\b/iu.test(prompt) ? ["release"] : []),
+    ...(promptSuggestsWebsiteFrontendWork(prompt) ? ["site"] : []),
+    ...(canInferPublishArtifacts && (publishTargets.length > 0 || /\bpreview\b/iu.test(prompt))
+      ? ["site"]
+      : []),
+    ...(canInferPublishArtifacts && (publishTargets.length > 0 || /\brelease\b/iu.test(prompt))
+      ? ["release"]
+      : []),
     ...(DEVELOPER_EXECUTION_KEYWORDS.test(prompt) &&
     !hasDocumentArtifactHint &&
     !hasMediaArtifactHint
       ? ["binary"]
       : []),
     ...(hasDocumentArtifactHint ? ["document"] : []),
+    ...(compareIntentish ? (["data", "report"] as const) : []),
+    ...(calculationIntentish ? (["report", "data"] as const) : []),
     ...(/\breport\b/iu.test(prompt) ? ["report"] : []),
     ...(/\b(отчет|отчёт)\b/iu.test(prompt) ? ["report"] : []),
     ...(promptIncludesAny(prompt, MEDIA_IMAGE_HINTS) ? ["image"] : []),
@@ -175,22 +545,144 @@ function inferArtifactKinds(prompt: string): NonNullable<RecipePlannerInput["art
   ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
 }
 
+function fileNamesImplyHeavyLocalRoute(fileNames: string[]): boolean {
+  return fileNames.some((name) =>
+    /\.(pdf|png|jpe?g|webp|gif|tiff?|bmp|heic|ts|tsx|js|jsx|mjs|cjs|json|py|go|rs|java|kt|cs|cpp|h)$/iu.test(
+      name,
+    ),
+  );
+}
+
+function artifactKindsAllowLightTabularOrCalc(
+  kinds: NonNullable<RecipePlannerInput["artifactKinds"]>,
+  intent: RecipePlannerInput["intent"],
+): boolean {
+  if (kinds.length === 0) {
+    return true;
+  }
+  if (kinds.some((kind) => HEAVY_ARTIFACT_KINDS.has(kind))) {
+    return false;
+  }
+  const onlyDataReport = kinds.every((kind) => kind === "data" || kind === "report");
+  if (!onlyDataReport) {
+    return false;
+  }
+  return intent === "compare" || intent === "calculation";
+}
+
+function inferLocalRoutingEligible(params: {
+  prompt: string;
+  intent: RecipePlannerInput["intent"];
+  requestedTools: string[];
+  fileNames: string[];
+  artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
+}): boolean {
+  if (params.intent === "code" || params.intent === "publish") {
+    return false;
+  }
+  if (params.requestedTools.some((tool) => HEAVY_TOOL_IDS.has(tool))) {
+    return false;
+  }
+  if (promptSuggestsHeavyDocumentWork(params.prompt)) {
+    return false;
+  }
+  if (promptSuggestsComplexReasoning(params.prompt)) {
+    return false;
+  }
+  if (params.fileNames.length > 0) {
+    if (fileNamesImplyHeavyLocalRoute(params.fileNames)) {
+      return false;
+    }
+    if (
+      params.intent === "compare" &&
+      params.fileNames.every((name) => TABULAR_ATTACHMENT_EXTENSION.test(name))
+    ) {
+      return false;
+    }
+    return false;
+  }
+  if (params.artifactKinds.length > 0) {
+    return artifactKindsAllowLightTabularOrCalc(params.artifactKinds, params.intent);
+  }
+  return true;
+}
+
+function inferRemoteRoutingProfile(params: {
+  prompt: string;
+  intent: RecipePlannerInput["intent"];
+  requestedTools: string[];
+  artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
+  localEligible: boolean;
+}): NonNullable<NonNullable<RecipePlannerInput["routing"]>["remoteProfile"]> {
+  if (
+    params.intent === "code" ||
+    params.intent === "publish" ||
+    params.requestedTools.some((tool) => HEAVY_TOOL_IDS.has(tool))
+  ) {
+    return "code";
+  }
+  if (
+    !params.localEligible ||
+    params.artifactKinds.some((kind) => HEAVY_ARTIFACT_KINDS.has(kind)) ||
+    promptSuggestsHeavyDocumentWork(params.prompt) ||
+    promptSuggestsComplexReasoning(params.prompt)
+  ) {
+    return "strong";
+  }
+  return "cheap";
+}
+
+function inferPreferRemoteFirst(params: {
+  prompt: string;
+  intent: RecipePlannerInput["intent"];
+  requestedTools: string[];
+  artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
+}): boolean {
+  if (params.intent === "publish") {
+    return true;
+  }
+  if (params.requestedTools.includes("browser") || params.requestedTools.includes("web_search")) {
+    return true;
+  }
+  if (
+    params.artifactKinds.some(
+      (kind) =>
+        kind === "image" ||
+        kind === "video" ||
+        kind === "audio" ||
+        kind === "site" ||
+        kind === "release",
+    )
+  ) {
+    return true;
+  }
+  return (
+    params.artifactKinds.includes("document") &&
+    [
+      "pdf",
+      "presentation",
+      "slides",
+      "infographic",
+      "layout",
+      "презентац",
+      "инфограф",
+      "слайд",
+      "плакат",
+      "баннер",
+    ].some((hint) => params.prompt.toLowerCase().includes(hint))
+  );
+}
+
+function inferNeedsVision(params: { prompt: string; fileNames: string[] }): boolean {
+  if (promptSuggestsHeavyDocumentWork(params.prompt)) {
+    return true;
+  }
+  return params.fileNames.some((name) => /\.(pdf|png|jpe?g|webp|gif|tiff?|bmp|heic)$/iu.test(name));
+}
+
 export function buildExecutionDecisionInput(
   params: BuildExecutionDecisionInputParams,
 ): RecipePlannerInput {
-  const inferredPublishTargets = collectPromptHints(params.prompt, DEVELOPER_PUBLISH_TARGET_HINTS);
-  const inferredIntegrations = inferredPublishTargets.filter((target) => target !== "npm");
-  const inferredIntent = inferPromptIntent(params.prompt);
-  const effectiveIntent = params.intent ?? inferredIntent;
-  const inferredRequestedTools =
-    effectiveIntent === "code" || effectiveIntent === "publish"
-      ? ["exec", "apply_patch", "process"]
-      : [];
-  const channelHints = toUniqueLowercase([
-    params.channelHints?.messageChannel,
-    params.channelHints?.channel,
-    params.channelHints?.replyChannel,
-  ]);
   const fileNames = Array.from(
     new Set(
       (params.fileNames ?? [])
@@ -198,6 +690,46 @@ export function buildExecutionDecisionInput(
         .map((value) => value.trim()),
     ),
   );
+  const explicitInferencePrompt =
+    typeof params.inferencePrompt === "string" && params.inferencePrompt.trim().length > 0
+      ? params.inferencePrompt.trim()
+      : undefined;
+  const inferencePromptCandidate = explicitInferencePrompt ?? resolveKeywordInferencePrompt(params.prompt);
+  const candidatePublishTargets = collectPromptHints(
+    inferencePromptCandidate,
+    DEVELOPER_PUBLISH_TARGET_HINTS,
+  );
+  const candidateIntent = inferPromptIntent(inferencePromptCandidate, fileNames);
+  const candidateArtifactKinds = inferArtifactKinds(inferencePromptCandidate, fileNames);
+  const inferencePrompt =
+    !explicitInferencePrompt &&
+    inferencePromptCandidate !== params.prompt &&
+    !candidateIntent &&
+    candidatePublishTargets.length === 0 &&
+    candidateArtifactKinds.length === 0
+      ? params.prompt
+      : inferencePromptCandidate;
+  const inferredPublishTargets = collectPromptHints(
+    inferencePrompt,
+    DEVELOPER_PUBLISH_TARGET_HINTS,
+  );
+  const inferredIntegrations = inferredPublishTargets.filter((target) => target !== "npm");
+  const inferredIntent = inferPromptIntent(inferencePrompt, fileNames);
+  const effectiveIntent = params.intent ?? inferredIntent;
+  const inferredRequestedTools = toUniqueLowercase([
+    ...(effectiveIntent === "code" || effectiveIntent === "publish"
+      ? ["exec", "apply_patch", "process"]
+      : []),
+    ...(promptNeedsBrowserTool(inferencePrompt) ? ["browser"] : []),
+    ...(promptNeedsWebSearchTool(inferencePrompt) ? ["web_search"] : []),
+    ...(promptNeedsImageGenerationTool(inferencePrompt) ? ["image_generate"] : []),
+    ...(promptNeedsPdfTool(inferencePrompt) ? ["pdf"] : []),
+  ]);
+  const channelHints = toUniqueLowercase([
+    params.channelHints?.messageChannel,
+    params.channelHints?.channel,
+    params.channelHints?.replyChannel,
+  ]);
   const publishTargets = toUniqueLowercase([
     ...inferredPublishTargets,
     ...(params.publishTargets ?? []),
@@ -208,13 +740,41 @@ export function buildExecutionDecisionInput(
     ...channelHints,
   ]);
   const artifactKinds = toUniqueLowercase([
-    ...inferArtifactKinds(params.prompt),
+    ...(inferencePrompt === inferencePromptCandidate
+      ? candidateArtifactKinds
+      : inferArtifactKinds(inferencePrompt, fileNames)),
     ...((params.artifactKinds ?? []) as string[]),
   ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
   const requestedTools = toUniqueLowercase([
     ...inferredRequestedTools,
+    ...inferArtifactDrivenTools({
+      prompt: inferencePrompt,
+      fileNames,
+      artifactKinds,
+    }),
     ...(params.requestedTools ?? []),
   ]);
+  const localRoutingEligible = inferLocalRoutingEligible({
+    prompt: inferencePrompt,
+    intent: effectiveIntent,
+    requestedTools,
+    fileNames,
+    artifactKinds,
+  });
+  const remoteProfile = inferRemoteRoutingProfile({
+    prompt: inferencePrompt,
+    intent: effectiveIntent,
+    requestedTools,
+    artifactKinds,
+    localEligible: localRoutingEligible,
+  });
+  const preferRemoteFirst = inferPreferRemoteFirst({
+    prompt: inferencePrompt,
+    intent: effectiveIntent,
+    requestedTools,
+    artifactKinds,
+  });
+  const needsVision = inferNeedsVision({ prompt: inferencePrompt, fileNames });
 
   return applySessionSpecialistOverrideToPlannerInput(
     {
@@ -225,6 +785,12 @@ export function buildExecutionDecisionInput(
       ...(integrations.length > 0 ? { integrations } : {}),
       ...(requestedTools.length > 0 ? { requestedTools } : {}),
       ...(artifactKinds.length > 0 ? { artifactKinds } : {}),
+      routing: {
+        localEligible: localRoutingEligible,
+        remoteProfile,
+        ...(preferRemoteFirst ? { preferRemoteFirst: true } : {}),
+        ...(needsVision ? { needsVision: true } : {}),
+      },
     },
     params.sessionEntry,
   );
@@ -281,8 +847,13 @@ export function buildSessionBackedExecutionDecisionInput(
   const sessionContext = resolveSessionDecisionInputContext(messages);
   const prompt = [sessionContext.prompt, params.draftPrompt?.trim()].filter(Boolean).join("\n\n");
   const fileNames = Array.from(new Set([...sessionContext.fileNames, ...(params.fileNames ?? [])]));
+  const inferencePrompt =
+    typeof params.draftPrompt === "string" && params.draftPrompt.trim().length > 0
+      ? resolveKeywordInferencePrompt(params.draftPrompt)
+      : undefined;
   return {
     prompt,
+    ...(inferencePrompt ? { inferencePrompt } : {}),
     ...(fileNames.length > 0 ? { fileNames } : {}),
     ...(params.artifactKinds?.length ? { artifactKinds: params.artifactKinds } : {}),
     ...(params.intent ? { intent: params.intent } : {}),
@@ -324,25 +895,35 @@ function pushMediaPath(value: unknown, into: Set<string>) {
   into.add(path.basename(value.trim()));
 }
 
+/**
+ * Builds a compact planner context from the latest user turns in a session transcript.
+ *
+ * The same recent user-message window is used for both prompt text and attachment-derived
+ * file names so older spreadsheet uploads do not leak into a new unrelated turn.
+ *
+ * @param {unknown[]} messages - Raw transcript messages for the current session.
+ * @returns {{ prompt: string; fileNames: string[] }} Prompt text and attachment file names.
+ */
 export function resolveSessionDecisionInputContext(messages: unknown[]): {
   prompt: string;
   fileNames: string[];
 } {
+  const recentUserMessages = messages
+    .slice(-24)
+    .filter(
+      (
+        raw,
+      ): raw is {
+        role?: unknown;
+        content?: unknown;
+        MediaPath?: unknown;
+        MediaPaths?: unknown;
+      } => Boolean(raw) && typeof raw === "object" && (raw as { role?: unknown }).role === "user",
+    )
+    .slice(-6);
   const recentTexts: string[] = [];
   const fileNames = new Set<string>();
-  for (const raw of messages.slice(-24)) {
-    if (!raw || typeof raw !== "object") {
-      continue;
-    }
-    const message = raw as {
-      role?: unknown;
-      content?: unknown;
-      MediaPath?: unknown;
-      MediaPaths?: unknown;
-    };
-    if (message.role !== "user") {
-      continue;
-    }
+  for (const message of recentUserMessages) {
     const text = extractTranscriptUserText(message.content)?.trim();
     if (text) {
       recentTexts.push(text);
@@ -355,7 +936,7 @@ export function resolveSessionDecisionInputContext(messages: unknown[]): {
     }
   }
   return {
-    prompt: recentTexts.slice(-6).join("\n\n"),
+    prompt: recentTexts.join("\n\n"),
     fileNames: Array.from(fileNames).slice(-8),
   };
 }

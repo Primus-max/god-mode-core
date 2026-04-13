@@ -2,17 +2,30 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { resetLogger, setLoggerOverride } from "../logging/logger.js";
 import type { AuthProfileStore } from "./auth-profiles.js";
 import { saveAuthProfileStore } from "./auth-profiles.js";
 import { AUTH_STORE_VERSION } from "./auth-profiles/constants.js";
+import { FailoverError } from "./failover-error.js";
 import { isAnthropicBillingError } from "./live-auth-keys.js";
-import { runWithImageModelFallback, runWithModelFallback } from "./model-fallback.js";
+import { resetModelCatalogCacheForTest } from "./model-catalog.js";
+import {
+  _recentLocalTimeoutInternals,
+  modelFallbackOperatorLogTestBuffer,
+  runWithImageModelFallback,
+  runWithModelFallback,
+} from "./model-fallback.js";
 import { makeModelFallbackCfg } from "./test-helpers/model-fallback-config-fixture.js";
 
 const makeCfg = makeModelFallbackCfg;
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  resetModelCatalogCacheForTest();
+  _recentLocalTimeoutInternals.reset();
+});
 
 function makeFallbacksOnlyCfg(): OpenClawConfig {
   return {
@@ -216,6 +229,31 @@ describe("runWithModelFallback route preflight", () => {
     expect(result.routePreflight?.controlPlaneUsed).toBe(true);
   });
 
+  it("skips route preflight reordering when skipRoutePreflight is true", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4.1-mini",
+            fallbacks: ["ollama/llama3.2", "anthropic/claude-haiku-3-5"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      preflightPrompt: "what is 2+2?",
+      skipRoutePreflight: true,
+      run,
+    });
+    expect(result.result).toBe("ok");
+    expect(run.mock.calls[0]?.slice(0, 2)).toEqual(["openai", "gpt-4.1-mini"]);
+    expect(result.routePreflight).toBeUndefined();
+  });
+
   it("keeps configured primary first when preflight selects a stronger route", async () => {
     const cfg = makeCfg({
       agents: {
@@ -238,6 +276,252 @@ describe("runWithModelFallback route preflight", () => {
     expect(run.mock.calls[0]?.slice(0, 2)).toEqual(["openai", "gpt-4.1-mini"]);
     expect(result.routePreflight?.reasonCode).toBe("preflight_stronger_route");
     expect(result.routePreflight?.reordered).toBe(false);
+  });
+
+  it("honors session-backed planner input for short follow-up prompts", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4.1-mini",
+            fallbacks: ["ollama/llama3.2", "anthropic/claude-haiku-3-5"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      preflightPrompt: "ok, do it",
+      preflightPlannerInput: {
+        intent: "code",
+        requestedTools: ["exec", "apply_patch"],
+      },
+      run,
+    });
+    expect(run.mock.calls[0]?.slice(0, 2)).toEqual(["openai", "gpt-4.1-mini"]);
+    expect(result.routePreflight?.reasonCode).toBe("preflight_stronger_route");
+    expect(result.routePreflight?.localRoutingEligible).toBe(false);
+  });
+
+  it("uses Hydra live catalog metadata to choose the best cheap remote fallback", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url.endsWith("/models")) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: [
+                {
+                  id: "gemini-2.5-pro",
+                  name: "Gemini 2.5 Pro",
+                  context: 120000,
+                  type: "vision",
+                  active: true,
+                  input_modalities: ["text", "image"],
+                  output_modalities: ["text"],
+                  endpoints: ["/chat/completions"],
+                  pricing: { in_cost_per_million: 80, out_cost_per_million: 320 },
+                },
+                {
+                  id: "claude-3.5-haiku",
+                  name: "Claude 3.5 Haiku",
+                  context: 120000,
+                  type: "chat",
+                  active: true,
+                  input_modalities: ["text"],
+                  output_modalities: ["text"],
+                  endpoints: ["/chat/completions"],
+                  pricing: { in_cost_per_million: 8, out_cost_per_million: 40 },
+                },
+                {
+                  id: "deepseek-v3.1",
+                  name: "DeepSeek V3.1",
+                  context: 120000,
+                  type: "chat",
+                  active: true,
+                  input_modalities: ["text"],
+                  output_modalities: ["text"],
+                  endpoints: ["/chat/completions"],
+                  pricing: { in_cost_per_million: 3, out_cost_per_million: 9 },
+                  architecture: "MoE",
+                  quantization: "fp8",
+                },
+              ],
+            }),
+          } as Response;
+        }
+        if (url.endsWith("/models/status")) {
+          return {
+            ok: true,
+            json: async () => ({
+              "gemini-2.5-pro": { success_rate: 96, tps: 14, art: 2.8, message: "Good" },
+              "claude-3.5-haiku": { success_rate: 93, tps: 18, art: 2.5, message: "Good" },
+              "deepseek-v3.1": { success_rate: 99, tps: 42, art: 1.2, message: "Good" },
+            }),
+          } as Response;
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      }),
+    );
+
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "ollama/qwen2.5-coder:7b",
+            fallbacks: ["hydra/gemini-2.5-pro", "hydra/claude-3.5-haiku", "hydra/deepseek-v3.1"],
+          },
+        },
+      },
+      models: {
+        providers: {
+          hydra: {
+            baseUrl: "https://api-ru.hydraai.ru/v1",
+            api: "openai-completions",
+            apiKey: "${HYDRA_API_KEY}",
+            models: [],
+          },
+        },
+      },
+    });
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("local timeout"))
+      .mockResolvedValueOnce("ok");
+
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "ollama",
+      model: "qwen2.5-coder:7b",
+      preflightPrompt: "Коротко ответь, какой сейчас главный риск релиза?",
+      run,
+    });
+
+    expect(result.result).toBe("ok");
+    expect(run.mock.calls[0]?.slice(0, 2)).toEqual(["ollama", "qwen2.5-coder:7b"]);
+    expect(run.mock.calls[1]?.slice(0, 2)).toEqual(["hydra", "deepseek-v3.1"]);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("runWithModelFallback operator log lines", () => {
+  const captureEnv = "OPENCLAW_CAPTURE_MODEL_FALLBACK_LOGS";
+
+  beforeEach(() => {
+    process.env[captureEnv] = "1";
+    modelFallbackOperatorLogTestBuffer.length = 0;
+  });
+
+  afterEach(() => {
+    delete process.env[captureEnv];
+  });
+
+  it("logs preflightMode local_eligible when localRoutingEligible is true", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4.1-mini",
+            fallbacks: ["ollama/llama3.2", "anthropic/claude-haiku-3-5"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      preflightPrompt: "what is 2+2?",
+      run,
+    });
+
+    expect(modelFallbackOperatorLogTestBuffer).toContain("preflightMode: local_eligible");
+  });
+
+  it("logs preflightMode remote_required when localRoutingEligible is false", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4.1-mini",
+            fallbacks: ["ollama/llama3.2", "anthropic/claude-haiku-3-5"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      preflightPrompt: "ok, do it",
+      preflightPlannerInput: {
+        intent: "code",
+        requestedTools: ["exec", "apply_patch"],
+      },
+      run,
+    });
+
+    expect(modelFallbackOperatorLogTestBuffer).toContain("preflightMode: remote_required");
+  });
+
+  it("does not emit preflightMode when preflight produced no decision", async () => {
+    const cfg = makeCfg();
+    const run = vi.fn().mockResolvedValueOnce("ok");
+    await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      run,
+    });
+
+    expect(modelFallbackOperatorLogTestBuffer.some((line) => line.includes("preflightMode:"))).toBe(
+      false,
+    );
+  });
+
+  it("logs model_fallback line when a candidate fails and a next candidate exists", async () => {
+    const cfg = makeCfg();
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("rate limited"))
+      .mockResolvedValueOnce("ok");
+
+    const isolatedStore: AuthProfileStore = {
+      version: AUTH_STORE_VERSION,
+      profiles: {
+        "openai:default": {
+          type: "api_key",
+          provider: "openai",
+          key: "test-key",
+        },
+        "anthropic:default": {
+          type: "api_key",
+          provider: "anthropic",
+          key: "test-key",
+        },
+      },
+    };
+
+    await withTempAuthStore(isolatedStore, async (tempDir) => {
+      await runWithModelFallback({
+        cfg,
+        provider: "openai",
+        model: "gpt-4.1-mini",
+        agentDir: tempDir,
+        run,
+      });
+    });
+
+    expect(modelFallbackOperatorLogTestBuffer).toContain(
+      "model_fallback: openai/gpt-4.1-mini failed, trying anthropic/claude-haiku-3-5",
+    );
   });
 });
 
@@ -321,6 +605,93 @@ describe("runWithModelFallback", () => {
       model: "gpt-4.1-mini",
       firstError: Object.assign(new Error("nope"), { status: 401 }),
     });
+  });
+
+  it("skips remaining same-provider remote fallbacks after auth failure", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "hydra/m1",
+            fallbacks: ["hydra/m2", "groq/ok-model"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockImplementation(async (provider: string, model: string) => {
+      if (provider === "hydra" && model === "m1") {
+        throw new FailoverError(
+          "HTTP 403: Access temporarily forbidden due to excessive errors or requests.",
+          {
+            reason: "auth",
+            provider,
+            model,
+            status: 403,
+          },
+        );
+      }
+      if (provider === "groq" && model === "ok-model") {
+        return "ok";
+      }
+      throw new Error(`unexpected fallback candidate: ${provider}/${model}`);
+    });
+
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "hydra",
+      model: "m1",
+      run,
+    });
+
+    expect(result.result).toBe("ok");
+    expect(run.mock.calls).toEqual([
+      ["hydra", "m1"],
+      ["groq", "ok-model"],
+    ]);
+    expect(result.attempts).toEqual([
+      expect.objectContaining({ provider: "hydra", model: "m1", reason: "auth" }),
+      expect.objectContaining({ provider: "hydra", model: "m2", reason: "auth" }),
+    ]);
+  });
+
+  it("keeps same-provider local fallbacks reachable on auth-like local failures", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "ollama/gemma4:e4b",
+            fallbacks: ["ollama/qwen2.5-coder:7b", "groq/ok-model"],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockImplementation(async (provider: string, model: string) => {
+      if (provider === "ollama" && model === "gemma4:e4b") {
+        throw new FailoverError("local auth marker mismatch", {
+          reason: "auth",
+          provider,
+          model,
+          status: 401,
+        });
+      }
+      if (provider === "ollama" && model === "qwen2.5-coder:7b") {
+        return "ok";
+      }
+      throw new Error(`unexpected fallback candidate: ${provider}/${model}`);
+    });
+
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "ollama",
+      model: "gemma4:e4b",
+      run,
+    });
+
+    expect(result.result).toBe("ok");
+    expect(run.mock.calls).toEqual([
+      ["ollama", "gemma4:e4b"],
+      ["ollama", "qwen2.5-coder:7b"],
+    ]);
   });
 
   it("falls back directly to configured primary when an override model fails", async () => {
@@ -1449,6 +1820,112 @@ describe("runWithModelFallback", () => {
       expect(run).toHaveBeenNthCalledWith(2, "anthropic", "claude-haiku-3-5", {
         allowTransientCooldownProbe: true,
       });
+    });
+
+    it("uses a tighter timeout budget for lightweight local-first turns", async () => {
+      const cfg = makeCfg({
+        agents: {
+          defaults: {
+            model: {
+              primary: "ollama/gemma4:e4b",
+              fallbacks: ["hydra/hydra-gpt-mini"],
+            },
+          },
+        },
+      });
+      const run = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new FailoverError("LLM request timed out.", {
+            reason: "timeout",
+            provider: "ollama",
+            model: "gemma4:e4b",
+          }),
+        )
+        .mockResolvedValueOnce("remote success");
+
+      const result = await runWithModelFallback({
+        cfg,
+        provider: "ollama",
+        model: "gemma4:e4b",
+        preflightPrompt: "Привет",
+        preflightPlannerInput: {
+          intent: "general",
+          publishTargets: [],
+        },
+        run,
+      });
+
+      expect(result.result).toBe("remote success");
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(run).toHaveBeenNthCalledWith(1, "ollama", "gemma4:e4b", {
+        timeoutMsOverride: 45_000,
+      });
+      expect(run).toHaveBeenNthCalledWith(2, "hydra", "hydra-gpt-mini");
+    });
+
+    it("does not carry a lightweight local timeout into the next independent run", async () => {
+      const cfg = makeCfg({
+        agents: {
+          defaults: {
+            model: {
+              primary: "ollama/gemma4:e4b",
+              fallbacks: ["hydra/hydra-gpt-mini"],
+            },
+          },
+        },
+      });
+      const firstRun = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new FailoverError("LLM request timed out.", {
+            reason: "timeout",
+            provider: "ollama",
+            model: "gemma4:e4b",
+          }),
+        )
+        .mockResolvedValueOnce("remote success");
+
+      await runWithModelFallback({
+        cfg,
+        provider: "ollama",
+        model: "gemma4:e4b",
+        preflightPrompt: "Привет",
+        preflightPlannerInput: {
+          intent: "general",
+          publishTargets: [],
+        },
+        run: firstRun,
+      });
+
+      const secondRun = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new FailoverError("LLM request timed out.", {
+            reason: "timeout",
+            provider: "ollama",
+            model: "gemma4:e4b",
+          }),
+        )
+        .mockResolvedValueOnce("remote success");
+      const result = await runWithModelFallback({
+        cfg,
+        provider: "ollama",
+        model: "gemma4:e4b",
+        preflightPrompt: "Привет",
+        preflightPlannerInput: {
+          intent: "general",
+          publishTargets: [],
+        },
+        run: secondRun,
+      });
+
+      expect(result.result).toBe("remote success");
+      expect(secondRun).toHaveBeenCalledTimes(2);
+      expect(secondRun).toHaveBeenNthCalledWith(1, "ollama", "gemma4:e4b", {
+        timeoutMsOverride: 45_000,
+      });
+      expect(secondRun).toHaveBeenNthCalledWith(2, "hydra", "hydra-gpt-mini");
     });
   });
 });

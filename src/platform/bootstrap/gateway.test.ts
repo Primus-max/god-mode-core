@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getPlatformRuntimeCheckpointService,
@@ -22,7 +25,7 @@ function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapReque
   }
   return {
     capabilityId: "pdf-renderer",
-    installMethod: "download",
+    installMethod: catalogEntry.install?.method ?? "node",
     rollbackStrategy: "restore_previous",
     reason: "renderer_unavailable",
     sourceDomain: "document",
@@ -83,6 +86,50 @@ describe("bootstrap gateway methods", () => {
     );
   });
 
+  it("rehydrates requests created by another bootstrap service instance", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-bootstrap-gateway-"));
+    try {
+      const writer = createBootstrapRequestService({ stateDir });
+      const reader = createBootstrapRequestService({ stateDir });
+      const record = writer.create(buildRequest());
+
+      const listRespond = vi.fn();
+      await createBootstrapListGatewayMethod(reader)({
+        params: {},
+        req: { type: "req", method: "platform.bootstrap.list", id: "req-rehydrate-list" },
+        client: null,
+        isWebchatConnect: () => false,
+        respond: listRespond,
+        context: {} as never,
+      });
+      expect(listRespond).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({
+          pendingCount: 1,
+          requests: [expect.objectContaining({ id: record.id })],
+        }),
+      );
+
+      const getRespond = vi.fn();
+      await createBootstrapGetGatewayMethod(reader)({
+        params: { requestId: record.id },
+        req: { type: "req", method: "platform.bootstrap.get", id: "req-rehydrate-get" },
+        client: null,
+        isWebchatConnect: () => false,
+        respond: getRespond,
+        context: {} as never,
+      });
+      expect(getRespond).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({
+          detail: expect.objectContaining({ id: record.id, state: "pending" }),
+        }),
+      );
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
   it("resolves and runs bootstrap requests", async () => {
     const service = createBootstrapRequestService();
     const runtimeService = getPlatformRuntimeCheckpointService();
@@ -93,18 +140,18 @@ describe("bootstrap gateway methods", () => {
       originalRun({
         ...params,
         installers: {
-          download: async ({ request }) => ({
+          node: async ({ request }) => ({
             ok: true,
             capability: {
               ...request.catalogEntry.capability,
               trusted: true,
               sandboxed: true,
-              installMethod: "download",
+              installMethod: "node",
               status: "available",
             },
           }),
         },
-        availableBins: ["playwright"],
+        availableBins: ["node"],
         runHealthCheckCommand: async () => true,
       }),
     );

@@ -480,6 +480,18 @@ export async function runCronIsolatedAgentTurn(params: {
         runId: cronSession.sessionEntry.sessionId,
         agentDir,
         fallbacksOverride: fallbackOverride,
+        preflightPrompt: promptText,
+        preflightPlannerInput: {
+          intent: platformExecutionContext.intent,
+          requestedTools: platformExecutionContext.requestedToolNames,
+          fileNames: [],
+          artifactKinds: platformExecutionContext.artifactKinds,
+        },
+        ...(Boolean(cronSession.sessionEntry.providerOverride?.trim()) ||
+        Boolean(cronSession.sessionEntry.modelOverride?.trim()) ||
+        process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1"
+          ? { skipRoutePreflight: true as const }
+          : {}),
         run: async (providerOverride, modelOverride, runOptions) => {
           if (abortSignal?.aborted) {
             throw new Error(abortReason());

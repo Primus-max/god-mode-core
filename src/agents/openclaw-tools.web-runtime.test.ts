@@ -96,6 +96,35 @@ describe("openclaw tools runtime web metadata wiring", () => {
     expect((result.details as { provider?: string }).provider).toBe("gemini");
   });
 
+  it("omits web_search from agent tools when runtime metadata marks the key as missing", async () => {
+    const snapshot = await prepareSecretsRuntimeSnapshot({
+      config: asConfig({}),
+      env: {},
+      agentDirs: ["/tmp/openclaw-agent-main"],
+      loadAuthStore: () => ({ version: 1, profiles: {} }),
+    });
+    activateSecretsRuntimeSnapshot({
+      ...snapshot,
+      webTools: {
+        ...snapshot.webTools,
+        search: {
+          ...snapshot.webTools.search,
+          selectedProvider: "gemini",
+          selectedProviderKeySource: "missing",
+          diagnostics: [
+            {
+              code: "WEB_SEARCH_KEY_UNRESOLVED_NO_FALLBACK",
+              message: "gemini key is unresolved",
+            },
+          ],
+        },
+      },
+    });
+
+    const tools = createOpenClawTools({ config: snapshot.config, sandboxed: true });
+    expect(tools.some((tool) => tool.name === "web_search")).toBe(false);
+  });
+
   it("skips Firecrawl key resolution when runtime marks Firecrawl inactive", async () => {
     const snapshot = await prepareAndActivate({
       config: asConfig({

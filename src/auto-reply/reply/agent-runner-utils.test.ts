@@ -19,6 +19,7 @@ const {
   buildThreadingToolContext,
   buildEmbeddedRunBaseParams,
   buildEmbeddedRunContexts,
+  resolveRoutingSnapshotForTemplateRun,
   resolvePlatformExecutionContextForTemplateRun,
   resolveModelFallbackOptions,
   resolveProviderScopedAuthProfile,
@@ -84,6 +85,16 @@ describe("agent-runner-utils", () => {
 
     expect(resolved.preflightPrompt).toBe("hello");
     expect(resolved.preflightMode).toBe("force_stronger");
+  });
+
+  it("sets skipRoutePreflight when run.modelRoutePreflightDisabled is true", () => {
+    hoisted.resolveRunModelFallbacksOverrideMock.mockReturnValue(undefined);
+    const run = makeRun({ modelRoutePreflightDisabled: true });
+
+    const resolved = resolveModelFallbackOptions(run, { preflightPrompt: "hi" });
+
+    expect(resolved.skipRoutePreflight).toBe(true);
+    expect(resolved.preflightPrompt).toBe("hi");
   });
 
   it("passes through missing agentId for helper-based fallback resolution", () => {
@@ -254,6 +265,38 @@ describe("agent-runner-utils", () => {
     expect(resolved.selectedProfileId).toBe("developer");
     expect(resolved.readinessStatus).toBe("approval_required");
     expect(resolved.requestedToolNames).toEqual(expect.arrayContaining(["exec", "process"]));
+  });
+
+  it("builds a unified routing snapshot for template runs", () => {
+    const run = makeRun({ messageProvider: "telegram" });
+
+    const resolved = resolveRoutingSnapshotForTemplateRun({
+      prompt: "Build the repo and publish the release to GitHub",
+      run,
+      sessionCtx: {
+        Provider: "discord",
+        OriginatingChannel: "telegram",
+        Surface: "slack",
+      },
+      sessionEntry: {
+        sessionId: "session-override",
+        specialistOverrideMode: "session",
+        specialistSessionProfileId: "developer",
+      },
+    });
+
+    expect(resolved.channelHints).toEqual({
+      messageChannel: "telegram",
+      channel: "slack",
+      replyChannel: "telegram",
+    });
+    expect(resolved.plannerInput.integrations).toEqual(
+      expect.arrayContaining(["telegram", "slack"]),
+    );
+    expect(resolved.runtimePlan.selectedProfileId).toBe("developer");
+    expect(resolved.runtimePlan.requestedToolNames).toEqual(
+      expect.arrayContaining(["exec", "process"]),
+    );
   });
 
   it("uses transcript-derived prompt and file names when store context exists", async () => {

@@ -319,12 +319,22 @@ describe("gateway server chat", () => {
         },
       });
 
+      const webchatFinal = onceMessage(
+        webchatWs,
+        (o) =>
+          o.type === "event" &&
+          o.event === "chat" &&
+          o.payload?.state === "final" &&
+          o.payload?.runId === "idem-webchat-1",
+        8000,
+      );
       const webchatRes = await rpcReq(webchatWs, "chat.send", {
         sessionKey: "main",
         message: "hello",
         idempotencyKey: "idem-webchat-1",
       });
       expect(webchatRes.ok).toBe(true);
+      await webchatFinal;
 
       webchatWs.close();
       webchatWs = undefined;
@@ -372,6 +382,17 @@ describe("gateway server chat", () => {
           },
         },
       });
+      testState.sessionConfig = {
+        sendPolicy: {
+          default: "allow",
+          rules: [
+            {
+              action: "deny",
+              match: { channel: "discord", chatType: "group" },
+            },
+          ],
+        },
+      };
 
       const blockedRes = await rpcReq(ws, "chat.send", {
         sessionKey: "discord:group:dev",
@@ -404,6 +425,12 @@ describe("gateway server chat", () => {
           },
         },
       });
+      testState.sessionConfig = {
+        sendPolicy: {
+          default: "allow",
+          rules: [{ action: "deny", match: { keyPrefix: "cron:" } }],
+        },
+      };
 
       const agentBlockedRes = await rpcReq(ws, "agent", {
         sessionKey: "cron:job-1",
@@ -612,6 +639,74 @@ describe("gateway server chat", () => {
       });
       expect(historyRes.ok).toBe(true);
       expect(historyRes.payload?.messages ?? []).toEqual([]);
+    });
+  });
+
+  test("webchat chat.send does not append a duplicate assistant transcript entry", async () => {
+    await withMainSessionStore(async () => {
+      mockGetReplyFromConfigOnce(async () => ({
+        text: "Доброе утро, Владимир.",
+      }));
+      const webchatWs = new WebSocket(`ws://127.0.0.1:${port}`, {
+        headers: { origin: `http://127.0.0.1:${port}` },
+      });
+      try {
+        trackConnectChallengeNonce(webchatWs);
+        await new Promise<void>((resolve) => webchatWs.once("open", resolve));
+        await connectOk(webchatWs, {
+          client: {
+            id: GATEWAY_CLIENT_NAMES.CONTROL_UI,
+            version: "dev",
+            platform: "web",
+            mode: GATEWAY_CLIENT_MODES.WEBCHAT,
+          },
+        });
+        const finalEvents: Array<Record<string, unknown>> = [];
+        const onMessage = (raw: Buffer) => {
+          const parsed = JSON.parse(String(raw)) as {
+            type?: string;
+            event?: string;
+            payload?: { state?: string; runId?: string };
+          };
+          if (
+            parsed.type === "event" &&
+            parsed.event === "chat" &&
+            parsed.payload?.state === "final" &&
+            parsed.payload?.runId === "idem-webchat-no-dup-1"
+          ) {
+            finalEvents.push(parsed as Record<string, unknown>);
+          }
+        };
+        webchatWs.on("message", onMessage);
+        const finalPromise = onceMessage(
+          webchatWs,
+          (o) =>
+            o.type === "event" &&
+            o.event === "chat" &&
+            o.payload?.state === "final" &&
+            o.payload?.runId === "idem-webchat-no-dup-1",
+          8000,
+        );
+        const sendRes = await rpcReq(webchatWs, "chat.send", {
+          sessionKey: "main",
+          message: "hello",
+          idempotencyKey: "idem-webchat-no-dup-1",
+        });
+        expect(sendRes.ok).toBe(true);
+        await finalPromise;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(finalEvents).toHaveLength(1);
+
+        const historyRes = await rpcReq<{ messages?: unknown[] }>(webchatWs, "chat.history", {
+          sessionKey: "main",
+        });
+        expect(historyRes.ok).toBe(true);
+        const textValues = collectHistoryTextValues(historyRes.payload?.messages ?? []);
+        expect(textValues.filter((text) => text === "Доброе утро, Владимир.")).toHaveLength(1);
+        webchatWs.off("message", onMessage);
+      } finally {
+        webchatWs.close();
+      }
     });
   });
 

@@ -14,16 +14,29 @@ import type { PlatformExecutionContextSnapshot } from "../decision/contracts.js"
 import type { PolicyContext } from "../policy/types.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { CapabilityRegistry } from "../registry/types.js";
+import { getPlatformRuntimeCheckpointService } from "../runtime/service.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import type { CapabilityCatalogEntry, CapabilityInstallMethod } from "../schemas/capability.js";
 import {
   MaterializationRequestSchema,
   MaterializationResultSchema,
+  type MaterializationDocumentInputKind,
+  type MaterializationRenderKind,
   type MaterializationRequest,
   type MaterializationResult,
 } from "./contracts.js";
-import { resolveHtmlBody, writeHtmlMaterialization } from "./html-preview-materializer.js";
+import { writeHtmlMaterialization } from "./html-preview-materializer.js";
 import { writePdfMaterialization } from "./pdf-materializer.js";
+import {
+  DEFAULT_RENDERER_REGISTRY,
+  resolveFallbackRenderer,
+  resolveRendererDefinition,
+  type RendererDefinition,
+} from "./renderer-registry.js";
+import {
+  canonicalizeMaterializationRequest,
+  type CanonicalMaterializationRequest,
+} from "./request-normalizer.js";
 
 function sanitizeFilePart(value: string): string {
   return value
@@ -55,13 +68,20 @@ function writeTextFile(params: {
   extension: "md" | "txt";
   contents: string;
   mimeType: string;
+  renderKind: MaterializationRenderKind;
+  documentInputKind?: MaterializationDocumentInputKind;
+  rendererTarget?: MaterializationRendererTarget;
+  rendererId?: string;
 }): MaterializationResult["primary"] {
   fs.mkdirSync(params.outputDir, { recursive: true });
   const filePath = path.join(params.outputDir, `${params.baseFileName}.${params.extension}`);
   fs.writeFileSync(filePath, params.contents, "utf8");
   const sizeBytes = fs.statSync(filePath).size;
   return {
-    renderKind: params.extension === "md" ? "markdown" : "html",
+    renderKind: params.renderKind,
+    ...(params.documentInputKind ? { documentInputKind: params.documentInputKind } : {}),
+    ...(params.rendererTarget ? { rendererTarget: params.rendererTarget } : {}),
+    ...(params.rendererId ? { rendererId: params.rendererId } : {}),
     outputTarget: "file",
     path: filePath,
     mimeType: params.mimeType,
@@ -70,10 +90,122 @@ function writeTextFile(params: {
   };
 }
 
+function writeHtmlPrimary(params: {
+  request: CanonicalMaterializationRequest;
+  outputDir: string;
+  baseFileName: string;
+  renderer: RendererDefinition;
+}): MaterializationResult["primary"] {
+  return writeHtmlMaterialization({
+    outputDir: params.outputDir,
+    baseFileName: params.baseFileName,
+    title: params.request.title,
+    bodyHtml: params.request.htmlBody,
+    summary: params.request.payload.summary,
+    outputTarget: params.renderer.outputTarget,
+    renderKind: params.renderer.renderKind === "site_preview" ? "site_preview" : "html",
+    documentInputKind: params.request.documentInputKind,
+    rendererTarget: params.renderer.rendererTarget,
+    rendererId: params.renderer.id,
+  });
+}
+
+function maybeRecordBootstrapOrigin(params: {
+  request: CanonicalMaterializationRequest;
+  bootstrapRequestId: string;
+  runId?: string;
+}): void {
+  const originRunId = params.runId?.trim();
+  if (!originRunId) {
+    return;
+  }
+  const originCheckpointId = `bootstrap-origin:${params.bootstrapRequestId}:${originRunId}`;
+  const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
+  runtimeCheckpointService.createCheckpoint({
+    id: originCheckpointId,
+    runId: originRunId,
+    boundary: "bootstrap",
+    blockedReason: "Bootstrap evidence: the task requested a capability install before it could complete.",
+    target: {
+      bootstrapRequestId: params.bootstrapRequestId,
+      operation: "bootstrap.run",
+    },
+    executionContext: params.request.executionContext,
+  });
+  runtimeCheckpointService.updateCheckpoint(originCheckpointId, {
+    status: "completed",
+    completedAtMs: Date.now(),
+  });
+}
+
+function materializeUnavailableRenderer(params: {
+  request: CanonicalMaterializationRequest;
+  outputDir: string;
+  baseFileName: string;
+  renderer: RendererDefinition;
+  options?: {
+    runId?: string;
+    capabilityRegistry?: CapabilityRegistry;
+    capabilityCatalog?: CapabilityCatalogEntry[];
+    sourceRecipeId?: string;
+    executionContext?: PlatformExecutionContextSnapshot;
+    bootstrapService?: BootstrapRequestService;
+  };
+}): MaterializationResult {
+  if (!params.renderer.requiredCapabilityId) {
+    throw new Error(`Renderer "${params.renderer.id}" cannot degrade without a required capability`);
+  }
+  const capabilityRegistry =
+    params.options?.capabilityRegistry ??
+    createCapabilityRegistry([], params.options?.capabilityCatalog ?? TRUSTED_CAPABILITY_CATALOG);
+  const bootstrapResolution = resolveBootstrapRequest({
+    capabilityId: params.renderer.requiredCapabilityId,
+    registry: capabilityRegistry,
+    catalog: params.options?.capabilityCatalog ?? TRUSTED_CAPABILITY_CATALOG,
+    reason: params.renderer.bootstrapReason ?? "renderer_unavailable",
+    sourceDomain: params.request.sourceDomain,
+    sourceRecipeId: params.options?.sourceRecipeId,
+    executionContext: params.options?.executionContext,
+  });
+  const fallbackRenderer = resolveFallbackRenderer({
+    renderer: params.renderer,
+    registry: DEFAULT_RENDERER_REGISTRY,
+  });
+  const primary = writeHtmlMaterialization({
+    outputDir: params.outputDir,
+    baseFileName: params.baseFileName,
+    title: params.request.title,
+    bodyHtml: params.request.htmlBody,
+    summary: params.request.payload.summary,
+    outputTarget: fallbackRenderer.outputTarget,
+    renderKind: "html",
+    documentInputKind: params.request.documentInputKind,
+    rendererTarget: fallbackRenderer.rendererTarget,
+    rendererId: fallbackRenderer.id,
+  });
+  if (bootstrapResolution.request) {
+    const createdRequest = (params.options?.bootstrapService ?? getPlatformBootstrapService()).create(
+      bootstrapResolution.request,
+    );
+    maybeRecordBootstrapOrigin({
+      request: params.request,
+      bootstrapRequestId: createdRequest.id,
+      runId: params.options?.runId,
+    });
+  }
+  return MaterializationResultSchema.parse({
+    primary,
+    ...(bootstrapResolution.request ? { bootstrapRequest: bootstrapResolution.request } : {}),
+    degraded: true,
+    warnings: [params.renderer.unavailableWarning ?? `${params.renderer.id} unavailable; fell back to html output`],
+  });
+}
+
 export function materializeArtifact(
   requestInput: MaterializationRequest,
   options?: {
     pdfRendererAvailable?: boolean;
+    runId?: string;
     capabilityRegistry?: CapabilityRegistry;
     capabilityCatalog?: CapabilityCatalogEntry[];
     sourceRecipeId?: string;
@@ -84,31 +216,53 @@ export function materializeArtifact(
   const request = MaterializationRequestSchema.parse(requestInput);
   const outputDir = resolveOutputDir(request);
   const baseFileName = resolveBaseFileName(request);
-  const htmlBody = resolveHtmlBody(request.payload);
-  const title = request.payload.title ?? request.label;
+  const canonicalRequest = canonicalizeMaterializationRequest(request);
+  const renderer = resolveRendererDefinition({
+    rendererTarget: canonicalRequest.rendererTarget,
+    outputTarget: canonicalRequest.outputTarget,
+    registry: DEFAULT_RENDERER_REGISTRY,
+  });
   const supporting: NonNullable<MaterializationResult["supporting"]> = [];
 
-  if (request.renderKind === "markdown") {
+  if (renderer.id === "markdown-file") {
     const primary = writeTextFile({
       outputDir,
       baseFileName,
       extension: "md",
       contents: request.payload.markdown ?? request.payload.text ?? "",
       mimeType: "text/markdown",
+      renderKind: "markdown",
+      documentInputKind: canonicalRequest.documentInputKind,
+      rendererTarget: canonicalRequest.rendererTarget,
+      rendererId: renderer.id,
     });
     supporting.push(
       writeHtmlMaterialization({
         outputDir,
         baseFileName,
-        title,
-        bodyHtml: htmlBody,
+        title: canonicalRequest.title,
+        bodyHtml: canonicalRequest.htmlBody,
         summary: request.payload.summary,
         outputTarget: request.outputTarget,
         renderKind: request.outputTarget === "preview" ? "site_preview" : "html",
+        documentInputKind: canonicalRequest.documentInputKind,
+        rendererTarget: request.outputTarget === "preview" ? "preview" : "html",
+        rendererId: request.outputTarget === "preview" ? "html-preview" : "html-file",
       }),
     );
     if (request.includePdf) {
-      supporting.push(writePdfMaterialization({ outputDir, baseFileName, html: htmlBody }));
+      supporting.push(
+        writePdfMaterialization({
+          outputDir,
+          baseFileName,
+          html: canonicalRequest.htmlBody,
+          title: canonicalRequest.title,
+          summary: request.payload.summary,
+          documentInputKind: canonicalRequest.documentInputKind,
+          rendererTarget: "pdf",
+          rendererId: "pdf-from-html",
+        }),
+      );
     }
     return MaterializationResultSchema.parse({
       primary,
@@ -116,61 +270,49 @@ export function materializeArtifact(
     });
   }
 
-  if (request.renderKind === "pdf") {
+  if (renderer.id === "pdf-from-html") {
     if (options?.pdfRendererAvailable === false) {
-      const capabilityRegistry =
-        options.capabilityRegistry ??
-        createCapabilityRegistry([], options?.capabilityCatalog ?? TRUSTED_CAPABILITY_CATALOG);
-      const bootstrapResolution = resolveBootstrapRequest({
-        capabilityId: "pdf-renderer",
-        registry: capabilityRegistry,
-        catalog: options?.capabilityCatalog ?? TRUSTED_CAPABILITY_CATALOG,
-        reason: "renderer_unavailable",
-        sourceDomain: request.sourceDomain,
-        sourceRecipeId: options?.sourceRecipeId,
-        executionContext: options?.executionContext,
-      });
-      const primary = writeHtmlMaterialization({
+      return materializeUnavailableRenderer({
+        request: canonicalRequest,
         outputDir,
         baseFileName,
-        title,
-        bodyHtml: htmlBody,
-        summary: request.payload.summary,
-        outputTarget: request.outputTarget,
-        renderKind: request.outputTarget === "preview" ? "site_preview" : "html",
-      });
-      if (bootstrapResolution.request) {
-        (options?.bootstrapService ?? getPlatformBootstrapService()).create(
-          bootstrapResolution.request,
-        );
-      }
-      return MaterializationResultSchema.parse({
-        primary,
-        ...(bootstrapResolution.request ? { bootstrapRequest: bootstrapResolution.request } : {}),
-        degraded: true,
-        warnings: ["pdf renderer unavailable; fell back to html output"],
+        renderer,
+        options,
       });
     }
     return MaterializationResultSchema.parse({
       primary: writePdfMaterialization({
         outputDir,
         baseFileName,
-        html: htmlBody,
+        html: canonicalRequest.htmlBody,
+        title: canonicalRequest.title,
+        summary: request.payload.summary,
+        documentInputKind: canonicalRequest.documentInputKind,
+        rendererTarget: renderer.rendererTarget,
+        rendererId: renderer.id,
       }),
     });
   }
 
-  const primary = writeHtmlMaterialization({
+  const primary = writeHtmlPrimary({
+    request: canonicalRequest,
     outputDir,
     baseFileName,
-    title,
-    bodyHtml: htmlBody,
-    summary: request.payload.summary,
-    outputTarget: request.outputTarget,
-    renderKind: request.outputTarget === "preview" ? "site_preview" : "html",
+    renderer,
   });
   if (request.includePdf) {
-    supporting.push(writePdfMaterialization({ outputDir, baseFileName, html: htmlBody }));
+    supporting.push(
+      writePdfMaterialization({
+        outputDir,
+        baseFileName,
+        html: canonicalRequest.htmlBody,
+        title: canonicalRequest.title,
+        summary: request.payload.summary,
+        documentInputKind: canonicalRequest.documentInputKind,
+        rendererTarget: "pdf",
+        rendererId: "pdf-from-html",
+      }),
+    );
   }
   return MaterializationResultSchema.parse({
     primary,

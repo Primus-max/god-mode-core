@@ -149,12 +149,21 @@ function queuePendingToolMedia(
   mediaReply: { mediaUrls: string[]; audioAsVoice?: boolean },
 ) {
   const seen = new Set(ctx.state.pendingToolMediaUrls);
+  const durableSeen = new Set(ctx.state.toolResultMediaUrls);
   for (const mediaUrl of mediaReply.mediaUrls) {
     if (seen.has(mediaUrl)) {
+      if (!durableSeen.has(mediaUrl)) {
+        durableSeen.add(mediaUrl);
+        ctx.state.toolResultMediaUrls.push(mediaUrl);
+      }
       continue;
     }
     seen.add(mediaUrl);
     ctx.state.pendingToolMediaUrls.push(mediaUrl);
+    if (!durableSeen.has(mediaUrl)) {
+      durableSeen.add(mediaUrl);
+      ctx.state.toolResultMediaUrls.push(mediaUrl);
+    }
   }
   if (mediaReply.audioAsVoice) {
     ctx.state.pendingToolAudioAsVoice = true;

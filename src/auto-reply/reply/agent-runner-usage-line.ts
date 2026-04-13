@@ -56,6 +56,10 @@ export const appendUsageLine = (payloads: ReplyPayload[], line: string): ReplyPa
     return [...payloads, { text: line }];
   }
   const existing = payloads[index];
+  const hasMedia = Boolean(existing.mediaUrl) || (existing.mediaUrls?.length ?? 0) > 0;
+  if (hasMedia) {
+    return [...payloads, { text: line }];
+  }
   const existingText = existing.text ?? "";
   const separator = existingText.endsWith("\n") ? "" : "\n";
   const next = {

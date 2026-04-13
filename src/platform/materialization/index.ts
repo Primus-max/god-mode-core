@@ -23,6 +23,19 @@ export {
 } from "./html-preview-materializer.js";
 export { writePdfMaterialization } from "./pdf-materializer.js";
 export {
+  canonicalizeMaterializationRequest,
+  inferDocumentInputKind,
+  inferRendererTarget,
+  resolveRenderKindFromRendererTarget,
+  type CanonicalMaterializationRequest,
+} from "./request-normalizer.js";
+export {
+  DEFAULT_RENDERER_REGISTRY,
+  resolveFallbackRenderer,
+  resolveRendererDefinition,
+  type RendererDefinition,
+} from "./renderer-registry.js";
+export {
   applyMaterializationToDescriptor,
   materializeArtifact,
   runMaterializationBootstrap,

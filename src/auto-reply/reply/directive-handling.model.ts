@@ -259,7 +259,8 @@ export async function maybeHandleModelDirectiveInfo(params: {
           activeRuntimeLine,
           "",
           "Tap below to browse models, or use:",
-          "/model <provider/model> to switch",
+          "/model <provider/model> to switch (locks routing order for this session)",
+          "/model default — back to agent default + automatic routing",
           "/model status for details",
         ]
           .filter(Boolean)
@@ -273,7 +274,7 @@ export async function maybeHandleModelDirectiveInfo(params: {
         `Current: ${current}${modelRefs.activeDiffers ? " (selected)" : ""}`,
         activeRuntimeLine,
         "",
-        "Switch: /model <provider/model>",
+        "Switch: /model <provider/model> (locks routing order until /model default)",
         "Browse: /models (providers) or /models <provider> (models)",
         "More: /model status",
       ]
@@ -453,6 +454,7 @@ export function resolveModelSelectionFromDirective(params: {
     defaultProvider: params.defaultProvider,
     aliasIndex: params.aliasIndex,
   });
+  const hasExplicitProviderModel = modelRaw.includes("/");
   if (explicit) {
     const explicitKey = modelKey(explicit.ref.provider, explicit.ref.model);
     if (params.allowedModelKeys.size === 0 || params.allowedModelKeys.has(explicitKey)) {
@@ -482,6 +484,15 @@ export function resolveModelSelectionFromDirective(params: {
 
     if (resolved.selection) {
       modelSelection = resolved.selection;
+    } else if (explicit && hasExplicitProviderModel) {
+      modelSelection = {
+        provider: explicit.ref.provider,
+        model: explicit.ref.model,
+        isDefault:
+          explicit.ref.provider === params.defaultProvider &&
+          explicit.ref.model === params.defaultModel,
+        ...(explicit.alias ? { alias: explicit.alias } : {}),
+      };
     }
   }
 

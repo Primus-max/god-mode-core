@@ -44,7 +44,21 @@ export function resolveTaskOverlay(
   }
 
   if (
-    promptIncludes(input.prompt, ["joke", "fun", "story", "hello", "brainstorm"]) &&
+    promptIncludes(input.prompt, [
+      "joke",
+      "fun",
+      "story",
+      "hello",
+      "how are you",
+      "brainstorm",
+      "привет",
+      "здравств",
+      "как дела",
+      "шутк",
+      "пошут",
+      "истори",
+      "поболта",
+    ]) &&
     getTaskOverlay(profile, "general_chat")
   ) {
     return getTaskOverlay(profile, "general_chat");
@@ -110,28 +124,26 @@ export function resolveTaskOverlay(
   }
 
   if (
-    promptIncludes(input.prompt, ["pdf", "document", "estimate", "extract", "ocr", "report"]) ||
-    normalizedFiles.some((file) =>
-      [".pdf", ".docx", ".xlsx", ".csv"].some((ext) => file.endsWith(ext)),
-    ) ||
-    hasArtifactKinds(input, ["document", "estimate", "report", "data"])
-  ) {
-    return getTaskOverlay(profile, "document_first");
-  }
-
-  if (
-    (promptIncludes(input.prompt, [
-      "image",
-      "video",
-      "audio",
-      "thumbnail",
-      "render",
-      "caption",
-      "transcribe",
-      "storyboard",
-      "figma",
-      "design",
-    ]) ||
+    ((input.requestedTools ?? []).map((tool) => tool.toLowerCase()).includes("image_generate") ||
+      promptIncludes(input.prompt, [
+        "image",
+        "video",
+        "audio",
+        "thumbnail",
+        "render",
+        "caption",
+        "transcribe",
+        "storyboard",
+        "figma",
+        "design",
+        "изображ",
+        "картин",
+        "инфограф",
+        "видео",
+        "аудио",
+        "рендер",
+        "дизайн",
+      ]) ||
       normalizedFiles.some((file) =>
         [".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mp3", ".wav"].some((ext) =>
           file.endsWith(ext),
@@ -141,6 +153,16 @@ export function resolveTaskOverlay(
     getTaskOverlay(profile, "media_first")
   ) {
     return getTaskOverlay(profile, "media_first");
+  }
+
+  if (
+    promptIncludes(input.prompt, ["pdf", "document", "estimate", "extract", "ocr", "report"]) ||
+    normalizedFiles.some((file) =>
+      [".pdf", ".docx", ".xlsx", ".csv"].some((ext) => file.endsWith(ext)),
+    ) ||
+    hasArtifactKinds(input, ["document", "estimate", "report", "data"])
+  ) {
+    return getTaskOverlay(profile, "document_first");
   }
 
   if (normalizedPrompt.includes("publish") && getTaskOverlay(profile, "media_publish")) {

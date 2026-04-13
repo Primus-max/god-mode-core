@@ -4,6 +4,7 @@ import path from "node:path";
 import { resolveStateDir } from "../../config/paths.js";
 import { emitRunClosureSummary, emitRuntimeRecoveryTelemetry } from "../../infra/agent-events.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
+import type { ArtifactKind } from "../schemas/index.js";
 import {
   PlatformRuntimeAcceptanceResultSchema,
   PlatformRuntimeActionSchema,
@@ -61,6 +62,84 @@ const PLATFORM_RUNTIME_SERVICE_KEY = Symbol.for("openclaw.platform.runtime.servi
 const PLATFORM_RUNTIME_CHECKPOINTS_FILENAME = "platform-runtime-checkpoints.json";
 const PLATFORM_RUNTIME_ACTIONS_FILENAME = "platform-runtime-actions.json";
 const PLATFORM_RUNTIME_CLOSURES_FILENAME = "platform-runtime-closures.json";
+const WINDOWS_PERSIST_RETRY_DELAYS_MS = [10, 25, 50] as const;
+
+const STRUCTURED_OUTPUT_ARTIFACT_KINDS = new Set<ArtifactKind>([
+  "document",
+  "estimate",
+  "site",
+  "release",
+  "binary",
+  "video",
+  "image",
+  "audio",
+  "archive",
+]);
+
+const ARTIFACT_OUTPUT_TOOL_NAMES_BY_KIND: Partial<Record<ArtifactKind, readonly string[]>> = {
+  document: ["pdf"],
+  image: ["image_generate", "image"],
+  video: ["video_generate", "video"],
+  audio: ["audio_generate", "audio", "tts", "voiceover"],
+  site: ["exec", "write", "apply_patch"],
+};
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function isRetryableRenameError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EPERM" || code === "EBUSY";
+}
+
+function renameWithRetry(tmpPath: string, targetPath: string): void {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.renameSync(tmpPath, targetPath);
+      return;
+    } catch (error) {
+      if (attempt >= WINDOWS_PERSIST_RETRY_DELAYS_MS.length || !isRetryableRenameError(error)) {
+        throw error;
+      }
+      sleepSync(WINDOWS_PERSIST_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+}
+
+/**
+ * Checks whether the declared artifact kinds require a tangible structured
+ * deliverable instead of a plain text-only completion.
+ *
+ * @param {readonly string[] | undefined} artifactKinds - Artifact kinds declared by planner/runtime metadata.
+ * @returns {boolean} True when the run must close with structured artifact evidence.
+ */
+function hasStructuredOutputArtifactKinds(artifactKinds?: readonly string[]): boolean {
+  return Boolean(
+    artifactKinds?.some((kind) => STRUCTURED_OUTPUT_ARTIFACT_KINDS.has(kind as ArtifactKind)),
+  );
+}
+
+function hasStructuredArtifactToolOutputReceipt(params: {
+  receipts: PlatformRuntimeExecutionReceipt[];
+  artifactKinds?: readonly string[];
+}): boolean {
+  const expectedToolNames = new Set<string>();
+  for (const kind of params.artifactKinds ?? []) {
+    for (const toolName of ARTIFACT_OUTPUT_TOOL_NAMES_BY_KIND[kind as ArtifactKind] ?? []) {
+      expectedToolNames.add(toolName);
+    }
+  }
+  if (expectedToolNames.size === 0) {
+    return false;
+  }
+  return params.receipts.some(
+    (receipt) =>
+      receipt.kind === "tool" &&
+      receipt.status === "success" &&
+      expectedToolNames.has(receipt.name.trim().toLowerCase()),
+  );
+}
 
 export type PlatformRuntimeCheckpointService = {
   configure: (params: { stateDir?: string }) => void;
@@ -622,12 +701,26 @@ function deriveRequiredReceiptKinds(params: {
   return kinds.size > 0 ? Array.from(kinds) : undefined;
 }
 
+/**
+ * Determines whether the declared execution intent expects a tangible artifact
+ * rather than a plain text-only completion message.
+ *
+ * @param {PlatformRuntimeExecutionIntent | undefined} executionIntent - Declared execution intent for the run.
+ * @returns {boolean} True when the run should only close after structured artifact evidence exists.
+ */
+function requiresStructuredArtifactOutput(
+  executionIntent?: PlatformRuntimeExecutionIntent,
+): boolean {
+  return hasStructuredOutputArtifactKinds(executionIntent?.artifactKinds);
+}
+
 function deriveExecutionContractExpectations(params: {
   outcome: PlatformRuntimeRunOutcome;
   evidence: PlatformRuntimeAcceptanceEvidence;
   executionIntent?: PlatformRuntimeExecutionIntent;
 }): PlatformRuntimeExecutionContract["expectations"] {
   const declared = params.executionIntent?.expectations ?? {};
+  const needsStructuredArtifactOutput = requiresStructuredArtifactOutput(params.executionIntent);
   const requiresMessagingDelivery =
     declared.requiresMessagingDelivery ??
     (params.evidence.didSendViaMessagingTool === true ||
@@ -641,7 +734,9 @@ function deriveExecutionContractExpectations(params: {
   return PlatformRuntimeExecutionContractSchema.shape.expectations.parse({
     requiresOutput:
       declared.requiresOutput ??
-      (params.evidence.hasOutput === true || params.evidence.hasStructuredReplyPayload === true),
+      (needsStructuredArtifactOutput ||
+        params.evidence.hasOutput === true ||
+        params.evidence.hasStructuredReplyPayload === true),
     requiresMessagingDelivery,
     requiresConfirmedAction:
       declared.requiresConfirmedAction ?? params.outcome.actionIds.length > 0,
@@ -840,6 +935,50 @@ function buildExecutionReceiptFromAction(
   });
 }
 
+function buildExecutionReceiptFromCheckpoint(
+  checkpoint: PlatformRuntimeCheckpoint,
+): PlatformRuntimeExecutionReceipt | undefined {
+  if (checkpoint.boundary !== "bootstrap" || !checkpoint.target?.bootstrapRequestId) {
+    return undefined;
+  }
+  const capabilityId =
+    checkpoint.executionContext?.bootstrapRequiredCapabilities?.length === 1
+      ? checkpoint.executionContext.bootstrapRequiredCapabilities[0]
+      : undefined;
+  let status: PlatformRuntimeExecutionReceipt["status"];
+  if (checkpoint.status === "completed") {
+    status = "success";
+  } else if (checkpoint.status === "denied" || checkpoint.status === "cancelled") {
+    status = "failed";
+  } else if (checkpoint.status === "approved" || checkpoint.status === "resumed") {
+    status = "partial";
+  } else {
+    status = "blocked";
+  }
+  return PlatformRuntimeExecutionReceiptSchema.parse({
+    kind: "capability",
+    name: checkpoint.target.operation ?? "bootstrap.run",
+    status,
+    proof: checkpoint.status === "completed" ? "verified" : "derived",
+    summary:
+      checkpoint.status === "completed"
+        ? "bootstrap checkpoint completed"
+        : checkpoint.status === "denied"
+          ? "bootstrap checkpoint denied"
+          : checkpoint.status === "cancelled"
+            ? "bootstrap checkpoint cancelled"
+            : checkpoint.status === "approved" || checkpoint.status === "resumed"
+              ? "bootstrap checkpoint awaiting completion"
+              : "bootstrap checkpoint blocked",
+    metadata: {
+      checkpointId: checkpoint.id,
+      bootstrapRequestId: checkpoint.target.bootstrapRequestId,
+      ...(capabilityId ? { capabilityId } : {}),
+      ...(checkpoint.boundary ? { boundary: checkpoint.boundary } : {}),
+    },
+  });
+}
+
 export function createPlatformRuntimeCheckpointService(params?: {
   stateDir?: string;
 }): PlatformRuntimeCheckpointService {
@@ -860,9 +999,10 @@ export function createPlatformRuntimeCheckpointService(params?: {
     const actionPath = resolveRuntimeActionStorePath(stateDir);
     const closurePath = resolveRuntimeClosureStorePath(stateDir);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    const tmpPath = `${filePath}.${process.pid}.tmp`;
-    const actionTmpPath = `${actionPath}.${process.pid}.tmp`;
-    const closureTmpPath = `${closurePath}.${process.pid}.tmp`;
+    const persistId = randomUUID();
+    const tmpPath = `${filePath}.${process.pid}.${persistId}.tmp`;
+    const actionTmpPath = `${actionPath}.${process.pid}.${persistId}.tmp`;
+    const closureTmpPath = `${closurePath}.${process.pid}.${persistId}.tmp`;
     const payload = buildStorePayload(checkpoints);
     const actionPayload = buildActionStorePayload(actions);
     const closurePayload = buildClosureStorePayload(closures);
@@ -875,9 +1015,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
       encoding: "utf8",
       mode: 0o600,
     });
-    fs.renameSync(tmpPath, filePath);
-    fs.renameSync(actionTmpPath, actionPath);
-    fs.renameSync(closureTmpPath, closurePath);
+    renameWithRetry(tmpPath, filePath);
+    renameWithRetry(actionTmpPath, actionPath);
+    renameWithRetry(closureTmpPath, closurePath);
   };
 
   const saveAction = (action: PlatformRuntimeAction) => {
@@ -989,8 +1129,16 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const existing = actions.get(actionParams.actionId);
       const action = PlatformRuntimeActionSchema.parse({
         actionId: actionParams.actionId,
-        ...(actionParams.runId ? { runId: actionParams.runId } : {}),
-        ...(actionParams.sessionKey ? { sessionKey: actionParams.sessionKey } : {}),
+        ...(actionParams.runId
+          ? { runId: actionParams.runId }
+          : existing?.runId
+            ? { runId: existing.runId }
+            : {}),
+        ...(actionParams.sessionKey
+          ? { sessionKey: actionParams.sessionKey }
+          : existing?.sessionKey
+            ? { sessionKey: existing.sessionKey }
+            : {}),
         kind: actionParams.kind,
         state: existing?.state ?? "staged",
         ...(actionParams.boundary ? { boundary: actionParams.boundary } : {}),
@@ -1149,6 +1297,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
                   },
                 }
               : {}),
+            ...(checkpoint.executionContext
+              ? {
+                  executionContext: checkpoint.executionContext,
+                }
+              : {}),
             createdAtMs: checkpoint.createdAtMs,
             updatedAtMs: checkpoint.updatedAtMs,
             ...(checkpoint.approvedAtMs !== undefined
@@ -1280,6 +1433,15 @@ export function createPlatformRuntimeCheckpointService(params?: {
           merged.executionUnattendedBoundary = params.executionSurface.unattendedBoundary;
         }
       }
+      if (
+        params.executionVerification &&
+        hasStructuredArtifactToolOutputReceipt({
+          receipts: params.executionVerification.receipts,
+          artifactKinds: merged.declaredArtifactKinds,
+        })
+      ) {
+        merged.hasOutput = true;
+      }
       return merged;
     },
     buildExecutionIntent(params) {
@@ -1399,7 +1561,13 @@ export function createPlatformRuntimeCheckpointService(params?: {
         .filter((action) => actionIds.size === 0 || actionIds.has(action.actionId))
         .map((action) => buildExecutionReceiptFromAction(action))
         .filter((receipt): receipt is PlatformRuntimeExecutionReceipt => Boolean(receipt));
-      return [...explicitReceipts, ...actionReceipts]
+      const checkpointIds = new Set(params.outcome?.checkpointIds ?? []);
+      const checkpointReceipts = Array.from(checkpoints.values())
+        .filter((checkpoint) => checkpoint.runId === normalizedRunId)
+        .filter((checkpoint) => checkpointIds.size === 0 || checkpointIds.has(checkpoint.id))
+        .map((checkpoint) => buildExecutionReceiptFromCheckpoint(checkpoint))
+        .filter((receipt): receipt is PlatformRuntimeExecutionReceipt => Boolean(receipt));
+      return [...explicitReceipts, ...actionReceipts, ...checkpointReceipts]
         .toSorted((left, right) =>
           buildExecutionReceiptKey(left).localeCompare(buildExecutionReceiptKey(right)),
         )
@@ -1434,6 +1602,10 @@ export function createPlatformRuntimeCheckpointService(params?: {
         runId: params.runId,
         executionIntent: params.executionIntent,
       });
+      const verificationEvidence = buildIntentAwareEvidence({
+        evidence: params.evidence ?? {},
+        executionIntent,
+      });
       const contract = this.buildExecutionContract({
         runId: params.runId,
         outcome,
@@ -1444,7 +1616,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const executionVerification = this.verifyExecutionContract({
         contract,
         outcome,
-        evidence: params.evidence,
+        evidence: verificationEvidence,
       });
       const evidence = this.buildAcceptanceEvidence({
         outcome,
@@ -1495,6 +1667,17 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const expectations = contract.expectations;
       const hasBlockedNoProgress = receipts.some((receipt) => receipt.status === "blocked");
       const hasFailedReceipt = counts.failed > 0;
+      const hasTerminalFailedReceipt = receipts.some(
+        (receipt) =>
+          receipt.status === "failed" &&
+          !receipts.some(
+            (candidate) =>
+              candidate.status === "success" &&
+              candidate.kind === receipt.kind &&
+              candidate.name === receipt.name &&
+              (receipt.summary ? candidate.summary === receipt.summary : true),
+          ),
+      );
       const hasDegradedReceipt = counts.degraded > 0;
       const hasPartialReceipt = counts.partial > 0;
       const hasWarningReceipt = counts.warning > 0;
@@ -1515,7 +1698,20 @@ export function createPlatformRuntimeCheckpointService(params?: {
         evidence.deliveredReplyCount ?? 0,
         verifiedConfirmedDeliveryCount,
       );
-      const hasOutput = evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
+      const requiresStructuredOutput = hasStructuredOutputArtifactKinds(
+        evidence.declaredArtifactKinds,
+      );
+      const hasToolArtifactOutput = hasStructuredArtifactToolOutputReceipt({
+        receipts,
+        artifactKinds: evidence.declaredArtifactKinds,
+      });
+      const hasOutput = requiresStructuredOutput
+        ? evidence.hasOutput === true ||
+          evidence.hasStructuredReplyPayload === true ||
+          (params.outcome?.artifactIds.length ?? 0) > 0 ||
+          (params.outcome?.bootstrapRequestIds.length ?? 0) > 0 ||
+          hasToolArtifactOutput
+        : evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
       const declaredIntent = describeDeclaredIntent(evidence);
       const confirmedActionCount =
         evidence.confirmedActionCount ?? params.outcome?.confirmedActionIds.length ?? 0;
@@ -1530,7 +1726,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       if (hasBlockedNoProgress) {
         reasons.push("Execution receipts show no_progress on one or more tool or runtime paths.");
       }
-      if (hasFailedReceipt) {
+      if (hasTerminalFailedReceipt) {
         reasons.push("Execution receipts contain a failed outcome.");
       }
       if (expectations?.requiresMessagingDelivery && confirmedDeliveryCount === 0) {
@@ -1578,7 +1774,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       let status: PlatformRuntimeExecutionVerification["status"] = "verified";
       if (hasBlockedNoProgress) {
         status = "no_progress";
-      } else if (hasFailedReceipt || reasons.length > 0) {
+      } else if (hasTerminalFailedReceipt || reasons.length > 0) {
         status = "mismatch";
       } else if (hasDegradedReceipt) {
         status = "degraded";
@@ -1711,7 +1907,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
           action: "retry",
           reasonCode:
             evidence.executionSurfaceStatus === "bootstrap_required" ||
-            evidence.executionUnattendedBoundary === "bootstrap"
+            evidence.executionUnattendedBoundary === "bootstrap" ||
+            (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
               ? "bootstrap_required"
               : classifyProviderEvidence(evidence) === "auth_refresh"
                 ? "provider_auth_required"
@@ -1734,7 +1931,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
           action: "retry",
           reasonCode:
             evidence.executionSurfaceStatus === "bootstrap_required" ||
-            evidence.executionUnattendedBoundary === "bootstrap"
+            evidence.executionUnattendedBoundary === "bootstrap" ||
+            (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
               ? "bootstrap_required"
               : classifyProviderEvidence(evidence) === "auth_refresh"
                 ? "provider_auth_required"
@@ -1796,9 +1994,18 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
+      const artifactReceiptCount = evidence.artifactReceiptCount ?? params.outcome.artifactIds.length;
+      const bootstrapReceiptCount =
+        evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length;
+      const bootstrapStillRequired =
+        evidence.executionSurfaceStatus === "bootstrap_required" ||
+        evidence.executionUnattendedBoundary === "bootstrap" ||
+        params.outcome.blockedCheckpointIds.length > 0 ||
+        params.outcome.pendingApprovalIds.length > 0
+          ? bootstrapReceiptCount
+          : 0;
       const hasDeliverableEvidence =
-        (evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
-        (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0 ||
+        artifactReceiptCount > 0 ||
         evidence.didSendViaMessagingTool === true ||
         evidence.hasOutput === true ||
         evidence.hasStructuredReplyPayload === true ||
@@ -1808,8 +2015,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const requiresVerifiedNonMessagingClosure =
         attemptedDeliveryCount === 0 &&
         confirmedDeliveryCount === 0 &&
-        ((evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
-          (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0 ||
+        (artifactReceiptCount > 0 ||
+          bootstrapStillRequired > 0 ||
           attemptedActionCount > 0 ||
           confirmedActionCount > 0 ||
           failedActionCount > 0);
@@ -1848,13 +2055,26 @@ export function createPlatformRuntimeCheckpointService(params?: {
           action: "retry",
           reasonCode:
             evidence.executionSurfaceStatus === "bootstrap_required" ||
-            evidence.executionUnattendedBoundary === "bootstrap"
+            evidence.executionUnattendedBoundary === "bootstrap" ||
+            bootstrapStillRequired > 0
               ? "bootstrap_required"
               : classifyProviderEvidence(evidence) === "auth_refresh"
                 ? "provider_auth_required"
                 : classifyProviderEvidence(evidence) === "provider_fallback"
                   ? "provider_fallback_exhausted"
                   : "contract_mismatch",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (bootstrapStillRequired > 0) {
+        reasons.push("Run paused while capability bootstrap is still required before completion.");
+        return parseAcceptanceResult({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode: "bootstrap_required",
           reasons,
           outcome: params.outcome,
           evidence,
@@ -1874,13 +2094,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
-      if (
-        (evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
-        (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
-      ) {
-        reasons.push(
-          "Run completed and produced structured platform artifacts or bootstrap output.",
-        );
+      if (artifactReceiptCount > 0) {
+        reasons.push("Run completed and produced structured platform artifacts.");
         return parseAcceptanceResult({
           runId: params.runId,
           status: "satisfied",

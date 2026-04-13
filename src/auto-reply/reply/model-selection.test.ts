@@ -112,7 +112,7 @@ describe("createModelSelectionState catalog loading", () => {
       },
     } as OpenClawConfig;
 
-    await createModelSelectionState({
+    const state = await createModelSelectionState({
       cfg,
       agentCfg: cfg.agents?.defaults,
       defaultProvider: "openai",
@@ -123,6 +123,8 @@ describe("createModelSelectionState catalog loading", () => {
     });
 
     expect(loadModelCatalog).toHaveBeenCalledOnce();
+    expect(state.allowedModelKeys.has("openai/gpt-4o-mini")).toBe(true);
+    expect(state.allowedModelKeys.has("xai/grok-4")).toBe(true);
   });
 });
 

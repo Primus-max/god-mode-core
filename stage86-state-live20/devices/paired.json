@@ -1,0 +1,41 @@
+{
+  "d223b05b40abd7248291f1b998a1cdb9a2bb8e3a8d4413703d0db5dc2bc5b915": {
+    "deviceId": "d223b05b40abd7248291f1b998a1cdb9a2bb8e3a8d4413703d0db5dc2bc5b915",
+    "publicKey": "09VUfm2H3SDi8-yougC4q6JJnD0WHJYvNRdHKRLraS0",
+    "displayName": "stage86-live-matrix",
+    "platform": "win32",
+    "clientId": "cli",
+    "clientMode": "cli",
+    "role": "operator",
+    "roles": [
+      "operator"
+    ],
+    "scopes": [
+      "operator.admin",
+      "operator.read",
+      "operator.write",
+      "operator.approvals"
+    ],
+    "approvedScopes": [
+      "operator.admin",
+      "operator.read",
+      "operator.write",
+      "operator.approvals"
+    ],
+    "tokens": {
+      "operator": {
+        "token": "hXNf1SD2pnkT6gnPwbXG6L3dpmw7e6gpXWdNUu3-JY4",
+        "role": "operator",
+        "scopes": [
+          "operator.admin",
+          "operator.approvals",
+          "operator.read",
+          "operator.write"
+        ],
+        "createdAtMs": 1775837483641
+      }
+    },
+    "createdAtMs": 1775837483641,
+    "approvedAtMs": 1775837483641
+  }
+}

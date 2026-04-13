@@ -82,6 +82,9 @@ function materializeNormalizedDocumentArtifact(params: {
         label: descriptor.label,
         sourceDomain: "document",
         renderKind: payload.format === "markdown" ? "markdown" : "html",
+        documentInputKind:
+          payload.format === "markdown" ? "markdown" : payload.format === "text" ? "text" : "spec",
+        rendererTarget: payload.format === "markdown" ? "markdown" : "html",
         outputTarget: "file",
         ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
         includePdf: true,
@@ -93,7 +96,7 @@ function materializeNormalizedDocumentArtifact(params: {
             ? { markdown: payload.content }
             : payload.format === "text"
               ? { text: payload.content }
-              : { jsonData: parsedJsonContent }),
+              : { spec: parsedJsonContent }),
         },
       }),
     });
@@ -115,6 +118,8 @@ function materializeNormalizedDocumentArtifact(params: {
         label: descriptor.label,
         sourceDomain: "document",
         renderKind: "html",
+        documentInputKind: "markdown",
+        rendererTarget: "html",
         outputTarget: "file",
         ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
         ...(executionContext.success ? { executionContext: executionContext.data } : {}),
@@ -135,6 +140,8 @@ function materializeNormalizedDocumentArtifact(params: {
       label: descriptor.label,
       sourceDomain: "document",
       renderKind: "html",
+      documentInputKind: "markdown",
+      rendererTarget: "html",
       outputTarget: "file",
       ...(artifactService ? { outputDir: artifactService.resolveOutputDir(descriptor.id) } : {}),
       includePdf: true,

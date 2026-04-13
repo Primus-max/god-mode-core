@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
 import { getAcpSessionManager } from "../acp/control-plane/manager.js";
 import { resolveAcpAgentPolicyError, resolveAcpDispatchPolicyError } from "../acp/policy.js";
@@ -45,7 +46,11 @@ import {
 } from "../infra/agent-events.js";
 import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
-import { buildExecutionDecisionInput } from "../platform/decision/input.js";
+import {
+  buildExecutionDecisionInput,
+  buildSessionBackedExecutionDecisionInput,
+  shouldUseLightweightBootstrapContext,
+} from "../platform/decision/input.js";
 import {
   resolvePlatformRuntimePlan,
   type ResolvedPlatformRuntimePlan,
@@ -384,6 +389,7 @@ type RunAgentAttemptParams = {
   storePath?: string;
   allowTransientCooldownProbe?: boolean;
   platformRuntimePlan: ResolvedPlatformRuntimePlan;
+  bootstrapContextMode?: "full" | "lightweight";
 };
 
 type BuildEmbeddedAgentRunParams = Pick<
@@ -410,6 +416,7 @@ type BuildEmbeddedAgentRunParams = Pick<
   | "allowTransientCooldownProbe"
   | "onAgentEvent"
   | "platformRuntimePlan"
+  | "bootstrapContextMode"
 > & {
   effectivePrompt: string;
   images?: AgentCommandOpts["images"];
@@ -417,6 +424,126 @@ type BuildEmbeddedAgentRunParams = Pick<
   bootstrapPromptWarningSignaturesSeen?: string[];
   bootstrapPromptWarningSignature?: string;
 };
+
+/**
+ * Sanitizes an inbound attachment file name for workspace staging.
+ *
+ * @param {string} fileName - Original attachment file name from the caller.
+ * @param {number} index - Stable attachment index for fallback naming.
+ * @returns {string} Safe file name for `media/inbound`.
+ */
+function sanitizeInboundAttachmentFileName(fileName: string, index: number): string {
+  const baseName = path.basename(fileName.trim());
+  const cleaned = baseName.replace(/[^\w.-]+/g, "_");
+  return cleaned || `attachment-${String(index + 1)}.bin`;
+}
+
+/**
+ * Appends a compact note so the agent can discover staged inbound files via tools.
+ *
+ * @param {string} message - Original user-visible prompt text.
+ * @param {string[]} relativePaths - Workspace-relative staged file paths.
+ * @param {string[]} inlinePreviews - Optional inline text previews for small inbound files.
+ * @returns {string} Prompt text with a short attached-files note.
+ */
+export function appendInboundFilesContext(
+  message: string,
+  relativePaths: string[],
+  inlinePreviews: string[] = [],
+): string {
+  if (relativePaths.length === 0) {
+    return message;
+  }
+  const attachmentBlock = [
+    "Attached files available in workspace:",
+    ...relativePaths.map((relativePath) => `- ${relativePath}`),
+  ].join("\n");
+  const previewBlock =
+    inlinePreviews.length > 0
+      ? `\n\nInline file previews for immediate reasoning:\n\n${inlinePreviews.join("\n\n")}`
+      : "";
+  const previewInstruction =
+    inlinePreviews.length > 0
+      ? "\n\nUse the inline file previews below as the primary source for this turn. Return the final answer directly and do not emit raw tool-call JSON, placeholder tool payloads, or memory search requests."
+      : "";
+  return `${message}\n\n${attachmentBlock}${previewInstruction}${previewBlock}`;
+}
+
+/**
+ * Builds a compact CSV preview so smaller tabular attachments can be reasoned
+ * about directly even when the selected model does not reliably trigger tools.
+ *
+ * @param {string} fileName - Sanitized staged file name.
+ * @param {string} relativePath - Workspace-relative file path.
+ * @param {Buffer} bytes - Raw decoded attachment bytes.
+ * @returns {string | undefined} Markdown preview block when the file is eligible.
+ */
+export function buildInlineCsvPreview(
+  fileName: string,
+  relativePath: string,
+  bytes: Buffer,
+): string | undefined {
+  if (!fileName.toLowerCase().endsWith(".csv") || bytes.byteLength > 16_000) {
+    return undefined;
+  }
+  const rawText = bytes.toString("utf8").replace(/\r\n/g, "\n").trim();
+  if (!rawText) {
+    return undefined;
+  }
+  const lines = rawText.split("\n");
+  const previewLines = lines.slice(0, 40);
+  const previewText = previewLines.join("\n").slice(0, 3_500);
+  const truncated = previewLines.length < lines.length || previewText.length < rawText.length;
+  return [
+    `File preview: ${fileName} (${relativePath})`,
+    "```csv",
+    previewText,
+    "```",
+    truncated ? "Preview truncated; open the staged file if more rows are needed." : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Stages caller-provided document attachments into the agent workspace so the
+ * planner/runtime can reason about file names and the model can inspect files.
+ *
+ * @param {{ workspaceDir: string; documents: NonNullable<AgentCommandOpts["documents"]> }} params - Workspace and raw document attachments.
+ * @returns {Promise<{ fileNames: string[]; relativePaths: string[]; inlinePreviews: string[] }>} Staged file names, workspace-relative paths, and inline prompt previews.
+ */
+async function stageInboundDocuments(params: {
+  workspaceDir: string;
+  documents: NonNullable<AgentCommandOpts["documents"]>;
+}): Promise<{
+  fileNames: string[];
+  relativePaths: string[];
+  inlinePreviews: string[];
+}> {
+  if (params.documents.length === 0) {
+    return { fileNames: [], relativePaths: [], inlinePreviews: [] };
+  }
+  const inboundDir = path.join(params.workspaceDir, "media", "inbound");
+  await fs.mkdir(inboundDir, { recursive: true });
+  const fileNames: string[] = [];
+  const relativePaths: string[] = [];
+  const inlinePreviews: string[] = [];
+  for (const [index, document] of params.documents.entries()) {
+    const safeFileName = sanitizeInboundAttachmentFileName(document.fileName, index);
+    const uniqueFileName = `${path.parse(safeFileName).name}---${Date.now()}-${String(index)}${path.extname(safeFileName)}`;
+    const absolutePath = path.join(inboundDir, uniqueFileName);
+    const bytes = Buffer.from(document.data, "base64");
+    await fs.writeFile(absolutePath, bytes);
+    fileNames.push(safeFileName);
+    const relativePath = path.posix.join("media", "inbound", uniqueFileName);
+    relativePaths.push(relativePath);
+    const inlinePreview = buildInlineCsvPreview(safeFileName, relativePath, bytes);
+    if (inlinePreview) {
+      inlinePreviews.push(inlinePreview);
+    }
+  }
+  return { fileNames, relativePaths, inlinePreviews };
+}
 
 export function resolveAgentCommandFallbackOverride(params: {
   platformRuntimePlan: ResolvedPlatformRuntimePlan;
@@ -431,6 +558,18 @@ export function resolveAgentCommandFallbackOverride(params: {
 export function buildEmbeddedAgentRunParams(
   params: BuildEmbeddedAgentRunParams,
 ): Parameters<typeof runEmbeddedPiAgent>[0] {
+  const deliveryManagedArtifactHint =
+    params.opts.deliver === true
+      ? [
+          "Final reply delivery is handled by the command pipeline for this run.",
+          "Do not call the message tool to send the final answer or attachment yourself.",
+          "Do not read or verify a generated artifact by guessing a file path or filename alone.",
+          "Generate the artifact with the appropriate tool and then return a normal assistant reply describing the completed result.",
+        ].join(" ")
+      : undefined;
+  const extraSystemPrompt = [params.opts.extraSystemPrompt, deliveryManagedArtifactHint]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n\n");
   return {
     sessionId: params.sessionId,
     sessionKey: params.sessionKey,
@@ -449,6 +588,7 @@ export function buildEmbeddedAgentRunParams(
     replyToMode: params.runContext.replyToMode,
     hasRepliedRef: params.runContext.hasRepliedRef,
     senderIsOwner: params.opts.senderIsOwner,
+    disableMessageTool: params.opts.deliver === true,
     sessionFile: params.sessionFile,
     workspaceDir: params.workspaceDir,
     config: params.cfg,
@@ -468,12 +608,13 @@ export function buildEmbeddedAgentRunParams(
     runId: params.runId,
     lane: params.opts.lane,
     abortSignal: params.opts.abortSignal,
-    extraSystemPrompt: params.opts.extraSystemPrompt,
+    extraSystemPrompt: extraSystemPrompt || undefined,
     inputProvenance: params.opts.inputProvenance,
     streamParams: params.opts.streamParams,
     agentDir: params.agentDir,
     platformExecutionContext: params.platformRuntimePlan.runtime,
     allowTransientCooldownProbe: params.allowTransientCooldownProbe,
+    bootstrapContextMode: params.bootstrapContextMode,
     onAgentEvent: params.onAgentEvent,
     bootstrapPromptWarningSignaturesSeen: params.bootstrapPromptWarningSignaturesSeen,
     bootstrapPromptWarningSignature: params.bootstrapPromptWarningSignature,
@@ -482,14 +623,32 @@ export function buildEmbeddedAgentRunParams(
 
 export function buildPlatformPlannerInput(params: {
   prompt: string;
+  fileNames?: string[];
   opts: Pick<AgentCommandOpts, "messageChannel" | "channel" | "replyChannel">;
   sessionEntry?: Pick<
     SessionEntry,
-    "specialistOverrideMode" | "specialistBaseProfileId" | "specialistSessionProfileId"
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
   > | null;
+  storePath?: string;
 }): Parameters<typeof resolvePlatformRuntimePlan>[0] {
+  if (params.storePath && params.sessionEntry?.sessionId) {
+    return buildExecutionDecisionInput(
+      buildSessionBackedExecutionDecisionInput({
+        draftPrompt: params.prompt,
+        ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+        storePath: params.storePath,
+        channelHints: params.opts,
+        sessionEntry: params.sessionEntry,
+      }),
+    );
+  }
   return buildExecutionDecisionInput({
     prompt: params.prompt,
+    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
     channelHints: params.opts,
     sessionEntry: params.sessionEntry,
   });
@@ -499,11 +658,107 @@ export function shouldFailoverEmptySemanticRetryResult(
   result: Awaited<ReturnType<typeof runEmbeddedPiAgent>>,
 ): boolean {
   const payloads = result.payloads ?? [];
+  const CONTINUATION_REFUSAL_RE =
+    /\b(?:can(?:not|'t)\s+continue|unable\s+to\s+continue|can(?:not|'t)\s+proceed|unable\s+to\s+proceed)\b/i;
+  const TOOL_NAME_FIELD_RE =
+    /"(?:name|function|function_name|tool|tool_name)"\s*:\s*"[^"\r\n]+"/;
+  const ARGUMENTS_FIELD_RE = /"arguments"\s*:\s*\{/;
+  const unwrapStandaloneToolCallEnvelope = (text: string): string | null => {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    return fenced?.[1]?.trim() || trimmed;
+  };
+  const isStandaloneToolCallEnvelope = (text: string | undefined): boolean => {
+    if (typeof text !== "string") {
+      return false;
+    }
+    const candidate = unwrapStandaloneToolCallEnvelope(text);
+    if (!candidate) {
+      return false;
+    }
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      const parsedObject = parsed as Record<string, unknown>;
+      const hasToolName =
+        typeof (parsed as { name?: unknown }).name === "string" ||
+        typeof (parsed as { function?: unknown }).function === "string" ||
+        typeof (parsed as { function_name?: unknown }).function_name === "string" ||
+        typeof (parsed as { tool?: unknown }).tool === "string" ||
+        typeof (parsed as { tool_name?: unknown }).tool_name === "string";
+      return Boolean(
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        hasToolName &&
+        "arguments" in parsedObject &&
+        Object.keys(parsedObject).every(
+          (key) =>
+            key === "name" ||
+            key === "function" ||
+            key === "function_name" ||
+            key === "tool" ||
+            key === "tool_name" ||
+            key === "arguments" ||
+            key === "id",
+        ),
+      );
+    } catch {
+      // Some weaker fallback models emit tool-call envelopes that look correct
+      // to users but are not strict JSON (for example raw Windows paths with
+      // unescaped backslashes). Keep the failover heuristic tolerant so these
+      // still trigger a semantic retry instead of leaking pseudo-tool text.
+      const trimmedCandidate = candidate.trim();
+      return (
+        trimmedCandidate.startsWith("{") &&
+        trimmedCandidate.endsWith("}") &&
+        TOOL_NAME_FIELD_RE.test(trimmedCandidate) &&
+        ARGUMENTS_FIELD_RE.test(trimmedCandidate)
+      );
+    }
+  };
   if (payloads.length > 0) {
+    const firstVisibleTextPayload = payloads.find((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      return !hasMedia && typeof payload.text === "string" && payload.text.trim().length > 0;
+    });
+    if (isStandaloneToolCallEnvelope(firstVisibleTextPayload?.text)) {
+      return true;
+    }
+    const onlyContinuationRefusals = payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      return (
+        !hasMedia && typeof payload.text === "string" && CONTINUATION_REFUSAL_RE.test(payload.text)
+      );
+    });
+    if (onlyContinuationRefusals) {
+      return true;
+    }
+    const onlyPseudoToolPayloads = payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      return !hasMedia && isStandaloneToolCallEnvelope(payload.text);
+    });
+    if (onlyPseudoToolPayloads) {
+      return true;
+    }
     return false;
   }
   const verdict = result.meta.supervisorVerdict;
   return verdict?.action === "retry" && verdict.remediation === "semantic_retry";
+}
+
+export function shouldGrantPlatformExplicitApprovalForAgentTurn(params: {
+  senderIsOwner: boolean;
+}): boolean {
+  return params.senderIsOwner === true;
 }
 
 function runAgentAttempt(params: RunAgentAttemptParams) {
@@ -638,7 +893,7 @@ async function prepareAgentCommandExecution(
   if (!message.trim()) {
     throw new Error("Message (--message) is required");
   }
-  const body = prependInternalEventContext(message, opts.internalEvents);
+  let body = prependInternalEventContext(message, opts.internalEvents);
   if (!opts.to && !opts.sessionId && !opts.sessionKey && !opts.agentId) {
     throw new Error("Pass --to <E.164>, --session-id, or --agent to choose a session");
   }
@@ -729,13 +984,18 @@ async function prepareAgentCommandExecution(
     persistedThinking,
     persistedVerbose,
   } = sessionResolution;
-  const platformRuntimePlan = resolvePlatformRuntimePlan(
-    buildPlatformPlannerInput({
-      prompt: body,
-      opts,
-      sessionEntry: sessionEntryRaw,
+  const platformPlannerInput = buildPlatformPlannerInput({
+    prompt: body,
+    fileNames: opts.documents?.map((document) => document.fileName),
+    opts,
+    sessionEntry: sessionEntryRaw,
+    storePath,
+  });
+  const platformRuntimePlan = resolvePlatformRuntimePlan(platformPlannerInput, {
+    explicitApproval: shouldGrantPlatformExplicitApprovalForAgentTurn({
+      senderIsOwner: opts.senderIsOwner,
     }),
-  );
+  });
   const laneRaw = typeof opts.lane === "string" ? opts.lane.trim() : "";
   const isSubagentLane = laneRaw === String(AGENT_LANE_SUBAGENT);
   const timeoutSecondsRaw =
@@ -774,6 +1034,15 @@ async function prepareAgentCommandExecution(
     ensureBootstrapFiles: !agentCfg?.skipBootstrap,
   });
   const workspaceDir = workspace.dir;
+  const stagedDocuments = await stageInboundDocuments({
+    workspaceDir,
+    documents: opts.documents ?? [],
+  });
+  body = appendInboundFilesContext(
+    body,
+    stagedDocuments.relativePaths,
+    stagedDocuments.inlinePreviews,
+  );
   const runId = opts.runId?.trim() || sessionId;
   const acpManager = getAcpSessionManager();
   const acpResolution = sessionKey
@@ -785,6 +1054,7 @@ async function prepareAgentCommandExecution(
 
   return {
     body,
+    platformPlannerInput,
     platformRuntimePlan,
     cfg,
     normalizedSpawned,
@@ -819,6 +1089,7 @@ async function agentCommandInternal(
   const prepared = await prepareAgentCommandExecution(opts, runtime);
   const {
     body,
+    platformPlannerInput,
     platformRuntimePlan,
     cfg,
     normalizedSpawned,
@@ -1276,6 +1547,9 @@ async function agentCommandInternal(
         platformRuntimePlan,
         configuredFallbacks: effectiveFallbacksOverride,
       });
+      const bootstrapContextMode = shouldUseLightweightBootstrapContext(platformPlannerInput)
+        ? "lightweight"
+        : undefined;
 
       // Track model fallback attempts so retries on an existing session don't
       // re-inject the original prompt as a duplicate user message.
@@ -1288,6 +1562,12 @@ async function agentCommandInternal(
         agentDir,
         fallbacksOverride: fallbackOverride,
         preflightPrompt: body,
+        preflightPlannerInput: platformPlannerInput,
+        ...(Boolean(sessionEntry?.providerOverride?.trim()) ||
+        Boolean(sessionEntry?.modelOverride?.trim()) ||
+        process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1"
+          ? { skipRoutePreflight: true as const }
+          : {}),
         run: (providerOverride, modelOverride, runOptions) => {
           const isFallbackRetry = fallbackAttemptIndex > 0;
           fallbackAttemptIndex += 1;
@@ -1304,7 +1584,7 @@ async function agentCommandInternal(
             body,
             isFallbackRetry,
             resolvedThinkLevel,
-            timeoutMs,
+            timeoutMs: runOptions?.timeoutMsOverride ?? timeoutMs,
             runId,
             opts,
             runContext,
@@ -1318,6 +1598,7 @@ async function agentCommandInternal(
             storePath,
             allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
             platformRuntimePlan,
+            bootstrapContextMode,
             onAgentEvent: (evt) => {
               // Track lifecycle end for fallback emission below.
               if (

@@ -106,6 +106,7 @@ type RunWithModelFallbackParams = {
 beforeEach(() => {
   vi.useRealTimers();
   vi.clearAllTimers();
+  vi.stubEnv("OPENCLAW_DEBUG_REPLY_ROUTING", "0");
   vi.mocked(enqueueFollowupRun).mockReset();
   runEmbeddedPiAgentMock.mockClear();
   runCliAgentMock.mockClear();
@@ -240,7 +241,7 @@ describe("runReplyAgent onAgentRunStart", () => {
 
     expect(onAgentRunStart).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      text: expect.stringContaining('No API key found for provider "anthropic".'),
+      text: expect.stringContaining('No API key found for provider "anthropic"'),
     });
   });
 
@@ -1480,7 +1481,7 @@ describe("runReplyAgent messaging tool suppression", () => {
     });
   }
 
-  it("drops replies when a messaging tool sent via the same provider + target", async () => {
+  it("preserves novel replies when a messaging tool sent via the same provider + target", async () => {
     runEmbeddedPiAgentMock.mockResolvedValueOnce({
       payloads: [{ text: "hello world!" }],
       messagingToolSentTexts: ["different message"],
@@ -1490,7 +1491,7 @@ describe("runReplyAgent messaging tool suppression", () => {
 
     const result = await createRun("slack");
 
-    expect(result).toBeUndefined();
+    expect(result).toMatchObject({ text: "hello world!" });
   });
 
   it("delivers replies when tool provider does not match", async () => {
@@ -1539,7 +1540,7 @@ describe("runReplyAgent messaging tool suppression", () => {
     expect(result).toMatchObject({ text: "hello world!" });
   });
 
-  it("persists usage fields even when replies are suppressed", async () => {
+  it("persists usage fields when same-target delivery keeps a novel final reply", async () => {
     const storePath = path.join(
       await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-store-")),
       "sessions.json",
@@ -1563,7 +1564,7 @@ describe("runReplyAgent messaging tool suppression", () => {
 
     const result = await createRun("slack", { storePath, sessionKey });
 
-    expect(result).toBeUndefined();
+    expect(result).toMatchObject({ text: "hello world!" });
     const store = loadSessionStore(storePath, { skipCache: true });
     expect(store[sessionKey]?.inputTokens).toBe(10);
     expect(store[sessionKey]?.outputTokens).toBe(5);
@@ -1597,7 +1598,7 @@ describe("runReplyAgent messaging tool suppression", () => {
 
     const result = await createRun("slack", { storePath, sessionKey });
 
-    expect(result).toBeUndefined();
+    expect(result).toMatchObject({ text: "hello world!" });
     const store = loadSessionStore(storePath, { skipCache: true });
     expect(store[sessionKey]?.totalTokens).toBe(42_000);
     expect(store[sessionKey]?.totalTokensFresh).toBe(true);
@@ -1633,7 +1634,7 @@ describe("runReplyAgent messaging tool suppression", () => {
 
     const result = await createRun("slack", { storePath, sessionKey });
 
-    expect(result).toBeUndefined();
+    expect(result).toMatchObject({ text: "hello world!" });
     const store = loadSessionStore(storePath, { skipCache: true });
     expect(store[sessionKey]?.totalTokens).toBe(41_000);
     expect(store[sessionKey]?.totalTokensFresh).toBe(true);

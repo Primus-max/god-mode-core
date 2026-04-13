@@ -349,15 +349,32 @@ export async function createModelSelectionState(params: {
   if (needsModelCatalog) {
     modelCatalog = await (await loadModelCatalogRuntime()).loadModelCatalog({ config: cfg });
     logStage("catalog-loaded", `entries=${modelCatalog.length}`);
+    const fullCatalog = modelCatalog;
     const allowed = buildAllowedModelSet({
       cfg,
-      catalog: modelCatalog,
+      catalog: fullCatalog,
       defaultProvider,
       defaultModel,
       agentId: params.agentId,
     });
-    allowedModelCatalog = allowed.allowedCatalog;
-    allowedModelKeys = allowed.allowedKeys;
+    // Explicit user model directives should be able to target any catalog-backed
+    // model, even when the default runtime allowlist is narrower. Keep the
+    // configured/default entries too so config-only models remain selectable.
+    allowedModelCatalog = [
+      ...fullCatalog,
+      ...allowed.allowedCatalog.filter(
+        (entry) =>
+          !fullCatalog.some(
+            (catalogEntry) =>
+              modelKey(catalogEntry.provider, catalogEntry.id) ===
+              modelKey(entry.provider, entry.id),
+          ),
+      ),
+    ];
+    allowedModelKeys = new Set([
+      ...fullCatalog.map((entry) => modelKey(entry.provider, entry.id)),
+      ...allowed.allowedKeys,
+    ]);
     logStage(
       "allowlist-built",
       `allowed=${allowedModelCatalog.length} keys=${allowedModelKeys.size}`,
@@ -658,6 +675,14 @@ export function resolveModelDirectiveSelection(params: {
     if (fuzzy.selection || fuzzy.error) {
       return fuzzy;
     }
+    return {
+      selection: {
+        provider: resolved.ref.provider,
+        model: resolved.ref.model,
+        isDefault: resolved.ref.provider === defaultProvider && resolved.ref.model === defaultModel,
+        alias: resolved.alias,
+      },
+    };
   }
 
   // Otherwise, try fuzzy matching across allowlisted models.

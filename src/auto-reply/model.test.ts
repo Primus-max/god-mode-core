@@ -29,6 +29,15 @@ describe("extractModelDirective", () => {
       expect(result.rawModel).toBe("anthropic/claude-opus-4-5");
     });
 
+    it("extracts bare model:provider/model format", () => {
+      const result = extractModelDirective(
+        'Используй model:hydra/gpt-4o. Переведи на английский: "Умный роутинг экономит токены"',
+      );
+      expect(result.hasDirective).toBe(true);
+      expect(result.rawModel).toBe("hydra/gpt-4o");
+      expect(result.cleaned).toContain("Переведи на английский");
+    });
+
     it("extracts /model with profile override", () => {
       const result = extractModelDirective("/model gpt-5@myprofile");
       expect(result.hasDirective).toBe(true);
@@ -68,6 +77,12 @@ describe("extractModelDirective", () => {
       const result = extractModelDirective("hello world");
       expect(result.hasDirective).toBe(false);
       expect(result.cleaned).toBe("hello world");
+    });
+
+    it("does not treat plain model word without colon as a directive", () => {
+      const result = extractModelDirective("this model should stay as plain text");
+      expect(result.hasDirective).toBe(false);
+      expect(result.cleaned).toBe("this model should stay as plain text");
     });
   });
 

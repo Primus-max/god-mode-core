@@ -58,6 +58,7 @@ export type EmbeddedRunAttemptResult = {
   didSendDeterministicApprovalPrompt?: boolean;
   messagingToolSentTexts: string[];
   messagingToolSentMediaUrls: string[];
+  toolResultMediaUrls?: string[];
   messagingToolSentTargets: MessagingToolSend[];
   successfulCronAdds?: number;
   executionReceipts?: PlatformRuntimeExecutionReceipt[];

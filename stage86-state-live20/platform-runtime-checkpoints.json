@@ -1,0 +1,206 @@
+{
+  "version": 1,
+  "checkpoints": [
+    {
+      "id": "8fe8a65e-2933-429f-bed6-64d1c20cf3bd",
+      "runId": "8fe8a65e-2933-429f-bed6-64d1c20cf3bd",
+      "boundary": "bootstrap",
+      "status": "denied",
+      "blockedReason": "Bootstrap checkpoint: capability install is blocked until the operator approves (platform.bootstrap.resolve) and runs install/verify (platform.bootstrap.run).",
+      "nextActions": [
+        {
+          "method": "platform.bootstrap.resolve",
+          "label": "Approve or deny capability bootstrap (install) request",
+          "phase": "approve"
+        },
+        {
+          "method": "platform.bootstrap.run",
+          "label": "Execute approved install, health verification, and resume blocked work if configured",
+          "phase": "resume"
+        }
+      ],
+      "target": {
+        "bootstrapRequestId": "8fe8a65e-2933-429f-bed6-64d1c20cf3bd",
+        "operation": "bootstrap.run"
+      },
+      "continuation": {
+        "kind": "bootstrap_run",
+        "autoDispatch": true,
+        "input": {
+          "blockedRunResume": true,
+          "blockedRunId": "1d8a0ba5-1faf-4181-9efe-30738a5192b0",
+          "queueKey": "agent:main:main"
+        },
+        "state": "completed",
+        "attempts": 1,
+        "lastDispatchedAtMs": 1775839095492,
+        "lastCompletedAtMs": 1775839096845
+      },
+      "executionContext": {
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "compare",
+        "modelRouteTier": "local_eligible",
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "readinessStatus": "bootstrap_required",
+        "readinessReasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery.",
+          "blockedRunId=1d8a0ba5-1faf-4181-9efe-30738a5192b0"
+        ],
+        "unattendedBoundary": "bootstrap"
+      },
+      "createdAtMs": 1775839095464,
+      "updatedAtMs": 1775839096845,
+      "approvedAtMs": 1775839095480,
+      "resumedAtMs": 1775839095514,
+      "completedAtMs": 1775839096810
+    },
+    {
+      "id": "bootstrap-origin:96113523-9649-4635-8f73-86f1ec7b298c:agent:main:thread:case14-pdf-bootstrap-resume-1775837836484-dc43e132-8eb0-4b4a-92c2-aed5dac6920c",
+      "runId": "agent:main:thread:case14-pdf-bootstrap-resume-1775837836484-dc43e132-8eb0-4b4a-92c2-aed5dac6920c",
+      "boundary": "bootstrap",
+      "status": "completed",
+      "blockedReason": "Bootstrap evidence: the task requested a capability install before it could complete.",
+      "target": {
+        "bootstrapRequestId": "96113523-9649-4635-8f73-86f1ec7b298c",
+        "operation": "bootstrap.run"
+      },
+      "createdAtMs": 1775837841201,
+      "updatedAtMs": 1775837841209,
+      "completedAtMs": 1775837841209
+    },
+    {
+      "id": "96113523-9649-4635-8f73-86f1ec7b298c",
+      "runId": "96113523-9649-4635-8f73-86f1ec7b298c",
+      "boundary": "bootstrap",
+      "status": "approved",
+      "blockedReason": "Bootstrap checkpoint: capability install is blocked until the operator approves (platform.bootstrap.resolve) and runs install/verify (platform.bootstrap.run).",
+      "nextActions": [
+        {
+          "method": "platform.bootstrap.resolve",
+          "label": "Approve or deny capability bootstrap (install) request",
+          "phase": "approve"
+        },
+        {
+          "method": "platform.bootstrap.run",
+          "label": "Execute approved install, health verification, and resume blocked work if configured",
+          "phase": "resume"
+        }
+      ],
+      "target": {
+        "bootstrapRequestId": "96113523-9649-4635-8f73-86f1ec7b298c",
+        "operation": "bootstrap.run"
+      },
+      "continuation": {
+        "kind": "bootstrap_run",
+        "input": {
+          "blockedRunResume": true,
+          "blockedRunId": "agent:main:thread:case13-pdf-bootstrap-request-1775837706642-edc7ddcf-680f-483a-b110-d61e02e7fcce",
+          "queueKey": "agent:main:thread:case13-pdf-bootstrap-request-1775837706642"
+        },
+        "state": "idle",
+        "attempts": 0
+      },
+      "createdAtMs": 1775837715368,
+      "updatedAtMs": 1775837841191,
+      "approvedAtMs": 1775837715491,
+      "lastOperatorDecision": {
+        "action": "approve",
+        "atMs": 1775837715490,
+        "actor": {
+          "id": "cli",
+          "displayName": "stage86-live-matrix",
+          "deviceId": "d223b05b40abd7248291f1b998a1cdb9a2bb8e3a8d4413703d0db5dc2bc5b915",
+          "connId": "f35727b5-bfe4-480d-bd87-de7de94616b6"
+        },
+        "source": "platform.bootstrap.resolve"
+      }
+    },
+    {
+      "id": "bootstrap-origin:96113523-9649-4635-8f73-86f1ec7b298c:agent:main:thread:case13-pdf-bootstrap-request-1775837706642-edc7ddcf-680f-483a-b110-d61e02e7fcce",
+      "runId": "agent:main:thread:case13-pdf-bootstrap-request-1775837706642-edc7ddcf-680f-483a-b110-d61e02e7fcce",
+      "boundary": "bootstrap",
+      "status": "completed",
+      "blockedReason": "Bootstrap evidence: the task requested a capability install before it could complete.",
+      "target": {
+        "bootstrapRequestId": "96113523-9649-4635-8f73-86f1ec7b298c",
+        "operation": "bootstrap.run"
+      },
+      "createdAtMs": 1775837715379,
+      "updatedAtMs": 1775837715388,
+      "completedAtMs": 1775837715388
+    },
+    {
+      "id": "8037ba5a-aed3-497b-85d5-8325f9d4342e",
+      "runId": "8037ba5a-aed3-497b-85d5-8325f9d4342e",
+      "boundary": "bootstrap",
+      "status": "denied",
+      "blockedReason": "Bootstrap checkpoint: capability install is blocked until the operator approves (platform.bootstrap.resolve) and runs install/verify (platform.bootstrap.run).",
+      "nextActions": [
+        {
+          "method": "platform.bootstrap.resolve",
+          "label": "Approve or deny capability bootstrap (install) request",
+          "phase": "approve"
+        },
+        {
+          "method": "platform.bootstrap.run",
+          "label": "Execute approved install, health verification, and resume blocked work if configured",
+          "phase": "resume"
+        }
+      ],
+      "target": {
+        "bootstrapRequestId": "8037ba5a-aed3-497b-85d5-8325f9d4342e",
+        "operation": "bootstrap.run"
+      },
+      "continuation": {
+        "kind": "bootstrap_run",
+        "autoDispatch": true,
+        "input": {
+          "blockedRunResume": true,
+          "blockedRunId": "agent:main:thread:case05-remote-architecture-1775837585229-da2ed818-e9ce-4235-ae6c-b7b7b07c7390",
+          "queueKey": "agent:main:thread:case05-remote-architecture-1775837585229"
+        },
+        "state": "completed",
+        "attempts": 1,
+        "lastDispatchedAtMs": 1775837601575,
+        "lastCompletedAtMs": 1775837603565
+      },
+      "executionContext": {
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "taskOverlayId": "document_first",
+        "plannerReasoning": "Recipe table_compare selected for profile builder. Task overlay: document_first.",
+        "intent": "compare",
+        "modelRouteTier": "local_eligible",
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "readinessStatus": "bootstrap_required",
+        "readinessReasons": [
+          "Run completed and delivery was confirmed by the outbound runtime.",
+          "blockedRunId=agent:main:thread:case05-remote-architecture-1775837585229-da2ed818-e9ce-4235-ae6c-b7b7b07c7390"
+        ],
+        "unattendedBoundary": "bootstrap"
+      },
+      "createdAtMs": 1775837601554,
+      "updatedAtMs": 1775837603565,
+      "approvedAtMs": 1775837601568,
+      "resumedAtMs": 1775837601591,
+      "completedAtMs": 1775837603549
+    }
+  ]
+}

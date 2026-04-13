@@ -14,12 +14,17 @@ import {
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
 import type { OpenClawConfig } from "../../../config/config.js";
+import {
+  deterministicPromptOptimize,
+  mergePromptOptimizationReports,
+} from "../../../context-engine/prompt-optimize.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import {
   ensureGlobalUndiciEnvProxyDispatcher,
   ensureGlobalUndiciStreamTimeouts,
 } from "../../../infra/net/undici-global-dispatcher.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
+import { getMemorySearchManager } from "../../../memory/index.js";
 import { toPluginHookPlatformExecutionContext } from "../../../platform/recipe/runtime-adapter.js";
 import { resolveSignalReactionLevel } from "../../../plugin-sdk/signal.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
@@ -29,10 +34,6 @@ import type {
   PluginHookBeforePromptBuildResult,
 } from "../../../plugins/types.js";
 import { isCronSessionKey, isSubagentSessionKey } from "../../../routing/session-key.js";
-import {
-  deterministicPromptOptimize,
-  mergePromptOptimizationReports,
-} from "../../../context-engine/prompt-optimize.js";
 import { joinPresentTextSegments } from "../../../shared/text/join-segments.js";
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
 import { resolveUserPath } from "../../../utils.js";
@@ -170,6 +171,110 @@ type PromptBuildHookRunner = {
 const SESSIONS_YIELD_INTERRUPT_CUSTOM_TYPE = "openclaw.sessions_yield_interrupt";
 const SESSIONS_YIELD_CONTEXT_CUSTOM_TYPE = "openclaw.sessions_yield";
 const SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS = process.env.OPENCLAW_TEST_FAST === "1" ? 250 : 2_000;
+
+type NamedToolLike = { name: string };
+type NamedClientToolLike = { function: { name: string } };
+
+/**
+ * Removes direct-delivery tools when the command pipeline owns the final send.
+ *
+ * @param {T[]} tools - Candidate tool list for the run.
+ * @param {boolean | undefined} disableMessageTool - Whether `message` must stay unavailable.
+ * @returns {T[]} Filtered tools.
+ */
+export function filterDeliveryManagedTools<T extends NamedToolLike>(
+  tools: T[],
+  disableMessageTool?: boolean,
+): T[] {
+  return disableMessageTool ? tools.filter((tool) => tool.name !== "message") : tools;
+}
+
+/**
+ * Removes hosted/client message tools when delivery is command-managed.
+ *
+ * @param {T[] | undefined} tools - Hosted/client tool definitions.
+ * @param {boolean | undefined} disableMessageTool - Whether `message` must stay unavailable.
+ * @returns {T[] | undefined} Filtered client tools.
+ */
+export function filterDeliveryManagedClientTools<T extends NamedClientToolLike>(
+  tools: T[] | undefined,
+  disableMessageTool?: boolean,
+): T[] | undefined {
+  return disableMessageTool && tools
+    ? tools.filter((tool) => tool.function.name !== "message")
+    : tools;
+}
+
+type ToolToggleSessionLike = {
+  getActiveToolNames?: () => string[];
+  setActiveToolsByName?: (toolNames: string[]) => void;
+};
+
+/**
+ * Removes `message` from the active runtime tool set even if a downstream session rebuild reintroduced it.
+ *
+ * @param {ToolToggleSessionLike | undefined} session - Embedded agent session instance.
+ * @param {boolean | undefined} disableMessageTool - Whether delivery stays outside the model.
+ */
+export function suppressDeliveryManagedMessageTool(
+  session: ToolToggleSessionLike | undefined,
+  disableMessageTool?: boolean,
+): void {
+  if (!disableMessageTool || !session?.getActiveToolNames || !session?.setActiveToolsByName) {
+    return;
+  }
+  const activeTools = session.getActiveToolNames();
+  if (!activeTools.includes("message")) {
+    return;
+  }
+  session.setActiveToolsByName(activeTools.filter((toolName) => toolName !== "message"));
+}
+
+/**
+ * Removes memory tools from the active runtime tool set when the memory backend
+ * is unavailable for the current session.
+ *
+ * @param {ToolToggleSessionLike | undefined} session - Embedded agent session instance.
+ * @param {boolean} memoryAvailable - Whether memory search/read is currently usable.
+ */
+export function suppressUnavailableMemoryTools(
+  session: ToolToggleSessionLike | undefined,
+  memoryAvailable: boolean,
+): void {
+  if (memoryAvailable || !session?.getActiveToolNames || !session?.setActiveToolsByName) {
+    return;
+  }
+  const activeTools = session.getActiveToolNames();
+  if (!activeTools.includes("memory_search") && !activeTools.includes("memory_get")) {
+    return;
+  }
+  session.setActiveToolsByName(
+    activeTools.filter((toolName) => toolName !== "memory_search" && toolName !== "memory_get"),
+  );
+}
+
+/**
+ * Probes memory status-mode availability so the model does not spend a turn on
+ * memory tools that are already known to be unavailable.
+ *
+ * @param {OpenClawConfig | undefined} config - Active OpenClaw config.
+ * @param {string | undefined} agentId - Resolved session agent id.
+ * @returns {Promise<boolean>} True when memory tools should remain exposed.
+ */
+async function resolveMemoryToolsAvailable(
+  config: OpenClawConfig | undefined,
+  agentId: string | undefined,
+): Promise<boolean> {
+  if (!config || !agentId) {
+    return true;
+  }
+  const { manager, error } = await getMemorySearchManager({
+    cfg: config,
+    agentId,
+    purpose: "status",
+  });
+  return Boolean(manager) && !error;
+}
 
 // Persist a hidden context reminder so the next turn knows why the runner stopped.
 export function buildSessionsYieldContextMessage(message: string): string {
@@ -1869,6 +1974,10 @@ export async function runEmbeddedAttempt(
       provider: params.provider,
     });
     const clientTools = toolsEnabled ? params.clientTools : undefined;
+    const filteredClientTools = filterDeliveryManagedClientTools(
+      clientTools,
+      params.disableMessageTool,
+    );
     const bundleMcpRuntime = toolsEnabled
       ? await createBundleMcpToolRuntime({
           workspaceDir: effectiveWorkspace,
@@ -1890,14 +1999,13 @@ export async function runEmbeddedAttempt(
           ],
         })
       : undefined;
-    const effectiveTools = [
-      ...tools,
-      ...(bundleMcpRuntime?.tools ?? []),
-      ...(bundleLspRuntime?.tools ?? []),
-    ];
+    const effectiveTools = filterDeliveryManagedTools(
+      [...tools, ...(bundleMcpRuntime?.tools ?? []), ...(bundleLspRuntime?.tools ?? [])],
+      params.disableMessageTool,
+    );
     const allowedToolNames = collectAllowedToolNames({
       tools: effectiveTools,
-      clientTools,
+      clientTools: filteredClientTools,
     });
     logToolSchemasForGoogle({ tools: effectiveTools, provider: params.provider });
 
@@ -2191,9 +2299,9 @@ export async function runEmbeddedAttempt(
         cfg: params.config,
         agentId: sessionAgentId,
       });
-      const clientToolDefs = clientTools
+      const clientToolDefs = filteredClientTools
         ? toClientToolDefinitions(
-            clientTools,
+            filteredClientTools,
             (toolName, toolParams) => {
               clientToolCallDetected = { name: toolName, params: toolParams };
             },
@@ -2222,6 +2330,11 @@ export async function runEmbeddedAttempt(
         settingsManager,
         resourceLoader,
       }));
+      suppressDeliveryManagedMessageTool(session, params.disableMessageTool);
+      suppressUnavailableMemoryTools(
+        session,
+        await resolveMemoryToolsAvailable(params.config, sessionAgentId),
+      );
       applySystemPromptOverrideToSession(session, systemPromptText);
       if (!session) {
         throw new Error("Embedded agent session missing");
@@ -2633,6 +2746,7 @@ export async function runEmbeddedAttempt(
         isCompactionInFlight,
         getMessagingToolSentTexts,
         getMessagingToolSentMediaUrls,
+        getToolResultMediaUrls,
         getMessagingToolSentTargets,
         getSuccessfulCronAdds,
         getExecutionReceipts,
@@ -2843,6 +2957,16 @@ export async function runEmbeddedAttempt(
               `removed=${promptOptimization.charsRemoved ?? 0} ` +
               `applied=${Boolean(promptOptimization.applied)}` +
               (reasoning ? ` reasoning=${reasoning}` : ""),
+          );
+          log.info(
+            "promptOptimization: " +
+              JSON.stringify({
+                normalized: Boolean(promptOptimization.normalized),
+                trimmedWhitespace: promptOptimization.trimmedWhitespace ?? 0,
+                collapsedLines: promptOptimization.collapsedLines ?? 0,
+                strategyId: promptOptimization.strategyId ?? null,
+                applied: Boolean(promptOptimization.applied),
+              }),
           );
         }
 
@@ -3301,6 +3425,7 @@ export async function runEmbeddedAttempt(
         didSendViaMessagingTool: didSendViaMessagingTool(),
         messagingToolSentTexts: getMessagingToolSentTexts(),
         messagingToolSentMediaUrls: getMessagingToolSentMediaUrls(),
+        toolResultMediaUrls: getToolResultMediaUrls(),
         messagingToolSentTargets: getMessagingToolSentTargets(),
         successfulCronAdds: getSuccessfulCronAdds(),
         executionReceipts: getExecutionReceipts?.(),

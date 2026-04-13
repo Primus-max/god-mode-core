@@ -48,6 +48,30 @@ function rankProfiles(scores: Record<ProfileId, number>, allowedIds: Set<Profile
     .map(([id]) => id as ProfileId);
 }
 
+function resolvePinnedProfileOverride(params: {
+  input: ProfileResolverInput;
+  ranked: ProfileId[];
+  pinnedProfile?: ProfileId;
+}): ProfileId | undefined {
+  if (!params.pinnedProfile) {
+    return undefined;
+  }
+  const requestedTools = new Set((params.input.requestedTools ?? []).map((tool) => tool.toLowerCase()));
+  const artifactKinds = new Set(params.input.artifactKinds ?? []);
+  const explicitMediaTurn =
+    requestedTools.has("image_generate") ||
+    artifactKinds.has("image") ||
+    artifactKinds.has("video") ||
+    artifactKinds.has("audio");
+  if (!explicitMediaTurn) {
+    return undefined;
+  }
+  if (params.pinnedProfile === "builder") {
+    return "media_creator";
+  }
+  return undefined;
+}
+
 export function scoreProfiles(
   signals: ProfileScoringSignal[],
   baseProfile?: ProfileId,
@@ -76,7 +100,13 @@ export function resolveProfile(input: ProfileResolverInput): ProfileResolution {
   const inferredBaseProfile = input.baseProfile ?? ranked[0] ?? "general";
   const inferredSessionProfile =
     input.sessionProfile ?? input.baseProfile ?? ranked[0] ?? inferredBaseProfile;
-  const selectedProfileId = input.sessionProfile ?? input.baseProfile ?? inferredSessionProfile;
+  const pinnedProfile = input.sessionProfile ?? input.baseProfile;
+  const pinnedOverride = resolvePinnedProfileOverride({
+    input,
+    ranked,
+    pinnedProfile,
+  });
+  const selectedProfileId = pinnedOverride ?? pinnedProfile ?? inferredSessionProfile;
   const selectedProfile =
     profiles.find((profile) => profile.id === selectedProfileId) ??
     getInitialProfile(selectedProfileId) ??

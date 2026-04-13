@@ -45,6 +45,7 @@ let resetPlatformBootstrapService: typeof import("../../platform/bootstrap/index
 let isAudioPayload: typeof import("./agent-runner-helpers.js").isAudioPayload;
 let reconcileClosureRecoveryOnStartup: typeof import("./closure-outcome-dispatcher.js").reconcileClosureRecoveryOnStartup;
 let reevaluateAcceptanceForMessagingRun: typeof import("./agent-runner-helpers.js").reevaluateAcceptanceForMessagingRun;
+let reevaluateMessagingDecisionForMessagingRun: typeof import("./agent-runner-helpers.js").reevaluateMessagingDecisionForMessagingRun;
 let signalTypingIfNeeded: typeof import("./agent-runner-helpers.js").signalTypingIfNeeded;
 
 describe("agent runner helpers", () => {
@@ -68,6 +69,7 @@ describe("agent runner helpers", () => {
       finalizeWithFollowup,
       isAudioPayload,
       reevaluateAcceptanceForMessagingRun,
+      reevaluateMessagingDecisionForMessagingRun,
       signalTypingIfNeeded,
     } = await import("./agent-runner-helpers.js"));
     ({ reconcileClosureRecoveryOnStartup } = await import("./closure-outcome-dispatcher.js"));
@@ -1281,6 +1283,117 @@ describe("agent runner helpers", () => {
     );
   });
 
+  it("maps compare bootstrap remediation onto the document bootstrap lane", () => {
+    finalizeMessagingDeliveryClosure({
+      candidate: {
+        runResult: {
+          meta: {
+            acceptanceOutcome: {
+              runId: "run-compare-bootstrap",
+              status: "retryable",
+              action: "retry",
+              remediation: "bootstrap",
+              reasonCode: "bootstrap_required",
+              reasons: ["Table parsing bootstrap is still required before compare can complete."],
+              recoveryPolicy: {
+                remediation: "bootstrap",
+                recoveryClass: "bootstrap",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 2,
+                remainingAttempts: 2,
+                exhausted: false,
+                exhaustedAction: "escalate",
+              },
+              outcome: {
+                runId: "run-compare-bootstrap",
+                status: "completed",
+                checkpointIds: [],
+                blockedCheckpointIds: [],
+                completedCheckpointIds: [],
+                deniedCheckpointIds: [],
+                pendingApprovalIds: [],
+                artifactIds: [],
+                bootstrapRequestIds: [],
+                actionIds: [],
+                attemptedActionIds: [],
+                confirmedActionIds: [],
+                failedActionIds: [],
+                boundaries: [],
+              },
+              evidence: {
+                executionSurfaceStatus: "bootstrap_required",
+                executionUnattendedBoundary: "bootstrap",
+              },
+            },
+            supervisorVerdict: {
+              runId: "run-compare-bootstrap",
+              status: "retryable",
+              action: "retry",
+              remediation: "bootstrap",
+              reasonCode: "bootstrap_recovery",
+              reasons: ["Table parsing bootstrap is still required before compare can complete."],
+              recoveryPolicy: {
+                remediation: "bootstrap",
+                recoveryClass: "bootstrap",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 2,
+                remainingAttempts: 2,
+                exhausted: false,
+                exhaustedAction: "escalate",
+              },
+            },
+            executionIntent: {
+              runId: "run-compare-bootstrap",
+              profileId: "builder",
+              recipeId: "table_compare",
+              intent: "compare",
+              bootstrapRequiredCapabilities: ["table-parser"],
+              policyAutonomy: "assist",
+              expectations: {},
+            },
+          },
+        },
+        sourceRun: {
+          prompt: "compare supplier price sheets",
+          enqueuedAt: 1,
+          run: {
+            agentId: "agent",
+            agentDir: "/tmp/agent",
+            sessionId: "session",
+            sessionKey: "agent:main:main",
+            sessionFile: "/tmp/session.json",
+            workspaceDir: "/tmp/workspace",
+            config: {},
+            provider: "ollama",
+            model: "qwen2.5-coder:7b",
+            timeoutMs: 30_000,
+            blockReplyBreak: "message_end",
+          },
+        },
+        queueKey: "queue-compare",
+        settings: { mode: "followup", debounceMs: 0, cap: 20 },
+      },
+      replyPayloads: [{ text: "Bootstrap required." }],
+      deliveryReceipt: {},
+    });
+
+    const requestId = getPlatformBootstrapService().list()[0]?.id;
+    expect(requestId).toBeTruthy();
+    expect(requestId ? getPlatformBootstrapService().get(requestId)?.request.sourceDomain : undefined).toBe(
+      "document",
+    );
+    expect(requestId ? getPlatformRuntimeCheckpointService().get(requestId)?.continuation : undefined).toEqual(
+      expect.objectContaining({
+        kind: "bootstrap_run",
+        autoDispatch: true,
+      }),
+    );
+  });
+
   it("reuses declared execution intent when messaging closure is reevaluated", () => {
     const acceptance = reevaluateAcceptanceForMessagingRun({
       runResult: {
@@ -1359,6 +1472,119 @@ describe("agent runner helpers", () => {
           declaredIntent: "publish",
           declaredRequiresOutput: true,
         }),
+      }),
+    );
+  });
+
+  it("synthesizes verified webchat delivery receipts and ignores advisory read misses", () => {
+    const reevaluated = reevaluateMessagingDecisionForMessagingRun({
+      runResult: {
+        meta: {
+          completionOutcome: {
+            runId: "run-webchat-receipt",
+            status: "completed",
+            checkpointIds: [],
+            blockedCheckpointIds: [],
+            completedCheckpointIds: [],
+            deniedCheckpointIds: [],
+            pendingApprovalIds: [],
+            artifactIds: [],
+            bootstrapRequestIds: [],
+            actionIds: [],
+            attemptedActionIds: [],
+            confirmedActionIds: [],
+            failedActionIds: [],
+            boundaries: [],
+            hadToolError: false,
+            deterministicApprovalPromptSent: false,
+          },
+          executionVerification: {
+            runId: "run-webchat-receipt",
+            status: "mismatch",
+            reasons: [
+              "Execution receipts contain a failed outcome.",
+              "Execution contract is missing verified receipt kind(s): messaging_delivery.",
+            ],
+            receipts: [
+              {
+                kind: "tool",
+                name: "read",
+                status: "failed",
+                proof: "reported",
+                summary: "from ~/.openclaw/workspace/memory/2026-04-09.md",
+              },
+              {
+                kind: "tool",
+                name: "read",
+                status: "success",
+                proof: "reported",
+                summary: "from ~/.openclaw/workspace/MEMORY.md",
+              },
+            ],
+            receiptCounts: {
+              success: 1,
+              warning: 0,
+              partial: 0,
+              degraded: 0,
+              failed: 1,
+              blocked: 0,
+            },
+            receiptProofCounts: {
+              derived: 0,
+              reported: 2,
+              verified: 0,
+            },
+            checkedAtMs: 1,
+            missingReceiptKinds: ["messaging_delivery"],
+          },
+          executionIntent: {
+            runId: "run-webchat-receipt",
+            recipeId: "general_reasoning",
+            profileId: "builder",
+            intent: "general",
+            expectations: {
+              requiresOutput: true,
+              requiresMessagingDelivery: true,
+              requiredReceiptKinds: ["messaging_delivery"],
+            },
+          },
+        },
+      },
+      replyPayloads: [{ text: "Доброе утро, Владимир." }],
+      deliveryReceipt: {
+        attemptedDeliveryCount: 1,
+        confirmedDeliveryCount: 1,
+        failedDeliveryCount: 0,
+      },
+    });
+
+    expect(reevaluated?.executionVerification).toEqual(
+      expect.objectContaining({
+        status: "verified",
+        receipts: expect.arrayContaining([
+          expect.objectContaining({
+            kind: "tool",
+            name: "read",
+            status: "success",
+          }),
+          expect.objectContaining({
+            kind: "messaging_delivery",
+            proof: "verified",
+            status: "success",
+          }),
+        ]),
+      }),
+    );
+    expect(reevaluated?.acceptanceOutcome).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        reasonCode: "completed_with_confirmed_delivery",
+      }),
+    );
+    expect(reevaluated?.supervisorVerdict).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
       }),
     );
   });

@@ -148,6 +148,7 @@ const TRUSTED_TOOL_RESULT_MEDIA = new Set([
   "memory_search",
   "message",
   "nodes",
+  "pdf",
   "process",
   "read",
   "session_status",

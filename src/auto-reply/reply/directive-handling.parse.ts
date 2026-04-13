@@ -64,6 +64,9 @@ export type InlineDirectives = {
   hasQueueOptions: boolean;
 };
 
+const INLINE_DIRECTIVE_CANDIDATE_RE =
+  /(?:^|\s)(?:\/(?:thinking|think|t|verbose|v|fast|reasoning|reason|elevated|elev|exec|status|model|queue)(?=$|\s|:)|model\s*:)/i;
+
 export function parseInlineDirectives(
   body: string,
   options?: {
@@ -72,6 +75,29 @@ export function parseInlineDirectives(
     allowStatusDirective?: boolean;
   },
 ): InlineDirectives {
+  // Preserve raw whitespace for normal prompts so prompt optimization can
+  // report what it actually cleaned later in the runtime path.
+  if (!body || !INLINE_DIRECTIVE_CANDIDATE_RE.test(body)) {
+    return {
+      cleaned: body,
+      hasThinkDirective: false,
+      hasVerboseDirective: false,
+      hasFastDirective: false,
+      hasReasoningDirective: false,
+      hasElevatedDirective: false,
+      hasExecDirective: false,
+      hasExecOptions: false,
+      invalidExecHost: false,
+      invalidExecSecurity: false,
+      invalidExecAsk: false,
+      invalidExecNode: false,
+      hasStatusDirective: false,
+      hasModelDirective: false,
+      hasQueueDirective: false,
+      queueReset: false,
+      hasQueueOptions: false,
+    };
+  }
   const {
     cleaned: thinkCleaned,
     thinkLevel,

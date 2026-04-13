@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { ModelCatalogEntry } from "../../agents/model-catalog.js";
 import type { ModelCandidate } from "../../agents/model-fallback.types.js";
+import { buildExecutionDecisionInput } from "./input.js";
 import {
   applyModelRoutePreflight,
+  inferLocalRoutingEligibleFromPlannerInput,
   inferLocalRoutingEligibleFromPrompt,
 } from "./route-preflight.js";
 
@@ -25,9 +28,9 @@ describe("inferLocalRoutingEligibleFromPrompt", () => {
   });
 
   it("treats Russian image-generation prompts as requiring a stronger route", () => {
-    expect(inferLocalRoutingEligibleFromPrompt("Сгенерируй изображение баннера для Stage 86.")).toBe(
-      false,
-    );
+    expect(
+      inferLocalRoutingEligibleFromPrompt("Сгенерируй изображение баннера для Stage 86."),
+    ).toBe(false);
   });
 
   it("treats pdf-generation prompts as requiring a stronger route", () => {
@@ -42,6 +45,111 @@ describe("inferLocalRoutingEligibleFromPrompt", () => {
         "Сильно сожми этот раздутый запрос и дай краткую сводку по статусу stage 86.",
       ),
     ).toBe(true);
+  });
+
+  it("keeps lightweight rewrite prompts local-eligible", () => {
+    expect(
+      inferLocalRoutingEligibleFromPrompt(
+        "Перепиши фразу короче и дружелюбнее: Умный роутинг распределяет задачи по подходящим моделям.",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps short list prompts local-eligible", () => {
+    expect(
+      inferLocalRoutingEligibleFromPrompt(
+        "Назови 3 коротких признака хорошего onboarding в продукте.",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps enriched short list prompts local-eligible", () => {
+    expect(
+      inferLocalRoutingEligibleFromPrompt(
+        'Profile: General.\nPlanner reasoning: Recipe general_reasoning selected for profile general.\n\nSender (untrusted metadata):\n```json\n{\n  "label": "stage86-live-matrix (cli)",\n  "id": "cli"\n}\n```\n\n[Fri 2026-04-10 17:48 GMT+3] Назови 3 коротких признака хорошего onboarding в продукте.',
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps detailed analytical prompts on the stronger route", () => {
+    expect(
+      inferLocalRoutingEligibleFromPrompt(
+        "Напиши подробный анализ: какие 5 метрик важны для SaaS продукта и почему. С примерами.",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("inferLocalRoutingEligibleFromPlannerInput", () => {
+  it("keeps simple session-backed chat eligible when no heavy signals exist", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        intent: undefined,
+      }),
+    ).toBe(true);
+  });
+
+  it("treats session-backed code turns as requiring a stronger route", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        intent: "code",
+        requestedTools: ["exec"],
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps file-backed compare turns on the stronger route even for simple CSV pairs", () => {
+    const input = inferLocalRoutingEligibleFromPlannerInput({
+      prompt: "Compare these two CSVs for SKU alignment.",
+      intent: "compare",
+      fileNames: ["a.csv", "b.csv"],
+      artifactKinds: ["data", "report"],
+    });
+    expect(input).toBe(false);
+  });
+
+  it("blocks local-first when compare attachments include a PDF", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        prompt: "Compare pricing",
+        intent: "compare",
+        fileNames: ["quotes.pdf", "internal.csv"],
+        artifactKinds: ["data", "report"],
+      }),
+    ).toBe(false);
+  });
+
+  it("allows local-first for calculation turns that only carry report-style artifact hints", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        prompt: "Estimate CFM for a 12x14 ft bedroom with standard assumptions.",
+        intent: "calculation",
+        artifactKinds: ["report", "data"],
+      }),
+    ).toBe(true);
+  });
+
+  it("blocks local-first when prompts mention PDF work even without attachments", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        ...buildExecutionDecisionInput({
+          prompt: "Compare totals and export a PDF summary.",
+          intent: "compare",
+          artifactKinds: ["data", "report"],
+        }),
+      }),
+    ).toBe(false);
+  });
+
+  it("blocks local-first for general prompts that clearly ask for multi-step analysis", () => {
+    expect(
+      inferLocalRoutingEligibleFromPlannerInput({
+        ...buildExecutionDecisionInput({
+          prompt: "Напиши подробный анализ: какие 5 метрик важны для SaaS продукта и почему.",
+          intent: "general",
+        }),
+      }),
+    ).toBe(false);
   });
 });
 
@@ -83,6 +191,402 @@ describe("applyModelRoutePreflight", () => {
     expect(candidates[0]).toEqual({ provider: "openai", model: "gpt-4.1-mini" });
     expect(decision?.reasonCode).toBe("preflight_stronger_route");
     expect(decision?.reordered).toBe(false);
+    expect(decision?.localRoutingEligible).toBe(false);
+  });
+
+  it("promotes a remote model ahead of a lightweight local primary for stronger analytical turns", () => {
+    const localFirstChain: ModelCandidate[] = [
+      { provider: "ollama", model: "gemma4:e4b" },
+      { provider: "ollama", model: "qwen2.5-coder:7b" },
+      { provider: "hydra", model: "hydra-gpt-mini" },
+      { provider: "hydra", model: "hydra-gpt-pro" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "gpt-4o" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: localFirstChain,
+      prompt: "Напиши подробный анализ: какие 5 метрик важны для SaaS продукта и почему. С примерами.",
+      mode: "force_stronger",
+    });
+    expect(candidates[0]).toEqual({ provider: "hydra", model: "gpt-4o" });
+    expect(decision?.reasonCode).toBe("preflight_reordered_remote_first");
+    expect(decision?.reordered).toBe(true);
+    expect(decision?.localRoutingEligible).toBe(false);
+  });
+
+  it("promotes a stronger local model ahead of a lightweight local primary on heavy turns", () => {
+    const localChain: ModelCandidate[] = [
+      { provider: "ollama", model: "qwen2.5-coder:7b" },
+      { provider: "ollama", model: "gpt-oss:20b" },
+      { provider: "ollama", model: "gemma4:e4b" },
+      { provider: "hydra", model: "gpt-4o-mini" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: localChain,
+      prompt: "Create a detailed PDF-ready analysis of two reports and explain every mismatch.",
+    });
+    expect(candidates[0]).toEqual({ provider: "hydra", model: "gpt-4o-mini" });
+    expect(decision?.reasonCode).toBe("preflight_reordered_remote_first");
+    expect(decision?.reordered).toBe(true);
+    expect(decision?.localRoutingEligible).toBe(false);
+    expect(decision?.controlPlaneUsed).toBe(false);
+  });
+
+  it("prefers a balanced strong local model over a heavier gpt-oss candidate", () => {
+    const localChain: ModelCandidate[] = [
+      { provider: "ollama", model: "qwen2.5-coder:7b" },
+      { provider: "ollama", model: "gpt-oss:20b" },
+      { provider: "ollama", model: "qwen2.5-coder:14b" },
+      { provider: "hydra", model: "gpt-4o-mini" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: localChain,
+      prompt: "Сделай подробный анализ и подготовь аккуратный итоговый отчет.",
+    });
+    expect(candidates[0]).toEqual({ provider: "ollama", model: "qwen2.5-coder:14b" });
+    expect(decision?.reasonCode).toBe("preflight_reordered_local_strong_first");
+  });
+
+  it("reorders the remote tail toward cheap API fallbacks for local-eligible prompts", () => {
+    const chainWithCheapRemote: ModelCandidate[] = [
+      { provider: "openai", model: "gpt-5.4" },
+      { provider: "ollama", model: "qwen2.5-coder:7b" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "hydra-gpt-mini" },
+      { provider: "hydra", model: "hydra-gpt" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: chainWithCheapRemote,
+      prompt: "Коротко ответь, какие сейчас риски по релизу?",
+    });
+    expect(candidates.map((candidate) => `${candidate.provider}/${candidate.model}`)).toEqual([
+      "ollama/qwen2.5-coder:7b",
+      "hydra/hydra-gpt-mini",
+      "hydra/hydra-gpt",
+      "hydra/gpt-5.4",
+      "openai/gpt-5.4",
+    ]);
+    expect(decision?.reasonCode).toBe("preflight_reordered_local_first");
+    expect(decision?.reordered).toBe(true);
+  });
+
+  it("prefers a chat-oriented local model over a coder-first local primary for casual prompts", () => {
+    const chainWithTwoLocals: ModelCandidate[] = [
+      { provider: "ollama", model: "qwen2.5-coder:7b" },
+      { provider: "ollama", model: "gemma4:e4b" },
+      { provider: "hydra", model: "hydra-gpt-mini" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: chainWithTwoLocals,
+      prompt: "Привет",
+    });
+    expect(candidates.map((candidate) => `${candidate.provider}/${candidate.model}`)).toEqual([
+      "ollama/gemma4:e4b",
+      "ollama/qwen2.5-coder:7b",
+      "hydra/hydra-gpt-mini",
+    ]);
+    expect(decision?.reasonCode).toBe("preflight_reordered_local_first");
+    expect(decision?.localRoutingEligible).toBe(true);
+  });
+
+  it("reorders the remote tail toward code-capable API fallbacks for heavy coding turns", () => {
+    const codeChain: ModelCandidate[] = [
+      { provider: "ollama", model: "qwen2.5-coder:7b" },
+      { provider: "ollama", model: "gemma4:e4b" },
+      { provider: "hydra", model: "hydra-gpt-mini" },
+      { provider: "hydra", model: "gpt-5.3-codex" },
+      { provider: "hydra", model: "claude-sonnet-4.6" },
+      { provider: "hydra", model: "gpt-5.4" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: codeChain,
+      plannerInput: {
+        prompt: "Исправь фейлящий e2e-тест, обнови код и прогоняй релевантные проверки.",
+        intent: "code",
+        requestedTools: ["exec", "apply_patch"],
+      },
+    });
+    expect(candidates.map((candidate) => `${candidate.provider}/${candidate.model}`)).toEqual([
+      "hydra/gpt-5.3-codex",
+      "ollama/qwen2.5-coder:7b",
+      "ollama/gemma4:e4b",
+      "hydra/claude-sonnet-4.6",
+      "hydra/gpt-5.4",
+      "hydra/hydra-gpt-mini",
+    ]);
+    expect(decision?.reasonCode).toBe("preflight_reordered_remote_first");
+    expect(decision?.reordered).toBe(true);
+  });
+
+  it("reorders the remote tail toward strong analytical models when no local candidate exists", () => {
+    const remoteOnlyChain: ModelCandidate[] = [
+      { provider: "hydra", model: "hydra-gpt-mini" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "claude-opus-4.6" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: remoteOnlyChain,
+      prompt: "Сделай подробный анализ архитектурных trade-offs и предложи целевую схему.",
+    });
+    expect(candidates.map((candidate) => `${candidate.provider}/${candidate.model}`)).toEqual([
+      "hydra/claude-opus-4.6",
+      "hydra/gpt-5.4",
+      "hydra/hydra-gpt-mini",
+    ]);
+    expect(decision?.reasonCode).toBe("preflight_stronger_route");
+    expect(decision?.reordered).toBe(true);
+  });
+
+  it("uses Hydra catalog metadata to rank previously unrated cheap remote candidates", () => {
+    const remoteOnlyChain: ModelCandidate[] = [
+      { provider: "hydra", model: "gemini-2.5-pro" },
+      { provider: "hydra", model: "claude-3.5-haiku" },
+      { provider: "hydra", model: "deepseek-v3.1" },
+    ];
+    const catalog: ModelCatalogEntry[] = [
+      {
+        provider: "hydra",
+        id: "gemini-2.5-pro",
+        name: "Gemini 2.5 Pro",
+        type: "vision",
+        active: true,
+        input: ["text", "image"],
+        output: ["text"],
+        cost: { input: 80, output: 320 },
+        status: { successRate: 96, tps: 14, art: 2.8 },
+      },
+      {
+        provider: "hydra",
+        id: "claude-3.5-haiku",
+        name: "Claude 3.5 Haiku",
+        type: "chat",
+        active: true,
+        input: ["text"],
+        output: ["text"],
+        cost: { input: 8, output: 40 },
+        status: { successRate: 93, tps: 18, art: 2.5 },
+      },
+      {
+        provider: "hydra",
+        id: "deepseek-v3.1",
+        name: "DeepSeek V3.1",
+        type: "chat",
+        active: true,
+        input: ["text"],
+        output: ["text"],
+        architecture: "MoE",
+        quantization: "fp8",
+        cost: { input: 3, output: 9 },
+        status: { successRate: 99, tps: 42, art: 1.2 },
+      },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: remoteOnlyChain,
+      prompt: "Коротко ответь, в чем сейчас главный риск релиза?",
+      catalog,
+    });
+    expect(candidates.map((candidate) => `${candidate.provider}/${candidate.model}`)).toEqual([
+      "hydra/deepseek-v3.1",
+      "hydra/claude-3.5-haiku",
+      "hydra/gemini-2.5-pro",
+    ]);
+    expect(decision?.reordered).toBe(true);
+  });
+
+  it("demotes image and embedding Hydra models during code routing when catalog metadata is available", () => {
+    const codeChain: ModelCandidate[] = [
+      { provider: "ollama", model: "gemma4:e4b" },
+      { provider: "hydra", model: "hydra-banana" },
+      { provider: "hydra", model: "text-embedding-3-small" },
+      { provider: "hydra", model: "gpt-5.3-codex" },
+    ];
+    const catalog: ModelCatalogEntry[] = [
+      {
+        provider: "hydra",
+        id: "hydra-banana",
+        name: "Hydra Banana",
+        type: "vision",
+        active: true,
+        input: ["text", "image"],
+        output: ["text", "image"],
+        cost: { request: 1.1 },
+      },
+      {
+        provider: "hydra",
+        id: "text-embedding-3-small",
+        name: "Text Embedding 3 Small",
+        type: "embedding",
+        active: true,
+        input: ["text"],
+        output: ["embed"],
+        cost: { input: 0.75 },
+      },
+      {
+        provider: "hydra",
+        id: "gpt-5.3-codex",
+        name: "GPT-5.3 Codex",
+        type: "vision",
+        active: true,
+        reasoning: true,
+        supportsTools: true,
+        input: ["text", "image"],
+        output: ["text"],
+        cost: { input: 60, output: 560 },
+      },
+    ];
+    const { candidates } = applyModelRoutePreflight({
+      candidates: codeChain,
+      plannerInput: {
+        prompt: "Исправь баг в маршрутизации и запусти релевантные тесты.",
+        intent: "code",
+        requestedTools: ["exec", "apply_patch"],
+      },
+      catalog,
+    });
+    expect(candidates.map((candidate) => `${candidate.provider}/${candidate.model}`)).toEqual([
+      "hydra/gpt-5.3-codex",
+      "ollama/gemma4:e4b",
+      "hydra/hydra-banana",
+      "hydra/text-embedding-3-small",
+    ]);
+  });
+
+  it("prefers a faster tool-capable remote orchestrator over a slow premium model for artifact generation", () => {
+    const artifactChain: ModelCandidate[] = [
+      { provider: "ollama", model: "gemma4:e4b" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "hydra-gpt-pro" },
+      { provider: "hydra", model: "hydra-gpt-mini" },
+    ];
+    const catalog: ModelCatalogEntry[] = [
+      {
+        provider: "hydra",
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        type: "vision",
+        active: true,
+        reasoning: true,
+        supportsTools: true,
+        input: ["text", "image"],
+        output: ["text"],
+        cost: { input: 100, output: 600 },
+        status: { successRate: 100, tps: 20.78, art: 187.05 },
+      },
+      {
+        provider: "hydra",
+        id: "hydra-gpt-pro",
+        name: "Hydra GPT Pro",
+        type: "chat",
+        active: true,
+        reasoning: true,
+        supportsTools: true,
+        input: ["text"],
+        output: ["text"],
+        cost: { input: 40, output: 320 },
+        status: { successRate: 100, tps: 34.42, art: 4.26 },
+      },
+      {
+        provider: "hydra",
+        id: "hydra-gpt-mini",
+        name: "Hydra GPT Mini",
+        type: "chat",
+        active: true,
+        supportsTools: true,
+        input: ["text"],
+        output: ["text"],
+        cost: { input: 8, output: 32 },
+        status: { successRate: 100, tps: 98.71, art: 9.92 },
+      },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: artifactChain,
+      plannerInput: buildExecutionDecisionInput({
+        prompt: "Сделай 3-страничный PDF про жизнь городского кота с иллюстрациями.",
+        intent: "document",
+        artifactKinds: ["document", "image"],
+      }),
+      catalog,
+    });
+    expect(candidates.map((candidate) => `${candidate.provider}/${candidate.model}`)).toEqual([
+      "hydra/hydra-gpt-pro",
+      "ollama/gemma4:e4b",
+      "hydra/gpt-5.4",
+      "hydra/hydra-gpt-mini",
+    ]);
+    expect(decision?.reasonCode).toBe("preflight_reordered_remote_first");
+    expect(decision?.reordered).toBe(true);
+  });
+
+  it("keeps gpt-4o as the default strong general route even when deepseek-r1 has richer catalog metadata", () => {
+    const analyticalChain: ModelCandidate[] = [
+      { provider: "ollama", model: "gemma4:e4b" },
+      { provider: "hydra", model: "deepseek-r1" },
+      { provider: "hydra", model: "gpt-4o" },
+      { provider: "hydra", model: "gpt-5.4" },
+    ];
+    const catalog: ModelCatalogEntry[] = [
+      {
+        provider: "hydra",
+        id: "deepseek-r1",
+        name: "DeepSeek R1",
+        type: "chat",
+        active: true,
+        reasoning: true,
+        supportsTools: true,
+        input: ["text"],
+        output: ["text"],
+        cost: { input: 12, output: 48 },
+        status: { successRate: 99, tps: 68, art: 1.8 },
+      },
+      {
+        provider: "hydra",
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        type: "vision",
+        active: true,
+        reasoning: true,
+        supportsTools: true,
+        input: ["text", "image"],
+        output: ["text"],
+        cost: { input: 100, output: 600 },
+        status: { successRate: 100, tps: 20, art: 180 },
+      },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: analyticalChain,
+      prompt: "Напиши подробный анализ: какие 5 метрик важны для SaaS продукта и почему. С примерами.",
+      catalog,
+    });
+    expect(candidates[0]).toEqual({ provider: "hydra", model: "gpt-4o" });
+    expect(decision?.reasonCode).toBe("preflight_reordered_remote_first");
+    expect(decision?.localRoutingEligible).toBe(false);
+  });
+
+  it("uses structured planner input when a short follow-up prompt lacks the full session context", () => {
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: chain,
+      prompt: "ok, do it",
+      plannerInput: {
+        intent: "code",
+        requestedTools: ["exec", "apply_patch"],
+      },
+    });
+    expect(candidates[0]).toEqual({ provider: "openai", model: "gpt-4.1-mini" });
+    expect(decision?.reasonCode).toBe("preflight_stronger_route");
+    expect(decision?.localRoutingEligible).toBe(false);
+  });
+
+  it("promotes a remote orchestrator first for browser-tool turns", () => {
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: chain,
+      plannerInput: {
+        prompt: "Открой в браузере https://example.com и скажи заголовок страницы.",
+        requestedTools: ["browser"],
+      },
+    });
+
+    expect(candidates[0]?.provider).not.toBe("ollama");
+    expect(decision?.reasonCode).toBe("preflight_reordered_remote_first");
     expect(decision?.localRoutingEligible).toBe(false);
   });
 

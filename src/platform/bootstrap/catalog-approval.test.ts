@@ -17,7 +17,10 @@ describe("catalog approval helpers", () => {
   it("returns canonical entries for approved ids", () => {
     const entry = getApprovedCapabilityCatalogEntry("pdf-renderer");
     expect(entry?.capability.id).toBe("pdf-renderer");
-    expect(entry?.install?.downloadUrl).toContain("openclaw.ai");
+    expect(entry?.install).toMatchObject({
+      method: "node",
+      packageRef: "playwright-core@1.58.2",
+    });
   });
 
   it("matches approved snapshots exactly", () => {

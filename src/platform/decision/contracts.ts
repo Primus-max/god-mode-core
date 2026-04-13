@@ -9,6 +9,8 @@ import { z } from "zod";
 export const PlatformExecutionContextIntentSchema = z.enum([
   "general",
   "document",
+  "compare",
+  "calculation",
   "code",
   "publish",
 ]);
@@ -36,6 +38,14 @@ export type PlatformExecutionContextUnattendedBoundary = z.infer<
   typeof PlatformExecutionContextUnattendedBoundarySchema
 >;
 
+export const PlatformExecutionContextModelRouteTierSchema = z.enum([
+  "local_eligible",
+  "remote_required",
+]);
+export type PlatformExecutionContextModelRouteTier = z.infer<
+  typeof PlatformExecutionContextModelRouteTierSchema
+>;
+
 export const PlatformExecutionContextSnapshotSchema = z
   .object({
     profileId: z.string().min(1),
@@ -43,6 +53,7 @@ export const PlatformExecutionContextSnapshotSchema = z
     taskOverlayId: z.string().min(1).optional(),
     plannerReasoning: z.string().min(1).optional(),
     intent: PlatformExecutionContextIntentSchema.optional(),
+    modelRouteTier: PlatformExecutionContextModelRouteTierSchema.optional(),
     providerOverride: z.string().min(1).optional(),
     modelOverride: z.string().min(1).optional(),
     timeoutSeconds: z.number().positive().optional(),
@@ -76,6 +87,8 @@ export type ModelRoutePreflightDecision = {
     | "preflight_stronger_route"
     | "preflight_primary_control_plane_local"
     | "preflight_no_local_candidate"
+    | "preflight_reordered_remote_first"
+    | "preflight_reordered_local_strong_first"
     | "preflight_reordered_local_first";
   /** Human-readable explanation */
   reason: string;

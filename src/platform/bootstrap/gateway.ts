@@ -2,10 +2,18 @@ import type { GatewayRequestHandler } from "../../gateway/server-methods/types.j
 import { buildRuntimeOperatorDecision } from "../runtime/operator-attribution.js";
 import { BootstrapRequestDecisionSchema, type BootstrapRequestService } from "./index.js";
 
+function refreshBootstrapRequests(service: BootstrapRequestService): void {
+  if (!service.getAuditPath()) {
+    return;
+  }
+  service.rehydrate();
+}
+
 export function createBootstrapListGatewayMethod(
   service: BootstrapRequestService,
 ): GatewayRequestHandler {
   return ({ respond }) => {
+    refreshBootstrapRequests(service);
     respond(true, { requests: service.list(), pendingCount: service.pendingCount() });
   };
 }
@@ -14,6 +22,7 @@ export function createBootstrapGetGatewayMethod(
   service: BootstrapRequestService,
 ): GatewayRequestHandler {
   return ({ params, respond }) => {
+    refreshBootstrapRequests(service);
     const requestId = typeof params.requestId === "string" ? params.requestId.trim() : "";
     if (!requestId) {
       respond(false, { error: "platform.bootstrap.get requires a non-empty requestId" });
@@ -32,6 +41,7 @@ export function createBootstrapResolveGatewayMethod(
   service: BootstrapRequestService,
 ): GatewayRequestHandler {
   return ({ params, client, respond }) => {
+    refreshBootstrapRequests(service);
     const requestId = typeof params.requestId === "string" ? params.requestId.trim() : "";
     if (!requestId) {
       respond(false, { error: "platform.bootstrap.resolve requires a non-empty requestId" });
@@ -61,6 +71,7 @@ export function createBootstrapRunGatewayMethod(
   service: BootstrapRequestService,
 ): GatewayRequestHandler {
   return async ({ params, client, respond }) => {
+    refreshBootstrapRequests(service);
     const requestId = typeof params.requestId === "string" ? params.requestId.trim() : "";
     if (!requestId) {
       respond(false, { error: "platform.bootstrap.run requires a non-empty requestId" });

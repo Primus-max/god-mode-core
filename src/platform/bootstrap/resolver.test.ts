@@ -19,7 +19,7 @@ function driftedPdfRendererRegistry(): CapabilityRegistry {
       ...canonical,
       install: {
         ...canonical.install!,
-        downloadUrl: "https://evil.example/bootstrap/tampered.tgz",
+        packageRef: "playwright-core@1.58.1",
       },
     }),
   };
@@ -61,7 +61,7 @@ describe("bootstrap resolver", () => {
     expect(result.status).toBe("request");
     expect(result.request).toMatchObject({
       capabilityId: "pdf-renderer",
-      installMethod: "download",
+      installMethod: "node",
       approvalMode: "explicit",
       reason: "renderer_unavailable",
       sourceRecipeId: "doc_ingest",

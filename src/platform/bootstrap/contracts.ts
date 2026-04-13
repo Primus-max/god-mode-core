@@ -131,6 +131,7 @@ const BootstrapResumeFollowupRunSnapshotSchema = z
         inputProvenance: z.unknown().optional(),
         extraSystemPrompt: z.string().min(1).optional(),
         enforceFinalTag: z.boolean().optional(),
+        modelRoutePreflightDisabled: z.boolean().optional(),
       })
       .strict(),
   })
@@ -285,6 +286,7 @@ export type BootstrapRequestRecordDetail = BootstrapRequestRecord;
 
 export const BootstrapAuditEventTypeSchema = z.enum([
   "request.created",
+  "request.updated",
   "request.approved",
   "request.denied",
   "request.run_blocked",

@@ -126,24 +126,30 @@ export function resolveSession(opts: {
   const now = Date.now();
 
   const sessionEntry = sessionKey ? sessionStore[sessionKey] : undefined;
+  const requestedSessionId = opts.sessionId?.trim();
+  const shouldDetachFromExistingSession =
+    !!requestedSessionId &&
+    !!sessionEntry?.sessionId &&
+    sessionEntry.sessionId !== requestedSessionId;
+  const effectiveSessionEntry = shouldDetachFromExistingSession ? undefined : sessionEntry;
 
   const resetType = resolveSessionResetType({ sessionKey });
   const channelReset = resolveChannelResetConfig({
     sessionCfg,
-    channel: sessionEntry?.lastChannel ?? sessionEntry?.channel,
+    channel: effectiveSessionEntry?.lastChannel ?? effectiveSessionEntry?.channel,
   });
   const resetPolicy = resolveSessionResetPolicy({
     sessionCfg,
     resetType,
     resetOverride: channelReset,
   });
-  const fresh = sessionEntry
-    ? evaluateSessionFreshness({ updatedAt: sessionEntry.updatedAt, now, policy: resetPolicy })
+  const fresh = effectiveSessionEntry
+    ? evaluateSessionFreshness({ updatedAt: effectiveSessionEntry.updatedAt, now, policy: resetPolicy })
         .fresh
     : false;
   const sessionId =
-    opts.sessionId?.trim() || (fresh ? sessionEntry?.sessionId : undefined) || crypto.randomUUID();
-  const isNewSession = !fresh && !opts.sessionId;
+    requestedSessionId || (fresh ? effectiveSessionEntry?.sessionId : undefined) || crypto.randomUUID();
+  const isNewSession = shouldDetachFromExistingSession || (!fresh && !requestedSessionId);
 
   clearBootstrapSnapshotOnSessionRollover({
     sessionKey,
@@ -151,18 +157,18 @@ export function resolveSession(opts: {
   });
 
   const persistedThinking =
-    fresh && sessionEntry?.thinkingLevel
-      ? normalizeThinkLevel(sessionEntry.thinkingLevel)
+    fresh && effectiveSessionEntry?.thinkingLevel
+      ? normalizeThinkLevel(effectiveSessionEntry.thinkingLevel)
       : undefined;
   const persistedVerbose =
-    fresh && sessionEntry?.verboseLevel
-      ? normalizeVerboseLevel(sessionEntry.verboseLevel)
+    fresh && effectiveSessionEntry?.verboseLevel
+      ? normalizeVerboseLevel(effectiveSessionEntry.verboseLevel)
       : undefined;
 
   return {
     sessionId,
     sessionKey,
-    sessionEntry,
+    sessionEntry: effectiveSessionEntry,
     sessionStore,
     storePath,
     isNewSession,

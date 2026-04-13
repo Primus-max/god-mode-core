@@ -79,6 +79,7 @@ export type EmbeddedPiSubscribeState = {
   successfulCronAdds: number;
   pendingMessagingMediaUrls: Map<string, string[]>;
   pendingToolMediaUrls: string[];
+  toolResultMediaUrls: string[];
   pendingToolAudioAsVoice: boolean;
   deterministicApprovalPromptSent: boolean;
   executionReceipts?: PlatformRuntimeExecutionReceipt[];
@@ -158,6 +159,7 @@ export type ToolHandlerState = Pick<
   | "pendingMessagingTexts"
   | "pendingMessagingMediaUrls"
   | "pendingToolMediaUrls"
+  | "toolResultMediaUrls"
   | "pendingToolAudioAsVoice"
   | "messagingToolSentTexts"
   | "messagingToolSentTextsNormalized"

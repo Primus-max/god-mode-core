@@ -1,0 +1,34 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "C:\\Users\\Tanya\\.openclaw\\workspace-dev",
+      "skipBootstrap": true
+    },
+    "list": [
+      {
+        "id": "dev",
+        "default": true,
+        "workspace": "C:\\Users\\Tanya\\.openclaw\\workspace-dev",
+        "identity": {
+          "name": "C3-PO",
+          "theme": "protocol droid",
+          "emoji": "🤖"
+        }
+      }
+    ]
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "gateway": {
+    "mode": "local",
+    "bind": "loopback"
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.3.22-beta.1",
+    "lastTouchedAt": "2026-04-10T19:05:31.869Z"
+  }
+}

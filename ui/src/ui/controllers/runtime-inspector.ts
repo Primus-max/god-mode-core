@@ -421,6 +421,11 @@ export async function executeRuntimeRecoveryAction(
           requestId: action.requestId,
           decision: action.decision,
         });
+        if (action.decision === "approve") {
+          await state.client.request("platform.bootstrap.run", {
+            requestId: action.requestId,
+          });
+        }
         break;
       case "bootstrap-run":
         await state.client.request("platform.bootstrap.run", {

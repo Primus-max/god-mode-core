@@ -132,6 +132,37 @@ describe("platform runtime checkpoint service", () => {
     ]);
   });
 
+  it("includes execution context in checkpoint summaries", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    service.createCheckpoint({
+      id: "checkpoint-execution-context",
+      runId: "run-execution-context",
+      sessionKey: "session-execution-context",
+      boundary: "bootstrap",
+      blockedReason: "table parser review pending",
+      executionContext: {
+        profileId: "builder",
+        recipeId: "table_extract",
+        providerOverride: "ollama",
+        modelOverride: "qwen2.5-coder:7b",
+        modelRouteTier: "local_eligible",
+        fallbackModels: ["hydra/gpt-4o-mini"],
+        requiredCapabilities: ["table-parser"],
+      },
+    });
+
+    expect(service.list({ runId: "run-execution-context" })).toEqual([
+      expect.objectContaining({
+        id: "checkpoint-execution-context",
+        executionContext: expect.objectContaining({
+          profileId: "builder",
+          recipeId: "table_extract",
+          modelRouteTier: "local_eligible",
+        }),
+      }),
+    ]);
+  });
+
   it("persists action ledger entries and includes them in run outcomes", () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-actions-"));
     tempDirs.push(stateDir);
@@ -189,6 +220,43 @@ describe("platform runtime checkpoint service", () => {
     );
   });
 
+  it("preserves run correlation when re-staging an existing action without run metadata", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    service.stageAction({
+      actionId: "action-preserve-run",
+      runId: "run-preserve",
+      sessionKey: "session-preserve",
+      kind: "messaging_delivery",
+      target: {
+        operation: "deliver",
+      },
+    });
+    service.markActionFailed("action-preserve-run", {
+      lastError: "temporary network failure",
+      retryable: true,
+    });
+
+    service.stageAction({
+      actionId: "action-preserve-run",
+      kind: "messaging_delivery",
+      target: {
+        operation: "deliver",
+      },
+    });
+
+    expect(service.getAction("action-preserve-run")).toEqual(
+      expect.objectContaining({
+        runId: "run-preserve",
+        sessionKey: "session-preserve",
+      }),
+    );
+    expect(service.buildRunOutcome("run-preserve")).toEqual(
+      expect.objectContaining({
+        actionIds: ["action-preserve-run"],
+      }),
+    );
+  });
+
   it("builds verified execution receipts from structured runtime actions", () => {
     const service = createPlatformRuntimeCheckpointService();
     service.stageAction({
@@ -230,6 +298,46 @@ describe("platform runtime checkpoint service", () => {
     ]);
   });
 
+  it("builds verified capability receipts from completed bootstrap checkpoints", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const checkpoint = service.createCheckpoint({
+      id: "bootstrap-checkpoint-only",
+      runId: "run-bootstrap-checkpoint",
+      boundary: "bootstrap",
+      target: {
+        bootstrapRequestId: "bootstrap-checkpoint-request",
+        operation: "bootstrap.run",
+      },
+      executionContext: {
+        profileId: "builder",
+        recipeId: "doc_ingest",
+        bootstrapRequiredCapabilities: ["pdf-renderer"],
+      },
+    });
+    service.updateCheckpoint(checkpoint.id, {
+      status: "completed",
+    });
+
+    expect(
+      service.buildExecutionReceipts({
+        runId: "run-bootstrap-checkpoint",
+        outcome: service.buildRunOutcome("run-bootstrap-checkpoint"),
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        kind: "capability",
+        name: "bootstrap.run",
+        status: "success",
+        proof: "verified",
+        metadata: expect.objectContaining({
+          checkpointId: "bootstrap-checkpoint-only",
+          bootstrapRequestId: "bootstrap-checkpoint-request",
+          capabilityId: "pdf-renderer",
+        }),
+      }),
+    ]);
+  });
+
   it("evaluates acceptance outcomes from runtime evidence", () => {
     const service = createPlatformRuntimeCheckpointService();
     const accepted = service.evaluateAcceptance({
@@ -255,6 +363,37 @@ describe("platform runtime checkpoint service", () => {
       },
     });
     expect(accepted).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+        remediation: "none",
+        reasonCode: "completed_with_output",
+      }),
+    );
+
+    const bootstrapPaused = service.evaluateAcceptance({
+      runId: "run-bootstrap-paused",
+      outcome: {
+        runId: "run-bootstrap-paused",
+        status: "completed",
+        checkpointIds: ["bootstrap-checkpoint"],
+        blockedCheckpointIds: [],
+        completedCheckpointIds: ["bootstrap-checkpoint"],
+        deniedCheckpointIds: [],
+        pendingApprovalIds: [],
+        artifactIds: [],
+        bootstrapRequestIds: ["bootstrap-request-1"],
+        actionIds: [],
+        attemptedActionIds: [],
+        confirmedActionIds: [],
+        failedActionIds: [],
+        boundaries: ["bootstrap"],
+      },
+      evidence: {
+        hasOutput: true,
+      },
+    });
+    expect(bootstrapPaused).toEqual(
       expect.objectContaining({
         status: "satisfied",
         action: "close",
@@ -523,6 +662,99 @@ describe("platform runtime checkpoint service", () => {
     );
   });
 
+  it("accepts text-confirmed output for physical artifact requests", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-structured-artifact-required",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: ["messaging:artifact-delivery"],
+      attemptedActionIds: [],
+      confirmedActionIds: ["messaging:artifact-delivery"],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const contract = service.buildExecutionContract({
+      runId: "run-structured-artifact-required",
+      outcome,
+      receipts: [
+        {
+          kind: "messaging_delivery",
+          name: "delivery.telegram",
+          status: "success",
+          proof: "verified",
+          summary: "runtime action confirmed",
+        },
+      ],
+      executionIntent: {
+        recipeId: "doc_ingest",
+        intent: "document",
+        artifactKinds: ["document"],
+      },
+      evidence: {
+        hasOutput: true,
+        hasStructuredReplyPayload: false,
+        stagedReplyCount: 1,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+      },
+    });
+    const verification = service.verifyExecutionContract({
+      contract,
+      outcome,
+      evidence: {
+        hasOutput: true,
+        hasStructuredReplyPayload: false,
+        stagedReplyCount: 1,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+        declaredIntent: "document",
+        declaredRecipeId: "doc_ingest",
+        declaredArtifactKinds: ["document"],
+      },
+    });
+    expect(verification.status).toBe("verified");
+    expect(verification.reasons.join(" ")).not.toContain("expected output");
+
+    const evidence = service.buildAcceptanceEvidence({
+      outcome,
+      evidence: {
+        hasOutput: true,
+        hasStructuredReplyPayload: false,
+        stagedReplyCount: 1,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+      },
+      executionIntent: {
+        runId: "run-structured-artifact-required",
+        recipeId: "doc_ingest",
+        intent: "document",
+        artifactKinds: ["document"],
+        expectations: {},
+      },
+      executionVerification: verification,
+    });
+    const acceptance = service.evaluateAcceptance({
+      runId: "run-structured-artifact-required",
+      outcome,
+      evidence,
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+        remediation: "none",
+        reasonCode: "completed_with_confirmed_delivery",
+      }),
+    );
+  });
+
   it("does not close non-messaging runs without a verified structured receipt", () => {
     const service = createPlatformRuntimeCheckpointService();
     const outcome: PlatformRuntimeRunOutcome = {
@@ -591,6 +823,336 @@ describe("platform runtime checkpoint service", () => {
         action: "retry",
         remediation: "semantic_retry",
         reasonCode: "contract_mismatch",
+      }),
+    );
+  });
+
+  it("treats successful pdf and image tool receipts as output evidence for structured media runs", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-structured-media-tools",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const contract = service.buildExecutionContract({
+      runId: "run-structured-media-tools",
+      outcome,
+      receipts: [
+        {
+          kind: "messaging_delivery",
+          name: "delivery.telegram",
+          status: "success",
+          proof: "verified",
+          summary: "confirmed by reply dispatcher",
+        },
+        {
+          kind: "tool",
+          name: "image_generate",
+          status: "success",
+          proof: "reported",
+        },
+        {
+          kind: "tool",
+          name: "pdf",
+          status: "success",
+          proof: "reported",
+        },
+      ],
+      executionIntent: {
+        recipeId: "media_production",
+        intent: "document",
+        artifactKinds: ["image", "document"],
+      },
+      evidence: {
+        hasOutput: false,
+        hasStructuredReplyPayload: false,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+      },
+    });
+    const verification = service.verifyExecutionContract({
+      contract,
+      outcome,
+      evidence: {
+        hasOutput: false,
+        hasStructuredReplyPayload: false,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+        declaredIntent: "document",
+        declaredRecipeId: "media_production",
+        declaredArtifactKinds: ["image", "document"],
+      },
+    });
+    expect(verification.status).toBe("verified");
+    expect(verification.reasons.join(" ")).not.toContain("expected output");
+
+    const evidence = service.buildAcceptanceEvidence({
+      outcome,
+      evidence: {
+        hasOutput: false,
+        hasStructuredReplyPayload: false,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+      },
+      executionIntent: {
+        runId: "run-structured-media-tools",
+        recipeId: "media_production",
+        intent: "document",
+        artifactKinds: ["image", "document"],
+        expectations: {},
+      },
+      executionVerification: verification,
+    });
+    expect(evidence.hasOutput).toBe(true);
+
+    const acceptance = service.evaluateAcceptance({
+      runId: "run-structured-media-tools",
+      outcome,
+      evidence,
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+        remediation: "none",
+      }),
+    );
+  });
+
+  it("treats exec/write tool receipts as output evidence for structured site runs", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-structured-site-tools",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const contract = service.buildExecutionContract({
+      runId: "run-structured-site-tools",
+      outcome,
+      receipts: [
+        {
+          kind: "messaging_delivery",
+          name: "delivery.telegram",
+          status: "success",
+          proof: "verified",
+          summary: "confirmed by reply dispatcher",
+        },
+        {
+          kind: "tool",
+          name: "exec",
+          status: "success",
+          proof: "reported",
+        },
+      ],
+      executionIntent: {
+        recipeId: "code_build_publish",
+        intent: "code",
+        artifactKinds: ["site"],
+      },
+      evidence: {
+        hasOutput: false,
+        hasStructuredReplyPayload: false,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+      },
+    });
+    const verification = service.verifyExecutionContract({
+      contract,
+      outcome,
+      evidence: {
+        hasOutput: false,
+        hasStructuredReplyPayload: false,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+        declaredIntent: "code",
+        declaredRecipeId: "code_build_publish",
+        declaredArtifactKinds: ["site"],
+      },
+    });
+    expect(verification.status).toBe("verified");
+    expect(verification.reasons.join(" ")).not.toContain("expected output");
+  });
+
+  it("propagates intent-aware artifact evidence through buildRunClosure", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const closure = service.buildRunClosure({
+      runId: "run-closure-structured-media",
+      outcome: {
+        runId: "run-closure-structured-media",
+        status: "completed",
+        checkpointIds: [],
+        blockedCheckpointIds: [],
+        completedCheckpointIds: [],
+        deniedCheckpointIds: [],
+        pendingApprovalIds: [],
+        artifactIds: [],
+        bootstrapRequestIds: [],
+        actionIds: [],
+        attemptedActionIds: [],
+        confirmedActionIds: [],
+        failedActionIds: [],
+        boundaries: [],
+      },
+      receipts: [
+        {
+          kind: "messaging_delivery",
+          name: "delivery.telegram",
+          status: "success",
+          proof: "verified",
+          summary: "confirmed by reply dispatcher",
+        },
+        {
+          kind: "tool",
+          name: "image_generate",
+          status: "success",
+          proof: "reported",
+        },
+        {
+          kind: "tool",
+          name: "pdf",
+          status: "success",
+          proof: "reported",
+        },
+      ],
+      executionIntent: {
+        recipeId: "media_production",
+        intent: "document",
+        artifactKinds: ["image", "document"],
+      },
+      evidence: {
+        hasOutput: false,
+        hasStructuredReplyPayload: false,
+        deliveredReplyCount: 1,
+        confirmedDeliveryCount: 1,
+      },
+    });
+
+    expect(closure.executionVerification).toEqual(
+      expect.objectContaining({
+        status: "verified",
+      }),
+    );
+    expect(closure.acceptanceOutcome).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+        remediation: "none",
+      }),
+    );
+  });
+
+  it("does not treat completed bootstrap history as an active bootstrap requirement", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const acceptance = service.evaluateAcceptance({
+      runId: "run-completed-bootstrap-history",
+      outcome: {
+        runId: "run-completed-bootstrap-history",
+        status: "completed",
+        checkpointIds: ["bootstrap-origin:1:run-completed-bootstrap-history"],
+        blockedCheckpointIds: [],
+        completedCheckpointIds: ["bootstrap-origin:1:run-completed-bootstrap-history"],
+        deniedCheckpointIds: [],
+        pendingApprovalIds: [],
+        artifactIds: [],
+        bootstrapRequestIds: ["bootstrap-request-1"],
+        actionIds: [],
+        attemptedActionIds: [],
+        confirmedActionIds: [],
+        failedActionIds: [],
+        boundaries: ["bootstrap"],
+      },
+      evidence: {
+        hasOutput: true,
+        confirmedDeliveryCount: 1,
+        deliveredReplyCount: 1,
+        verifiedExecution: true,
+        verifiedExecutionReceiptCount: 2,
+        executionContractMismatch: false,
+        executionSurfaceStatus: "ready",
+        declaredIntent: "document",
+        declaredArtifactKinds: ["document"],
+      },
+    });
+
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+      }),
+    );
+    expect(acceptance.reasonCode).not.toBe("bootstrap_required");
+  });
+
+  it("ignores superseded failed receipts when the same tool later succeeds", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-superseded-failure",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const verification = service.verifyExecutionContract({
+      contract: {
+        runId: "run-superseded-failure",
+        receipts: [
+          {
+            kind: "tool",
+            name: "image_generate",
+            status: "failed",
+            proof: "reported",
+            reasons: ["provider fallback failed"],
+          },
+          {
+            kind: "tool",
+            name: "image_generate",
+            status: "success",
+            proof: "reported",
+          },
+        ],
+        expectations: {
+          requiresOutput: true,
+        },
+      },
+      outcome,
+      evidence: {
+        hasOutput: true,
+      },
+    });
+    expect(verification).toEqual(
+      expect.objectContaining({
+        status: "verified",
       }),
     );
   });

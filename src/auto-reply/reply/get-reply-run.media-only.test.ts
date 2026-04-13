@@ -126,6 +126,7 @@ function baseParams(
     command: {
       isAuthorizedSender: true,
       abortKey: "session-key",
+      commandBodyNormalized: "",
       ownerList: [],
       senderIsOwner: false,
     } as never,
@@ -196,6 +197,24 @@ describe("runPreparedReply media-only handling", () => {
     expect(call?.followupRun.prompt).toContain("Earlier message in this thread");
   });
 
+  it("disables route preflight immediately for explicit model directives", async () => {
+    const result = await runPreparedReply(
+      baseParams({
+        directives: {
+          hasThinkDirective: false,
+          thinkLevel: undefined,
+          hasModelDirective: true,
+          rawModelDirective: "hydra/gpt-4o",
+        } as never,
+      }),
+    );
+    expect(result).toEqual({ text: "ok" });
+
+    const call = vi.mocked(runReplyAgent).mock.calls[0]?.[0];
+    expect(call).toBeTruthy();
+    expect(call?.followupRun.run.modelRoutePreflightDisabled).toBe(true);
+  });
+
   it("returns the empty-body reply when there is no text and no media", async () => {
     const result = await runPreparedReply(
       baseParams({
@@ -250,6 +269,7 @@ describe("runPreparedReply media-only handling", () => {
         command: {
           isAuthorizedSender: true,
           abortKey: "session-key",
+          commandBodyNormalized: "",
           ownerList: [],
           senderIsOwner: false,
           channel: "webchat",

@@ -30,7 +30,7 @@ import {
   markClosureRecoveryCheckpointFailed,
   reevaluateMessagingDecisionForMessagingRun,
 } from "./agent-runner-helpers.js";
-import { resolvePlatformExecutionContextForTemplateRun } from "./agent-runner-utils.js";
+import { resolveRoutingSnapshotForTemplateRun } from "./agent-runner-utils.js";
 import {
   resolveOriginAccountId,
   resolveOriginMessageProvider,
@@ -221,13 +221,15 @@ export function createFollowupRunner(params: {
         Provider: queued.run.messageProvider,
         Surface: queued.originatingChannel ?? queued.run.messageProvider,
       } as const;
-      const platformExecutionContext = resolvePlatformExecutionContextForTemplateRun({
+      const routingSnapshot = resolveRoutingSnapshotForTemplateRun({
         prompt: queued.prompt,
         run: queued.run,
         sessionCtx: syntheticSessionCtx,
         storePath,
         sessionEntry: activeSessionEntry,
       });
+      const platformExecutionContext = routingSnapshot.runtimePlan;
+      const preflightPlannerInput = routingSnapshot.plannerInput;
       const shouldSurfaceToControlUi = isInternalMessageChannel(
         resolveOriginMessageProvider({
           originatingChannel: queued.originatingChannel,
@@ -298,6 +300,11 @@ export function createFollowupRunner(params: {
           runId,
           agentDir: queued.run.agentDir,
           preflightPrompt: queued.prompt,
+          preflightPlannerInput,
+          ...(queued.run.modelRoutePreflightDisabled === true ||
+          process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1"
+            ? { skipRoutePreflight: true as const }
+            : {}),
           fallbacksOverride: resolveRunModelFallbacksOverride({
             cfg: queued.run.config,
             agentId: queued.run.agentId,
@@ -522,6 +529,7 @@ export function createFollowupRunner(params: {
         const closureDecision = reevaluateMessagingDecisionForMessagingRun({
           runResult,
           replyPayloads: finalPayloads,
+          runPayloadsForEvidence: payloadArray,
           sourceRun: queued,
           recoveryAttemptCount: queued.automation?.retryCount ?? 0,
         });

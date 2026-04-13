@@ -15,7 +15,11 @@ import {
   type BootstrapRequest,
   type BootstrapSourceDomain,
 } from "../../platform/bootstrap/index.js";
-import type { PlatformExecutionContextSnapshot } from "../../platform/decision/contracts.js";
+import type {
+  PlatformExecutionContextModelRouteTier,
+  PlatformExecutionContextSnapshot,
+} from "../../platform/decision/contracts.js";
+import { inferLocalRoutingEligibleFromPlannerInput } from "../../platform/decision/route-preflight.js";
 import { createCapabilityRegistry } from "../../platform/registry/capability-registry.js";
 import {
   getPlatformRuntimeCheckpointService,
@@ -118,6 +122,7 @@ const FollowupRunSnapshotSchema = z
         inputProvenance: z.unknown().optional(),
         extraSystemPrompt: z.string().min(1).optional(),
         enforceFinalTag: z.boolean().optional(),
+        modelRoutePreflightDisabled: z.boolean().optional(),
       })
       .strict(),
   })
@@ -203,6 +208,90 @@ function buildClosureRecoveryContinuationPayload(params: {
     settings: params.settings,
     sourceRun: params.sourceRun,
   }) as ClosureRecoveryContinuationPayload;
+}
+
+function buildBootstrapBlockedRunResume(params: {
+  blockedRunId: string;
+  queueKey?: string;
+  settings?: QueueSettings;
+  sourceRun?: FollowupRun;
+}) {
+  const queueKey = params.queueKey?.trim();
+  if (!queueKey || !params.settings || !params.sourceRun) {
+    return undefined;
+  }
+  const sourceRun = params.sourceRun;
+  return BootstrapBlockedRunResumeSchema.parse({
+    blockedRunId: params.blockedRunId,
+    sessionKey: sourceRun.run.sessionKey,
+    queueKey,
+    settings: params.settings,
+    sourceRun: {
+      prompt: sourceRun.prompt,
+      ...(sourceRun.messageId ? { messageId: sourceRun.messageId } : {}),
+      ...(sourceRun.summaryLine ? { summaryLine: sourceRun.summaryLine } : {}),
+      enqueuedAt: sourceRun.enqueuedAt,
+      ...(sourceRun.requestRunId ? { requestRunId: sourceRun.requestRunId } : {}),
+      ...(sourceRun.parentRunId ? { parentRunId: sourceRun.parentRunId } : {}),
+      ...(sourceRun.automation ? { automation: sourceRun.automation } : {}),
+      ...(sourceRun.originatingChannel ? { originatingChannel: sourceRun.originatingChannel } : {}),
+      ...(sourceRun.originatingTo ? { originatingTo: sourceRun.originatingTo } : {}),
+      ...(sourceRun.originatingAccountId
+        ? { originatingAccountId: sourceRun.originatingAccountId }
+        : {}),
+      ...(sourceRun.originatingThreadId !== undefined
+        ? { originatingThreadId: sourceRun.originatingThreadId }
+        : {}),
+      ...(sourceRun.originatingChatType ? { originatingChatType: sourceRun.originatingChatType } : {}),
+      run: {
+        agentId: sourceRun.run.agentId,
+        agentDir: sourceRun.run.agentDir,
+        sessionId: sourceRun.run.sessionId,
+        ...(sourceRun.run.sessionKey ? { sessionKey: sourceRun.run.sessionKey } : {}),
+        ...(sourceRun.run.messageProvider ? { messageProvider: sourceRun.run.messageProvider } : {}),
+        ...(sourceRun.run.agentAccountId ? { agentAccountId: sourceRun.run.agentAccountId } : {}),
+        ...(sourceRun.run.groupId ? { groupId: sourceRun.run.groupId } : {}),
+        ...(sourceRun.run.groupChannel ? { groupChannel: sourceRun.run.groupChannel } : {}),
+        ...(sourceRun.run.groupSpace ? { groupSpace: sourceRun.run.groupSpace } : {}),
+        ...(sourceRun.run.senderId ? { senderId: sourceRun.run.senderId } : {}),
+        ...(sourceRun.run.senderName ? { senderName: sourceRun.run.senderName } : {}),
+        ...(sourceRun.run.senderUsername ? { senderUsername: sourceRun.run.senderUsername } : {}),
+        ...(sourceRun.run.senderE164 ? { senderE164: sourceRun.run.senderE164 } : {}),
+        ...(sourceRun.run.senderIsOwner !== undefined
+          ? { senderIsOwner: sourceRun.run.senderIsOwner }
+          : {}),
+        sessionFile: sourceRun.run.sessionFile,
+        workspaceDir: sourceRun.run.workspaceDir,
+        config: sourceRun.run.config,
+        ...(sourceRun.run.skillsSnapshot ? { skillsSnapshot: sourceRun.run.skillsSnapshot } : {}),
+        provider: sourceRun.run.provider,
+        model: sourceRun.run.model,
+        ...(sourceRun.run.authProfileId ? { authProfileId: sourceRun.run.authProfileId } : {}),
+        ...(sourceRun.run.authProfileIdSource
+          ? { authProfileIdSource: sourceRun.run.authProfileIdSource }
+          : {}),
+        ...(sourceRun.run.thinkLevel ? { thinkLevel: sourceRun.run.thinkLevel } : {}),
+        ...(sourceRun.run.verboseLevel ? { verboseLevel: sourceRun.run.verboseLevel } : {}),
+        ...(sourceRun.run.reasoningLevel ? { reasoningLevel: sourceRun.run.reasoningLevel } : {}),
+        ...(sourceRun.run.elevatedLevel ? { elevatedLevel: sourceRun.run.elevatedLevel } : {}),
+        ...(sourceRun.run.execOverrides ? { execOverrides: sourceRun.run.execOverrides } : {}),
+        ...(sourceRun.run.bashElevated ? { bashElevated: sourceRun.run.bashElevated } : {}),
+        timeoutMs: sourceRun.run.timeoutMs,
+        blockReplyBreak: sourceRun.run.blockReplyBreak,
+        ...(sourceRun.run.ownerNumbers ? { ownerNumbers: sourceRun.run.ownerNumbers } : {}),
+        ...(sourceRun.run.inputProvenance ? { inputProvenance: sourceRun.run.inputProvenance } : {}),
+        ...(sourceRun.run.extraSystemPrompt
+          ? { extraSystemPrompt: sourceRun.run.extraSystemPrompt }
+          : {}),
+        ...(sourceRun.run.enforceFinalTag !== undefined
+          ? { enforceFinalTag: sourceRun.run.enforceFinalTag }
+          : {}),
+        ...(sourceRun.run.modelRoutePreflightDisabled !== undefined
+          ? { modelRoutePreflightDisabled: sourceRun.run.modelRoutePreflightDisabled }
+          : {}),
+      },
+    },
+  });
 }
 
 function parseClosureRecoveryContinuationPayload(
@@ -434,13 +523,34 @@ function resolveBootstrapReason(intent?: PlatformRuntimeExecutionIntent): Bootst
 function resolveBootstrapSourceDomain(
   intent?: PlatformRuntimeExecutionIntent,
 ): BootstrapSourceDomain {
-  if (intent?.intent === "document") {
+  if (
+    intent?.intent === "document" ||
+    intent?.intent === "compare" ||
+    intent?.intent === "calculation"
+  ) {
     return "document";
   }
   if (intent?.intent === "code") {
     return "developer";
   }
   return "platform";
+}
+
+/**
+ * Maps runtime execution intent to a bootstrap UI / telemetry tier aligned with route-preflight heuristics.
+ * @param intent - Active platform runtime execution intent (profile/recipe must be present for snapshots).
+ * @returns Whether the turn is treated as local-first eligible vs requiring a stronger remote route.
+ */
+function resolveModelRouteTierFromIntent(
+  intent: PlatformRuntimeExecutionIntent,
+): PlatformExecutionContextModelRouteTier {
+  const localEligible = inferLocalRoutingEligibleFromPlannerInput({
+    intent: intent.intent,
+    requestedTools: intent.requestedToolNames,
+    fileNames: [],
+    artifactKinds: intent.artifactKinds,
+  });
+  return localEligible ? "local_eligible" : "remote_required";
 }
 
 function buildBootstrapExecutionContext(params: {
@@ -454,6 +564,7 @@ function buildBootstrapExecutionContext(params: {
   return {
     profileId: intent.profileId,
     recipeId: intent.recipeId,
+    modelRouteTier: resolveModelRouteTierFromIntent(intent),
     ...(intent.taskOverlayId ? { taskOverlayId: intent.taskOverlayId } : {}),
     ...(intent.plannerReasoning ? { plannerReasoning: intent.plannerReasoning } : {}),
     ...(intent.intent ? { intent: intent.intent } : {}),
@@ -597,28 +708,36 @@ function ensureBootstrapRequests(params: {
   settings?: QueueSettings;
 }): string[] {
   const outcome = resolveDecisionOutcome(params.decision);
-  if ((outcome?.bootstrapRequestIds.length ?? 0) > 0) {
-    return outcome?.bootstrapRequestIds ?? [];
-  }
+  const existingRequestIds = outcome?.bootstrapRequestIds ?? [];
   const capabilityIds = Array.from(
     new Set(params.executionIntent?.bootstrapRequiredCapabilities ?? []),
   );
-  if (capabilityIds.length === 0) {
-    return [];
-  }
-
   const queueKey = params.queueKey?.trim();
-  const resumeCandidate =
-    capabilityIds.length === 1 && queueKey && params.sourceRun && params.settings
-      ? BootstrapBlockedRunResumeSchema.safeParse({
+  const blockedRunResume =
+    (capabilityIds.length === 1 || existingRequestIds.length === 1) && queueKey
+      ? buildBootstrapBlockedRunResume({
           blockedRunId: params.decision.runId,
-          sessionKey: params.sourceRun.run.sessionKey,
           queueKey,
           settings: params.settings,
           sourceRun: params.sourceRun,
         })
       : undefined;
-  const blockedRunResume = resumeCandidate?.success ? resumeCandidate.data : undefined;
+  if (existingRequestIds.length > 0) {
+    if (blockedRunResume) {
+      const service = getPlatformBootstrapService();
+      for (const requestId of existingRequestIds) {
+        const existing = service.get(requestId);
+        if (!existing || existing.request.blockedRunResume) {
+          continue;
+        }
+        service.attachBlockedRunResume(requestId, blockedRunResume);
+      }
+    }
+    return existingRequestIds;
+  }
+  if (capabilityIds.length === 0) {
+    return [];
+  }
 
   const registry = createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
   const resolutions = resolveBootstrapRequests({

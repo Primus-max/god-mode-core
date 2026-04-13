@@ -1,0 +1,91 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "C:\\Users\\Tanya\\.openclaw\\workspace-dev",
+      "skipBootstrap": true,
+      "model": {
+        "primary": "ollama/gemma4:e4b",
+        "fallbacks": [
+          "ollama/gpt-oss:20b",
+          "hydra/hydra-gpt-mini",
+          "hydra/hydra-gpt",
+          "hydra/deepseek-v3.2",
+          "hydra/gpt-5-mini",
+          "hydra/grok-code-fast-1",
+          "hydra/gpt-5.3-codex",
+          "hydra/qwen-3-coder-480b",
+          "hydra/claude-sonnet-4.6",
+          "hydra/hydra-gpt-pro",
+          "hydra/gpt-4o",
+          "hydra/deepseek-r1",
+          "hydra/gemini-2.5-pro",
+          "hydra/gpt-5.4",
+          "hydra/grok-4",
+          "hydra/claude-opus-4.6"
+        ]
+      },
+      "imageModel": {
+        "primary": "hydra/hydra-banana",
+        "fallbacks": [
+          "hydra/hydra-banana-pro"
+        ]
+      }
+    },
+    "list": [
+      {
+        "id": "dev",
+        "default": true,
+        "workspace": "C:\\Users\\Tanya\\.openclaw\\workspace-dev",
+        "identity": {
+          "name": "C3-PO",
+          "theme": "protocol droid",
+          "emoji": "🤖"
+        }
+      }
+    ]
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "diagnostics": {
+    "enabled": true
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "pairing",
+      "groupPolicy": "open",
+      "streaming": "partial",
+      "proxy": "http://72.56.28.130:3128"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "telegram": {
+        "enabled": true
+      },
+      "openai": {
+        "enabled": true
+      },
+      "ollama": {
+        "enabled": true
+      }
+    }
+  },
+  "gateway": {
+    "port": 19044,
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "stage86-telegram-live23-token"
+    }
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.3.22-beta.1",
+    "lastTouchedAt": "2026-04-10T19:03:18.320Z"
+  }
+}

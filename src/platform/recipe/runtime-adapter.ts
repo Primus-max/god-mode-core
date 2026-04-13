@@ -22,7 +22,7 @@ import {
 import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 import type { ArtifactKind } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
-import type { RecipePlannerInput } from "./planner.js";
+import type { RecipePlannerInput, RecipeRoutingHints } from "./planner.js";
 import { planExecutionRecipe, type ExecutionPlan } from "./planner.js";
 
 export type RecipeRuntimePlan = {
@@ -30,12 +30,13 @@ export type RecipeRuntimePlan = {
   selectedProfileId: ProfileId;
   taskOverlayId?: string;
   plannerReasoning?: string;
-  intent?: PolicyContext["intent"];
+  intent?: RecipePlannerInput["intent"];
+  routing?: RecipeRoutingHints;
   providerOverride?: string;
   modelOverride?: string;
   fallbackModels?: string[];
   timeoutSeconds?: number;
-  artifactKinds?: string[];
+  artifactKinds?: ArtifactKind[];
   requestedToolNames?: string[];
   publishTargets?: string[];
   requiredCapabilities?: string[];
@@ -64,6 +65,18 @@ export type PlatformCapabilitySummary = {
   requirements: PlatformCapabilityRequirement[];
   bootstrapResolutions: BootstrapResolution[];
 };
+
+const STRUCTURED_OUTPUT_ARTIFACT_KINDS = new Set<ArtifactKind>([
+  "document",
+  "estimate",
+  "site",
+  "release",
+  "binary",
+  "video",
+  "image",
+  "audio",
+  "archive",
+]);
 
 export type ResolvedPlatformExecutionDecision = ExecutionPlan & {
   runtime: RecipeRuntimePlan;
@@ -95,6 +108,21 @@ export type PlatformExecutionReadiness = {
   unattendedBoundary?: PlatformExecutionContextUnattendedBoundary;
 };
 
+function normalizePlannerIntentForPolicy(
+  intent: RecipePlannerInput["intent"] | undefined,
+): PolicyContext["intent"] | undefined {
+  if (intent === "compare" || intent === "calculation") {
+    return "document";
+  }
+  return intent;
+}
+
+function normalizePlannerIntentForBootstrapSourceDomain(
+  intent: RecipePlannerInput["intent"] | undefined,
+): PolicyContext["intent"] | undefined {
+  return normalizePlannerIntentForPolicy(intent);
+}
+
 export function buildExecutionSurfaceSnapshot(params: {
   readiness: PlatformExecutionReadiness;
   capabilitySummary: PlatformCapabilitySummary;
@@ -123,9 +151,71 @@ export function buildExecutionSurfaceSnapshot(params: {
   });
 }
 
+/**
+ * Returns execution-time guardrails for artifact requests that must not degrade
+ * into a plain status message.
+ *
+ * @param {ArtifactKind[] | undefined} artifactKinds - Requested artifact kinds from planner input.
+ * @returns {string | undefined} Extra system guidance when the run must emit a tangible artifact.
+ */
+function buildArtifactOutputGuardrails(artifactKinds?: ArtifactKind[]): string | undefined {
+  if (!artifactKinds?.some((kind) => STRUCTURED_OUTPUT_ARTIFACT_KINDS.has(kind))) {
+    return undefined;
+  }
+  const lines = [
+    "Artifact contract: do not claim completion without producing a real artifact or attachment.",
+    "When a file-like deliverable is requested, use the appropriate tool and return the actual deliverable instead of a text-only status update.",
+  ];
+  if (artifactKinds?.includes("site")) {
+    lines.push(
+      "Site / web UI contract: when the user asks for a website, SPA, or local preview, you must call `write` and/or `exec` (install, build, or dev server as needed) before your final reply. Do not answer with only a plan, apology, or a localhost URL unless tools ran and project files were updated in this turn.",
+    );
+  }
+  return lines.join(" ");
+}
+
+function buildRequestedToolGuardrails(requestedToolNames?: string[]): string | undefined {
+  if (!requestedToolNames?.length) {
+    return undefined;
+  }
+  const toolSet = new Set(requestedToolNames.map((tool) => tool.trim().toLowerCase()));
+  const guardrails: string[] = [];
+  if (toolSet.has("image_generate")) {
+    guardrails.push(
+      "Image artifact contract: when the user asks you to generate or edit an image, you must call image_generate before your first final answer and return the actual generated image instead of a text-only description, acknowledgement, or brainstorm.",
+    );
+  }
+  if (toolSet.has("pdf")) {
+    guardrails.push(
+      "PDF artifact contract: when the user asks for a PDF or slide-style document from prompt text, you must use the pdf tool before your first final answer to create the deliverable instead of replying with instructions, an acknowledgement, or a plan. For prompt-only PDF generation, pass the requested document content in the pdf tool's `prompt` argument and include `filename` when the user implies a saved file. Do not call `pdf` with an empty object for a prompt-only PDF task. Do not fake PDF output, manually write PDF bytes, or bypass the pdf tool with write/exec when the task requires a real PDF deliverable.",
+    );
+  }
+  return guardrails.length > 0 ? guardrails.join(" ") : undefined;
+}
+
+/**
+ * Keeps reply language aligned with the user's latest turn so lightweight local
+ * models do not drift into an unrelated language on simple chat requests.
+ *
+ * @returns {string} Stable language-continuity instruction for the system prompt.
+ */
+function buildReplyLanguageGuardrail(): string {
+  return "Reply in the same language as the user's latest message unless they explicitly ask for another language.";
+}
+
+/**
+ * Builds the system-context prefix for the selected execution recipe.
+ *
+ * @param {ExecutionPlan} plan - Planned execution route chosen by the planner.
+ * @param {PlatformCapabilitySummary | undefined} capabilitySummary - Capability readiness summary for the route.
+ * @param {ArtifactKind[] | undefined} artifactKinds - Requested artifact kinds inferred for the run.
+ * @returns {string} Joined system-context instructions for the embedded agent.
+ */
 function buildSystemContext(
   plan: ExecutionPlan,
   capabilitySummary?: PlatformCapabilitySummary,
+  artifactKinds?: ArtifactKind[],
+  requestedToolNames?: string[],
 ): string {
   return [
     `Execution recipe: ${plan.recipe.id}.`,
@@ -133,10 +223,28 @@ function buildSystemContext(
     capabilitySummary?.requiredCapabilities.length
       ? `Required capabilities: ${capabilitySummary.requiredCapabilities.join(", ")}.`
       : undefined,
+    buildReplyLanguageGuardrail(),
+    buildArtifactOutputGuardrails(artifactKinds),
+    buildRequestedToolGuardrails(requestedToolNames),
     plan.recipe.systemPrompt,
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * Compact domain guidance for builder / project-designer runs (not a capability; injected as context only).
+ */
+function buildBuilderDomainContextSegment(): string {
+  return [
+    "Builder domain context:",
+    "use consistent units (state SI vs other and conversions);",
+    "label explicit assumptions (loads, losses, price basis);",
+    "show formulas and calculation steps when deriving quantities, costs, or spreadsheet totals;",
+    "for ventilation/air exchange cite applicable SNiP/SP/GOST-class norm references as bibliographic pointers only, not legal advice;",
+    "for office ventilation baseline, assume 60 m3/h per person unless the user or source documents provide a different project-specific norm;",
+    "for supplier comparison align scope, units, incoterms or delivery terms, lead times, and warranty.",
+  ].join(" ");
 }
 
 function buildPrependContext(
@@ -149,6 +257,8 @@ function buildPrependContext(
 ): string {
   return [
     `Profile: ${plan.profile.selectedProfile.label}.`,
+    `Language continuity: ${buildReplyLanguageGuardrail()}`,
+    plan.profile.selectedProfile.id === "builder" ? buildBuilderDomainContextSegment() : undefined,
     plan.profile.effective.taskOverlay?.label
       ? `Task overlay: ${plan.profile.effective.taskOverlay.label}.`
       : undefined,
@@ -179,7 +289,10 @@ function buildExecutionReadiness(params: {
     );
     const canAutoContinueBootstrap =
       params.policyPreview.autonomy === "assist" &&
-      (params.input.intent === "document" || params.input.intent === "code");
+      (params.input.intent === "document" ||
+        params.input.intent === "code" ||
+        params.input.intent === "compare" ||
+        params.input.intent === "calculation");
     return {
       status: "bootstrap_required",
       reasons,
@@ -214,6 +327,18 @@ function resolveBootstrapSourceDomain(
   return "platform";
 }
 
+/**
+ * Plain CSV files can be handled directly from the staged workspace without
+ * forcing a table-parser bootstrap. Spreadsheet binaries still require the
+ * dedicated capability path.
+ */
+function allTabularFilesAreCsv(fileNames: string[] | undefined): boolean {
+  const normalized = (fileNames ?? [])
+    .map((name) => name.trim().toLowerCase())
+    .filter((name) => name.length > 0);
+  return normalized.length > 0 && normalized.every((name) => name.endsWith(".csv"));
+}
+
 function buildCapabilitySummary(params: {
   plan: ExecutionPlan;
   input: RecipePlannerInput;
@@ -225,7 +350,10 @@ function buildCapabilitySummary(params: {
     (params.input.fileNames?.length ?? 0) === 0 &&
     params.input.intent === "document"
       ? []
-      : (params.plan.recipe.requiredCapabilities ?? []);
+      : (params.plan.recipe.id === "table_extract" || params.plan.recipe.id === "table_compare") &&
+          allTabularFilesAreCsv(params.input.fileNames)
+        ? []
+        : (params.plan.recipe.requiredCapabilities ?? []);
   if (requiredCapabilities.length === 0) {
     return {
       requiredCapabilities: [],
@@ -243,7 +371,9 @@ function buildCapabilitySummary(params: {
     registry,
     catalog: params.capabilityCatalog ?? TRUSTED_CAPABILITY_CATALOG,
     reason: "recipe_requirement",
-    sourceDomain: resolveBootstrapSourceDomain(params.input.intent),
+    sourceDomain: resolveBootstrapSourceDomain(
+      normalizePlannerIntentForBootstrapSourceDomain(params.input.intent),
+    ),
     sourceRecipeId: params.plan.recipe.id,
   });
   const requirements = bootstrapResolutions.map((resolution, index) => {
@@ -302,7 +432,7 @@ export function buildPolicyContextFromRuntimePlan(
     | "intent"
     | "requestedToolNames"
     | "publishTargets"
-    | "requiredCapabilities"
+    | "bootstrapRequiredCapabilities"
   >,
   overrides: Pick<
     PolicyContext,
@@ -327,13 +457,15 @@ export function buildPolicyContextFromRuntimePlan(
     activeProfile: profile,
     activeStateTaskOverlay: overlay?.id,
     effective: applyTaskOverlay(profile, overlay),
-    ...(runtimePlan.intent ? { intent: runtimePlan.intent } : {}),
+    ...(normalizePlannerIntentForPolicy(runtimePlan.intent)
+      ? { intent: normalizePlannerIntentForPolicy(runtimePlan.intent) }
+      : {}),
     ...(runtimePlan.requestedToolNames?.length
       ? { requestedToolNames: runtimePlan.requestedToolNames }
       : {}),
     ...(runtimePlan.publishTargets?.length ? { publishTargets: runtimePlan.publishTargets } : {}),
-    ...(runtimePlan.requiredCapabilities?.length
-      ? { requestedCapabilities: runtimePlan.requiredCapabilities }
+    ...(runtimePlan.bootstrapRequiredCapabilities?.length
+      ? { requestedCapabilities: runtimePlan.bootstrapRequiredCapabilities }
       : {}),
     ...overrides,
   };
@@ -348,6 +480,7 @@ export function buildPolicyContextFromExecutionContext(
     | "requestedToolNames"
     | "publishTargets"
     | "requiredCapabilities"
+    | "bootstrapRequiredCapabilities"
   >,
   overrides: Pick<
     PolicyContext,
@@ -367,7 +500,8 @@ export function buildPolicyContextFromExecutionContext(
       intent: execution.intent,
       requestedToolNames: execution.requestedToolNames,
       publishTargets: execution.publishTargets,
-      requiredCapabilities: execution.requiredCapabilities,
+      bootstrapRequiredCapabilities:
+        execution.bootstrapRequiredCapabilities ?? execution.requiredCapabilities,
     },
     overrides,
   );
@@ -426,7 +560,12 @@ export function adaptExecutionPlanToRuntime(
 ): RecipeRuntimePlan {
   const overrideModel = plan.plannerOutput.overrides?.model;
   const parsedModel = overrideModel ? parseModelRef(overrideModel, DEFAULT_PROVIDER) : null;
-  const prependSystemContext = buildSystemContext(plan, params?.capabilitySummary);
+  const prependSystemContext = buildSystemContext(
+    plan,
+    params?.capabilitySummary,
+    params?.input?.artifactKinds,
+    params?.input?.requestedTools,
+  );
   const prependContext = buildPrependContext(plan, {
     capabilitySummary: params?.capabilitySummary,
     policyPreview: params?.policyPreview,
@@ -441,6 +580,7 @@ export function adaptExecutionPlanToRuntime(
       : {}),
     ...(plan.plannerOutput.reasoning ? { plannerReasoning: plan.plannerOutput.reasoning } : {}),
     ...(params?.input?.intent ? { intent: params.input.intent } : {}),
+    ...(params?.input?.routing ? { routing: params.input.routing } : {}),
     ...(parsedModel?.provider ? { providerOverride: parsedModel.provider } : {}),
     ...(parsedModel?.model ? { modelOverride: parsedModel.model } : {}),
     ...(plan.recipe.fallbackModels?.length ? { fallbackModels: plan.recipe.fallbackModels } : {}),
@@ -501,7 +641,7 @@ export function resolvePlatformExecutionDecision(
         intent: input.intent,
         requestedToolNames: input.requestedTools,
         publishTargets: input.publishTargets,
-        requiredCapabilities: baseCapabilitySummary.requiredCapabilities,
+        bootstrapRequiredCapabilities: baseCapabilitySummary.bootstrapRequiredCapabilities,
       },
       {
         explicitApproval: options.explicitApproval,
@@ -567,12 +707,11 @@ export function buildRecipePlannerInputFromRuntimePlan(
     prompt,
     ...(fileNames.length > 0 ? { fileNames } : {}),
     ...(runtime.intent ? { intent: runtime.intent } : {}),
+    ...(runtime.routing ? { routing: runtime.routing } : {}),
     ...(runtime.artifactKinds?.length
       ? { artifactKinds: runtime.artifactKinds as ArtifactKind[] }
       : {}),
     ...(runtime.publishTargets?.length ? { publishTargets: runtime.publishTargets } : {}),
-    ...(runtime.requestedToolNames?.length
-      ? { requestedTools: runtime.requestedToolNames }
-      : {}),
+    ...(runtime.requestedToolNames?.length ? { requestedTools: runtime.requestedToolNames } : {}),
   };
 }

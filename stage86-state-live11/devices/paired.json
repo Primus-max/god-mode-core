@@ -1,0 +1,42 @@
+{
+  "bf4f0d0a5691ed6a5eca5b8ed067526161a54a53d18161ddaaee0615b7a6e48b": {
+    "deviceId": "bf4f0d0a5691ed6a5eca5b8ed067526161a54a53d18161ddaaee0615b7a6e48b",
+    "publicKey": "wYg6-rhcTELhHFiL72G-QGVSAQntloDddfMPUN03dfg",
+    "displayName": "history-inspector",
+    "platform": "win32",
+    "clientId": "cli",
+    "clientMode": "cli",
+    "role": "operator",
+    "roles": [
+      "operator"
+    ],
+    "scopes": [
+      "operator.read",
+      "operator.write",
+      "operator.approvals",
+      "operator.admin"
+    ],
+    "approvedScopes": [
+      "operator.read",
+      "operator.write",
+      "operator.approvals",
+      "operator.admin"
+    ],
+    "tokens": {
+      "operator": {
+        "token": "yuID6KBSSghYUCoHwp05qFiZ4u0sej8XBc5vuWSI8rE",
+        "role": "operator",
+        "scopes": [
+          "operator.admin",
+          "operator.approvals",
+          "operator.read",
+          "operator.write"
+        ],
+        "createdAtMs": 1775747654411,
+        "rotatedAtMs": 1775751863225
+      }
+    },
+    "createdAtMs": 1775747654411,
+    "approvedAtMs": 1775751863225
+  }
+}
