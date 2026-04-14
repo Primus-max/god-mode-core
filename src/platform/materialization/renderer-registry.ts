@@ -1,3 +1,4 @@
+import type { BootstrapReason } from "../bootstrap/contracts.js";
 import type {
   MaterializationOutputTarget,
   MaterializationRenderKind,
@@ -10,7 +11,7 @@ export type RendererDefinition = {
   rendererTarget: MaterializationRendererTarget;
   outputTarget: MaterializationOutputTarget;
   requiredCapabilityId?: string;
-  bootstrapReason?: string;
+  bootstrapReason?: BootstrapReason;
   unavailableWarning?: string;
   fallbackRendererId?: string;
 };

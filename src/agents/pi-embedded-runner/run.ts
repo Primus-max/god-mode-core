@@ -2100,9 +2100,7 @@ export async function runEmbeddedPiAgent(
                   (payload) =>
                     Boolean(payload.text?.trim()) ||
                     Boolean(payload.mediaUrl?.trim()) ||
-                    (payload.mediaUrls?.length ?? 0) > 0 ||
-                    (payload.interactive?.blocks?.length ?? 0) > 0 ||
-                    Object.keys(payload.channelData ?? {}).length > 0,
+                    (payload.mediaUrls?.length ?? 0) > 0,
                 ),
                 didSendViaMessagingTool: attempt.didSendViaMessagingTool,
                 successfulCronAdds: attempt.successfulCronAdds,

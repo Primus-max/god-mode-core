@@ -22,6 +22,7 @@ import {
   MaterializationResultSchema,
   type MaterializationDocumentInputKind,
   type MaterializationRenderKind,
+  type MaterializationRendererTarget,
   type MaterializationRequest,
   type MaterializationResult,
 } from "./contracts.js";
