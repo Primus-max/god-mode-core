@@ -52,13 +52,18 @@ export function inferQualificationAmbiguityReasons(
   const requestedTools = params.requestedTools ?? [];
   const publishTargets = params.publishTargets ?? [];
   const artifactSurfaces = classifyArtifactSurfaces(artifactKinds);
+  const isDocumentAuthoringWithSupportingMedia =
+    params.outcomeContract === "structured_artifact" &&
+    artifactKinds.includes("document") &&
+    requestedTools.includes("pdf") &&
+    artifactSurfaces.every((surface) => surface === "document" || surface === "media");
 
   if (params.candidateFamilies.length > 1 && !params.intent) {
     reasons.push(
       `multiple candidate families remain without an explicit intent anchor (${params.candidateFamilies.join(", ")})`,
     );
   }
-  if (artifactSurfaces.length > 1) {
+  if (artifactSurfaces.length > 1 && !isDocumentAuthoringWithSupportingMedia) {
     reasons.push(
       `requested artifacts span multiple execution surfaces (${artifactSurfaces.join(", ")})`,
     );

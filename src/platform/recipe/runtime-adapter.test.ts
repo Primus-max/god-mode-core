@@ -153,6 +153,8 @@ describe("resolvePlatformRuntimePlan", () => {
 
     expect(resolved.runtime.prependSystemContext).toContain("must call image_generate before your first final answer");
     expect(resolved.runtime.prependSystemContext).toContain("must use the pdf tool before your first final answer");
+    expect(resolved.runtime.prependContext).toContain("must call image_generate before your first final answer");
+    expect(resolved.runtime.prependContext).toContain("must use the pdf tool before your first final answer");
     expect(resolved.runtime.prependSystemContext).toContain(
       "pass the requested document content in the pdf tool's `prompt` argument",
     );
@@ -162,6 +164,29 @@ describe("resolvePlatformRuntimePlan", () => {
     expect(resolved.runtime.prependSystemContext).toContain(
       "Do not fake PDF output, manually write PDF bytes, or bypass the pdf tool with write/exec",
     );
+    expect(resolved.runtime.prependSystemContext).toContain(
+      "After the required images succeed, you must continue in the same turn and call pdf",
+    );
+  });
+
+  it("routes prompt-only PDF creation into authoring instead of ingestion", () => {
+    const resolved = resolvePlatformRuntimePlan({
+      prompt:
+        "Надо сделать pdf файл, с инфографикой о жизни городского котика, это просто прикол, но надо пару страниц, красивый формат, можно добавить пару картинок.",
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+      intent: "document",
+    });
+
+    expect(resolved.runtime.selectedProfileId).toBe("builder");
+    expect(resolved.runtime.selectedRecipeId).toBe("doc_authoring");
+    expect(resolved.runtime.requiredCapabilities).toBeUndefined();
+    expect(resolved.runtime.prependSystemContext).toContain("must use the pdf tool before your first final answer");
+    expect(resolved.runtime.prependContext).toContain("must use the pdf tool before your first final answer");
+    expect(resolved.runtime.prependSystemContext).toContain(
+      "treat image_generate as an intermediate step only",
+    );
+    expect(resolved.runtime.prependContext).toContain("treat image_generate as an intermediate step only");
   });
 
   it("adds policy preview and bootstrap hints to the execution decision", () => {
@@ -231,13 +256,110 @@ describe("resolvePlatformRuntimePlan", () => {
     const resolved = resolvePlatformRuntimePlan({
       prompt: "Create a one-page PDF with a short summary.",
       artifactKinds: ["document"],
+      requestedTools: ["pdf"],
       intent: "document",
     });
 
-    expect(resolved.runtime.selectedRecipeId).toBe("doc_ingest");
+    expect(resolved.runtime.selectedRecipeId).toBe("doc_authoring");
     expect(resolved.runtime.requiredCapabilities).toBeUndefined();
     expect(resolved.runtime.bootstrapRequiredCapabilities).toBeUndefined();
     expect(resolved.runtime.readinessStatus).toBe("ready");
+  });
+});
+
+describe("contract-first guardrail wiring", () => {
+  it("injects artifact guardrail when outcomeContract is structured_artifact even without artifactKinds", () => {
+    const plan = planExecutionRecipe({ prompt: "Generate a summary report" });
+    const runtime = adaptExecutionPlanToRuntime(plan, {
+      input: {
+        prompt: "Generate a summary report",
+        outcomeContract: "structured_artifact",
+      },
+    });
+
+    expect(runtime.prependSystemContext).toContain(
+      "do not claim completion without producing a real artifact or attachment",
+    );
+  });
+
+  it("injects artifact guardrail when executionContract.requiresArtifactEvidence is true without artifactKinds", () => {
+    const plan = planExecutionRecipe({ prompt: "Compile the data into a deliverable" });
+    const runtime = adaptExecutionPlanToRuntime(plan, {
+      input: {
+        prompt: "Compile the data into a deliverable",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: true,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+      },
+    });
+
+    expect(runtime.prependSystemContext).toContain(
+      "do not claim completion without producing a real artifact or attachment",
+    );
+  });
+
+  it("does not inject artifact guardrail for text_response outcome with no artifact kinds", () => {
+    const plan = planExecutionRecipe({ prompt: "Explain the concept of recursion" });
+    const runtime = adaptExecutionPlanToRuntime(plan, {
+      input: {
+        prompt: "Explain the concept of recursion",
+        outcomeContract: "text_response",
+      },
+    });
+
+    expect(runtime.prependSystemContext).not.toContain(
+      "do not claim completion without producing a real artifact or attachment",
+    );
+  });
+
+  it("explicit outcomeContract overrides inferred contracts for artifact guardrail decision", () => {
+    // artifactKinds would normally trigger structured_artifact inference,
+    // but we explicitly override to text_response — the guardrail must respect the explicit contract
+    const plan = planExecutionRecipe({ prompt: "Describe the document structure" });
+    const runtime = adaptExecutionPlanToRuntime(plan, {
+      input: {
+        prompt: "Describe the document structure",
+        artifactKinds: [],
+        outcomeContract: "text_response",
+        executionContract: {
+          requiresTools: false,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+      },
+    });
+
+    expect(runtime.prependSystemContext).not.toContain(
+      "do not claim completion without producing a real artifact or attachment",
+    );
+  });
+
+  it("marks bootstrap_required as unattended when outcomeContract is structured_artifact without explicit intent", () => {
+    const resolved = resolvePlatformRuntimePlan({
+      prompt: "Parse this spreadsheet and produce a deliverable",
+      fileNames: ["data.xlsx"],
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+    });
+
+    if (resolved.runtime.readinessStatus === "bootstrap_required") {
+      expect(resolved.runtime.unattendedBoundary).toBe("bootstrap");
+    }
   });
 });
 

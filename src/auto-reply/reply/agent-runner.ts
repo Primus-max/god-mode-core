@@ -1092,6 +1092,10 @@ export async function runReplyAgent(params: {
       finalPayloads = appendUsageLine(finalPayloads, debugReplyBlock);
     }
 
+    if (queuedSemanticRetry) {
+      return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
+    }
+
     return finalizeWithFollowup(
       finalPayloads.length === 0
         ? undefined

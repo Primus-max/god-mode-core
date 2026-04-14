@@ -172,11 +172,25 @@ export function buildExecutionSurfaceSnapshot(params: {
  * Returns execution-time guardrails for artifact requests that must not degrade
  * into a plain status message.
  *
+ * Fires when artifact kinds include a structured kind OR when the qualification
+ * contract explicitly declares a structured artifact outcome / evidence requirement.
+ * This ensures runs qualified as structured_artifact get the guardrail even when
+ * artifact kinds are absent or underspecified.
+ *
  * @param {ArtifactKind[] | undefined} artifactKinds - Requested artifact kinds from planner input.
+ * @param {OutcomeContract | undefined} outcomeContract - Explicit outcome contract from qualification.
+ * @param {QualificationExecutionContract | undefined} executionContract - Explicit execution contract.
  * @returns {string | undefined} Extra system guidance when the run must emit a tangible artifact.
  */
-function buildArtifactOutputGuardrails(artifactKinds?: ArtifactKind[]): string | undefined {
-  if (!artifactKinds?.some((kind) => STRUCTURED_OUTPUT_ARTIFACT_KINDS.has(kind))) {
+function buildArtifactOutputGuardrails(
+  artifactKinds?: ArtifactKind[],
+  outcomeContract?: OutcomeContract,
+  executionContract?: QualificationExecutionContract,
+): string | undefined {
+  const hasStructuredArtifactKind = artifactKinds?.some((kind) => STRUCTURED_OUTPUT_ARTIFACT_KINDS.has(kind));
+  const contractRequiresArtifact =
+    outcomeContract === "structured_artifact" || executionContract?.requiresArtifactEvidence === true;
+  if (!hasStructuredArtifactKind && !contractRequiresArtifact) {
     return undefined;
   }
   const lines = [
@@ -205,6 +219,11 @@ function buildRequestedToolGuardrails(requestedToolNames?: string[]): string | u
   if (toolSet.has("pdf")) {
     guardrails.push(
       "PDF artifact contract: when the user asks for a PDF or slide-style document from prompt text, you must use the pdf tool before your first final answer to create the deliverable instead of replying with instructions, an acknowledgement, or a plan. For prompt-only PDF generation, pass the requested document content in the pdf tool's `prompt` argument and include `filename` when the user implies a saved file. Do not call `pdf` with an empty object for a prompt-only PDF task. Do not fake PDF output, manually write PDF bytes, or bypass the pdf tool with write/exec when the task requires a real PDF deliverable.",
+    );
+  }
+  if (toolSet.has("image_generate") && toolSet.has("pdf")) {
+    guardrails.push(
+      "Multi-step artifact contract: when supporting images feed a final PDF deliverable, treat image_generate as an intermediate step only. After the required images succeed, you must continue in the same turn and call pdf to assemble the final document artifact before any text-only reply. Reuse successful generated image outputs from the current session instead of stopping, restarting from scratch, or asking for extra style confirmation unless the user explicitly requested a choice.",
     );
   }
   return guardrails.length > 0 ? guardrails.join(" ") : undefined;
@@ -241,6 +260,11 @@ function buildReplyLanguageGuardrail(): string {
  * @param {ExecutionPlan} plan - Planned execution route chosen by the planner.
  * @param {PlatformCapabilitySummary | undefined} capabilitySummary - Capability readiness summary for the route.
  * @param {ArtifactKind[] | undefined} artifactKinds - Requested artifact kinds inferred for the run.
+ * @param {string[] | undefined} requestedToolNames - Tool names requested for this run.
+ * @param {QualificationLowConfidenceStrategy | undefined} lowConfidenceStrategy - Strategy for ambiguous turns.
+ * @param {string[] | undefined} ambiguityReasons - Reasons for ambiguity, used in clarification path.
+ * @param {OutcomeContract | undefined} outcomeContract - Explicit outcome contract; triggers artifact guardrail.
+ * @param {QualificationExecutionContract | undefined} executionContract - Explicit execution contract.
  * @returns {string} Joined system-context instructions for the embedded agent.
  */
 function buildSystemContext(
@@ -250,6 +274,8 @@ function buildSystemContext(
   requestedToolNames?: string[],
   lowConfidenceStrategy?: QualificationLowConfidenceStrategy,
   ambiguityReasons?: string[],
+  outcomeContract?: OutcomeContract,
+  executionContract?: QualificationExecutionContract,
 ): string {
   const clarificationGuardrails = buildClarificationGuardrails({
     lowConfidenceStrategy,
@@ -263,7 +289,9 @@ function buildSystemContext(
       : undefined,
     buildReplyLanguageGuardrail(),
     clarificationGuardrails,
-    clarificationGuardrails ? undefined : buildArtifactOutputGuardrails(artifactKinds),
+    clarificationGuardrails
+      ? undefined
+      : buildArtifactOutputGuardrails(artifactKinds, outcomeContract, executionContract),
     clarificationGuardrails ? undefined : buildRequestedToolGuardrails(requestedToolNames),
     plan.recipe.systemPrompt,
   ]
@@ -292,6 +320,12 @@ function buildPrependContext(
     capabilitySummary?: PlatformCapabilitySummary;
     policyPreview?: PolicyDecision;
     readiness?: PlatformExecutionReadiness;
+    artifactKinds?: ArtifactKind[];
+    requestedToolNames?: string[];
+    lowConfidenceStrategy?: QualificationLowConfidenceStrategy;
+    ambiguityReasons?: string[];
+    outcomeContract?: OutcomeContract;
+    executionContract?: QualificationExecutionContract;
   },
 ): string {
   return [
@@ -311,6 +345,16 @@ function buildPrependContext(
     params?.readiness && params.readiness.status !== "ready"
       ? `Preflight readiness: ${params.readiness.status.replaceAll("_", " ")}. ${params.readiness.reasons.join(" ")}`
       : undefined,
+    buildArtifactOutputGuardrails(
+      params?.artifactKinds,
+      params?.outcomeContract,
+      params?.executionContract,
+    ),
+    buildRequestedToolGuardrails(params?.requestedToolNames),
+    buildClarificationGuardrails({
+      lowConfidenceStrategy: params?.lowConfidenceStrategy,
+      ambiguityReasons: params?.ambiguityReasons,
+    }),
   ]
     .filter(Boolean)
     .join("\n");
@@ -328,7 +372,10 @@ function buildExecutionReadiness(params: {
     );
     const canAutoContinueBootstrap =
       params.policyPreview.autonomy === "assist" &&
-      (params.input.intent === "document" ||
+      (params.input.outcomeContract === "structured_artifact" ||
+        params.input.outcomeContract === "workspace_change" ||
+        params.input.executionContract?.requiresArtifactEvidence === true ||
+        params.input.intent === "document" ||
         params.input.intent === "code" ||
         params.input.intent === "compare" ||
         params.input.intent === "calculation");
@@ -633,11 +680,19 @@ export function adaptExecutionPlanToRuntime(
     params?.input?.requestedTools,
     params?.input?.lowConfidenceStrategy,
     params?.input?.ambiguityReasons,
+    outcomeContract,
+    executionContract,
   );
   const prependContext = buildPrependContext(plan, {
     capabilitySummary: params?.capabilitySummary,
     policyPreview: params?.policyPreview,
     readiness: params?.readiness,
+    artifactKinds: params?.input?.artifactKinds,
+    requestedToolNames: params?.input?.requestedTools,
+    lowConfidenceStrategy: params?.input?.lowConfidenceStrategy,
+    ambiguityReasons: params?.input?.ambiguityReasons,
+    outcomeContract,
+    executionContract,
   });
 
   return {

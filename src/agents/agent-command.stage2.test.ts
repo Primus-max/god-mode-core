@@ -227,6 +227,85 @@ describe("agent-command Stage 2 wiring helpers", () => {
     ).toBe(false);
   });
 
+  it("fails over when semantic retry payloads contain only acknowledgement text", () => {
+    expect(
+      shouldFailoverEmptySemanticRetryResult({
+        payloads: [{ text: "Отлично - сделаю." }],
+        meta: {
+          durationMs: 1,
+          supervisorVerdict: {
+            runId: "run-ack-only",
+            status: "retryable",
+            action: "retry",
+            remediation: "semantic_retry",
+            reasonCode: "contract_mismatch",
+            reasons: ["retry"],
+            recoveryPolicy: {
+              remediation: "semantic_retry",
+              recoveryClass: "semantic",
+              cadence: "immediate",
+              continuous: false,
+              attemptCount: 0,
+              maxAttempts: 1,
+              remainingAttempts: 1,
+              exhausted: false,
+              exhaustedAction: "stop",
+              nextAttemptDelayMs: 0,
+            },
+          },
+        },
+      } as never),
+    ).toBe(true);
+  });
+
+  it("fails over when a structured artifact turn replies with acknowledgement-only text before tools", () => {
+    expect(
+      shouldFailoverEmptySemanticRetryResult({
+        payloads: [{ text: "Сделаю - сгенерирую PDF на 2 страницы с инфографикой и добавлю картинки." }],
+        meta: {
+          durationMs: 1,
+          executionIntent: {
+            runId: "run-artifact-ack",
+            intent: "document",
+            artifactKinds: ["document", "image"],
+            requestedToolNames: ["image_generate", "pdf"],
+            outcomeContract: "structured_artifact",
+            expectations: {},
+          },
+        },
+      } as never),
+    ).toBe(true);
+  });
+
+  it("fails over when a structured artifact turn surfaces only a provider error payload", () => {
+    expect(
+      shouldFailoverEmptySemanticRetryResult({
+        payloads: [
+          {
+            text: "HTTP 400: Your request is invalid or contains inaccessible, unsupported data and cannot be processed. Please modify your request before trying again.",
+            mediaUrl: null,
+          },
+        ],
+        meta: {
+          durationMs: 1,
+          error: {
+            kind: "provider_error",
+            message:
+              "HTTP 400: Your request is invalid or contains inaccessible, unsupported data and cannot be processed. Please modify your request before trying again.",
+          },
+          executionIntent: {
+            runId: "run-artifact-provider-error",
+            intent: "document",
+            artifactKinds: ["document", "image"],
+            requestedToolNames: ["image_generate", "pdf"],
+            outcomeContract: "structured_artifact",
+            expectations: {},
+          },
+        },
+      } as never),
+    ).toBe(true);
+  });
+
   it("fails over when payloads contain only standalone pseudo-tool JSON", () => {
     expect(
       shouldFailoverEmptySemanticRetryResult({

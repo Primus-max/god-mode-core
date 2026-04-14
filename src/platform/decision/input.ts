@@ -568,6 +568,16 @@ function inferRemoteRoutingProfile(params: {
   artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
   localEligible: boolean;
 }): NonNullable<NonNullable<RecipePlannerInput["routing"]>["remoteProfile"]> {
+  const wantsPresentationQuality =
+    params.intent === "document" &&
+    params.artifactKinds.includes("document") &&
+    params.requestedTools.includes("pdf") &&
+    (params.requestedTools.includes("image_generate") ||
+      params.artifactKinds.includes("image") ||
+      inferNeedsVision({ prompt: params.prompt, fileNames: [] }));
+  if (wantsPresentationQuality) {
+    return "presentation";
+  }
   if (
     params.intent === "code" ||
     params.intent === "publish" ||

@@ -85,6 +85,29 @@ describe("resolveProfile", () => {
     expect(resolved.activeProfile.taskOverlay).toBe("media_first");
   });
 
+  it("lets explicit document turns override a pinned media profile", () => {
+    const resolved = resolveProfile({
+      sessionProfile: "media_creator",
+      prompt:
+        "Надо сделать pdf файл, с инфографикой о жизни городского котика, это просто прикол, но надо пару страниц, красивый формат, можно добавить пару картинок.",
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+    });
+    expect(resolved.selectedProfile.id).toBe("builder");
+    expect(resolved.activeProfile.taskOverlay).toBe("document_first");
+  });
+
+  it("keeps mixed pdf plus images document requests on builder", () => {
+    const resolved = resolveProfile({
+      prompt:
+        "Надо сделать pdf файл, с инфографикой о жизни городского котика, это просто прикол, но надо пару страниц, красивый формат, можно добавить пару картинок.",
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+    });
+    expect(resolved.selectedProfile.id).toBe("builder");
+    expect(resolved.activeProfile.taskOverlay).toBe("document_first");
+  });
+
   it("falls back to general when no strong signals are present", () => {
     const resolved = resolveProfile({ prompt: "" });
     expect(resolved.selectedProfile.id).toBe("general");

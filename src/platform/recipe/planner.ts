@@ -22,10 +22,17 @@ import type { ArtifactKind, ExecutionRecipe, PlannerOutput } from "../schemas/in
 import { PlannerOutputSchema } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
 import { INITIAL_RECIPES, getInitialRecipe } from "./defaults.js";
+import {
+  deriveFamiliesFromOutcomeContract,
+  hasCodeArtifact,
+  hasDocumentArtifact,
+  hasMediaArtifact,
+  selectExecutionFamily,
+} from "./family-selector.js";
 
 export type RecipeRoutingHints = {
   localEligible?: boolean;
-  remoteProfile?: "cheap" | "code" | "strong";
+  remoteProfile?: "cheap" | "code" | "strong" | "presentation";
   preferRemoteFirst?: boolean;
   needsVision?: boolean;
 };
@@ -50,18 +57,10 @@ export type ExecutionPlan = {
   candidateRecipes: ExecutionRecipe[];
 };
 
-const FAMILY_SIMPLICITY_ORDER: CandidateExecutionFamily[] = [
-  "general_assistant",
-  "analysis_transform",
-  "document_render",
-  "media_generation",
-  "code_build",
-  "ops_execution",
-];
-
 const RECIPE_FAMILIES: Record<string, CandidateExecutionFamily[]> = {
   general_reasoning: ["general_assistant"],
   doc_ingest: ["document_render"],
+  doc_authoring: ["document_render"],
   ocr_extract: ["document_render"],
   table_extract: ["document_render"],
   table_compare: ["analysis_transform"],
@@ -86,26 +85,6 @@ function hasMatchingTarget(recipe: ExecutionRecipe, publishTargets: string[]): b
   }
   const allowed = new Set(recipe.publishTargets.map((value) => value.toLowerCase()));
   return publishTargets.some((target) => allowed.has(target));
-}
-
-function hasDocumentArtifact(artifactKinds: ArtifactKind[]): boolean {
-  return artifactKinds.some(
-    (kind) => kind === "document" || kind === "estimate" || kind === "report" || kind === "data",
-  );
-}
-
-function hasCodeArtifact(artifactKinds: ArtifactKind[]): boolean {
-  return artifactKinds.some(
-    (kind) => kind === "site" || kind === "release" || kind === "binary" || kind === "archive",
-  );
-}
-
-function hasMediaArtifact(artifactKinds: ArtifactKind[]): boolean {
-  return artifactKinds.some((kind) => kind === "image" || kind === "video" || kind === "audio");
-}
-
-function hasReportOrDataArtifact(artifactKinds: ArtifactKind[]): boolean {
-  return artifactKinds.some((kind) => kind === "report" || kind === "data");
 }
 
 function hasOcrSignal(input: RecipePlannerInput, files: string[]): boolean {
@@ -180,79 +159,50 @@ function hasCalculationSignal(input: RecipePlannerInput): boolean {
   return promptSuggestsCalculationIntent(input.prompt ?? "");
 }
 
-function familyIsValidForInput(
-  family: CandidateExecutionFamily,
-  input: RecipePlannerInput,
-): boolean {
-  const artifactKinds = input.artifactKinds ?? [];
-  const hasMedia = hasMediaArtifact(artifactKinds);
-  const hasCode = hasCodeArtifact(artifactKinds);
-  const hasDocument = hasDocumentArtifact(artifactKinds);
-  const hasReportOrData = hasReportOrDataArtifact(artifactKinds);
-
-  switch (family) {
-    case "general_assistant":
-      return input.outcomeContract === "text_response" || input.intent === "general";
-    case "analysis_transform":
-      return (
-        input.intent === "compare" ||
-        input.intent === "calculation" ||
-        (input.outcomeContract === "structured_artifact" &&
-          hasReportOrData &&
-          !hasDocument &&
-          !hasMedia &&
-          !hasCode)
-      );
-    case "document_render":
-      return (
-        input.intent === "document" ||
-        (input.outcomeContract === "structured_artifact" && !hasMedia && !hasCode)
-      );
-    case "media_generation":
-      return input.outcomeContract === "structured_artifact" && hasMedia;
-    case "code_build":
-      return (
-        input.outcomeContract === "workspace_change" ||
-        input.outcomeContract === "interactive_local_result" ||
-        input.intent === "code"
-      );
-    case "ops_execution":
-      return input.outcomeContract === "external_operation" || input.intent === "publish";
-    default:
-      return false;
-  }
-}
-
-function selectRecipesForCandidateFamily(params: {
+// Narrows the candidate recipe pool to a single execution family.
+//
+// Priority:
+//   1. Explicit candidateFamilies from the qualification contract.
+//   2. Families derived from outcomeContract (contract-first routing).
+//   3. Full candidate pool when neither is available (legacy scoring path).
+//
+// After narrowing, buildRecipeScore only compares recipes within the chosen
+// family — it acts as a tie-breaker, not as a cross-family selector.
+function narrowRecipesByFamily(params: {
   candidateRecipes: ExecutionRecipe[];
   input: RecipePlannerInput;
 }): { selectedFamily?: CandidateExecutionFamily; recipes: ExecutionRecipe[] } {
-  const requestedFamilies = Array.from(new Set(params.input.candidateFamilies ?? []));
+  const { candidateRecipes, input } = params;
+
+  // Determine requested families: explicit takes priority, then contract derivation.
+  const requestedFamilies: CandidateExecutionFamily[] = Array.from(
+    new Set(
+      input.candidateFamilies?.length
+        ? input.candidateFamilies
+        : input.outcomeContract
+          ? deriveFamiliesFromOutcomeContract(input.outcomeContract)
+          : [],
+    ),
+  );
+
   if (requestedFamilies.length === 0) {
-    return {
-      recipes: params.candidateRecipes,
-    };
+    // Legacy fallback: no family narrowing; buildRecipeScore selects across full pool.
+    return { recipes: candidateRecipes };
   }
 
+  // Intersect with families that actually have recipes in the candidate pool.
   const availableFamilies = requestedFamilies.filter((family) =>
-    params.candidateRecipes.some((recipe) => getRecipeFamilies(recipe).includes(family)),
+    candidateRecipes.some((recipe) => getRecipeFamilies(recipe).includes(family)),
   );
-  const validFamilies = availableFamilies
-    .filter((family) => familyIsValidForInput(family, params.input))
-    .toSorted(
-      (left, right) =>
-        FAMILY_SIMPLICITY_ORDER.indexOf(left) - FAMILY_SIMPLICITY_ORDER.indexOf(right),
-    );
-  const selectedFamily = validFamilies[0];
+
+  const selectedFamily = selectExecutionFamily(requestedFamilies, availableFamilies, input);
   if (!selectedFamily) {
-    return {
-      recipes: params.candidateRecipes,
-    };
+    return { recipes: candidateRecipes };
   }
 
   return {
     selectedFamily,
-    recipes: params.candidateRecipes.filter((recipe) => getRecipeFamilies(recipe).includes(selectedFamily)),
+    recipes: candidateRecipes.filter((recipe) => getRecipeFamilies(recipe).includes(selectedFamily)),
   };
 }
 
@@ -267,6 +217,10 @@ function buildRecipeScore(params: {
   const publishTargets = (input.publishTargets ?? []).map((value) => value.toLowerCase());
   const tools = (input.requestedTools ?? []).map((value) => value.toLowerCase());
   const artifactKinds = input.artifactKinds ?? [];
+  const promptOnlyDocumentAuthoring =
+    files.length === 0 &&
+    input.intent === "document" &&
+    (tools.includes("pdf") || publishTargets.includes("pdf"));
   const documentSignal =
     input.intent === "document" ||
     hasDocumentArtifact(artifactKinds) ||
@@ -307,10 +261,52 @@ function buildRecipeScore(params: {
     if (hasDocumentArtifact(artifactKinds)) {
       score += 0.9;
     }
+    if (promptOnlyDocumentAuthoring) {
+      score -= 1.2;
+    }
     if (
       publishTargets.some((target) => target === "pdf" || target === "email" || target === "docs")
     ) {
       score += 0.4;
+    }
+    return score;
+  }
+
+  if (recipe.id === "doc_authoring") {
+    if (!promptOnlyDocumentAuthoring) {
+      return -0.5;
+    }
+    let score = 0;
+    if (profile.selectedProfile.id === "builder" && documentSignal) {
+      score += 1;
+    } else if (profile.selectedProfile.id === "general" && documentSignal) {
+      score += 0.6;
+    }
+    if (overlayId === "document_first" && documentSignal) {
+      score += 1.4;
+    }
+    if (input.intent === "document") {
+      score += 1.1;
+    }
+    if (hasDocumentArtifact(artifactKinds)) {
+      score += 1.1;
+    }
+    if (tools.includes("pdf")) {
+      score += 2.6;
+    }
+    if (publishTargets.includes("pdf")) {
+      score += 1.4;
+    }
+    if (files.length === 0) {
+      score += 1.5;
+    } else {
+      score -= 1.8;
+    }
+    if (hasMediaArtifact(artifactKinds) && tools.includes("image_generate")) {
+      score += 0.7;
+    }
+    if (ocrSignal || tableSignal || compareSignal || calculationSignal) {
+      score -= 1.5;
     }
     return score;
   }
@@ -559,7 +555,7 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
       candidateRecipes,
     };
   }
-  const familySelection = selectRecipesForCandidateFamily({ candidateRecipes, input });
+  const familySelection = narrowRecipesByFamily({ candidateRecipes, input });
   const familyScopedRecipes =
     familySelection.recipes.length > 0 ? familySelection.recipes : candidateRecipes;
 

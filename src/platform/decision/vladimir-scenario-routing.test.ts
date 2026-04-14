@@ -37,4 +37,16 @@ describe("Vladimir scenario messages (routing only)", () => {
     expect(input.artifactKinds ?? []).toEqual(expect.arrayContaining(["site"]));
     expect(plan.recipe.id).toBe("code_build_publish");
   });
+
+  it('keeps "pdf + infographic + pictures" on document route instead of media_production', () => {
+    const prompt =
+      "Надо сделать pdf файл, с инфографикой о жизни городского котика, это просто прикол, но надо пару страниц, красивый формат, можно добавить пару картинок.";
+    const { input, plan } = planWithMediaCreator(prompt);
+
+    expect(input.intent).toBe("document");
+    expect(input.artifactKinds ?? []).toEqual(expect.arrayContaining(["document", "image"]));
+    expect(input.requestedTools ?? []).toEqual(expect.arrayContaining(["pdf", "image_generate"]));
+    expect(plan.recipe.id).not.toBe("media_production");
+    expect(plan.recipe.id).toBe("doc_authoring");
+  });
 });

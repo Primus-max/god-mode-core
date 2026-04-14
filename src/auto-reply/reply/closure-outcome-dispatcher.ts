@@ -776,14 +776,21 @@ export function enqueueSemanticRetryFollowup(params: {
     return false;
   }
   const retryCount = params.sourceRun.automation?.retryCount ?? 0;
-  const prompt = [
+  const correctivePrompt = [
     "The previous run did not satisfy the task well enough.",
     decision.reasons.length > 0 ? `Observed issues: ${decision.reasons.join(" ")}` : undefined,
     "Continue the same task and return only the final completed result.",
     "Do not send an acknowledgement-only update.",
+    "If the task requires a real artifact, continue from any successful intermediate tool outputs already produced in this session and finish the remaining required tool calls before replying.",
   ]
     .filter(Boolean)
     .join(" ");
+  const originalPrompt = params.sourceRun.prompt.trim();
+  const prompt = [
+    correctivePrompt,
+    "[Original task - preserve exact task intent below]",
+    originalPrompt,
+  ].join("\n\n");
   return enqueueFollowupRun(
     params.queueKey,
     {

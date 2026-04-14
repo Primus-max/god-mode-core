@@ -58,6 +58,32 @@ function stubImageGenerationProviders() {
         throw new Error("not used");
       }),
     },
+    {
+      id: "hydra",
+      defaultModel: "hydra-banana",
+      models: ["hydra-banana", "hydra-banana-pro"],
+      capabilities: {
+        generate: {
+          maxCount: 4,
+          supportsSize: true,
+          supportsAspectRatio: true,
+          supportsResolution: false,
+        },
+        edit: {
+          enabled: false,
+          maxInputImages: 0,
+          supportsSize: false,
+          supportsAspectRatio: false,
+          supportsResolution: false,
+        },
+        geometry: {
+          aspectRatios: ["1:1", "3:2", "16:9"],
+        },
+      },
+      generateImage: vi.fn(async () => {
+        throw new Error("not used");
+      }),
+    },
   ]);
 }
 
@@ -308,6 +334,75 @@ describe("createImageGenerateTool", () => {
     });
     const text = (result.content?.[0] as { text: string } | undefined)?.text ?? "";
     expect(text).not.toContain("MEDIA:");
+  });
+
+  it("drops unsupported resolution overrides for providers that do not support them", async () => {
+    stubImageGenerationProviders();
+    const generateImage = vi.spyOn(imageGenerationRuntime, "generateImage").mockResolvedValue({
+      provider: "hydra",
+      model: "hydra-banana",
+      attempts: [],
+      images: [
+        {
+          buffer: Buffer.from("png-1"),
+          mimeType: "image/png",
+          fileName: "cat-one.png",
+        },
+      ],
+    });
+    vi.spyOn(mediaStore, "saveMediaBuffer").mockResolvedValue({
+      path: "/tmp/generated-hydra-1.png",
+      id: "generated-hydra-1.png",
+      size: 5,
+      contentType: "image/png",
+    });
+
+    const tool = createImageGenerateTool({
+      config: {
+        agents: {
+          defaults: {
+            imageGenerationModel: {
+              primary: "hydra/hydra-banana",
+            },
+          },
+        },
+      },
+      agentDir: "/tmp/agent",
+    });
+
+    expect(tool).not.toBeNull();
+    if (!tool) {
+      throw new Error("expected image_generate tool");
+    }
+
+    const result = await tool.execute("call-hydra-generate", {
+      prompt: "A stylish city cat infographic",
+      model: "hydra/hydra-banana",
+      resolution: "2K",
+      aspectRatio: "3:2",
+      filename: "cats/hydra.png",
+    });
+
+    expect(generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelOverride: "hydra/hydra-banana",
+        aspectRatio: "3:2",
+        resolution: undefined,
+      }),
+    );
+    expect(result).toMatchObject({
+      details: {
+        provider: "hydra",
+        model: "hydra-banana",
+        aspectRatio: "3:2",
+        paths: ["/tmp/generated-hydra-1.png"],
+      },
+    });
+    expect(result).not.toMatchObject({
+      details: {
+        resolution: "2K",
+      },
+    });
   });
 
   it("rejects counts outside the supported range", async () => {

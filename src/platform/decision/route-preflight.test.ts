@@ -504,14 +504,43 @@ describe("applyModelRoutePreflight", () => {
         prompt: "Сделай 3-страничный PDF про жизнь городского кота с иллюстрациями.",
         intent: "document",
         artifactKinds: ["document", "image"],
+        requestedTools: ["pdf", "image_generate"],
       }),
       catalog,
     });
     expect(candidates.map((candidate) => `${candidate.provider}/${candidate.model}`)).toEqual([
-      "hydra/hydra-gpt-pro",
-      "ollama/gemma4:e4b",
       "hydra/gpt-5.4",
+      "hydra/hydra-gpt-pro",
       "hydra/hydra-gpt-mini",
+      "ollama/gemma4:e4b",
+    ]);
+    expect(decision?.reasonCode).toBe("preflight_reordered_remote_first");
+    expect(decision?.reordered).toBe(true);
+  });
+
+  it("prefers premium presentation models for slide-style PDF authoring", () => {
+    const artifactChain: ModelCandidate[] = [
+      { provider: "ollama", model: "gemma4:e4b" },
+      { provider: "hydra", model: "gpt-4o" },
+      { provider: "hydra", model: "claude-opus-4.6" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "claude-sonnet-4.6" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: artifactChain,
+      plannerInput: buildExecutionDecisionInput({
+        prompt: "Сделай красивую PDF-презентацию с инфографикой.",
+        intent: "document",
+        artifactKinds: ["document", "image"],
+        requestedTools: ["pdf", "image_generate"],
+      }),
+    });
+    expect(candidates.map((candidate) => `${candidate.provider}/${candidate.model}`)).toEqual([
+      "hydra/claude-opus-4.6",
+      "hydra/gpt-5.4",
+      "hydra/claude-sonnet-4.6",
+      "hydra/gpt-4o",
+      "ollama/gemma4:e4b",
     ]);
     expect(decision?.reasonCode).toBe("preflight_reordered_remote_first");
     expect(decision?.reordered).toBe(true);

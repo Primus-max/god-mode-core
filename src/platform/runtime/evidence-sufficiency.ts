@@ -84,16 +84,31 @@ function normalizeToolName(name: string): string {
   return name.trim().toLowerCase();
 }
 
+function resolveExpectedStructuredArtifactToolNames(
+  artifactKinds?: readonly string[],
+): ReadonlySet<string> {
+  const normalizedKinds = new Set((artifactKinds ?? []) as ArtifactKind[]);
+
+  // When a document is among mixed artifact kinds, the final deliverable must still
+  // be proven by a successful pdf receipt. Supporting image receipts alone are not enough.
+  if (normalizedKinds.has("document")) {
+    return new Set(STRUCTURED_ARTIFACT_TOOL_NAMES_BY_KIND.document ?? []);
+  }
+
+  const expectedToolNames = new Set<string>();
+  for (const kind of normalizedKinds) {
+    for (const toolName of STRUCTURED_ARTIFACT_TOOL_NAMES_BY_KIND[kind] ?? []) {
+      expectedToolNames.add(toolName);
+    }
+  }
+  return expectedToolNames;
+}
+
 function hasMatchingStructuredArtifactToolReceipt(params: {
   receipts: PlatformRuntimeExecutionReceipt[];
   artifactKinds?: readonly string[];
 }): boolean {
-  const expectedToolNames = new Set<string>();
-  for (const kind of params.artifactKinds ?? []) {
-    for (const toolName of STRUCTURED_ARTIFACT_TOOL_NAMES_BY_KIND[kind as ArtifactKind] ?? []) {
-      expectedToolNames.add(toolName);
-    }
-  }
+  const expectedToolNames = resolveExpectedStructuredArtifactToolNames(params.artifactKinds);
   if (expectedToolNames.size === 0) {
     return false;
   }
@@ -208,6 +223,7 @@ function mergeExecutionContract(params: {
 function buildDefaultRequestedEvidence(
   outcomeContract: OutcomeContract,
   executionContract: QualificationExecutionContract,
+  executionIntent?: PlatformRuntimeExecutionIntent,
 ): RequestedEvidenceKind[] {
   const evidence = new Set<RequestedEvidenceKind>();
 
@@ -235,7 +251,10 @@ function buildDefaultRequestedEvidence(
   if (executionContract.requiresDeliveryEvidence) {
     evidence.add("delivery_receipt");
   }
-  if (executionContract.mayNeedBootstrap) {
+  const hasDeclaredBootstrapNeed =
+    (executionIntent?.requiredCapabilities?.length ?? 0) > 0 ||
+    (executionIntent?.bootstrapRequiredCapabilities?.length ?? 0) > 0;
+  if (executionContract.mayNeedBootstrap && hasDeclaredBootstrapNeed) {
     evidence.add("capability_receipt");
   }
 
@@ -275,8 +294,13 @@ export function mapQualificationToEvidenceRequirements(params: {
   });
   const requestedEvidence =
     params.executionIntent?.requestedEvidence?.length
-      ? [...params.executionIntent.requestedEvidence]
-      : buildDefaultRequestedEvidence(outcomeContract, executionContract);
+      ? [...params.executionIntent.requestedEvidence].filter(
+          (kind) =>
+            kind !== "capability_receipt" ||
+            (params.executionIntent?.requiredCapabilities?.length ?? 0) > 0 ||
+            (params.executionIntent?.bootstrapRequiredCapabilities?.length ?? 0) > 0,
+        )
+      : buildDefaultRequestedEvidence(outcomeContract, executionContract, params.executionIntent);
 
   return {
     outcomeContract,
@@ -301,6 +325,26 @@ function observeEvidence(params: {
     receipts: params.receipts,
     artifactKinds: params.artifactKinds,
   });
+
+  // Block the verifiedExecution shortcut only when we have actual receipts to inspect, the artifact
+  // kinds have known required tools (e.g. document→pdf, image→image_generate), AND none of those
+  // matching tools appear in the receipts. This prevents generic exec/write completions from
+  // masquerading as structured artifact evidence during contract verification.
+  //
+  // When receipts is empty (evaluateAcceptance always passes []), we trust verifiedExecution as a
+  // proxy — it is only set to true when verifyExecutionContract already confirmed the right tools
+  // ran. Blocking it there would break the acceptance path for legitimate artifact runs.
+  const artifactKindsHaveKnownToolMapping = (params.artifactKinds ?? []).some(
+    (kind) => (STRUCTURED_ARTIFACT_TOOL_NAMES_BY_KIND[kind as ArtifactKind] ?? []).length > 0,
+  );
+  const wrongToolReceiptsPresent =
+    params.receipts.length > 0 && artifactKindsHaveKnownToolMapping && !matchingArtifactToolReceipt;
+  const canUseVerifiedExecutionShortcut =
+    !wrongToolReceiptsPresent &&
+    params.evidence.verifiedExecution === true &&
+    (params.evidence.verifiedExecutionReceiptCount ?? 0) > 0 &&
+    params.evidence.hasOutput === true;
+
   const verifiedDeliveryReceiptCount = params.receipts.filter(
     (receipt) =>
       receipt.kind === "messaging_delivery" &&
@@ -330,18 +374,13 @@ function observeEvidence(params: {
     assistantText: params.evidence.hasOutput === true,
     toolReceipt:
       params.requirements.outcomeContract === "structured_artifact"
-        ? matchingArtifactToolReceipt ||
-          (params.evidence.verifiedExecution === true &&
-            (params.evidence.verifiedExecutionReceiptCount ?? 0) > 0 &&
-            params.evidence.hasOutput === true)
+        ? matchingArtifactToolReceipt || canUseVerifiedExecutionShortcut
         : successfulToolReceiptCount > 0,
     artifactDescriptor:
       params.evidence.hasStructuredReplyPayload === true ||
       (params.outcome?.artifactIds.length ?? 0) > 0 ||
       matchingArtifactToolReceipt ||
-      (params.evidence.verifiedExecution === true &&
-        (params.evidence.verifiedExecutionReceiptCount ?? 0) > 0 &&
-        params.evidence.hasOutput === true),
+      canUseVerifiedExecutionShortcut,
     processReceipt: successfulProcessReceiptCount > 0,
     deliveryReceipt:
       Math.max(

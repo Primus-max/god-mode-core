@@ -26,7 +26,7 @@ const HEAVY_ARTIFACT_KINDS = new Set([
   "binary",
   "archive",
 ]);
-type RemoteRoutingProfile = "cheap" | "code" | "strong";
+type RemoteRoutingProfile = "cheap" | "code" | "strong" | "presentation";
 const CHEAP_REMOTE_FIRST_ENV = "OPENCLAW_PREFER_CHEAP_REMOTE_FIRST";
 
 function fileNamesImplyHeavyLocalRoute(fileNames: string[]): boolean {
@@ -378,6 +378,14 @@ function inferRemoteRoutingProfile(
   }
   const tools = plannerInput.requestedTools ?? [];
   const kinds = plannerInput.artifactKinds ?? [];
+  const wantsPresentationQuality =
+    plannerInput.intent === "document" &&
+    kinds.includes("document") &&
+    tools.includes("pdf") &&
+    (tools.includes("image_generate") || kinds.includes("image") || plannerInputNeedsVisionCapability(plannerInput));
+  if (wantsPresentationQuality) {
+    return "presentation";
+  }
   if (
     plannerInput.intent === "code" ||
     plannerInput.intent === "publish" ||
@@ -508,6 +516,33 @@ function scorePreferredRemoteModel(
     }
   }
 
+  if (profile === "presentation") {
+    if (normalized.includes("claude-opus-4.6")) {
+      score += 420;
+    }
+    if (normalized.includes("gpt-5.4")) {
+      score += 360;
+    }
+    if (normalized.includes("claude-sonnet-4.6") || normalized.includes("claude-sonnet-4.5")) {
+      score += 340;
+    }
+    if (normalized.includes("gemini-2.5-pro")) {
+      score += 300;
+    }
+    if (normalized.includes("gpt-4o") && !normalized.includes("mini")) {
+      score += 120;
+    }
+    if (normalized.includes("hydra-gpt-pro")) {
+      score += 80;
+    }
+    if (normalized.includes("codex")) {
+      score -= 120;
+    }
+    if (normalized.includes("mini") || normalized.includes("nano")) {
+      score -= 140;
+    }
+  }
+
   if (candidate.provider === "hydra") {
     score += 10;
   }
@@ -529,7 +564,7 @@ function scorePreferredRemoteModel(
     if (outputs.has("image")) {
       score -= 150;
     }
-    if ((profile === "code" || profile === "strong") && catalogEntry.reasoning) {
+    if ((profile === "code" || profile === "strong" || profile === "presentation") && catalogEntry.reasoning) {
       score += 60;
     }
     if (profile === "code" && catalogEntry.supportsTools) {
@@ -538,14 +573,17 @@ function scorePreferredRemoteModel(
     if (profile === "strong" && catalogEntry.supportsTools) {
       score += 80;
     }
+    if (profile === "presentation" && catalogEntry.supportsTools) {
+      score += 90;
+    }
     if (options?.needsVision) {
       if (type === "vision" || inputs.has("image") || inputs.has("document")) {
-        score += 90;
+        score += profile === "presentation" ? 140 : 90;
       } else {
         score -= 40;
       }
     } else if (type === "vision") {
-      score += 15;
+      score += profile === "presentation" ? 40 : 15;
     }
     if (catalogEntry.architecture?.toLowerCase() === "moe" && profile !== "cheap") {
       score += 10;
@@ -630,12 +668,40 @@ function reorderRemoteTailCandidates(params: {
       ? "cheap remote fallback"
       : profile === "code"
         ? "code-oriented remote fallback"
-        : "strong remote fallback";
+        : profile === "presentation"
+          ? "presentation-quality remote fallback"
+          : "strong remote fallback";
   return {
     candidates: next,
     changed: true,
     reason: `Reordered the remote tail for a ${label} profile.`,
   };
+}
+
+function orderPresentationCandidates(params: {
+  candidates: ModelCandidate[];
+  catalog?: ModelCatalogEntry[];
+  plannerInput: LocalRoutingPlannerInput;
+}): ModelCandidate[] {
+  const needsVision = plannerInputNeedsVisionCapability(params.plannerInput);
+  const remote = params.candidates
+    .filter((candidate) => !isLikelyControlPlaneLocalProvider(candidate.provider))
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      score: scorePreferredRemoteModel(
+        candidate,
+        "presentation",
+        params.catalog ? findModelInCatalog(params.catalog, candidate.provider, candidate.model) : undefined,
+        { needsVision },
+      ),
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((entry) => entry.candidate);
+  const local = params.candidates.filter((candidate) =>
+    isLikelyControlPlaneLocalProvider(candidate.provider),
+  );
+  return [...remote, ...local];
 }
 
 function artifactKindsAllowLightTabularOrCalc(
@@ -816,6 +882,25 @@ export function applyModelRoutePreflight(params: {
     if (shouldPreferRemoteFirst) {
       const profile = plannerInput ? inferRemoteRoutingProfile(plannerInput, false) : "strong";
       const needsVision = plannerInput ? plannerInputNeedsVisionCapability(plannerInput) : false;
+      if (plannerInput && profile === "presentation") {
+        const ordered = orderPresentationCandidates({
+          candidates: list,
+          catalog: params.catalog,
+          plannerInput,
+        });
+        const first = ordered[0];
+        if (first && (first.provider !== list[0]?.provider || first.model !== list[0]?.model)) {
+          return {
+            candidates: ordered,
+            decision: buildDecisionForOrdered(ordered, {
+              reasonCode: "preflight_reordered_remote_first",
+              reason: `Promoted ${first.provider}/${first.model} and reordered the full chain for a presentation-quality remote route.`,
+              localRoutingEligible: false,
+              reordered: true,
+            }),
+          };
+        }
+      }
       const bestRemoteIndex = findBestRemoteIndex(profile, needsVision);
       if (bestRemoteIndex > 0) {
         const remoteCandidate = list[bestRemoteIndex];

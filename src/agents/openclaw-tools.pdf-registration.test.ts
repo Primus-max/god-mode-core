@@ -30,4 +30,29 @@ describe("createOpenClawTools PDF registration", () => {
       expect(tools.some((tool) => tool.name === "pdf")).toBe(true);
     });
   });
+
+  it("includes pdf tool when only a Hydra provider apiKey is configured", async () => {
+    await withTempAgentDir(async (agentDir) => {
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: {
+            model: { primary: "hydra/gpt-5.3-codex" },
+          },
+        },
+        models: {
+          providers: {
+            hydra: {
+              baseUrl: "https://api-ru.hydraai.ru/v1",
+              api: "openai-completions",
+              apiKey: "hydra-test-key",
+              models: [{ id: "gpt-5.3-codex", name: "GPT-5.3 Codex" }],
+            },
+          },
+        },
+      };
+
+      const tools = createOpenClawTools({ config: cfg, agentDir });
+      expect(tools.some((tool) => tool.name === "pdf")).toBe(true);
+    });
+  });
 });

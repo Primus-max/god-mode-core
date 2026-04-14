@@ -227,6 +227,20 @@ describe("buildExecutionDecisionInput", () => {
     expect(input.lowConfidenceStrategy).toBeUndefined();
   });
 
+  it("keeps prompt-only pdf plus supporting images as a high-confidence document turn", () => {
+    const input = buildExecutionDecisionInput({
+      prompt:
+        "Надо сделать pdf файл, с инфографикой о жизни городского котика, это просто прикол, но надо пару страниц, красивый формат, можно добавить пару картинок.",
+    });
+
+    expect(input.intent).toBe("document");
+    expect(input.artifactKinds ?? []).toEqual(expect.arrayContaining(["document", "image"]));
+    expect(input.requestedTools ?? []).toEqual(expect.arrayContaining(["pdf", "image_generate"]));
+    expect(input.confidence).toBe("high");
+    expect(input.ambiguityReasons).toEqual([]);
+    expect(input.lowConfidenceStrategy).toBeUndefined();
+  });
+
   it("infers site artifact kinds and code intent for website prompts", () => {
     const input = buildExecutionDecisionInput({
       prompt: "Сделай простой сайт на Vue, localhost на 5173",

@@ -1553,4 +1553,355 @@ describe("platform runtime checkpoint service", () => {
       }),
     );
   });
+
+  // Iteration 6 — Live acceptance truth
+  // These tests prove that evaluateAcceptance cannot close workspace_change or
+  // interactive_local_result runs from text-only evidence: real tool receipts are required.
+
+  it("blocks workspace_change completion from text-only evidence with no tool receipt", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-workspace-text-only",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const acceptance = service.evaluateAcceptance({
+      runId: outcome.runId,
+      outcome,
+      evidence: {
+        hasOutput: true,
+        declaredOutcomeContract: "workspace_change",
+      },
+      receipts: [],
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        reasonCode: "completed_without_evidence",
+      }),
+    );
+  });
+
+  it("accepts workspace_change completion when a successful write receipt is provided", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-workspace-with-write",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const acceptance = service.evaluateAcceptance({
+      runId: outcome.runId,
+      outcome,
+      evidence: {
+        hasOutput: true,
+        declaredOutcomeContract: "workspace_change",
+      },
+      receipts: [
+        { kind: "tool", name: "write", status: "success", proof: "reported", summary: "file written" },
+      ],
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+      }),
+    );
+  });
+
+  it("blocks interactive_local_result completion from text-only evidence with no exec or process receipt", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-site-text-only",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const acceptance = service.evaluateAcceptance({
+      runId: outcome.runId,
+      outcome,
+      evidence: {
+        hasOutput: true,
+        declaredArtifactKinds: ["site"],
+      },
+      receipts: [],
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        reasonCode: "completed_without_evidence",
+      }),
+    );
+  });
+
+  it("stops retrying completed_without_evidence after the no-evidence cap is exhausted", () => {
+    // Simulate the embedded-runner path: each call has a shared requestRunId
+    // but starts fresh with no recoveryAttemptCount supplied by the caller.
+    const service = createPlatformRuntimeCheckpointService();
+    const sharedRequestRunId = "req-no-evidence-cap";
+    const makeOutcome = (runId: string): PlatformRuntimeRunOutcome => ({
+      runId,
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    });
+
+    // Attempt 1: tracker at 0 → retryable (semantic_retry not exhausted yet)
+    const closure1 = service.buildRunClosure({
+      runId: "run-no-evidence-1",
+      requestRunId: sharedRequestRunId,
+      outcome: makeOutcome("run-no-evidence-1"),
+      evidence: {
+        hasOutput: true,
+        declaredOutcomeContract: "structured_artifact",
+        declaredArtifactKinds: ["document"],
+      },
+      receipts: [],
+    });
+    // buildRunClosure fires contract verification before the evidence gate;
+    // the reported reason code is contract_mismatch (with semantic_retry remediation)
+    expect(closure1.acceptanceOutcome).toMatchObject({
+      status: "retryable",
+      remediation: "semantic_retry",
+    });
+    expect(closure1.supervisorVerdict.action).toBe("retry");
+
+    // Attempt 2: tracker now at 1 → budget exhausted → terminal stop
+    const closure2 = service.buildRunClosure({
+      runId: "run-no-evidence-2",
+      requestRunId: sharedRequestRunId,
+      outcome: makeOutcome("run-no-evidence-2"),
+      evidence: {
+        hasOutput: true,
+        declaredOutcomeContract: "structured_artifact",
+        declaredArtifactKinds: ["document"],
+        // Caller still does NOT supply recoveryAttemptCount
+      },
+      receipts: [],
+    });
+    expect(closure2.acceptanceOutcome.status).toBe("retryable");
+    expect(closure2.supervisorVerdict).toMatchObject({
+      action: "stop",
+      reasonCode: "recovery_budget_exhausted",
+    });
+  });
+
+  it("resets the no-evidence cap counter when valid receipts arrive", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const sharedRequestRunId = "req-no-evidence-reset";
+    const makeOutcome = (runId: string): PlatformRuntimeRunOutcome => ({
+      runId,
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    });
+
+    // Attempt 1: no evidence → retryable, counter becomes 1
+    service.buildRunClosure({
+      runId: "run-no-evidence-reset-1",
+      requestRunId: sharedRequestRunId,
+      outcome: makeOutcome("run-no-evidence-reset-1"),
+      evidence: {
+        hasOutput: true,
+        declaredOutcomeContract: "structured_artifact",
+        declaredArtifactKinds: ["document"],
+      },
+      receipts: [],
+    });
+
+    // Attempt 2: valid pdf tool receipt → clears the counter
+    const closureWithReceipt = service.buildRunClosure({
+      runId: "run-no-evidence-reset-2",
+      requestRunId: sharedRequestRunId,
+      outcome: makeOutcome("run-no-evidence-reset-2"),
+      evidence: {
+        hasOutput: true,
+        declaredOutcomeContract: "structured_artifact",
+        declaredArtifactKinds: ["document"],
+        verifiedExecution: true,
+        verifiedExecutionReceiptCount: 1,
+      },
+      receipts: [
+        {
+          kind: "tool",
+          name: "pdf",
+          status: "success",
+          proof: "verified",
+          summary: "PDF generated",
+        },
+      ],
+    });
+    // Receipt present → acceptance should pass, counter cleared
+    expect(closureWithReceipt.acceptanceOutcome.status).not.toBe("retryable");
+    expect(closureWithReceipt.acceptanceOutcome.reasonCode).not.toBe(
+      "completed_without_evidence",
+    );
+
+    // Attempt 3: no evidence again → back to retryable (counter was reset, not at cap)
+    const closureAfterReset = service.buildRunClosure({
+      runId: "run-no-evidence-reset-3",
+      requestRunId: sharedRequestRunId,
+      outcome: makeOutcome("run-no-evidence-reset-3"),
+      evidence: {
+        hasOutput: true,
+        declaredOutcomeContract: "structured_artifact",
+        declaredArtifactKinds: ["document"],
+      },
+      receipts: [],
+    });
+    expect(closureAfterReset.acceptanceOutcome).toMatchObject({
+      status: "retryable",
+      remediation: "semantic_retry",
+    });
+    expect(closureAfterReset.supervisorVerdict.action).toBe("retry");
+  });
+
+  it("stops site/interactive_local_result from endless timeout by capping no-evidence retries", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const sharedRequestRunId = "req-site-no-evidence-cap";
+    const makeOutcome = (runId: string): PlatformRuntimeRunOutcome => ({
+      runId,
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    });
+
+    // Attempt 1: text-only reply for site request → retryable (semantic_retry)
+    const closure1 = service.buildRunClosure({
+      runId: "run-site-no-evidence-1",
+      requestRunId: sharedRequestRunId,
+      outcome: makeOutcome("run-site-no-evidence-1"),
+      evidence: {
+        hasOutput: true,
+        declaredOutcomeContract: "interactive_local_result",
+        declaredArtifactKinds: ["site"],
+      },
+      receipts: [],
+    });
+    expect(closure1.acceptanceOutcome).toMatchObject({
+      status: "retryable",
+      remediation: "semantic_retry",
+    });
+    expect(closure1.supervisorVerdict.action).toBe("retry");
+
+    // Attempt 2: same text-only reply → terminal stop, not a second timeout
+    const closure2 = service.buildRunClosure({
+      runId: "run-site-no-evidence-2",
+      requestRunId: sharedRequestRunId,
+      outcome: makeOutcome("run-site-no-evidence-2"),
+      evidence: {
+        hasOutput: true,
+        declaredOutcomeContract: "interactive_local_result",
+        declaredArtifactKinds: ["site"],
+      },
+      receipts: [],
+    });
+    expect(closure2.supervisorVerdict).toMatchObject({
+      action: "stop",
+      reasonCode: "recovery_budget_exhausted",
+    });
+  });
+
+  it("accepts interactive_local_result completion when exec receipt and confirmed action are present", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-site-with-exec",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: ["exec-action-1"],
+      attemptedActionIds: ["exec-action-1"],
+      confirmedActionIds: ["exec-action-1"],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const acceptance = service.evaluateAcceptance({
+      runId: outcome.runId,
+      outcome,
+      evidence: {
+        hasOutput: true,
+        declaredArtifactKinds: ["site"],
+        // confirmed action count explicitly set so processReceipt is satisfied
+        confirmedActionCount: 1,
+        // verifiedExecutionReceiptCount satisfies requiresVerifiedNonMessagingClosure gate
+        verifiedExecution: true,
+        verifiedExecutionReceiptCount: 1,
+      },
+      receipts: [
+        { kind: "tool", name: "exec", status: "success", proof: "reported", summary: "dev server started" },
+      ],
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+      }),
+    );
+  });
 });

@@ -130,6 +130,31 @@ describe("planExecutionRecipe", () => {
     expect(plan.recipe.id).not.toBe("code_build_publish");
   });
 
+  it("does not route mixed pdf plus images requests into media_production", () => {
+    const plan = planExecutionRecipe(
+      buildExecutionDecisionInput({
+        prompt:
+          "Надо сделать pdf файл, с инфографикой о жизни городского котика, это просто прикол, но надо пару страниц, красивый формат, можно добавить пару картинок.",
+      }),
+    );
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).not.toBe("media_production");
+    expect(plan.recipe.id).toBe("doc_authoring");
+  });
+
+  it("selects doc_authoring for prompt-only PDF creation requests", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Сделай красивый PDF-отчет на 2 страницы с диаграммами и краткими выводами.",
+      artifactKinds: ["document"],
+      requestedTools: ["pdf"],
+      intent: "document",
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).toBe("doc_authoring");
+  });
+
   it("selects table_compare for two spreadsheet price comparison prompts", () => {
     const plan = planExecutionRecipe({
       prompt:

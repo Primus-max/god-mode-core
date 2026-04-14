@@ -203,6 +203,7 @@ export type PlatformRuntimeCheckpointService = {
     runId: string;
     outcome: PlatformRuntimeRunOutcome;
     evidence?: PlatformRuntimeAcceptanceEvidence;
+    receipts?: PlatformRuntimeExecutionReceipt[];
   }) => PlatformRuntimeAcceptanceResult;
   evaluateSupervisorVerdict: (params: {
     runId: string;
@@ -999,6 +1000,10 @@ export function createPlatformRuntimeCheckpointService(params?: {
   const checkpoints = new Map<string, PlatformRuntimeCheckpoint>();
   const actions = new Map<string, PlatformRuntimeAction>();
   const closures = new Map<string, PlatformRuntimeRunClosure>();
+  // Tracks consecutive completed_without_evidence failures per requestRunId so the
+  // semantic_retry budget exhausts correctly even when callers (e.g. the embedded
+  // runner) do not thread recoveryAttemptCount across separate buildRunClosure calls.
+  const noEvidenceRetryCounters = new Map<string, number>();
   const continuationHandlers = new Map<
     PlatformRuntimeContinuationKind,
     (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void
@@ -1601,6 +1606,24 @@ export function createPlatformRuntimeCheckpointService(params?: {
         });
     },
     buildRunClosure(params) {
+      // Derive the request-scoped no-evidence retry counter.
+      // The embedded runner never threads recoveryAttemptCount across separate
+      // closure calls, so we maintain the count internally and inject it here.
+      // When a caller already supplies a higher count, we defer to the caller.
+      const requestKey = (params.requestRunId ?? params.runId).trim();
+      const trackedAttemptCount = noEvidenceRetryCounters.get(requestKey) ?? 0;
+      const resolvedEvidence: PlatformRuntimeAcceptanceEvidence | undefined =
+        params.evidence !== undefined
+          ? {
+              ...params.evidence,
+              ...(trackedAttemptCount > 0 &&
+              (params.evidence.recoveryAttemptCount === undefined ||
+                params.evidence.recoveryAttemptCount < trackedAttemptCount)
+                ? { recoveryAttemptCount: trackedAttemptCount }
+                : {}),
+            }
+          : params.evidence;
+
       const outcome =
         normalizeRunOutcome(params.outcome) ??
         this.buildRunOutcome(params.runId) ??
@@ -1625,14 +1648,14 @@ export function createPlatformRuntimeCheckpointService(params?: {
         executionIntent: params.executionIntent,
       });
       const verificationEvidence = buildIntentAwareEvidence({
-        evidence: params.evidence ?? {},
+        evidence: resolvedEvidence ?? {},
         executionIntent,
       });
       const contract = this.buildExecutionContract({
         runId: params.runId,
         outcome,
         receipts: params.receipts,
-        evidence: params.evidence,
+        evidence: resolvedEvidence,
         executionIntent,
       });
       const executionVerification = this.verifyExecutionContract({
@@ -1642,7 +1665,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       });
       const evidence = this.buildAcceptanceEvidence({
         outcome,
-        evidence: params.evidence,
+        evidence: resolvedEvidence,
         executionVerification,
         executionSurface: params.executionSurface,
         executionIntent,
@@ -1651,6 +1674,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         runId: params.runId,
         outcome,
         evidence,
+        receipts: contract.receipts,
       });
       const supervisorVerdict = this.evaluateSupervisorVerdict({
         runId: params.runId,
@@ -1658,6 +1682,28 @@ export function createPlatformRuntimeCheckpointService(params?: {
         verification: executionVerification,
         surface: params.executionSurface,
       });
+
+      // Maintain the no-evidence retry counter for this request key.
+      // Track both completed_without_evidence (direct evidence gate) and
+      // contract_mismatch with semantic_retry (the full buildRunClosure path,
+      // where contract verification fires first). Both indicate the model
+      // replied with text but no tool evidence was observed.
+      // Increment when the gate fired but the budget is not yet exhausted.
+      // Clear when the run succeeds or reaches any terminal stop/escalate.
+      const isNoEvidenceOutcome =
+        acceptanceOutcome.reasonCode === "completed_without_evidence" ||
+        (acceptanceOutcome.reasonCode === "contract_mismatch" &&
+          acceptanceOutcome.remediation === "semantic_retry");
+      if (
+        isNoEvidenceOutcome &&
+        supervisorVerdict.action !== "stop" &&
+        supervisorVerdict.action !== "escalate"
+      ) {
+        noEvidenceRetryCounters.set(requestKey, trackedAttemptCount + 1);
+      } else {
+        noEvidenceRetryCounters.delete(requestKey);
+      }
+
       return PlatformRuntimeRunClosureSchema.parse({
         runId: params.runId.trim(),
         ...(params.requestRunId ? { requestRunId: params.requestRunId } : {}),
@@ -1877,7 +1923,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
           runId: params.runId,
           evidence,
         }),
-        receipts: [],
+        receipts: params.receipts ?? [],
         evidence,
         outcome: params.outcome,
       });
@@ -1985,7 +2031,16 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
-      if (sufficiency.requirements.requiresStructuredEvidence && !sufficiency.sufficient) {
+      // Block completion when execution contracts require real evidence but none was observed.
+      // structured_artifact: requires matching tool receipt (pdf, image_generate, etc.)
+      // interactive_local_result: requires process / local-execution evidence
+      // workspace_change: requires at least one successful tool receipt (write/exec/apply_patch)
+      // text_response: no gate — hasOutput alone is sufficient
+      const requiresEvidencedCompletion =
+        sufficiency.requirements.requiresStructuredEvidence ||
+        sufficiency.requirements.executionContract.requiresLocalProcess === true ||
+        sufficiency.requirements.executionContract.requiresWorkspaceMutation === true;
+      if (requiresEvidencedCompletion && !sufficiency.sufficient) {
         reasons.push(...sufficiency.reasons);
         return parseAcceptanceResult({
           runId: params.runId,

@@ -658,11 +658,60 @@ export function shouldFailoverEmptySemanticRetryResult(
   result: Awaited<ReturnType<typeof runEmbeddedPiAgent>>,
 ): boolean {
   const payloads = result.payloads ?? [];
+  const verdict = result.meta.supervisorVerdict;
+  const executionIntent = result.meta.executionIntent;
   const CONTINUATION_REFUSAL_RE =
     /\b(?:can(?:not|'t)\s+continue|unable\s+to\s+continue|can(?:not|'t)\s+proceed|unable\s+to\s+proceed)\b/i;
+  const ACK_ONLY_TEXTS = new Set([
+    "got it",
+    "sure",
+    "will do",
+    "sounds good",
+    "understood",
+    "i ll do it",
+    "i will do it",
+    "i ll handle it",
+    "i will handle it",
+    "i ll make it",
+    "i will make it",
+    "понял",
+    "хорошо",
+    "сделаю",
+    "сейчас сделаю",
+    "отлично",
+    "отлично сделаю",
+    "ага",
+  ]);
   const TOOL_NAME_FIELD_RE =
     /"(?:name|function|function_name|tool|tool_name)"\s*:\s*"[^"\r\n]+"/;
   const ARGUMENTS_FIELD_RE = /"arguments"\s*:\s*\{/;
+  const extractLeadText = (text: string): string => {
+    return text
+      .split(/\n\s*\n>\s*📊\s*\[DEBUG ROUTING\]/u, 1)[0]
+      ?.split(/\n\s*\n---\s*$/u, 1)[0]
+      ?.trim() ?? "";
+  };
+  const normalizeAckText = (text: string): string =>
+    extractLeadText(text)
+      .replace(/\p{Extended_Pictographic}/gu, " ")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+  const hasVisibleProviderErrorShape = (text: string): boolean => {
+    const lead = extractLeadText(text);
+    if (!lead) {
+      return false;
+    }
+    return (
+      /^(?:http\s*\d{3}\b|(?:[a-z][\w-]*\s+)?(?:api\s+)?error\b|request failed\b|llm request failed\b)/iu.test(
+        lead,
+      ) ||
+      /\b(?:cannot be processed|unsupported data|invalid request|request is invalid|bad request)\b/iu.test(
+        lead,
+      )
+    );
+  };
   const unwrapStandaloneToolCallEnvelope = (text: string): string | null => {
     const trimmed = text.trim();
     if (!trimmed) {
@@ -719,7 +768,110 @@ export function shouldFailoverEmptySemanticRetryResult(
       );
     }
   };
+  const isSemanticRetryAcknowledgementOnly = (): boolean => {
+    if (verdict?.action !== "retry" || verdict.remediation !== "semantic_retry" || payloads.length === 0) {
+      return false;
+    }
+    return payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      if (hasMedia || typeof payload.text !== "string") {
+        return false;
+      }
+      const normalized = normalizeAckText(payload.text);
+      return normalized.length > 0 && normalized.length <= 80 && ACK_ONLY_TEXTS.has(normalized);
+    });
+  };
+  const isArtifactTurnAcknowledgementOnly = (): boolean => {
+    if (payloads.length === 0) {
+      return false;
+    }
+    const artifactKinds = executionIntent?.artifactKinds ?? [];
+    const requestedToolNames = executionIntent?.requestedToolNames ?? [];
+    const expectsArtifactOutput =
+      executionIntent?.outcomeContract === "structured_artifact" ||
+      artifactKinds.length > 0 ||
+      requestedToolNames.some((tool) => {
+        const normalizedTool = tool.trim().toLowerCase();
+        return (
+          normalizedTool === "pdf" ||
+          normalizedTool === "image_generate" ||
+          normalizedTool === "video_generate" ||
+          normalizedTool === "audio_generate"
+        );
+      });
+    if (!expectsArtifactOutput) {
+      return false;
+    }
+    return payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      if (hasMedia || typeof payload.text !== "string") {
+        return false;
+      }
+      const normalized = normalizeAckText(payload.text);
+      if (normalized.length === 0 || normalized.length > 160) {
+        return false;
+      }
+      if (ACK_ONLY_TEXTS.has(normalized)) {
+        return true;
+      }
+      const startsLikePromise =
+        normalized.startsWith("сделаю ") ||
+        normalized.startsWith("сейчас сделаю ") ||
+        normalized.startsWith("i will ") ||
+        normalized.startsWith("i ll ") ||
+        normalized.startsWith("will do ");
+      const soundsCompleted =
+        normalized.includes("готово") ||
+        normalized.includes("done") ||
+        normalized.includes("saved") ||
+        normalized.includes("создал") ||
+        normalized.includes("сохранил") ||
+        normalized.includes("file ") ||
+        normalized.includes("файл ");
+      return startsLikePromise && !soundsCompleted;
+    });
+  };
+  const isArtifactTurnProviderErrorOnly = (): boolean => {
+    const artifactKinds = executionIntent?.artifactKinds ?? [];
+    const requestedToolNames = executionIntent?.requestedToolNames ?? [];
+    const expectsArtifactOutput =
+      executionIntent?.outcomeContract === "structured_artifact" ||
+      artifactKinds.length > 0 ||
+      requestedToolNames.some((tool) => {
+        const normalizedTool = tool.trim().toLowerCase();
+        return (
+          normalizedTool === "pdf" ||
+          normalizedTool === "image_generate" ||
+          normalizedTool === "video_generate" ||
+          normalizedTool === "audio_generate"
+        );
+      });
+    if (!expectsArtifactOutput || payloads.length === 0) {
+      return false;
+    }
+    const metaError = result.meta.error;
+    return payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      if (hasMedia || typeof payload.text !== "string") {
+        return false;
+      }
+      return hasVisibleProviderErrorShape(payload.text) || Boolean(metaError);
+    });
+  };
   if (payloads.length > 0) {
+    if (
+      isSemanticRetryAcknowledgementOnly() ||
+      isArtifactTurnAcknowledgementOnly() ||
+      isArtifactTurnProviderErrorOnly()
+    ) {
+      return true;
+    }
     const firstVisibleTextPayload = payloads.find((payload) => {
       const hasMedia =
         typeof payload.mediaUrl === "string" ||
@@ -751,7 +903,6 @@ export function shouldFailoverEmptySemanticRetryResult(
     }
     return false;
   }
-  const verdict = result.meta.supervisorVerdict;
   return verdict?.action === "retry" && verdict.remediation === "semantic_retry";
 }
 

@@ -41,11 +41,14 @@ let finalizeClosureRecoveryCheckpoint: typeof import("./agent-runner-helpers.js"
 let finalizeMessagingDeliveryClosure: typeof import("./agent-runner-helpers.js").finalizeMessagingDeliveryClosure;
 let finalizeWithFollowup: typeof import("./agent-runner-helpers.js").finalizeWithFollowup;
 let getPlatformBootstrapService: typeof import("../../platform/bootstrap/index.js").getPlatformBootstrapService;
+let getFollowupQueueDepth: typeof import("./queue.js").getFollowupQueueDepth;
+let listExistingFollowupQueues: typeof import("./queue.js").listExistingFollowupQueues;
 let resetPlatformBootstrapService: typeof import("../../platform/bootstrap/index.js").resetPlatformBootstrapService;
 let isAudioPayload: typeof import("./agent-runner-helpers.js").isAudioPayload;
 let reconcileClosureRecoveryOnStartup: typeof import("./closure-outcome-dispatcher.js").reconcileClosureRecoveryOnStartup;
 let reevaluateAcceptanceForMessagingRun: typeof import("./agent-runner-helpers.js").reevaluateAcceptanceForMessagingRun;
 let reevaluateMessagingDecisionForMessagingRun: typeof import("./agent-runner-helpers.js").reevaluateMessagingDecisionForMessagingRun;
+let scheduleFollowupDrain: typeof import("./queue.js").scheduleFollowupDrain;
 let signalTypingIfNeeded: typeof import("./agent-runner-helpers.js").signalTypingIfNeeded;
 
 describe("agent runner helpers", () => {
@@ -57,6 +60,8 @@ describe("agent runner helpers", () => {
     resetSharedExecApprovalManager();
     ({ getPlatformBootstrapService, resetPlatformBootstrapService } =
       await import("../../platform/bootstrap/index.js"));
+    ({ getFollowupQueueDepth, listExistingFollowupQueues, scheduleFollowupDrain } =
+      await import("./queue.js"));
     resetPlatformBootstrapService();
     ({
       createShouldEmitToolOutput,
@@ -218,6 +223,7 @@ describe("agent runner helpers", () => {
       },
     });
     expect(queued).toBe(true);
+    expect(getFollowupQueueDepth("queue-1")).toBe(1);
 
     const skipped = enqueueSemanticRetryFollowup({
       queueKey: "queue-1",
@@ -266,6 +272,62 @@ describe("agent runner helpers", () => {
       },
     });
     expect(skipped).toBe(false);
+  });
+
+  it("preserves intermediate-artifact continuation instructions in semantic retries", async () => {
+    const queueKey = "queue-artifact-continuation";
+
+    const queued = enqueueSemanticRetryFollowup({
+      queueKey,
+      sourceRun: {
+        prompt: "Сделай PDF с инфографикой про жизнь городского котика и добавь пару картинок.",
+        summaryLine: "cat pdf",
+        enqueuedAt: 1,
+        run: {
+          agentId: "agent",
+          agentDir: "/tmp/agent",
+          sessionId: "session",
+          sessionFile: "/tmp/session.json",
+          workspaceDir: "/tmp/workspace",
+          config: {},
+          provider: "openai",
+          model: "gpt-5.4",
+          timeoutMs: 30_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+      settings: {} as never,
+      acceptance: undefined,
+      supervisorVerdict: {
+        runId: "run-2",
+        status: "retryable",
+        action: "retry",
+        remediation: "semantic_retry",
+        recoveryPolicy: {
+          remediation: "semantic_retry",
+          recoveryClass: "semantic",
+          cadence: "immediate",
+          continuous: false,
+          attemptCount: 0,
+          maxAttempts: 1,
+          remainingAttempts: 1,
+          exhausted: false,
+          exhaustedAction: "stop",
+          nextAttemptDelayMs: 0,
+        },
+        reasonCode: "contract_mismatch",
+        reasons: ["missing verified output"],
+      },
+    });
+
+    expect(queued).toBe(true);
+    const queueEntry = listExistingFollowupQueues().find((entry) => entry.key === queueKey);
+    const queuedPrompt = queueEntry?.queue.items[0]?.prompt;
+
+    expect(queuedPrompt).toContain(
+      "continue from any successful intermediate tool outputs already produced in this session",
+    );
+    expect(queuedPrompt).toContain("Сделай PDF с инфографикой про жизнь городского котика");
   });
 
   it("does not queue semantic retry for bootstrap remediation and surfaces a specific fallback payload", () => {
@@ -1465,8 +1527,8 @@ describe("agent runner helpers", () => {
 
     expect(acceptance).toEqual(
       expect.objectContaining({
-        status: "satisfied",
-        reasonCode: "completed_with_confirmed_delivery",
+        status: "retryable",
+        reasonCode: "completed_without_evidence",
         evidence: expect.objectContaining({
           declaredRecipeId: "code_build_publish",
           declaredIntent: "publish",

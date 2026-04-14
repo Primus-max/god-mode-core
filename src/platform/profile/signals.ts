@@ -187,6 +187,7 @@ const INTEGRATOR_INTEGRATIONS = new Set([
 const DEVELOPER_TOOLS = new Set(["exec", "process", "apply_patch"]);
 const OPERATOR_TOOLS = new Set(["exec", "process"]);
 const MEDIA_TOOLS = new Set(["browser", "canvas"]);
+const DOCUMENT_TOOLS = new Set(["pdf"]);
 
 function normalizedText(input: ProfileSignalInput): string {
   return [
@@ -248,6 +249,11 @@ export function extractProfileSignals(input: ProfileSignalInput): ProfileScoring
   const publishTargets = (input.publishTargets ?? []).map((value) => value.toLowerCase());
   const integrations = (input.integrations ?? []).map((value) => value.toLowerCase());
   const tools = (input.requestedTools ?? []).map((value) => value.toLowerCase());
+  const hasDocumentLikeRequest =
+    hasDocumentExtractionIntent(text) ||
+    artifacts.some((kind) => BUILDER_ARTIFACTS.has(kind)) ||
+    publishTargets.some((target) => BUILDER_PUBLISH_TARGETS.has(target)) ||
+    tools.some((tool) => DOCUMENT_TOOLS.has(tool));
 
   if (text && includesAny(text, BUILDER_KEYWORDS)) {
     pushSignal(signals, "dialogue", "builder", 0.65, "document/estimate language detected");
@@ -261,7 +267,7 @@ export function extractProfileSignals(input: ProfileSignalInput): ProfileScoring
   if (text && includesAny(text, OPERATOR_KEYWORDS)) {
     pushSignal(signals, "dialogue", "operator", 0.8, "ops/machine language detected");
   }
-  if (text && includesAny(text, MEDIA_KEYWORDS) && !hasDocumentExtractionIntent(text)) {
+  if (text && includesAny(text, MEDIA_KEYWORDS) && !hasDocumentLikeRequest) {
     pushSignal(signals, "dialogue", "media_creator", 0.78, "media/multimodal language detected");
   }
   if (text && includesAny(text, GENERAL_KEYWORDS)) {
@@ -279,7 +285,7 @@ export function extractProfileSignals(input: ProfileSignalInput): ProfileScoring
   }
   if (
     files.some((file) => MEDIA_EXTENSIONS.some((ext) => file.toLowerCase().endsWith(ext))) &&
-    !hasDocumentExtractionIntent(text)
+    !hasDocumentLikeRequest
   ) {
     pushSignal(signals, "file", "media_creator", 0.85, "media file types attached");
   }
@@ -290,7 +296,7 @@ export function extractProfileSignals(input: ProfileSignalInput): ProfileScoring
   if (artifacts.some((kind) => DEVELOPER_ARTIFACTS.has(kind))) {
     pushSignal(signals, "artifact", "developer", 0.75, "release/binary artifact requested");
   }
-  if (artifacts.some((kind) => MEDIA_ARTIFACTS.has(kind))) {
+  if (artifacts.some((kind) => MEDIA_ARTIFACTS.has(kind)) && !hasDocumentLikeRequest) {
     pushSignal(signals, "artifact", "media_creator", 0.9, "media artifact requested");
   }
 
@@ -309,7 +315,7 @@ export function extractProfileSignals(input: ProfileSignalInput): ProfileScoring
       "integrator-oriented publish target requested",
     );
   }
-  if (publishTargets.some((target) => MEDIA_PUBLISH_TARGETS.has(target))) {
+  if (publishTargets.some((target) => MEDIA_PUBLISH_TARGETS.has(target)) && !hasDocumentLikeRequest) {
     pushSignal(signals, "config", "media_creator", 0.76, "media-oriented publish target requested");
   }
 

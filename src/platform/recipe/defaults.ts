@@ -29,6 +29,24 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
     timeoutSeconds: 180,
   },
   {
+    id: "doc_authoring",
+    purpose: "Author and package a new document or PDF deliverable from prompt instructions",
+    summary: "Work author-first: create the requested document artifact instead of treating the turn as file ingestion.",
+    acceptedInputs: [
+      { type: "text", required: true, description: "Document brief, structure, and requested output format" },
+      { type: "file", description: "Optional reference assets or source images to include" },
+    ],
+    producedArtifacts: [
+      { type: "document", description: "Generated PDF or document deliverable" },
+      { type: "report", description: "Supporting written structure or summary when helpful" },
+    ],
+    allowedProfiles: ["builder", "general"],
+    riskLevel: "low",
+    systemPrompt:
+      "Work author-first. When the user asks for a new PDF, report, presentation, or slide-style document from prompt text, create the deliverable with the pdf tool instead of treating the task like document parsing. If supporting images are requested, generate or gather them first, then assemble the final PDF in the same turn. Do not stop after image generation, do not ask for style confirmation unless the user explicitly asked for a choice, and do not claim completion until the final document artifact exists.",
+    timeoutSeconds: 240,
+  },
+  {
     id: "ocr_extract",
     purpose: "Extract structured text and fields from scans and image-heavy documents",
     summary: "Use OCR-first flow when the source is a scan, screenshot, or image-dominant page.",

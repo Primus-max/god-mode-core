@@ -378,10 +378,14 @@ export function resolvePdfModelConfigForTool(params: {
 
   // Auto-detect from available providers
   const primary = resolveDefaultModelRef(params.cfg);
-  const anthropicOk = hasAuthForProvider({ provider: "anthropic", agentDir: params.agentDir });
-  const googleOk = hasAuthForProvider({ provider: "google", agentDir: params.agentDir });
-  const hydraOk = hasAuthForProvider({ provider: "hydra", agentDir: params.agentDir });
-  const openaiOk = hasAuthForProvider({ provider: "openai", agentDir: params.agentDir });
+  const anthropicOk = hasAuthForProvider({
+    provider: "anthropic",
+    agentDir: params.agentDir,
+    cfg: params.cfg,
+  });
+  const googleOk = hasAuthForProvider({ provider: "google", agentDir: params.agentDir, cfg: params.cfg });
+  const hydraOk = hasAuthForProvider({ provider: "hydra", agentDir: params.agentDir, cfg: params.cfg });
+  const openaiOk = hasAuthForProvider({ provider: "openai", agentDir: params.agentDir, cfg: params.cfg });
 
   const fallbacks: string[] = [];
   const addFallback = (ref: string) => {
@@ -394,7 +398,11 @@ export function resolvePdfModelConfigForTool(params: {
   // Prefer providers with native PDF support
   let preferred: string | null = null;
 
-  const providerOk = hasAuthForProvider({ provider: primary.provider, agentDir: params.agentDir });
+  const providerOk = hasAuthForProvider({
+    provider: primary.provider,
+    agentDir: params.agentDir,
+    cfg: params.cfg,
+  });
   const providerVision = resolveProviderVisionModelFromConfig({
     cfg: params.cfg,
     provider: primary.provider,

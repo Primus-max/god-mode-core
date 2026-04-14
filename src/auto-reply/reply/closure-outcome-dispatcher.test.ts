@@ -1,8 +1,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { resetInMemoryFollowupQueuesForTests } from "./queue.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  clearSessionQueues,
+  getFollowupQueueDepth,
+  resetInMemoryFollowupQueuesForTests,
+  scheduleFollowupDrain,
+} from "./queue.js";
 import { dispatchMessagingClosureOutcome } from "./closure-outcome-dispatcher.js";
 import {
   BootstrapBlockedRunResumeSchema,
@@ -56,6 +61,11 @@ describe("dispatchMessagingClosureOutcome bootstrap resume merge", () => {
     resetPlatformBootstrapService();
     resetPlatformRuntimeCheckpointService();
     resetInMemoryFollowupQueuesForTests();
+    clearSessionQueues([
+      "openclaw-bootstrap-resume-merge",
+      "openclaw-bootstrap-tool-origin",
+      "openclaw-semantic-retry-preserves-task",
+    ]);
   });
 
   it("merges blockedRunResume into existing bootstrap requests referenced by the outcome", () => {
@@ -292,5 +302,72 @@ describe("dispatchMessagingClosureOutcome bootstrap resume merge", () => {
     } finally {
       fs.rmSync(stateDir, { recursive: true, force: true });
     }
+  });
+
+  it("preserves the original task prompt when queuing semantic retry followups", async () => {
+    const queueKey = "openclaw-semantic-retry-preserves-task";
+    const drained: Array<{ prompt: string | undefined }> = [];
+
+    const dispatched = dispatchMessagingClosureOutcome({
+      queueKey,
+      sourceRun: {
+        prompt: "Надо сделать pdf файл, с инфографикой о жизни городского котика, можно добавить пару картинок.",
+        summaryLine: "pdf cat infographic",
+        enqueuedAt: 0,
+        run: {
+          agentId: "agent-retry",
+          agentDir: "/tmp/agent",
+          sessionId: "sess-retry",
+          sessionKey: "agent:main:main",
+          sessionFile: "/tmp/sess-retry.jsonl",
+          workspaceDir: "/tmp/ws-retry",
+          config: {},
+          provider: "test",
+          model: "test-model",
+          timeoutMs: 60_000,
+          blockReplyBreak: "message_end",
+        },
+      } as never,
+      settings: { mode: "followup" },
+      acceptance: undefined,
+      supervisorVerdict: {
+        runId: "run-semantic-retry",
+        status: "retryable",
+        action: "retry",
+        remediation: "semantic_retry",
+        recoveryPolicy: {
+          remediation: "semantic_retry",
+          recoveryClass: "semantic",
+          cadence: "immediate",
+          continuous: false,
+          attemptCount: 0,
+          maxAttempts: 1,
+          remainingAttempts: 1,
+          exhausted: false,
+          exhaustedAction: "stop",
+          nextAttemptDelayMs: 0,
+        },
+        reasonCode: "contract_mismatch",
+        reasons: ["Structured artifact completion requires a matching successful tool receipt."],
+      },
+    });
+
+    expect(dispatched.queuedSemanticRetry).toBe(true);
+    expect(getFollowupQueueDepth(queueKey)).toBe(1);
+
+    scheduleFollowupDrain(queueKey, async (run) => {
+      drained.push({ prompt: run.prompt });
+    });
+
+    await vi.waitFor(
+      () => {
+        expect(drained).toHaveLength(1);
+      },
+      { timeout: 1_000 },
+    );
+
+    expect(drained[0]?.prompt).toContain("The previous run did not satisfy the task well enough.");
+    expect(drained[0]?.prompt).toContain("[Original task - preserve exact task intent below]");
+    expect(drained[0]?.prompt).toContain("Надо сделать pdf файл, с инфографикой о жизни городского котика");
   });
 });

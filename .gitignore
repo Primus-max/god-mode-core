@@ -86,6 +86,15 @@ apps/ios/*.mobileprovision
 .local/
 docs/.local/
 tmp/
+/.tmp/
+/.openclaw/
+Microsoft/
+HEARTBEAT.md
+SOUL.md
+TOOLS.md
+report_content.txt
+test_report.md
+stage86-live-matrix.latest.json
 IDENTITY.md
 USER.md
 .tgz

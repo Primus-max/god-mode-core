@@ -410,6 +410,34 @@ function validateImageGenerationCapabilities(params: {
   }
 }
 
+function normalizeOptionalImageGenerationOverrides(params: {
+  provider: ImageGenerationProvider | undefined;
+  inputImageCount: number;
+  size?: string;
+  aspectRatio?: string;
+  resolution?: ImageGenerationResolution;
+}): {
+  size?: string;
+  aspectRatio?: string;
+  resolution?: ImageGenerationResolution;
+} {
+  const provider = params.provider;
+  if (!provider) {
+    return {
+      size: params.size,
+      aspectRatio: params.aspectRatio,
+      resolution: params.resolution,
+    };
+  }
+  const modeCaps =
+    params.inputImageCount > 0 ? provider.capabilities.edit : provider.capabilities.generate;
+  return {
+    ...(params.size ? { size: params.size } : {}),
+    ...(params.aspectRatio ? { aspectRatio: params.aspectRatio } : {}),
+    ...(modeCaps.supportsResolution ? { resolution: params.resolution } : {}),
+  };
+}
+
 type ImageGenerateSandboxConfig = {
   root: string;
   bridge: SandboxFsBridge;
@@ -654,13 +682,20 @@ export function createImageGenerateTool(options?: {
             modelOverride: model,
           })
         : undefined;
-      validateImageGenerationCapabilities({
+      const normalizedOverrides = normalizeOptionalImageGenerationOverrides({
         provider: selectedProvider,
-        count,
         inputImageCount: inputImages.length,
         size,
         aspectRatio,
         resolution,
+      });
+      validateImageGenerationCapabilities({
+        provider: selectedProvider,
+        count,
+        inputImageCount: inputImages.length,
+        size: normalizedOverrides.size,
+        aspectRatio: normalizedOverrides.aspectRatio,
+        resolution: normalizedOverrides.resolution,
       });
       if (!imageGenerationModelConfig && inputImages.length === 0) {
         if (!isLocalImageFallbackAllowed()) {
@@ -688,9 +723,9 @@ export function createImageGenerateTool(options?: {
           prompt,
           agentDir: options?.agentDir,
           modelOverride: model,
-          size,
-          aspectRatio,
-          resolution,
+          size: normalizedOverrides.size,
+          aspectRatio: normalizedOverrides.aspectRatio,
+          resolution: normalizedOverrides.resolution,
           count,
           inputImages,
         });
@@ -739,9 +774,11 @@ export function createImageGenerateTool(options?: {
                     })),
                   }
                 : {}),
-            ...(resolution ? { resolution } : {}),
-            ...(size ? { size } : {}),
-            ...(aspectRatio ? { aspectRatio } : {}),
+            ...(normalizedOverrides.resolution ? { resolution: normalizedOverrides.resolution } : {}),
+            ...(normalizedOverrides.size ? { size: normalizedOverrides.size } : {}),
+            ...(normalizedOverrides.aspectRatio
+              ? { aspectRatio: normalizedOverrides.aspectRatio }
+              : {}),
             ...(filename ? { filename } : {}),
             attempts: result.attempts,
             metadata: result.metadata,

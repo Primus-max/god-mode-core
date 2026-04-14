@@ -63,11 +63,22 @@ function resolvePinnedProfileOverride(params: {
     artifactKinds.has("image") ||
     artifactKinds.has("video") ||
     artifactKinds.has("audio");
+  const explicitDocumentTurn =
+    requestedTools.has("pdf") ||
+    artifactKinds.has("document") ||
+    artifactKinds.has("report") ||
+    artifactKinds.has("data");
   if (!explicitMediaTurn) {
+    if (params.pinnedProfile === "media_creator" && explicitDocumentTurn) {
+      return "builder";
+    }
     return undefined;
   }
   if (params.pinnedProfile === "builder") {
     return "media_creator";
+  }
+  if (params.pinnedProfile === "media_creator" && explicitDocumentTurn) {
+    return "builder";
   }
   return undefined;
 }

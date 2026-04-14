@@ -556,6 +556,72 @@ function buildScenarios(): Scenario[] {
       expectNoDuplicates: true,
       expectNoRecoveryLeaks: true,
     },
+    {
+      id: "case21-pdf-requires-tool-receipt",
+      kind: "turns",
+      description:
+        "Запрос PDF должен вернуть реальный PDF-файл через инструмент pdf, а не просто текстовый ответ. " +
+        "Если модель отвечает только текстом без вызова pdf — сценарий обязан провалиться.",
+      steps: [
+        {
+          prompt:
+            "Сгенерируй PDF-документ с заголовком 'Отчёт по тестированию' и одной таблицей: Параметр, Значение, Статус. " +
+            "Заполни таблицу тремя строками. Верни готовый PDF-файл.",
+          timeoutMs: 180_000,
+          expectTool: {
+            toolName: "pdf",
+            pathExt: ".pdf",
+            renderKind: "pdf",
+            minMediaCount: 1,
+          },
+        },
+      ],
+      expectNoDuplicates: true,
+      expectNoRecoveryLeaks: true,
+    },
+    {
+      id: "case22-image-requires-tool-receipt",
+      kind: "turns",
+      description:
+        "Запрос изображения должен вернуть реальный image artifact через инструмент image_generate. " +
+        "Текстовое описание или placeholder без вызова image_generate — провал сценария.",
+      steps: [
+        {
+          prompt:
+            "Сгенерируй PNG-изображение: синий градиентный фон с белым текстом 'V1 Ready' в центре. " +
+            "Верни готовую картинку.",
+          timeoutMs: 180_000,
+          expectTool: {
+            toolName: "image_generate",
+            pathExt: ".png",
+            minMediaCount: 1,
+          },
+        },
+      ],
+      expectNoDuplicates: true,
+      expectNoRecoveryLeaks: true,
+    },
+    {
+      id: "case23-site-requires-exec-receipt",
+      kind: "turns",
+      description:
+        "Запрос создать/запустить локальный сайт должен вернуть реальное exec/process доказательство. " +
+        "Текстовый ответ без вызова exec или запуска процесса — провал сценария.",
+      steps: [
+        {
+          prompt:
+            "Создай и запусти простой локальный preview HTML-страницы: заголовок 'Stage86 Live Test', " +
+            "один параграф с текущей датой. Используй exec или другой инструмент для реального запуска. " +
+            "Верни URL или подтверждение запуска.",
+          timeoutMs: 180_000,
+          expectTool: {
+            toolName: "exec",
+          },
+        },
+      ],
+      expectNoDuplicates: true,
+      expectNoRecoveryLeaks: true,
+    },
   ];
 }
 

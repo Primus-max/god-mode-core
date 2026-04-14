@@ -101,7 +101,6 @@ describe("qualification confidence", () => {
     expect(ambiguityReasons).toEqual(
       expect.arrayContaining([
         "multiple candidate families remain without an explicit intent anchor (media_generation, document_render)",
-        "requested artifacts span multiple execution surfaces (document, media)",
       ]),
     );
     expect(confidence).toBe("medium");
@@ -124,6 +123,65 @@ describe("qualification confidence", () => {
         publishTargets: [],
       }),
     ).toBe("bounded_attempt_with_strict_verification");
+  });
+
+  it("does not treat pdf authoring with supporting images as mixed-surface ambiguity", () => {
+    const ambiguityReasons = inferQualificationAmbiguityReasons({
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      candidateFamilies: ["document_render", "media_generation"],
+      intent: "document",
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+      publishTargets: [],
+    });
+    const confidence = computeQualificationConfidence({
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      candidateFamilies: ["document_render", "media_generation"],
+      ambiguityReasons,
+      intent: "document",
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+      publishTargets: [],
+    });
+
+    expect(ambiguityReasons).toEqual([]);
+    expect(confidence).toBe("high");
+    expect(
+      resolveLowConfidenceStrategy({
+        outcomeContract: "structured_artifact",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: true,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: true,
+        },
+        candidateFamilies: ["document_render", "media_generation"],
+        ambiguityReasons,
+        confidence,
+        intent: "document",
+        artifactKinds: ["document", "image"],
+        requestedTools: ["pdf", "image_generate"],
+        publishTargets: [],
+      }),
+    ).toBeUndefined();
   });
 
   it("uses clarify for underspecified external operations", () => {
