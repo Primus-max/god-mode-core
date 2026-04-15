@@ -27,6 +27,7 @@ describe("planExecutionRecipe", () => {
 
     expect(plan.profile.selectedProfile.id).toBe("developer");
     expect(plan.recipe.id).toBe("code_build_publish");
+    expect(plan.plannerOutput.overrides?.model).toBe("openai/gpt-5.4");
   });
 
   it("selects ocr_extract for scan-heavy document work", () => {
@@ -106,6 +107,7 @@ describe("planExecutionRecipe", () => {
 
     expect(plan.profile.selectedProfile.id).toBe("media_creator");
     expect(plan.recipe.id).toBe("media_production");
+    expect(plan.plannerOutput.overrides?.model).toBe("openai/gpt-5.4");
   });
 
   it("selects code_build_publish for website work even when the specialist profile is media_creator", () => {
@@ -266,6 +268,124 @@ describe("planExecutionRecipe", () => {
 
     expect(plan.recipe.id).toBe("doc_authoring");
     expect(plan.recipe.id).not.toBe("ocr_extract");
+  });
+
+  it("does not fall back to family labels in contract-first mode when tool bundles already select authoring", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Create a polished PDF brief with generated supporting visuals.",
+      contractFirst: true,
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+      intent: "document",
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      candidateFamilies: ["analysis_transform"],
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).toBe("doc_authoring");
+  });
+
+  it("keeps contract-first document-authoring routing stable across paraphrases", () => {
+    const baseInput = {
+      contractFirst: true as const,
+      artifactKinds: ["document", "image"] as const,
+      requestedTools: ["pdf", "image_generate"] as const,
+      intent: "document" as const,
+      outcomeContract: "structured_artifact" as const,
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "analysis_transform" as const,
+        candidateFamilies: ["analysis_transform"] as const,
+        toolBundles: ["artifact_authoring"] as const,
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation" as const,
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    };
+
+    const clean = planExecutionRecipe({
+      ...baseInput,
+      prompt: "Create a polished infographic PDF from these notes with supporting visuals.",
+    });
+    const noisy = planExecutionRecipe({
+      ...baseInput,
+      prompt:
+        "Собери визуальный PDF из заметок с инфографикой и иллюстрациями, без правок репозитория.",
+    });
+
+    expect(clean.recipe.id).toBe("doc_authoring");
+    expect(noisy.recipe.id).toBe("doc_authoring");
+    expect(clean.recipe.id).toBe(noisy.recipe.id);
+  });
+
+  it("keeps contract-first workspace-change routing stable across paraphrases", () => {
+    const baseInput = {
+      contractFirst: true as const,
+      artifactKinds: ["binary"] as const,
+      requestedTools: ["apply_patch", "exec", "process"] as const,
+      intent: "code" as const,
+      outcomeContract: "workspace_change" as const,
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "general_assistant" as const,
+        candidateFamilies: ["general_assistant"] as const,
+        toolBundles: ["repo_mutation", "repo_run"] as const,
+        routing: {
+          localEligible: false,
+          remoteProfile: "code" as const,
+          preferRemoteFirst: false,
+          needsVision: false,
+        },
+      },
+    };
+
+    const clean = planExecutionRecipe({
+      ...baseInput,
+      prompt: "Fix failing behavior in this repository and run local validation checks.",
+    });
+    const noisy = planExecutionRecipe({
+      ...baseInput,
+      prompt: "Поправь код в репозитории и прогони нужные проверки локально перед завершением.",
+    });
+
+    expect(clean.recipe.id).toBe("code_build_publish");
+    expect(noisy.recipe.id).toBe("code_build_publish");
+    expect(clean.recipe.id).toBe(noisy.recipe.id);
   });
 
   it("prefers the simplest valid family instead of a broader execution family", () => {

@@ -1,4 +1,5 @@
 import { withPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
+import { createProfileResolveGatewayMethod } from "../platform/profile/gateway.js";
 import { formatControlPlaneActor, resolveControlPlaneActor } from "./control-plane-audit.js";
 import { consumeControlPlaneWriteBudget } from "./control-plane-rate-limit.js";
 import { ADMIN_SCOPE, authorizeOperatorScopesForMethod } from "./method-scopes.js";
@@ -95,6 +96,9 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...agentHandlers,
   ...agentsHandlers,
   ...browserHandlers,
+  // Keep Control UI profile hydration available even when platform plugin
+  // registration is missing during source-checkout gateway startups.
+  "platform.profile.resolve": createProfileResolveGatewayMethod(),
 };
 
 export async function handleGatewayRequest(

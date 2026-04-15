@@ -11,6 +11,7 @@ import {
   buildExecutionDecisionInput,
   type BuildExecutionDecisionInputParams,
 } from "./input.js";
+import { countTabularFiles } from "./intent-signals.js";
 import { inferRequestedEvidence } from "./execution-contract.js";
 import {
   resolveResolutionContract,
@@ -100,47 +101,68 @@ const TASK_CONTRACT_SCHEMA = {
 } as const;
 
 const TASK_CLASSIFIER_SYSTEM_PROMPT =
-  "Classify the request into a TaskContract. This is classification only, not execution. Never refuse or ask for access because of environment limits. Return exactly one minified JSON object and nothing else.";
+  "You are a deterministic TaskContract classifier. Classify only. Do not execute, refuse, explain, chat, or ask for access. Return exactly one minified JSON object and nothing else.";
 
 const TASK_CLASSIFIER_USER_TEMPLATE = `Return exactly one minified JSON object matching this JSON Schema:
 {{SCHEMA_JSON}}
 
 Rules:
 - Use only schema keys.
-- Keep requiredCapabilities minimal.
-- Prefer omission over invention.
-- Do not infer tools, vendors, providers, products, frameworks, or hosts as capabilities.
-- Map brand/platform words to abstract intent.
-- Attached files do not automatically imply document_extraction, multimodal_authoring, or tool_execution. Infer capabilities from the task, not from file presence alone.
-- Do not add ambiguities just because execution would require credentials, permissions, URLs, test data, environment setup, browser matrices, runtime access, review process, branch choice, deployment permissions, page count, branding, filename, or template selection.
-- Use "clarification_needed" only when the user request itself leaves the dominant outcome materially unclear or asks for production delivery without clear approval.
-- If the request already clearly asks to fix, refactor, implement, update, add, generate, draft, summarize, inspect, test, compare, deploy, or publish something, do not downgrade to clarification_needed.
-- If the request already clearly asks to fix, refactor, implement, update, or add something in a repo, prefer workspace_change plus tool_execution, not clarification_needed.
-- Code change requests imply needs_workspace_mutation. Add needs_repo_execution when the user asks to run checks, tests, builds, scripts, or validation. Add needs_local_runtime only when execution is explicitly requested or obviously required by the task wording.
-- Creating the requested artifact itself does not imply needs_workspace_mutation. Only use needs_workspace_mutation when the user is asking to edit repository or source files.
-- Requests to open, inspect, click through, smoke-test, or compare live pages imply needs_interactive_browser, not needs_web_research.
-- Requests to research latest public facts or pricing imply needs_web_research, not needs_interactive_browser.
-- Requests to find latest public information and compare or summarize options for a decision should prefer comparison_report plus tool_execution.
-- Browser audits, smoke tests, and inspections are observational tasks: prefer answer or comparison_report, not workspace_change.
-- Browser inspection tasks should not add ambiguities for missing browser matrix, viewport, credentials, test accounts, or staging URL if the request is otherwise clear; assume defaults.
-- Browser smoke or audit tasks should usually stay answer or comparison_report even when they mention signup, checkout, console, or network failures.
-- Requests that depend on browser inspection or public web research should usually prefer tool_execution.
-- Pure compare/summarize/calculate requests without live browsing or public research should prefer interactionMode respond_only.
-- Pure summarization or rewriting of provided text should prefer answer with no capabilities.
-- Straightforward arithmetic or estimation requests should avoid extra capabilities unless the task clearly requires one. Prefer no capabilities or only needs_tabular_reasoning when structured numeric reasoning is central.
-- Requests to compare live pages should prefer comparison_report and default to current desktop rendering unless the user asks otherwise.
-- Comparison over simple structured files can stay comparison_report with respond_only and may omit capabilities when no external tools are clearly required.
-- Requests to create a document, report, deck, infographic, image, or visual asset from supplied materials should usually prefer document_package. Use artifact_iteration when the main result is the authored artifact.
-- Document authoring from notes, docs, tables, or mixed inputs should usually prefer needs_multimodal_authoring and should not add ambiguities for page count, branding, tone, template, section list, or delivery formatting unless the user explicitly makes those central to the request.
-- Requests to create an image or visual asset from attached materials should prefer document_package plus artifact_iteration, not workspace_change.
-- Requests to deploy or publish to preview, staging, or live environments should prefer external_delivery plus tool_execution when that is the clear dominant outcome.
-- Deploy/publish requests imply needs_external_delivery. If the request includes running checks or release validation, also prefer needs_repo_execution plus needs_local_runtime.
-- Production or live delivery requests should usually include needs_high_reliability_provider.
-- Do not infer needs_workspace_mutation unless the user explicitly asks to edit repository contents.
-- Do not downgrade deploy/publish requests to clarification_needed just because branch, environment, or credentials are unspecified.
-- Requests to fix code and then deploy to production should prefer clarification_needed with clarify_first unless approval for production is already explicit.
-- Output must be valid JSON syntax with no trailing commas, no dangling quotes, and no extra characters before or after the object.
-- Do not answer the task. Do not explain. Do not add markdown.
+- Return valid JSON syntax only. No markdown. No prose. No code fences.
+- Keep requiredCapabilities minimal. Prefer omission over invention.
+- Do not infer tools, vendors, providers, products, frameworks, hosts, or brand names as capabilities.
+- Normalize Russian and English wording to the same abstract contract.
+
+Decision ladder:
+1. Pick exactly one dominant primaryOutcome:
+   - answer: direct text reply, summarization, rewrite, explanation, brainstorm.
+   - workspace_change: edit repository, source files, config, tests, scripts, or local project state.
+   - external_delivery: deploy, publish, release, ship, send, or deliver to an external system/environment.
+   - comparison_report: compare, inspect, audit, evaluate, research, review, or summarize options/findings.
+   - calculation_result: arithmetic, estimation, or numeric/tabular calculation where the result is mainly the calculation.
+   - document_package: create an authored artifact such as PDF, deck, report, infographic, poster, image, or other deliverable asset.
+   - document_extraction: extract fields/content from supplied files.
+   - clarification_needed: only when the dominant outcome is materially unclear, or when the user asks to fix/change something and then send it to production without clear approval.
+2. Pick the lightest valid interactionMode:
+   - respond_only: text-only answer without external inspection or tool-dependent execution.
+   - tool_execution: browser, web research, extraction, repo execution, or delivery is needed.
+   - artifact_iteration: the main result is an authored artifact.
+   - clarify_first: use only with primaryOutcome "clarification_needed".
+3. Add only capabilities that are explicitly required by the task:
+   - needs_workspace_mutation: only for editing repo/workspace contents.
+   - needs_repo_execution: run checks, tests, builds, scripts, or validation.
+   - needs_local_runtime: local runtime/process is explicitly requested or obviously required by the wording.
+   - needs_document_extraction: extract from supplied docs/images/PDFs.
+   - needs_interactive_browser: inspect/click/smoke-test/compare live pages in browser.
+   - needs_web_research: latest public facts/pricing/news/web lookup.
+   - needs_tabular_reasoning: structured table/spreadsheet comparison or numeric reasoning is central.
+   - needs_visual_composition: image/poster/banner/illustration or strong visual layout is the primary artifact.
+   - needs_multimodal_authoring: authored document/deck/PDF/infographic from mixed materials, notes, tables, or images.
+   - needs_external_delivery: explicit deploy/publish/send external.
+   - needs_high_reliability_provider: only for production/live external delivery.
+
+Canonical mapping rules:
+- Attached files alone do not imply document_extraction, multimodal_authoring, or tool_execution.
+- Browser inspection and public web research are different:
+  - live page interaction/audit/smoke/compare -> needs_interactive_browser
+  - latest public info/pricing/facts -> needs_web_research
+- Browser observation tasks are observational: usually comparison_report, not workspace_change.
+- Pure compare/summarize/calculate without live browsing or public research should prefer respond_only.
+- Pure summarization/rewriting of provided text should prefer answer with no capabilities.
+- Code change requests imply workspace_change and needs_workspace_mutation.
+- Add needs_repo_execution only when the user also wants checks/tests/builds/scripts/validation.
+- Do not infer needs_workspace_mutation for document/image creation.
+- Visual or image generation requests should usually be document_package + artifact_iteration + needs_visual_composition.
+- PDF/deck/report/infographic authoring from notes or mixed inputs should usually be document_package + artifact_iteration + needs_multimodal_authoring.
+- Extraction from supplied files should usually be document_extraction + tool_execution + needs_document_extraction.
+- Deploy/publish/release requests should usually be external_delivery + tool_execution + needs_external_delivery.
+- Add needs_high_reliability_provider only for production/live external delivery.
+- Do not add ambiguities for credentials, permissions, URLs, runtime access, browser matrix, page count, branding, tone, template, filenames, or delivery formatting when the dominant outcome is still clear.
+
+Output contract:
+- confidence must be between 0 and 1.
+- ambiguities should be an empty array unless the dominant outcome is genuinely unclear.
+- Return exactly one minified JSON object and nothing else.
 
 Attachment file names:
 {{ATTACHMENT_FILE_NAMES}}
@@ -321,6 +343,40 @@ function extractJsonObjectCandidate(raw: string): string | null {
   return normalized.slice(firstBrace, lastBrace + 1).trim();
 }
 
+function promptSuggestsProductionDelivery(prompt: string): boolean {
+  return /\b(production|prod\b|live environment|go live|в прод|в продакшн|продакшн|боев)/iu.test(prompt);
+}
+
+function promptSuggestsRepoValidation(prompt: string): boolean {
+  return /\b(checks?|tests?|builds?|scripts?|validation|verify|release checks?|прогони|провер(к|ки)|тест(ы|ы)?|валид|сборк|релизн)/iu.test(
+    prompt,
+  );
+}
+
+function promptSuggestsLocalRuntime(prompt: string): boolean {
+  return /\b(local|locally|local preview|preview working|run locally|dev server|local validation|локальн|локально|локальный|предпросмотр|рантайм)\b/iu.test(
+    prompt,
+  );
+}
+
+function promptSuggestsVisualArtifact(prompt: string): boolean {
+  return /\b(image|picture|poster|banner|illustration|cartoon|logo|icon|thumbnail|картин|изображен|постер|баннер|иллюстрац|мультяш)/iu.test(
+    prompt,
+  );
+}
+
+function promptSuggestsDocumentAuthoring(prompt: string): boolean {
+  return /\b(pdf|deck|slide|slides|report|infographic|document|презентац|слайд|отч[её]т|документ|инфограф|пдф)\b/iu.test(
+    prompt,
+  );
+}
+
+function promptExplicitlyRequestsRepoEdits(prompt: string): boolean {
+  return /\b(edit|modify|patch|change|fix code|update code|source files?|repo|repository|правк|исправ.*код|исходник|репозитор)\b/iu.test(
+    prompt,
+  );
+}
+
 function safeParseTaskContract(raw: string): {
   taskContract: TaskContract | null;
   parseResult: "ok" | "empty" | "json_parse_failed" | "schema_invalid";
@@ -345,6 +401,130 @@ function safeParseTaskContract(raw: string): {
       parseErrorMessage: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function normalizeTaskContract(params: {
+  contract: TaskContract;
+  prompt: string;
+  fileNames?: string[];
+}): TaskContract {
+  const contract = params.contract;
+  const capabilities = new Set(contract.requiredCapabilities);
+  const originalPrimaryOutcome = contract.primaryOutcome;
+  let primaryOutcome = contract.primaryOutcome;
+  let interactionMode = contract.interactionMode;
+  const fileNames = params.fileNames ?? [];
+  const hasOnlyTabularAttachments =
+    fileNames.length >= 2 && countTabularFiles(fileNames) === fileNames.length;
+
+  if (originalPrimaryOutcome === "external_delivery") {
+    primaryOutcome = "external_delivery";
+    interactionMode = "tool_execution";
+    capabilities.add("needs_external_delivery");
+    if (promptSuggestsProductionDelivery(params.prompt)) {
+      capabilities.add("needs_high_reliability_provider");
+    }
+    if (promptSuggestsRepoValidation(params.prompt)) {
+      capabilities.add("needs_repo_execution");
+    }
+    if (promptSuggestsLocalRuntime(params.prompt) || promptSuggestsRepoValidation(params.prompt)) {
+      capabilities.add("needs_local_runtime");
+    }
+    if (!promptExplicitlyRequestsRepoEdits(params.prompt)) {
+      capabilities.delete("needs_workspace_mutation");
+    }
+  }
+
+  if (originalPrimaryOutcome === "document_extraction") {
+    primaryOutcome = "document_extraction";
+    interactionMode = "tool_execution";
+    capabilities.add("needs_document_extraction");
+    capabilities.delete("needs_multimodal_authoring");
+    capabilities.delete("needs_visual_composition");
+    capabilities.delete("needs_workspace_mutation");
+    capabilities.delete("needs_repo_execution");
+    capabilities.delete("needs_local_runtime");
+    capabilities.delete("needs_external_delivery");
+    capabilities.delete("needs_high_reliability_provider");
+  }
+
+  if (originalPrimaryOutcome === "document_package") {
+    interactionMode = "artifact_iteration";
+    capabilities.delete("needs_workspace_mutation");
+    capabilities.delete("needs_external_delivery");
+    capabilities.delete("needs_high_reliability_provider");
+    if (promptSuggestsVisualArtifact(params.prompt) && !promptSuggestsDocumentAuthoring(params.prompt)) {
+      capabilities.add("needs_visual_composition");
+      capabilities.delete("needs_multimodal_authoring");
+    }
+  }
+
+  if (
+    originalPrimaryOutcome === "comparison_report" &&
+    hasOnlyTabularAttachments &&
+    !capabilities.has("needs_interactive_browser") &&
+    !capabilities.has("needs_web_research") &&
+    !capabilities.has("needs_workspace_mutation") &&
+    !capabilities.has("needs_external_delivery")
+  ) {
+    interactionMode = "respond_only";
+    capabilities.add("needs_tabular_reasoning");
+    capabilities.delete("needs_document_extraction");
+    capabilities.delete("needs_repo_execution");
+    capabilities.delete("needs_local_runtime");
+  }
+
+  if (originalPrimaryOutcome === "workspace_change") {
+    primaryOutcome = "workspace_change";
+    interactionMode = "tool_execution";
+    capabilities.add("needs_workspace_mutation");
+    if (promptSuggestsRepoValidation(params.prompt)) {
+      capabilities.add("needs_repo_execution");
+    }
+    if (promptSuggestsLocalRuntime(params.prompt) || /\blocal validation\b/iu.test(params.prompt)) {
+      capabilities.add("needs_local_runtime");
+    }
+  }
+
+  if (capabilities.has("needs_workspace_mutation") && originalPrimaryOutcome !== "external_delivery") {
+    primaryOutcome = "workspace_change";
+  }
+  if (capabilities.has("needs_interactive_browser")) {
+    interactionMode = "tool_execution";
+    if (primaryOutcome === "answer") {
+      primaryOutcome = "comparison_report";
+    }
+  }
+  if (capabilities.has("needs_web_research")) {
+    interactionMode = "tool_execution";
+    if (primaryOutcome === "answer") {
+      primaryOutcome = "comparison_report";
+    }
+  }
+
+  if (originalPrimaryOutcome !== "external_delivery") {
+    capabilities.delete("needs_external_delivery");
+    capabilities.delete("needs_high_reliability_provider");
+  }
+  if (originalPrimaryOutcome === "external_delivery") {
+    capabilities.add("needs_external_delivery");
+  }
+  if (
+    originalPrimaryOutcome === "external_delivery" &&
+    capabilities.has("needs_high_reliability_provider")
+  ) {
+    capabilities.add("needs_external_delivery");
+    primaryOutcome = "external_delivery";
+    interactionMode = "tool_execution";
+  }
+
+  return {
+    ...contract,
+    primaryOutcome,
+    interactionMode,
+    requiredCapabilities: normalizeUnique(Array.from(capabilities)),
+    ambiguities: normalizeUnique(contract.ambiguities),
+  };
 }
 
 function taskContractConfidenceToQualification(confidence: number): QualificationConfidence {
@@ -673,7 +853,60 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
         parseResult: parsed.parseResult,
         parseErrorMessage: parsed.parseErrorMessage,
       });
-      return parsed.taskContract;
+      if (parsed.taskContract) {
+        return normalizeTaskContract({
+          contract: parsed.taskContract,
+          prompt: params.prompt,
+          fileNames: params.fileNames,
+        });
+      }
+      const retryableParseFailure = parsed.parseResult !== "ok";
+      if (retryableParseFailure) {
+        const retryResult = await completeSimple(
+          model,
+          {
+            system: TASK_CLASSIFIER_SYSTEM_PROMPT,
+            messages: [
+              {
+                role: "user",
+                content: `${prompt}\n\nReminder: return exactly one minified JSON object only.`,
+                timestamp: Date.now(),
+              },
+            ],
+          },
+          {
+            apiKey,
+            maxTokens: params.config.maxTokens,
+            temperature: 0,
+            signal: controller.signal,
+          },
+        );
+        const retryText = retryResult.content
+          .filter(isTextContentBlock)
+          .map((block) => block.text)
+          .join("")
+          .trim();
+        const retryParsed = safeParseTaskContract(retryText);
+        emitDebugEvent(params.onDebugEvent, {
+          stage: "raw_response",
+          backend: params.config.backend,
+          configuredModel: params.config.model,
+          provider: model.provider,
+          modelId: model.id,
+          rawText: retryText,
+          normalizedCandidate: retryParsed.normalizedCandidate,
+          parseResult: retryParsed.parseResult,
+          parseErrorMessage: retryParsed.parseErrorMessage,
+        });
+        return retryParsed.taskContract
+          ? normalizeTaskContract({
+              contract: retryParsed.taskContract,
+              prompt: params.prompt,
+              fileNames: params.fileNames,
+            })
+          : null;
+      }
+      return null;
     } finally {
       clearTimeout(timeout);
     }
@@ -752,14 +985,19 @@ export async function classifyTaskForDecision(params: {
         onDebugEvent: params.onDebugEvent,
       });
       if (classified) {
+        const normalizedContract = normalizeTaskContract({
+          contract: classified,
+          prompt: params.prompt,
+          fileNames: params.fileNames,
+        });
         const plannerInput = buildPlannerInputFromTaskContract({
           prompt: params.prompt,
           fileNames: params.fileNames,
-          taskContract: classified,
+          taskContract: normalizedContract,
         });
         return {
           source: "llm",
-          taskContract: classified,
+          taskContract: normalizedContract,
           plannerInput,
           resolutionContract: plannerInput.resolutionContract!,
           candidateFamilies: plannerInput.candidateFamilies ?? [],

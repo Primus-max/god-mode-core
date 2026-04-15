@@ -31,6 +31,8 @@ export type ResolutionRouting = z.infer<typeof ResolutionRoutingSchema>;
 
 export const ResolutionContractSchema = z
   .object({
+    // Debug/eval label only — not used for production routing decisions.
+    // Source of truth: primaryOutcome + requiredCapabilities + toolBundles + routing.
     selectedFamily: z
       .enum([
         "general_assistant",
@@ -41,6 +43,7 @@ export const ResolutionContractSchema = z
         "ops_execution",
       ])
       .optional(),
+    // Derived from contract — informational only. Production routing uses toolBundles + executionContract.
     candidateFamilies: z.array(
       z.enum([
         "general_assistant",
@@ -51,7 +54,9 @@ export const ResolutionContractSchema = z
         "ops_execution",
       ]),
     ),
+    // Source of truth for production routing.
     toolBundles: z.array(ResolutionToolBundleSchema),
+    // Source of truth for execution strategy.
     routing: ResolutionRoutingSchema,
   })
   .strict();
@@ -367,7 +372,9 @@ function deriveToolBundles(params: {
   return sortUnique(Array.from(bundles));
 }
 
-function selectResolutionFamily(params: {
+// Derives a debug/eval label from contract — not used for production routing.
+// Source of truth: toolBundles + executionContract + routing.
+function deriveDebugFamilyLabel(params: {
   outcomeContract: OutcomeContract;
   candidateFamilies: CandidateExecutionFamily[];
   artifactKinds: string[];
@@ -457,13 +464,16 @@ export function resolveResolutionContract(input: ResolutionBridgePlannerInput): 
     needsVision,
   };
   return ResolutionContractSchema.parse({
-    selectedFamily: selectResolutionFamily({
+    // Debug/eval label only — informational, not routing truth
+    selectedFamily: deriveDebugFamilyLabel({
       outcomeContract: input.outcomeContract,
       candidateFamilies,
       artifactKinds,
       intent: input.intent,
     }),
+    // Derived from contract — informational only
     candidateFamilies,
+    // Source of truth for production routing
     toolBundles: deriveToolBundles({
       requestedTools,
       artifactKinds,
@@ -471,6 +481,7 @@ export function resolveResolutionContract(input: ResolutionBridgePlannerInput): 
       outcomeContract: input.outcomeContract,
       executionContract: input.executionContract,
     }),
+    // Source of truth for execution strategy
     routing,
   });
 }

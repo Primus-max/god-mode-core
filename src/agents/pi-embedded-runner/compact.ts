@@ -790,6 +790,7 @@ export async function compactEmbeddedPiSessionDirect(
 
     const runAbortController = new AbortController();
     const toolsRaw = createOpenClawCodingTools({
+      selectedProfileId: params.platformExecutionContext?.profileId,
       exec: {
         elevated: params.bashElevated,
       },

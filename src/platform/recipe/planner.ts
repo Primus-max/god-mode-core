@@ -166,23 +166,170 @@ function hasCalculationSignal(input: RecipePlannerInput): boolean {
   return promptSuggestsCalculationIntent(input.prompt ?? "");
 }
 
-// Narrows the candidate recipe pool to a single execution family.
+// Maps tool bundles to recipe capability requirements.
+// This is the contract-based routing source of truth.
+function toolBundlesMatchRecipe(toolBundles: string[], recipe: ExecutionRecipe): boolean {
+  const bundles = new Set(toolBundles);
+  const capabilities = new Set(recipe.requiredCapabilities ?? []);
+
+  // respond_only: general_reasoning only
+  if (bundles.has("respond_only") && recipe.id === "general_reasoning") {
+    return true;
+  }
+
+  // repo_mutation or repo_run: code/recipe related
+  if ((bundles.has("repo_mutation") || bundles.has("repo_run")) &&
+      (capabilities.has("node") || capabilities.has("git"))) {
+    return true;
+  }
+
+  // interactive_browser: not specific to any current recipe, allow general or code
+  if (bundles.has("interactive_browser")) {
+    return recipe.id === "general_reasoning" ||
+           recipe.id === "code_build_publish" ||
+           recipe.id === "integration_delivery";
+  }
+
+  // public_web_lookup: general reasoning or analysis
+  if (bundles.has("public_web_lookup")) {
+    return recipe.id === "general_reasoning" ||
+           recipe.id === "calculation_report" ||
+           recipe.id === "table_compare";
+  }
+
+  // document_extraction: doc/ocr/table recipes
+  if (bundles.has("document_extraction")) {
+    return recipe.id.startsWith("doc_") ||
+           recipe.id.startsWith("ocr_") ||
+           recipe.id.startsWith("table_");
+  }
+
+  // artifact_authoring: authoring / packaging recipes only
+  if (bundles.has("artifact_authoring")) {
+    return recipe.id === "doc_authoring" ||
+           recipe.id === "media_production";
+  }
+
+  // external_delivery: code/integration/ops recipes
+  if (bundles.has("external_delivery")) {
+    return recipe.id === "code_build_publish" ||
+           recipe.id === "integration_delivery" ||
+           recipe.id === "ops_orchestration";
+  }
+
+  // If no specific bundle matches, use respond_only as default
+  return recipe.id === "general_reasoning";
+}
+
+function executionContractAllowsRecipe(
+  executionContract: QualificationExecutionContract | undefined,
+  recipe: ExecutionRecipe,
+): boolean {
+  if (!executionContract) {
+    return true;
+  }
+
+  if (!executionContract.requiresTools) {
+    return recipe.id === "general_reasoning";
+  }
+
+  if (
+    executionContract.requiresWorkspaceMutation ||
+    executionContract.requiresLocalProcess
+  ) {
+    return (
+      recipe.id === "code_build_publish" ||
+      recipe.id === "integration_delivery" ||
+      recipe.id === "ops_orchestration"
+    );
+  }
+
+  if (executionContract.requiresArtifactEvidence && recipe.id === "general_reasoning") {
+    return false;
+  }
+
+  return true;
+}
+
+function selectContractFallbackRecipe(params: {
+  candidateRecipes: ExecutionRecipe[];
+  input: RecipePlannerInput;
+}): ExecutionRecipe | undefined {
+  const { candidateRecipes, input } = params;
+  const executionContract = input.executionContract;
+  const bundles = new Set(input.resolutionContract?.toolBundles ?? []);
+
+  const preferredIds =
+    executionContract?.requiresWorkspaceMutation || executionContract?.requiresLocalProcess
+      ? ["code_build_publish", "integration_delivery", "ops_orchestration"]
+      : executionContract?.requiresArtifactEvidence || bundles.has("artifact_authoring")
+        ? ["doc_authoring", "doc_ingest", "media_production", "table_compare", "calculation_report"]
+        : executionContract?.requiresDeliveryEvidence || bundles.has("external_delivery")
+          ? ["integration_delivery", "code_build_publish", "ops_orchestration"]
+          : bundles.has("interactive_browser") || bundles.has("public_web_lookup")
+            ? ["table_compare", "calculation_report", "general_reasoning"]
+            : ["general_reasoning"];
+
+  return preferredIds
+    .map((id) => candidateRecipes.find((recipe) => recipe.id === id))
+    .find((recipe): recipe is ExecutionRecipe => Boolean(recipe));
+}
+
+// Narrows the candidate recipe pool using contract-based matching.
 //
-// Priority:
-//   1. Resolution-contract family choice.
-//   2. Explicit candidateFamilies from the qualification contract.
-//   3. Families derived from outcomeContract (contract-first routing).
-//   4. Full candidate pool when neither is available (legacy scoring path).
+// Source of truth:
+//   1. resolutionContract.toolBundles (primary)
+//   2. input.executionContract (secondary)
+//   3. Family fallback only for legacy non-contractFirst inputs.
 //
-// After narrowing, buildRecipeScore only compares recipes within the chosen
-// family — it acts as a tie-breaker, not as a cross-family selector.
-function narrowRecipesByFamily(params: {
+// Family labels (selectedFamily/candidateFamilies) are now debug/eval only.
+function narrowRecipesByContract(params: {
   candidateRecipes: ExecutionRecipe[];
   input: RecipePlannerInput;
 }): { selectedFamily?: CandidateExecutionFamily; recipes: ExecutionRecipe[] } {
   const { candidateRecipes, input } = params;
+  const contractFirst = input.contractFirst === true;
 
-  // Determine requested families: explicit takes priority, then contract derivation.
+  // Contract-first: use toolBundles + executionContract as source of truth.
+  // Never widen back to full recipe pool in this path.
+  if (contractFirst) {
+    const toolBundles = input.resolutionContract?.toolBundles ?? [];
+    if (toolBundles.length === 0) {
+      return {
+        selectedFamily: input.resolutionContract?.selectedFamily,
+        recipes: [],
+      };
+    }
+
+    const matchingRecipes = candidateRecipes.filter(
+      (recipe) =>
+        toolBundlesMatchRecipe(toolBundles, recipe) &&
+        executionContractAllowsRecipe(input.executionContract, recipe),
+    );
+    if (matchingRecipes.length > 0) {
+      return {
+        selectedFamily: input.resolutionContract?.selectedFamily,
+        recipes: matchingRecipes,
+      };
+    }
+
+    const executionScopedRecipes = candidateRecipes.filter((recipe) =>
+      executionContractAllowsRecipe(input.executionContract, recipe),
+    );
+    if (executionScopedRecipes.length > 0) {
+      return {
+        selectedFamily: input.resolutionContract?.selectedFamily,
+        recipes: executionScopedRecipes,
+      };
+    }
+
+    return {
+      selectedFamily: input.resolutionContract?.selectedFamily,
+      recipes: [],
+    };
+  }
+
+  // Legacy fallback: family-based narrowing for non-contractFirst inputs only.
   const requestedFamilies: CandidateExecutionFamily[] = Array.from(
     new Set(
       input.resolutionContract?.candidateFamilies?.length
@@ -196,11 +343,9 @@ function narrowRecipesByFamily(params: {
   );
 
   if (requestedFamilies.length === 0) {
-    // Legacy fallback: no family narrowing; buildRecipeScore selects across full pool.
     return { recipes: candidateRecipes };
   }
 
-  // Intersect with families that actually have recipes in the candidate pool.
   const availableFamilies = requestedFamilies.filter((family) =>
     candidateRecipes.some((recipe) => getRecipeFamilies(recipe).includes(family)),
   );
@@ -210,6 +355,7 @@ function narrowRecipesByFamily(params: {
     resolvedSelectedFamily && availableFamilies.includes(resolvedSelectedFamily)
       ? resolvedSelectedFamily
       : selectExecutionFamily(requestedFamilies, availableFamilies, input);
+
   if (!selectedFamily) {
     return { recipes: candidateRecipes };
   }
@@ -232,18 +378,29 @@ function buildRecipeScore(params: {
   const publishTargets = (input.publishTargets ?? []).map((value) => value.toLowerCase());
   const tools = (input.requestedTools ?? []).map((value) => value.toLowerCase());
   const artifactKinds = input.artifactKinds ?? [];
-  const promptOnlyDocumentAuthoring =
-    input.intent === "document" &&
-    (tools.includes("pdf") || publishTargets.includes("pdf")) &&
-    (files.length === 0 || contractFirst);
-  const documentSignal =
-    input.intent === "document" ||
-    hasDocumentArtifact(artifactKinds) ||
-    files.some((file) => /\.(pdf|doc|docx|xls|xlsx|csv)$/iu.test(file));
+
+  // Contract-first: document authoring inference from capabilities, not prompt words
+  const promptOnlyDocumentAuthoring = contractFirst
+    ? (input.executionContract?.requiresArtifactEvidence && !files.length)
+    : (input.intent === "document" &&
+       (tools.includes("pdf") || publishTargets.includes("pdf")) &&
+       (files.length === 0));
+
+  // Contract-first: document signal from outcomeContract/artifactKinds, not prompt parsing
+  const documentSignal = contractFirst
+    ? (input.outcomeContract === "structured_artifact" && hasDocumentArtifact(artifactKinds))
+    : (input.intent === "document" ||
+       hasDocumentArtifact(artifactKinds) ||
+       files.some((file) => /\.(pdf|doc|docx|xls|xlsx|csv)$/iu.test(file)));
+
+  // Word-trigger signals disabled in contract-first mode (source of truth: TaskContract)
   const ocrSignal = contractFirst ? false : hasOcrSignal(input, files);
   const tableSignal = contractFirst ? false : hasTableSignal(input, files);
   const compareSignal = contractFirst ? false : hasCompareSignal(input, files);
   const calculationSignal = contractFirst ? false : hasCalculationSignal(input);
+  const mediaSignal = contractFirst ? false : hasMediaSignal(input, files);
+  const integrationSignal = contractFirst ? false : hasIntegrationSignal(input, files);
+  const opsSignal = contractFirst ? false : hasOpsSignal(input);
 
   if (recipe.id === "general_reasoning") {
     let score = 0.2;
@@ -388,10 +545,10 @@ function buildRecipeScore(params: {
     }
     if (tabularFileCount(files) >= 2) {
       score += 2.6;
-    } else if (tabularFileCount(files) === 1 && hasCompareSignal(input, files)) {
+    } else if (tabularFileCount(files) === 1 && compareSignal) {
       score += 1.3;
     }
-    if (hasTableSignal(input, files)) {
+    if (tableSignal) {
       score += 0.8;
     }
     if (hasDocumentArtifact(artifactKinds)) {
@@ -472,7 +629,7 @@ function buildRecipeScore(params: {
     if (input.intent === "code" || input.intent === "publish") {
       score += 0.6;
     }
-    if (hasIntegrationSignal(input, files)) {
+    if (integrationSignal) {
       score += 1.8;
     }
     if (hasCodeArtifact(artifactKinds)) {
@@ -496,7 +653,7 @@ function buildRecipeScore(params: {
     ) {
       score += 1.5;
     }
-    if (hasOpsSignal(input)) {
+    if (opsSignal) {
       score += 1.9;
     }
     if (tools.some((tool) => tool === "exec" || tool === "process")) {
@@ -513,7 +670,7 @@ function buildRecipeScore(params: {
     if (overlayId === "media_first" || overlayId === "media_publish") {
       score += 1.4;
     }
-    if (hasMediaSignal(input, files)) {
+    if (mediaSignal) {
       score += 2;
     }
     if (hasMediaArtifact(artifactKinds)) {
@@ -539,6 +696,13 @@ function resolvePlannerReason(params: {
   return `Recipe ${params.recipe.id} selected for profile ${params.profile.selectedProfile.id}.${familyText}${overlayText}`;
 }
 
+function resolvePlannerModelOverride(params: {
+  recipe: ExecutionRecipe;
+  profile: ProfileResolution;
+}): string | undefined {
+  return params.recipe.defaultModel ?? params.profile.selectedProfile.defaultModel;
+}
+
 export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
   const profile = resolveProfile(input);
   const recipes = input.recipes ?? INITIAL_RECIPES;
@@ -547,6 +711,10 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
   );
   if (input.lowConfidenceStrategy === "clarify") {
     const selectedRecipe = getInitialRecipe("general_reasoning") ?? INITIAL_RECIPES[0];
+    const selectedModelOverride = resolvePlannerModelOverride({
+      recipe: selectedRecipe,
+      profile,
+    });
     const plannerOutput = PlannerOutputSchema.parse({
       selectedRecipeId: selectedRecipe.id,
       reasoning: [
@@ -561,7 +729,7 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
       ]
         .filter(Boolean)
         .join(" "),
-      ...(selectedRecipe.defaultModel ? { overrides: { model: selectedRecipe.defaultModel } } : {}),
+      ...(selectedModelOverride ? { overrides: { model: selectedModelOverride } } : {}),
     });
     return {
       profile,
@@ -570,11 +738,42 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
       candidateRecipes,
     };
   }
-  const familySelection = narrowRecipesByFamily({ candidateRecipes, input });
-  const familyScopedRecipes =
-    familySelection.recipes.length > 0 ? familySelection.recipes : candidateRecipes;
+  const contractSelection = narrowRecipesByContract({ candidateRecipes, input });
+  if (input.contractFirst === true && contractSelection.recipes.length === 0) {
+    const fallbackRecipe =
+      selectContractFallbackRecipe({ candidateRecipes, input }) ??
+      getInitialRecipe("general_reasoning") ??
+      INITIAL_RECIPES[0];
+    const fallbackModelOverride = resolvePlannerModelOverride({
+      recipe: fallbackRecipe,
+      profile,
+    });
+    const plannerOutput = PlannerOutputSchema.parse({
+      selectedRecipeId: fallbackRecipe.id,
+      reasoning: [
+        `Recipe ${fallbackRecipe.id} selected via contract fallback (toolBundles + executionContract).`,
+        input.confidence ? `Qualification confidence: ${input.confidence}.` : undefined,
+        input.lowConfidenceStrategy
+          ? `Low-confidence strategy: ${input.lowConfidenceStrategy}.`
+          : undefined,
+        input.ambiguityReasons?.length
+          ? `Ambiguity: ${input.ambiguityReasons.join("; ")}.`
+          : undefined,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      ...(fallbackModelOverride ? { overrides: { model: fallbackModelOverride } } : {}),
+    });
+    return {
+      profile,
+      recipe: fallbackRecipe,
+      plannerOutput,
+      candidateRecipes,
+    };
+  }
+  const contractScopedRecipes = contractSelection.recipes.length > 0 ? contractSelection.recipes : candidateRecipes;
 
-  const rankedRecipes = familyScopedRecipes
+  const rankedRecipes = contractScopedRecipes
     .map((recipe) => ({
       recipe,
       score: buildRecipeScore({ recipe, profile, input }),
@@ -583,9 +782,13 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
 
   const selectedRecipe =
     rankedRecipes[0]?.recipe ?? getInitialRecipe("general_reasoning") ?? INITIAL_RECIPES[0];
+  const selectedModelOverride = resolvePlannerModelOverride({
+    recipe: selectedRecipe,
+    profile,
+  });
 
   const selectedOverrideEntries = {
-    ...(selectedRecipe.defaultModel ? { model: selectedRecipe.defaultModel } : {}),
+    ...(selectedModelOverride ? { model: selectedModelOverride } : {}),
     ...(selectedRecipe.timeoutSeconds ? { timeoutSeconds: selectedRecipe.timeoutSeconds } : {}),
   };
 
@@ -595,7 +798,7 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
       resolvePlannerReason({
         recipe: selectedRecipe,
         profile,
-        selectedFamily: familySelection.selectedFamily,
+        selectedFamily: contractSelection.selectedFamily,
       }),
       input.confidence ? `Qualification confidence: ${input.confidence}.` : undefined,
       input.lowConfidenceStrategy

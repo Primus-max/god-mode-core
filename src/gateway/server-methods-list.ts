@@ -100,6 +100,7 @@ const BASE_METHODS = [
   "cron.run",
   "cron.runs",
   "gateway.identity.get",
+  "platform.profile.resolve",
   "system-presence",
   "system-event",
   "send",

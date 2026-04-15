@@ -29,7 +29,6 @@ import {
   createRecipeCatalogGetGatewayMethod,
   createRecipeCatalogListGatewayMethod,
 } from "./catalog/index.js";
-import { buildExecutionDecisionInput } from "./decision/input.js";
 import { classifyTaskForDecision } from "./decision/task-classifier.js";
 import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
@@ -285,11 +284,8 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   );
   api.on(
     "llm_input",
-    (event, ctx) => {
-      const fallbackExecution = toPluginHookPlatformExecutionContext(
-        resolvePlatformRuntimePlan(buildExecutionDecisionInput({ prompt: event.prompt })).runtime,
-      );
-      const execution = ctx.platformExecution ?? fallbackExecution;
+    async (event, ctx) => {
+      const execution = ctx.platformExecution ?? (await resolveHookExecution(event.prompt, ctx));
       machineControlService.recordRunSnapshot({
         runId: event.runId,
         sessionId: event.sessionId,
@@ -304,7 +300,7 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   );
   api.on(
     "before_tool_call",
-    (event, ctx) => {
+    async (event, ctx) => {
       const params =
         event.params && typeof event.params === "object" && !Array.isArray(event.params)
           ? event.params
@@ -323,7 +319,13 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
         : undefined;
       const fallbackDecision = !policyContext
         ? resolvePlatformRuntimePlan(
-            buildExecutionDecisionInput({ prompt: runSnapshot?.prompt ?? "" }),
+            (
+              await classifyTaskForDecision({
+                prompt: runSnapshot?.prompt ?? "",
+                cfg: apiConfigRef.current,
+                agentDir: ctx.agentDir,
+              })
+            ).plannerInput,
           )
         : undefined;
       const policy = evaluatePolicy(

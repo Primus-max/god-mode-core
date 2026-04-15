@@ -40,6 +40,7 @@ export const ProfileSchema = z
     label: z.string().min(1),
     description: z.string().optional(),
     defaultModel: z.string().min(1).optional(),
+    defaultImageGenerationModel: z.string().min(1).optional(),
     preferredTools: z.array(z.string().min(1)).optional(),
     preferredPublishTargets: z.array(z.string().min(1)).optional(),
     taskOverlays: z.array(TaskOverlaySchema).optional(),

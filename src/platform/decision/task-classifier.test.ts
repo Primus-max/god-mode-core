@@ -222,6 +222,93 @@ describe("classifyTaskForDecision", () => {
     expect(classified.source).toBe("llm");
     expect(classified.taskContract.primaryOutcome).toBe("document_package");
   });
+
+  it("drops high-reliability-provider drift for non-delivery workspace changes", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Patch the repo, run the checks, and leave the local validation passing.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "workspace_change",
+            requiredCapabilities: [
+              "needs_workspace_mutation",
+              "needs_repo_execution",
+              "needs_local_runtime",
+              "needs_high_reliability_provider",
+            ],
+            interactionMode: "tool_execution",
+            confidence: 0.73,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.source).toBe("llm");
+    expect(classified.taskContract.primaryOutcome).toBe("workspace_change");
+    expect(classified.taskContract.requiredCapabilities).toEqual(
+      expect.not.arrayContaining(["needs_high_reliability_provider"]),
+    );
+    expect(classified.taskContract.requiredCapabilities).toEqual(
+      expect.arrayContaining([
+        "needs_workspace_mutation",
+        "needs_repo_execution",
+        "needs_local_runtime",
+      ]),
+    );
+  });
+
+  it("drops external-delivery drift for non-delivery document authoring", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Create a polished infographic PDF from these notes with supporting visuals.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "document_package",
+            requiredCapabilities: [
+              "needs_multimodal_authoring",
+              "needs_external_delivery",
+              "needs_high_reliability_provider",
+            ],
+            interactionMode: "artifact_iteration",
+            confidence: 0.83,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.source).toBe("llm");
+    expect(classified.taskContract.primaryOutcome).toBe("document_package");
+    expect(classified.taskContract.interactionMode).toBe("artifact_iteration");
+    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_multimodal_authoring"]);
+  });
 });
 
 describe("contract-first task contract routing", () => {
