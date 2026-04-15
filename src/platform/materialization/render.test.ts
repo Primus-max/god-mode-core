@@ -35,7 +35,7 @@ describe("materialization render layer", () => {
 
   it("renders markdown to html with structural markdown blocks", () => {
     const html = renderMarkdownToHtml(
-      "# Title\n\n- one\n- two\n\n1. first\n2. second\n\n| Name | Value |\n| --- | --- |\n| Bananas | 42 |\n\n> highlighted note\n\n`code`",
+      "# Title\n\n- one\n- two\n\n1. first\n2. second\n\n| Name | Value |\n| --- | --- |\n| Bananas | 42 |\n\n> highlighted note\n\n[Atlas](https://example.com)\n\n`code`",
     );
     expect(html).toContain("<h1>Title</h1>");
     expect(html).toContain("<ul>");
@@ -44,6 +44,7 @@ describe("materialization render layer", () => {
     expect(html).toContain("<th>Name</th>");
     expect(html).toContain("<td>42</td>");
     expect(html).toContain("<blockquote>");
+    expect(html).toContain('<a href="https://example.com">Atlas</a>');
     expect(html).toContain("<code>code</code>");
   });
 

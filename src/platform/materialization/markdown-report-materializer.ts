@@ -9,6 +9,7 @@ function escapeHtml(value: string): string {
 
 function renderInlineMarkdown(text: string): string {
   return escapeHtml(text)
+    .replace(/(?<!!)\[([^\]]+)\]\(([^)]+)\)/gu, '<a href="$2">$1</a>')
     .replace(/`([^`]+)`/gu, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/gu, "<strong>$1</strong>")
     .replace(/\*([^*]+)\*/gu, "<em>$1</em>");
