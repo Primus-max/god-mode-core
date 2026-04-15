@@ -112,12 +112,23 @@ describe("classifyTaskForDecision", () => {
     expect(classified.source).toBe("heuristic");
     expect(classified.plannerInput).toEqual(
       expect.objectContaining({
+        contractFirst: true,
         intent: "publish",
-        publishTargets: ["github"],
-        requestedTools: ["exec", "apply_patch", "process"],
+        publishTargets: ["external"],
+        requestedTools: ["exec", "process"],
       }),
     );
-    expect(classified.plannerInput.contractFirst).toBeUndefined();
+    expect(classified.taskContract.primaryOutcome).toBe("external_delivery");
+    expect(classified.taskContract.requiredCapabilities).toEqual(
+      expect.arrayContaining([
+        "needs_external_delivery",
+        "needs_repo_execution",
+        "needs_local_runtime",
+      ]),
+    );
+    expect(classified.taskContract.requiredCapabilities).toEqual(
+      expect.not.arrayContaining(["needs_workspace_mutation"]),
+    );
   });
 
   it("surfaces classifier failures when heuristic fallback is disabled", async () => {
@@ -308,6 +319,257 @@ describe("classifyTaskForDecision", () => {
     expect(classified.taskContract.primaryOutcome).toBe("document_package");
     expect(classified.taskContract.interactionMode).toBe("artifact_iteration");
     expect(classified.taskContract.requiredCapabilities).toEqual(["needs_multimodal_authoring"]);
+  });
+
+  it("promotes extraction prompts with attachments back to document extraction", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Extract vendor names, invoice dates, and totals from the attached PDF packet.",
+      fileNames: ["invoice-pack.pdf"],
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "document_package",
+            requiredCapabilities: ["needs_multimodal_authoring", "needs_visual_composition"],
+            interactionMode: "artifact_iteration",
+            confidence: 0.79,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.taskContract).toEqual(
+      expect.objectContaining({
+        primaryOutcome: "document_extraction",
+        interactionMode: "tool_execution",
+        requiredCapabilities: ["needs_document_extraction"],
+      }),
+    );
+  });
+
+  it("keeps browser observation prompts observational instead of mutating the workspace", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Open the local app, click through the signup flow, and report any visible UI or console issues.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "workspace_change",
+            requiredCapabilities: ["needs_workspace_mutation", "needs_repo_execution"],
+            interactionMode: "tool_execution",
+            confidence: 0.71,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.taskContract.primaryOutcome).toBe("comparison_report");
+    expect(classified.taskContract.interactionMode).toBe("tool_execution");
+    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_interactive_browser"]);
+  });
+
+  it("keeps standalone visual generation artifact-first", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Create a cartoon poster image of a rasta cat with bright colors and clean composition.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "answer",
+            requiredCapabilities: [],
+            interactionMode: "respond_only",
+            confidence: 0.76,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.taskContract.primaryOutcome).toBe("document_package");
+    expect(classified.taskContract.interactionMode).toBe("artifact_iteration");
+    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_visual_composition"]);
+  });
+
+  it("keeps explicit production delivery delivery-first even when the classifier drifts", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Run the release checks and publish the already-prepared build to production once validation passes.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "workspace_change",
+            requiredCapabilities: ["needs_workspace_mutation", "needs_repo_execution"],
+            interactionMode: "tool_execution",
+            confidence: 0.82,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.taskContract.primaryOutcome).toBe("external_delivery");
+    expect(classified.taskContract.interactionMode).toBe("tool_execution");
+    expect(classified.taskContract.requiredCapabilities).toEqual(
+      expect.arrayContaining([
+        "needs_external_delivery",
+        "needs_repo_execution",
+        "needs_local_runtime",
+        "needs_high_reliability_provider",
+      ]),
+    );
+    expect(classified.taskContract.requiredCapabilities).toEqual(
+      expect.not.arrayContaining(["needs_workspace_mutation"]),
+    );
+  });
+
+  it("normalizes russian production delivery prompts to the same delivery-first capability set", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt:
+        "Нужно именно выпустить уже готовую сборку в прод: сначала прогони релизные проверки, потом публикуй, без правок исходников.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "external_delivery",
+            requiredCapabilities: ["needs_external_delivery", "needs_repo_execution"],
+            interactionMode: "tool_execution",
+            confidence: 0.78,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.taskContract.requiredCapabilities).toEqual(
+      expect.arrayContaining([
+        "needs_external_delivery",
+        "needs_repo_execution",
+        "needs_local_runtime",
+        "needs_high_reliability_provider",
+      ]),
+    );
+  });
+
+  it("does not promote xlsx comparison into document extraction drift", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Compare the attached pricing sheets and summarize SKU-level price differences.",
+      fileNames: ["vendor-a.xlsx", "vendor-b.xlsx"],
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "comparison_report",
+            requiredCapabilities: ["needs_document_extraction", "needs_tabular_reasoning"],
+            interactionMode: "respond_only",
+            confidence: 0.86,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.taskContract.primaryOutcome).toBe("comparison_report");
+    expect(classified.taskContract.interactionMode).toBe("respond_only");
+    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_tabular_reasoning"]);
+  });
+
+  it("normalizes heuristic fallback to the same abstract visual contract", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              enabled: false,
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Create a cartoon poster image of a rasta cat with bright colors and clean composition.",
+      cfg,
+    });
+
+    expect(classified.source).toBe("heuristic");
+    expect(classified.taskContract.primaryOutcome).toBe("document_package");
+    expect(classified.taskContract.interactionMode).toBe("artifact_iteration");
+    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_visual_composition"]);
+    expect(classified.plannerInput.requestedTools).toEqual(["image_generate"]);
   });
 });
 

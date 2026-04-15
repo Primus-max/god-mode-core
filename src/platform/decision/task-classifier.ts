@@ -344,18 +344,30 @@ function extractJsonObjectCandidate(raw: string): string | null {
 }
 
 function promptSuggestsProductionDelivery(prompt: string): boolean {
-  return /\b(production|prod\b|live environment|go live|в прод|в продакшн|продакшн|боев)/iu.test(prompt);
+  const normalized = prompt.toLowerCase();
+  return (
+    /\b(production|prod\b|live environment|go live)\b/iu.test(prompt) ||
+    ["в прод", "в продакшн", "продакшн", "боев"].some((hint) => normalized.includes(hint))
+  );
 }
 
 function promptSuggestsRepoValidation(prompt: string): boolean {
-  return /\b(checks?|tests?|builds?|scripts?|validation|verify|release checks?|прогони|провер(к|ки)|тест(ы|ы)?|валид|сборк|релизн)/iu.test(
-    prompt,
+  const normalized = prompt.toLowerCase();
+  return (
+    /\b(checks?|tests?|builds?|scripts?|validation|verify|release checks?)\b/iu.test(prompt) ||
+    ["прогони", "проверк", "тест", "валид", "сборк", "релизн", "релизные проверк"].some((hint) =>
+      normalized.includes(hint),
+    )
   );
 }
 
 function promptSuggestsLocalRuntime(prompt: string): boolean {
-  return /\b(local|locally|local preview|preview working|run locally|dev server|local validation|локальн|локально|локальный|предпросмотр|рантайм)\b/iu.test(
-    prompt,
+  const normalized = prompt.toLowerCase();
+  return (
+    /\b(local|locally|local preview|preview working|run locally|dev server|local validation)\b/iu.test(
+      prompt,
+    ) ||
+    ["локальн", "предпросмотр", "рантайм"].some((hint) => normalized.includes(hint))
   );
 }
 
@@ -371,10 +383,52 @@ function promptSuggestsDocumentAuthoring(prompt: string): boolean {
   );
 }
 
+function promptSuggestsExplicitDelivery(prompt: string): boolean {
+  return /\b(deploy|publish|release|ship|rollout|deliver|send|выпуст|опублик|задепл|деплой|релиз|достав)\b/iu.test(
+    prompt,
+  );
+}
+
 function promptExplicitlyRequestsRepoEdits(prompt: string): boolean {
   return /\b(edit|modify|patch|change|fix code|update code|source files?|repo|repository|правк|исправ.*код|исходник|репозитор)\b/iu.test(
     prompt,
   );
+}
+
+function fileNamesSuggestDocumentExtraction(fileNames: string[]): boolean {
+  return fileNames.some((name) => /\.(pdf|png|jpe?g|webp|gif|tiff?|bmp|heic)$/iu.test(name));
+}
+
+function promptSuggestsExtractionTask(prompt: string, fileNames: string[]): boolean {
+  return (
+    fileNamesSuggestDocumentExtraction(fileNames) &&
+    /\b(extract|pull|parse|read fields?|capture fields?|ocr|scan|вытащи|извлеки|достань|распознай|считай)\b/iu.test(
+      prompt,
+    )
+  );
+}
+
+function promptSuggestsVisualAssetGeneration(prompt: string): boolean {
+  return (
+    /\b(generate|create|make|draw|render|paint|сгенерируй|создай|сделай|нарисуй|отрендери)\b/iu.test(
+      prompt,
+    ) &&
+    promptSuggestsVisualArtifact(prompt) &&
+    !promptSuggestsDocumentAuthoring(prompt)
+  );
+}
+
+function promptSuggestsBrowserObservation(prompt: string): boolean {
+  const browserSurfaceHint =
+    /\b(browser|web ?page|website|site|local app|local site|ui|console|flow|браузер|сайт|страниц|ui|консол|форма|локальн(?:ый|ом)?\s+(?:сайт|приложен))\b/iu.test(
+      prompt,
+    ) || /\bclick through\b/iu.test(prompt);
+  const observationHint =
+    /\b(open|click|navigate|inspect|observe|review|report|look for|check|smoke(?:-?test)?|пройди|посмотри|проверь|отчитай|осмотр|найди|увидишь)\b/iu.test(
+      prompt,
+    );
+  const editHint = promptExplicitlyRequestsRepoEdits(prompt);
+  return browserSurfaceHint && observationHint && !editHint;
 }
 
 function safeParseTaskContract(raw: string): {
@@ -416,8 +470,14 @@ function normalizeTaskContract(params: {
   const fileNames = params.fileNames ?? [];
   const hasOnlyTabularAttachments =
     fileNames.length >= 2 && countTabularFiles(fileNames) === fileNames.length;
+  const suggestsExplicitDelivery = promptSuggestsExplicitDelivery(params.prompt);
+  const suggestsExtractionTask =
+    promptSuggestsExtractionTask(params.prompt, fileNames) ||
+    (fileNamesSuggestDocumentExtraction(fileNames) && capabilities.has("needs_document_extraction"));
+  const suggestsVisualAssetGeneration = promptSuggestsVisualAssetGeneration(params.prompt);
+  const suggestsBrowserObservation = promptSuggestsBrowserObservation(params.prompt);
 
-  if (originalPrimaryOutcome === "external_delivery") {
+  if (originalPrimaryOutcome === "external_delivery" || suggestsExplicitDelivery) {
     primaryOutcome = "external_delivery";
     interactionMode = "tool_execution";
     capabilities.add("needs_external_delivery");
@@ -435,7 +495,7 @@ function normalizeTaskContract(params: {
     }
   }
 
-  if (originalPrimaryOutcome === "document_extraction") {
+  if (originalPrimaryOutcome === "document_extraction" || suggestsExtractionTask) {
     primaryOutcome = "document_extraction";
     interactionMode = "tool_execution";
     capabilities.add("needs_document_extraction");
@@ -446,9 +506,10 @@ function normalizeTaskContract(params: {
     capabilities.delete("needs_local_runtime");
     capabilities.delete("needs_external_delivery");
     capabilities.delete("needs_high_reliability_provider");
+    capabilities.delete("needs_tabular_reasoning");
   }
 
-  if (originalPrimaryOutcome === "document_package") {
+  if (originalPrimaryOutcome === "document_package" && !suggestsExtractionTask) {
     interactionMode = "artifact_iteration";
     capabilities.delete("needs_workspace_mutation");
     capabilities.delete("needs_external_delivery");
@@ -457,6 +518,19 @@ function normalizeTaskContract(params: {
       capabilities.add("needs_visual_composition");
       capabilities.delete("needs_multimodal_authoring");
     }
+  }
+
+  if (suggestsVisualAssetGeneration) {
+    primaryOutcome = "document_package";
+    interactionMode = "artifact_iteration";
+    capabilities.add("needs_visual_composition");
+    capabilities.delete("needs_multimodal_authoring");
+    capabilities.delete("needs_document_extraction");
+    capabilities.delete("needs_workspace_mutation");
+    capabilities.delete("needs_repo_execution");
+    capabilities.delete("needs_local_runtime");
+    capabilities.delete("needs_external_delivery");
+    capabilities.delete("needs_high_reliability_provider");
   }
 
   if (
@@ -474,7 +548,13 @@ function normalizeTaskContract(params: {
     capabilities.delete("needs_local_runtime");
   }
 
-  if (originalPrimaryOutcome === "workspace_change") {
+  if (
+    originalPrimaryOutcome === "workspace_change" &&
+    !suggestsExplicitDelivery &&
+    !suggestsExtractionTask &&
+    !suggestsVisualAssetGeneration &&
+    !suggestsBrowserObservation
+  ) {
     primaryOutcome = "workspace_change";
     interactionMode = "tool_execution";
     capabilities.add("needs_workspace_mutation");
@@ -484,6 +564,18 @@ function normalizeTaskContract(params: {
     if (promptSuggestsLocalRuntime(params.prompt) || /\blocal validation\b/iu.test(params.prompt)) {
       capabilities.add("needs_local_runtime");
     }
+  }
+
+  if (suggestsBrowserObservation) {
+    primaryOutcome = "comparison_report";
+    interactionMode = "tool_execution";
+    capabilities.add("needs_interactive_browser");
+    capabilities.delete("needs_workspace_mutation");
+    capabilities.delete("needs_repo_execution");
+    capabilities.delete("needs_local_runtime");
+    capabilities.delete("needs_web_research");
+    capabilities.delete("needs_external_delivery");
+    capabilities.delete("needs_high_reliability_provider");
   }
 
   if (capabilities.has("needs_workspace_mutation") && originalPrimaryOutcome !== "external_delivery") {
@@ -502,17 +594,14 @@ function normalizeTaskContract(params: {
     }
   }
 
-  if (originalPrimaryOutcome !== "external_delivery") {
+  if (primaryOutcome !== "external_delivery") {
     capabilities.delete("needs_external_delivery");
     capabilities.delete("needs_high_reliability_provider");
   }
-  if (originalPrimaryOutcome === "external_delivery") {
+  if (primaryOutcome === "external_delivery") {
     capabilities.add("needs_external_delivery");
   }
-  if (
-    originalPrimaryOutcome === "external_delivery" &&
-    capabilities.has("needs_high_reliability_provider")
-  ) {
+  if (primaryOutcome === "external_delivery" && capabilities.has("needs_high_reliability_provider")) {
     capabilities.add("needs_external_delivery");
     primaryOutcome = "external_delivery";
     interactionMode = "tool_execution";
@@ -606,7 +695,10 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
   if (capabilities.has("needs_web_research")) {
     requestedTools.push("web_search");
   }
-  if (contract.primaryOutcome === "document_package") {
+  if (
+    contract.primaryOutcome === "document_package" &&
+    !capabilities.has("needs_visual_composition")
+  ) {
     requestedTools.push("pdf");
   }
   if (capabilities.has("needs_multimodal_authoring") || capabilities.has("needs_visual_composition")) {
@@ -939,6 +1031,11 @@ export async function classifyTaskForDecision(params: {
     prompt: params.prompt,
     ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
   });
+  const normalizedHeuristicTaskContract = normalizeTaskContract({
+    contract: heuristicTaskContract(baseInput),
+    prompt: params.prompt,
+    fileNames: params.fileNames,
+  });
   const classifierConfig = resolveTaskClassifierConfig({ cfg: params.cfg });
   if (!classifierConfig.enabled) {
     emitDebugEvent(params.onDebugEvent, {
@@ -947,15 +1044,18 @@ export async function classifyTaskForDecision(params: {
       configuredModel: classifierConfig.model,
       message: "classifier disabled; using heuristic path",
     });
-    const taskContract = heuristicTaskContract(baseInput);
-    const resolutionContract =
-      baseInput.resolutionContract ?? resolveResolutionContract(mapTaskContractToBridge(taskContract));
+    const taskContract = normalizedHeuristicTaskContract;
+    const plannerInput = buildPlannerInputFromTaskContract({
+      prompt: params.prompt,
+      fileNames: params.fileNames,
+      taskContract,
+    });
     return {
       source: "heuristic",
       taskContract,
-      plannerInput: baseInput,
-      resolutionContract,
-      candidateFamilies: baseInput.candidateFamilies ?? [],
+      plannerInput,
+      resolutionContract: plannerInput.resolutionContract!,
+      candidateFamilies: plannerInput.candidateFamilies ?? [],
     };
   }
   const adapter = resolveTaskClassifierAdapter(classifierConfig.backend, params.adapterRegistry);
@@ -1025,34 +1125,17 @@ export async function classifyTaskForDecision(params: {
     }
   }
 
-  const taskContract = heuristicTaskContract(baseInput);
-  const qualification = buildQualificationResultFromPlannerInput({
-    ...(baseInput.intent ? { intent: baseInput.intent } : {}),
-    ...(baseInput.artifactKinds?.length ? { artifactKinds: baseInput.artifactKinds } : {}),
-    ...(baseInput.requestedTools?.length ? { requestedTools: baseInput.requestedTools } : {}),
-    ...(baseInput.publishTargets?.length ? { publishTargets: baseInput.publishTargets } : {}),
-  });
-  const resolutionContract = resolveResolutionContract({
+  const taskContract = normalizedHeuristicTaskContract;
+  const plannerInput = buildPlannerInputFromTaskContract({
     prompt: params.prompt,
     ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
-    ...(baseInput.intent ? { intent: baseInput.intent } : {}),
-    ...(baseInput.artifactKinds?.length ? { artifactKinds: baseInput.artifactKinds } : {}),
-    ...(baseInput.requestedTools?.length ? { requestedTools: baseInput.requestedTools } : {}),
-    ...(baseInput.publishTargets?.length ? { publishTargets: baseInput.publishTargets } : {}),
-    outcomeContract: qualification.outcomeContract,
-    executionContract: qualification.executionContract,
-    candidateFamilies: qualification.candidateFamilies,
+    taskContract,
   });
   return {
     source: "heuristic",
     taskContract,
-    plannerInput: {
-      ...baseInput,
-      candidateFamilies: [...resolutionContract.candidateFamilies],
-      resolutionContract,
-      routing: toRecipeRoutingHints(resolutionContract),
-    },
-    resolutionContract,
-    candidateFamilies: resolutionContract.candidateFamilies,
+    plannerInput,
+    resolutionContract: plannerInput.resolutionContract!,
+    candidateFamilies: plannerInput.candidateFamilies ?? [],
   };
 }
