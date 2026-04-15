@@ -59,6 +59,7 @@ export type ResolutionContract = z.infer<typeof ResolutionContractSchema>;
 
 export type ResolutionBridgePlannerInput = {
   prompt?: string;
+  contractFirst?: boolean;
   intent?: "general" | "document" | "code" | "publish" | "compare" | "calculation";
   fileNames?: string[];
   artifactKinds?: string[];
@@ -83,7 +84,7 @@ const HEAVY_ARTIFACT_KINDS = new Set([
 const TABULAR_ATTACHMENT_EXTENSION = /\.(csv|tsv|xlsx?|ods)$/iu;
 
 function sortUnique<T extends string>(values: readonly T[]): T[] {
-  return Array.from(new Set(values)).sort() as T[];
+  return Array.from(new Set(values)).toSorted();
 }
 
 function promptSuggestsHeavyDocumentWork(prompt: string): boolean {
@@ -189,8 +190,12 @@ function artifactKindsAllowLightTabularOrCalc(
   return intent === "compare" || intent === "calculation";
 }
 
-function inferNeedsVision(params: { prompt: string; fileNames: string[] }): boolean {
-  if (promptSuggestsHeavyDocumentWork(params.prompt)) {
+function inferNeedsVision(params: {
+  prompt: string;
+  fileNames: string[];
+  contractFirst?: boolean;
+}): boolean {
+  if (!params.contractFirst && promptSuggestsHeavyDocumentWork(params.prompt)) {
     return true;
   }
   return params.fileNames.some((name) => /\.(pdf|png|jpe?g|webp|gif|tiff?|bmp|heic)$/iu.test(name));
@@ -198,6 +203,7 @@ function inferNeedsVision(params: { prompt: string; fileNames: string[] }): bool
 
 function inferLocalRoutingEligible(params: {
   prompt: string;
+  contractFirst?: boolean;
   intent: ResolutionBridgePlannerInput["intent"];
   requestedTools: string[];
   fileNames: string[];
@@ -209,7 +215,10 @@ function inferLocalRoutingEligible(params: {
   if (params.requestedTools.some((tool) => HEAVY_TOOL_IDS.has(tool))) {
     return false;
   }
-  if (promptSuggestsHeavyDocumentWork(params.prompt) || promptSuggestsComplexReasoning(params.prompt)) {
+  if (
+    !params.contractFirst &&
+    (promptSuggestsHeavyDocumentWork(params.prompt) || promptSuggestsComplexReasoning(params.prompt))
+  ) {
     return false;
   }
   if (params.fileNames.length > 0) {
@@ -232,6 +241,7 @@ function inferLocalRoutingEligible(params: {
 
 function inferRemoteRoutingProfile(params: {
   prompt: string;
+  contractFirst?: boolean;
   intent: ResolutionBridgePlannerInput["intent"];
   requestedTools: string[];
   artifactKinds: string[];
@@ -264,8 +274,8 @@ function inferRemoteRoutingProfile(params: {
     params.requestedTools.includes("web_search") ||
     !params.localEligible ||
     params.artifactKinds.some((kind) => HEAVY_ARTIFACT_KINDS.has(kind)) ||
-    promptSuggestsHeavyDocumentWork(params.prompt) ||
-    promptSuggestsComplexReasoning(params.prompt)
+    (!params.contractFirst &&
+      (promptSuggestsHeavyDocumentWork(params.prompt) || promptSuggestsComplexReasoning(params.prompt)))
   ) {
     return "strong";
   }
@@ -274,6 +284,7 @@ function inferRemoteRoutingProfile(params: {
 
 function inferPreferRemoteFirst(params: {
   prompt: string;
+  contractFirst?: boolean;
   intent: ResolutionBridgePlannerInput["intent"];
   requestedTools: string[];
   artifactKinds: string[];
@@ -297,6 +308,9 @@ function inferPreferRemoteFirst(params: {
     )
   ) {
     return true;
+  }
+  if (params.contractFirst) {
+    return false;
   }
   return (
     params.artifactKinds.includes("document") &&
@@ -393,6 +407,7 @@ function selectResolutionFamily(params: {
 
 export function resolveResolutionContract(input: ResolutionBridgePlannerInput): ResolutionContract {
   const prompt = input.prompt ?? "";
+  const contractFirst = input.contractFirst === true;
   const fileNames = input.fileNames ?? [];
   const artifactKinds = sortUnique(input.artifactKinds ?? []);
   const requestedTools = sortUnique(input.requestedTools ?? []);
@@ -407,9 +422,10 @@ export function resolveResolutionContract(input: ResolutionBridgePlannerInput): 
           publishTargets,
         }),
   );
-  const needsVision = inferNeedsVision({ prompt, fileNames });
+  const needsVision = inferNeedsVision({ prompt, fileNames, contractFirst });
   const localEligible = inferLocalRoutingEligible({
     prompt,
+    contractFirst,
     intent: input.intent,
     requestedTools,
     fileNames,
@@ -417,6 +433,7 @@ export function resolveResolutionContract(input: ResolutionBridgePlannerInput): 
   });
   const remoteProfile = inferRemoteRoutingProfile({
     prompt,
+    contractFirst,
     intent: input.intent,
     requestedTools,
     artifactKinds,
@@ -430,6 +447,7 @@ export function resolveResolutionContract(input: ResolutionBridgePlannerInput): 
     remoteProfile,
     preferRemoteFirst: inferPreferRemoteFirst({
       prompt,
+      contractFirst,
       intent: input.intent,
       requestedTools,
       artifactKinds,

@@ -44,6 +44,7 @@ describe("plugin classifier propagation", () => {
       },
       plannerInput: {
         prompt: "Tell me a joke about city cats.",
+        contractFirst: true,
         intent: "document",
         artifactKinds: ["document"],
         requestedTools: ["pdf"],

@@ -368,6 +368,7 @@ export function buildPlannerInputFromTaskContract(params: {
   const bridge = mapTaskContractToBridge(params.taskContract);
   const resolutionContract = resolveResolutionContract({
     prompt: params.prompt,
+    contractFirst: true,
     ...(fileNames.length > 0 ? { fileNames } : {}),
     ...bridge,
   });
@@ -376,6 +377,7 @@ export function buildPlannerInputFromTaskContract(params: {
   const lowConfidenceStrategy = taskContractLowConfidenceStrategy(params.taskContract);
   return {
     prompt: params.prompt,
+    contractFirst: true,
     ...(fileNames.length > 0 ? { fileNames } : {}),
     ...(bridge.intent ? { intent: bridge.intent } : {}),
     ...(bridge.artifactKinds?.length ? { artifactKinds: bridge.artifactKinds } : {}),

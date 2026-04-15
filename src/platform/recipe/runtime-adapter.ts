@@ -39,6 +39,7 @@ import { planExecutionRecipe, type ExecutionPlan } from "./planner.js";
 export type RecipeRuntimePlan = {
   selectedRecipeId: string;
   selectedProfileId: ProfileId;
+  contractFirst?: boolean;
   taskOverlayId?: string;
   plannerReasoning?: string;
   intent?: RecipePlannerInput["intent"];
@@ -704,6 +705,7 @@ export function adaptExecutionPlanToRuntime(
       ? { taskOverlayId: plan.profile.activeProfile.taskOverlay }
       : {}),
     ...(plan.plannerOutput.reasoning ? { plannerReasoning: plan.plannerOutput.reasoning } : {}),
+    ...(params?.input?.contractFirst ? { contractFirst: true } : {}),
     ...(params?.input?.intent ? { intent: params.input.intent } : {}),
     ...(params?.input?.routing ? { routing: params.input.routing } : {}),
     ...(parsedModel?.provider ? { providerOverride: parsedModel.provider } : {}),
@@ -846,6 +848,7 @@ export function buildRecipePlannerInputFromRuntimePlan(
   );
   return {
     prompt,
+    ...(runtime.contractFirst ? { contractFirst: true } : {}),
     ...(fileNames.length > 0 ? { fileNames } : {}),
     ...(runtime.intent ? { intent: runtime.intent } : {}),
     ...(runtime.routing ? { routing: runtime.routing } : {}),

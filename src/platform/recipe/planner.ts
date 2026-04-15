@@ -18,7 +18,7 @@ import {
   type ProfileResolution,
   type ProfileResolverInput,
 } from "../profile/resolver.js";
-import type { ArtifactKind, ExecutionRecipe, PlannerOutput } from "../schemas/index.js";
+import type { ExecutionRecipe, PlannerOutput } from "../schemas/index.js";
 import { PlannerOutputSchema } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
 import { INITIAL_RECIPES, getInitialRecipe } from "./defaults.js";
@@ -39,6 +39,7 @@ export type RecipeRoutingHints = {
 };
 
 export type RecipePlannerInput = ProfileResolverInput & {
+  contractFirst?: boolean;
   intent?: "general" | "document" | "code" | "publish" | "compare" | "calculation";
   outcomeContract?: OutcomeContract;
   executionContract?: QualificationExecutionContract;
@@ -58,6 +59,10 @@ export type ExecutionPlan = {
   plannerOutput: PlannerOutput;
   candidateRecipes: ExecutionRecipe[];
 };
+
+function isContractFirstInput(input: RecipePlannerInput): boolean {
+  return input.contractFirst === true;
+}
 
 const RECIPE_FAMILIES: Record<string, CandidateExecutionFamily[]> = {
   general_reasoning: ["general_assistant"],
@@ -221,23 +226,24 @@ function buildRecipeScore(params: {
   input: RecipePlannerInput;
 }): number {
   const { recipe, profile, input } = params;
+  const contractFirst = isContractFirstInput(input);
   const overlayId = profile.activeProfile.taskOverlay;
   const files = input.fileNames ?? [];
   const publishTargets = (input.publishTargets ?? []).map((value) => value.toLowerCase());
   const tools = (input.requestedTools ?? []).map((value) => value.toLowerCase());
   const artifactKinds = input.artifactKinds ?? [];
   const promptOnlyDocumentAuthoring =
-    files.length === 0 &&
     input.intent === "document" &&
-    (tools.includes("pdf") || publishTargets.includes("pdf"));
+    (tools.includes("pdf") || publishTargets.includes("pdf")) &&
+    (files.length === 0 || contractFirst);
   const documentSignal =
     input.intent === "document" ||
     hasDocumentArtifact(artifactKinds) ||
     files.some((file) => /\.(pdf|doc|docx|xls|xlsx|csv)$/iu.test(file));
-  const ocrSignal = hasOcrSignal(input, files);
-  const tableSignal = hasTableSignal(input, files);
-  const compareSignal = hasCompareSignal(input, files);
-  const calculationSignal = hasCalculationSignal(input);
+  const ocrSignal = contractFirst ? false : hasOcrSignal(input, files);
+  const tableSignal = contractFirst ? false : hasTableSignal(input, files);
+  const compareSignal = contractFirst ? false : hasCompareSignal(input, files);
+  const calculationSignal = contractFirst ? false : hasCalculationSignal(input);
 
   if (recipe.id === "general_reasoning") {
     let score = 0.2;
@@ -447,7 +453,7 @@ function buildRecipeScore(params: {
     if (tools.some((tool) => tool === "exec" || tool === "process" || tool === "apply_patch")) {
       score += 0.6;
     }
-    if (promptSuggestsWebsiteFrontendWork(input.prompt ?? "")) {
+    if (!contractFirst && promptSuggestsWebsiteFrontendWork(input.prompt ?? "")) {
       score += 3.6;
     }
     return score;

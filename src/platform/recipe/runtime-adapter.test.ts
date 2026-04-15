@@ -367,6 +367,7 @@ describe("buildRecipePlannerInputFromRuntimePlan", () => {
   it("copies structured runtime fields onto the prompt without prompt-only inference", () => {
     const input = {
       prompt: "Ship the preview to production",
+      contractFirst: true,
       publishTargets: ["vercel"],
       requestedTools: ["exec"],
       intent: "publish" as const,
@@ -378,6 +379,7 @@ describe("buildRecipePlannerInputFromRuntimePlan", () => {
       fileNames: ["app.ts"],
     });
     expect(replay.prompt).toBe("hello");
+    expect(replay.contractFirst).toBe(true);
     expect(replay.intent).toBe("publish");
     expect(replay.candidateFamilies).toEqual(["ops_execution"]);
     expect(replay.outcomeContract).toBe("external_operation");

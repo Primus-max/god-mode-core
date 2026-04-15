@@ -70,6 +70,7 @@ describe("classifyTaskForDecision", () => {
     );
     expect(classified.plannerInput).toEqual(
       expect.objectContaining({
+        contractFirst: true,
         intent: "compare",
         requestedTools: ["web_search"],
         outcomeContract: "text_response",
@@ -113,6 +114,7 @@ describe("classifyTaskForDecision", () => {
         requestedTools: ["exec", "apply_patch", "process"],
       }),
     );
+    expect(classified.plannerInput.contractFirst).toBeUndefined();
   });
 
   it("surfaces classifier failures when heuristic fallback is disabled", async () => {

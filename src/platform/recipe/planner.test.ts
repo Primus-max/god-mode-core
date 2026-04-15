@@ -218,6 +218,7 @@ describe("planExecutionRecipe", () => {
   it("prefers resolution-contract family selection over legacy cross-family scoring", () => {
     const plan = planExecutionRecipe({
       prompt: "Create a PDF infographic with generated images.",
+      contractFirst: true,
       artifactKinds: ["document", "image"],
       requestedTools: ["pdf", "image_generate"],
       intent: "document",
@@ -238,6 +239,33 @@ describe("planExecutionRecipe", () => {
 
     expect(plan.recipe.id).toBe("doc_authoring");
     expect(plan.plannerOutput.reasoning).toContain("Family: document_render.");
+  });
+
+  it("does not let prompt-level heuristics override classifier-selected document routing", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Run OCR on this scanned invoice image and extract the totals.",
+      contractFirst: true,
+      fileNames: ["invoice-scan.png"],
+      artifactKinds: ["document"],
+      requestedTools: ["pdf"],
+      intent: "document",
+      outcomeContract: "structured_artifact",
+      candidateFamilies: ["document_render"],
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).toBe("doc_authoring");
+    expect(plan.recipe.id).not.toBe("ocr_extract");
   });
 
   it("prefers the simplest valid family instead of a broader execution family", () => {
