@@ -64,7 +64,7 @@ const apiConfigRef: { current: OpenClawPluginApi["config"] } = {
   current: undefined,
 };
 
-async function resolveHookExecution(
+export async function resolveHookExecution(
   prompt: string,
   ctx?: Pick<PluginHookAgentContext, "platformExecution" | "agentDir" | "agentId">,
 ): Promise<PluginHookPlatformExecutionContext> {
@@ -75,17 +75,8 @@ async function resolveHookExecution(
     prompt,
     cfg: apiConfigRef.current,
     agentDir: ctx?.agentDir,
-    agentId: ctx?.agentId,
   });
-  const input = buildExecutionDecisionInput({ prompt });
-  return toPluginHookPlatformExecutionContext(
-    resolvePlatformRuntimePlan({
-      ...input,
-      candidateFamilies: [...classified.resolutionContract.candidateFamilies],
-      resolutionContract: classified.resolutionContract,
-      routing: classified.resolutionContract.routing,
-    }).runtime,
-  );
+  return toPluginHookPlatformExecutionContext(resolvePlatformRuntimePlan(classified.plannerInput).runtime);
 }
 
 function resolveExecutionLabels(execution: PluginHookPlatformExecutionContext): {

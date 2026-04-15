@@ -188,6 +188,8 @@ export type AgentDefaultsConfig = {
      */
     taskClassifier?: {
       enabled?: boolean;
+      /** Classifier backend adapter id, e.g. "pi-simple" or a custom adapter key. */
+      backend?: string;
       /** Model ref used for task classification, e.g. "openai/gpt-5-mini" or "ollama/qwen3:14b". */
       model?: string;
       /** Optional timeout override for classifier completion. */

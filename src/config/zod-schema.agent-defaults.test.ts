@@ -11,4 +11,20 @@ describe("agent defaults schema", () => {
       }),
     ).not.toThrow();
   });
+
+  it("accepts task classifier backend and model overrides", () => {
+    expect(() =>
+      AgentDefaultsSchema.parse({
+        embeddedPi: {
+          taskClassifier: {
+            backend: "stub-backend",
+            model: "ollama/qwen3:14b",
+            timeoutMs: 10_000,
+            maxTokens: 256,
+            allowHeuristicFallback: true,
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
 });

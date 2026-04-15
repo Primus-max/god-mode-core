@@ -1,29 +1,36 @@
-import { completeSimple, type Api, type Model, type TextContent } from "@mariozechner/pi-ai";
+import { completeSimple, type TextContent } from "@mariozechner/pi-ai";
 import { getApiKeyForModel, requireApiKey } from "../../agents/model-auth.js";
-import { parseModelRef, resolveDefaultModelForAgent } from "../../agents/model-selection.js";
+import { parseModelRef } from "../../agents/model-selection.js";
 import { resolveModelAsync } from "../../agents/pi-embedded-runner/model.js";
 import { prepareModelForSimpleCompletion } from "../../agents/simple-completion-transport.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { validateJsonSchemaValue } from "../../plugins/schema-validator.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import { isLikelyControlPlaneLocalProvider } from "./control-plane-local.js";
 import {
   buildQualificationResultFromPlannerInput,
   buildExecutionDecisionInput,
   type BuildExecutionDecisionInputParams,
 } from "./input.js";
+import { inferRequestedEvidence } from "./execution-contract.js";
 import {
   resolveResolutionContract,
+  toRecipeRoutingHints,
   type ResolutionBridgePlannerInput,
   type ResolutionContract,
 } from "./resolution-contract.js";
 import type { CandidateExecutionFamily } from "./qualification-contract.js";
+import type {
+  QualificationConfidence,
+  QualificationLowConfidenceStrategy,
+} from "./qualification-contract.js";
+import type { RecipePlannerInput } from "../recipe/planner.js";
 
 const log = createSubsystemLogger("task-classifier");
 
-const DEFAULT_CLASSIFIER_MODEL = "openai/gpt-5-mini";
-const DEFAULT_TIMEOUT_MS = 20_000;
-const DEFAULT_MAX_TOKENS = 450;
+export const DEFAULT_TASK_CLASSIFIER_BACKEND = "pi-simple";
+export const DEFAULT_TASK_CLASSIFIER_MODEL = "openai/gpt-5-mini";
+export const DEFAULT_TASK_CLASSIFIER_TIMEOUT_MS = 20_000;
+export const DEFAULT_TASK_CLASSIFIER_MAX_TOKENS = 450;
 
 const TASK_CONTRACT_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -177,22 +184,32 @@ export type TaskContract = {
 export type ClassifiedTaskResolution = {
   source: "llm" | "heuristic";
   taskContract: TaskContract;
+  plannerInput: RecipePlannerInput;
   resolutionContract: ResolutionContract;
   candidateFamilies: CandidateExecutionFamily[];
 };
 
-type TaskClassifierAdapter = {
+export type TaskClassifierAdapter = {
   classify(params: {
     prompt: string;
     fileNames: string[];
+    config: ResolvedTaskClassifierConfig;
     cfg: OpenClawConfig;
     agentDir?: string;
-    agentId?: string;
   }): Promise<TaskContract | null>;
 };
 
+export type ResolvedTaskClassifierConfig = {
+  enabled: boolean;
+  backend: string;
+  model: string;
+  timeoutMs: number;
+  maxTokens: number;
+  allowHeuristicFallback: boolean;
+};
+
 function normalizeUnique<T extends string>(values: readonly T[]): T[] {
-  return Array.from(new Set(values)).sort() as T[];
+  return Array.from(new Set(values)).toSorted();
 }
 
 function isTextContentBlock(block: { type: string }): block is TextContent {
@@ -215,6 +232,28 @@ function safeParseTaskContract(raw: string): TaskContract | null {
   } catch {
     return null;
   }
+}
+
+function taskContractConfidenceToQualification(confidence: number): QualificationConfidence {
+  if (confidence >= 0.8) {
+    return "high";
+  }
+  if (confidence >= 0.55) {
+    return "medium";
+  }
+  return "low";
+}
+
+function taskContractLowConfidenceStrategy(
+  contract: TaskContract,
+): QualificationLowConfidenceStrategy | undefined {
+  if (
+    contract.primaryOutcome === "clarification_needed" ||
+    contract.interactionMode === "clarify_first"
+  ) {
+    return "clarify";
+  }
+  return undefined;
 }
 
 function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlannerInput {
@@ -314,6 +353,46 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
   };
 }
 
+export function buildPlannerInputFromTaskContract(params: {
+  prompt: string;
+  fileNames?: string[];
+  taskContract: TaskContract;
+}): RecipePlannerInput {
+  const fileNames = Array.from(
+    new Set(
+      (params.fileNames ?? [])
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .map((value) => value.trim()),
+    ),
+  );
+  const bridge = mapTaskContractToBridge(params.taskContract);
+  const resolutionContract = resolveResolutionContract({
+    prompt: params.prompt,
+    ...(fileNames.length > 0 ? { fileNames } : {}),
+    ...bridge,
+  });
+  const ambiguityReasons = normalizeUnique(params.taskContract.ambiguities);
+  const confidence = taskContractConfidenceToQualification(params.taskContract.confidence);
+  const lowConfidenceStrategy = taskContractLowConfidenceStrategy(params.taskContract);
+  return {
+    prompt: params.prompt,
+    ...(fileNames.length > 0 ? { fileNames } : {}),
+    ...(bridge.intent ? { intent: bridge.intent } : {}),
+    ...(bridge.artifactKinds?.length ? { artifactKinds: bridge.artifactKinds } : {}),
+    ...(bridge.requestedTools?.length ? { requestedTools: bridge.requestedTools } : {}),
+    ...(bridge.publishTargets?.length ? { publishTargets: bridge.publishTargets } : {}),
+    outcomeContract: bridge.outcomeContract,
+    executionContract: bridge.executionContract,
+    requestedEvidence: inferRequestedEvidence(bridge.outcomeContract, bridge.executionContract),
+    confidence,
+    ...(ambiguityReasons.length > 0 ? { ambiguityReasons } : {}),
+    ...(lowConfidenceStrategy ? { lowConfidenceStrategy } : {}),
+    candidateFamilies: [...resolutionContract.candidateFamilies],
+    resolutionContract,
+    routing: toRecipeRoutingHints(resolutionContract),
+  };
+}
+
 function heuristicTaskContract(
   input: ReturnType<typeof buildExecutionDecisionInput>,
 ): TaskContract {
@@ -391,20 +470,29 @@ function heuristicTaskContract(
   };
 }
 
+export function resolveTaskClassifierConfig(params: {
+  cfg: OpenClawConfig;
+}): ResolvedTaskClassifierConfig {
+  const classifierConfig = params.cfg.agents?.defaults?.embeddedPi?.taskClassifier;
+  return {
+    enabled: classifierConfig?.enabled !== false,
+    backend: classifierConfig?.backend?.trim() || DEFAULT_TASK_CLASSIFIER_BACKEND,
+    model: classifierConfig?.model?.trim() || DEFAULT_TASK_CLASSIFIER_MODEL,
+    timeoutMs: classifierConfig?.timeoutMs ?? DEFAULT_TASK_CLASSIFIER_TIMEOUT_MS,
+    maxTokens: classifierConfig?.maxTokens ?? DEFAULT_TASK_CLASSIFIER_MAX_TOKENS,
+    allowHeuristicFallback: classifierConfig?.allowHeuristicFallback !== false,
+  };
+}
+
 class PiTaskClassifierAdapter implements TaskClassifierAdapter {
   async classify(params: {
     prompt: string;
     fileNames: string[];
+    config: ResolvedTaskClassifierConfig;
     cfg: OpenClawConfig;
     agentDir?: string;
-    agentId?: string;
   }): Promise<TaskContract | null> {
-    const classifierConfig = params.cfg.agents?.defaults?.embeddedPi?.taskClassifier;
-    const modelRefRaw =
-      classifierConfig?.model?.trim() ||
-      (isLikelyControlPlaneLocalProvider(resolveDefaultModelForAgent({ cfg: params.cfg, agentId: params.agentId }).provider)
-        ? `${resolveDefaultModelForAgent({ cfg: params.cfg, agentId: params.agentId }).provider}/${resolveDefaultModelForAgent({ cfg: params.cfg, agentId: params.agentId }).model}`
-        : DEFAULT_CLASSIFIER_MODEL);
+    const modelRefRaw = params.config.model;
     const parsedRef = parseModelRef(modelRefRaw, "openai");
     if (!parsedRef) {
       return null;
@@ -413,14 +501,11 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
     if (!resolved.model) {
       return null;
     }
-    const model = prepareModelForSimpleCompletion({ model: resolved.model, cfg: params.cfg }) as Model<Api>;
+    const model = prepareModelForSimpleCompletion({ model: resolved.model, cfg: params.cfg });
     const auth = await getApiKeyForModel({ model, cfg: params.cfg, agentDir: params.agentDir });
     const apiKey = requireApiKey(auth, model.provider);
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      classifierConfig?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    );
+    const timeout = setTimeout(() => controller.abort(), params.config.timeoutMs);
     try {
       const prompt = TASK_CLASSIFIER_USER_TEMPLATE.replace(
         "{{SCHEMA_JSON}}",
@@ -442,7 +527,7 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
         },
         {
           apiKey,
-          maxTokens: classifierConfig?.maxTokens ?? DEFAULT_MAX_TOKENS,
+          maxTokens: params.config.maxTokens,
           temperature: 0,
           signal: controller.signal,
         },
@@ -459,56 +544,83 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
   }
 }
 
+export function resolveTaskClassifierAdapter(
+  backend: string,
+  registry: Readonly<Record<string, TaskClassifierAdapter>> = {},
+): TaskClassifierAdapter | undefined {
+  if (registry[backend]) {
+    return registry[backend];
+  }
+  if (backend === DEFAULT_TASK_CLASSIFIER_BACKEND) {
+    return new PiTaskClassifierAdapter();
+  }
+  return undefined;
+}
+
 export async function classifyTaskForDecision(params: {
   prompt: string;
   fileNames?: string[];
   cfg: OpenClawConfig;
   agentDir?: string;
-  agentId?: string;
   input?: BuildExecutionDecisionInputParams;
+  adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
 }): Promise<ClassifiedTaskResolution> {
   const baseInput = params.input ?? buildExecutionDecisionInput({
     prompt: params.prompt,
     ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
   });
-  const classifierConfig = params.cfg.agents?.defaults?.embeddedPi?.taskClassifier;
-  const adapter = new PiTaskClassifierAdapter();
-  const enabled = classifierConfig?.enabled !== false;
-  if (!enabled) {
+  const classifierConfig = resolveTaskClassifierConfig({ cfg: params.cfg });
+  if (!classifierConfig.enabled) {
     const taskContract = heuristicTaskContract(baseInput);
+    const resolutionContract =
+      baseInput.resolutionContract ?? resolveResolutionContract(mapTaskContractToBridge(taskContract));
     return {
       source: "heuristic",
       taskContract,
-      resolutionContract: resolveResolutionContract(mapTaskContractToBridge(taskContract)),
+      plannerInput: baseInput,
+      resolutionContract,
       candidateFamilies: baseInput.candidateFamilies ?? [],
     };
   }
+  const adapter = resolveTaskClassifierAdapter(classifierConfig.backend, params.adapterRegistry);
+  if (!adapter) {
+    const error = new Error(
+      `task-classifier: unknown backend "${classifierConfig.backend}"`,
+    );
+    if (!classifierConfig.allowHeuristicFallback) {
+      throw error;
+    }
+    log.warn(error.message);
+  }
   try {
-    const classified = await adapter.classify({
-      prompt: params.prompt,
-      fileNames: params.fileNames ?? [],
-      cfg: params.cfg,
-      agentDir: params.agentDir,
-      agentId: params.agentId,
-    });
-    if (classified) {
-      const resolutionContract = resolveResolutionContract({
+    if (adapter) {
+      const classified = await adapter.classify({
         prompt: params.prompt,
-        ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
-        ...mapTaskContractToBridge(classified),
+        fileNames: params.fileNames ?? [],
+        config: classifierConfig,
+        cfg: params.cfg,
+        agentDir: params.agentDir,
       });
-      return {
-        source: "llm",
-        taskContract: classified,
-        resolutionContract,
-        candidateFamilies: resolutionContract.candidateFamilies,
-      };
+      if (classified) {
+        const plannerInput = buildPlannerInputFromTaskContract({
+          prompt: params.prompt,
+          fileNames: params.fileNames,
+          taskContract: classified,
+        });
+        return {
+          source: "llm",
+          taskContract: classified,
+          plannerInput,
+          resolutionContract: plannerInput.resolutionContract!,
+          candidateFamilies: plannerInput.candidateFamilies ?? [],
+        };
+      }
     }
   } catch (error) {
     log.warn(
       `task-classifier: falling back to heuristics (${error instanceof Error ? error.message : String(error)})`,
     );
-    if (classifierConfig?.allowHeuristicFallback === false) {
+    if (!classifierConfig.allowHeuristicFallback) {
       throw error;
     }
   }
@@ -534,6 +646,12 @@ export async function classifyTaskForDecision(params: {
   return {
     source: "heuristic",
     taskContract,
+    plannerInput: {
+      ...baseInput,
+      candidateFamilies: [...resolutionContract.candidateFamilies],
+      resolutionContract,
+      routing: toRecipeRoutingHints(resolutionContract),
+    },
     resolutionContract,
     candidateFamilies: resolutionContract.candidateFamilies,
   };
