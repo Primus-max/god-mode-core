@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw.dev/experiments/task-contract.schema.json",
+  "title": "TaskContract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "primaryOutcome",
+    "requiredCapabilities",
+    "interactionMode",
+    "confidence",
+    "ambiguities"
+  ],
+  "properties": {
+    "primaryOutcome": {
+      "type": "string",
+      "enum": [
+        "answer",
+        "workspace_change",
+        "external_delivery",
+        "comparison_report",
+        "calculation_result",
+        "document_package",
+        "document_extraction",
+        "clarification_needed"
+      ]
+    },
+    "requiredCapabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "needs_visual_composition",
+          "needs_multimodal_authoring",
+          "needs_repo_execution",
+          "needs_document_extraction",
+          "needs_local_runtime",
+          "needs_interactive_browser",
+          "needs_high_reliability_provider",
+          "needs_workspace_mutation",
+          "needs_external_delivery",
+          "needs_tabular_reasoning",
+          "needs_web_research"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "interactionMode": {
+      "type": "string",
+      "enum": [
+        "respond_only",
+        "clarify_first",
+        "tool_execution",
+        "artifact_iteration"
+      ]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "ambiguities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    }
+  }
+}

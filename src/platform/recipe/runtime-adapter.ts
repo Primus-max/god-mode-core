@@ -32,6 +32,7 @@ import type {
   QualificationLowConfidenceStrategy,
   RequestedEvidenceKind,
 } from "../decision/qualification-contract.js";
+import type { ResolutionContract } from "../decision/resolution-contract.js";
 import type { RecipePlannerInput, RecipeRoutingHints } from "./planner.js";
 import { planExecutionRecipe, type ExecutionPlan } from "./planner.js";
 
@@ -52,6 +53,7 @@ export type RecipeRuntimePlan = {
   ambiguityReasons?: string[];
   lowConfidenceStrategy?: QualificationLowConfidenceStrategy;
   candidateFamilies?: CandidateExecutionFamily[];
+  resolutionContract?: ResolutionContract;
   outcomeContract?: OutcomeContract;
   executionContract?: QualificationExecutionContract;
   requestedEvidence?: RequestedEvidenceKind[];
@@ -724,6 +726,9 @@ export function adaptExecutionPlanToRuntime(
     ...(params?.input?.candidateFamilies?.length
       ? { candidateFamilies: params.input.candidateFamilies }
       : {}),
+    ...(params?.input?.resolutionContract
+      ? { resolutionContract: params.input.resolutionContract }
+      : {}),
     ...(outcomeContract ? { outcomeContract } : {}),
     ...(executionContract ? { executionContract } : {}),
     ...(requestedEvidence.length ? { requestedEvidence } : {}),
@@ -853,6 +858,7 @@ export function buildRecipePlannerInputFromRuntimePlan(
       ? { lowConfidenceStrategy: runtime.lowConfidenceStrategy }
       : {}),
     ...(runtime.candidateFamilies?.length ? { candidateFamilies: runtime.candidateFamilies } : {}),
+    ...(runtime.resolutionContract ? { resolutionContract: runtime.resolutionContract } : {}),
     ...(runtime.outcomeContract ? { outcomeContract: runtime.outcomeContract } : {}),
     ...(runtime.executionContract ? { executionContract: runtime.executionContract } : {}),
     ...(runtime.requestedEvidence?.length ? { requestedEvidence: runtime.requestedEvidence } : {}),

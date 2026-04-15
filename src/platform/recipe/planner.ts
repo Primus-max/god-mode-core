@@ -29,6 +29,7 @@ import {
   hasMediaArtifact,
   selectExecutionFamily,
 } from "./family-selector.js";
+import type { ResolutionContract } from "../decision/resolution-contract.js";
 
 export type RecipeRoutingHints = {
   localEligible?: boolean;
@@ -46,6 +47,7 @@ export type RecipePlannerInput = ProfileResolverInput & {
   ambiguityReasons?: string[];
   lowConfidenceStrategy?: QualificationLowConfidenceStrategy;
   candidateFamilies?: CandidateExecutionFamily[];
+  resolutionContract?: ResolutionContract;
   recipes?: ExecutionRecipe[];
   routing?: RecipeRoutingHints;
 };
@@ -162,9 +164,10 @@ function hasCalculationSignal(input: RecipePlannerInput): boolean {
 // Narrows the candidate recipe pool to a single execution family.
 //
 // Priority:
-//   1. Explicit candidateFamilies from the qualification contract.
-//   2. Families derived from outcomeContract (contract-first routing).
-//   3. Full candidate pool when neither is available (legacy scoring path).
+//   1. Resolution-contract family choice.
+//   2. Explicit candidateFamilies from the qualification contract.
+//   3. Families derived from outcomeContract (contract-first routing).
+//   4. Full candidate pool when neither is available (legacy scoring path).
 //
 // After narrowing, buildRecipeScore only compares recipes within the chosen
 // family — it acts as a tie-breaker, not as a cross-family selector.
@@ -177,7 +180,9 @@ function narrowRecipesByFamily(params: {
   // Determine requested families: explicit takes priority, then contract derivation.
   const requestedFamilies: CandidateExecutionFamily[] = Array.from(
     new Set(
-      input.candidateFamilies?.length
+      input.resolutionContract?.candidateFamilies?.length
+        ? input.resolutionContract.candidateFamilies
+        : input.candidateFamilies?.length
         ? input.candidateFamilies
         : input.outcomeContract
           ? deriveFamiliesFromOutcomeContract(input.outcomeContract)
@@ -195,7 +200,11 @@ function narrowRecipesByFamily(params: {
     candidateRecipes.some((recipe) => getRecipeFamilies(recipe).includes(family)),
   );
 
-  const selectedFamily = selectExecutionFamily(requestedFamilies, availableFamilies, input);
+  const resolvedSelectedFamily = input.resolutionContract?.selectedFamily;
+  const selectedFamily =
+    resolvedSelectedFamily && availableFamilies.includes(resolvedSelectedFamily)
+      ? resolvedSelectedFamily
+      : selectExecutionFamily(requestedFamilies, availableFamilies, input);
   if (!selectedFamily) {
     return { recipes: candidateRecipes };
   }

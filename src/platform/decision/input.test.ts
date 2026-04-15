@@ -11,6 +11,7 @@ import {
   buildSessionBackedExecutionDecisionInput,
   shouldUseLightweightBootstrapContext,
 } from "./input.js";
+import { resolveResolutionContract } from "./resolution-contract.js";
 
 describe("buildSessionBackedExecutionDecisionInput", () => {
   it("merges transcript-derived prompt and file names with the current draft prompt", async () => {
@@ -203,6 +204,43 @@ describe("buildExecutionDecisionInputFromRuntimePlan", () => {
 });
 
 describe("buildExecutionDecisionInput", () => {
+  it("builds a resolution contract for prompt-only pdf authoring", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Create a two-page PDF infographic about a city cat with a couple of generated images.",
+    });
+
+    expect(input.resolutionContract).toEqual(
+      expect.objectContaining({
+        selectedFamily: "document_render",
+        candidateFamilies: expect.arrayContaining(["document_render"]),
+        toolBundles: expect.arrayContaining(["artifact_authoring"]),
+        routing: expect.objectContaining({
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+        }),
+      }),
+    );
+    expect(input.routing).toEqual(input.resolutionContract?.routing);
+  });
+
+  it("builds a resolution contract for browser observation work", () => {
+    const qualification = buildExecutionDecisionInput({
+      prompt: "Open https://example.com in the browser and tell me the page title.",
+    });
+
+    expect(qualification.resolutionContract).toEqual(
+      expect.objectContaining({
+        candidateFamilies: expect.arrayContaining(["general_assistant"]),
+        toolBundles: expect.arrayContaining(["interactive_browser"]),
+        routing: expect.objectContaining({
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          localEligible: false,
+        }),
+      }),
+    );
+  });
+
   it("infers document intent and artifact kinds for pdf-style prompts", () => {
     const input = buildExecutionDecisionInput({
       prompt: "Create a PDF report with a short summary for the customer.",
@@ -506,5 +544,37 @@ describe("buildExecutionDecisionInput", () => {
     });
 
     expect(shouldUseLightweightBootstrapContext(input)).toBe(true);
+  });
+});
+
+describe("resolveResolutionContract", () => {
+  it("maps code execution requirements to code-build routing", () => {
+    const resolution = resolveResolutionContract({
+      prompt: "Fix the failing build and run the checks.",
+      intent: "code",
+      requestedTools: ["exec", "apply_patch", "process"],
+      artifactKinds: ["binary"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      candidateFamilies: ["code_build"],
+    });
+
+    expect(resolution).toEqual(
+      expect.objectContaining({
+        selectedFamily: "code_build",
+        toolBundles: expect.arrayContaining(["repo_run", "repo_mutation"]),
+        routing: expect.objectContaining({
+          remoteProfile: "code",
+          localEligible: false,
+        }),
+      }),
+    );
   });
 });

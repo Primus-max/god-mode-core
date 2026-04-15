@@ -215,6 +215,31 @@ describe("planExecutionRecipe", () => {
     expect(plan.plannerOutput.reasoning).toContain("Family: ops_execution.");
   });
 
+  it("prefers resolution-contract family selection over legacy cross-family scoring", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Create a PDF infographic with generated images.",
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+      intent: "document",
+      candidateFamilies: ["document_render", "media_generation"],
+      outcomeContract: "structured_artifact",
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render", "media_generation"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).toBe("doc_authoring");
+    expect(plan.plannerOutput.reasoning).toContain("Family: document_render.");
+  });
+
   it("prefers the simplest valid family instead of a broader execution family", () => {
     const plan = planExecutionRecipe({
       prompt: "Compare these two CSV exports and summarize row-level differences.",
