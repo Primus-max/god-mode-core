@@ -182,6 +182,21 @@ export type AgentDefaultsConfig = {
      * - trusted: trust project settings as-is
      */
     projectSettingsPolicy?: "trusted" | "sanitize" | "ignore";
+    /**
+     * Optional classifier used for platform task-shape resolution before planner scoring.
+     * Keep this replaceable: point it to a remote or local model without changing code.
+     */
+    taskClassifier?: {
+      enabled?: boolean;
+      /** Model ref used for task classification, e.g. "openai/gpt-5-mini" or "ollama/qwen3:14b". */
+      model?: string;
+      /** Optional timeout override for classifier completion. */
+      timeoutMs?: number;
+      /** Optional max output tokens for classifier JSON. */
+      maxTokens?: number;
+      /** Soft fallback to heuristic path when auth or provider availability is missing. Default: true. */
+      allowHeuristicFallback?: boolean;
+    };
   };
   /** Vector memory search configuration (per-agent overrides supported). */
   memorySearch?: MemorySearchConfig;

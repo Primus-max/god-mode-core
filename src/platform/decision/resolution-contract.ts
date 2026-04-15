@@ -13,6 +13,7 @@ export const ResolutionToolBundleSchema = z.enum([
   "repo_mutation",
   "interactive_browser",
   "public_web_lookup",
+  "document_extraction",
   "artifact_authoring",
   "external_delivery",
 ]);

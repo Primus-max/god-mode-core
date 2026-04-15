@@ -30,6 +30,7 @@ import {
   createRecipeCatalogListGatewayMethod,
 } from "./catalog/index.js";
 import { buildExecutionDecisionInput } from "./decision/input.js";
+import { classifyTaskForDecision } from "./decision/task-classifier.js";
 import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
 import {
@@ -59,15 +60,31 @@ import {
   getPlatformRuntimeCheckpointService,
 } from "./runtime/index.js";
 
-function resolveHookExecution(
+const apiConfigRef: { current: OpenClawPluginApi["config"] } = {
+  current: undefined,
+};
+
+async function resolveHookExecution(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
-): PluginHookPlatformExecutionContext {
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "agentDir" | "agentId">,
+): Promise<PluginHookPlatformExecutionContext> {
   if (ctx?.platformExecution) {
     return ctx.platformExecution;
   }
+  const classified = await classifyTaskForDecision({
+    prompt,
+    cfg: apiConfigRef.current,
+    agentDir: ctx?.agentDir,
+    agentId: ctx?.agentId,
+  });
+  const input = buildExecutionDecisionInput({ prompt });
   return toPluginHookPlatformExecutionContext(
-    resolvePlatformRuntimePlan(buildExecutionDecisionInput({ prompt })).runtime,
+    resolvePlatformRuntimePlan({
+      ...input,
+      candidateFamilies: [...classified.resolutionContract.candidateFamilies],
+      resolutionContract: classified.resolutionContract,
+      routing: classified.resolutionContract.routing,
+    }).runtime,
   );
 }
 
@@ -93,49 +110,50 @@ function joinPromptContextSegments(...segments: Array<string | undefined>): stri
 
 function buildProfilePromptSection(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
-): PluginHookBeforePromptBuildResult | void {
-  const execution = resolveHookExecution(prompt, ctx);
-  const labels = resolveExecutionLabels(execution);
-  return {
-    prependSystemContext: joinPromptContextSegments(
-      execution.prependSystemContext,
-      [
-        `Active specialist profile: ${labels.profileLabel}.`,
-        labels.overlayLabel ? `Task overlay: ${labels.overlayLabel}.` : undefined,
-        execution.requestedToolNames?.length
-          ? `Planned tools: ${execution.requestedToolNames.join(", ")}.`
-          : undefined,
-        "Profile selection narrows preferences only; it does not grant hidden permissions.",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    ),
-  };
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "agentDir" | "agentId">,
+): Promise<PluginHookBeforePromptBuildResult | void> {
+  return resolveHookExecution(prompt, ctx).then((execution) => {
+    const labels = resolveExecutionLabels(execution);
+    return {
+      prependSystemContext: joinPromptContextSegments(
+        execution.prependSystemContext,
+        [
+          `Active specialist profile: ${labels.profileLabel}.`,
+          labels.overlayLabel ? `Task overlay: ${labels.overlayLabel}.` : undefined,
+          execution.requestedToolNames?.length
+            ? `Planned tools: ${execution.requestedToolNames.join(", ")}.`
+            : undefined,
+          "Profile selection narrows preferences only; it does not grant hidden permissions.",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      ),
+    };
+  });
 }
 
 function buildAgentStartResult(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
-): PluginHookBeforeAgentStartResult | void {
-  const execution = resolveHookExecution(prompt, ctx);
-  return {
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "agentDir" | "agentId">,
+): Promise<PluginHookBeforeAgentStartResult | void> {
+  return resolveHookExecution(prompt, ctx).then((execution) => ({
     prependContext: execution.prependContext,
-  };
+  }));
 }
 
 function buildModelResolveResult(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
-): PluginHookBeforeModelResolveResult | void {
-  const execution = resolveHookExecution(prompt, ctx);
-  if (!execution.modelOverride && !execution.providerOverride) {
-    return undefined;
-  }
-  return {
-    providerOverride: execution.providerOverride,
-    modelOverride: execution.modelOverride,
-  };
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "agentDir" | "agentId">,
+): Promise<PluginHookBeforeModelResolveResult | void> {
+  return resolveHookExecution(prompt, ctx).then((execution) => {
+    if (!execution.modelOverride && !execution.providerOverride) {
+      return undefined;
+    }
+    return {
+      providerOverride: execution.providerOverride,
+      modelOverride: execution.modelOverride,
+    };
+  });
 }
 
 function isMachineControlToolCall(toolName: string, params: Record<string, unknown>): boolean {
@@ -146,6 +164,7 @@ function isMachineControlToolCall(toolName: string, params: Record<string, unkno
 }
 
 export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
+  apiConfigRef.current = api.config;
   const artifactService = getPlatformArtifactService({
     config: api.config,
   });
