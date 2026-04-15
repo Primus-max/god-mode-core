@@ -7,6 +7,7 @@ import {
   classifyTaskForDecision,
   resolveTaskClassifierConfig,
   type TaskContract,
+  type TaskClassifierDebugEvent,
 } from "../../src/platform/decision/task-classifier.js";
 import type { ResolutionContract } from "../../src/platform/decision/resolution-contract.js";
 import type { RecipePlannerInput } from "../../src/platform/recipe/planner.js";
@@ -42,6 +43,8 @@ type ScenarioRecord = {
   family: ScenarioFamilyId;
   variant: ScenarioPrompt["label"];
   rawPrompt: string;
+  classifierSource: "llm" | "heuristic";
+  debugEvents: TaskClassifierDebugEvent[];
   taskContract: TaskContract;
   plannerInput: RecipePlannerInput;
   resolutionContract: ResolutionContract;
@@ -229,14 +232,18 @@ async function main() {
   const records: ScenarioRecord[] = [];
   for (const scenario of scenarios) {
     for (const promptCase of scenario.prompts) {
+      const debugEvents: TaskClassifierDebugEvent[] = [];
       const classified = await classifyTaskForDecision({
         prompt: promptCase.prompt,
         cfg,
         agentDir,
+        onDebugEvent: (event) => {
+          debugEvents.push(event);
+        },
       });
       if (!args.allowFallback && classified.source !== "llm") {
         throw new Error(
-          `Expected live llm classification for ${scenario.id}/${promptCase.label}, got ${classified.source}.`,
+          `Expected live llm classification for ${scenario.id}/${promptCase.label}, got ${classified.source}. Debug: ${JSON.stringify(debugEvents)}`,
         );
       }
       const runtime = resolvePlatformRuntimePlan(classified.plannerInput);
@@ -245,6 +252,8 @@ async function main() {
         family: scenario.id,
         variant: promptCase.label,
         rawPrompt: promptCase.prompt,
+        classifierSource: classified.source,
+        debugEvents,
         taskContract: classified.taskContract,
         plannerInput: classified.plannerInput,
         resolutionContract: classified.resolutionContract,

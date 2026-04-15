@@ -16,7 +16,7 @@ describe("task classifier config", () => {
     expect(resolveTaskClassifierConfig({ cfg })).toEqual({
       enabled: true,
       backend: "pi-simple",
-      model: "openai/gpt-5-mini",
+      model: "hydra/gpt-5-mini",
       timeoutMs: 20_000,
       maxTokens: 450,
       allowHeuristicFallback: true,
@@ -145,6 +145,82 @@ describe("classifyTaskForDecision", () => {
         },
       }),
     ).rejects.toThrow("classifier unavailable");
+  });
+
+  it("emits debug events when adapter output falls back to heuristics", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+              allowHeuristicFallback: true,
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+    const events: Array<{ stage: string; message?: string; parseResult?: string }> = [];
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Publish to GitHub after running the checks.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue(null),
+        },
+      },
+      onDebugEvent: (event) => {
+        events.push({
+          stage: event.stage,
+          message: event.message,
+          parseResult: event.parseResult,
+        });
+      },
+    });
+
+    expect(classified.source).toBe("heuristic");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stage: "fallback",
+          message: "adapter returned null; using heuristic fallback",
+        }),
+      ]),
+    );
+  });
+
+  it("accepts near-valid JSON classifier output with unicode punctuation", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Create a polished infographic PDF from these notes.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "document_package",
+            requiredCapabilities: ["needs_multimodal_authoring"],
+            interactionMode: "artifact_iteration",
+            confidence: 0.8,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.source).toBe("llm");
+    expect(classified.taskContract.primaryOutcome).toBe("document_package");
   });
 });
 

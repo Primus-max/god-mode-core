@@ -1,10 +1,10 @@
 import { completeSimple, type TextContent } from "@mariozechner/pi-ai";
+import { z } from "zod";
 import { getApiKeyForModel, requireApiKey } from "../../agents/model-auth.js";
 import { parseModelRef } from "../../agents/model-selection.js";
 import { resolveModelAsync } from "../../agents/pi-embedded-runner/model.js";
 import { prepareModelForSimpleCompletion } from "../../agents/simple-completion-transport.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { validateJsonSchemaValue } from "../../plugins/schema-validator.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   buildQualificationResultFromPlannerInput,
@@ -28,7 +28,7 @@ import type { RecipePlannerInput } from "../recipe/planner.js";
 const log = createSubsystemLogger("task-classifier");
 
 export const DEFAULT_TASK_CLASSIFIER_BACKEND = "pi-simple";
-export const DEFAULT_TASK_CLASSIFIER_MODEL = "openai/gpt-5-mini";
+export const DEFAULT_TASK_CLASSIFIER_MODEL = "hydra/gpt-5-mini";
 export const DEFAULT_TASK_CLASSIFIER_TIMEOUT_MS = 20_000;
 export const DEFAULT_TASK_CLASSIFIER_MAX_TOKENS = 450;
 
@@ -173,12 +173,81 @@ type Capability =
 
 type InteractionMode = "respond_only" | "clarify_first" | "tool_execution" | "artifact_iteration";
 
+const TaskContractZodSchema = z
+  .object({
+    primaryOutcome: z.enum([
+      "answer",
+      "workspace_change",
+      "external_delivery",
+      "comparison_report",
+      "calculation_result",
+      "document_package",
+      "document_extraction",
+      "clarification_needed",
+    ]),
+    requiredCapabilities: z
+      .array(
+        z.enum([
+          "needs_visual_composition",
+          "needs_multimodal_authoring",
+          "needs_repo_execution",
+          "needs_document_extraction",
+          "needs_local_runtime",
+          "needs_interactive_browser",
+          "needs_high_reliability_provider",
+          "needs_workspace_mutation",
+          "needs_external_delivery",
+          "needs_tabular_reasoning",
+          "needs_web_research",
+        ]),
+      )
+      .superRefine((values, ctx) => {
+        if (new Set(values).size !== values.length) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "requiredCapabilities must contain unique items",
+          });
+        }
+      }),
+    interactionMode: z.enum(["respond_only", "clarify_first", "tool_execution", "artifact_iteration"]),
+    confidence: z.number().min(0).max(1),
+    ambiguities: z
+      .array(z.string().min(1))
+      .superRefine((values, ctx) => {
+        if (new Set(values).size !== values.length) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "ambiguities must contain unique items",
+          });
+        }
+      }),
+  })
+  .strict();
+
 export type TaskContract = {
   primaryOutcome: PrimaryOutcome;
   requiredCapabilities: Capability[];
   interactionMode: InteractionMode;
   confidence: number;
   ambiguities: string[];
+};
+
+export type TaskClassifierDebugEvent = {
+  stage:
+    | "model_unresolved"
+    | "raw_response"
+    | "fallback"
+    | "disabled"
+    | "unknown_backend";
+  backend: string;
+  configuredModel: string;
+  provider?: string;
+  modelId?: string;
+  rawText?: string;
+  normalizedCandidate?: string;
+  parseResult?: "ok" | "empty" | "json_parse_failed" | "schema_invalid";
+  parseErrorMessage?: string;
+  message?: string;
 };
 
 export type ClassifiedTaskResolution = {
@@ -196,6 +265,7 @@ export type TaskClassifierAdapter = {
     config: ResolvedTaskClassifierConfig;
     cfg: OpenClawConfig;
     agentDir?: string;
+    onDebugEvent?: (event: TaskClassifierDebugEvent) => void;
   }): Promise<TaskContract | null>;
 };
 
@@ -216,21 +286,64 @@ function isTextContentBlock(block: { type: string }): block is TextContent {
   return block.type === "text";
 }
 
-function safeParseTaskContract(raw: string): TaskContract | null {
-  const trimmed = raw.trim();
-  if (!trimmed) {
+function emitDebugEvent(
+  callback: ((event: TaskClassifierDebugEvent) => void) | undefined,
+  event: TaskClassifierDebugEvent,
+): void {
+  try {
+    callback?.(event);
+  } catch {
+    // Debug hooks must never interfere with classifier execution.
+  }
+}
+
+function normalizeTaskContractJsonCandidate(raw: string): string {
+  return raw
+    .replace(/^\uFEFF/, "")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    .trim();
+}
+
+function extractJsonObjectCandidate(raw: string): string | null {
+  const normalized = normalizeTaskContractJsonCandidate(raw);
+  if (!normalized) {
     return null;
   }
-  try {
-    const parsed = JSON.parse(trimmed) as TaskContract;
-    const validation = validateJsonSchemaValue({
-      cacheKey: "platform-task-classifier-schema-v1",
-      schema: TASK_CONTRACT_SCHEMA as Record<string, unknown>,
-      value: parsed,
-    });
-    return validation.valid ? parsed : null;
-  } catch {
+  if (normalized.startsWith("{") && normalized.endsWith("}")) {
+    return normalized;
+  }
+  const firstBrace = normalized.indexOf("{");
+  const lastBrace = normalized.lastIndexOf("}");
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
     return null;
+  }
+  return normalized.slice(firstBrace, lastBrace + 1).trim();
+}
+
+function safeParseTaskContract(raw: string): {
+  taskContract: TaskContract | null;
+  parseResult: "ok" | "empty" | "json_parse_failed" | "schema_invalid";
+  normalizedCandidate?: string;
+  parseErrorMessage?: string;
+} {
+  const candidate = extractJsonObjectCandidate(raw);
+  if (!candidate) {
+    return { taskContract: null, parseResult: "empty" };
+  }
+  try {
+    const parsed = JSON.parse(candidate) as TaskContract;
+    const validation = TaskContractZodSchema.safeParse(parsed);
+    return validation.success
+      ? { taskContract: validation.data, parseResult: "ok", normalizedCandidate: candidate }
+      : { taskContract: null, parseResult: "schema_invalid", normalizedCandidate: candidate };
+  } catch (error) {
+    return {
+      taskContract: null,
+      parseResult: "json_parse_failed",
+      normalizedCandidate: candidate,
+      parseErrorMessage: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -493,6 +606,7 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
     config: ResolvedTaskClassifierConfig;
     cfg: OpenClawConfig;
     agentDir?: string;
+    onDebugEvent?: (event: TaskClassifierDebugEvent) => void;
   }): Promise<TaskContract | null> {
     const modelRefRaw = params.config.model;
     const parsedRef = parseModelRef(modelRefRaw, "openai");
@@ -501,6 +615,14 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
     }
     const resolved = await resolveModelAsync(parsedRef.provider, parsedRef.model, params.agentDir, params.cfg);
     if (!resolved.model) {
+      emitDebugEvent(params.onDebugEvent, {
+        stage: "model_unresolved",
+        backend: params.config.backend,
+        configuredModel: params.config.model,
+        provider: parsedRef.provider,
+        modelId: parsedRef.model,
+        message: resolved.error ?? "model could not be resolved",
+      });
       return null;
     }
     const model = prepareModelForSimpleCompletion({ model: resolved.model, cfg: params.cfg });
@@ -539,7 +661,19 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
         .map((block) => block.text)
         .join("")
         .trim();
-      return safeParseTaskContract(text);
+      const parsed = safeParseTaskContract(text);
+      emitDebugEvent(params.onDebugEvent, {
+        stage: "raw_response",
+        backend: params.config.backend,
+        configuredModel: params.config.model,
+        provider: model.provider,
+        modelId: model.id,
+        rawText: text,
+        normalizedCandidate: parsed.normalizedCandidate,
+        parseResult: parsed.parseResult,
+        parseErrorMessage: parsed.parseErrorMessage,
+      });
+      return parsed.taskContract;
     } finally {
       clearTimeout(timeout);
     }
@@ -566,6 +700,7 @@ export async function classifyTaskForDecision(params: {
   agentDir?: string;
   input?: BuildExecutionDecisionInputParams;
   adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
+  onDebugEvent?: (event: TaskClassifierDebugEvent) => void;
 }): Promise<ClassifiedTaskResolution> {
   const baseInput = params.input ?? buildExecutionDecisionInput({
     prompt: params.prompt,
@@ -573,6 +708,12 @@ export async function classifyTaskForDecision(params: {
   });
   const classifierConfig = resolveTaskClassifierConfig({ cfg: params.cfg });
   if (!classifierConfig.enabled) {
+    emitDebugEvent(params.onDebugEvent, {
+      stage: "disabled",
+      backend: classifierConfig.backend,
+      configuredModel: classifierConfig.model,
+      message: "classifier disabled; using heuristic path",
+    });
     const taskContract = heuristicTaskContract(baseInput);
     const resolutionContract =
       baseInput.resolutionContract ?? resolveResolutionContract(mapTaskContractToBridge(taskContract));
@@ -589,6 +730,12 @@ export async function classifyTaskForDecision(params: {
     const error = new Error(
       `task-classifier: unknown backend "${classifierConfig.backend}"`,
     );
+    emitDebugEvent(params.onDebugEvent, {
+      stage: "unknown_backend",
+      backend: classifierConfig.backend,
+      configuredModel: classifierConfig.model,
+      message: error.message,
+    });
     if (!classifierConfig.allowHeuristicFallback) {
       throw error;
     }
@@ -602,6 +749,7 @@ export async function classifyTaskForDecision(params: {
         config: classifierConfig,
         cfg: params.cfg,
         agentDir: params.agentDir,
+        onDebugEvent: params.onDebugEvent,
       });
       if (classified) {
         const plannerInput = buildPlannerInputFromTaskContract({
@@ -617,8 +765,20 @@ export async function classifyTaskForDecision(params: {
           candidateFamilies: plannerInput.candidateFamilies ?? [],
         };
       }
+      emitDebugEvent(params.onDebugEvent, {
+        stage: "fallback",
+        backend: classifierConfig.backend,
+        configuredModel: classifierConfig.model,
+        message: "adapter returned null; using heuristic fallback",
+      });
     }
   } catch (error) {
+    emitDebugEvent(params.onDebugEvent, {
+      stage: "fallback",
+      backend: classifierConfig.backend,
+      configuredModel: classifierConfig.model,
+      message: error instanceof Error ? error.message : String(error),
+    });
     log.warn(
       `task-classifier: falling back to heuristics (${error instanceof Error ? error.message : String(error)})`,
     );
