@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
+import { resolvePlatformRuntimePlan } from "../recipe/runtime-adapter.js";
 import {
+  buildPlannerInputFromTaskContract,
   classifyTaskForDecision,
   resolveTaskClassifierConfig,
   type TaskClassifierAdapter,
+  type TaskContract,
 } from "./task-classifier.js";
 
 describe("task classifier config", () => {
@@ -142,5 +145,77 @@ describe("classifyTaskForDecision", () => {
         },
       }),
     ).rejects.toThrow("classifier unavailable");
+  });
+});
+
+describe("contract-first task contract routing", () => {
+  it("keeps document authoring stable across two noisy prompt phrasings", () => {
+    const taskContract: TaskContract = {
+      primaryOutcome: "document_package",
+      requiredCapabilities: ["needs_multimodal_authoring"],
+      interactionMode: "artifact_iteration",
+      confidence: 0.94,
+      ambiguities: [],
+    };
+
+    const scannedInvoicePrompt = buildPlannerInputFromTaskContract({
+      prompt:
+        "Run OCR on this scanned invoice, pull the tables if needed, and make the final result a polished infographic PDF with visuals.",
+      taskContract,
+    });
+    const cityCatPrompt = buildPlannerInputFromTaskContract({
+      prompt:
+        "Сделай красочный PDF про жизнь городского котика, с инфографикой, парой картинок и нормальной визуальной подачей.",
+      taskContract,
+    });
+
+    const scannedInvoiceRuntime = resolvePlatformRuntimePlan(scannedInvoicePrompt);
+    const cityCatRuntime = resolvePlatformRuntimePlan(cityCatPrompt);
+
+    expect(scannedInvoicePrompt.contractFirst).toBe(true);
+    expect(cityCatPrompt.contractFirst).toBe(true);
+    expect(scannedInvoiceRuntime.runtime.selectedRecipeId).toBe("doc_authoring");
+    expect(cityCatRuntime.runtime.selectedRecipeId).toBe("doc_authoring");
+    expect(scannedInvoiceRuntime.runtime.selectedRecipeId).not.toBe("ocr_extract");
+    expect(cityCatRuntime.runtime.selectedRecipeId).not.toBe("media_production");
+  });
+
+  it("keeps workspace-change routing stable across two different repo-edit phrasings", () => {
+    const taskContract: TaskContract = {
+      primaryOutcome: "workspace_change",
+      requiredCapabilities: [
+        "needs_workspace_mutation",
+        "needs_repo_execution",
+        "needs_local_runtime",
+      ],
+      interactionMode: "tool_execution",
+      confidence: 0.89,
+      ambiguities: [],
+    };
+
+    const sitePrompt = buildPlannerInputFromTaskContract({
+      prompt: "Сделай сайт, поправь код в репозитории и подними локальный рантайм для проверки.",
+      taskContract,
+    });
+    const repoPrompt = buildPlannerInputFromTaskContract({
+      prompt: "Patch the repo, run the checks, and leave the local preview working before you finish.",
+      taskContract,
+    });
+
+    const siteRuntime = resolvePlatformRuntimePlan(sitePrompt);
+    const repoRuntime = resolvePlatformRuntimePlan(repoPrompt);
+
+    expect(sitePrompt.contractFirst).toBe(true);
+    expect(repoPrompt.contractFirst).toBe(true);
+    expect(siteRuntime.runtime.selectedRecipeId).toBe("code_build_publish");
+    expect(repoRuntime.runtime.selectedRecipeId).toBe("code_build_publish");
+    expect(siteRuntime.runtime.outcomeContract).toBe("workspace_change");
+    expect(repoRuntime.runtime.outcomeContract).toBe("workspace_change");
+    expect(siteRuntime.runtime.requestedToolNames).toEqual(
+      expect.arrayContaining(["apply_patch", "exec", "process"]),
+    );
+    expect(repoRuntime.runtime.requestedToolNames).toEqual(
+      expect.arrayContaining(["apply_patch", "exec", "process"]),
+    );
   });
 });
