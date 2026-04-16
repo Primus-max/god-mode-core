@@ -647,8 +647,7 @@ function deriveRequiredReceiptKinds(params: {
   evidence: PlatformRuntimeAcceptanceEvidence;
 }): PlatformRuntimeExecutionReceiptKind[] | undefined {
   const kinds = new Set<PlatformRuntimeExecutionReceiptKind>();
-  const requiresMessagingDelivery =
-    params.evidence.didSendViaMessagingTool === true || (params.evidence.stagedReplyCount ?? 0) > 0;
+  const requiresMessagingDelivery = params.evidence.didSendViaMessagingTool === true;
   if (requiresMessagingDelivery) {
     kinds.add("messaging_delivery");
   }
@@ -673,8 +672,7 @@ function deriveExecutionContractExpectations(params: {
   });
   const requiresMessagingDelivery =
     declared.requiresMessagingDelivery ??
-    (params.evidence.didSendViaMessagingTool === true ||
-      (params.evidence.stagedReplyCount ?? 0) > 0);
+    (params.evidence.didSendViaMessagingTool === true);
   const requiresStructuredReceipts =
     declared.requireStructuredReceipts ??
     (params.outcome.actionIds.length > 0 ||
@@ -1457,6 +1455,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         hasStructuredArtifactToolOutputReceipt({
           receipts: params.executionVerification.receipts,
           artifactKinds: merged.declaredArtifactKinds,
+          requestedToolNames: params.executionIntent?.requestedToolNames,
         })
       ) {
         merged.hasOutput = true;

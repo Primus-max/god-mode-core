@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { CURRENT_SESSION_VERSION, SessionManager } from "@mariozechner/pi-coding-agent";
+import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { resolveAgentWorkspaceDir, resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { resolveThinkingDefault } from "../../agents/model-selection.js";
 import { rewriteTranscriptEntriesInSessionFile } from "../../agents/pi-embedded-runner/transcript-rewrite.js";
@@ -676,6 +677,14 @@ function sanitizeChatHistoryMessage(message: unknown): { message: unknown; chang
  * When `entry.text` is present it takes precedence over `entry.content` to avoid
  * dropping messages that carry real text alongside a stale `content: "NO_REPLY"`.
  */
+function stripAssistantDebugFooter(text: string): string {
+  return text.replace(/\n?> \[debug\][\s\S]*$/i, "").trim();
+}
+
+function normalizeAssistantHistoryComparisonText(text: string): string {
+  return stripInlineDirectiveTagsForDisplay(stripAssistantDebugFooter(text)).text.trim();
+}
+
 function extractAssistantTextForSilentCheck(message: unknown): string | undefined {
   if (!message || typeof message !== "object") {
     return undefined;
@@ -697,15 +706,31 @@ function extractAssistantTextForSilentCheck(message: unknown): string | undefine
   const texts: string[] = [];
   for (const block of entry.content) {
     if (!block || typeof block !== "object") {
-      return undefined;
+      continue;
     }
     const typed = block as { type?: unknown; text?: unknown };
     if (typed.type !== "text" || typeof typed.text !== "string") {
-      return undefined;
+      continue;
     }
     texts.push(typed.text);
   }
   return texts.length > 0 ? texts.join("\n") : undefined;
+}
+
+function assistantMessageHasNonTextContentBlocks(message: unknown): boolean {
+  if (!message || typeof message !== "object") {
+    return false;
+  }
+  const entry = message as Record<string, unknown>;
+  if (!Array.isArray(entry.content)) {
+    return false;
+  }
+  return entry.content.some((block) => {
+    if (!block || typeof block !== "object") {
+      return false;
+    }
+    return (block as { type?: unknown }).type !== "text";
+  });
 }
 
 function sanitizeChatHistoryMessages(messages: unknown[]): unknown[] {
@@ -714,12 +739,51 @@ function sanitizeChatHistoryMessages(messages: unknown[]): unknown[] {
   }
   let changed = false;
   const next: unknown[] = [];
+  const canonicalAssistantTexts = new Set(
+    messages
+      .map((message) => {
+        if (!message || typeof message !== "object") {
+          return "";
+        }
+        const record = message as Record<string, unknown>;
+        if (record.role !== "assistant") {
+          return "";
+        }
+        if (
+          record.provider === "openclaw" &&
+          (record.model === "gateway-injected" || record.model === "delivery-mirror")
+        ) {
+          return "";
+        }
+        return normalizeAssistantHistoryComparisonText(extractAssistantTextForSilentCheck(record) ?? "");
+      })
+      .filter(Boolean),
+  );
   for (const message of messages) {
     const res = sanitizeChatHistoryMessage(message);
     changed ||= res.changed;
+    const record = res.message && typeof res.message === "object" ? (res.message as Record<string, unknown>) : null;
+    if (
+      record &&
+      record.role === "assistant" &&
+      record.provider === "openclaw" &&
+      (record.model === "gateway-injected" || record.model === "delivery-mirror")
+    ) {
+      const stripped = normalizeAssistantHistoryComparisonText(
+        extractAssistantTextForSilentCheck(record) ?? "",
+      );
+      if (stripped && canonicalAssistantTexts.has(stripped) && !assistantMessageHasNonTextContentBlocks(record)) {
+        changed = true;
+        continue;
+      }
+    }
     // Drop assistant messages whose entire visible text is the silent reply token.
     const text = extractAssistantTextForSilentCheck(res.message);
-    if (text !== undefined && isSilentReplyText(text, SILENT_REPLY_TOKEN)) {
+    if (
+      text !== undefined &&
+      isSilentReplyText(text, SILENT_REPLY_TOKEN) &&
+      !assistantMessageHasNonTextContentBlocks(res.message)
+    ) {
       changed = true;
       continue;
     }
@@ -858,6 +922,7 @@ function transcriptHasIdempotencyKey(transcriptPath: string, idempotencyKey: str
 
 function appendAssistantTranscriptMessage(params: {
   message: string;
+  mediaUrls?: string[];
   label?: string;
   sessionId: string;
   storePath: string | undefined;
@@ -901,10 +966,162 @@ function appendAssistantTranscriptMessage(params: {
   return appendInjectedAssistantMessageToTranscript({
     transcriptPath,
     message: params.message,
+    mediaUrls: params.mediaUrls,
     label: params.label,
     idempotencyKey: params.idempotencyKey,
     abortMeta: params.abortMeta,
   });
+}
+
+function collectReplyPayloadMediaUrls(payloads: ReplyPayload[]): string[] {
+  const mediaUrls: string[] = [];
+  const seen = new Set<string>();
+  for (const payload of payloads) {
+    for (const mediaUrl of resolveSendableOutboundReplyParts(payload).mediaUrls) {
+      const trimmed = mediaUrl.trim();
+      if (!trimmed || seen.has(trimmed)) {
+        continue;
+      }
+      seen.add(trimmed);
+      mediaUrls.push(trimmed);
+    }
+  }
+  return mediaUrls;
+}
+
+function buildAssistantMessageContent(text: string, mediaUrls: string[]): Array<Record<string, unknown>> {
+  const content: Array<Record<string, unknown>> = [];
+  if (text || mediaUrls.length === 0) {
+    content.push({ type: "text", text });
+  }
+  for (const mediaUrl of Array.from(new Set(mediaUrls))) {
+    const lower = mediaUrl.toLowerCase();
+    const type =
+      lower.endsWith(".png") ||
+      lower.endsWith(".jpg") ||
+      lower.endsWith(".jpeg") ||
+      lower.endsWith(".gif") ||
+      lower.endsWith(".webp") ||
+      lower.endsWith(".svg")
+        ? "image"
+        : "file";
+    content.push({ type, url: mediaUrl });
+  }
+  return content;
+}
+
+function collectAssistantMessageMediaUrls(message: Record<string, unknown> | undefined): string[] {
+  if (!message || !Array.isArray(message.content)) {
+    return [];
+  }
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const block of message.content) {
+    if (!block || typeof block !== "object") {
+      continue;
+    }
+    const url = typeof (block as { url?: unknown }).url === "string" ? (block as { url: string }).url : "";
+    const trimmed = url.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    urls.push(trimmed);
+  }
+  return urls;
+}
+
+function mergeAssistantMessageMedia(
+  message: Record<string, unknown> | undefined,
+  text: string,
+  mediaUrls: string[],
+): Record<string, unknown> | undefined {
+  if (!message || mediaUrls.length === 0) {
+    return message;
+  }
+  const nextContent = buildAssistantMessageContent(
+    text,
+    Array.from(new Set([...collectAssistantMessageMediaUrls(message), ...mediaUrls])),
+  );
+  return {
+    ...message,
+    content: nextContent,
+  };
+}
+
+async function rewriteAssistantTranscriptMessageMedia(params: {
+  sessionId: string;
+  sessionKey: string;
+  storePath: string | undefined;
+  sessionFile?: string;
+  agentId?: string;
+  expectedText: string;
+  mediaUrls: string[];
+}): Promise<Record<string, unknown> | undefined> {
+  if (params.mediaUrls.length === 0) {
+    return undefined;
+  }
+  const transcriptPath = resolveTranscriptPath({
+    sessionId: params.sessionId,
+    storePath: params.storePath,
+    sessionFile: params.sessionFile,
+    agentId: params.agentId,
+  });
+  if (!transcriptPath || !fs.existsSync(transcriptPath)) {
+    return undefined;
+  }
+
+  const expected = stripAssistantDebugFooter(params.expectedText);
+  const sessionManager = SessionManager.open(transcriptPath);
+  const branch = sessionManager.getBranch();
+  const target = [...branch].toReversed().find((entry) => {
+    if (entry.type !== "message" || entry.message.role !== "assistant") {
+      return false;
+    }
+    const record = entry.message as Record<string, unknown>;
+    if (
+      record.provider === "openclaw" &&
+      (record.model === "gateway-injected" || record.model === "delivery-mirror")
+    ) {
+      return false;
+    }
+    if (!expected) {
+      return true;
+    }
+    const candidateText = stripAssistantDebugFooter(extractAssistantTextForSilentCheck(record) ?? "");
+    return candidateText === expected;
+  });
+  if (!target || target.type !== "message") {
+    return undefined;
+  }
+
+  const targetMessage = target.message as Record<string, unknown>;
+  const targetText = extractAssistantTextForSilentCheck(targetMessage) ?? "";
+  const mergedMediaUrls = Array.from(
+    new Set([...collectAssistantMessageMediaUrls(targetMessage), ...params.mediaUrls]),
+  );
+  const rewrittenMessage = {
+    ...targetMessage,
+    content: buildAssistantMessageContent(targetText, mergedMediaUrls),
+  };
+  await rewriteTranscriptEntriesInSessionFile({
+    sessionFile: transcriptPath,
+    sessionKey: params.sessionKey,
+    request: {
+      replacements: [
+        {
+          entryId: target.id,
+          message: rewrittenMessage,
+        },
+      ],
+    },
+  });
+  emitSessionTranscriptUpdate({
+    sessionFile: transcriptPath,
+    message: rewrittenMessage,
+    messageId: target.id,
+  });
+  return rewrittenMessage;
 }
 
 function findMatchingAssistantTranscriptMessage(params: {
@@ -913,7 +1130,7 @@ function findMatchingAssistantTranscriptMessage(params: {
   sessionFile?: string;
   expectedText: string;
 }): Record<string, unknown> | undefined {
-  const expected = params.expectedText.trim();
+  const expected = stripAssistantDebugFooter(params.expectedText);
   if (!expected) {
     return undefined;
   }
@@ -927,9 +1144,16 @@ function findMatchingAssistantTranscriptMessage(params: {
     if (role !== "assistant") {
       continue;
     }
-    const text = extractFirstTextBlock(candidate)?.trim();
+    const record = candidate as Record<string, unknown>;
+    if (
+      record.provider === "openclaw" &&
+      (record.model === "gateway-injected" || record.model === "delivery-mirror")
+    ) {
+      continue;
+    }
+    const text = stripAssistantDebugFooter(extractAssistantTextForSilentCheck(candidate) ?? "");
     if (text === expected) {
-      return candidate as Record<string, unknown>;
+      return record;
     }
   }
   return undefined;
@@ -1672,6 +1896,13 @@ export const chatHandlers: GatewayRequestHandlers = {
           if (info.kind !== "block" && info.kind !== "final") {
             return;
           }
+          const payloadMediaUrls = collectReplyPayloadMediaUrls([payload]);
+          if (payloadMediaUrls.length > 0) {
+            const nextMediaUrls = Array.from(
+              new Set([...(context.chatRunMediaUrls.get(clientRunId) ?? []), ...payloadMediaUrls]),
+            );
+            context.chatRunMediaUrls.set(clientRunId, nextMediaUrls);
+          }
           deliveredReplies.push({ payload, kind: info.kind });
         },
       });
@@ -1753,21 +1984,42 @@ export const chatHandlers: GatewayRequestHandlers = {
             .filter(Boolean)
             .join("\n\n")
             .trim();
+          const finalMediaUrls = collectReplyPayloadMediaUrls(
+            deliveredReplies.map((entry) => entry.payload),
+          );
           let message: Record<string, unknown> | undefined;
-          if (combinedReply) {
+          if (combinedReply || finalMediaUrls.length > 0) {
             const { storePath: latestStorePath, entry: latestEntry } = loadSessionEntry(sessionKey);
             const sessionId = latestEntry?.sessionId ?? entry?.sessionId ?? clientRunId;
-            const existing = findMatchingAssistantTranscriptMessage({
+            message = await rewriteAssistantTranscriptMessageMedia({
               sessionId,
+              sessionKey: rawSessionKey,
               storePath: latestStorePath,
               sessionFile: latestEntry?.sessionFile,
+              agentId,
               expectedText: combinedReply,
+              mediaUrls: finalMediaUrls,
             });
-            if (existing) {
-              message = existing;
-            } else {
+            if (!message) {
+              const existing = combinedReply
+                ? findMatchingAssistantTranscriptMessage({
+                    sessionId,
+                    storePath: latestStorePath,
+                    sessionFile: latestEntry?.sessionFile,
+                    expectedText: combinedReply,
+                  })
+                : undefined;
+              if (existing) {
+                message =
+                  finalMediaUrls.length > 0
+                    ? mergeAssistantMessageMedia(existing, combinedReply, finalMediaUrls)
+                    : existing;
+              }
+            }
+            if (!message) {
               const appended = appendAssistantTranscriptMessage({
                 message: combinedReply,
+                mediaUrls: finalMediaUrls,
                 sessionId,
                 storePath: latestStorePath,
                 sessionFile: latestEntry?.sessionFile,
@@ -1784,7 +2036,7 @@ export const chatHandlers: GatewayRequestHandlers = {
                 const now = Date.now();
                 message = {
                   role: "assistant",
-                  content: [{ type: "text", text: combinedReply }],
+                  content: buildAssistantMessageContent(combinedReply, finalMediaUrls),
                   timestamp: now,
                   stopReason: "stop",
                   usage: { input: 0, output: 0, totalTokens: 0 },

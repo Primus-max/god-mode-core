@@ -179,17 +179,15 @@ describe("handleToolExecutionEnd media emission", () => {
     expect(ctx.state.pendingToolMediaUrls).toEqual(["https://example.com/file.png"]);
   });
 
-  it("does NOT queue legacy MEDIA paths when verbose is full", async () => {
+  it("queues legacy MEDIA paths when verbose is full", async () => {
     const onToolResult = vi.fn();
     const ctx = createMockContext({ shouldEmitToolOutput: true, onToolResult });
 
     await emitPngMediaToolResult(ctx);
 
-    // onToolResult should NOT be called by the new media path (emitToolOutput handles it).
-    // It may be called by emitToolOutput, but the new block should not fire.
-    // Verify emitToolOutput was called instead.
     expect(ctx.emitToolOutput).toHaveBeenCalled();
-    expect(ctx.state.pendingToolMediaUrls).toEqual([]);
+    expect(ctx.state.pendingToolMediaUrls).toEqual(["/tmp/screenshot.png"]);
+    expect(ctx.state.toolResultMediaUrls).toEqual(["/tmp/screenshot.png"]);
   });
 
   it("still queues structured media when verbose is full", async () => {

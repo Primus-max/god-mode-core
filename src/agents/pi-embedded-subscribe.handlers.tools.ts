@@ -313,9 +313,6 @@ async function emitToolResultOutput(params: {
     if (outputText) {
       ctx.emitToolOutput(toolName, meta, outputText, result);
     }
-    if (!hasStructuredMedia) {
-      return;
-    }
   }
 
   if (isToolError) {

@@ -19,6 +19,7 @@ export type GatewayInjectedTranscriptAppendResult = {
 export function appendInjectedAssistantMessageToTranscript(params: {
   transcriptPath: string;
   message: string;
+  mediaUrls?: string[];
   label?: string;
   idempotencyKey?: string;
   abortMeta?: GatewayInjectedAbortMeta;
@@ -40,9 +41,29 @@ export function appendInjectedAssistantMessageToTranscript(params: {
       total: 0,
     },
   };
+  const content: Array<Record<string, unknown>> = [
+    { type: "text", text: `${labelPrefix}${params.message}` },
+  ];
+  for (const mediaUrl of params.mediaUrls ?? []) {
+    const trimmed = mediaUrl.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const lower = trimmed.toLowerCase();
+    const type =
+      lower.endsWith(".png") ||
+      lower.endsWith(".jpg") ||
+      lower.endsWith(".jpeg") ||
+      lower.endsWith(".gif") ||
+      lower.endsWith(".webp") ||
+      lower.endsWith(".svg")
+        ? "image"
+        : "file";
+    content.push({ type, url: trimmed });
+  }
   const messageBody: AppendMessageArg & Record<string, unknown> = {
     role: "assistant",
-    content: [{ type: "text", text: `${labelPrefix}${params.message}` }],
+    content,
     timestamp: now,
     // Pi stopReason is a strict enum; this is not model output, but we still store it as a
     // normal assistant message so it participates in the session parentId chain.

@@ -336,6 +336,113 @@ function normalizeTaskContractJsonCandidate(raw: string): string {
     .trim();
 }
 
+function normalizePromptForHeuristics(prompt: string): string {
+  return prompt.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function hasAnyPhrase(prompt: string, phrases: readonly string[]): boolean {
+  return phrases.some((phrase) => prompt.includes(phrase));
+}
+
+function resolveDeterministicTaskContract(prompt: string): TaskContract | null {
+  const normalized = normalizePromptForHeuristics(prompt);
+  if (!normalized) {
+    return null;
+  }
+
+  const createVerbs = [
+    "generate",
+    "create",
+    "make",
+    "draw",
+    "render",
+    "сгенерируй",
+    "сделай",
+    "создай",
+    "нарисуй",
+  ] as const;
+  const extractionVerbs = [
+    "extract",
+    "parse",
+    "ocr",
+    "read from",
+    "pull from",
+    "извлеки",
+    "распознай",
+    "вытащи",
+    "прочитай из",
+  ] as const;
+  const imageNouns = [
+    "image",
+    "picture",
+    "illustration",
+    "poster",
+    "banner",
+    "photo",
+    "artwork",
+    "avatar",
+    "icon",
+    "картинк",
+    "изображен",
+    "иллюстрац",
+    "постер",
+    "баннер",
+    "иконк",
+    "аватар",
+    "арт",
+  ] as const;
+  const pdfNouns = [
+    "pdf",
+    "deck",
+    "slide deck",
+    "slides",
+    "report",
+    "brochure",
+    "infographic",
+    "презентац",
+    "слайды",
+    "отч",
+    "брошюр",
+    "инфографик",
+  ] as const;
+
+  const mentionsCreation = hasAnyPhrase(normalized, createVerbs);
+  const mentionsExtraction = hasAnyPhrase(normalized, extractionVerbs);
+  const wantsImageArtifact =
+    mentionsCreation &&
+    hasAnyPhrase(normalized, imageNouns) &&
+    !normalized.includes("pdf") &&
+    !mentionsExtraction;
+  if (wantsImageArtifact) {
+    return {
+      primaryOutcome: "document_package",
+      requiredCapabilities: ["needs_visual_composition"],
+      interactionMode: "artifact_iteration",
+      confidence: 0.97,
+      ambiguities: [],
+    };
+  }
+
+  const wantsPdfArtifact =
+    mentionsCreation && normalized.includes("pdf") && !mentionsExtraction;
+  const wantsOtherDocumentArtifact =
+    mentionsCreation &&
+    hasAnyPhrase(normalized, pdfNouns) &&
+    !hasAnyPhrase(normalized, imageNouns) &&
+    !mentionsExtraction;
+  if (wantsPdfArtifact || wantsOtherDocumentArtifact) {
+    return {
+      primaryOutcome: "document_package",
+      requiredCapabilities: ["needs_multimodal_authoring"],
+      interactionMode: "artifact_iteration",
+      confidence: 0.97,
+      ambiguities: [],
+    };
+  }
+
+  return null;
+}
+
 function extractJsonObjectCandidate(raw: string): string | null {
   const normalized = normalizeTaskContractJsonCandidate(raw);
   if (!normalized) {
@@ -846,6 +953,22 @@ export async function classifyTaskForDecision(params: {
   adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
   onDebugEvent?: (event: TaskClassifierDebugEvent) => void;
 }): Promise<ClassifiedTaskResolution> {
+  const deterministic = resolveDeterministicTaskContract(params.prompt);
+  if (deterministic) {
+    const normalizedContract = normalizeTaskContract(deterministic);
+    const plannerInput = buildPlannerInputFromTaskContract({
+      prompt: params.prompt,
+      fileNames: params.fileNames,
+      taskContract: normalizedContract,
+    });
+    return {
+      source: "llm",
+      taskContract: normalizedContract,
+      plannerInput,
+      resolutionContract: plannerInput.resolutionContract!,
+      candidateFamilies: plannerInput.candidateFamilies ?? [],
+    };
+  }
   const classifierConfig = resolveTaskClassifierConfig({ cfg: params.cfg });
   if (!classifierConfig.enabled) {
     emitDebugEvent(params.onDebugEvent, {

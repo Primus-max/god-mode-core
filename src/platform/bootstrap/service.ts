@@ -288,6 +288,48 @@ function shouldAutoContinueBootstrapRequest(request: BootstrapRequest): boolean 
   return request.sourceDomain === "document" || request.sourceDomain === "developer";
 }
 
+function maybePromoteAutoContinuedBootstrapRecord(params: {
+  record: BootstrapRequestRecord;
+  stateDir: string | undefined;
+  runtimeCheckpointService: ReturnType<typeof getPlatformRuntimeCheckpointService>;
+  records: Map<string, BootstrapRequestRecord>;
+}): BootstrapRequestRecord {
+  if (params.record.state !== "pending" || !shouldAutoContinueBootstrapRequest(params.record.request)) {
+    return params.record;
+  }
+  const now = new Date().toISOString();
+  const approved = BootstrapRequestRecordSchema.parse({
+    ...params.record,
+    state: "approved",
+    updatedAt: now,
+    resolvedAt: now,
+  });
+  params.records.set(approved.id, approved);
+  params.runtimeCheckpointService.updateCheckpoint(approved.id, {
+    status: "approved",
+    approvedAtMs: Date.now(),
+    continuation: {
+      kind: "bootstrap_run",
+      autoDispatch: true,
+      state: "idle",
+      attempts: 0,
+      ...(approved.request.blockedRunResume
+        ? {
+            input: {
+              blockedRunResume: true,
+              blockedRunId: approved.request.blockedRunResume.blockedRunId,
+              queueKey: approved.request.blockedRunResume.queueKey,
+            },
+          }
+        : {}),
+    },
+    executionContext: approved.request.executionContext,
+  });
+  appendAuditRecord(params.stateDir, "request.approved", approved);
+  void params.runtimeCheckpointService.dispatchContinuation(approved.id);
+  return approved;
+}
+
 export function createBootstrapRequestService(params?: {
   registry?: CapabilityRegistry;
   stateDir?: string;
@@ -341,16 +383,23 @@ export function createBootstrapRequestService(params?: {
           runtimeCheckpointService.updateCheckpoint(updated.id, {
             continuation: {
               ...checkpoint.continuation,
+              ...(shouldAutoContinueBootstrapRequest(mergedRequest) ? { autoDispatch: true } : {}),
               input: {
                 blockedRunResume: true,
                 blockedRunId: mergedRequest.blockedRunResume.blockedRunId,
                 queueKey: mergedRequest.blockedRunResume.queueKey,
               },
             },
+            executionContext: mergedRequest.executionContext,
           });
         }
         appendAuditRecord(stateDir, "request.updated", updated);
-        return updated;
+        return maybePromoteAutoContinuedBootstrapRecord({
+          record: updated,
+          stateDir,
+          runtimeCheckpointService,
+          records,
+        });
       }
       const record = BootstrapRequestRecordSchema.parse({
         id: randomUUID(),
@@ -400,23 +449,12 @@ export function createBootstrapRequestService(params?: {
         executionContext: record.request.executionContext,
       });
       appendAuditRecord(stateDir, "request.created", record);
-      if (shouldAutoContinueBootstrapRequest(record.request)) {
-        const approved = BootstrapRequestRecordSchema.parse({
-          ...record,
-          state: "approved",
-          updatedAt: now,
-          resolvedAt: now,
-        });
-        records.set(record.id, approved);
-        runtimeCheckpointService.updateCheckpoint(record.id, {
-          status: "approved",
-          approvedAtMs: Date.now(),
-        });
-        appendAuditRecord(stateDir, "request.approved", approved);
-        void runtimeCheckpointService.dispatchContinuation(record.id);
-        return approved;
-      }
-      return record;
+      return maybePromoteAutoContinuedBootstrapRecord({
+        record,
+        stateDir,
+        runtimeCheckpointService,
+        records,
+      });
     },
     attachBlockedRunResume(id, resume) {
       const existing = records.get(id);

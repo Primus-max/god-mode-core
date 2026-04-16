@@ -534,6 +534,61 @@ describe("bootstrap request service", () => {
     );
   });
 
+  it("promotes an existing pending trusted bootstrap when a later unattended request reuses it", async () => {
+    const service = createBootstrapRequestService();
+    getPlatformRuntimeCheckpointService().registerContinuationHandler(
+      "bootstrap_run",
+      async (checkpoint) => {
+        await service.run({
+          id: checkpoint.target?.bootstrapRequestId ?? checkpoint.id,
+          installers: {
+            node: async ({ request }) => ({
+              ok: true,
+              capability: {
+                ...request.catalogEntry.capability,
+                trusted: true,
+                sandboxed: true,
+                installMethod: "node",
+                status: "available",
+              },
+            }),
+          },
+          availableBins: ["node"],
+          runHealthCheckCommand: async () => true,
+        });
+      },
+    );
+
+    const first = service.create(buildRequest());
+    expect(first.state).toBe("pending");
+
+    const resumed = service.create(
+      buildRequest({
+        executionContext: {
+          profileId: "builder",
+          recipeId: "doc_ingest",
+          taskOverlayId: "document_first",
+          intent: "document",
+          requiredCapabilities: ["pdf-renderer"],
+          bootstrapRequiredCapabilities: ["pdf-renderer"],
+          requireExplicitApproval: false,
+          policyAutonomy: "assist",
+          readinessStatus: "bootstrap_required",
+          unattendedBoundary: "bootstrap",
+        },
+      }),
+    );
+
+    expect(resumed.id).toBe(first.id);
+    expect(resumed.state).toBe("approved");
+    await expect
+      .poll(() => service.get(first.id)?.state, {
+        timeout: 3_000,
+        interval: 25,
+      })
+      .toBe("available");
+  });
+
   it("persists the bootstrap audit trail and rehydrates records after restart", async () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-bootstrap-service-"));
     try {

@@ -415,6 +415,69 @@ describe("runReplyAgent semantic acceptance orchestration", () => {
     );
   });
 
+  it("suppresses deferred final text when closure already requires semantic retry", async () => {
+    const onDeliveryClosureCandidate = vi.fn();
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "Сейчас соберу PDF и пришлю его." }],
+      meta: {
+        completionOutcome: {
+          runId: "run-semantic-deferred",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: [],
+        },
+        executionIntent: {
+          runId: "run-semantic-deferred",
+          recipeId: "doc_ingest",
+          intent: "document",
+          artifactKinds: ["document"],
+          expectations: {},
+        },
+      },
+    });
+    const { typing, sessionCtx, resolvedQueue, followupRun } = buildParams();
+
+    const result = await runReplyAgent({
+      commandBody: "Сделай PDF про банан",
+      followupRun,
+      queueKey: "main",
+      resolvedQueue,
+      shouldSteer: false,
+      shouldFollowup: false,
+      isActive: false,
+      isStreaming: false,
+      typing,
+      sessionCtx,
+      opts: { onDeliveryClosureCandidate },
+      defaultModel: "anthropic/claude",
+      resolvedVerboseLevel: "off",
+      isNewSession: false,
+      blockStreamingEnabled: false,
+      resolvedBlockStreamingBreak: "message_end",
+      shouldInjectGroupIntro: false,
+      typingMode: "instant",
+    });
+
+    expect(result).toBeUndefined();
+    expect(enqueueFollowupRun).not.toHaveBeenCalled();
+    expect(onDeliveryClosureCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueKey: "main",
+        sourceRun: followupRun,
+      }),
+    );
+  });
+
   it("returns a human-required payload and does not enqueue retry loops", async () => {
     runEmbeddedPiAgentMock.mockResolvedValueOnce({
       payloads: [],

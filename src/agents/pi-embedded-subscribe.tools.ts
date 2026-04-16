@@ -403,7 +403,7 @@ export function buildToolExecutionReceipt(params: {
   result?: unknown;
 }): PlatformRuntimeExecutionReceipt {
   const reasons: string[] = [];
-  const normalizedToolName = normalizeToolName(params.toolName);
+  const normalizedToolName = normalizeToolName(params.toolName) || "unknown_tool";
   const statusText = readToolResultStatus(params.result);
   const errorMessage = params.isToolError ? extractToolErrorMessage(params.result) : undefined;
   let status: PlatformRuntimeExecutionReceipt["status"] = "success";

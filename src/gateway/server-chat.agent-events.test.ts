@@ -196,8 +196,9 @@ describe("agent event handler", () => {
 
   function expectSingleFinalChatPayload(broadcast: ReturnType<typeof vi.fn>) {
     const chatCalls = chatBroadcastCalls(broadcast);
-    expect(chatCalls).toHaveLength(1);
-    const payload = chatCalls[0]?.[1] as {
+    const finalCalls = chatCalls.filter(([, payload]) => payload?.state === "final");
+    expect(finalCalls).toHaveLength(1);
+    const payload = finalCalls[0]?.[1] as {
       state?: string;
       message?: unknown;
     };
@@ -311,6 +312,42 @@ describe("agent event handler", () => {
     };
     expect(payload.message?.content?.[0]?.text).toBe("No");
     expect(sessionChatCalls(nodeSendToSession)).toHaveLength(1);
+    nowSpy?.mockRestore();
+  });
+
+  it("includes buffered media urls in chat final messages", () => {
+    const { broadcast, nodeSendToSession, chatRunState, handler, nowSpy } = createHarness({
+      now: 2_300,
+    });
+    chatRunState.registry.add("run-media", { sessionKey: "session-media", clientRunId: "client-media" });
+
+    handler({
+      runId: "run-media",
+      seq: 1,
+      stream: "assistant",
+      ts: Date.now(),
+      data: { text: "Generated image: media/banana.png" },
+    });
+    handler({
+      runId: "run-media",
+      seq: 2,
+      stream: "assistant",
+      ts: Date.now(),
+      data: { mediaUrls: ["https://example.com/banana.png"] },
+    });
+    emitLifecycleEnd(handler, "run-media", 3);
+
+    const payload = expectSingleFinalChatPayload(broadcast) as {
+      message?: { content?: Array<Record<string, unknown>> };
+    };
+    expect(payload.message?.content).toEqual([
+      { type: "text", text: "Generated image: media/banana.png" },
+      { type: "image", url: "https://example.com/banana.png" },
+    ]);
+    const sessionFinalCalls = sessionChatCalls(nodeSendToSession).filter(
+      ([, , payload]) => (payload as { state?: string } | undefined)?.state === "final",
+    );
+    expect(sessionFinalCalls).toHaveLength(1);
     nowSpy?.mockRestore();
   });
 

@@ -209,6 +209,38 @@ describe("runtime evidence sufficiency", () => {
     expect(sufficiency.missingEvidence).toEqual([]);
   });
 
+  it("accepts write-backed document artifacts when the runtime explicitly requested write", () => {
+    const executionIntent: PlatformRuntimeExecutionIntent = {
+      runId: "artifact-with-write",
+      intent: "document",
+      artifactKinds: ["document"],
+      requestedToolNames: ["write"],
+      expectations: {},
+    };
+    const receipts: PlatformRuntimeExecutionReceipt[] = [
+      {
+        kind: "tool",
+        name: "write",
+        status: "success",
+        proof: "reported",
+        summary: "wrote banana-life.docx",
+      },
+    ];
+
+    const sufficiency = isCompletionEvidenceSufficient({
+      executionIntent,
+      receipts,
+      evidence: {
+        hasOutput: true,
+        hasStructuredReplyPayload: true,
+      },
+      outcome: buildCompletedOutcome("artifact-with-write"),
+    });
+
+    expect(sufficiency.sufficient).toBe(true);
+    expect(sufficiency.missingEvidence).toEqual([]);
+  });
+
   it("rejects mixed document-plus-image runs when only image_generate succeeded", () => {
     const executionIntent: PlatformRuntimeExecutionIntent = {
       runId: "document-with-supporting-images-only",

@@ -222,6 +222,42 @@ function buildDebugReplyBlock(params: {
     : `> ${summary}`;
 }
 
+function shouldSuppressDeferredSemanticRetryReply(params: {
+  deferDeliveryClosure: boolean;
+  replyPayloads?: ReplyPayload[];
+  artifactKinds?: string[];
+  acceptanceOutcome?:
+    | {
+        action?: string;
+        remediation?: string;
+        recoveryPolicy?: { exhausted?: boolean };
+      }
+    | undefined;
+  supervisorVerdict?:
+    | {
+        action?: string;
+        remediation?: string;
+        recoveryPolicy?: { exhausted?: boolean };
+      }
+    | undefined;
+}): boolean {
+  if (!params.deferDeliveryClosure) {
+    return false;
+  }
+  const expectsArtifact = (params.artifactKinds?.length ?? 0) > 0;
+  const hasMediaPayload =
+    params.replyPayloads?.some((payload) => Boolean(payload.mediaUrl || payload.mediaUrls?.length)) ??
+    false;
+  const decision = params.supervisorVerdict ?? params.acceptanceOutcome;
+  return (
+    expectsArtifact &&
+    !hasMediaPayload &&
+    decision?.action === "retry" &&
+    decision.remediation === "semantic_retry" &&
+    decision.recoveryPolicy?.exhausted !== true
+  );
+}
+
 export async function runReplyAgent(params: {
   commandBody: string;
   followupRun: FollowupRun;
@@ -857,6 +893,17 @@ export async function runReplyAgent(params: {
       queueKey,
       settings: resolvedQueue,
     });
+    if (
+      shouldSuppressDeferredSemanticRetryReply({
+        deferDeliveryClosure,
+        replyPayloads: guardedReplyPayloads,
+        artifactKinds: runResult.meta?.executionIntent?.artifactKinds,
+        acceptanceOutcome,
+        supervisorVerdict,
+      })
+    ) {
+      return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
+    }
 
     await signalTypingIfNeeded(guardedReplyPayloads, typingSignals);
 
