@@ -39,7 +39,7 @@ async function withTempAgentDir<T>(run: (agentDir: string) => Promise<T>): Promi
 }
 
 const ANTHROPIC_PDF_MODEL = "anthropic/claude-opus-4-6";
-const HYDRA_PDF_MODEL = "hydra/gpt-4o";
+const HYDRA_PDF_MODEL = "hydra/gpt-5.4";
 const OPENAI_PDF_MODEL = "openai/gpt-5-mini";
 const TEST_PDF_INPUT = { base64: "dGVzdA==", filename: "doc.pdf" } as const;
 const FAKE_PDF_MEDIA = {
@@ -113,6 +113,7 @@ function resetAuthEnv() {
   vi.stubEnv("ANTHROPIC_OAUTH_TOKEN", "");
   vi.stubEnv("GEMINI_API_KEY", "");
   vi.stubEnv("GOOGLE_API_KEY", "");
+  vi.stubEnv("HYDRA_API_KEY", "");
   vi.stubEnv("MINIMAX_API_KEY", "");
   vi.stubEnv("ZAI_API_KEY", "");
   vi.stubEnv("Z_AI_API_KEY", "");

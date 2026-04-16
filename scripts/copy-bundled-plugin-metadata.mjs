@@ -9,8 +9,8 @@ import {
 } from "./runtime-postbuild-shared.mjs";
 
 const GENERATED_BUNDLED_SKILLS_DIR = "bundled-skills";
-const TRANSIENT_COPY_ERROR_CODES = new Set(["EEXIST", "ENOENT", "ENOTEMPTY", "EBUSY"]);
-const COPY_RETRY_DELAYS_MS = [10, 25, 50];
+const TRANSIENT_COPY_ERROR_CODES = new Set(["EEXIST", "ENOENT", "ENOTEMPTY", "EBUSY", "EPERM", "EACCES", "EPIPE"]);
+const COPY_RETRY_DELAYS_MS = [10, 25, 50, 100, 200];
 
 export function rewritePackageExtensions(entries) {
   if (!Array.isArray(entries)) {

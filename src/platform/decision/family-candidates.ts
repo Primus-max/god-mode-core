@@ -18,7 +18,13 @@ export function inferCandidateExecutionFamilies(
       return ["ops_execution"];
     case "text_response":
     default:
-      if (input.intent === "compare" || input.intent === "calculation") {
+      if (
+        (input.artifactKinds?.length ?? 0) > 0 &&
+        (input.artifactKinds ?? []).every((kind) => kind === "data" || kind === "report")
+      ) {
+        return ["analysis_transform"];
+      }
+      if ((input.artifactKinds?.length ?? 0) > 0 && input.artifactKinds?.includes("report")) {
         return ["analysis_transform"];
       }
       return ["general_assistant"];

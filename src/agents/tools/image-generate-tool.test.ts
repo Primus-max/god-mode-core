@@ -93,6 +93,7 @@ describe("createImageGenerateTool", () => {
     vi.stubEnv("OPENAI_API_KEYS", "");
     vi.stubEnv("GEMINI_API_KEY", "");
     vi.stubEnv("GEMINI_API_KEYS", "");
+    vi.stubEnv("HYDRA_API_KEY", "");
   });
 
   afterEach(() => {
@@ -137,7 +138,7 @@ describe("createImageGenerateTool", () => {
     }
     await expect(
       tool.execute("call-no-fallback", { prompt: "A banana" }),
-    ).rejects.toThrow(/No image-generation model configured/);
+    ).rejects.toThrow(/Set agents\.defaults\.imageGenerationModel\.primary/);
   });
 
   it("does not mask remote image generation errors without local fallback env", async () => {

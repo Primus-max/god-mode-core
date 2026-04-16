@@ -1,14 +1,32 @@
 import { describe, expect, it } from "vitest";
 import { planExecutionRecipe } from "./planner.js";
-import { buildExecutionDecisionInput } from "../decision/input.js";
 
 describe("planExecutionRecipe", () => {
-  it("selects doc_ingest for document-first work", () => {
+  it("selects doc_ingest from document extraction contract fields", () => {
     const plan = planExecutionRecipe({
       prompt: "Extract tables from this PDF estimate and summarize it",
-      fileNames: ["estimate.pdf"],
+      contractFirst: true,
       artifactKinds: ["document", "report"],
-      intent: "document",
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["document_extraction"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("builder");
@@ -16,42 +34,98 @@ describe("planExecutionRecipe", () => {
     expect(plan.plannerOutput.selectedRecipeId).toBe("doc_ingest");
   });
 
-  it("selects code_build_publish for repository publish work", () => {
+  it("selects code_build_publish for repository publish contracts", () => {
     const plan = planExecutionRecipe({
       prompt: "Fix the failing TypeScript build and publish to GitHub",
-      fileNames: ["app.ts"],
-      publishTargets: ["github"],
-      requestedTools: ["exec"],
-      intent: "publish",
+      contractFirst: true,
+      artifactKinds: ["site", "release"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: true,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run", "external_delivery"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("developer");
     expect(plan.recipe.id).toBe("code_build_publish");
-    expect(plan.plannerOutput.overrides?.model).toBe("openai/gpt-5.4");
+    expect(plan.plannerOutput.overrides?.model).toBe("hydra/gpt-5.4");
   });
 
-  it("selects ocr_extract for scan-heavy document work", () => {
+  it("does not infer ocr_extract without classifier-derived extraction subtype", () => {
     const plan = planExecutionRecipe({
       prompt: "Run OCR on this scanned invoice image and extract the totals",
-      fileNames: ["invoice-scan.png"],
+      contractFirst: true,
       artifactKinds: ["document"],
-      intent: "document",
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["document_extraction"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: true,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("builder");
-    expect(plan.recipe.id).toBe("ocr_extract");
+    expect(plan.recipe.id).toBe("doc_ingest");
   });
 
-  it("selects table_extract for spreadsheet-heavy document work", () => {
+  it("does not infer table_extract from spreadsheet wording alone", () => {
     const plan = planExecutionRecipe({
       prompt: "Extract the table rows from this spreadsheet and export them",
-      fileNames: ["estimate.xlsx"],
+      contractFirst: true,
       artifactKinds: ["document", "data"],
-      intent: "document",
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["document_extraction"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("builder");
-    expect(plan.recipe.id).toBe("table_extract");
+    expect(plan.recipe.id).toBe("doc_ingest");
   });
 
   it("keeps explicit specialist overrides active for lightweight chat", () => {
@@ -65,49 +139,127 @@ describe("planExecutionRecipe", () => {
     expect(plan.profile.activeProfile.sessionProfile).toBe("developer");
   });
 
-  it("keeps builder-profile greetings on general_reasoning", () => {
+  it("keeps builder-profile greetings on general_reasoning with respond-only contract", () => {
     const plan = planExecutionRecipe({
       prompt: "Привет! Как дела? Просто поздоровайся.",
+      contractFirst: true,
       sessionProfile: "builder",
-      intent: "general",
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: false,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "general_assistant",
+        candidateFamilies: ["general_assistant"],
+        toolBundles: ["respond_only"],
+        routing: {
+          localEligible: true,
+          remoteProfile: "cheap",
+          preferRemoteFirst: false,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("builder");
     expect(plan.recipe.id).toBe("general_reasoning");
   });
 
-  it("selects integration_delivery for integration-heavy work", () => {
+  it("selects integration_delivery for integration-heavy contracts", () => {
     const plan = planExecutionRecipe({
       prompt: "Validate the webhook integration, sync OAuth config, and roll out the connector",
-      integrations: ["slack", "webhook"],
-      requestedTools: ["exec"],
-      intent: "publish",
+      contractFirst: true,
+      outcomeContract: "external_operation",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: true,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "ops_execution",
+        candidateFamilies: ["ops_execution"],
+        toolBundles: ["external_delivery"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("integrator");
     expect(plan.recipe.id).toBe("integration_delivery");
   });
 
-  it("selects ops_orchestration for guarded operator work", () => {
+  it("selects ops_orchestration for guarded operator contracts", () => {
     const plan = planExecutionRecipe({
       prompt: "Check the linked machine, inspect logs, and bootstrap the missing capability",
-      requestedTools: ["exec", "process"],
+      contractFirst: true,
+      outcomeContract: "interactive_local_result",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "ops_execution",
+        candidateFamilies: ["ops_execution"],
+        toolBundles: ["repo_run"],
+        routing: {
+          localEligible: true,
+          remoteProfile: "strong",
+          preferRemoteFirst: false,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("operator");
     expect(plan.recipe.id).toBe("ops_orchestration");
   });
 
-  it("selects media_production for multimodal media work", () => {
+  it("selects media_production for multimodal media contracts", () => {
     const plan = planExecutionRecipe({
       prompt: "Generate a thumbnail image, caption the audio track, and package the media output",
+      contractFirst: true,
       artifactKinds: ["image", "audio"],
-      publishTargets: ["site"],
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "media_generation",
+        candidateFamilies: ["media_generation"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("media_creator");
     expect(plan.recipe.id).toBe("media_production");
-    expect(plan.plannerOutput.overrides?.model).toBe("openai/gpt-5.4");
+    expect(plan.plannerOutput.overrides?.model).toBe("hydra/gpt-5.4");
   });
 
   it("selects code_build_publish for website work even when the specialist profile is media_creator", () => {
@@ -133,37 +285,96 @@ describe("planExecutionRecipe", () => {
   });
 
   it("does not route mixed pdf plus images requests into media_production", () => {
-    const plan = planExecutionRecipe(
-      buildExecutionDecisionInput({
-        prompt:
-          "Надо сделать pdf файл, с инфографикой о жизни городского котика, это просто прикол, но надо пару страниц, красивый формат, можно добавить пару картинок.",
-      }),
-    );
+    const plan = planExecutionRecipe({
+      prompt:
+        "Надо сделать pdf файл, с инфографикой о жизни городского котика, это просто прикол, но надо пару страниц, красивый формат, можно добавить пару картинок.",
+      contractFirst: true,
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render", "media_generation"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
 
     expect(plan.profile.selectedProfile.id).toBe("builder");
     expect(plan.recipe.id).not.toBe("media_production");
     expect(plan.recipe.id).toBe("doc_authoring");
   });
 
-  it("selects doc_authoring for prompt-only PDF creation requests", () => {
+  it("selects doc_authoring for document-authoring contracts", () => {
     const plan = planExecutionRecipe({
       prompt: "Сделай красивый PDF-отчет на 2 страницы с диаграммами и краткими выводами.",
+      contractFirst: true,
       artifactKinds: ["document"],
-      requestedTools: ["pdf"],
-      intent: "document",
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("builder");
     expect(plan.recipe.id).toBe("doc_authoring");
   });
 
-  it("selects table_compare for two spreadsheet price comparison prompts", () => {
+  it("selects table_compare for analytical comparison contracts", () => {
     const plan = planExecutionRecipe({
       prompt:
         "Compare these two Excel exports for SKU and price differences, then summarize mismatches.",
-      fileNames: ["vendor_prices.xlsx", "internal_prices.xlsx"],
+      contractFirst: true,
       artifactKinds: ["data", "report"],
-      intent: "compare",
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["public_web_lookup"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("builder");
@@ -171,22 +382,64 @@ describe("planExecutionRecipe", () => {
     expect(plan.plannerOutput.selectedRecipeId).toBe("table_compare");
   });
 
-  it("selects table_compare for Russian CSV comparison prompts", () => {
+  it("selects table_compare from analytical comparison contract fields", () => {
     const plan = planExecutionRecipe({
       prompt: "Сравни два CSV с ценами и покажи расхождения по артикулам.",
-      fileNames: ["jan.csv", "feb.csv"],
-      intent: "compare",
+      contractFirst: true,
+      sessionProfile: "builder",
+      artifactKinds: ["data", "report"],
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["public_web_lookup"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.recipe.id).toBe("table_compare");
   });
 
-  it("selects calculation_report for ventilation and dimensions prompts", () => {
+  it("selects calculation_report from calculation-style contract fields", () => {
     const plan = planExecutionRecipe({
       prompt:
         "Compute required ventilation CFM for a 420 sq ft room with 8 ft ceilings and give a short written report with assumptions.",
-      artifactKinds: ["report"],
-      intent: "calculation",
+      contractFirst: true,
+      sessionProfile: "general",
+      artifactKinds: [],
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["public_web_lookup"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.recipe.id).toBe("calculation_report");
@@ -388,23 +641,43 @@ describe("planExecutionRecipe", () => {
     expect(clean.recipe.id).toBe(noisy.recipe.id);
   });
 
-  it("prefers the simplest valid family instead of a broader execution family", () => {
+  it("prefers analysis-scoped contract routing over broader document scoring", () => {
     const plan = planExecutionRecipe({
       prompt: "Compare these two CSV exports and summarize row-level differences.",
-      fileNames: ["old.csv", "new.csv"],
+      contractFirst: true,
+      sessionProfile: "builder",
       artifactKinds: ["data", "report"],
-      intent: "compare",
-      outcomeContract: "structured_artifact",
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
       candidateFamilies: ["document_render", "analysis_transform"],
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform", "document_render"],
+        toolBundles: ["public_web_lookup"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.recipe.id).toBe("table_compare");
     expect(plan.plannerOutput.reasoning).toContain("Family: analysis_transform.");
   });
 
-  it("falls back to legacy scoring only when candidateFamilies are absent", () => {
+  it("falls back to legacy scoring only when candidateFamilies are absent and a specialist is pinned", () => {
     const plan = planExecutionRecipe({
       prompt: "Generate a thumbnail image and caption the audio track",
+      sessionProfile: "media_creator",
       artifactKinds: ["image", "audio"],
       publishTargets: ["site"],
     });
@@ -413,11 +686,33 @@ describe("planExecutionRecipe", () => {
   });
 
   it("uses clarify strategy to avoid forced execution on ambiguous publish prompts", () => {
-    const plan = planExecutionRecipe(
-      buildExecutionDecisionInput({
-        prompt: "Ship it.",
-      }),
-    );
+    const plan = planExecutionRecipe({
+      prompt: "Ship it.",
+      contractFirst: true,
+      outcomeContract: "external_operation",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: true,
+        mayNeedBootstrap: false,
+      },
+      confidence: "medium",
+      lowConfidenceStrategy: "clarify",
+      ambiguityReasons: ["external operation is inferred without an explicit publish target"],
+      resolutionContract: {
+        selectedFamily: "ops_execution",
+        candidateFamilies: ["ops_execution"],
+        toolBundles: ["external_delivery"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
 
     expect(plan.recipe.id).toBe("general_reasoning");
     expect(plan.plannerOutput.reasoning).toContain("Low-confidence strategy: clarify.");

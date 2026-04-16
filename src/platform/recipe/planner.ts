@@ -1,10 +1,3 @@
-import {
-  countTabularFiles,
-  promptSuggestsCalculationIntent,
-  promptSuggestsCompareIntent,
-  promptSuggestsWebsiteFrontendWork,
-  TABULAR_ATTACHMENT_EXTENSION,
-} from "../decision/intent-signals.js";
 import type {
   CandidateExecutionFamily,
   OutcomeContract,
@@ -92,78 +85,6 @@ function hasMatchingTarget(recipe: ExecutionRecipe, publishTargets: string[]): b
   }
   const allowed = new Set(recipe.publishTargets.map((value) => value.toLowerCase()));
   return publishTargets.some((target) => allowed.has(target));
-}
-
-function hasOcrSignal(input: RecipePlannerInput, files: string[]): boolean {
-  const prompt = (input.prompt ?? "").toLowerCase();
-  return (
-    /\b(ocr|scan|scanned|screenshot|photo|image[- ]based)\b/iu.test(prompt) ||
-    files.some((file) => /\.(png|jpe?g|webp|tiff?)$/iu.test(file))
-  );
-}
-
-function hasIntegrationSignal(input: RecipePlannerInput, files: string[]): boolean {
-  const prompt = (input.prompt ?? "").toLowerCase();
-  const integrations = (input.integrations ?? []).map((value) => value.toLowerCase());
-  return (
-    /\b(integration|integrate|webhook|connector|sync|pipeline|workflow|oauth|mcp)\b/iu.test(
-      prompt,
-    ) ||
-    integrations.length > 0 ||
-    files.some((file) => /\.(yaml|yml|toml|graphql|proto)$/iu.test(file))
-  );
-}
-
-function hasOpsSignal(input: RecipePlannerInput): boolean {
-  const prompt = (input.prompt ?? "").toLowerCase();
-  return /\b(infra|infrastructure|ops|server|ssh|machine|node|cluster|kubernetes|bootstrap|capability|restart|logs)\b/iu.test(
-    prompt,
-  );
-}
-
-function hasMediaSignal(input: RecipePlannerInput, files: string[]): boolean {
-  const prompt = (input.prompt ?? "").toLowerCase();
-  return (
-    /\b(image|video|audio|thumbnail|poster|render|caption|transcribe|voiceover|storyboard|figma|design)\b/iu.test(
-      prompt,
-    ) ||
-    files.some((file) => /\.(png|jpe?g|webp|gif|mp4|webm|mp3|wav)$/iu.test(file)) ||
-    hasMediaArtifact(input.artifactKinds ?? [])
-  );
-}
-
-function hasTableSignal(input: RecipePlannerInput, files: string[]): boolean {
-  const prompt = (input.prompt ?? "").toLowerCase();
-  return (
-    /\b(table|spreadsheet|csv|xlsx|rows|columns|line items?)\b/iu.test(prompt) ||
-    files.some((file) => TABULAR_ATTACHMENT_EXTENSION.test(file))
-  );
-}
-
-function tabularFileCount(files: string[]): number {
-  return countTabularFiles(files);
-}
-
-function hasCompareSignal(input: RecipePlannerInput, files: string[]): boolean {
-  const prompt = input.prompt ?? "";
-  const lower = prompt.toLowerCase();
-  const tabular = tabularFileCount(files);
-  const compareWord = promptSuggestsCompareIntent(prompt);
-  const multiTabularPrompt =
-    /\b(two|three|both|multiple)\s+(csv|spreadsheets?|workbooks?|exports?|files?)\b/iu.test(
-      lower,
-    ) || /\b(два|две|три|оба|обе)\s+(csv|файл|таблиц|экспорт)/iu.test(prompt);
-  return (
-    compareWord ||
-    (tabular >= 2 && /\b(price|sku|qty|quantity|cost|amount|total)\b/iu.test(lower)) ||
-    (tabular >= 2 && /\b(цен|артикул|колич|сумм|стоимост)\w*\b/iu.test(prompt)) ||
-    (multiTabularPrompt && tabular >= 1) ||
-    tabular >= 2
-  );
-}
-
-function hasCalculationSignal(input: RecipePlannerInput): boolean {
-  return promptSuggestsCalculationIntent(input.prompt ?? "");
 }
 
 // Maps tool bundles to recipe capability requirements.
@@ -354,7 +275,10 @@ function narrowRecipesByContract(params: {
   const selectedFamily =
     resolvedSelectedFamily && availableFamilies.includes(resolvedSelectedFamily)
       ? resolvedSelectedFamily
-      : selectExecutionFamily(requestedFamilies, availableFamilies, input);
+      : selectExecutionFamily(requestedFamilies, availableFamilies, {
+          outcomeContract: input.outcomeContract,
+          artifactKinds: input.artifactKinds,
+        });
 
   if (!selectedFamily) {
     return { recipes: candidateRecipes };
@@ -372,35 +296,30 @@ function buildRecipeScore(params: {
   input: RecipePlannerInput;
 }): number {
   const { recipe, profile, input } = params;
-  const contractFirst = isContractFirstInput(input);
   const overlayId = profile.activeProfile.taskOverlay;
-  const files = input.fileNames ?? [];
-  const publishTargets = (input.publishTargets ?? []).map((value) => value.toLowerCase());
-  const tools = (input.requestedTools ?? []).map((value) => value.toLowerCase());
+  const tools = new Set((input.requestedTools ?? []).map((value) => value.toLowerCase()));
   const artifactKinds = input.artifactKinds ?? [];
-
-  // Contract-first: document authoring inference from capabilities, not prompt words
-  const promptOnlyDocumentAuthoring = contractFirst
-    ? (input.executionContract?.requiresArtifactEvidence && !files.length)
-    : (input.intent === "document" &&
-       (tools.includes("pdf") || publishTargets.includes("pdf")) &&
-       (files.length === 0));
-
-  // Contract-first: document signal from outcomeContract/artifactKinds, not prompt parsing
-  const documentSignal = contractFirst
-    ? (input.outcomeContract === "structured_artifact" && hasDocumentArtifact(artifactKinds))
-    : (input.intent === "document" ||
-       hasDocumentArtifact(artifactKinds) ||
-       files.some((file) => /\.(pdf|doc|docx|xls|xlsx|csv)$/iu.test(file)));
-
-  // Word-trigger signals disabled in contract-first mode (source of truth: TaskContract)
-  const ocrSignal = contractFirst ? false : hasOcrSignal(input, files);
-  const tableSignal = contractFirst ? false : hasTableSignal(input, files);
-  const compareSignal = contractFirst ? false : hasCompareSignal(input, files);
-  const calculationSignal = contractFirst ? false : hasCalculationSignal(input);
-  const mediaSignal = contractFirst ? false : hasMediaSignal(input, files);
-  const integrationSignal = contractFirst ? false : hasIntegrationSignal(input, files);
-  const opsSignal = contractFirst ? false : hasOpsSignal(input);
+  const bundles = new Set(input.resolutionContract?.toolBundles ?? []);
+  const routing = input.routing ?? input.resolutionContract?.routing;
+  const outcomeContract = input.outcomeContract;
+  const executionContract = input.executionContract;
+  const hasDocument = hasDocumentArtifact(artifactKinds);
+  const hasCode = hasCodeArtifact(artifactKinds);
+  const hasMedia = hasMediaArtifact(artifactKinds);
+  const hasReportOrData = artifactKinds.some((kind) => kind === "report" || kind === "data");
+  const hasRepoMutation = bundles.has("repo_mutation");
+  const hasRepoRun = bundles.has("repo_run");
+  const hasDocumentExtraction = bundles.has("document_extraction");
+  const hasArtifactAuthoring = bundles.has("artifact_authoring");
+  const hasBrowserBundle = bundles.has("interactive_browser");
+  const hasWebLookup = bundles.has("public_web_lookup");
+  const hasDeliveryBundle = bundles.has("external_delivery");
+  const profileBias =
+    routing?.remoteProfile === "presentation"
+      ? "presentation"
+      : routing?.remoteProfile === "code"
+        ? "code"
+        : undefined;
 
   if (recipe.id === "general_reasoning") {
     let score = 0.2;
@@ -410,74 +329,83 @@ function buildRecipeScore(params: {
     if (overlayId === "general_chat") {
       score += 1.2;
     }
-    if (input.intent === "general") {
-      score += 0.8;
+    if (outcomeContract === "text_response") {
+      score += 1.4;
+    }
+    if (!executionContract?.requiresTools) {
+      score += 0.6;
+    }
+    if (bundles.has("respond_only")) {
+      score += 1;
+    }
+    if (!hasDocument && !hasCode && !hasMedia) {
+      score += 0.3;
+    }
+    if (
+      executionContract?.requiresArtifactEvidence ||
+      executionContract?.requiresWorkspaceMutation ||
+      executionContract?.requiresDeliveryEvidence
+    ) {
+      score -= 1.4;
     }
     return score;
   }
 
   if (recipe.id === "doc_ingest") {
     let score = 0;
-    if (profile.selectedProfile.id === "builder" && documentSignal) {
+    if (profile.selectedProfile.id === "builder" && hasDocument) {
       score += 1;
     }
-    if (overlayId === "document_first" && documentSignal) {
+    if (overlayId === "document_first" && hasDocument) {
       score += 1.4;
     }
-    if (input.intent === "document") {
-      score += 1;
+    if (outcomeContract === "structured_artifact") {
+      score += 0.8;
     }
-    if (files.some((file) => /\.(pdf|doc|docx|xls|xlsx|csv)$/iu.test(file))) {
-      score += 1;
+    if (executionContract?.requiresArtifactEvidence) {
+      score += 1.3;
     }
-    if (hasDocumentArtifact(artifactKinds)) {
+    if (hasDocument) {
       score += 0.9;
     }
-    if (promptOnlyDocumentAuthoring) {
-      score -= 1.2;
+    if (hasDocumentExtraction) {
+      score += 2;
     }
-    if (
-      publishTargets.some((target) => target === "pdf" || target === "email" || target === "docs")
-    ) {
-      score += 0.4;
+    if (hasArtifactAuthoring) {
+      score -= 1.5;
     }
     return score;
   }
 
   if (recipe.id === "doc_authoring") {
-    if (!promptOnlyDocumentAuthoring) {
-      return -0.5;
-    }
     let score = 0;
-    if (profile.selectedProfile.id === "builder" && documentSignal) {
+    if (profile.selectedProfile.id === "builder" && hasDocument) {
       score += 1;
-    } else if (profile.selectedProfile.id === "general" && documentSignal) {
+    } else if (profile.selectedProfile.id === "general" && hasDocument) {
       score += 0.6;
     }
-    if (overlayId === "document_first" && documentSignal) {
+    if (overlayId === "document_first" && hasDocument) {
       score += 1.4;
     }
-    if (input.intent === "document") {
+    if (outcomeContract === "structured_artifact") {
+      score += 0.8;
+    }
+    if (executionContract?.requiresArtifactEvidence) {
       score += 1.1;
     }
-    if (hasDocumentArtifact(artifactKinds)) {
+    if (hasDocument) {
       score += 1.1;
     }
-    if (tools.includes("pdf")) {
+    if (tools.has("pdf")) {
       score += 2.6;
     }
-    if (publishTargets.includes("pdf")) {
-      score += 1.4;
+    if (hasArtifactAuthoring) {
+      score += 2.6;
     }
-    if (files.length === 0) {
-      score += 1.5;
-    } else {
-      score -= 1.8;
-    }
-    if (hasMediaArtifact(artifactKinds) && tools.includes("image_generate")) {
+    if (hasMedia && tools.has("image_generate")) {
       score += 0.7;
     }
-    if (ocrSignal || tableSignal || compareSignal || calculationSignal) {
+    if (hasDocumentExtraction) {
       score -= 1.5;
     }
     return score;
@@ -485,100 +413,110 @@ function buildRecipeScore(params: {
 
   if (recipe.id === "ocr_extract") {
     let score = 0;
-    if (profile.selectedProfile.id === "builder" && (ocrSignal || documentSignal)) {
+    if (profile.selectedProfile.id === "builder" && hasDocument) {
       score += 1;
     }
-    if (overlayId === "document_first" && (ocrSignal || documentSignal)) {
+    if (overlayId === "document_first" && hasDocument) {
       score += 1.2;
     }
-    if (input.intent === "document") {
+    if (outcomeContract === "structured_artifact") {
+      score += 0.6;
+    }
+    if (executionContract?.requiresArtifactEvidence) {
       score += 0.8;
     }
-    if (ocrSignal) {
-      score += 1.8;
-    }
-    if (hasDocumentArtifact(artifactKinds)) {
+    if (hasDocument) {
       score += 0.5;
+    }
+    if (hasDocumentExtraction) {
+      score += 0.4;
+    }
+    if (hasArtifactAuthoring) {
+      score -= 1.2;
     }
     return score;
   }
 
   if (recipe.id === "table_extract") {
     let score = 0;
-    if (profile.selectedProfile.id === "builder" && (tableSignal || documentSignal)) {
+    if (profile.selectedProfile.id === "builder" && hasDocument) {
       score += 1;
     }
-    if (overlayId === "document_first" && (tableSignal || documentSignal)) {
+    if (overlayId === "document_first" && hasDocument) {
       score += 1.1;
     }
-    if (input.intent === "document") {
-      score += 0.8;
-    }
-    if (tableSignal) {
-      score += 2.2;
-    }
-    if (compareSignal) {
-      score -= 2.6;
-    }
-    if (hasDocumentArtifact(artifactKinds)) {
+    if (outcomeContract === "structured_artifact") {
       score += 0.5;
+    }
+    if (executionContract?.requiresArtifactEvidence) {
+      score += 0.7;
+    }
+    if (hasDocumentExtraction) {
+      score += 0.6;
+    }
+    if (hasReportOrData) {
+      score += 0.5;
+    }
+    if (hasDocument) {
+      score += 0.5;
+    }
+    if (hasArtifactAuthoring) {
+      score -= 1.2;
     }
     return score;
   }
 
   if (recipe.id === "table_compare") {
     let score = 0;
-    if (profile.selectedProfile.id === "builder" && compareSignal) {
+    if (profile.selectedProfile.id === "builder" && hasReportOrData) {
       score += 1;
     }
-    if (overlayId === "document_first" && compareSignal) {
+    if (overlayId === "document_first" && hasReportOrData) {
       score += 1.2;
     }
-    if (input.intent === "compare") {
-      score += 2.7;
+    if (outcomeContract === "text_response") {
+      score += 1;
     }
-    if (input.intent === "document") {
-      score += 0.45;
+    if (hasReportOrData) {
+      score += 1.4;
     }
-    if (compareSignal) {
-      score += 3.5;
+    if (!executionContract?.requiresArtifactEvidence) {
+      score += 0.5;
     }
-    if (tabularFileCount(files) >= 2) {
-      score += 2.6;
-    } else if (tabularFileCount(files) === 1 && compareSignal) {
-      score += 1.3;
+    if (!executionContract?.requiresTools) {
+      score += 0.5;
     }
-    if (tableSignal) {
-      score += 0.8;
+    if (hasWebLookup) {
+      score += 0.6;
     }
-    if (hasDocumentArtifact(artifactKinds)) {
-      score += 0.35;
+    if (hasBrowserBundle || hasArtifactAuthoring) {
+      score -= 1.5;
     }
     return score;
   }
 
   if (recipe.id === "calculation_report") {
     let score = 0;
-    if (
-      (profile.selectedProfile.id === "builder" || profile.selectedProfile.id === "general") &&
-      (calculationSignal || input.intent === "calculation")
-    ) {
+    if (profile.selectedProfile.id === "builder" || profile.selectedProfile.id === "general") {
       score += 0.95;
     }
-    if (overlayId === "document_first" && (calculationSignal || input.intent === "calculation")) {
+    if (overlayId === "document_first") {
       score += 0.65;
     }
-    if (input.intent === "calculation") {
-      score += 3.3;
+    if (outcomeContract === "text_response") {
+      score += 1.2;
     }
-    if (input.intent === "document") {
-      score += 0.35;
+    if (!executionContract?.requiresTools) {
+      score += 1.3;
     }
-    if (calculationSignal) {
-      score += 3.6;
+    if (!executionContract?.requiresArtifactEvidence) {
+      score += 0.4;
     }
-    if (hasDocumentArtifact(artifactKinds)) {
-      score += 0.3;
+    if (hasReportOrData) {
+      score += 0.5;
+    }
+    if (hasBrowserBundle || hasArtifactAuthoring || hasCode || hasMedia) {
+      score -= 0.8;
     }
     return score;
   }
@@ -595,23 +533,41 @@ function buildRecipeScore(params: {
     if (overlayId === "code_first" || overlayId === "publish_release") {
       score += 1.4;
     }
-    if (input.intent === "code" || input.intent === "publish") {
-      score += 1;
+    if (profileBias === "code") {
+      score += 0.8;
     }
-    if (files.some((file) => /\.(ts|tsx|js|jsx|json|py|go|rs|java|kt)$/iu.test(file))) {
-      score += 1;
+    if (outcomeContract === "workspace_change") {
+      score += 2.2;
     }
-    if (hasCodeArtifact(artifactKinds)) {
-      score += 0.9;
-    }
-    if (hasMatchingTarget(recipe, publishTargets)) {
-      score += 1.1;
-    }
-    if (tools.some((tool) => tool === "exec" || tool === "process" || tool === "apply_patch")) {
+    if (outcomeContract === "external_operation") {
       score += 0.6;
     }
-    if (!contractFirst && promptSuggestsWebsiteFrontendWork(input.prompt ?? "")) {
-      score += 3.6;
+    if (executionContract?.requiresWorkspaceMutation) {
+      score += 2.5;
+    }
+    if (executionContract?.requiresLocalProcess) {
+      score += 1.2;
+    }
+    if (executionContract?.requiresDeliveryEvidence) {
+      score += 0.9;
+    }
+    if (hasCode) {
+      score += 0.9;
+    }
+    if (tools.has("exec") || tools.has("process") || tools.has("apply_patch")) {
+      score += 0.6;
+    }
+    if (hasRepoMutation) {
+      score += 2.2;
+    }
+    if (hasRepoRun) {
+      score += 1.5;
+    }
+    if (hasDeliveryBundle) {
+      score += 0.7;
+    }
+    if (hasDocument && !hasCode) {
+      score -= 1.2;
     }
     return score;
   }
@@ -626,16 +582,28 @@ function buildRecipeScore(params: {
     if (overlayId === "integration_first" || overlayId === "publish_release") {
       score += 1.4;
     }
-    if (input.intent === "code" || input.intent === "publish") {
-      score += 0.6;
+    if (outcomeContract === "external_operation") {
+      score += 1.4;
     }
-    if (integrationSignal) {
+    if (executionContract?.requiresDeliveryEvidence) {
       score += 1.8;
     }
-    if (hasCodeArtifact(artifactKinds)) {
+    if (hasDeliveryBundle) {
+      score += 1.8;
+    }
+    if (hasCode) {
       score += 0.4;
     }
-    if (hasMatchingTarget(recipe, publishTargets)) {
+    if (hasRepoRun) {
+      score += 0.6;
+    }
+    if (tools.has("exec") || tools.has("process")) {
+      score += 0.4;
+    }
+    if (hasRepoMutation) {
+      score -= 0.8;
+    }
+    if (profileBias === "code") {
       score += 0.8;
     }
     return score;
@@ -653,11 +621,23 @@ function buildRecipeScore(params: {
     ) {
       score += 1.5;
     }
-    if (opsSignal) {
-      score += 1.9;
+    if (outcomeContract === "external_operation") {
+      score += 1;
     }
-    if (tools.some((tool) => tool === "exec" || tool === "process")) {
+    if (executionContract?.requiresLocalProcess) {
+      score += 1.2;
+    }
+    if (executionContract?.requiresDeliveryEvidence) {
+      score += 0.4;
+    }
+    if (tools.has("exec") || tools.has("process")) {
       score += 0.5;
+    }
+    if (hasRepoRun) {
+      score += 0.5;
+    }
+    if (hasRepoMutation) {
+      score -= 1.2;
     }
     return score;
   }
@@ -670,14 +650,26 @@ function buildRecipeScore(params: {
     if (overlayId === "media_first" || overlayId === "media_publish") {
       score += 1.4;
     }
-    if (mediaSignal) {
+    if (outcomeContract === "structured_artifact") {
+      score += 0.8;
+    }
+    if (hasMedia) {
       score += 2;
     }
-    if (hasMediaArtifact(artifactKinds)) {
-      score += 0.9;
-    }
-    if (hasMatchingTarget(recipe, publishTargets)) {
+    if (executionContract?.requiresArtifactEvidence) {
       score += 0.5;
+    }
+    if (tools.has("image_generate")) {
+      score += 1.2;
+    }
+    if (hasArtifactAuthoring) {
+      score += 0.8;
+    }
+    if (tools.has("pdf")) {
+      score -= 0.6;
+    }
+    if (hasCode) {
+      score -= 1.2;
     }
     return score;
   }

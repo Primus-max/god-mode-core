@@ -196,8 +196,6 @@ export type AgentDefaultsConfig = {
       timeoutMs?: number;
       /** Optional max output tokens for classifier JSON. */
       maxTokens?: number;
-      /** Soft fallback to heuristic path when auth or provider availability is missing. Default: true. */
-      allowHeuristicFallback?: boolean;
     };
   };
   /** Vector memory search configuration (per-agent overrides supported). */

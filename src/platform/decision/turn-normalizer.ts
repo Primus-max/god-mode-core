@@ -16,16 +16,6 @@ export type NormalizedExecutionTurn = {
   inferencePrompt: string;
 };
 
-export function collectPromptHints(prompt: string, candidates: readonly string[]): string[] {
-  const normalized = prompt.toLowerCase();
-  return candidates.filter((candidate) =>
-    new RegExp(
-      `(^|[^\\p{L}\\p{N}_])${candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[^\\p{L}\\p{N}_]|$)`,
-      "iu",
-    ).test(normalized),
-  );
-}
-
 export function toUniqueLowercase(values: Array<string | undefined> | undefined): string[] {
   return Array.from(
     new Set(
@@ -36,13 +26,13 @@ export function toUniqueLowercase(values: Array<string | undefined> | undefined)
   );
 }
 
-export function promptIncludesAny(prompt: string, hints: readonly string[]): boolean {
-  const normalized = prompt.toLowerCase();
-  return hints.some((hint) => normalized.includes(hint));
+function normalizePromptText(prompt: string): string {
+  const withoutInboundMetadata = stripInboundMetadata(prompt).trim();
+  return withoutInboundMetadata || prompt.trim();
 }
 
 export function resolveKeywordInferencePrompt(prompt: string): string {
-  const withoutInboundMetadata = stripInboundMetadata(prompt);
+  const withoutInboundMetadata = normalizePromptText(prompt);
   const lines = withoutInboundMetadata.split("\n");
   let index = 0;
   let strippedContextPrefix = false;
@@ -75,6 +65,7 @@ export function normalizeExecutionTurn(params: {
   inferencePrompt?: string;
   fileNames?: string[];
 }): NormalizedExecutionTurn {
+  const prompt = normalizePromptText(params.prompt);
   const fileNames = Array.from(
     new Set(
       (params.fileNames ?? [])
@@ -84,11 +75,11 @@ export function normalizeExecutionTurn(params: {
   );
   const explicitInferencePrompt =
     typeof params.inferencePrompt === "string" && params.inferencePrompt.trim().length > 0
-      ? params.inferencePrompt.trim()
+      ? resolveKeywordInferencePrompt(params.inferencePrompt)
       : undefined;
   return {
-    prompt: params.prompt,
+    prompt,
     fileNames,
-    inferencePrompt: explicitInferencePrompt ?? resolveKeywordInferencePrompt(params.prompt),
+    inferencePrompt: explicitInferencePrompt ?? resolveKeywordInferencePrompt(prompt),
   };
 }

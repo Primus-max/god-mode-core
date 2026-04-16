@@ -56,8 +56,9 @@ type ScenarioRecord = {
   scenario: ScenarioId;
   variant: ScenarioPrompt["label"];
   rawPrompt: string;
-  classifierSource: "llm" | "heuristic";
+  classifierSource: "llm" | "fail_closed";
   debugEvents: TaskClassifierDebugEvent[];
+  classifierFailureMessage?: string;
   taskContract: TaskContract;
   plannerInput: RecipePlannerInput;
   resolutionContract: ResolutionContract;
@@ -74,11 +75,11 @@ type ScenarioRecord = {
   // Invariant check results
   invariants: {
     sameContractAsClean: boolean;
+    classifierAvailable: boolean;
     matchesExpectedPrimaryOutcome: boolean;
     matchesExpectedInteractionMode: boolean;
     expectedCapabilitiesMet: boolean;
     prohibitedCapabilitiesAbsent: boolean;
-    noHeuristicFallback: boolean;
   };
 };
 
@@ -86,13 +87,13 @@ type ScenarioSummary = {
   scenario: ScenarioId;
   expected: ExpectedContract;
   invariantResults: {
+    classifierAvailableForAllVariants: boolean;
     contractStableAcrossVariants: boolean;
     toolBundlesStableAcrossVariants: boolean;
     expectedPrimaryOutcomeMatched: boolean;
     expectedInteractionModeMatched: boolean;
     allExpectedCapabilitiesPresent: boolean;
     noProhibitedCapabilitiesPresent: boolean;
-    noHeuristicFallback: boolean;
   };
   variants: Array<{
     variant: ScenarioPrompt["label"];
@@ -100,7 +101,8 @@ type ScenarioSummary = {
     interactionMode: string;
     requiredCapabilities: string[];
     toolBundles: string[];
-    classifierSource: "llm" | "heuristic";
+    classifierSource: "llm" | "fail_closed";
+    classifierFailureMessage?: string;
   }>;
 };
 
@@ -351,11 +353,9 @@ const SCENARIOS: readonly ScenarioDef[] = [
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const allowFallback = args.includes("--allow-fallback");
   const familyRaw = readFlagValue(args, "--family");
   const outputRaw = readFlagValue(args, "--output");
   return {
-    allowFallback,
     familyFilter: familyRaw?.trim() || undefined,
     outputPath:
       outputRaw?.trim() ||
@@ -397,8 +397,7 @@ function contractSignatureKey(signature: ScenarioRecord["contractSignature"]): s
 function checkInvariants(
   taskContract: TaskContract,
   expected: ExpectedContract,
-  classifierSource: "llm" | "heuristic",
-  allowFallback: boolean,
+  classifierSource: "llm" | "fail_closed",
 ): ScenarioRecord["invariants"] {
   const capabilities = new Set(taskContract.requiredCapabilities);
   const expectedCapabilitiesMet = expected.expectedCapabilities.every((cap) =>
@@ -409,26 +408,17 @@ function checkInvariants(
   );
   return {
     sameContractAsClean: true, // Will be set by caller comparing variants
+    classifierAvailable: classifierSource === "llm",
     matchesExpectedPrimaryOutcome: taskContract.primaryOutcome === expected.primaryOutcome,
     matchesExpectedInteractionMode: taskContract.interactionMode === expected.interactionMode,
     expectedCapabilitiesMet,
     prohibitedCapabilitiesAbsent,
-    noHeuristicFallback: allowFallback || classifierSource === "llm",
   };
 }
 
 async function main() {
   const args = parseArgs();
   const cfg = cloneJson(loadConfig());
-  cfg.agents ??= {};
-  cfg.agents.defaults ??= {};
-  cfg.agents.defaults.embeddedPi ??= {};
-  const existingTaskClassifier = cfg.agents.defaults.embeddedPi.taskClassifier;
-  cfg.agents.defaults.embeddedPi.taskClassifier = {
-    ...existingTaskClassifier,
-    allowHeuristicFallback: args.allowFallback,
-  };
-
   const agentDir = resolveOpenClawAgentDir();
   const classifierConfig = resolveTaskClassifierConfig({ cfg });
   const scenarios = args.familyFilter
@@ -453,7 +443,12 @@ async function main() {
       });
       const runtime = resolvePlatformRuntimePlan(classified.plannerInput);
       const contractSignature = toContractSignature(classified.taskContract, classified.resolutionContract);
-      const invariants = checkInvariants(classified.taskContract, scenario.expected, classified.source, args.allowFallback);
+      const invariants = checkInvariants(classified.taskContract, scenario.expected, classified.source);
+      const classifierFailureMessage = debugEvents
+        .filter((event) => event.stage === "fallback" || event.stage === "disabled" || event.stage === "model_unresolved")
+        .map((event) => event.message)
+        .filter((message): message is string => typeof message === "string" && message.length > 0)
+        .at(-1);
 
       records.push({
         scenario: scenario.id,
@@ -461,6 +456,7 @@ async function main() {
         rawPrompt: promptCase.prompt,
         classifierSource: classified.source,
         debugEvents,
+        ...(classifierFailureMessage ? { classifierFailureMessage } : {}),
         taskContract: classified.taskContract,
         plannerInput: classified.plannerInput,
         resolutionContract: classified.resolutionContract,
@@ -497,6 +493,7 @@ async function main() {
       scenario: scenario.id,
       expected: scenario.expected,
       invariantResults: {
+        classifierAvailableForAllVariants: variants.every((v) => v.invariants.classifierAvailable),
         contractStableAcrossVariants: new Set(contractSignatures).size === 1,
         toolBundlesStableAcrossVariants: new Set(toolBundleSignatures).size === 1,
         expectedPrimaryOutcomeMatched: variants.every(
@@ -507,7 +504,6 @@ async function main() {
         ),
         allExpectedCapabilitiesPresent: variants.every((v) => v.invariants.expectedCapabilitiesMet),
         noProhibitedCapabilitiesPresent: variants.every((v) => v.invariants.prohibitedCapabilitiesAbsent),
-        noHeuristicFallback: variants.every((v) => v.invariants.noHeuristicFallback),
       },
       variants: variants.map((variant) => ({
         variant: variant.variant,
@@ -516,26 +512,28 @@ async function main() {
         requiredCapabilities: variant.taskContract.requiredCapabilities,
         toolBundles: variant.resolutionContract.toolBundles,
         classifierSource: variant.classifierSource,
+        ...(variant.classifierFailureMessage
+          ? { classifierFailureMessage: variant.classifierFailureMessage }
+          : {}),
       })),
     };
   });
 
   // Overall pass/fail based on invariants
   const allPassed = summaries.every((s) =>
+    s.invariantResults.classifierAvailableForAllVariants &&
     s.invariantResults.contractStableAcrossVariants &&
     s.invariantResults.toolBundlesStableAcrossVariants &&
     s.invariantResults.expectedPrimaryOutcomeMatched &&
     s.invariantResults.expectedInteractionModeMatched &&
     s.invariantResults.allExpectedCapabilitiesPresent &&
-    s.invariantResults.noProhibitedCapabilitiesPresent &&
-    s.invariantResults.noHeuristicFallback
+    s.invariantResults.noProhibitedCapabilitiesPresent
   );
 
   const payload = {
     generatedAt: new Date().toISOString(),
     classifierConfig,
     agentDir,
-    allowFallback: args.allowFallback,
     allPassed,
     summaries,
     records,
@@ -550,6 +548,9 @@ async function main() {
     console.error("\nINVARIANT VIOLATIONS DETECTED:");
     for (const summary of summaries) {
       const failed = [];
+      if (!summary.invariantResults.classifierAvailableForAllVariants) {
+        failed.push("classifierAvailability");
+      }
       if (!summary.invariantResults.contractStableAcrossVariants) {
         failed.push("contractStable");
       }
@@ -567,9 +568,6 @@ async function main() {
       }
       if (!summary.invariantResults.noProhibitedCapabilitiesPresent) {
         failed.push("prohibitedCapabilities");
-      }
-      if (!summary.invariantResults.noHeuristicFallback) {
-        failed.push("heuristicFallback");
       }
       if (failed.length > 0) {
         console.error(`  ${summary.scenario}: ${failed.join(", ")}`);

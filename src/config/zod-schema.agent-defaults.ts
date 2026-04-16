@@ -141,7 +141,6 @@ export const AgentDefaultsSchema = z
             model: z.string().optional(),
             timeoutMs: z.number().int().positive().optional(),
             maxTokens: z.number().int().positive().optional(),
-            allowHeuristicFallback: z.boolean().optional(),
           })
           .strict()
           .optional(),

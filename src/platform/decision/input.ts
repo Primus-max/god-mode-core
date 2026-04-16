@@ -11,12 +11,6 @@ import {
   type ResolvePlatformExecutionDecisionOptions,
 } from "../recipe/runtime-adapter.js";
 import { inferCandidateExecutionFamilies } from "./family-candidates.js";
-import {
-  countTabularFiles,
-  promptSuggestsCalculationIntent,
-  promptSuggestsCompareIntent,
-  promptSuggestsWebsiteFrontendWork,
-} from "./intent-signals.js";
 import { computeQualificationConfidence } from "./qualification-confidence.js";
 import {
   inferQualificationAmbiguityReasons,
@@ -29,9 +23,7 @@ import {
   type QualificationBridgePlannerInput,
 } from "./outcome-contract.js";
 import {
-  collectPromptHints,
   normalizeExecutionTurn,
-  promptIncludesAny,
   resolveKeywordInferencePrompt,
   toUniqueLowercase,
 } from "./turn-normalizer.js";
@@ -40,152 +32,6 @@ import {
   toRecipeRoutingHints,
 } from "./resolution-contract.js";
 
-const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
-const DEVELOPER_EXECUTION_KEYWORDS =
-  /\b(build|test|fix|refactor|repo|repository|compile|ci|code|e2e|bug|tests?|тест|тесты|исправ|почин|баг|код|сборк|проверк|рефактор)\b/iu;
-const DEVELOPER_PUBLISH_KEYWORDS = /\b(preview|publish|release|deploy|ship|rollout)\b/iu;
-const DOCUMENT_ARTIFACT_HINTS = [
-  "pdf",
-  "пдф",
-  "document",
-  "doc",
-  "docx",
-  "report",
-  "invoice",
-  "estimate",
-  "spec",
-  "proposal",
-  "документ",
-  "отчет",
-  "отчёт",
-  "смет",
-  "спецификац",
-  "предложени",
-] as const;
-const MEDIA_IMAGE_HINTS = [
-  "image",
-  "picture",
-  "screenshot",
-  "illustration",
-  "poster",
-  "thumbnail",
-  "banner",
-  "icon",
-  "logo",
-  "infographic",
-  "render",
-  "изображени",
-  "картин",
-  "скриншот",
-  "иллюстрац",
-  "постер",
-  "баннер",
-  "иконк",
-  "логотип",
-  "инфограф",
-  "рендер",
-] as const;
-const MEDIA_VIDEO_HINTS = [
-  "video",
-  "clip",
-  "animation",
-  "gif",
-  "reel",
-  "trailer",
-  "видео",
-  "ролик",
-  "анимац",
-  "гиф",
-] as const;
-const MEDIA_AUDIO_HINTS = [
-  "audio",
-  "voice",
-  "speech",
-  "podcast",
-  "soundtrack",
-  "music",
-  "аудио",
-  "голос",
-  "речь",
-  "подкаст",
-  "саундтрек",
-  "музык",
-] as const;
-const BROWSER_TOOL_HINTS = [
-  "browser",
-  "browse",
-  "website",
-  "web page",
-  "webpage",
-  "page title",
-  "navigate",
-  "open tab",
-  "открой в браузере",
-  "в браузере",
-  "сайт",
-  "страниц",
-  "заголовок страницы",
-] as const;
-const WEB_SEARCH_TOOL_HINTS = [
-  "web search",
-  "search the web",
-  "search online",
-  "find online",
-  "internet",
-  "latest public",
-  "найди в интернете",
-  "поищи в интернете",
-  "поиск в интернете",
-  "в интернете",
-] as const;
-const PRESENTATION_ARTIFACT_HINTS = [
-  "presentation",
-  "slides",
-  "slide deck",
-  "deck",
-  "infographic",
-  "презентац",
-  "слайд",
-  "инфограф",
-] as const;
-const IMAGE_GENERATION_VERB_RE =
-  /generate|create|make|draw|render|paint|сгенерируй|создай|сделай|нарисуй|отрендери/iu;
-const PDF_GENERATION_VERB_RE =
-  /generate|create|make|export|render|assemble|сгенерируй|создай|сделай|экспортируй|собери/iu;
-const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process", "browser", "web_search"]);
-const HEAVY_ARTIFACT_KINDS = new Set([
-  "image",
-  "video",
-  "audio",
-  "document",
-  "site",
-  "release",
-  "binary",
-  "archive",
-]);
-const TABULAR_ATTACHMENT_EXTENSION = /\.(csv|tsv|xlsx?|ods)$/iu;
-
-const GENERAL_INTENT_HINTS = [
-  "hello",
-  "hi",
-  "how are you",
-  "joke",
-  "fun",
-  "story",
-  "chat",
-  "translate",
-  "explain",
-  "brainstorm",
-  "привет",
-  "здравств",
-  "как дела",
-  "пошут",
-  "шутк",
-  "истори",
-  "поболта",
-  "перевед",
-  "объясн",
-] as const;
 type DecisionInputChannelHints = {
   messageChannel?: string;
   channel?: string;
@@ -246,263 +92,6 @@ export function shouldUseLightweightBootstrapContext(
   return plannerInput.intent === "general" || plannerInput.intent === undefined;
 }
 
-function compareLanguageInPrompt(prompt: string): boolean {
-  return promptSuggestsCompareIntent(prompt);
-}
-
-function calculationLanguageInPrompt(prompt: string): boolean {
-  return promptSuggestsCalculationIntent(prompt);
-}
-
-function generalLanguageInPrompt(prompt: string): boolean {
-  return promptIncludesAny(prompt, GENERAL_INTENT_HINTS);
-}
-
-function tabularAttachmentCount(fileNames: string[]): number {
-  return countTabularFiles(fileNames);
-}
-
-function inferCompareIntentFromAttachments(prompt: string, fileNames: string[]): boolean {
-  if (tabularAttachmentCount(fileNames) < 2) {
-    return false;
-  }
-  if (/\b(merge|concat|append|stack|объедин)\w*\b/iu.test(prompt)) {
-    return false;
-  }
-  return true;
-}
-
-function inferPromptIntent(prompt: string, fileNames: string[]): RecipePlannerInput["intent"] {
-  if (compareLanguageInPrompt(prompt) || inferCompareIntentFromAttachments(prompt, fileNames)) {
-    return "compare";
-  }
-  if (calculationLanguageInPrompt(prompt)) {
-    return "calculation";
-  }
-  if (promptSuggestsWebsiteFrontendWork(prompt)) {
-    return "code";
-  }
-  const imageGenerationHint = promptNeedsImageGenerationTool(prompt);
-  const documentHint = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
-  const developerExecutionHint = DEVELOPER_EXECUTION_KEYWORDS.test(prompt);
-  if (documentHint && !developerExecutionHint) {
-    return "document";
-  }
-  if (imageGenerationHint) {
-    return undefined;
-  }
-  if (DEVELOPER_PUBLISH_KEYWORDS.test(prompt)) {
-    return "publish";
-  }
-  if (documentHint) {
-    return "document";
-  }
-  if (DEVELOPER_EXECUTION_KEYWORDS.test(prompt)) {
-    return "code";
-  }
-  if (generalLanguageInPrompt(prompt) && fileNames.length === 0) {
-    return "general";
-  }
-  return undefined;
-}
-
-function promptNeedsBrowserTool(prompt: string): boolean {
-  return /https?:\/\//iu.test(prompt) || promptIncludesAny(prompt, BROWSER_TOOL_HINTS);
-}
-
-function promptNeedsWebSearchTool(prompt: string): boolean {
-  return promptIncludesAny(prompt, WEB_SEARCH_TOOL_HINTS);
-}
-
-function promptNeedsImageGenerationTool(prompt: string): boolean {
-  return IMAGE_GENERATION_VERB_RE.test(prompt) && promptIncludesAny(prompt, MEDIA_IMAGE_HINTS);
-}
-
-function promptNeedsPdfTool(prompt: string): boolean {
-  return (
-    PDF_GENERATION_VERB_RE.test(prompt) &&
-    (promptIncludesAny(prompt, ["pdf", "пдф"]) ||
-      promptIncludesAny(prompt, PRESENTATION_ARTIFACT_HINTS))
-  );
-}
-
-function promptTargetsPdfArtifact(prompt: string, fileNames: string[]): boolean {
-  return (
-    promptIncludesAny(prompt, ["pdf", "пдф"]) ||
-    promptIncludesAny(prompt, PRESENTATION_ARTIFACT_HINTS) ||
-    fileNames.some((name) => /\.pdf$/iu.test(name))
-  );
-}
-
-type ArtifactDrivenToolRule = {
-  toolName: string;
-  matches: (params: {
-    prompt: string;
-    fileNames: string[];
-    artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
-    pdfTarget: boolean;
-  }) => boolean;
-};
-
-const ARTIFACT_DRIVEN_TOOL_RULES: readonly ArtifactDrivenToolRule[] = [
-  {
-    toolName: "pdf",
-    matches: ({ artifactKinds, pdfTarget }) => artifactKinds.includes("document") && pdfTarget,
-  },
-  {
-    toolName: "image_generate",
-    matches: ({ artifactKinds, pdfTarget }) =>
-      artifactKinds.includes("image") && artifactKinds.includes("document") && pdfTarget,
-  },
-] as const;
-
-function inferArtifactDrivenTools(params: {
-  prompt: string;
-  fileNames: string[];
-  artifactKinds: NonNullable<RecipePlannerInput["artifactKinds"]>;
-}): string[] {
-  const pdfTarget = promptTargetsPdfArtifact(params.prompt, params.fileNames);
-  return ARTIFACT_DRIVEN_TOOL_RULES.filter((rule) =>
-    rule.matches({
-      prompt: params.prompt,
-      fileNames: params.fileNames,
-      artifactKinds: params.artifactKinds,
-      pdfTarget,
-    }),
-  ).map((rule) => rule.toolName);
-}
-
-function promptSuggestsHeavyDocumentWork(prompt: string): boolean {
-  return (
-    /\b(pdf|png|jpe?g|webp|gif|scan|scanned|screenshot|ocr|invoice|diagram)\b/iu.test(prompt) ||
-    /\b(pdf|пдф|png|скан|скриншот|чертеж)\b/iu.test(prompt)
-  );
-}
-
-function promptSuggestsLightGeneralTask(prompt: string): boolean {
-  const normalized = prompt.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  if (
-    /\b(rewrite|rephrase|shorten|paraphrase|translate)\b/iu.test(prompt) ||
-    ["перепиши", "перефраз", "сократи", "переведи"].some((hint) => normalized.includes(hint))
-  ) {
-    return true;
-  }
-  const asksForShortList =
-    /\b(name|list|give|share)\s+(?:one|two|three|1|2|3)\b/iu.test(prompt) ||
-    /\b(назови|перечисли|дай)\s+(?:один|одну|два|две|три|1|2|3)\b/iu.test(prompt) ||
-    [
-      "назови 1",
-      "назови 2",
-      "назови 3",
-      "перечисли 1",
-      "перечисли 2",
-      "перечисли 3",
-      "дай 1",
-      "дай 2",
-      "дай 3",
-    ].some((hint) => normalized.includes(hint));
-  const requestsBriefness = ["short", "brief", "quick", "коротк", "кратк"].some((hint) =>
-    normalized.includes(hint),
-  );
-  return asksForShortList && requestsBriefness;
-}
-
-function promptSuggestsComplexReasoning(prompt: string): boolean {
-  const normalized = prompt.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  if (promptSuggestsLightGeneralTask(prompt)) {
-    return false;
-  }
-  let score = 0;
-  if (normalized.length >= 120) {
-    score += 1;
-  }
-  if (
-    /\b(analy[sz]e|analysis|deep dive|detailed|trade[- ]?offs?|framework|metrics?|kpis?|examples?|rationale|prioriti[sz]e|step[- ]by[- ]step)\b/iu.test(
-      prompt,
-    ) ||
-    [
-      "анализ",
-      "подробн",
-      "развернут",
-      "развёрнут",
-      "почему",
-      "пример",
-      "метрик",
-      "пошагов",
-      "приорит",
-      "обоснован",
-    ].some((hint) => normalized.includes(hint))
-  ) {
-    score += 2;
-  }
-  if (
-    /\b(three|four|five|six|seven|eight|nine|ten|3|4|5|6|7|8|9|10)\b/iu.test(prompt) ||
-    ["три", "четыре", "пять", "шесть", "семь", "восемь", "девять", "десять"].some((hint) =>
-      normalized.includes(hint),
-    )
-  ) {
-    score += 1;
-  }
-  if (
-    /[:;]/.test(prompt) &&
-    (/\b(why|because|with examples?)\b/iu.test(prompt) ||
-      normalized.includes("с примерами") ||
-      normalized.includes("почему") ||
-      normalized.includes("например"))
-  ) {
-    score += 1;
-  }
-  return score >= 2;
-}
-
-function inferArtifactKinds(
-  prompt: string,
-  fileNames: string[],
-): NonNullable<RecipePlannerInput["artifactKinds"]> {
-  const publishTargets = collectPromptHints(prompt, DEVELOPER_PUBLISH_TARGET_HINTS);
-  const compareIntentish =
-    compareLanguageInPrompt(prompt) || inferCompareIntentFromAttachments(prompt, fileNames);
-  const calculationIntentish = calculationLanguageInPrompt(prompt);
-  const hasDocumentArtifactHintRaw = promptIncludesAny(prompt, DOCUMENT_ARTIFACT_HINTS);
-  const hasDocumentArtifactHint =
-    hasDocumentArtifactHintRaw && !calculationIntentish && !compareIntentish;
-  const imageGenerationHint = promptNeedsImageGenerationTool(prompt);
-  const hasMediaArtifactHint =
-    promptIncludesAny(prompt, MEDIA_IMAGE_HINTS) ||
-    promptIncludesAny(prompt, MEDIA_VIDEO_HINTS) ||
-    promptIncludesAny(prompt, MEDIA_AUDIO_HINTS);
-  const canInferPublishArtifacts =
-    !imageGenerationHint && !hasDocumentArtifactHint && !compareIntentish && !calculationIntentish;
-  return toUniqueLowercase([
-    ...(promptSuggestsWebsiteFrontendWork(prompt) ? ["site"] : []),
-    ...(canInferPublishArtifacts && (publishTargets.length > 0 || /\bpreview\b/iu.test(prompt))
-      ? ["site"]
-      : []),
-    ...(canInferPublishArtifacts && (publishTargets.length > 0 || /\brelease\b/iu.test(prompt))
-      ? ["release"]
-      : []),
-    ...(DEVELOPER_EXECUTION_KEYWORDS.test(prompt) &&
-    !hasDocumentArtifactHint &&
-    !hasMediaArtifactHint
-      ? ["binary"]
-      : []),
-    ...(hasDocumentArtifactHint ? ["document"] : []),
-    ...(compareIntentish ? (["data", "report"] as const) : []),
-    ...(calculationIntentish ? (["report", "data"] as const) : []),
-    ...(/\breport\b/iu.test(prompt) ? ["report"] : []),
-    ...(/\b(отчет|отчёт)\b/iu.test(prompt) ? ["report"] : []),
-    ...(promptIncludesAny(prompt, MEDIA_IMAGE_HINTS) ? ["image"] : []),
-    ...(promptIncludesAny(prompt, MEDIA_VIDEO_HINTS) ? ["video"] : []),
-    ...(promptIncludesAny(prompt, MEDIA_AUDIO_HINTS) ? ["audio"] : []),
-  ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
-}
-
 export function buildExecutionDecisionInput(
   params: BuildExecutionDecisionInputParams,
 ): RecipePlannerInput {
@@ -511,67 +100,24 @@ export function buildExecutionDecisionInput(
     inferencePrompt: params.inferencePrompt,
     fileNames: params.fileNames,
   });
+  const prompt = normalizedTurn.prompt;
   const fileNames = normalizedTurn.fileNames;
-  const inferencePromptCandidate = normalizedTurn.inferencePrompt;
-  const candidatePublishTargets = collectPromptHints(
-    inferencePromptCandidate,
-    DEVELOPER_PUBLISH_TARGET_HINTS,
-  );
-  const candidateIntent = inferPromptIntent(inferencePromptCandidate, fileNames);
-  const candidateArtifactKinds = inferArtifactKinds(inferencePromptCandidate, fileNames);
-  const inferencePrompt =
-    !params.inferencePrompt &&
-    inferencePromptCandidate !== params.prompt &&
-    !candidateIntent &&
-    candidatePublishTargets.length === 0 &&
-    candidateArtifactKinds.length === 0
-      ? params.prompt
-      : inferencePromptCandidate;
-  const inferredPublishTargets = collectPromptHints(
-    inferencePrompt,
-    DEVELOPER_PUBLISH_TARGET_HINTS,
-  );
-  const inferredIntegrations = inferredPublishTargets.filter((target) => target !== "npm");
-  const inferredIntent = inferPromptIntent(inferencePrompt, fileNames);
-  const effectiveIntent = params.intent ?? inferredIntent;
-  const inferredRequestedTools = toUniqueLowercase([
-    ...(effectiveIntent === "code" || effectiveIntent === "publish"
-      ? ["exec", "apply_patch", "process"]
-      : []),
-    ...(promptNeedsBrowserTool(inferencePrompt) ? ["browser"] : []),
-    ...(promptNeedsWebSearchTool(inferencePrompt) ? ["web_search"] : []),
-    ...(promptNeedsImageGenerationTool(inferencePrompt) ? ["image_generate"] : []),
-    ...(promptNeedsPdfTool(inferencePrompt) ? ["pdf"] : []),
-  ]);
+  const inferencePrompt = normalizedTurn.inferencePrompt;
+  const effectiveIntent = params.intent;
   const channelHints = toUniqueLowercase([
     params.channelHints?.messageChannel,
     params.channelHints?.channel,
     params.channelHints?.replyChannel,
   ]);
-  const publishTargets = toUniqueLowercase([
-    ...inferredPublishTargets,
-    ...(params.publishTargets ?? []),
-  ]);
+  const publishTargets = toUniqueLowercase(params.publishTargets);
   const integrations = toUniqueLowercase([
-    ...inferredIntegrations,
     ...(params.integrations ?? []),
     ...channelHints,
   ]);
-  const artifactKinds = toUniqueLowercase([
-    ...(inferencePrompt === inferencePromptCandidate
-      ? candidateArtifactKinds
-      : inferArtifactKinds(inferencePrompt, fileNames)),
-    ...((params.artifactKinds ?? []) as string[]),
-  ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
-  const requestedTools = toUniqueLowercase([
-    ...inferredRequestedTools,
-    ...inferArtifactDrivenTools({
-      prompt: inferencePrompt,
-      fileNames,
-      artifactKinds,
-    }),
-    ...(params.requestedTools ?? []),
-  ]);
+  const artifactKinds = toUniqueLowercase(
+    (params.artifactKinds ?? []) as Array<string | undefined>,
+  ) as NonNullable<RecipePlannerInput["artifactKinds"]>;
+  const requestedTools = toUniqueLowercase(params.requestedTools);
   const qualification = buildQualificationResultFromPlannerInput({
     ...(effectiveIntent ? { intent: effectiveIntent } : {}),
     ...(artifactKinds.length > 0 ? { artifactKinds } : {}),
@@ -579,7 +125,6 @@ export function buildExecutionDecisionInput(
     ...(publishTargets.length > 0 ? { publishTargets } : {}),
   });
   const resolutionContract = resolveResolutionContract({
-    prompt: inferencePrompt,
     ...(effectiveIntent ? { intent: effectiveIntent } : {}),
     ...(fileNames.length > 0 ? { fileNames } : {}),
     ...(artifactKinds.length > 0 ? { artifactKinds } : {}),
@@ -591,7 +136,7 @@ export function buildExecutionDecisionInput(
   });
   return applySessionSpecialistOverrideToPlannerInput(
     {
-      prompt: params.prompt,
+      prompt,
       ...(effectiveIntent ? { intent: effectiveIntent } : {}),
       ...(fileNames.length > 0 ? { fileNames } : {}),
       ...(publishTargets.length > 0 ? { publishTargets } : {}),

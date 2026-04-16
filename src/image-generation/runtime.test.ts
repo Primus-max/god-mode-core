@@ -169,7 +169,7 @@ describe("image-generation runtime helpers", () => {
     await expect(
       generateImage({ cfg: {} as OpenClawConfig, prompt: "draw a cat" }),
     ).rejects.toThrow(
-      'Set agents.defaults.imageGenerationModel.primary to a provider/model like "google/gemini-3-pro-image-preview".',
+      'Set agents.defaults.imageGenerationModel.primary to a provider/model like "openai/gpt-image-1".',
     );
     await expect(
       generateImage({ cfg: {} as OpenClawConfig, prompt: "draw a cat" }),

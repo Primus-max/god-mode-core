@@ -150,7 +150,7 @@ Sender (untrusted metadata):
 [Sat 2026-04-11 14:39 GMT+3] Привет! Как дела? Просто поздоровайся одной короткой фразой.`,
     });
 
-    expect(routed.intent).toBe("general");
+    expect(routed.intent).toBeUndefined();
     expect(routed.requestedTools ?? []).toEqual([]);
     expect(routed.artifactKinds ?? []).toEqual([]);
     expect(routed.routing?.localEligible).toBe(true);
@@ -189,7 +189,34 @@ describe("buildExecutionDecisionInputFromRuntimePlan", () => {
       prompt: "Parse this PDF estimate into a report",
       fileNames: ["estimate.pdf"],
       artifactKinds: ["document", "report"],
-      intent: "document" as const,
+      contractFirst: true as const,
+      outcomeContract: "structured_artifact" as const,
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      candidateFamilies: ["document_render"] as const,
+      resolutionContract: {
+        selectedFamily: "document_render" as const,
+        candidateFamilies: ["document_render"] as const,
+        toolBundles: ["document_extraction"] as const,
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong" as const,
+          preferRemoteFirst: true,
+          needsVision: true,
+        },
+      },
+      routing: {
+        localEligible: false,
+        remoteProfile: "strong" as const,
+        preferRemoteFirst: true,
+        needsVision: true,
+      },
     };
     const priorPlan = planExecutionRecipe(plannerInput);
     const priorRuntime = adaptExecutionPlanToRuntime(priorPlan, { input: plannerInput });
@@ -204,55 +231,79 @@ describe("buildExecutionDecisionInputFromRuntimePlan", () => {
 });
 
 describe("buildExecutionDecisionInput", () => {
-  it("builds a resolution contract for prompt-only pdf authoring", () => {
+  it("does not infer document authoring from a prompt-only pdf request", () => {
     const input = buildExecutionDecisionInput({
       prompt: "Create a two-page PDF infographic about a city cat with a couple of generated images.",
     });
 
+    expect(input.intent).toBeUndefined();
+    expect(input.artifactKinds ?? []).toEqual([]);
+    expect(input.requestedTools ?? []).toEqual([]);
+    expect(input.publishTargets ?? []).toEqual([]);
+    expect(input.outcomeContract).toBe("text_response");
+    expect(input.executionContract).toEqual({
+      requiresTools: false,
+      requiresWorkspaceMutation: false,
+      requiresLocalProcess: false,
+      requiresArtifactEvidence: false,
+      requiresDeliveryEvidence: false,
+      mayNeedBootstrap: false,
+    });
     expect(input.resolutionContract).toEqual(
       expect.objectContaining({
-        selectedFamily: "document_render",
-        candidateFamilies: expect.arrayContaining(["document_render"]),
-        toolBundles: expect.arrayContaining(["artifact_authoring"]),
+        selectedFamily: "general_assistant",
+        candidateFamilies: ["general_assistant"],
+        toolBundles: ["respond_only"],
         routing: expect.objectContaining({
-          remoteProfile: "presentation",
-          preferRemoteFirst: true,
+          localEligible: true,
+          remoteProfile: "cheap",
+          preferRemoteFirst: false,
         }),
       }),
     );
-    expect(input.routing).toEqual(input.resolutionContract?.routing);
+    expect(input.routing).toEqual({
+      localEligible: true,
+      remoteProfile: "cheap",
+    });
   });
 
-  it("builds a resolution contract for browser observation work", () => {
-    const qualification = buildExecutionDecisionInput({
-      prompt: "Open https://example.com in the browser and tell me the page title.",
+  it("does not infer browser or compare routing from prompt text or file names alone", () => {
+    const input = buildExecutionDecisionInput({
+      prompt: "Open https://example.com and compare the attached sheets.",
+      fileNames: ["sheet_a.csv", "sheet_b.csv"],
     });
 
-    expect(qualification.resolutionContract).toEqual(
-      expect.objectContaining({
-        candidateFamilies: expect.arrayContaining(["general_assistant"]),
-        toolBundles: expect.arrayContaining(["interactive_browser"]),
-        routing: expect.objectContaining({
-          remoteProfile: "strong",
-          preferRemoteFirst: true,
-          localEligible: false,
-        }),
-      }),
-    );
+    expect(input.intent).toBeUndefined();
+    expect(input.artifactKinds ?? []).toEqual([]);
+    expect(input.requestedTools ?? []).toEqual([]);
+    expect(input.publishTargets ?? []).toEqual([]);
+    expect(input.outcomeContract).toBe("text_response");
   });
 
-  it("infers document intent and artifact kinds for pdf-style prompts", () => {
+  it("passes through explicit structured routing fields without re-inferring from prompt", () => {
     const input = buildExecutionDecisionInput({
-      prompt: "Create a PDF report with a short summary for the customer.",
+      prompt: "Just chat about cats.",
+      intent: "document",
+      artifactKinds: ["image", "document", "image"],
+      requestedTools: ["image_generate", "pdf", "image_generate"],
+      publishTargets: ["PDF", "pdf"],
+      integrations: ["Slack"],
+      channelHints: {
+        messageChannel: "Telegram",
+        channel: "telegram",
+      },
     });
 
     expect(input.intent).toBe("document");
-    expect(input.artifactKinds).toEqual(["document", "report"]);
+    expect(input.artifactKinds).toEqual(["image", "document"]);
+    expect(input.requestedTools).toEqual(["image_generate", "pdf"]);
+    expect(input.publishTargets).toEqual(["pdf"]);
+    expect(input.integrations).toEqual(["slack", "telegram"]);
     expect(input.outcomeContract).toBe("structured_artifact");
     expect(input.executionContract).toEqual(
       expect.objectContaining({
-        requiresArtifactEvidence: true,
         requiresTools: true,
+        requiresArtifactEvidence: true,
       }),
     );
     expect(input.requestedEvidence).toEqual([
@@ -260,285 +311,56 @@ describe("buildExecutionDecisionInput", () => {
       "artifact_descriptor",
       "capability_receipt",
     ]);
-    expect(input.confidence).toBe("high");
-    expect(input.ambiguityReasons).toEqual([]);
-    expect(input.lowConfidenceStrategy).toBeUndefined();
+    expect(input.resolutionContract?.toolBundles).toEqual(["artifact_authoring", "external_delivery"]);
   });
 
-  it("keeps prompt-only pdf plus supporting images as a high-confidence document turn", () => {
+  it("passes through explicit code/runtime fields without prompt guessing", () => {
     const input = buildExecutionDecisionInput({
-      prompt:
-        "Надо сделать pdf файл, с инфографикой о жизни городского котика, это просто прикол, но надо пару страниц, красивый формат, можно добавить пару картинок.",
-    });
-
-    expect(input.intent).toBe("document");
-    expect(input.artifactKinds ?? []).toEqual(expect.arrayContaining(["document", "image"]));
-    expect(input.requestedTools ?? []).toEqual(expect.arrayContaining(["pdf", "image_generate"]));
-    expect(input.confidence).toBe("high");
-    expect(input.ambiguityReasons).toEqual([]);
-    expect(input.lowConfidenceStrategy).toBeUndefined();
-  });
-
-  it("infers site artifact kinds and code intent for website prompts", () => {
-    const input = buildExecutionDecisionInput({
-      prompt: "Сделай простой сайт на Vue, localhost на 5173",
+      prompt: "Please say hello only.",
+      intent: "code",
+      artifactKinds: ["binary"],
+      requestedTools: ["process", "apply_patch", "exec"],
     });
 
     expect(input.intent).toBe("code");
-    expect(input.artifactKinds ?? []).toEqual(expect.arrayContaining(["site"]));
-    expect(input.outcomeContract).toBe("interactive_local_result");
+    expect(input.artifactKinds).toEqual(["binary"]);
+    expect(input.requestedTools).toEqual(["process", "apply_patch", "exec"]);
+    expect(input.outcomeContract).toBe("structured_artifact");
     expect(input.executionContract).toEqual(
       expect.objectContaining({
-        requiresWorkspaceMutation: true,
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
         requiresLocalProcess: true,
+        requiresArtifactEvidence: true,
       }),
     );
-    expect(input.requestedEvidence).toEqual(["tool_receipt", "process_receipt", "capability_receipt"]);
-    expect(input.requestedTools ?? []).toEqual(
-      expect.arrayContaining(["exec", "apply_patch", "process"]),
+    expect(input.resolutionContract?.toolBundles).toEqual(
+      expect.arrayContaining(["artifact_authoring", "repo_mutation", "repo_run"]),
     );
-    expect(input.confidence).toBe("high");
-    expect(input.ambiguityReasons).toEqual([]);
-    expect(input.lowConfidenceStrategy).toBeUndefined();
   });
 
-  it("routes underspecified publish requests into explicit clarification instead of forced execution", () => {
+  it("normalizes inbound metadata but does not create semantic routing from it", () => {
     const input = buildExecutionDecisionInput({
-      prompt: "Ship it.",
+      prompt: `Profile: Developer.
+Planned tools: browser, exec
+
+Sender (untrusted metadata):
+\`\`\`json
+{"id":"cli"}
+\`\`\`
+
+Create a PDF report and publish it.`,
     });
 
-    expect(input.intent).toBe("publish");
-    expect(input.confidence).toBe("medium");
-    expect(input.ambiguityReasons).toEqual([
-      "external operation is inferred without an explicit publish target",
-    ]);
-    expect(input.lowConfidenceStrategy).toBe("clarify");
-    expect(input.outcomeContract).toBe("external_operation");
-    expect(input.requestedEvidence).toEqual(["tool_receipt", "capability_receipt"]);
-    expect(input.candidateFamilies).toEqual(["ops_execution"]);
-    expect(input.requestedTools ?? []).toEqual(["exec", "apply_patch", "process"]);
-  });
-
-  it.each([
-    "Сделай простой сайт на Vue, localhost на 5173",
-    "Собери локальный Vite preview для простого сайта и запусти его на localhost",
-  ])("keeps interactive-local-result paraphrases on the same contract: %s", (prompt) => {
-    const input = buildExecutionDecisionInput({ prompt });
-
-    expect(input.outcomeContract).toBe("interactive_local_result");
-    expect(input.confidence).toBe("high");
-    expect(input.lowConfidenceStrategy).toBeUndefined();
-  });
-
-  it.each([
-    "Create a PDF report with a short summary for the customer.",
-    "Assemble a one-page PDF summary for the customer with the same report content.",
-  ])("keeps structured-artifact paraphrases on the same contract: %s", (prompt) => {
-    const input = buildExecutionDecisionInput({ prompt });
-
-    expect(input.outcomeContract).toBe("structured_artifact");
-    expect(input.confidence).toBe("high");
-    expect(input.lowConfidenceStrategy).toBeUndefined();
-  });
-
-  it("infers image artifact kinds for media-generation prompts", () => {
-    const input = buildExecutionDecisionInput({
-      prompt: "Generate an image banner with the text Stage 86 OK.",
-    });
-
+    expect(input.prompt).toContain("Create a PDF report and publish it.");
+    expect(input.prompt).not.toContain("Sender (untrusted metadata)");
     expect(input.intent).toBeUndefined();
-    expect(input.artifactKinds).toEqual(["image"]);
-    expect(input.requestedTools).toEqual(["image_generate"]);
-  });
-
-  it("does not misclassify image generation prompts as publish work when image text mentions release", () => {
-    const input = buildExecutionDecisionInput({
-      prompt: "Generate a PNG banner with the text Atlas Release Ready and return the image.",
-    });
-
-    expect(input.intent).toBeUndefined();
-    expect(input.artifactKinds).toEqual(["image"]);
-    expect(input.requestedTools).toEqual(["image_generate"]);
-  });
-
-  it("infers artifact kinds from Russian media and document prompts", () => {
-    const imageInput = buildExecutionDecisionInput({
-      prompt: "Сгенерируй изображение баннера с текстом Stage 86 OK.",
-    });
-    const pdfInput = buildExecutionDecisionInput({
-      prompt: "Создай PDF-отчёт с краткой сводкой результатов теста.",
-    });
-
-    expect(imageInput.artifactKinds).toEqual(["image"]);
-    expect(imageInput.requestedTools).toEqual(["image_generate"]);
-    expect(pdfInput.intent).toBe("document");
-    expect(pdfInput.artifactKinds).toEqual(["document"]);
-    expect(pdfInput.requestedTools).toEqual(["pdf"]);
-  });
-
-  it("infers both image and document artifacts for Russian media plus пдф requests", () => {
-    const input = buildExecutionDecisionInput({
-      prompt:
-        "Можешь сгенерировать картинку котёнка и создать файл пдф с его расписанием и жизнью, в графиках и таблицах?",
-    });
-
-    expect(input.artifactKinds).toEqual(expect.arrayContaining(["image", "document"]));
-    expect(input.requestedTools).toEqual(expect.arrayContaining(["image_generate", "pdf"]));
-  });
-
-  it.each([
-    {
-      name: "explicit mixed artifacts without generation verbs",
-      params: {
-        prompt: "kitten life layout in pdf with charts and tables",
-        artifactKinds: ["image", "document"] as const,
-      },
-      expectedTools: ["image_generate", "pdf"],
-    },
-    {
-      name: "pdf artifact inferred from target filename",
-      params: {
-        prompt: "Customer summary for April",
-        fileNames: ["april-summary.pdf"],
-        artifactKinds: ["document"] as const,
-      },
-      expectedTools: ["pdf"],
-    },
-    {
-      name: "mixed artifacts inferred from filename target and image artifact",
-      params: {
-        prompt: "Kitten schedule and life overview",
-        fileNames: ["kitten-life.pdf"],
-        artifactKinds: ["image", "document"] as const,
-      },
-      expectedTools: ["image_generate", "pdf"],
-    },
-  ])("derives requested tools from artifact requirements: $name", ({ params, expectedTools }) => {
-    const input = buildExecutionDecisionInput({
-      prompt: params.prompt,
-      fileNames: params.fileNames ? [...params.fileNames] : undefined,
-      artifactKinds: [...params.artifactKinds],
-    });
-
-    expect(input.requestedTools).toEqual(expect.arrayContaining(expectedTools));
-  });
-
-  it("infers both image and pdf tools for infographic presentation requests", () => {
-    const input = buildExecutionDecisionInput({
-      prompt:
-        "Сделай презентационную инфографику с веселым бананом и собери итог в PDF на 3 страницы.",
-    });
-
-    expect(input.artifactKinds).toEqual(expect.arrayContaining(["document", "image"]));
-    expect(input.requestedTools).toEqual(expect.arrayContaining(["image_generate", "pdf"]));
-  });
-
-  it("keeps PDF generation prompts on the document path even when they mention tests", () => {
-    const input = buildExecutionDecisionInput({
-      prompt:
-        "Создай PDF-отчёт с краткой сводкой результатов теста и заголовком Stage 86 PDF Test.",
-    });
-
-    expect(input.intent).toBe("document");
-    expect(input.artifactKinds).toEqual(["document"]);
-  });
-
-  it("keeps PDF generation prompts on the document path even when prior context mentions publish work", () => {
-    const input = buildExecutionDecisionInput({
-      prompt:
-        "Build the app, publish the release, and ship the preview.\n\nСоздай PDF с презентацией о жизни котика.",
-    });
-
-    expect(input.intent).toBe("document");
-    expect(input.requestedTools ?? []).toEqual(["pdf"]);
-    expect(input.artifactKinds).toEqual(["document"]);
-  });
-
-  it("does not force ordinary summary requests onto the document path", () => {
-    const input = buildExecutionDecisionInput({
-      prompt: "Сильно сожми этот раздутый запрос и дай краткую сводку по статусу stage 86.",
-    });
-
-    expect(input.intent).toBeUndefined();
+    expect(input.requestedTools ?? []).toEqual([]);
     expect(input.artifactKinds ?? []).toEqual([]);
-  });
-
-  it("infers general intent for Russian greeting prompts without attachments", () => {
-    const input = buildExecutionDecisionInput({
-      prompt: "Привет! Как дела? Просто поздоровайся.",
-    });
-
-    expect(input.intent).toBe("general");
-    expect(input.artifactKinds ?? []).toEqual([]);
-  });
-
-  it("infers compare intent and tabular artifacts for English comparison prompts", () => {
-    const input = buildExecutionDecisionInput({
-      prompt: "Compare vendor_prices.csv and internal_prices.csv for price drift by SKU.",
-    });
-
-    expect(input.intent).toBe("compare");
-    expect(input.artifactKinds).toEqual(expect.arrayContaining(["data", "report"]));
-  });
-
-  it("infers compare intent from two tabular attachments even with a short prompt", () => {
-    const input = buildExecutionDecisionInput({
-      prompt: "Please analyze.",
-      fileNames: ["sheet_a.csv", "sheet_b.csv"],
-    });
-
-    expect(input.intent).toBe("compare");
-    expect(input.artifactKinds).toEqual(expect.arrayContaining(["data", "report"]));
-  });
-
-  it("infers calculation intent for Russian engineering-style prompts without document artifact noise", () => {
-    const input = buildExecutionDecisionInput({
-      prompt:
-        "Нужен расчёт вентиляции для кабинета 20 м²: приток и вытяжка, итог в кратком отчёте.",
-    });
-
-    expect(input.intent).toBe("calculation");
-    expect(input.artifactKinds).toEqual(expect.arrayContaining(["report", "data"]));
-    expect(input.artifactKinds).not.toContain("document");
-  });
-
-  it("infers calculation intent for English dimensional prompts", () => {
-    const input = buildExecutionDecisionInput({
-      prompt:
-        "Run a quick square feet to square meters conversion table for the listed room sizes.",
-    });
-
-    expect(input.intent).toBe("calculation");
-  });
-
-  it("infers code intent for Russian bugfix prompts", () => {
-    const input = buildExecutionDecisionInput({
-      prompt: "Исправь фейлящий e2e тест, предложи план правки и укажи какие проверки прогнать.",
-    });
-
-    expect(input.intent).toBe("code");
-    expect(input.artifactKinds).toContain("binary");
-  });
-
-  it("does not misread pnpm as an npm publish target", () => {
-    const input = buildExecutionDecisionInput({
-      prompt: "refactor the repo to use pnpm workspaces",
-    });
-
-    expect(input.intent).toBe("code");
     expect(input.publishTargets ?? []).toEqual([]);
-    expect(input.artifactKinds).toEqual(["binary"]);
   });
 
-  it("marks browser navigation prompts with the browser tool", () => {
-    const input = buildExecutionDecisionInput({
-      prompt: "Открой в браузере https://example.com и скажи заголовок страницы.",
-    });
-
-    expect(input.requestedTools).toEqual(["browser"]);
-  });
-
-  it("marks casual chat prompts as lightweight bootstrap candidates", () => {
+  it("marks prompt-only turns as lightweight bootstrap candidates when no structured routing is present", () => {
     const input = buildExecutionDecisionInput({
       prompt: "Привет! Как дела?",
     });
@@ -550,8 +372,6 @@ describe("buildExecutionDecisionInput", () => {
 describe("resolveResolutionContract", () => {
   it("maps code execution requirements to code-build routing", () => {
     const resolution = resolveResolutionContract({
-      prompt: "Fix the failing build and run the checks.",
-      intent: "code",
       requestedTools: ["exec", "apply_patch", "process"],
       artifactKinds: ["binary"],
       outcomeContract: "workspace_change",

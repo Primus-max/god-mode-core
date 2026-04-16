@@ -1916,7 +1916,7 @@ export async function runEmbeddedAttempt(
       ? []
       : createOpenClawCodingTools({
           agentId: sessionAgentId,
-          selectedProfileId: params.platformExecutionContext?.profileId,
+          selectedProfileId: params.platformExecutionContext?.selectedProfileId,
           exec: {
             ...params.execOverrides,
             elevated: params.bashElevated,

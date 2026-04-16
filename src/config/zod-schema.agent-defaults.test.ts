@@ -21,7 +21,6 @@ describe("agent defaults schema", () => {
             model: "ollama/qwen3:14b",
             timeoutMs: 10_000,
             maxTokens: 256,
-            allowHeuristicFallback: true,
           },
         },
       }),

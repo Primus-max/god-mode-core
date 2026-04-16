@@ -27,6 +27,7 @@ import {
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { prepareProviderRuntimeAuth } from "../../plugins/provider-runtime.js";
 import { type enqueueCommand, enqueueCommandInLane } from "../../process/command-queue.js";
+import type { RecipeRuntimePlan } from "../../platform/recipe/runtime-adapter.js";
 import { isCronSessionKey, isSubagentSessionKey } from "../../routing/session-key.js";
 import { emitSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
 import { buildTtsSystemPromptHint } from "../../tts/tts.js";
@@ -145,6 +146,8 @@ export type CompactEmbeddedPiSessionParams = {
   config?: OpenClawConfig;
   skillsSnapshot?: SkillSnapshot;
   provider?: string;
+  /** Structured platform orchestration hints for the compaction. */
+  platformExecutionContext?: RecipeRuntimePlan;
   model?: string;
   thinkLevel?: ThinkLevel;
   reasoningLevel?: ReasoningLevel;
@@ -790,7 +793,7 @@ export async function compactEmbeddedPiSessionDirect(
 
     const runAbortController = new AbortController();
     const toolsRaw = createOpenClawCodingTools({
-      selectedProfileId: params.platformExecutionContext?.profileId,
+      selectedProfileId: params.platformExecutionContext?.selectedProfileId,
       exec: {
         elevated: params.bashElevated,
       },

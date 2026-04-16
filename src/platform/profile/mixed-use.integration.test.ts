@@ -2,12 +2,33 @@ import { describe, expect, it } from "vitest";
 import { evaluatePolicy } from "../policy/engine.js";
 import { resolveProfile } from "./resolver.js";
 
+const DEFAULT_ROUTING = {
+  localEligible: false,
+  remoteProfile: "cheap" as const,
+  preferRemoteFirst: true,
+  needsVision: false,
+};
+
 describe("mixed-use profile scenarios", () => {
-  it("gives a single user document-first behavior for builder-like requests", () => {
+  it("gives a single user document-first behavior for builder-like contracts", () => {
     const resolved = resolveProfile({
-      prompt: "Parse this PDF estimate and produce a report",
-      fileNames: ["estimate.pdf"],
+      contractFirst: true,
+      outcomeContract: "structured_artifact",
       artifactKinds: ["document", "report"],
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["document_extraction"],
+        routing: DEFAULT_ROUTING,
+      },
     });
 
     const decision = evaluatePolicy({
@@ -25,13 +46,28 @@ describe("mixed-use profile scenarios", () => {
     expect(decision.allowPrivilegedTools).toBe(false);
   });
 
-  it("gives a single user code-first behavior for developer-like requests", () => {
+  it("gives a single user code-first behavior for developer-like contracts", () => {
     const resolved = resolveProfile({
-      prompt: "Fix the failing TypeScript build and publish to GitHub",
-      fileNames: ["app.ts"],
-      publishTargets: ["github"],
-      integrations: ["github"],
-      requestedTools: ["exec"],
+      contractFirst: true,
+      outcomeContract: "workspace_change",
+      artifactKinds: ["site", "release"],
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: true,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run", "external_delivery"],
+        routing: {
+          ...DEFAULT_ROUTING,
+          remoteProfile: "code",
+        },
+      },
     });
 
     const decision = evaluatePolicy({
@@ -53,7 +89,6 @@ describe("mixed-use profile scenarios", () => {
   it("keeps an explicit specialist override active for fun/general requests", () => {
     const resolved = resolveProfile({
       sessionProfile: "developer",
-      prompt: "Tell me a joke about compilers",
     });
 
     const decision = evaluatePolicy({

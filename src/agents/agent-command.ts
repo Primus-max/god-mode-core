@@ -52,6 +52,11 @@ import {
   shouldUseLightweightBootstrapContext,
 } from "../platform/decision/input.js";
 import {
+  classifyTaskForDecision,
+  type TaskClassifierAdapter,
+} from "../platform/decision/task-classifier.js";
+import { applySessionSpecialistOverrideToPlannerInput } from "../platform/profile/session-overrides.js";
+import {
   resolvePlatformRuntimePlan,
   type ResolvedPlatformRuntimePlan,
   toPluginHookPlatformExecutionContext,
@@ -187,7 +192,12 @@ function resolveFallbackRetryPrompt(params: { body: string; isFallbackRetry: boo
   if (!params.isFallbackRetry) {
     return params.body;
   }
-  return "Continue where you left off. The previous model attempt failed or timed out.";
+  return [
+    "Continue where you left off.",
+    "The previous model attempt failed, timed out, or returned an invalid non-final reply.",
+    "Do not restart from scratch, do not ask another clarifying question, and do not answer with a status-only acknowledgement.",
+    "If this turn requires a direct artifact, use sensible defaults and call the required tool now.",
+  ].join(" ");
 }
 
 function prependInternalEventContext(
@@ -654,6 +664,57 @@ export function buildPlatformPlannerInput(params: {
   });
 }
 
+export async function buildClassifiedPlatformPlannerInput(params: {
+  prompt: string;
+  fileNames?: string[];
+  opts: Pick<AgentCommandOpts, "messageChannel" | "channel" | "replyChannel">;
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
+  > | null;
+  storePath?: string;
+  cfg: ReturnType<typeof loadConfig>;
+  agentDir?: string;
+  adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
+}): Promise<Parameters<typeof resolvePlatformRuntimePlan>[0]> {
+  const classifierInput =
+    params.storePath && params.sessionEntry?.sessionId
+      ? buildSessionBackedExecutionDecisionInput({
+          draftPrompt: params.prompt,
+          ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+          storePath: params.storePath,
+          channelHints: params.opts,
+          sessionEntry: params.sessionEntry,
+        })
+      : {
+          prompt: params.prompt,
+          ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+          channelHints: params.opts,
+          sessionEntry: params.sessionEntry,
+        };
+  const classified = await classifyTaskForDecision({
+    prompt: classifierInput.prompt,
+    fileNames: classifierInput.fileNames,
+    cfg: params.cfg,
+    agentDir: params.agentDir,
+    input: classifierInput,
+    adapterRegistry: params.adapterRegistry,
+  });
+  return applySessionSpecialistOverrideToPlannerInput(
+    {
+      ...classified.plannerInput,
+      ...(classifierInput.integrations?.length
+        ? { integrations: classifierInput.integrations }
+        : {}),
+    },
+    params.sessionEntry,
+  );
+}
+
 export function shouldFailoverEmptySemanticRetryResult(
   result: Awaited<ReturnType<typeof runEmbeddedPiAgent>>,
 ): boolean {
@@ -864,11 +925,88 @@ export function shouldFailoverEmptySemanticRetryResult(
       return hasVisibleProviderErrorShape(payload.text) || Boolean(metaError);
     });
   };
+  const isArtifactTurnClarificationOnly = (): boolean => {
+    const artifactKinds = executionIntent?.artifactKinds ?? [];
+    const requestedToolNames = executionIntent?.requestedToolNames ?? [];
+    const expectsArtifactOutput =
+      executionIntent?.outcomeContract === "structured_artifact" ||
+      artifactKinds.length > 0 ||
+      requestedToolNames.some((tool) => {
+        const normalizedTool = tool.trim().toLowerCase();
+        return (
+          normalizedTool === "pdf" ||
+          normalizedTool === "image_generate" ||
+          normalizedTool === "video_generate" ||
+          normalizedTool === "audio_generate"
+        );
+      });
+    if (!expectsArtifactOutput || payloads.length === 0) {
+      return false;
+    }
+    const ARTIFACT_CLARIFICATION_HINTS = [
+      "уточняющ",
+      "вопрос",
+      "каком стиле",
+      "какой стиль",
+      "какой формат",
+      "какой шаблон",
+      "какой размер",
+      "какое соотношение сторон",
+      "сколько страниц",
+      "прозрачный фон",
+      "avoid incorrect expectations",
+      "clarifying question",
+      "question",
+      "what style",
+      "which style",
+      "what format",
+      "which format",
+      "what size",
+      "which size",
+      "aspect ratio",
+      "transparent background",
+      "how many pages",
+    ];
+    return payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      if (hasMedia || typeof payload.text !== "string") {
+        return false;
+      }
+      const lead = extractLeadText(payload.text).trim();
+      if (!lead || lead.length > 500 || !lead.includes("?")) {
+        return false;
+      }
+      const normalizedLead = lead.toLowerCase();
+      const questionCount = (lead.match(/\?/g) ?? []).length;
+      const completionHints = [
+        "готово",
+        "done",
+        "created",
+        "saved",
+        "создал",
+        "сгенерировал",
+        "прикрепил",
+        "attached",
+        "вот",
+        "here is",
+      ];
+      if (completionHints.some((hint) => normalizedLead.includes(hint))) {
+        return false;
+      }
+      if (ARTIFACT_CLARIFICATION_HINTS.some((hint) => normalizedLead.includes(hint))) {
+        return true;
+      }
+      return questionCount > 0;
+    });
+  };
   if (payloads.length > 0) {
     if (
       isSemanticRetryAcknowledgementOnly() ||
       isArtifactTurnAcknowledgementOnly() ||
-      isArtifactTurnProviderErrorOnly()
+      isArtifactTurnProviderErrorOnly() ||
+      isArtifactTurnClarificationOnly()
     ) {
       return true;
     }
@@ -1135,12 +1273,13 @@ async function prepareAgentCommandExecution(
     persistedThinking,
     persistedVerbose,
   } = sessionResolution;
-  const platformPlannerInput = buildPlatformPlannerInput({
+  const platformPlannerInput = await buildClassifiedPlatformPlannerInput({
     prompt: body,
     fileNames: opts.documents?.map((document) => document.fileName),
     opts,
     sessionEntry: sessionEntryRaw,
     storePath,
+    cfg,
   });
   const platformRuntimePlan = resolvePlatformRuntimePlan(platformPlannerInput, {
     explicitApproval: shouldGrantPlatformExplicitApprovalForAgentTurn({

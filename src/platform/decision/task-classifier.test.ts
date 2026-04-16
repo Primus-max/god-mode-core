@@ -19,7 +19,6 @@ describe("task classifier config", () => {
       model: "hydra/gpt-5-mini",
       timeoutMs: 20_000,
       maxTokens: 450,
-      allowHeuristicFallback: true,
     });
   });
 });
@@ -85,87 +84,108 @@ describe("classifyTaskForDecision", () => {
     );
   });
 
-  it("keeps heuristics as a fallback when the adapter fails", async () => {
+  it("retries once on classifier runtime failure and succeeds without fallback guessing", async () => {
     const cfg = {
       agents: {
         defaults: {
           embeddedPi: {
             taskClassifier: {
               backend: "stub-backend",
-              allowHeuristicFallback: true,
             },
           },
         },
       },
     } as OpenClawConfig;
+    const classify = vi
+      .fn<TaskClassifierAdapter["classify"]>()
+      .mockRejectedValueOnce(new Error("temporary upstream failure"))
+      .mockResolvedValueOnce({
+        primaryOutcome: "comparison_report",
+        requiredCapabilities: ["needs_web_research"],
+        interactionMode: "tool_execution",
+        confidence: 0.81,
+        ambiguities: [],
+      });
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Research current public pricing for three hosted vector databases.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify,
+        },
+      },
+    });
+
+    expect(classify).toHaveBeenCalledTimes(2);
+    expect(classified.source).toBe("llm");
+    expect(classified.plannerInput).toEqual(
+      expect.objectContaining({
+        contractFirst: true,
+        intent: "compare",
+        outcomeContract: "text_response",
+        requestedTools: ["web_search"],
+      }),
+    );
+    expect(classified.taskContract.primaryOutcome).toBe("comparison_report");
+    expect(classified.taskContract.interactionMode).toBe("tool_execution");
+    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_web_research"]);
+  });
+
+  it("returns fail-closed when the adapter keeps failing after retry", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classify = vi
+      .fn<TaskClassifierAdapter["classify"]>()
+      .mockRejectedValue(new Error("classifier unavailable"));
 
     const classified = await classifyTaskForDecision({
       prompt: "Publish to GitHub after running the checks.",
       cfg,
       adapterRegistry: {
         "stub-backend": {
-          classify: vi.fn().mockRejectedValue(new Error("classifier unavailable")),
+          classify,
         },
       },
     });
 
-    expect(classified.source).toBe("heuristic");
+    expect(classify).toHaveBeenCalledTimes(2);
+    expect(classified.source).toBe("fail_closed");
+    expect(classified.taskContract).toEqual({
+      primaryOutcome: "clarification_needed",
+      requiredCapabilities: [],
+      interactionMode: "clarify_first",
+      confidence: 0,
+      ambiguities: ["task classifier unavailable"],
+    });
     expect(classified.plannerInput).toEqual(
       expect.objectContaining({
         contractFirst: true,
-        intent: "publish",
-        publishTargets: ["external"],
-        requestedTools: ["exec", "process"],
+        intent: "general",
+        outcomeContract: "text_response",
+        lowConfidenceStrategy: "clarify",
+        requestedEvidence: ["assistant_text"],
       }),
-    );
-    expect(classified.taskContract.primaryOutcome).toBe("external_delivery");
-    expect(classified.taskContract.requiredCapabilities).toEqual(
-      expect.arrayContaining([
-        "needs_external_delivery",
-        "needs_repo_execution",
-        "needs_local_runtime",
-      ]),
-    );
-    expect(classified.taskContract.requiredCapabilities).toEqual(
-      expect.not.arrayContaining(["needs_workspace_mutation"]),
     );
   });
 
-  it("surfaces classifier failures when heuristic fallback is disabled", async () => {
+  it("returns fail-closed when adapter output is null instead of using heuristic fallback", async () => {
     const cfg = {
       agents: {
         defaults: {
           embeddedPi: {
             taskClassifier: {
               backend: "stub-backend",
-              allowHeuristicFallback: false,
-            },
-          },
-        },
-      },
-    } as OpenClawConfig;
-
-    await expect(
-      classifyTaskForDecision({
-        prompt: "Publish to GitHub after running the checks.",
-        cfg,
-        adapterRegistry: {
-          "stub-backend": {
-            classify: vi.fn().mockRejectedValue(new Error("classifier unavailable")),
-          },
-        },
-      }),
-    ).rejects.toThrow("classifier unavailable");
-  });
-
-  it("emits debug events when adapter output falls back to heuristics", async () => {
-    const cfg = {
-      agents: {
-        defaults: {
-          embeddedPi: {
-            taskClassifier: {
-              backend: "stub-backend",
-              allowHeuristicFallback: true,
             },
           },
         },
@@ -190,12 +210,14 @@ describe("classifyTaskForDecision", () => {
       },
     });
 
-    expect(classified.source).toBe("heuristic");
+    expect(classified.source).toBe("fail_closed");
+    expect(classified.taskContract.primaryOutcome).toBe("clarification_needed");
+    expect(classified.taskContract.requiredCapabilities).toEqual([]);
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           stage: "fallback",
-          message: "adapter returned null; using heuristic fallback",
+          message: "classifier returned no valid contract; returning fail-closed clarification contract",
         }),
       ]),
     );
@@ -282,6 +304,149 @@ describe("classifyTaskForDecision", () => {
     );
   });
 
+  it("drops tabular-reasoning drift from document extraction contracts", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Extract vendor names, invoice dates, and totals from the attached PDF packet.",
+      fileNames: ["invoice-pack.pdf"],
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "document_extraction",
+            requiredCapabilities: ["needs_document_extraction", "needs_tabular_reasoning"],
+            interactionMode: "tool_execution",
+            confidence: 0.95,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.source).toBe("llm");
+    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_document_extraction"]);
+  });
+
+  it("drops workspace-mutation drift for external delivery contracts", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Run the release checks and publish the already-prepared build to production once validation passes.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "external_delivery",
+            requiredCapabilities: [
+              "needs_workspace_mutation",
+              "needs_repo_execution",
+              "needs_external_delivery",
+            ],
+            interactionMode: "tool_execution",
+            confidence: 0.88,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.source).toBe("llm");
+    expect(classified.taskContract.requiredCapabilities).toEqual([
+      "needs_external_delivery",
+      "needs_repo_execution",
+    ]);
+  });
+
+  it("drops tabular-reasoning drift from web-research contracts", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Research current public pricing for three hosted vector databases and compare the tradeoffs.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "comparison_report",
+            requiredCapabilities: ["needs_web_research", "needs_tabular_reasoning"],
+            interactionMode: "respond_only",
+            confidence: 0.72,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.source).toBe("llm");
+    expect(classified.taskContract.interactionMode).toBe("tool_execution");
+    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_web_research"]);
+  });
+
+  it("normalizes analytical outcomes to respond-only when no tool capability remains", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Compare the attached pricing sheets and summarize SKU-level price differences.",
+      fileNames: ["vendor-a.xlsx", "vendor-b.xlsx"],
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "comparison_report",
+            requiredCapabilities: ["needs_tabular_reasoning"],
+            interactionMode: "tool_execution",
+            confidence: 0.9,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.source).toBe("llm");
+    expect(classified.taskContract.interactionMode).toBe("respond_only");
+    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_tabular_reasoning"]);
+  });
+
   it("drops external-delivery drift for non-delivery document authoring", async () => {
     const cfg = {
       agents: {
@@ -321,7 +486,43 @@ describe("classifyTaskForDecision", () => {
     expect(classified.taskContract.requiredCapabilities).toEqual(["needs_multimodal_authoring"]);
   });
 
-  it("promotes extraction prompts with attachments back to document extraction", async () => {
+  it("drops multimodal-authoring drift for pure visual document packages", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Create a cartoon poster image with bright colors and clean composition.",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "document_package",
+            requiredCapabilities: ["needs_visual_composition", "needs_multimodal_authoring"],
+            interactionMode: "artifact_iteration",
+            confidence: 0.9,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+
+    expect(classified.source).toBe("llm");
+    expect(classified.taskContract.requiredCapabilities).toEqual([
+      "needs_multimodal_authoring",
+      "needs_visual_composition",
+    ]);
+  });
+
+  it("does not reinterpret extraction prompts with attachments after llm classification", async () => {
     const cfg = {
       agents: {
         defaults: {
@@ -351,16 +552,16 @@ describe("classifyTaskForDecision", () => {
       },
     });
 
-    expect(classified.taskContract).toEqual(
-      expect.objectContaining({
-        primaryOutcome: "document_extraction",
-        interactionMode: "tool_execution",
-        requiredCapabilities: ["needs_document_extraction"],
-      }),
-    );
+    expect(classified.taskContract).toEqual({
+      primaryOutcome: "document_package",
+      interactionMode: "artifact_iteration",
+      requiredCapabilities: ["needs_multimodal_authoring", "needs_visual_composition"],
+      confidence: 0.79,
+      ambiguities: [],
+    });
   });
 
-  it("keeps browser observation prompts observational instead of mutating the workspace", async () => {
+  it("does not reinterpret browser observation prompts after llm classification", async () => {
     const cfg = {
       agents: {
         defaults: {
@@ -389,12 +590,15 @@ describe("classifyTaskForDecision", () => {
       },
     });
 
-    expect(classified.taskContract.primaryOutcome).toBe("comparison_report");
+    expect(classified.taskContract.primaryOutcome).toBe("workspace_change");
     expect(classified.taskContract.interactionMode).toBe("tool_execution");
-    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_interactive_browser"]);
+    expect(classified.taskContract.requiredCapabilities).toEqual([
+      "needs_repo_execution",
+      "needs_workspace_mutation",
+    ]);
   });
 
-  it("keeps standalone visual generation artifact-first", async () => {
+  it("does not reinterpret standalone visual generation prompts after llm classification", async () => {
     const cfg = {
       agents: {
         defaults: {
@@ -423,12 +627,16 @@ describe("classifyTaskForDecision", () => {
       },
     });
 
-    expect(classified.taskContract.primaryOutcome).toBe("document_package");
-    expect(classified.taskContract.interactionMode).toBe("artifact_iteration");
-    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_visual_composition"]);
+    expect(classified.taskContract).toEqual({
+      primaryOutcome: "answer",
+      interactionMode: "respond_only",
+      requiredCapabilities: [],
+      confidence: 0.76,
+      ambiguities: [],
+    });
   });
 
-  it("keeps explicit production delivery delivery-first even when the classifier drifts", async () => {
+  it("does not promote explicit delivery prompts after llm classification", async () => {
     const cfg = {
       agents: {
         defaults: {
@@ -457,22 +665,15 @@ describe("classifyTaskForDecision", () => {
       },
     });
 
-    expect(classified.taskContract.primaryOutcome).toBe("external_delivery");
+    expect(classified.taskContract.primaryOutcome).toBe("workspace_change");
     expect(classified.taskContract.interactionMode).toBe("tool_execution");
-    expect(classified.taskContract.requiredCapabilities).toEqual(
-      expect.arrayContaining([
-        "needs_external_delivery",
-        "needs_repo_execution",
-        "needs_local_runtime",
-        "needs_high_reliability_provider",
-      ]),
-    );
-    expect(classified.taskContract.requiredCapabilities).toEqual(
-      expect.not.arrayContaining(["needs_workspace_mutation"]),
-    );
+    expect(classified.taskContract.requiredCapabilities).toEqual([
+      "needs_repo_execution",
+      "needs_workspace_mutation",
+    ]);
   });
 
-  it("normalizes russian production delivery prompts to the same delivery-first capability set", async () => {
+  it("dedupes arrays and clamps confidence during canonicalization", async () => {
     const cfg = {
       agents: {
         defaults: {
@@ -493,26 +694,29 @@ describe("classifyTaskForDecision", () => {
         "stub-backend": {
           classify: vi.fn().mockResolvedValue({
             primaryOutcome: "external_delivery",
-            requiredCapabilities: ["needs_external_delivery", "needs_repo_execution"],
+            requiredCapabilities: [
+              "needs_repo_execution",
+              "needs_external_delivery",
+              "needs_repo_execution",
+            ],
             interactionMode: "tool_execution",
-            confidence: 0.78,
-            ambiguities: [],
+            confidence: 1.78,
+            ambiguities: ["missing target", "missing target"],
           }),
         },
       },
     });
 
-    expect(classified.taskContract.requiredCapabilities).toEqual(
-      expect.arrayContaining([
-        "needs_external_delivery",
-        "needs_repo_execution",
-        "needs_local_runtime",
-        "needs_high_reliability_provider",
-      ]),
-    );
+    expect(classified.taskContract).toEqual({
+      primaryOutcome: "external_delivery",
+      interactionMode: "tool_execution",
+      requiredCapabilities: ["needs_external_delivery", "needs_repo_execution"],
+      confidence: 1,
+      ambiguities: ["missing target"],
+    });
   });
 
-  it("does not promote xlsx comparison into document extraction drift", async () => {
+  it("does not reinterpret xlsx attachments after llm classification", async () => {
     const cfg = {
       agents: {
         defaults: {
@@ -544,10 +748,13 @@ describe("classifyTaskForDecision", () => {
 
     expect(classified.taskContract.primaryOutcome).toBe("comparison_report");
     expect(classified.taskContract.interactionMode).toBe("respond_only");
-    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_tabular_reasoning"]);
+    expect(classified.taskContract.requiredCapabilities).toEqual([
+      "needs_document_extraction",
+      "needs_tabular_reasoning",
+    ]);
   });
 
-  it("normalizes heuristic fallback to the same abstract visual contract", async () => {
+  it("returns fail-closed when the classifier is disabled", async () => {
     const cfg = {
       agents: {
         defaults: {
@@ -565,15 +772,41 @@ describe("classifyTaskForDecision", () => {
       cfg,
     });
 
-    expect(classified.source).toBe("heuristic");
-    expect(classified.taskContract.primaryOutcome).toBe("document_package");
-    expect(classified.taskContract.interactionMode).toBe("artifact_iteration");
-    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_visual_composition"]);
-    expect(classified.plannerInput.requestedTools).toEqual(["image_generate"]);
+    expect(classified.source).toBe("fail_closed");
+    expect(classified.taskContract.primaryOutcome).toBe("clarification_needed");
+    expect(classified.taskContract.interactionMode).toBe("clarify_first");
+    expect(classified.taskContract.requiredCapabilities).toEqual([]);
+    expect(classified.taskContract.ambiguities).toEqual(["task classifier unavailable"]);
+    expect(classified.plannerInput.outcomeContract).toBe("text_response");
+    expect(classified.plannerInput.lowConfidenceStrategy).toBe("clarify");
   });
 });
 
 describe("contract-first task contract routing", () => {
+  it("routes pure image-generation contracts into media production", () => {
+    const taskContract: TaskContract = {
+      primaryOutcome: "document_package",
+      requiredCapabilities: ["needs_visual_composition"],
+      interactionMode: "artifact_iteration",
+      confidence: 0.93,
+      ambiguities: [],
+    };
+
+    const imagePrompt = buildPlannerInputFromTaskContract({
+      prompt: "Сделай яркую смешную cartoon-картинку банана без лишних вопросов.",
+      taskContract,
+    });
+    const imageRuntime = resolvePlatformRuntimePlan(imagePrompt);
+
+    expect(imagePrompt.contractFirst).toBe(true);
+    expect(imagePrompt.intent).toBeUndefined();
+    expect(imagePrompt.artifactKinds).toEqual(["image"]);
+    expect(imagePrompt.requestedTools).toEqual(["image_generate"]);
+    expect(imagePrompt.resolutionContract?.selectedFamily).toBe("media_generation");
+    expect(imageRuntime.runtime.selectedProfileId).toBe("media_creator");
+    expect(imageRuntime.runtime.selectedRecipeId).toBe("media_production");
+  });
+
   it("keeps document authoring stable across two noisy prompt phrasings", () => {
     const taskContract: TaskContract = {
       primaryOutcome: "document_package",

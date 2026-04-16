@@ -273,7 +273,9 @@ describe("specialist context views", () => {
     expect(container.textContent).toContain("Current specialist context");
     expect(container.textContent).toContain("Developer");
     expect(container.textContent).toContain("code_build_publish");
-    expect(container.textContent).toContain("Operational posture");
+    const details = container.querySelector("details.callout") as HTMLDetailsElement | null;
+    expect(details).not.toBeNull();
+    expect(details?.open).toBe(false);
   });
 
   it("renders the overview specialist panel in Russian", async () => {

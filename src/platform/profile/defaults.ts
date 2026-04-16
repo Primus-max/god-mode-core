@@ -65,7 +65,7 @@ export const INITIAL_PROFILES: Profile[] = [
     label: "Developer",
     description:
       "Code-first specialist for repositories, testing, build, deploy, and release workflows.",
-    defaultModel: "openai/gpt-5.4",
+    defaultModel: "hydra/gpt-5.4",
     preferredTools: ["read", "write", "edit", "exec", "process"],
     preferredPublishTargets: ["github", "npm"],
     riskCeiling: "high",
@@ -100,7 +100,7 @@ export const INITIAL_PROFILES: Profile[] = [
     label: "Integrator",
     description:
       "API, webhook, rollout, and cross-system integration specialist for connected workflows.",
-    defaultModel: "openai/gpt-5.4",
+    defaultModel: "hydra/gpt-5.4",
     preferredTools: ["read", "write", "edit", "exec"],
     preferredPublishTargets: ["github", "docker", "vercel", "netlify", "webhook"],
     riskCeiling: "high",
@@ -174,7 +174,7 @@ export const INITIAL_PROFILES: Profile[] = [
     id: "media_creator",
     label: "Media Creator",
     description: "Image, video, audio, and multimodal content production specialist.",
-    defaultModel: "openai/gpt-5.4",
+    defaultModel: "hydra/gpt-5.4",
     defaultImageGenerationModel: "hydra/hydra-banana-pro",
     preferredTools: ["read", "write", "browser", "canvas"],
     preferredPublishTargets: ["site"],

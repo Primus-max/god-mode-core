@@ -68,7 +68,7 @@ const DEFAULT_MAX_BYTES_MB = 10;
 const DEFAULT_MAX_PAGES = 20;
 const ANTHROPIC_PDF_PRIMARY = "anthropic/claude-opus-4-6";
 const ANTHROPIC_PDF_FALLBACK = "anthropic/claude-opus-4-5";
-const HYDRA_PDF_PRIMARY = "hydra/gpt-4o";
+const HYDRA_PDF_PRIMARY = "hydra/gpt-5.4";
 
 const PDF_MIN_TEXT_CHARS = 200;
 const PDF_MAX_PIXELS = 4_000_000;

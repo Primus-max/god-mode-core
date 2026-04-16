@@ -357,17 +357,24 @@ export function renderSpecialistChatStrip(props: SpecialistContextProps) {
   }
   const snapshot = props.snapshot;
   return html`
-    <div class="callout" style="margin-bottom: 12px;">
-      <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
+    <details class="callout" style="margin-bottom: 12px;">
+      <summary
+        style="display:flex; justify-content:space-between; gap:12px; align-items:center; cursor:pointer;"
+      >
         <div>
           <strong>${t("specialist.chatTitle")}</strong>
-          <div class="muted" style="margin-top: 2px;">${snapshot.reasoningSummary}</div>
+          <div class="muted" style="margin-top: 2px;">
+            ${snapshot.activeProfileLabel} · ${snapshot.recipeId}
+          </div>
         </div>
         <span class="chip">${t("specialist.confidence")}: ${formatConfidence(snapshot.confidence)}</span>
+      </summary>
+      <div style="margin-top: 12px;">
+        <div class="muted">${snapshot.reasoningSummary}</div>
+        ${renderRuntimeChips(snapshot)}
+        ${renderOperationalPosture(snapshot)}
       </div>
-      ${renderRuntimeChips(snapshot)}
-      ${renderOperationalPosture(snapshot)}
-    </div>
+    </details>
   `;
 }
 

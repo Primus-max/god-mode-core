@@ -127,7 +127,7 @@ async function dispatchBlockedRunResumeAfterBootstrap(params: {
   resume: BootstrapBlockedRunResume;
 }): Promise<boolean> {
   const { enqueueFollowupRun, scheduleFollowupDrain } = await import(
-    "../../auto-reply/reply/queue.js"
+    "../../auto-reply/reply/queue.runtime.js"
   );
   const [{ createFollowupRunner }, { createTypingController }] = await Promise.all([
     import("../../auto-reply/reply/followup-runner.js"),

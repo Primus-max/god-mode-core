@@ -59,21 +59,24 @@ import {
   getPlatformRuntimeCheckpointService,
 } from "./runtime/index.js";
 
-const apiConfigRef: { current: OpenClawPluginApi["config"] } = {
+const apiConfigRef: { current: OpenClawPluginApi["config"] | undefined } = {
   current: undefined,
 };
 
 export async function resolveHookExecution(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "agentDir" | "agentId">,
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "workspaceDir" | "agentId">,
 ): Promise<PluginHookPlatformExecutionContext> {
   if (ctx?.platformExecution) {
     return ctx.platformExecution;
   }
+  if (!apiConfigRef.current) {
+    throw new Error("Plugin API config not initialized");
+  }
   const classified = await classifyTaskForDecision({
     prompt,
     cfg: apiConfigRef.current,
-    agentDir: ctx?.agentDir,
+    agentDir: ctx?.workspaceDir,
   });
   return toPluginHookPlatformExecutionContext(resolvePlatformRuntimePlan(classified.plannerInput).runtime);
 }
@@ -100,7 +103,7 @@ function joinPromptContextSegments(...segments: Array<string | undefined>): stri
 
 function buildProfilePromptSection(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "agentDir" | "agentId">,
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "workspaceDir" | "agentId">,
 ): Promise<PluginHookBeforePromptBuildResult | void> {
   return resolveHookExecution(prompt, ctx).then((execution) => {
     const labels = resolveExecutionLabels(execution);
@@ -124,7 +127,7 @@ function buildProfilePromptSection(
 
 function buildAgentStartResult(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "agentDir" | "agentId">,
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "workspaceDir" | "agentId">,
 ): Promise<PluginHookBeforeAgentStartResult | void> {
   return resolveHookExecution(prompt, ctx).then((execution) => ({
     prependContext: execution.prependContext,
@@ -133,7 +136,7 @@ function buildAgentStartResult(
 
 function buildModelResolveResult(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "agentDir" | "agentId">,
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "workspaceDir" | "agentId">,
 ): Promise<PluginHookBeforeModelResolveResult | void> {
   return resolveHookExecution(prompt, ctx).then((execution) => {
     if (!execution.modelOverride && !execution.providerOverride) {
@@ -318,15 +321,16 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
           })
         : undefined;
       const fallbackDecision = !policyContext
-        ? resolvePlatformRuntimePlan(
-            (
-              await classifyTaskForDecision({
-                prompt: runSnapshot?.prompt ?? "",
-                cfg: apiConfigRef.current,
-                agentDir: ctx.agentDir,
-              })
-            ).plannerInput,
-          )
+        ? apiConfigRef.current
+          ? resolvePlatformRuntimePlan(
+              (
+                await classifyTaskForDecision({
+                  prompt: runSnapshot?.prompt ?? "",
+                  cfg: apiConfigRef.current,
+                })
+              ).plannerInput,
+            )
+          : undefined
         : undefined;
       const policy = evaluatePolicy(
         policyContext ?? {

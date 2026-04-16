@@ -3,7 +3,6 @@ import type { ModelCandidate } from "../../agents/model-fallback.types.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
 import type { ModelRouteCostTier, ModelRoutePreflightDecision } from "./contracts.js";
 import { isLikelyControlPlaneLocalProvider } from "./control-plane-local.js";
-import { buildExecutionDecisionInput } from "./input.js";
 
 export type RoutePreflightMode = "default" | "force_stronger";
 
@@ -11,7 +10,7 @@ const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process", "browser", "we
 
 type LocalRoutingPlannerInput = Pick<
   RecipePlannerInput,
-  "intent" | "requestedTools" | "fileNames" | "artifactKinds" | "prompt" | "routing"
+  "intent" | "requestedTools" | "fileNames" | "artifactKinds" | "routing"
 >;
 
 const HEAVY_FILE_EXTENSION =
@@ -188,23 +187,6 @@ function shouldPreferRemoteOrchestratorFirst(
         kind === "site" ||
         kind === "release",
     )
-  ) {
-    return true;
-  }
-  if (
-    kinds.includes("document") &&
-    [
-      "pdf",
-      "presentation",
-      "slides",
-      "infographic",
-      "layout",
-      "презентац",
-      "инфограф",
-      "слайд",
-      "плакат",
-      "баннер",
-    ].some((hint) => (plannerInput.prompt?.toLowerCase() ?? "").includes(hint))
   ) {
     return true;
   }
@@ -782,16 +764,6 @@ export function inferLocalRoutingEligibleFromPlannerInput(
   return true;
 }
 
-export function inferLocalRoutingEligibleFromPrompt(prompt: string): boolean {
-  const trimmed = prompt.trim();
-  if (!trimmed) {
-    return false;
-  }
-  return inferLocalRoutingEligibleFromPlannerInput(
-    buildExecutionDecisionInput({ prompt: trimmed }),
-  );
-}
-
 /**
  * Reorders model fallback candidates so a control-plane local provider can run first when
  * eligible, without dropping any candidates (failover semantics unchanged).
@@ -808,10 +780,8 @@ export function applyModelRoutePreflight(params: {
     return { candidates: list, decision: null };
   }
 
-  const prompt = params.prompt?.trim();
-  const plannerInput =
-    params.plannerInput ?? (prompt ? buildExecutionDecisionInput({ prompt }) : null);
-  if (!prompt && !plannerInput) {
+  const plannerInput = params.plannerInput ?? null;
+  if (!plannerInput) {
     return { candidates: list, decision: null };
   }
 

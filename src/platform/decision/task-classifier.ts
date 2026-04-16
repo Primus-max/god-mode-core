@@ -6,12 +6,7 @@ import { resolveModelAsync } from "../../agents/pi-embedded-runner/model.js";
 import { prepareModelForSimpleCompletion } from "../../agents/simple-completion-transport.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import {
-  buildQualificationResultFromPlannerInput,
-  buildExecutionDecisionInput,
-  type BuildExecutionDecisionInputParams,
-} from "./input.js";
-import { countTabularFiles } from "./intent-signals.js";
+import type { BuildExecutionDecisionInputParams } from "./input.js";
 import { inferRequestedEvidence } from "./execution-contract.js";
 import {
   resolveResolutionContract,
@@ -32,6 +27,7 @@ export const DEFAULT_TASK_CLASSIFIER_BACKEND = "pi-simple";
 export const DEFAULT_TASK_CLASSIFIER_MODEL = "hydra/gpt-5-mini";
 export const DEFAULT_TASK_CLASSIFIER_TIMEOUT_MS = 20_000;
 export const DEFAULT_TASK_CLASSIFIER_MAX_TOKENS = 450;
+const FAIL_CLOSED_REASON = "task classifier unavailable";
 
 const TASK_CONTRACT_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -147,17 +143,31 @@ Canonical mapping rules:
   - live page interaction/audit/smoke/compare -> needs_interactive_browser
   - latest public info/pricing/facts -> needs_web_research
 - Browser observation tasks are observational: usually comparison_report, not workspace_change.
+- Opening or inspecting a local app in browser does not by itself imply needs_repo_execution or needs_local_runtime.
 - Pure compare/summarize/calculate without live browsing or public research should prefer respond_only.
+- For comparison_report or calculation_result, prefer respond_only unless browser interaction, public web research, repo execution, local runtime, external delivery, or workspace mutation is explicitly required.
 - Pure summarization/rewriting of provided text should prefer answer with no capabilities.
 - Code change requests imply workspace_change and needs_workspace_mutation.
 - Add needs_repo_execution only when the user also wants checks/tests/builds/scripts/validation.
+- Requests to leave something running locally, passing locally, validated locally, or previewable locally imply needs_local_runtime.
 - Do not infer needs_workspace_mutation for document/image creation.
 - Visual or image generation requests should usually be document_package + artifact_iteration + needs_visual_composition.
 - PDF/deck/report/infographic authoring from notes or mixed inputs should usually be document_package + artifact_iteration + needs_multimodal_authoring.
 - Extraction from supplied files should usually be document_extraction + tool_execution + needs_document_extraction.
+- Field extraction from docs/forms/invoices should not add needs_tabular_reasoning unless table/spreadsheet comparison or numeric reasoning is central.
+- Spreadsheet/table attachments used only for comparison do not imply needs_document_extraction.
 - Deploy/publish/release requests should usually be external_delivery + tool_execution + needs_external_delivery.
+- Release validation of an already-prepared build is not workspace mutation.
 - Add needs_high_reliability_provider only for production/live external delivery.
+- Explicit production/live publish or deploy of an already-prepared build should usually be external_delivery + tool_execution + needs_external_delivery + needs_repo_execution + needs_local_runtime + needs_high_reliability_provider, without needs_workspace_mutation unless source edits are explicitly requested.
 - Do not add ambiguities for credentials, permissions, URLs, runtime access, browser matrix, page count, branding, tone, template, filenames, or delivery formatting when the dominant outcome is still clear.
+
+Stability examples:
+- "Extract fields from attached invoice PDF" -> document_extraction + tool_execution + needs_document_extraction
+- "Compare attached pricing spreadsheets" -> comparison_report + respond_only + needs_tabular_reasoning
+- "Fix the repo, run checks, leave local validation passing" -> workspace_change + tool_execution + needs_workspace_mutation + needs_repo_execution + needs_local_runtime
+- "Open the local app in browser and report issues" -> comparison_report + tool_execution + needs_interactive_browser
+- "Run release checks and publish the already-prepared build to production" -> external_delivery + tool_execution + needs_external_delivery + needs_repo_execution + needs_local_runtime + needs_high_reliability_provider
 
 Output contract:
 - confidence must be between 0 and 1.
@@ -273,7 +283,7 @@ export type TaskClassifierDebugEvent = {
 };
 
 export type ClassifiedTaskResolution = {
-  source: "llm" | "heuristic";
+  source: "llm" | "fail_closed";
   taskContract: TaskContract;
   plannerInput: RecipePlannerInput;
   resolutionContract: ResolutionContract;
@@ -297,7 +307,6 @@ export type ResolvedTaskClassifierConfig = {
   model: string;
   timeoutMs: number;
   maxTokens: number;
-  allowHeuristicFallback: boolean;
 };
 
 function normalizeUnique<T extends string>(values: readonly T[]): T[] {
@@ -343,94 +352,6 @@ function extractJsonObjectCandidate(raw: string): string | null {
   return normalized.slice(firstBrace, lastBrace + 1).trim();
 }
 
-function promptSuggestsProductionDelivery(prompt: string): boolean {
-  const normalized = prompt.toLowerCase();
-  return (
-    /\b(production|prod\b|live environment|go live)\b/iu.test(prompt) ||
-    ["в прод", "в продакшн", "продакшн", "боев"].some((hint) => normalized.includes(hint))
-  );
-}
-
-function promptSuggestsRepoValidation(prompt: string): boolean {
-  const normalized = prompt.toLowerCase();
-  return (
-    /\b(checks?|tests?|builds?|scripts?|validation|verify|release checks?)\b/iu.test(prompt) ||
-    ["прогони", "проверк", "тест", "валид", "сборк", "релизн", "релизные проверк"].some((hint) =>
-      normalized.includes(hint),
-    )
-  );
-}
-
-function promptSuggestsLocalRuntime(prompt: string): boolean {
-  const normalized = prompt.toLowerCase();
-  return (
-    /\b(local|locally|local preview|preview working|run locally|dev server|local validation)\b/iu.test(
-      prompt,
-    ) ||
-    ["локальн", "предпросмотр", "рантайм"].some((hint) => normalized.includes(hint))
-  );
-}
-
-function promptSuggestsVisualArtifact(prompt: string): boolean {
-  return /\b(image|picture|poster|banner|illustration|cartoon|logo|icon|thumbnail|картин|изображен|постер|баннер|иллюстрац|мультяш)/iu.test(
-    prompt,
-  );
-}
-
-function promptSuggestsDocumentAuthoring(prompt: string): boolean {
-  return /\b(pdf|deck|slide|slides|report|infographic|document|презентац|слайд|отч[её]т|документ|инфограф|пдф)\b/iu.test(
-    prompt,
-  );
-}
-
-function promptSuggestsExplicitDelivery(prompt: string): boolean {
-  return /\b(deploy|publish|release|ship|rollout|deliver|send|выпуст|опублик|задепл|деплой|релиз|достав)\b/iu.test(
-    prompt,
-  );
-}
-
-function promptExplicitlyRequestsRepoEdits(prompt: string): boolean {
-  return /\b(edit|modify|patch|change|fix code|update code|source files?|repo|repository|правк|исправ.*код|исходник|репозитор)\b/iu.test(
-    prompt,
-  );
-}
-
-function fileNamesSuggestDocumentExtraction(fileNames: string[]): boolean {
-  return fileNames.some((name) => /\.(pdf|png|jpe?g|webp|gif|tiff?|bmp|heic)$/iu.test(name));
-}
-
-function promptSuggestsExtractionTask(prompt: string, fileNames: string[]): boolean {
-  return (
-    fileNamesSuggestDocumentExtraction(fileNames) &&
-    /\b(extract|pull|parse|read fields?|capture fields?|ocr|scan|вытащи|извлеки|достань|распознай|считай)\b/iu.test(
-      prompt,
-    )
-  );
-}
-
-function promptSuggestsVisualAssetGeneration(prompt: string): boolean {
-  return (
-    /\b(generate|create|make|draw|render|paint|сгенерируй|создай|сделай|нарисуй|отрендери)\b/iu.test(
-      prompt,
-    ) &&
-    promptSuggestsVisualArtifact(prompt) &&
-    !promptSuggestsDocumentAuthoring(prompt)
-  );
-}
-
-function promptSuggestsBrowserObservation(prompt: string): boolean {
-  const browserSurfaceHint =
-    /\b(browser|web ?page|website|site|local app|local site|ui|console|flow|браузер|сайт|страниц|ui|консол|форма|локальн(?:ый|ом)?\s+(?:сайт|приложен))\b/iu.test(
-      prompt,
-    ) || /\bclick through\b/iu.test(prompt);
-  const observationHint =
-    /\b(open|click|navigate|inspect|observe|review|report|look for|check|smoke(?:-?test)?|пройди|посмотри|проверь|отчитай|осмотр|найди|увидишь)\b/iu.test(
-      prompt,
-    );
-  const editHint = promptExplicitlyRequestsRepoEdits(prompt);
-  return browserSurfaceHint && observationHint && !editHint;
-}
-
 function safeParseTaskContract(raw: string): {
   taskContract: TaskContract | null;
   parseResult: "ok" | "empty" | "json_parse_failed" | "schema_invalid";
@@ -457,138 +378,56 @@ function safeParseTaskContract(raw: string): {
   }
 }
 
-function normalizeTaskContract(params: {
-  contract: TaskContract;
-  prompt: string;
-  fileNames?: string[];
-}): TaskContract {
-  const contract = params.contract;
+function clampConfidence(confidence: number): number {
+  return Math.min(1, Math.max(0, confidence));
+}
+
+function normalizeTaskContract(contract: TaskContract): TaskContract {
   const capabilities = new Set(contract.requiredCapabilities);
-  const originalPrimaryOutcome = contract.primaryOutcome;
   let primaryOutcome = contract.primaryOutcome;
   let interactionMode = contract.interactionMode;
-  const fileNames = params.fileNames ?? [];
-  const hasOnlyTabularAttachments =
-    fileNames.length >= 2 && countTabularFiles(fileNames) === fileNames.length;
-  const suggestsExplicitDelivery = promptSuggestsExplicitDelivery(params.prompt);
-  const suggestsExtractionTask =
-    promptSuggestsExtractionTask(params.prompt, fileNames) ||
-    (fileNamesSuggestDocumentExtraction(fileNames) && capabilities.has("needs_document_extraction"));
-  const suggestsVisualAssetGeneration = promptSuggestsVisualAssetGeneration(params.prompt);
-  const suggestsBrowserObservation = promptSuggestsBrowserObservation(params.prompt);
-
-  if (originalPrimaryOutcome === "external_delivery" || suggestsExplicitDelivery) {
-    primaryOutcome = "external_delivery";
-    interactionMode = "tool_execution";
-    capabilities.add("needs_external_delivery");
-    if (promptSuggestsProductionDelivery(params.prompt)) {
-      capabilities.add("needs_high_reliability_provider");
-    }
-    if (promptSuggestsRepoValidation(params.prompt)) {
-      capabilities.add("needs_repo_execution");
-    }
-    if (promptSuggestsLocalRuntime(params.prompt) || promptSuggestsRepoValidation(params.prompt)) {
-      capabilities.add("needs_local_runtime");
-    }
-    if (!promptExplicitlyRequestsRepoEdits(params.prompt)) {
-      capabilities.delete("needs_workspace_mutation");
-    }
+  if (primaryOutcome === "clarification_needed") {
+    interactionMode = "clarify_first";
+  } else if (interactionMode === "clarify_first") {
+    primaryOutcome = "clarification_needed";
   }
 
-  if (originalPrimaryOutcome === "document_extraction" || suggestsExtractionTask) {
-    primaryOutcome = "document_extraction";
+  if (primaryOutcome === "document_package") {
+    interactionMode = "artifact_iteration";
+    capabilities.delete("needs_document_extraction");
+  }
+
+  if (primaryOutcome === "document_extraction") {
     interactionMode = "tool_execution";
     capabilities.add("needs_document_extraction");
+    capabilities.delete("needs_tabular_reasoning");
     capabilities.delete("needs_multimodal_authoring");
     capabilities.delete("needs_visual_composition");
-    capabilities.delete("needs_workspace_mutation");
-    capabilities.delete("needs_repo_execution");
-    capabilities.delete("needs_local_runtime");
-    capabilities.delete("needs_external_delivery");
-    capabilities.delete("needs_high_reliability_provider");
-    capabilities.delete("needs_tabular_reasoning");
   }
 
-  if (originalPrimaryOutcome === "document_package" && !suggestsExtractionTask) {
-    interactionMode = "artifact_iteration";
-    capabilities.delete("needs_workspace_mutation");
-    capabilities.delete("needs_external_delivery");
-    capabilities.delete("needs_high_reliability_provider");
-    if (promptSuggestsVisualArtifact(params.prompt) && !promptSuggestsDocumentAuthoring(params.prompt)) {
-      capabilities.add("needs_visual_composition");
-      capabilities.delete("needs_multimodal_authoring");
-    }
-  }
-
-  if (suggestsVisualAssetGeneration) {
-    primaryOutcome = "document_package";
-    interactionMode = "artifact_iteration";
-    capabilities.add("needs_visual_composition");
-    capabilities.delete("needs_multimodal_authoring");
-    capabilities.delete("needs_document_extraction");
-    capabilities.delete("needs_workspace_mutation");
-    capabilities.delete("needs_repo_execution");
-    capabilities.delete("needs_local_runtime");
-    capabilities.delete("needs_external_delivery");
-    capabilities.delete("needs_high_reliability_provider");
-  }
-
-  if (
-    originalPrimaryOutcome === "comparison_report" &&
-    hasOnlyTabularAttachments &&
-    !capabilities.has("needs_interactive_browser") &&
-    !capabilities.has("needs_web_research") &&
-    !capabilities.has("needs_workspace_mutation") &&
-    !capabilities.has("needs_external_delivery")
-  ) {
-    interactionMode = "respond_only";
-    capabilities.add("needs_tabular_reasoning");
-    capabilities.delete("needs_document_extraction");
-    capabilities.delete("needs_repo_execution");
-    capabilities.delete("needs_local_runtime");
-  }
-
-  if (
-    originalPrimaryOutcome === "workspace_change" &&
-    !suggestsExplicitDelivery &&
-    !suggestsExtractionTask &&
-    !suggestsVisualAssetGeneration &&
-    !suggestsBrowserObservation
-  ) {
+  if (capabilities.has("needs_workspace_mutation") && primaryOutcome !== "external_delivery") {
     primaryOutcome = "workspace_change";
     interactionMode = "tool_execution";
+  }
+
+  if (primaryOutcome === "workspace_change") {
     capabilities.add("needs_workspace_mutation");
-    if (promptSuggestsRepoValidation(params.prompt)) {
-      capabilities.add("needs_repo_execution");
-    }
-    if (promptSuggestsLocalRuntime(params.prompt) || /\blocal validation\b/iu.test(params.prompt)) {
-      capabilities.add("needs_local_runtime");
-    }
-  }
-
-  if (suggestsBrowserObservation) {
-    primaryOutcome = "comparison_report";
     interactionMode = "tool_execution";
-    capabilities.add("needs_interactive_browser");
-    capabilities.delete("needs_workspace_mutation");
-    capabilities.delete("needs_repo_execution");
-    capabilities.delete("needs_local_runtime");
-    capabilities.delete("needs_web_research");
-    capabilities.delete("needs_external_delivery");
-    capabilities.delete("needs_high_reliability_provider");
   }
 
-  if (capabilities.has("needs_workspace_mutation") && originalPrimaryOutcome !== "external_delivery") {
-    primaryOutcome = "workspace_change";
-  }
   if (capabilities.has("needs_interactive_browser")) {
     interactionMode = "tool_execution";
+    if (primaryOutcome === "comparison_report") {
+      capabilities.delete("needs_local_runtime");
+      capabilities.delete("needs_repo_execution");
+    }
     if (primaryOutcome === "answer") {
       primaryOutcome = "comparison_report";
     }
   }
   if (capabilities.has("needs_web_research")) {
     interactionMode = "tool_execution";
+    capabilities.delete("needs_tabular_reasoning");
     if (primaryOutcome === "answer") {
       primaryOutcome = "comparison_report";
     }
@@ -599,12 +438,24 @@ function normalizeTaskContract(params: {
     capabilities.delete("needs_high_reliability_provider");
   }
   if (primaryOutcome === "external_delivery") {
+    capabilities.delete("needs_workspace_mutation");
     capabilities.add("needs_external_delivery");
-  }
-  if (primaryOutcome === "external_delivery" && capabilities.has("needs_high_reliability_provider")) {
-    capabilities.add("needs_external_delivery");
-    primaryOutcome = "external_delivery";
+    if (capabilities.has("needs_local_runtime")) {
+      capabilities.add("needs_high_reliability_provider");
+    }
     interactionMode = "tool_execution";
+  }
+
+  if (
+    (primaryOutcome === "comparison_report" || primaryOutcome === "calculation_result") &&
+    !capabilities.has("needs_interactive_browser") &&
+    !capabilities.has("needs_web_research") &&
+    !capabilities.has("needs_repo_execution") &&
+    !capabilities.has("needs_local_runtime") &&
+    !capabilities.has("needs_external_delivery") &&
+    !capabilities.has("needs_workspace_mutation")
+  ) {
+    interactionMode = "respond_only";
   }
 
   return {
@@ -612,7 +463,18 @@ function normalizeTaskContract(params: {
     primaryOutcome,
     interactionMode,
     requiredCapabilities: normalizeUnique(Array.from(capabilities)),
+    confidence: clampConfidence(contract.confidence),
     ambiguities: normalizeUnique(contract.ambiguities),
+  };
+}
+
+function buildFailClosedTaskContract(reason: string): TaskContract {
+  return {
+    primaryOutcome: "clarification_needed",
+    requiredCapabilities: [],
+    interactionMode: "clarify_first",
+    confidence: 0,
+    ambiguities: [reason],
   };
 }
 
@@ -640,7 +502,13 @@ function taskContractLowConfidenceStrategy(
 
 function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlannerInput {
   const capabilities = new Set(contract.requiredCapabilities);
-  const artifactKinds: string[] = [];
+  const hasVisualComposition = capabilities.has("needs_visual_composition");
+  const hasMultimodalAuthoring = capabilities.has("needs_multimodal_authoring");
+  const isPureVisualArtifact =
+    contract.primaryOutcome === "document_package" &&
+    hasVisualComposition &&
+    !hasMultimodalAuthoring;
+  const artifactKinds: ("document" | "estimate" | "site" | "release" | "binary" | "report" | "video" | "image" | "audio" | "archive" | "data" | "other")[] = [];
   const requestedTools: string[] = [];
   let intent: ResolutionBridgePlannerInput["intent"];
 
@@ -662,8 +530,11 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
       artifactKinds.push("data", "report");
       break;
     case "document_package":
-      intent = "document";
-      artifactKinds.push("document");
+      if (!isPureVisualArtifact) {
+        intent = "document";
+        artifactKinds.push("document");
+      }
+      // For pure visual artifacts, intent remains undefined (no document intent needed)
       break;
     case "document_extraction":
       intent = "document";
@@ -674,10 +545,10 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
       break;
   }
 
-  if (capabilities.has("needs_visual_composition")) {
+  if (hasVisualComposition) {
     artifactKinds.push("image");
   }
-  if (capabilities.has("needs_multimodal_authoring")) {
+  if (hasMultimodalAuthoring) {
     artifactKinds.push("document", "image");
   }
   if (capabilities.has("needs_repo_execution")) {
@@ -697,11 +568,11 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
   }
   if (
     contract.primaryOutcome === "document_package" &&
-    !capabilities.has("needs_visual_composition")
+    !hasVisualComposition
   ) {
     requestedTools.push("pdf");
   }
-  if (capabilities.has("needs_multimodal_authoring") || capabilities.has("needs_visual_composition")) {
+  if (hasMultimodalAuthoring || hasVisualComposition) {
     requestedTools.push("image_generate");
   }
 
@@ -752,7 +623,6 @@ export function buildPlannerInputFromTaskContract(params: {
   );
   const bridge = mapTaskContractToBridge(params.taskContract);
   const resolutionContract = resolveResolutionContract({
-    prompt: params.prompt,
     contractFirst: true,
     ...(fileNames.length > 0 ? { fileNames } : {}),
     ...bridge,
@@ -780,83 +650,6 @@ export function buildPlannerInputFromTaskContract(params: {
   };
 }
 
-function heuristicTaskContract(
-  input: ReturnType<typeof buildExecutionDecisionInput>,
-): TaskContract {
-  const requiredCapabilities: Capability[] = [];
-  const tools = new Set(input.requestedTools ?? []);
-  const artifactKinds = new Set(input.artifactKinds ?? []);
-  const outcome = input.outcomeContract;
-
-  if (input.executionContract?.requiresWorkspaceMutation) {
-    requiredCapabilities.push("needs_workspace_mutation");
-  }
-  if (tools.has("exec")) {
-    requiredCapabilities.push("needs_repo_execution");
-  }
-  if (tools.has("process") || input.executionContract?.requiresLocalProcess) {
-    requiredCapabilities.push("needs_local_runtime");
-  }
-  if (tools.has("browser")) {
-    requiredCapabilities.push("needs_interactive_browser");
-  }
-  if (tools.has("web_search")) {
-    requiredCapabilities.push("needs_web_research");
-  }
-  if (tools.has("pdf") && artifactKinds.has("document") && artifactKinds.has("image")) {
-    requiredCapabilities.push("needs_multimodal_authoring");
-  } else if (tools.has("pdf") && artifactKinds.has("document")) {
-    requiredCapabilities.push("needs_visual_composition");
-  }
-  if (artifactKinds.has("image") && tools.has("image_generate")) {
-    requiredCapabilities.push("needs_visual_composition");
-  }
-  if (
-    input.candidateFamilies?.includes("document_render") &&
-    input.intent === "document" &&
-    (input.fileNames ?? []).some((name) => /\.(pdf|png|jpe?g|webp|gif|tiff?|bmp|heic)$/iu.test(name))
-  ) {
-    requiredCapabilities.push("needs_document_extraction");
-  }
-  if ((input.publishTargets?.length ?? 0) > 0 || outcome === "external_operation") {
-    requiredCapabilities.push("needs_external_delivery");
-  }
-
-  const primaryOutcome: PrimaryOutcome =
-    outcome === "workspace_change"
-      ? "workspace_change"
-      : outcome === "external_operation"
-        ? "external_delivery"
-        : input.intent === "compare"
-          ? "comparison_report"
-          : input.intent === "calculation"
-            ? "calculation_result"
-            : input.intent === "document" && (input.fileNames?.length ?? 0) > 0
-              ? "document_extraction"
-              : input.intent === "document" || artifactKinds.has("document")
-                ? "document_package"
-                : input.lowConfidenceStrategy === "clarify"
-                  ? "clarification_needed"
-                  : "answer";
-
-  const interactionMode: InteractionMode =
-    input.lowConfidenceStrategy === "clarify"
-      ? "clarify_first"
-      : primaryOutcome === "document_package"
-        ? "artifact_iteration"
-        : (input.requestedTools?.length ?? 0) > 0
-          ? "tool_execution"
-          : "respond_only";
-
-  return {
-    primaryOutcome,
-    requiredCapabilities: normalizeUnique(requiredCapabilities),
-    interactionMode,
-    confidence: input.confidence === "high" ? 0.92 : input.confidence === "medium" ? 0.68 : 0.45,
-    ambiguities: normalizeUnique(input.ambiguityReasons ?? []),
-  };
-}
-
 export function resolveTaskClassifierConfig(params: {
   cfg: OpenClawConfig;
 }): ResolvedTaskClassifierConfig {
@@ -867,7 +660,6 @@ export function resolveTaskClassifierConfig(params: {
     model: classifierConfig?.model?.trim() || DEFAULT_TASK_CLASSIFIER_MODEL,
     timeoutMs: classifierConfig?.timeoutMs ?? DEFAULT_TASK_CLASSIFIER_TIMEOUT_MS,
     maxTokens: classifierConfig?.maxTokens ?? DEFAULT_TASK_CLASSIFIER_MAX_TOKENS,
-    allowHeuristicFallback: classifierConfig?.allowHeuristicFallback !== false,
   };
 }
 
@@ -912,7 +704,7 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
       const result = await completeSimple(
         model,
         {
-          system: TASK_CLASSIFIER_SYSTEM_PROMPT,
+          systemPrompt: TASK_CLASSIFIER_SYSTEM_PROMPT,
           messages: [
             {
               role: "user",
@@ -946,18 +738,14 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
         parseErrorMessage: parsed.parseErrorMessage,
       });
       if (parsed.taskContract) {
-        return normalizeTaskContract({
-          contract: parsed.taskContract,
-          prompt: params.prompt,
-          fileNames: params.fileNames,
-        });
+        return normalizeTaskContract(parsed.taskContract);
       }
       const retryableParseFailure = parsed.parseResult !== "ok";
       if (retryableParseFailure) {
         const retryResult = await completeSimple(
           model,
           {
-            system: TASK_CLASSIFIER_SYSTEM_PROMPT,
+            systemPrompt: TASK_CLASSIFIER_SYSTEM_PROMPT,
             messages: [
               {
                 role: "user",
@@ -990,19 +778,33 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
           parseResult: retryParsed.parseResult,
           parseErrorMessage: retryParsed.parseErrorMessage,
         });
-        return retryParsed.taskContract
-          ? normalizeTaskContract({
-              contract: retryParsed.taskContract,
-              prompt: params.prompt,
-              fileNames: params.fileNames,
-            })
-          : null;
+        return retryParsed.taskContract ? normalizeTaskContract(retryParsed.taskContract) : null;
       }
       return null;
     } finally {
       clearTimeout(timeout);
     }
   }
+}
+
+function buildFailClosedResolution(params: {
+  prompt: string;
+  fileNames?: string[];
+  reason: string;
+}): ClassifiedTaskResolution {
+  const taskContract = buildFailClosedTaskContract(params.reason);
+  const plannerInput = buildPlannerInputFromTaskContract({
+    prompt: params.prompt,
+    fileNames: params.fileNames,
+    taskContract,
+  });
+  return {
+    source: "fail_closed",
+    taskContract,
+    plannerInput,
+    resolutionContract: plannerInput.resolutionContract!,
+    candidateFamilies: plannerInput.candidateFamilies ?? [],
+  };
 }
 
 export function resolveTaskClassifierAdapter(
@@ -1027,55 +829,40 @@ export async function classifyTaskForDecision(params: {
   adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
   onDebugEvent?: (event: TaskClassifierDebugEvent) => void;
 }): Promise<ClassifiedTaskResolution> {
-  const baseInput = params.input ?? buildExecutionDecisionInput({
-    prompt: params.prompt,
-    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
-  });
-  const normalizedHeuristicTaskContract = normalizeTaskContract({
-    contract: heuristicTaskContract(baseInput),
-    prompt: params.prompt,
-    fileNames: params.fileNames,
-  });
   const classifierConfig = resolveTaskClassifierConfig({ cfg: params.cfg });
   if (!classifierConfig.enabled) {
     emitDebugEvent(params.onDebugEvent, {
       stage: "disabled",
       backend: classifierConfig.backend,
       configuredModel: classifierConfig.model,
-      message: "classifier disabled; using heuristic path",
+      message: "classifier disabled; returning fail-closed clarification contract",
     });
-    const taskContract = normalizedHeuristicTaskContract;
-    const plannerInput = buildPlannerInputFromTaskContract({
+    return buildFailClosedResolution({
       prompt: params.prompt,
       fileNames: params.fileNames,
-      taskContract,
+      reason: FAIL_CLOSED_REASON,
     });
-    return {
-      source: "heuristic",
-      taskContract,
-      plannerInput,
-      resolutionContract: plannerInput.resolutionContract!,
-      candidateFamilies: plannerInput.candidateFamilies ?? [],
-    };
   }
   const adapter = resolveTaskClassifierAdapter(classifierConfig.backend, params.adapterRegistry);
   if (!adapter) {
-    const error = new Error(
-      `task-classifier: unknown backend "${classifierConfig.backend}"`,
-    );
+    const error = new Error(`task-classifier: unknown backend "${classifierConfig.backend}"`);
     emitDebugEvent(params.onDebugEvent, {
       stage: "unknown_backend",
       backend: classifierConfig.backend,
       configuredModel: classifierConfig.model,
       message: error.message,
     });
-    if (!classifierConfig.allowHeuristicFallback) {
-      throw error;
-    }
     log.warn(error.message);
+    return buildFailClosedResolution({
+      prompt: params.prompt,
+      fileNames: params.fileNames,
+      reason: FAIL_CLOSED_REASON,
+    });
   }
-  try {
-    if (adapter) {
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
       const classified = await adapter.classify({
         prompt: params.prompt,
         fileNames: params.fileNames ?? [],
@@ -1085,11 +872,7 @@ export async function classifyTaskForDecision(params: {
         onDebugEvent: params.onDebugEvent,
       });
       if (classified) {
-        const normalizedContract = normalizeTaskContract({
-          contract: classified,
-          prompt: params.prompt,
-          fileNames: params.fileNames,
-        });
+        const normalizedContract = normalizeTaskContract(classified);
         const plannerInput = buildPlannerInputFromTaskContract({
           prompt: params.prompt,
           fileNames: params.fileNames,
@@ -1107,35 +890,38 @@ export async function classifyTaskForDecision(params: {
         stage: "fallback",
         backend: classifierConfig.backend,
         configuredModel: classifierConfig.model,
-        message: "adapter returned null; using heuristic fallback",
+        message: "classifier returned no valid contract; returning fail-closed clarification contract",
       });
-    }
-  } catch (error) {
-    emitDebugEvent(params.onDebugEvent, {
-      stage: "fallback",
-      backend: classifierConfig.backend,
-      configuredModel: classifierConfig.model,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    log.warn(
-      `task-classifier: falling back to heuristics (${error instanceof Error ? error.message : String(error)})`,
-    );
-    if (!classifierConfig.allowHeuristicFallback) {
-      throw error;
+      return buildFailClosedResolution({
+        prompt: params.prompt,
+        fileNames: params.fileNames,
+        reason: FAIL_CLOSED_REASON,
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) {
+        emitDebugEvent(params.onDebugEvent, {
+          stage: "fallback",
+          backend: classifierConfig.backend,
+          configuredModel: classifierConfig.model,
+          message: `classifier attempt ${attempt} failed; retrying once (${error instanceof Error ? error.message : String(error)})`,
+        });
+        continue;
+      }
     }
   }
-
-  const taskContract = normalizedHeuristicTaskContract;
-  const plannerInput = buildPlannerInputFromTaskContract({
-    prompt: params.prompt,
-    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
-    taskContract,
+  emitDebugEvent(params.onDebugEvent, {
+    stage: "fallback",
+    backend: classifierConfig.backend,
+    configuredModel: classifierConfig.model,
+    message: `classifier failed after retry; returning fail-closed clarification contract (${lastError instanceof Error ? lastError.message : String(lastError)})`,
   });
-  return {
-    source: "heuristic",
-    taskContract,
-    plannerInput,
-    resolutionContract: plannerInput.resolutionContract!,
-    candidateFamilies: plannerInput.candidateFamilies ?? [],
-  };
+  log.warn(
+    `task-classifier: fail-closed after retry (${lastError instanceof Error ? lastError.message : String(lastError)})`,
+  );
+  return buildFailClosedResolution({
+    prompt: params.prompt,
+    fileNames: params.fileNames,
+    reason: FAIL_CLOSED_REASON,
+  });
 }

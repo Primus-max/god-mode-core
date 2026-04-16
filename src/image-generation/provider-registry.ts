@@ -4,8 +4,15 @@ import { isBlockedObjectKey } from "../infra/prototype-keys.js";
 import { loadOpenClawPlugins } from "../plugins/loader.js";
 import { getActivePluginRegistry, getActivePluginRegistryKey } from "../plugins/runtime.js";
 import type { ImageGenerationProviderPlugin } from "../plugins/types.js";
+import {
+  buildHydraImageGenerationProvider,
+  buildOpenAIImageGenerationProvider,
+} from "../../extensions/openai/image-generation-provider.js";
 
-const BUILTIN_IMAGE_GENERATION_PROVIDERS: readonly ImageGenerationProviderPlugin[] = [];
+const BUILTIN_IMAGE_GENERATION_PROVIDERS: readonly ImageGenerationProviderPlugin[] = [
+  buildOpenAIImageGenerationProvider(),
+  buildHydraImageGenerationProvider(),
+];
 const UNSAFE_PROVIDER_IDS = new Set(["__proto__", "constructor", "prototype"]);
 
 function normalizeImageGenerationProviderId(id: string | undefined): string | undefined {
@@ -52,8 +59,10 @@ function buildProviderMaps(cfg?: OpenClawConfig): {
     }
   };
 
-  for (const provider of BUILTIN_IMAGE_GENERATION_PROVIDERS) {
-    register(provider);
+  if (cfg) {
+    for (const provider of BUILTIN_IMAGE_GENERATION_PROVIDERS) {
+      register(provider);
+    }
   }
   for (const provider of resolvePluginImageGenerationProviders(cfg)) {
     register(provider);
