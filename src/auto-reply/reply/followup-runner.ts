@@ -221,7 +221,7 @@ export function createFollowupRunner(params: {
         Provider: queued.run.messageProvider,
         Surface: queued.originatingChannel ?? queued.run.messageProvider,
       } as const;
-      const routingSnapshot = resolveRoutingSnapshotForTemplateRun({
+      const routingSnapshot = await resolveRoutingSnapshotForTemplateRun({
         prompt: queued.prompt,
         run: queued.run,
         sessionCtx: syntheticSessionCtx,

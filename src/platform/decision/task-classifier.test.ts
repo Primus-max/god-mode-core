@@ -876,4 +876,64 @@ describe("contract-first task contract routing", () => {
       expect.arrayContaining(["apply_patch", "exec", "process"]),
     );
   });
+
+  it("maps multimodal document packages to both pdf and image generation with structured evidence", () => {
+    const taskContract: TaskContract = {
+      primaryOutcome: "document_package",
+      requiredCapabilities: ["needs_multimodal_authoring"],
+      interactionMode: "artifact_iteration",
+      confidence: 0.95,
+      ambiguities: [],
+    };
+
+    const plannerInput = buildPlannerInputFromTaskContract({
+      prompt: "Сделай PDF-отчёт с инфографикой и парой поддерживающих картинок.",
+      taskContract,
+    });
+
+    expect(plannerInput.contractFirst).toBe(true);
+    expect(plannerInput.artifactKinds).toEqual(["document", "image"]);
+    expect(plannerInput.requestedTools).toEqual(expect.arrayContaining(["pdf", "image_generate"]));
+    expect(plannerInput.outcomeContract).toBe("structured_artifact");
+    expect(plannerInput.executionContract).toEqual(
+      expect.objectContaining({
+        requiresTools: true,
+        requiresArtifactEvidence: true,
+      }),
+    );
+  });
+
+  it("preserves site artifacts as interactive local results instead of structured documents", () => {
+    const plannerInput = buildPlannerInputFromTaskContract({
+      prompt: "Сделай локальный сайт и оставь рабочий preview.",
+      taskContract: {
+        primaryOutcome: "workspace_change",
+        requiredCapabilities: [
+          "needs_workspace_mutation",
+          "needs_repo_execution",
+          "needs_local_runtime",
+        ],
+        interactionMode: "tool_execution",
+        confidence: 0.91,
+        ambiguities: [],
+      },
+    });
+
+    const runtime = resolvePlatformRuntimePlan({
+      ...plannerInput,
+      artifactKinds: ["site"],
+      outcomeContract: "interactive_local_result",
+      executionContract: {
+        ...plannerInput.executionContract,
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+      },
+    });
+
+    expect(runtime.runtime.outcomeContract).toBe("interactive_local_result");
+    expect(runtime.runtime.requestedToolNames).toEqual(
+      expect.arrayContaining(["apply_patch", "exec", "process"]),
+    );
+  });
 });

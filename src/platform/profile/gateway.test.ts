@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionEntry } from "../../config/sessions.js";
 
+const hoisted = vi.hoisted(() => ({
+  classifyTaskForDecisionMock: vi.fn(),
+  loadConfigMock: vi.fn(() => ({ models: { providers: {} } })),
+}));
+
 async function loadGatewayMethod(entry?: SessionEntry) {
   vi.doMock("../../gateway/session-entry.js", () => ({
     loadSessionEntry: vi.fn(() => ({
@@ -11,6 +16,12 @@ async function loadGatewayMethod(entry?: SessionEntry) {
   vi.doMock("../../gateway/session-utils.fs.js", () => ({
     readSessionMessages: vi.fn(() => []),
   }));
+  vi.doMock("../../config/config.js", () => ({
+    loadConfig: (...args: unknown[]) => hoisted.loadConfigMock(...args),
+  }));
+  vi.doMock("../decision/task-classifier.js", () => ({
+    classifyTaskForDecision: (...args: unknown[]) => hoisted.classifyTaskForDecisionMock(...args),
+  }));
   const mod = await import("./gateway.js");
   return mod.createProfileResolveGatewayMethod();
 }
@@ -19,6 +30,59 @@ describe("profile gateway method", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    hoisted.classifyTaskForDecisionMock.mockReset();
+    hoisted.loadConfigMock.mockClear();
+    hoisted.classifyTaskForDecisionMock.mockResolvedValue({
+      source: "llm",
+      taskContract: {
+        primaryOutcome: "workspace_change",
+        requiredCapabilities: [
+          "needs_workspace_mutation",
+          "needs_repo_execution",
+          "needs_local_runtime",
+        ],
+        interactionMode: "tool_execution",
+        confidence: 0.95,
+        ambiguities: [],
+      },
+      plannerInput: {
+        prompt: "Review this TypeScript repo, run tests if needed, and prepare a GitHub release.",
+        contractFirst: true,
+        intent: "code",
+        requestedTools: ["apply_patch", "exec", "process"],
+        artifactKinds: ["binary"],
+        outcomeContract: "workspace_change",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: true,
+          requiresLocalProcess: true,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: true,
+        },
+        requestedEvidence: ["tool_receipt"],
+        confidence: "high",
+        ambiguityReasons: [],
+        candidateFamilies: ["code_build"],
+        resolutionContract: {
+          selectedFamily: "code_build",
+          candidateFamilies: ["code_build"],
+          toolBundles: ["repo_mutation", "repo_run"],
+          routing: {
+            localEligible: false,
+            remoteProfile: "code",
+            preferRemoteFirst: false,
+            needsVision: false,
+          },
+        },
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: false,
+          needsVision: false,
+        },
+      },
+    });
   });
 
   it("resolves a specialist runtime snapshot from the current draft", async () => {

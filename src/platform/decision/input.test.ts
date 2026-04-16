@@ -1,13 +1,15 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { OpenClawConfig } from "../../config/config.js";
 import { resolveSessionTranscriptPathInDir } from "../../config/sessions/paths.js";
 import { planExecutionRecipe } from "../recipe/planner.js";
 import { adaptExecutionPlanToRuntime } from "../recipe/runtime-adapter.js";
 import {
   buildExecutionDecisionInput,
   buildExecutionDecisionInputFromRuntimePlan,
+  buildClassifiedExecutionDecisionInput,
   buildSessionBackedExecutionDecisionInput,
   shouldUseLightweightBootstrapContext,
 } from "./input.js";
@@ -128,6 +130,80 @@ describe("buildSessionBackedExecutionDecisionInput", () => {
     expect(routed.artifactKinds ?? []).toEqual([]);
     expect(routed.routing?.localEligible).toBe(true);
     expect(routed.routing?.remoteProfile).toBe("cheap");
+  });
+
+  it("anchors classified routing on the live draft instead of startup or recovery transcript noise", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-decision-input-"));
+    const storePath = path.join(tempDir, "sessions.json");
+    const transcriptPath = resolveSessionTranscriptPathInDir("session-draft-first", tempDir);
+    await fs.writeFile(
+      transcriptPath,
+      [
+        {
+          id: "msg-1",
+          message: {
+            role: "user",
+            content:
+              "A new session was started via /new or /reset. Run your Session Startup sequence before replying.",
+          },
+        },
+        {
+          id: "msg-2",
+          message: {
+            role: "user",
+            content:
+              "The previous run did not satisfy the task well enough. Continue the same task and return only the final completed result.",
+          },
+        },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join("\n") + "\n",
+      "utf8",
+    );
+
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classify = vi.fn().mockResolvedValue({
+      primaryOutcome: "document_package",
+      requiredCapabilities: ["needs_visual_composition"],
+      interactionMode: "artifact_iteration",
+      confidence: 0.93,
+      ambiguities: [],
+    });
+
+    const plannerInput = await buildClassifiedExecutionDecisionInput({
+      prompt: "Сгенерируй яркую cartoon-картинку банана без уточняющих вопросов.",
+      storePath,
+      sessionEntry: {
+        sessionId: "session-draft-first",
+        sessionFile: "session-draft-first.jsonl",
+      },
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify,
+        },
+      },
+    });
+
+    expect(classify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "Сгенерируй яркую cartoon-картинку банана без уточняющих вопросов.",
+      }),
+    );
+    expect(plannerInput.requestedTools).toEqual(["image_generate"]);
+    expect(plannerInput.artifactKinds).toEqual(["image"]);
+    expect(plannerInput.resolutionContract?.selectedFamily).toBe("media_generation");
   });
 
   it("keeps short chat prompts local-eligible even inside runtime prepend context", () => {

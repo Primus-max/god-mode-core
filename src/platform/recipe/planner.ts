@@ -154,6 +154,16 @@ function executionContractAllowsRecipe(
     return recipe.id === "general_reasoning";
   }
 
+  if (recipe.id === "general_reasoning") {
+    return (
+      executionContract.requiresTools !== true &&
+      executionContract.requiresArtifactEvidence !== true &&
+      executionContract.requiresWorkspaceMutation !== true &&
+      executionContract.requiresLocalProcess !== true &&
+      executionContract.requiresDeliveryEvidence !== true
+    );
+  }
+
   if (
     executionContract.requiresWorkspaceMutation ||
     executionContract.requiresLocalProcess
@@ -734,8 +744,41 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
   if (input.contractFirst === true && contractSelection.recipes.length === 0) {
     const fallbackRecipe =
       selectContractFallbackRecipe({ candidateRecipes, input }) ??
-      getInitialRecipe("general_reasoning") ??
-      INITIAL_RECIPES[0];
+      (input.executionContract?.requiresTools ||
+      input.executionContract?.requiresArtifactEvidence ||
+      input.executionContract?.requiresWorkspaceMutation ||
+      input.executionContract?.requiresLocalProcess ||
+      input.executionContract?.requiresDeliveryEvidence
+        ? undefined
+        : getInitialRecipe("general_reasoning") ?? INITIAL_RECIPES[0]);
+    if (!fallbackRecipe) {
+      const selectedRecipe = getInitialRecipe("general_reasoning") ?? INITIAL_RECIPES[0];
+      const selectedModelOverride = resolvePlannerModelOverride({
+        recipe: selectedRecipe,
+        profile,
+      });
+      const plannerOutput = PlannerOutputSchema.parse({
+        selectedRecipeId: selectedRecipe.id,
+        reasoning: [
+          "Contract-first routing found no recipe that satisfies the declared execution contract.",
+          "Failing closed to clarification instead of widening into legacy general routing.",
+          input.confidence ? `Qualification confidence: ${input.confidence}.` : undefined,
+          input.ambiguityReasons?.length
+            ? `Ambiguity: ${input.ambiguityReasons.join("; ")}.`
+            : undefined,
+          "Low-confidence strategy: clarify.",
+        ]
+          .filter(Boolean)
+          .join(" "),
+        ...(selectedModelOverride ? { overrides: { model: selectedModelOverride } } : {}),
+      });
+      return {
+        profile,
+        recipe: selectedRecipe,
+        plannerOutput,
+        candidateRecipes,
+      };
+    }
     const fallbackModelOverride = resolvePlannerModelOverride({
       recipe: fallbackRecipe,
       profile,

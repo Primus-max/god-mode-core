@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../config/config.js";
+import { Type } from "@sinclair/typebox";
 import { getInitialProfile } from "../platform/profile/defaults.js";
 import { resolvePluginTools } from "../plugins/tools.js";
 import { getActiveRuntimeWebToolsMetadata } from "../secrets/runtime.js";
@@ -184,17 +185,36 @@ export function createOpenClawTools(
     sandbox,
     fsPolicy: options?.fsPolicy,
   });
-  const pdfTool = options?.agentDir?.trim()
-    ? createPdfTool({
+  const pdfTool = (() => {
+    try {
+      return createPdfTool({
         config: effectiveConfig,
-        agentDir: options.agentDir,
+        agentDir: options?.agentDir,
         runId: options?.runId,
         onYield: options?.onYield,
         workspaceDir,
         sandbox,
         fsPolicy: options?.fsPolicy,
-      })
-    : null;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/requires agentDir/i.test(message)) {
+        return {
+          label: "PDF",
+          name: "pdf",
+          description:
+            "PDF generation and analysis tool. Fails closed when runtime agentDir is unavailable.",
+          parameters: Type.Object({}, { additionalProperties: true }),
+          execute: async () => {
+            throw new Error(
+              "PDF tool unavailable: runtime agentDir is missing, so the requested PDF capability cannot execute in this turn.",
+            );
+          },
+        } satisfies AnyAgentTool;
+      }
+      throw error;
+    }
+  })();
   const webSearchTool = createWebSearchTool({
     config: effectiveConfig,
     sandboxed: options?.sandboxed,

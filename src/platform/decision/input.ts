@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { SessionEntry } from "../../config/sessions.js";
+import type { OpenClawConfig } from "../../config/config.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
@@ -10,6 +11,10 @@ import {
   type ResolvedPlatformRuntimePlan,
   type ResolvePlatformExecutionDecisionOptions,
 } from "../recipe/runtime-adapter.js";
+import {
+  classifyTaskForDecision,
+  type TaskClassifierAdapter,
+} from "./task-classifier.js";
 import { inferCandidateExecutionFamilies } from "./family-candidates.js";
 import { computeQualificationConfidence } from "./qualification-confidence.js";
 import {
@@ -230,6 +235,80 @@ export function resolveSessionBackedExecutionRuntimePlan(
   params: BuildSessionBackedExecutionDecisionInputParams,
 ): ResolvedPlatformRuntimePlan {
   return resolveExecutionRuntimePlan(buildSessionBackedExecutionDecisionInput(params));
+}
+
+export async function buildClassifiedExecutionDecisionInput(params: {
+  prompt: string;
+  fileNames?: string[];
+  channelHints?: DecisionInputChannelHints;
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
+  > | null;
+  storePath?: string;
+  cfg: OpenClawConfig;
+  agentDir?: string;
+  adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
+}): Promise<RecipePlannerInput> {
+  const classifierInput = buildSessionBackedExecutionDecisionInput({
+    draftPrompt: params.prompt,
+    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+    storePath: params.storePath,
+    ...(params.channelHints ? { channelHints: params.channelHints } : {}),
+    ...(params.sessionEntry ? { sessionEntry: params.sessionEntry } : {}),
+  });
+  const classifierPrompt = params.prompt.trim() || classifierInput.prompt;
+  const classified = await classifyTaskForDecision({
+    prompt: classifierPrompt,
+    fileNames: classifierInput.fileNames,
+    cfg: params.cfg,
+    agentDir: params.agentDir,
+    input: classifierInput,
+    adapterRegistry: params.adapterRegistry,
+  });
+  return applySessionSpecialistOverrideToPlannerInput(
+    {
+      ...classified.plannerInput,
+      ...(classifierInput.integrations?.length
+        ? { integrations: classifierInput.integrations }
+        : {}),
+    },
+    params.sessionEntry,
+  );
+}
+
+export async function resolveClassifiedSessionBackedExecutionRuntimePlan(params: {
+  draftPrompt?: string;
+  fileNames?: string[];
+  channelHints?: DecisionInputChannelHints;
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
+  > | null;
+  storePath?: string;
+  cfg: OpenClawConfig;
+  agentDir?: string;
+  adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
+}): Promise<ResolvedPlatformRuntimePlan> {
+  const plannerInput = await buildClassifiedExecutionDecisionInput({
+    prompt: params.draftPrompt ?? "",
+    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+    ...(params.channelHints ? { channelHints: params.channelHints } : {}),
+    ...(params.sessionEntry ? { sessionEntry: params.sessionEntry } : {}),
+    storePath: params.storePath,
+    cfg: params.cfg,
+    agentDir: params.agentDir,
+    adapterRegistry: params.adapterRegistry,
+  });
+  return resolvePlatformRuntimePlan(plannerInput);
 }
 
 function extractTranscriptUserText(content: unknown): string | undefined {

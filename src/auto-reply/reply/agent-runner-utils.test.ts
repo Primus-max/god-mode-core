@@ -7,13 +7,25 @@ import type { FollowupRun } from "./queue.js";
 
 const hoisted = vi.hoisted(() => {
   const resolveRunModelFallbacksOverrideMock = vi.fn();
-  return { resolveRunModelFallbacksOverrideMock };
+  const buildClassifiedExecutionDecisionInputMock = vi.fn();
+  return { resolveRunModelFallbacksOverrideMock, buildClassifiedExecutionDecisionInputMock };
 });
 
 vi.mock("../../agents/agent-scope.js", () => ({
   resolveRunModelFallbacksOverride: (...args: unknown[]) =>
     hoisted.resolveRunModelFallbacksOverrideMock(...args),
 }));
+
+vi.mock("../../platform/decision/input.js", async () => {
+  const actual = await vi.importActual<typeof import("../../platform/decision/input.js")>(
+    "../../platform/decision/input.js",
+  );
+  return {
+    ...actual,
+    buildClassifiedExecutionDecisionInput: (...args: unknown[]) =>
+      hoisted.buildClassifiedExecutionDecisionInputMock(...args),
+  };
+});
 
 const {
   buildThreadingToolContext,
@@ -52,6 +64,101 @@ function makeRun(overrides: Partial<FollowupRun["run"]> = {}): FollowupRun["run"
 describe("agent-runner-utils", () => {
   beforeEach(() => {
     hoisted.resolveRunModelFallbacksOverrideMock.mockClear();
+    hoisted.buildClassifiedExecutionDecisionInputMock.mockReset();
+    hoisted.buildClassifiedExecutionDecisionInputMock.mockImplementation(async (params?: unknown) => {
+      const prompt =
+        params && typeof params === "object" && "prompt" in params
+          ? String((params as { prompt?: unknown }).prompt ?? "")
+          : "";
+      const channelHints =
+        params && typeof params === "object" && "channelHints" in params
+          ? ((params as { channelHints?: { messageChannel?: string; channel?: string } }).channelHints ??
+            {})
+          : {};
+      const wantsCodeFlow = /build|publish|release|ship|patch|ci failure|repo/i.test(prompt);
+      return {
+        ...(wantsCodeFlow
+          ? {
+              prompt,
+              contractFirst: true,
+              intent: "publish",
+              requestedTools: ["apply_patch", "exec", "process"],
+              artifactKinds: ["binary", "release"],
+              publishTargets: ["external"],
+              integrations: [channelHints.messageChannel, channelHints.channel].filter(
+                (value): value is string => Boolean(value),
+              ),
+              outcomeContract: "external_operation",
+              executionContract: {
+                requiresTools: true,
+                requiresWorkspaceMutation: true,
+                requiresLocalProcess: true,
+                requiresArtifactEvidence: false,
+                requiresDeliveryEvidence: true,
+                mayNeedBootstrap: true,
+              },
+              requestedEvidence: ["tool_receipt", "delivery_receipt"],
+              confidence: "high",
+              ambiguityReasons: [],
+              candidateFamilies: ["ops_execution"],
+              resolutionContract: {
+                selectedFamily: "code_build",
+                candidateFamilies: ["code_build", "ops_execution"],
+                toolBundles: ["repo_mutation", "repo_run", "external_delivery"],
+                routing: {
+                  localEligible: false,
+                  remoteProfile: "code",
+                  preferRemoteFirst: true,
+                  needsVision: false,
+                },
+              },
+              routing: {
+                localEligible: false,
+                remoteProfile: "code",
+                preferRemoteFirst: true,
+                needsVision: false,
+              },
+            }
+          : {
+              prompt,
+              contractFirst: true,
+              intent: "general",
+              integrations: [channelHints.messageChannel, channelHints.channel].filter(
+                (value): value is string => Boolean(value),
+              ),
+              outcomeContract: "text_response",
+              executionContract: {
+                requiresTools: false,
+                requiresWorkspaceMutation: false,
+                requiresLocalProcess: false,
+                requiresArtifactEvidence: false,
+                requiresDeliveryEvidence: false,
+                mayNeedBootstrap: false,
+              },
+              requestedEvidence: ["assistant_text"],
+              confidence: "high",
+              ambiguityReasons: [],
+              candidateFamilies: ["general_assistant"],
+              resolutionContract: {
+                selectedFamily: "general_assistant",
+                candidateFamilies: ["general_assistant"],
+                toolBundles: ["respond_only"],
+                routing: {
+                  localEligible: true,
+                  remoteProfile: "cheap",
+                  preferRemoteFirst: false,
+                  needsVision: false,
+                },
+              },
+              routing: {
+                localEligible: true,
+                remoteProfile: "cheap",
+                preferRemoteFirst: false,
+                needsVision: false,
+              },
+            }),
+      };
+    });
   });
 
   it("resolves model fallback options from run context", () => {
@@ -244,10 +351,10 @@ describe("agent-runner-utils", () => {
     });
   });
 
-  it("resolves a frozen platform execution context for template runs", () => {
+  it("resolves a frozen platform execution context for template runs", async () => {
     const run = makeRun({ messageProvider: "telegram" });
 
-    const resolved = resolvePlatformExecutionContextForTemplateRun({
+    const resolved = await resolvePlatformExecutionContextForTemplateRun({
       prompt: "Build the repo and publish the release to GitHub",
       run,
       sessionCtx: {
@@ -267,10 +374,10 @@ describe("agent-runner-utils", () => {
     expect(resolved.requestedToolNames).toEqual(expect.arrayContaining(["exec", "process"]));
   });
 
-  it("builds a unified routing snapshot for template runs", () => {
+  it("builds a unified routing snapshot for template runs", async () => {
     const run = makeRun({ messageProvider: "telegram" });
 
-    const resolved = resolveRoutingSnapshotForTemplateRun({
+    const resolved = await resolveRoutingSnapshotForTemplateRun({
       prompt: "Build the repo and publish the release to GitHub",
       run,
       sessionCtx: {
@@ -317,7 +424,7 @@ describe("agent-runner-utils", () => {
     );
     const run = makeRun({ messageProvider: "telegram" });
 
-    const resolved = resolvePlatformExecutionContextForTemplateRun({
+    const resolved = await resolvePlatformExecutionContextForTemplateRun({
       prompt: "Then ship the patch.",
       run,
       sessionCtx: {

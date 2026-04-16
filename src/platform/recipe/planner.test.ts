@@ -230,6 +230,66 @@ describe("planExecutionRecipe", () => {
     expect(plan.recipe.id).toBe("ops_orchestration");
   });
 
+  it("keeps browser-observation contracts out of general_reasoning", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Open the local app in a browser, inspect the signup flow, and report visible issues.",
+      contractFirst: true,
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "general_assistant",
+        candidateFamilies: ["general_assistant"],
+        toolBundles: ["interactive_browser"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: true,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).not.toBe("general_reasoning");
+  });
+
+  it("keeps public-web research contracts analytical instead of artifact-authoring", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Research current public GPU pricing and summarize the best options.",
+      contractFirst: true,
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["public_web_lookup"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(["table_compare", "calculation_report", "general_reasoning"]).toContain(plan.recipe.id);
+    expect(plan.recipe.id).not.toBe("doc_authoring");
+    expect(plan.recipe.id).not.toBe("media_production");
+  });
+
   it("selects media_production for multimodal media contracts", () => {
     const plan = planExecutionRecipe({
       prompt: "Generate a thumbnail image, caption the audio track, and package the media output",

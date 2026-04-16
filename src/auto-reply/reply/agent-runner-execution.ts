@@ -118,7 +118,7 @@ export async function runAgentTurnWithFallback(params: {
       ? params.opts.runId.trim()
       : undefined) ??
     runId;
-  const routingSnapshot = resolveRoutingSnapshotForTemplateRun({
+  const routingSnapshot = await resolveRoutingSnapshotForTemplateRun({
     prompt: params.commandBody,
     run: params.followupRun.run,
     sessionCtx: params.sessionCtx,

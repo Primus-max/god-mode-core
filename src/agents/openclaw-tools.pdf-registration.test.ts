@@ -55,4 +55,27 @@ describe("createOpenClawTools PDF registration", () => {
       expect(tools.some((tool) => tool.name === "pdf")).toBe(true);
     });
   });
+
+  it("keeps pdf tool visible without agentDir and fails closed on invoke", async () => {
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaults: {
+          pdfModel: { primary: "openai/gpt-5-mini" },
+        },
+      },
+    };
+
+    const pdfTool = createOpenClawTools({ config: cfg }).find((tool) => tool.name === "pdf");
+    expect(pdfTool).toBeDefined();
+    if (!pdfTool) {
+      throw new Error("expected pdf tool");
+    }
+
+    await expect(
+      pdfTool.execute("call-missing-agentdir", {
+        prompt: "Create a one-page PDF.",
+        filename: "test.pdf",
+      }),
+    ).rejects.toThrow(/runtime agentDir is missing/i);
+  });
 });

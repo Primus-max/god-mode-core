@@ -568,7 +568,7 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
   }
   if (
     contract.primaryOutcome === "document_package" &&
-    !hasVisualComposition
+    (!hasVisualComposition || hasMultimodalAuthoring)
   ) {
     requestedTools.push("pdf");
   }
@@ -576,16 +576,34 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
     requestedTools.push("image_generate");
   }
 
+  const normalizedArtifactKinds = normalizeUnique(artifactKinds);
+  const normalizedRequestedTools = normalizeUnique(requestedTools);
+  const hasStructuredArtifact =
+    normalizedArtifactKinds.includes("document") ||
+    normalizedArtifactKinds.includes("estimate") ||
+    normalizedArtifactKinds.includes("image") ||
+    normalizedArtifactKinds.includes("video") ||
+    normalizedArtifactKinds.includes("audio") ||
+    normalizedArtifactKinds.includes("archive");
+  const requiresTools =
+    normalizedRequestedTools.length > 0 ||
+    contract.interactionMode === "tool_execution" ||
+    contract.interactionMode === "artifact_iteration";
+
   return {
     intent,
-    artifactKinds: normalizeUnique(artifactKinds),
-    requestedTools: normalizeUnique(requestedTools),
+    artifactKinds: normalizedArtifactKinds,
+    requestedTools: normalizedRequestedTools,
     publishTargets: capabilities.has("needs_external_delivery") ? ["external"] : [],
     outcomeContract:
       contract.primaryOutcome === "workspace_change"
         ? "workspace_change"
         : contract.primaryOutcome === "external_delivery"
           ? "external_operation"
+          : normalizedArtifactKinds.includes("site")
+            ? "interactive_local_result"
+            : hasStructuredArtifact
+              ? "structured_artifact"
           : contract.primaryOutcome === "comparison_report" ||
               contract.primaryOutcome === "calculation_result" ||
               contract.primaryOutcome === "answer" ||
@@ -593,8 +611,7 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
             ? "text_response"
             : "structured_artifact",
     executionContract: {
-      requiresTools:
-        contract.interactionMode === "tool_execution" || contract.interactionMode === "artifact_iteration",
+      requiresTools,
       requiresWorkspaceMutation: capabilities.has("needs_workspace_mutation"),
       requiresLocalProcess: capabilities.has("needs_local_runtime"),
       requiresArtifactEvidence:

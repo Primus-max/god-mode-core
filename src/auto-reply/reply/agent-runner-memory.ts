@@ -508,7 +508,7 @@ export async function runMemoryFlushIfNeeded(params: {
     cfg: params.cfg,
     nowMs: memoryFlushNowMs,
   });
-  const platformExecutionContext = resolvePlatformExecutionContextForTemplateRun({
+  const platformExecutionContext = await resolvePlatformExecutionContextForTemplateRun({
     prompt: memoryFlushPrompt,
     run: params.followupRun.run,
     sessionCtx: params.sessionCtx,

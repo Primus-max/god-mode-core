@@ -5,8 +5,7 @@ import { normalizeAnyChannelId, normalizeChannelId } from "../../channels/regist
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import {
-  buildExecutionDecisionInput,
-  buildSessionBackedExecutionDecisionInput,
+  buildClassifiedExecutionDecisionInput,
   shouldUseLightweightBootstrapContext,
 } from "../../platform/decision/input.js";
 import type { RoutePreflightMode } from "../../platform/decision/route-preflight.js";
@@ -276,7 +275,7 @@ export function resolveRoutingChannelHintsForTemplateRun(params: {
   };
 }
 
-export function resolveRoutingSnapshotForTemplateRun(params: {
+export async function resolveRoutingSnapshotForTemplateRun(params: {
   prompt: string;
   run: FollowupRun["run"];
   sessionCtx: Pick<TemplateContext, "OriginatingChannel" | "Provider" | "Surface">;
@@ -289,19 +288,19 @@ export function resolveRoutingSnapshotForTemplateRun(params: {
     | "specialistBaseProfileId"
     | "specialistSessionProfileId"
   > | null;
-}): TemplateRunRoutingSnapshot {
+}): Promise<TemplateRunRoutingSnapshot> {
   const channelHints = resolveRoutingChannelHintsForTemplateRun({
     run: params.run,
     sessionCtx: params.sessionCtx,
   });
-  const plannerInput = buildExecutionDecisionInput(
-    buildSessionBackedExecutionDecisionInput({
-      draftPrompt: params.prompt,
-      storePath: params.storePath,
-      sessionEntry: params.sessionEntry,
-      channelHints,
-    }),
-  );
+  const plannerInput = await buildClassifiedExecutionDecisionInput({
+    prompt: params.prompt,
+    storePath: params.storePath,
+    sessionEntry: params.sessionEntry,
+    channelHints,
+    cfg: params.run.config,
+    agentDir: params.run.agentDir,
+  });
   return {
     plannerInput,
     runtimePlan: resolvePlatformRuntimePlan(plannerInput).runtime,
@@ -312,7 +311,7 @@ export function resolveRoutingSnapshotForTemplateRun(params: {
   };
 }
 
-export function resolvePlatformExecutionContextForTemplateRun(params: {
+export async function resolvePlatformExecutionContextForTemplateRun(params: {
   prompt: string;
   run: FollowupRun["run"];
   sessionCtx: Pick<TemplateContext, "OriginatingChannel" | "Provider" | "Surface">;
@@ -325,6 +324,6 @@ export function resolvePlatformExecutionContextForTemplateRun(params: {
     | "specialistBaseProfileId"
     | "specialistSessionProfileId"
   > | null;
-}): RecipeRuntimePlan {
-  return resolveRoutingSnapshotForTemplateRun(params).runtimePlan;
+}): Promise<RecipeRuntimePlan> {
+  return (await resolveRoutingSnapshotForTemplateRun(params)).runtimePlan;
 }

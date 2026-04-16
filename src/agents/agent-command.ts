@@ -48,6 +48,7 @@ import { buildOutboundSessionContext } from "../infra/outbound/session-context.j
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
 import {
   buildExecutionDecisionInput,
+  buildClassifiedExecutionDecisionInput,
   buildSessionBackedExecutionDecisionInput,
   shouldUseLightweightBootstrapContext,
 } from "../platform/decision/input.js";
@@ -681,38 +682,16 @@ export async function buildClassifiedPlatformPlannerInput(params: {
   agentDir?: string;
   adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
 }): Promise<Parameters<typeof resolvePlatformRuntimePlan>[0]> {
-  const classifierInput =
-    params.storePath && params.sessionEntry?.sessionId
-      ? buildSessionBackedExecutionDecisionInput({
-          draftPrompt: params.prompt,
-          ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
-          storePath: params.storePath,
-          channelHints: params.opts,
-          sessionEntry: params.sessionEntry,
-        })
-      : {
-          prompt: params.prompt,
-          ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
-          channelHints: params.opts,
-          sessionEntry: params.sessionEntry,
-        };
-  const classified = await classifyTaskForDecision({
-    prompt: classifierInput.prompt,
-    fileNames: classifierInput.fileNames,
+  return buildClassifiedExecutionDecisionInput({
+    prompt: params.prompt,
+    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+    channelHints: params.opts,
+    sessionEntry: params.sessionEntry,
+    storePath: params.storePath,
     cfg: params.cfg,
     agentDir: params.agentDir,
-    input: classifierInput,
     adapterRegistry: params.adapterRegistry,
   });
-  return applySessionSpecialistOverrideToPlannerInput(
-    {
-      ...classified.plannerInput,
-      ...(classifierInput.integrations?.length
-        ? { integrations: classifierInput.integrations }
-        : {}),
-    },
-    params.sessionEntry,
-  );
 }
 
 export function shouldFailoverEmptySemanticRetryResult(
