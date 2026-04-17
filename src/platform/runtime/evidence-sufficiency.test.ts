@@ -117,8 +117,8 @@ describe("runtime evidence sufficiency", () => {
     expect(sufficiency.missingEvidence).toEqual([]);
   });
 
-  it("accepts exec/write as sufficient toolReceipt for archive artifact kind", () => {
-    // exec and write are explicit valid tools for archive/release/binary artifact kinds.
+  it("accepts archive-producing tool receipts when they emit a producedArtifact of kind archive", () => {
+    // New contract-first behavior: tool name does not matter — the producedArtifact does.
     const executionIntent: PlatformRuntimeExecutionIntent = {
       runId: "archive-via-exec",
       intent: "code",
@@ -132,6 +132,14 @@ describe("runtime evidence sufficiency", () => {
         status: "success",
         proof: "reported",
         summary: "built archive.zip",
+        producedArtifacts: [
+          {
+            kind: "archive",
+            format: "zip",
+            mimeType: "application/zip",
+            path: "/tmp/archive.zip",
+          },
+        ],
       },
     ];
 
@@ -183,6 +191,10 @@ describe("runtime evidence sufficiency", () => {
       runId: "artifact-with-pdf",
       intent: "document",
       artifactKinds: ["document"],
+      deliverable: {
+        kind: "document",
+        acceptedFormats: ["pdf"],
+      },
       expectations: {},
     };
     const receipts: PlatformRuntimeExecutionReceipt[] = [
@@ -192,6 +204,14 @@ describe("runtime evidence sufficiency", () => {
         status: "success",
         proof: "reported",
         summary: "pdf rendered",
+        producedArtifacts: [
+          {
+            kind: "document",
+            format: "pdf",
+            mimeType: "application/pdf",
+            path: "/tmp/out.pdf",
+          },
+        ],
       },
     ];
 
@@ -209,21 +229,33 @@ describe("runtime evidence sufficiency", () => {
     expect(sufficiency.missingEvidence).toEqual([]);
   });
 
-  it("accepts write-backed document artifacts when the runtime explicitly requested write", () => {
+  it("accepts document artifacts produced by any tool when the producedArtifact matches the deliverable", () => {
     const executionIntent: PlatformRuntimeExecutionIntent = {
-      runId: "artifact-with-write",
+      runId: "artifact-with-docx",
       intent: "document",
       artifactKinds: ["document"],
-      requestedToolNames: ["write"],
+      deliverable: {
+        kind: "document",
+        acceptedFormats: ["docx"],
+      },
       expectations: {},
     };
     const receipts: PlatformRuntimeExecutionReceipt[] = [
       {
         kind: "tool",
-        name: "write",
+        name: "docx_write",
         status: "success",
         proof: "reported",
         summary: "wrote banana-life.docx",
+        producedArtifacts: [
+          {
+            kind: "document",
+            format: "docx",
+            mimeType:
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            path: "/tmp/banana-life.docx",
+          },
+        ],
       },
     ];
 
@@ -329,6 +361,14 @@ describe("runtime evidence sufficiency", () => {
         status: "success",
         proof: "reported",
         summary: "generated supporting image",
+        producedArtifacts: [
+          {
+            kind: "image",
+            format: "png",
+            mimeType: "image/png",
+            path: "/tmp/support.png",
+          },
+        ],
       },
       {
         kind: "tool",
@@ -336,6 +376,14 @@ describe("runtime evidence sufficiency", () => {
         status: "success",
         proof: "reported",
         summary: "rendered infographic_city_cat_life.pdf",
+        producedArtifacts: [
+          {
+            kind: "document",
+            format: "pdf",
+            mimeType: "application/pdf",
+            path: "/tmp/infographic.pdf",
+          },
+        ],
       },
     ];
 
@@ -351,5 +399,83 @@ describe("runtime evidence sufficiency", () => {
 
     expect(sufficiency.sufficient).toBe(true);
     expect(sufficiency.missingEvidence).toEqual([]);
+  });
+
+  it("accepts a docx producedArtifact for a document deliverable regardless of tool name (universal)", () => {
+    // Universality check: docx is a newly-registered producer. With contract-first evidence,
+    // the same acceptance logic works without any tool-name whitelist update.
+    const executionIntent: PlatformRuntimeExecutionIntent = {
+      runId: "docx-universal",
+      intent: "document",
+      artifactKinds: ["document"],
+      deliverable: {
+        kind: "document",
+        acceptedFormats: ["docx", "pdf"],
+        preferredFormat: "docx",
+      },
+      expectations: {},
+    };
+    const receipts: PlatformRuntimeExecutionReceipt[] = [
+      {
+        kind: "tool",
+        name: "docx_write",
+        status: "success",
+        proof: "reported",
+        producedArtifacts: [
+          {
+            kind: "document",
+            format: "docx",
+            mimeType:
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            path: "/tmp/banana.docx",
+          },
+        ],
+      },
+    ];
+    const sufficiency = isCompletionEvidenceSufficient({
+      executionIntent,
+      receipts,
+      evidence: { hasOutput: true },
+      outcome: buildCompletedOutcome("docx-universal"),
+    });
+    expect(sufficiency.sufficient).toBe(true);
+    expect(sufficiency.missingEvidence).toEqual([]);
+  });
+
+  it("rejects a docx deliverable when only pdf was produced (acceptedFormats mismatch)", () => {
+    const executionIntent: PlatformRuntimeExecutionIntent = {
+      runId: "docx-missing",
+      intent: "document",
+      artifactKinds: ["document"],
+      deliverable: {
+        kind: "document",
+        acceptedFormats: ["docx"],
+      },
+      expectations: {},
+    };
+    const receipts: PlatformRuntimeExecutionReceipt[] = [
+      {
+        kind: "tool",
+        name: "pdf",
+        status: "success",
+        proof: "reported",
+        producedArtifacts: [
+          {
+            kind: "document",
+            format: "pdf",
+            mimeType: "application/pdf",
+            path: "/tmp/wrong.pdf",
+          },
+        ],
+      },
+    ];
+    const sufficiency = isCompletionEvidenceSufficient({
+      executionIntent,
+      receipts,
+      evidence: { hasOutput: true },
+      outcome: buildCompletedOutcome("docx-missing"),
+    });
+    expect(sufficiency.sufficient).toBe(false);
+    expect(sufficiency.missingEvidence).toContain("tool_receipt");
   });
 });

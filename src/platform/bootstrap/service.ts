@@ -285,7 +285,11 @@ function shouldAutoContinueBootstrapRequest(request: BootstrapRequest): boolean 
   if (!request.catalogEntry.capability.trusted) {
     return false;
   }
-  return request.sourceDomain === "document" || request.sourceDomain === "developer";
+  // Universal: any sourceDomain may auto-continue as long as the capability is
+  // trusted in the approved catalog. The producer path (platform) needs this so
+  // docx/xlsx/site installs can complete without a hard-coded document/developer
+  // allowlist.
+  return true;
 }
 
 function maybePromoteAutoContinuedBootstrapRecord(params: {

@@ -3,6 +3,11 @@ import type {
   QualificationExecutionContract,
   RequestedEvidenceKind,
 } from "../decision/qualification-contract.js";
+import {
+  artifactSatisfiesDeliverable,
+  type DeliverableSpec,
+  listProducerEntries,
+} from "../produce/registry.js";
 import type { ArtifactKind } from "../schemas/index.js";
 import type {
   PlatformRuntimeAcceptanceEvidence,
@@ -23,18 +28,7 @@ const STRUCTURED_ARTIFACT_KINDS = new Set<ArtifactKind>([
   "binary",
 ]);
 
-const STRUCTURED_ARTIFACT_TOOL_NAMES_BY_KIND: Partial<Record<ArtifactKind, readonly string[]>> = {
-  document: ["pdf"],
-  image: ["image_generate", "image"],
-  video: ["video_generate", "video"],
-  audio: ["audio_generate", "audio", "tts", "voiceover"],
-  archive: ["exec", "write", "apply_patch"],
-  release: ["exec", "write", "apply_patch"],
-  binary: ["exec", "write", "apply_patch"],
-};
-
 const PROCESS_TOOL_NAMES = new Set(["exec", "process", "write", "apply_patch"]);
-const NON_ARTIFACT_REQUESTED_TOOL_NAMES = new Set(["browser", "web_search", "message", "process"]);
 
 export type CompletionEvidenceRequirements = {
   outcomeContract: OutcomeContract;
@@ -85,62 +79,91 @@ function normalizeToolName(name: string): string {
   return name.trim().toLowerCase();
 }
 
-function normalizeRequestedArtifactToolNames(requestedToolNames?: readonly string[]): string[] {
-  return Array.from(
-    new Set(
-      (requestedToolNames ?? [])
-        .map((name) => normalizeToolName(name))
-        .filter((name) => name.length > 0 && !NON_ARTIFACT_REQUESTED_TOOL_NAMES.has(name)),
-    ),
+/**
+ * When a deliverable is declared, resolve the tool names that can produce it from the
+ * ProducerRegistry — no hardcoded mapping. Returns an empty set when the deliverable
+ * is missing or has no registered producer (in which case the caller falls back to
+ * artifact-based matching).
+ */
+function resolveDeliverableToolNames(
+  deliverable: DeliverableSpec | undefined,
+): ReadonlySet<string> {
+  if (!deliverable) {
+    return new Set();
+  }
+  const accepted = new Set(
+    deliverable.acceptedFormats.map((f) => f.trim().toLowerCase()),
   );
+  const toolNames = new Set<string>();
+  for (const entry of listProducerEntries()) {
+    if (entry.kind !== deliverable.kind) {
+      continue;
+    }
+    if (accepted.has(entry.format.toLowerCase())) {
+      toolNames.add(normalizeToolName(entry.toolName));
+    }
+  }
+  return toolNames;
 }
 
-function resolveExpectedStructuredArtifactToolNames(params: {
-  artifactKinds?: readonly string[];
-  requestedToolNames?: readonly string[];
-}): ReadonlySet<string> {
-  const normalizedKinds = new Set((params.artifactKinds ?? []) as ArtifactKind[]);
-  const requestedArtifactToolNames = normalizeRequestedArtifactToolNames(params.requestedToolNames);
-
-  // When a document is among mixed artifact kinds, the final deliverable must still
-  // be proven by a successful document-delivery receipt. Supporting media receipts alone are not enough.
-  if (normalizedKinds.has("document")) {
-    const requestedDocumentTools = requestedArtifactToolNames.filter(
-      (name) => name === "pdf" || name === "write" || name === "exec",
-    );
-    if (requestedDocumentTools.length > 0) {
-      return new Set(requestedDocumentTools);
-    }
-    return new Set(STRUCTURED_ARTIFACT_TOOL_NAMES_BY_KIND.document ?? []);
+/**
+ * Generic acceptance check: do any of the receipts carry a producedArtifact that
+ * satisfies the declared deliverable? This replaces the legacy tool-name whitelist
+ * and works uniformly for pdf / docx / xlsx / csv / image / site — whatever the
+ * classifier declared.
+ */
+function hasAcceptableProducedArtifact(params: {
+  receipts: PlatformRuntimeExecutionReceipt[];
+  deliverable: DeliverableSpec | undefined;
+}): boolean {
+  if (!params.deliverable) {
+    return false;
   }
-
-  const expectedToolNames = new Set<string>();
-  for (const kind of normalizedKinds) {
-    for (const toolName of STRUCTURED_ARTIFACT_TOOL_NAMES_BY_KIND[kind] ?? []) {
-      expectedToolNames.add(toolName);
+  for (const receipt of params.receipts) {
+    if (receipt.kind !== "tool" || receipt.status !== "success") {
+      continue;
+    }
+    for (const artifact of receipt.producedArtifacts ?? []) {
+      if (artifactSatisfiesDeliverable(params.deliverable, artifact)) {
+        return true;
+      }
     }
   }
-  return expectedToolNames;
+  return false;
 }
 
 function hasMatchingStructuredArtifactToolReceipt(params: {
   receipts: PlatformRuntimeExecutionReceipt[];
+  deliverable?: DeliverableSpec;
   artifactKinds?: readonly string[];
-  requestedToolNames?: readonly string[];
 }): boolean {
-  const expectedToolNames = resolveExpectedStructuredArtifactToolNames({
-    artifactKinds: params.artifactKinds,
-    requestedToolNames: params.requestedToolNames,
-  });
-  if (expectedToolNames.size === 0) {
+  // Contract-first: when deliverable is declared, the producedArtifact MUST satisfy it.
+  // No kind-only fallback — that would accept a pdf for a docx deliverable.
+  if (params.deliverable) {
+    return hasAcceptableProducedArtifact({
+      receipts: params.receipts,
+      deliverable: params.deliverable,
+    });
+  }
+  // Legacy path: deliverable not set. Accept any successful tool receipt that produced
+  // ANY artifact whose kind matches the declared artifactKinds. Callers migrating to
+  // the contract-first model should populate deliverable instead.
+  const structuredKinds = new Set(
+    (params.artifactKinds ?? []).filter((kind) =>
+      STRUCTURED_ARTIFACT_KINDS.has(kind as ArtifactKind),
+    ),
+  );
+  if (structuredKinds.size === 0) {
     return false;
   }
-  return params.receipts.some(
-    (receipt) =>
-      receipt.kind === "tool" &&
-      receipt.status === "success" &&
-      expectedToolNames.has(normalizeToolName(receipt.name)),
-  );
+  return params.receipts.some((receipt) => {
+    if (receipt.kind !== "tool" || receipt.status !== "success") {
+      return false;
+    }
+    return (receipt.producedArtifacts ?? []).some((artifact) =>
+      structuredKinds.has(artifact.kind),
+    );
+  });
 }
 
 function inferOutcomeContract(executionIntent?: PlatformRuntimeExecutionIntent): OutcomeContract {
@@ -340,32 +363,29 @@ export function mapQualificationToEvidenceRequirements(params: {
 function observeEvidence(params: {
   requirements: CompletionEvidenceRequirements;
   artifactKinds?: readonly string[];
-  requestedToolNames?: readonly string[];
+  deliverable?: DeliverableSpec;
   receipts: PlatformRuntimeExecutionReceipt[];
   evidence: PlatformRuntimeAcceptanceEvidence;
   outcome?: PlatformRuntimeRunOutcome;
 }): ObservedCompletionEvidence {
   const matchingArtifactToolReceipt = hasMatchingStructuredArtifactToolReceipt({
     receipts: params.receipts,
+    deliverable: params.deliverable,
     artifactKinds: params.artifactKinds,
-    requestedToolNames: params.requestedToolNames,
   });
 
-  // Block the verifiedExecution shortcut only when we have actual receipts to inspect, the artifact
-  // kinds have known required tools (e.g. document→pdf, image→image_generate), AND none of those
-  // matching tools appear in the receipts. This prevents generic exec/write completions from
-  // masquerading as structured artifact evidence during contract verification.
+  // Block the verifiedExecution shortcut only when we have actual receipts to inspect, a deliverable
+  // is declared AND none of the receipts carry a producedArtifact that satisfies it. This prevents
+  // generic exec/write completions from masquerading as structured artifact evidence.
   //
   // When receipts is empty (evaluateAcceptance always passes []), we trust verifiedExecution as a
   // proxy — it is only set to true when verifyExecutionContract already confirmed the right tools
   // ran. Blocking it there would break the acceptance path for legitimate artifact runs.
-  const artifactKindsHaveKnownToolMapping =
-    resolveExpectedStructuredArtifactToolNames({
-      artifactKinds: params.artifactKinds,
-      requestedToolNames: params.requestedToolNames,
-    }).size > 0;
+  const deliverableExpectsArtifact =
+    Boolean(params.deliverable) ||
+    (params.artifactKinds ?? []).some((k) => STRUCTURED_ARTIFACT_KINDS.has(k as ArtifactKind));
   const wrongToolReceiptsPresent =
-    params.receipts.length > 0 && artifactKindsHaveKnownToolMapping && !matchingArtifactToolReceipt;
+    params.receipts.length > 0 && deliverableExpectsArtifact && !matchingArtifactToolReceipt;
   const canUseVerifiedExecutionShortcut =
     !wrongToolReceiptsPresent &&
     params.evidence.verifiedExecution === true &&
@@ -434,7 +454,9 @@ export function isCompletionEvidenceSufficient(params: {
   const observed = observeEvidence({
     requirements,
     artifactKinds: params.executionIntent?.artifactKinds ?? params.evidence?.declaredArtifactKinds,
-    requestedToolNames: params.executionIntent?.requestedToolNames,
+    ...(params.executionIntent?.deliverable
+      ? { deliverable: params.executionIntent.deliverable }
+      : {}),
     receipts: params.receipts,
     evidence: params.evidence ?? {},
     outcome: params.outcome,
@@ -491,8 +513,16 @@ export function isCompletionEvidenceSufficient(params: {
 
 export function hasStructuredArtifactToolOutputReceipt(params: {
   receipts: PlatformRuntimeExecutionReceipt[];
+  deliverable?: DeliverableSpec;
   artifactKinds?: readonly string[];
+  /** @deprecated kept for backward compatibility; no longer used for tool-name heuristics. */
   requestedToolNames?: readonly string[];
 }): boolean {
-  return hasMatchingStructuredArtifactToolReceipt(params);
+  return hasMatchingStructuredArtifactToolReceipt({
+    receipts: params.receipts,
+    ...(params.deliverable ? { deliverable: params.deliverable } : {}),
+    ...(params.artifactKinds ? { artifactKinds: params.artifactKinds } : {}),
+  });
 }
+
+export { hasAcceptableProducedArtifact, resolveDeliverableToolNames };

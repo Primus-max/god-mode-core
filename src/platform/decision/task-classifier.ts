@@ -20,6 +20,12 @@ import type {
   QualificationLowConfidenceStrategy,
 } from "./qualification-contract.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
+import {
+  DeliverableKindSchema,
+  resolveProducer,
+  type DeliverableKind,
+  type DeliverableSpec,
+} from "../produce/registry.js";
 
 const log = createSubsystemLogger("task-classifier");
 
@@ -92,6 +98,36 @@ const TASK_CONTRACT_SCHEMA = {
         minLength: 1,
       },
       uniqueItems: true,
+    },
+    deliverable: {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "acceptedFormats"],
+      properties: {
+        kind: {
+          type: "string",
+          enum: [
+            "answer",
+            "image",
+            "document",
+            "data",
+            "site",
+            "archive",
+            "audio",
+            "video",
+            "code_change",
+            "external_delivery",
+            "capability_install",
+          ],
+        },
+        acceptedFormats: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+          minItems: 1,
+        },
+        preferredFormat: { type: "string", minLength: 1 },
+        constraints: { type: "object", additionalProperties: true },
+      },
     },
   },
 } as const;
@@ -168,6 +204,42 @@ Stability examples:
 - "Fix the repo, run checks, leave local validation passing" -> workspace_change + tool_execution + needs_workspace_mutation + needs_repo_execution + needs_local_runtime
 - "Open the local app in browser and report issues" -> comparison_report + tool_execution + needs_interactive_browser
 - "Run release checks and publish the already-prepared build to production" -> external_delivery + tool_execution + needs_external_delivery + needs_repo_execution + needs_local_runtime + needs_high_reliability_provider
+- "Сгенерировать картинку банана" / "Generate an image of a banana" -> document_package + artifact_iteration + needs_visual_composition, deliverable={kind:"image", acceptedFormats:["png","jpg"], preferredFormat:"png"}
+- "Сгенерировать pdf про жизнь банана" / "Make a pdf about X" -> document_package + artifact_iteration + needs_multimodal_authoring, deliverable={kind:"document", acceptedFormats:["pdf"], preferredFormat:"pdf"}
+- "То же самое в word" / "The same in Word" / "Сделай в ворде" -> document_package + artifact_iteration + needs_multimodal_authoring, deliverable={kind:"document", acceptedFormats:["docx"], preferredFormat:"docx"}. Do NOT ask for clarification about what the user wants to transfer; treat the user's current turn as authoritative for the format switch.
+- "Какой-то отчёт сделать в csv" / "Any report in CSV" -> document_package + artifact_iteration + needs_tabular_reasoning, deliverable={kind:"data", acceptedFormats:["csv"], preferredFormat:"csv"}. Do NOT treat vague report requests as 'answer' when a file format is named.
+- "Какой-то отчёт сделать в эксель" / "Report in Excel" -> document_package + artifact_iteration + needs_tabular_reasoning, deliverable={kind:"data", acceptedFormats:["xlsx","csv"], preferredFormat:"xlsx"}.
+- "Создание сайта — простая лендинг-страница" / "Create a landing page" -> external_delivery + artifact_iteration + needs_multimodal_authoring, deliverable={kind:"site", acceptedFormats:["zip","html"], preferredFormat:"zip"}.
+- "Установи стороннюю библиотеку pdfkit" / "Install pdfkit library" -> external_delivery + tool_execution + needs_external_delivery, deliverable={kind:"capability_install", acceptedFormats:["npm-package"], preferredFormat:"npm-package", constraints:{manager:"npm", name:"pdfkit"}}.
+
+Deliverable rules:
+- ALWAYS include a "deliverable" object. It declares WHAT the user wants back, independent of WHICH tool produces it.
+- deliverable.kind is one of: answer, image, document, data, site, archive, audio, video, code_change, external_delivery, capability_install.
+- deliverable.acceptedFormats is a non-empty list of format tokens (lower-case) the user would accept. Put the preferred/most-likely format FIRST.
+- If the user clearly named ONE format (pdf / docx / xlsx / csv / png / mp3 / zip / etc.) put exactly that format in acceptedFormats and set preferredFormat to it.
+- If the user asked for a document but did not name a format, return primaryOutcome="clarification_needed" and an ambiguity "document format not specified". Do NOT guess pdf-vs-docx.
+- If the user asked for a report/table/отчёт without naming a format, use kind="data" with acceptedFormats=["xlsx","csv"] (most universal).
+- Map primaryOutcome to deliverable.kind:
+  - answer -> kind: "answer", acceptedFormats: ["text"]
+  - document_package (visual-only artifact like a poster, illustration, banner) -> kind: "image", acceptedFormats: ["png","jpg"]
+  - document_package (authored document: pdf / docx / presentation) -> kind: "document", acceptedFormats: the named format(s)
+  - document_extraction -> kind: "data", acceptedFormats: ["json"]
+  - workspace_change -> kind: "code_change", acceptedFormats: ["patch"]
+  - external_delivery -> kind: "external_delivery", acceptedFormats: ["receipt"]
+  - comparison_report / calculation_result -> kind: "answer", acceptedFormats: ["text"]
+  - install a library / package / CLI tool -> kind: "capability_install", acceptedFormats: ["npm-package"] for node, ["pip-package"] for python, ["brew-package"] for macOS system tools, constraints: { manager: "npm"|"pip"|"brew", name: "<exact package name>", version?: "<semver or tag>" }
+  - build/create a website/landing page -> kind: "site", acceptedFormats: ["zip"]
+
+Constraints guidance (deliverable.constraints):
+- Optional key/value object. Use ONLY fields the user clearly implied. Never invent.
+- For document (pdf/docx): constraints may include:
+   - pageCount: integer 1..12 when the user specified a length ("2 pages", "две страницы", "pair of slides")
+   - style: "minimal" | "rich" | "infographic" | "presentation" — set rich/infographic/presentation when the user asked for something visually formatted (charts, colorful layout, slides, инфографика); leave undefined or "minimal" when plain text is enough.
+   - needsManagedRenderer: true when the user explicitly asked for tables, charts, precise layout, or "beautiful/красивый" output.
+- For data (csv/xlsx): constraints may include columns:[string,...] when the user listed the columns.
+- For image: constraints may include aspectRatio ("16:9","1:1","9:16") and overlayText (the literal quoted text to overlay).
+- For capability_install: constraints MUST include manager, name; include version only if the user named one.
+- For site: constraints may include pages:[string,...] and theme:"dark"|"light".
 
 Output contract:
 - confidence must be between 0 and 1.
@@ -253,6 +325,15 @@ const TaskContractZodSchema = z
           });
         }
       }),
+    deliverable: z
+      .object({
+        kind: DeliverableKindSchema,
+        acceptedFormats: z.array(z.string().min(1)).min(1),
+        preferredFormat: z.string().min(1).optional(),
+        constraints: z.record(z.string(), z.unknown()).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -262,6 +343,7 @@ export type TaskContract = {
   interactionMode: InteractionMode;
   confidence: number;
   ambiguities: string[];
+  deliverable?: DeliverableSpec;
 };
 
 export type TaskClassifierDebugEvent = {
@@ -334,113 +416,6 @@ function normalizeTaskContractJsonCandidate(raw: string): string {
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2018\u2019]/g, "'")
     .trim();
-}
-
-function normalizePromptForHeuristics(prompt: string): string {
-  return prompt.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function hasAnyPhrase(prompt: string, phrases: readonly string[]): boolean {
-  return phrases.some((phrase) => prompt.includes(phrase));
-}
-
-function resolveDeterministicTaskContract(prompt: string): TaskContract | null {
-  const normalized = normalizePromptForHeuristics(prompt);
-  if (!normalized) {
-    return null;
-  }
-
-  const createVerbs = [
-    "generate",
-    "create",
-    "make",
-    "draw",
-    "render",
-    "сгенерируй",
-    "сделай",
-    "создай",
-    "нарисуй",
-  ] as const;
-  const extractionVerbs = [
-    "extract",
-    "parse",
-    "ocr",
-    "read from",
-    "pull from",
-    "извлеки",
-    "распознай",
-    "вытащи",
-    "прочитай из",
-  ] as const;
-  const imageNouns = [
-    "image",
-    "picture",
-    "illustration",
-    "poster",
-    "banner",
-    "photo",
-    "artwork",
-    "avatar",
-    "icon",
-    "картинк",
-    "изображен",
-    "иллюстрац",
-    "постер",
-    "баннер",
-    "иконк",
-    "аватар",
-    "арт",
-  ] as const;
-  const pdfNouns = [
-    "pdf",
-    "deck",
-    "slide deck",
-    "slides",
-    "report",
-    "brochure",
-    "infographic",
-    "презентац",
-    "слайды",
-    "отч",
-    "брошюр",
-    "инфографик",
-  ] as const;
-
-  const mentionsCreation = hasAnyPhrase(normalized, createVerbs);
-  const mentionsExtraction = hasAnyPhrase(normalized, extractionVerbs);
-  const wantsImageArtifact =
-    mentionsCreation &&
-    hasAnyPhrase(normalized, imageNouns) &&
-    !normalized.includes("pdf") &&
-    !mentionsExtraction;
-  if (wantsImageArtifact) {
-    return {
-      primaryOutcome: "document_package",
-      requiredCapabilities: ["needs_visual_composition"],
-      interactionMode: "artifact_iteration",
-      confidence: 0.97,
-      ambiguities: [],
-    };
-  }
-
-  const wantsPdfArtifact =
-    mentionsCreation && normalized.includes("pdf") && !mentionsExtraction;
-  const wantsOtherDocumentArtifact =
-    mentionsCreation &&
-    hasAnyPhrase(normalized, pdfNouns) &&
-    !hasAnyPhrase(normalized, imageNouns) &&
-    !mentionsExtraction;
-  if (wantsPdfArtifact || wantsOtherDocumentArtifact) {
-    return {
-      primaryOutcome: "document_package",
-      requiredCapabilities: ["needs_multimodal_authoring"],
-      interactionMode: "artifact_iteration",
-      confidence: 0.97,
-      ambiguities: [],
-    };
-  }
-
-  return null;
 }
 
 function extractJsonObjectCandidate(raw: string): string | null {
@@ -565,6 +540,8 @@ function normalizeTaskContract(contract: TaskContract): TaskContract {
     interactionMode = "respond_only";
   }
 
+  const deliverable = contract.deliverable ?? inferDeliverableFallback(primaryOutcome, capabilities);
+
   return {
     ...contract,
     primaryOutcome,
@@ -572,7 +549,38 @@ function normalizeTaskContract(contract: TaskContract): TaskContract {
     requiredCapabilities: normalizeUnique(Array.from(capabilities)),
     confidence: clampConfidence(contract.confidence),
     ambiguities: normalizeUnique(contract.ambiguities),
+    ...(deliverable ? { deliverable } : {}),
   };
+}
+
+function inferDeliverableFallback(
+  primaryOutcome: PrimaryOutcome,
+  capabilities: Set<Capability>,
+): DeliverableSpec | undefined {
+  switch (primaryOutcome) {
+    case "answer":
+    case "comparison_report":
+    case "calculation_result":
+      return { kind: "answer", acceptedFormats: ["text"] };
+    case "clarification_needed":
+      return { kind: "answer", acceptedFormats: ["text"] };
+    case "workspace_change":
+      return { kind: "code_change", acceptedFormats: ["patch"] };
+    case "external_delivery":
+      return { kind: "external_delivery", acceptedFormats: ["receipt"] };
+    case "document_extraction":
+      return { kind: "data", acceptedFormats: ["json"] };
+    case "document_package":
+      if (
+        capabilities.has("needs_visual_composition") &&
+        !capabilities.has("needs_multimodal_authoring")
+      ) {
+        return { kind: "image", acceptedFormats: ["png", "jpg"] };
+      }
+      return undefined;
+    default:
+      return undefined;
+  }
 }
 
 function buildFailClosedTaskContract(reason: string): TaskContract {
@@ -673,14 +681,36 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
   if (capabilities.has("needs_web_research")) {
     requestedTools.push("web_search");
   }
-  if (
-    contract.primaryOutcome === "document_package" &&
-    (!hasVisualComposition || hasMultimodalAuthoring)
-  ) {
-    requestedTools.push("pdf");
-  }
   if (hasMultimodalAuthoring || hasVisualComposition) {
     requestedTools.push("image_generate");
+  }
+  const producerResolution = resolveProducer(contract.deliverable);
+  for (const toolName of producerResolution.toolNames) {
+    requestedTools.push(toolName);
+  }
+  if (contract.deliverable) {
+    const deliverableKind = contract.deliverable.kind;
+    if (deliverableKind === "image" && !artifactKinds.includes("image")) {
+      artifactKinds.push("image");
+    }
+    if (deliverableKind === "document" && !artifactKinds.includes("document")) {
+      artifactKinds.push("document");
+    }
+    if (deliverableKind === "data" && !artifactKinds.includes("data")) {
+      artifactKinds.push("data");
+    }
+    if (deliverableKind === "site" && !artifactKinds.includes("site")) {
+      artifactKinds.push("site");
+    }
+    if (deliverableKind === "archive" && !artifactKinds.includes("archive")) {
+      artifactKinds.push("archive");
+    }
+    if (deliverableKind === "audio" && !artifactKinds.includes("audio")) {
+      artifactKinds.push("audio");
+    }
+    if (deliverableKind === "video" && !artifactKinds.includes("video")) {
+      artifactKinds.push("video");
+    }
   }
 
   const normalizedArtifactKinds = normalizeUnique(artifactKinds);
@@ -702,6 +732,7 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
     artifactKinds: normalizedArtifactKinds,
     requestedTools: normalizedRequestedTools,
     publishTargets: capabilities.has("needs_external_delivery") ? ["external"] : [],
+    ...(contract.deliverable ? { deliverable: contract.deliverable } : {}),
     outcomeContract:
       contract.primaryOutcome === "workspace_change"
         ? "workspace_change"
@@ -762,6 +793,7 @@ export function buildPlannerInputFromTaskContract(params: {
     ...(bridge.artifactKinds?.length ? { artifactKinds: bridge.artifactKinds } : {}),
     ...(bridge.requestedTools?.length ? { requestedTools: bridge.requestedTools } : {}),
     ...(bridge.publishTargets?.length ? { publishTargets: bridge.publishTargets } : {}),
+    ...(params.taskContract.deliverable ? { deliverable: params.taskContract.deliverable } : {}),
     outcomeContract: bridge.outcomeContract,
     executionContract: bridge.executionContract,
     requestedEvidence: inferRequestedEvidence(bridge.outcomeContract, bridge.executionContract),
@@ -953,22 +985,6 @@ export async function classifyTaskForDecision(params: {
   adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
   onDebugEvent?: (event: TaskClassifierDebugEvent) => void;
 }): Promise<ClassifiedTaskResolution> {
-  const deterministic = resolveDeterministicTaskContract(params.prompt);
-  if (deterministic) {
-    const normalizedContract = normalizeTaskContract(deterministic);
-    const plannerInput = buildPlannerInputFromTaskContract({
-      prompt: params.prompt,
-      fileNames: params.fileNames,
-      taskContract: normalizedContract,
-    });
-    return {
-      source: "llm",
-      taskContract: normalizedContract,
-      plannerInput,
-      resolutionContract: plannerInput.resolutionContract!,
-      candidateFamilies: plannerInput.candidateFamilies ?? [],
-    };
-  }
   const classifierConfig = resolveTaskClassifierConfig({ cfg: params.cfg });
   if (!classifierConfig.enabled) {
     emitDebugEvent(params.onDebugEvent, {

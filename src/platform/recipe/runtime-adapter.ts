@@ -24,6 +24,7 @@ import {
 import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 import type { ArtifactKind } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
+import { resolveProducer, type DeliverableSpec } from "../produce/registry.js";
 import type {
   CandidateExecutionFamily,
   OutcomeContract,
@@ -66,6 +67,7 @@ export type RecipeRuntimePlan = {
   readinessStatus?: PlatformExecutionContextReadinessStatus;
   readinessReasons?: string[];
   unattendedBoundary?: PlatformExecutionContextUnattendedBoundary;
+  deliverable?: DeliverableSpec;
   prependSystemContext?: string;
   prependContext?: string;
 };
@@ -229,6 +231,31 @@ function buildRequestedToolGuardrails(requestedToolNames?: string[]): string | u
       "Multi-step artifact contract: when supporting images feed a final PDF deliverable, treat image_generate as an intermediate step only. After the required images succeed, you must continue in the same turn and call pdf to assemble the final document artifact before any text-only reply. Reuse successful generated image outputs from the current session instead of stopping, restarting from scratch, or asking for extra style confirmation unless the user explicitly requested a choice.",
     );
   }
+  if (toolSet.has("docx_write")) {
+    guardrails.push(
+      "DOCX artifact contract: when the deliverable is a Word (docx) document, you must call the docx_write tool in this turn. Pass the full document content in the tool arguments (the classifier already resolved title/sections/language). Do not reply with only a plan, acknowledgement, or clarifying question.",
+    );
+  }
+  if (toolSet.has("xlsx_write")) {
+    guardrails.push(
+      "XLSX artifact contract: when the deliverable is an Excel (xlsx) document, you must call the xlsx_write tool in this turn with the sheet structure and rows you invent if the user left them unspecified. Do not ask for exact columns/rows — pick reasonable defaults and include them in the tool arguments.",
+    );
+  }
+  if (toolSet.has("csv_write")) {
+    guardrails.push(
+      "CSV artifact contract: when the deliverable is a CSV document, you must call the csv_write tool in this turn. Invent reasonable columns/rows if the user left them unspecified and include them in the tool arguments. Do not reply with a plan or question instead.",
+    );
+  }
+  if (toolSet.has("site_pack")) {
+    guardrails.push(
+      "Site artifact contract: when the deliverable is a packaged website (zip/html), you must call the site_pack tool in this turn with the complete file set (index.html plus any assets). Invent reasonable default copy if not provided. Do not reply with only a plan, a URL, or a clarifying question.",
+    );
+  }
+  if (toolSet.has("capability_install")) {
+    guardrails.push(
+      "Capability install contract: when the user requests installation of a library/capability, you must call capability_install with the packageRef and optional version/integrity in this turn. Do not reply with only an acknowledgement or a plan.",
+    );
+  }
   return guardrails.length > 0 ? guardrails.join(" ") : undefined;
 }
 
@@ -258,6 +285,71 @@ function buildReplyLanguageGuardrail(): string {
 }
 
 /**
+ * Serializes the deliverable contract into an instruction block so the
+ * downstream LLM agent knows exactly which artifact kind/format/constraints the
+ * user expects and can pass matching parameters into the chosen tool (e.g.
+ * pdf/image/csv). This removes the need for tools to parse user prompts.
+ */
+function buildDeliverableContractGuidance(
+  deliverable?: DeliverableSpec,
+): string | undefined {
+  if (!deliverable) {
+    return undefined;
+  }
+  const parts: string[] = [];
+  parts.push(`kind=${deliverable.kind}`);
+  if (deliverable.acceptedFormats?.length) {
+    parts.push(`acceptedFormats=[${deliverable.acceptedFormats.join(", ")}]`);
+  }
+  if (deliverable.preferredFormat) {
+    parts.push(`preferredFormat=${deliverable.preferredFormat}`);
+  }
+  const constraintEntries = deliverable.constraints
+    ? Object.entries(deliverable.constraints).filter(([, value]) => value !== undefined && value !== null)
+    : [];
+  if (constraintEntries.length > 0) {
+    const rendered = constraintEntries
+      .map(([key, value]) => {
+        if (Array.isArray(value)) {
+          return `${key}=[${value.map((v) => String(v)).join(", ")}]`;
+        }
+        if (typeof value === "object") {
+          return `${key}=${JSON.stringify(value)}`;
+        }
+        return `${key}=${String(value)}`;
+      })
+      .join(", ");
+    parts.push(`constraints={${rendered}}`);
+  }
+  const acceptedFormats = deliverable.acceptedFormats ?? [];
+  const preferredFormat = deliverable.preferredFormat ?? acceptedFormats[0];
+  const fallbackFormats = acceptedFormats.filter((format) => format !== preferredFormat);
+  const lines = [
+    `Deliverable contract (resolved upstream): ${parts.join(", ")}.`,
+    "This contract was resolved by the upstream classifier from the user request. Treat it as authoritative: you must produce an artifact matching kind and one of acceptedFormats in THIS turn via the appropriate tool call.",
+    "Do not ask the user clarifying questions about the deliverable kind, format, style, page count, language, or any other already-resolved constraint. If something in the contract is genuinely impossible, produce the closest acceptable deliverable and note the deviation in your final reply.",
+    "When you call a tool to produce this deliverable, pass the matching parameters from the contract directly (do not re-derive them from the user text).",
+    "Do not invent additional constraints the user did not request; do not drop constraints that were set.",
+    "A text-only reply (acknowledgement, plan, question, or apology) before the artifact is produced does NOT satisfy this contract and will be rejected as incomplete.",
+  ];
+  if (preferredFormat && fallbackFormats.length > 0) {
+    lines.push(
+      `Format priority: attempt preferredFormat=${preferredFormat} first. If the producer for it fails (capability install error, runtime error, or unsupported constraint), fall back to the next format from acceptedFormats in order: [${fallbackFormats.join(", ")}]. Any acceptedFormat satisfies the contract.`,
+    );
+  } else if (acceptedFormats.length > 1) {
+    lines.push(
+      `Any of acceptedFormats=[${acceptedFormats.join(", ")}] satisfies the contract. Pick one and, on failure, retry with another from the list.`,
+    );
+  }
+  if (deliverable.kind === "capability_install") {
+    lines.push(
+      "Capability install contract: you must call capability_install with a packageRef (and optional version/integrity) matching the user's request before your final reply. Do not answer with only a plan or an acknowledgement that installation is possible.",
+    );
+  }
+  return lines.join(" ");
+}
+
+/**
  * Builds the system-context prefix for the selected execution recipe.
  *
  * @param {ExecutionPlan} plan - Planned execution route chosen by the planner.
@@ -279,6 +371,7 @@ function buildSystemContext(
   ambiguityReasons?: string[],
   outcomeContract?: OutcomeContract,
   executionContract?: QualificationExecutionContract,
+  deliverable?: DeliverableSpec,
 ): string {
   const clarificationGuardrails = buildClarificationGuardrails({
     lowConfidenceStrategy,
@@ -292,6 +385,7 @@ function buildSystemContext(
       : undefined,
     buildReplyLanguageGuardrail(),
     clarificationGuardrails,
+    clarificationGuardrails ? undefined : buildDeliverableContractGuidance(deliverable),
     clarificationGuardrails
       ? undefined
       : buildArtifactOutputGuardrails(artifactKinds, outcomeContract, executionContract),
@@ -329,6 +423,7 @@ function buildPrependContext(
     ambiguityReasons?: string[];
     outcomeContract?: OutcomeContract;
     executionContract?: QualificationExecutionContract;
+    deliverable?: DeliverableSpec;
   },
 ): string {
   return [
@@ -348,6 +443,7 @@ function buildPrependContext(
     params?.readiness && params.readiness.status !== "ready"
       ? `Preflight readiness: ${params.readiness.status.replaceAll("_", " ")}. ${params.readiness.reasons.join(" ")}`
       : undefined,
+    buildDeliverableContractGuidance(params?.deliverable),
     buildArtifactOutputGuardrails(
       params?.artifactKinds,
       params?.outcomeContract,
@@ -434,7 +530,7 @@ function buildCapabilitySummary(params: {
   capabilityRegistry?: CapabilityRegistry;
   capabilityCatalog?: CapabilityCatalogEntry[];
 }): PlatformCapabilitySummary {
-  const requiredCapabilities =
+  const recipeCapabilities =
     params.plan.recipe.id === "doc_ingest" &&
     (params.input.fileNames?.length ?? 0) === 0 &&
     params.input.intent === "document"
@@ -443,6 +539,16 @@ function buildCapabilitySummary(params: {
           allTabularFilesAreCsv(params.input.fileNames)
         ? []
         : (params.plan.recipe.requiredCapabilities ?? []);
+  // Universal degrade: when a deliverable is declared, include capabilities for EVERY
+  // accepted format (not just the preferred). This way if the primary producer's
+  // capability fails to bootstrap, the runtime already has the fallback path ready.
+  const deliverable = params.input.deliverable;
+  const producerCapabilities = deliverable
+    ? resolveProducer(deliverable).capabilityIds
+    : [];
+  const requiredCapabilities = Array.from(
+    new Set([...recipeCapabilities, ...producerCapabilities]),
+  );
   if (requiredCapabilities.length === 0) {
     return {
       requiredCapabilities: [],
@@ -676,6 +782,7 @@ export function adaptExecutionPlanToRuntime(
   const requestedEvidence =
     params?.input?.requestedEvidence ??
     inferRequestedEvidence(outcomeContract, executionContract);
+  const deliverable = params?.input?.deliverable;
   const prependSystemContext = buildSystemContext(
     plan,
     params?.capabilitySummary,
@@ -685,6 +792,7 @@ export function adaptExecutionPlanToRuntime(
     params?.input?.ambiguityReasons,
     outcomeContract,
     executionContract,
+    deliverable,
   );
   const prependContext = buildPrependContext(plan, {
     capabilitySummary: params?.capabilitySummary,
@@ -696,6 +804,7 @@ export function adaptExecutionPlanToRuntime(
     ambiguityReasons: params?.input?.ambiguityReasons,
     outcomeContract,
     executionContract,
+    ...(deliverable ? { deliverable } : {}),
   });
 
   return {
@@ -734,6 +843,7 @@ export function adaptExecutionPlanToRuntime(
     ...(outcomeContract ? { outcomeContract } : {}),
     ...(executionContract ? { executionContract } : {}),
     ...(requestedEvidence.length ? { requestedEvidence } : {}),
+    ...(deliverable ? { deliverable } : {}),
     ...(params?.input?.publishTargets?.length
       ? { publishTargets: params.input.publishTargets }
       : {}),
@@ -867,5 +977,6 @@ export function buildRecipePlannerInputFromRuntimePlan(
     ...(runtime.requestedEvidence?.length ? { requestedEvidence: runtime.requestedEvidence } : {}),
     ...(runtime.publishTargets?.length ? { publishTargets: runtime.publishTargets } : {}),
     ...(runtime.requestedToolNames?.length ? { requestedTools: runtime.requestedToolNames } : {}),
+    ...(runtime.deliverable ? { deliverable: runtime.deliverable } : {}),
   };
 }

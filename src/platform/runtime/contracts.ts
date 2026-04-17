@@ -7,6 +7,10 @@ import {
 } from "../decision/qualification-contract.js";
 import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
 import { ArtifactKindSchema } from "../schemas/artifact.js";
+import {
+  DeliverableSpecSchema,
+  ProducedArtifactSchema,
+} from "../produce/registry.js";
 
 export const PlatformRuntimeBoundarySchema = z.enum([
   "exec_approval",
@@ -331,6 +335,7 @@ export const PlatformRuntimeExecutionReceiptSchema = z
     summary: z.string().min(1).optional(),
     reasons: z.array(z.string().min(1)).optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
+    producedArtifacts: z.array(ProducedArtifactSchema).optional(),
   })
   .strict();
 export type PlatformRuntimeExecutionReceipt = z.infer<typeof PlatformRuntimeExecutionReceiptSchema>;
@@ -551,6 +556,7 @@ export const PlatformRuntimeExecutionIntentSchema = z
     publishTargets: z.array(z.string().min(1)).optional(),
     artifactKinds: z.array(ArtifactKindSchema).optional(),
     requestedToolNames: z.array(z.string().min(1)).optional(),
+    deliverable: DeliverableSpecSchema.optional(),
     outcomeContract: OutcomeContractSchema.optional(),
     executionContract: QualificationExecutionContractSchema.optional(),
     requestedEvidence: z.array(RequestedEvidenceKindSchema).optional(),

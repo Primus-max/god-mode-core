@@ -2,32 +2,41 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  buildGeneratedPdfText,
   buildPromptOnlyPdfHtml,
   buildPromptOnlyPdfMaterializationRequest,
-  inferRequestedPageCount,
-  promptOnlyPdfNeedsManagedRenderer,
-  promptOnlyPdfWantsRichDraft,
+  normalizePdfBodyText,
+  pdfNeedsManagedRendererFromConstraints,
+  pdfRequestedPageCount,
+  pdfWantsRichDraftFromConstraints,
 } from "./pdf-tool.prompt-only.js";
 
 describe("pdf tool prompt-only helpers", () => {
-  it("detects prompts that require managed renderer bootstrap", () => {
-    expect(promptOnlyPdfNeedsManagedRenderer("Сгенерируй PDF отчет с таблицей и сохрани на диск.")).toBe(
-      true,
-    );
-    expect(promptOnlyPdfNeedsManagedRenderer("Create a PDF with plain text hello world.")).toBe(false);
+  it("derives managed-renderer signal from deliverable constraints only", () => {
+    expect(pdfNeedsManagedRendererFromConstraints(undefined)).toBe(false);
+    expect(pdfNeedsManagedRendererFromConstraints({ style: "minimal" })).toBe(false);
+    expect(pdfNeedsManagedRendererFromConstraints({ style: "infographic" })).toBe(true);
+    expect(pdfNeedsManagedRendererFromConstraints({ needsManagedRenderer: true })).toBe(true);
   });
 
-  it("detects prompts that benefit from rich drafting", () => {
-    expect(promptOnlyPdfWantsRichDraft("Create a 3-slide infographic brochure about bananas.")).toBe(
-      true,
-    );
-    expect(promptOnlyPdfWantsRichDraft("Create a PDF with one short paragraph.")).toBe(false);
+  it("derives rich-draft signal from deliverable constraints only", () => {
+    expect(pdfWantsRichDraftFromConstraints(undefined)).toBe(false);
+    expect(pdfWantsRichDraftFromConstraints({ style: "minimal" })).toBe(false);
+    expect(pdfWantsRichDraftFromConstraints({ style: "rich" })).toBe(true);
+    expect(pdfWantsRichDraftFromConstraints({ style: "presentation" })).toBe(true);
   });
 
-  it("extracts requested page count and trims generated text", () => {
-    expect(inferRequestedPageCount("Make 3 slides about routing.")).toBe(3);
-    expect(buildGeneratedPdfText("Create    a PDF    about routing   ")).toBe("a PDF about routing");
+  it("reads page count from constraints and clamps it to 1-12", () => {
+    expect(pdfRequestedPageCount(undefined)).toBeNull();
+    expect(pdfRequestedPageCount({ pageCount: 3 })).toBe(3);
+    expect(pdfRequestedPageCount({ pageCount: 0 })).toBeNull();
+    expect(pdfRequestedPageCount({ pageCount: 99 })).toBeNull();
+    expect(pdfRequestedPageCount({ pageCount: Number.NaN })).toBeNull();
+  });
+
+  it("normalizes body text without parsing linguistic intent", () => {
+    expect(normalizePdfBodyText("Create    a PDF    about routing   ")).toBe(
+      "Create a PDF about routing",
+    );
   });
 
   it("builds html pages with embedded images and page breaks", () => {

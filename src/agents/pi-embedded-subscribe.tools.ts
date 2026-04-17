@@ -1,6 +1,10 @@
 import { getChannelPlugin, normalizeChannelId } from "../channels/plugins/index.js";
 import { normalizeTargetForProvider } from "../infra/outbound/target-normalization.js";
 import { splitMediaFromOutput } from "../media/parse.js";
+import {
+  DeliverableKindSchema,
+  type ProducedArtifact,
+} from "../platform/produce/registry.js";
 import type { PlatformRuntimeExecutionReceipt } from "../platform/runtime/index.js";
 import { truncateUtf16Safe } from "../utils.js";
 import { collectTextContentBlocks } from "./content-blocks.js";
@@ -395,6 +399,64 @@ export function isToolResultNoProgress(toolName: string, result: unknown): boole
   );
 }
 
+/**
+ * Extract a ProducedArtifact descriptor from a tool result's `details.artifact` payload.
+ * Producer tools (pdf/docx/xlsx/csv/site/image) emit `{ details: { artifact: {...} } }`;
+ * this helper converts that into the canonical ProducedArtifact shape the runtime uses
+ * for deliverable acceptance — no tool-name heuristics here.
+ */
+export function extractProducedArtifactFromToolResult(
+  result: unknown,
+): ProducedArtifact | undefined {
+  if (!result || typeof result !== "object") {
+    return undefined;
+  }
+  const record = result as Record<string, unknown>;
+  const details =
+    record.details && typeof record.details === "object" && !Array.isArray(record.details)
+      ? (record.details as Record<string, unknown>)
+      : undefined;
+  const rawArtifact = details?.artifact;
+  if (!rawArtifact || typeof rawArtifact !== "object" || Array.isArray(rawArtifact)) {
+    return undefined;
+  }
+  const artifact = rawArtifact as Record<string, unknown>;
+  const parsedKind = DeliverableKindSchema.safeParse(artifact.kind);
+  if (!parsedKind.success) {
+    return undefined;
+  }
+  const format = typeof artifact.format === "string" ? artifact.format.trim() : "";
+  const mimeType = typeof artifact.mimeType === "string" ? artifact.mimeType.trim() : "";
+  if (!format || !mimeType) {
+    return undefined;
+  }
+  const normalized: ProducedArtifact = {
+    kind: parsedKind.data,
+    format,
+    mimeType,
+  };
+  if (typeof artifact.path === "string" && artifact.path.trim()) {
+    normalized.path = artifact.path.trim();
+  }
+  if (typeof artifact.url === "string" && artifact.url.trim()) {
+    normalized.url = artifact.url.trim();
+  }
+  if (typeof artifact.sizeBytes === "number" && Number.isFinite(artifact.sizeBytes) && artifact.sizeBytes >= 0) {
+    normalized.sizeBytes = Math.floor(artifact.sizeBytes);
+  }
+  if (typeof artifact.bootstrapRequestId === "string" && artifact.bootstrapRequestId.trim()) {
+    normalized.bootstrapRequestId = artifact.bootstrapRequestId.trim();
+  }
+  if (
+    artifact.metadata &&
+    typeof artifact.metadata === "object" &&
+    !Array.isArray(artifact.metadata)
+  ) {
+    normalized.metadata = { ...(artifact.metadata as Record<string, unknown>) };
+  }
+  return normalized;
+}
+
 export function buildToolExecutionReceipt(params: {
   toolName: string;
   toolCallId: string;
@@ -428,6 +490,9 @@ export function buildToolExecutionReceipt(params: {
     status = "partial";
     reasons.push("tool completed with a partial result");
   }
+  const producedArtifact = !params.isToolError
+    ? extractProducedArtifactFromToolResult(params.result)
+    : undefined;
   return {
     kind: "tool",
     name: normalizedToolName,
@@ -442,6 +507,7 @@ export function buildToolExecutionReceipt(params: {
         : {}),
       ...(statusText ? { toolStatus: statusText } : {}),
     },
+    ...(producedArtifact ? { producedArtifacts: [producedArtifact] } : {}),
   };
 }
 

@@ -53,6 +53,11 @@ export { resolveBootstrapRequest, resolveBootstrapRequests } from "./resolver.js
 export { runDefaultBootstrapHealthCheckCommand, verifyCapabilityHealth } from "./health-check.js";
 export { installCapabilityRequest, type BootstrapInstaller } from "./installers.js";
 export {
+  ensureCapability,
+  loadCapabilityModule,
+  type EnsureCapabilityResult,
+} from "./ensure-capability.js";
+export {
   resolveBootstrapAuditPath,
   resolvePlatformBootstrapDownloadCapabilityInstallDir,
   resolvePlatformBootstrapDownloadCapabilityStageDir,

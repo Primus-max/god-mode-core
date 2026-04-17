@@ -41,12 +41,13 @@ import {
   resolvePdfToolMaxTokens,
 } from "./pdf-tool.helpers.js";
 import {
-  buildGeneratedPdfText,
   buildPromptOnlyPdfHtml,
   buildPromptOnlyPdfMaterializationRequest,
-  inferRequestedPageCount,
-  promptOnlyPdfNeedsManagedRenderer,
-  promptOnlyPdfWantsRichDraft,
+  normalizePdfBodyText,
+  pdfNeedsManagedRendererFromConstraints,
+  pdfRequestedPageCount,
+  pdfWantsRichDraftFromConstraints,
+  type PromptOnlyPdfConstraints,
   type PromptOnlyPdfImageAsset,
 } from "./pdf-tool.prompt-only.js";
 import {
@@ -286,6 +287,7 @@ async function draftPromptOnlyPdfMarkdown(params: {
   modelOverride?: string;
   prompt: string;
   images: PromptOnlyPdfImageAsset[];
+  constraints?: PromptOnlyPdfConstraints;
 }): Promise<{
   text: string;
   provider: string;
@@ -295,7 +297,7 @@ async function draftPromptOnlyPdfMarkdown(params: {
   await ensureOpenClawModelsJson(effectiveCfg, params.agentDir);
   const authStorage = discoverAuthStorage(params.agentDir);
   const modelRegistry = discoverModels(authStorage, params.agentDir);
-  const requestedPageCount = inferRequestedPageCount(params.prompt);
+  const requestedPageCount = pdfRequestedPageCount(params.constraints);
 
   const result = await runWithImageModelFallback({
     cfg: effectiveCfg,
@@ -687,6 +689,34 @@ export function createPdfTool(options?: {
       ),
       model: Type.Optional(Type.String()),
       maxBytesMb: Type.Optional(Type.Number()),
+      pageCount: Type.Optional(
+        Type.Integer({
+          minimum: 1,
+          maximum: 12,
+          description:
+            "Desired number of pages (1-12) when generating a PDF from prompt. Set by the classifier when the user requested a specific length.",
+        }),
+      ),
+      style: Type.Optional(
+        Type.Union(
+          [
+            Type.Literal("minimal"),
+            Type.Literal("rich"),
+            Type.Literal("infographic"),
+            Type.Literal("presentation"),
+          ],
+          {
+            description:
+              "Visual style requested by the classifier. 'minimal' means plain text; anything else triggers the rich-draft path and managed renderer.",
+          },
+        ),
+      ),
+      needsManagedRenderer: Type.Optional(
+        Type.Boolean({
+          description:
+            "Explicit override: require the managed pdf-renderer capability (charts, tables, precise layout). Set by the classifier when the user asked for formatted output.",
+        }),
+      ),
     }),
     execute: async (_toolCallId, args) => {
       const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
@@ -694,6 +724,21 @@ export function createPdfTool(options?: {
         record,
         DEFAULT_PROMPT,
       );
+      const pdfConstraints: PromptOnlyPdfConstraints = {
+        ...(typeof record.pageCount === "number" && Number.isFinite(record.pageCount)
+          ? { pageCount: record.pageCount }
+          : {}),
+        ...(typeof record.style === "string" &&
+        (record.style === "minimal" ||
+          record.style === "rich" ||
+          record.style === "infographic" ||
+          record.style === "presentation")
+          ? { style: record.style }
+          : {}),
+        ...(typeof record.needsManagedRenderer === "boolean"
+          ? { needsManagedRenderer: record.needsManagedRenderer }
+          : {}),
+      };
       const maxBytesMbRaw = typeof record.maxBytesMb === "number" ? record.maxBytesMb : undefined;
       const maxBytesMb =
         typeof maxBytesMbRaw === "number" && Number.isFinite(maxBytesMbRaw) && maxBytesMbRaw > 0
@@ -749,7 +794,7 @@ export function createPdfTool(options?: {
         if (!fallbackPrompt) {
           throw new Error("pdf required: provide a path or URL to a PDF document");
         }
-        const generatedText = buildGeneratedPdfText(fallbackPrompt);
+        const generatedText = normalizePdfBodyText(fallbackPrompt);
         const filename =
           typeof record.filename === "string" && record.filename.trim()
             ? record.filename
@@ -765,7 +810,7 @@ export function createPdfTool(options?: {
           ),
         );
         const drafted =
-          imageAssets.length > 0 || promptOnlyPdfWantsRichDraft(fallbackPrompt)
+          imageAssets.length > 0 || pdfWantsRichDraftFromConstraints(pdfConstraints)
             ? await draftPromptOnlyPdfMarkdown({
                 cfg: options?.config ?? {},
                 agentDir,
@@ -773,6 +818,7 @@ export function createPdfTool(options?: {
                 modelOverride: typeof record.model === "string" ? record.model : undefined,
                 prompt: fallbackPrompt,
                 images: imageAssets,
+                constraints: pdfConstraints,
               }).catch(() => null)
             : null;
         const title = path.parse(filename).name || "Generated PDF";
@@ -790,7 +836,7 @@ export function createPdfTool(options?: {
           outputDir: path.join(os.tmpdir(), "openclaw-pdf-tool"),
         });
         const rendererAvailable = await isPdfRendererAvailable({
-          requireManagedInstall: promptOnlyPdfNeedsManagedRenderer(fallbackPrompt),
+          requireManagedInstall: pdfNeedsManagedRendererFromConstraints(pdfConstraints),
         });
         let materialization = rendererAvailable
           ? materializeArtifact(materializationRequest, { runId: options?.runId })

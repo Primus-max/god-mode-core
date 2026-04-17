@@ -1,0 +1,11 @@
+[openclaw] Building TypeScript (dist is stale).
+2026-04-17T11:16:32.827+03:00 [gateway] [plugins] gateway method already registered: platform.profile.resolve (plugin=platform-profile-foundation, source=C:\Users\Tanya\source\repos\god-mode-core\extensions\platform-profile-foundation\index.ts)
+2026-04-17T11:16:33.109+03:00 [gateway] removed stale session lock: C:\Users\Tanya\.openclaw-dev\agents\dev\sessions\10f8321b-be39-45f7-83ae-260126a11e0b.jsonl.lock (dead-pid, too-old)
+2026-04-17T11:16:39.027+03:00 [agents/model-providers] Failed to discover Ollama models: TypeError: fetch failed
+2026-04-17T11:16:40.715+03:00 [agents/model-providers] Failed to discover Ollama models: TypeError: fetch failed
+2026-04-17T11:30:07.203+03:00 [agents/model-providers] Failed to discover Ollama models: TypeError: fetch failed
+2026-04-17T11:31:35.922+03:00 [agents/model-providers] Failed to discover Ollama models: TypeError: fetch failed
+2026-04-17T11:31:59.745+03:00 [agents/model-providers] Failed to discover Ollama models: TypeError: fetch failed
+2026-04-17T11:33:35.842+03:00 [agents/model-providers] Failed to discover Ollama models: TypeError: fetch failed
+2026-04-17T11:35:56.941+03:00 [tools] message failed: Local media file not found: media/banana-life-rich-word---10301912-4eac-41ac-964b-493ba056940d.docx
+2026-04-17T11:37:06.435+03:00 [tools] message failed: Local media file not found: media/banana-life-telegram-send---59aa220e-0149-4d83-937a-ab11a7118ac5.docx

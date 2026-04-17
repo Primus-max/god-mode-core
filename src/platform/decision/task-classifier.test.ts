@@ -633,6 +633,7 @@ describe("classifyTaskForDecision", () => {
       requiredCapabilities: [],
       confidence: 0.76,
       ambiguities: [],
+      deliverable: { kind: "answer", acceptedFormats: ["text"] },
     });
   });
 
@@ -713,6 +714,7 @@ describe("classifyTaskForDecision", () => {
       requiredCapabilities: ["needs_external_delivery", "needs_repo_execution"],
       confidence: 1,
       ambiguities: ["missing target"],
+      deliverable: { kind: "external_delivery", acceptedFormats: ["receipt"] },
     });
   });
 
@@ -884,6 +886,11 @@ describe("contract-first task contract routing", () => {
       interactionMode: "artifact_iteration",
       confidence: 0.95,
       ambiguities: [],
+      deliverable: {
+        kind: "document",
+        preferredFormat: "pdf",
+        acceptedFormats: ["pdf"],
+      },
     };
 
     const plannerInput = buildPlannerInputFromTaskContract({

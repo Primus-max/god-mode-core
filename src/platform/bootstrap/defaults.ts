@@ -74,4 +74,58 @@ export const TRUSTED_CAPABILITY_CATALOG: CapabilityCatalogEntry[] = [
       rollbackStrategy: "restore_previous",
     },
   },
+  {
+    capability: {
+      id: "docx-writer",
+      label: "DOCX Writer",
+      status: "missing",
+      trusted: true,
+      requiredBins: ["node"],
+      tags: ["docx", "document", "produce"],
+    },
+    source: "catalog",
+    install: {
+      method: "node",
+      packageRef: "docx@9.5.1",
+      integrity: "sha256:trusted-docx-writer",
+      sandboxed: true,
+      rollbackStrategy: "restore_previous",
+    },
+  },
+  {
+    capability: {
+      id: "xlsx-writer",
+      label: "XLSX Writer",
+      status: "missing",
+      trusted: true,
+      requiredBins: ["node"],
+      tags: ["xlsx", "data", "produce"],
+    },
+    source: "catalog",
+    install: {
+      method: "node",
+      packageRef: "exceljs@4.4.0",
+      integrity: "sha256:trusted-xlsx-writer",
+      sandboxed: true,
+      rollbackStrategy: "restore_previous",
+    },
+  },
+  {
+    capability: {
+      id: "site-packager",
+      label: "Site Packager",
+      status: "missing",
+      trusted: true,
+      requiredBins: ["node"],
+      tags: ["site", "zip", "produce"],
+    },
+    source: "catalog",
+    install: {
+      method: "node",
+      packageRef: "archiver@7.0.1",
+      integrity: "sha256:trusted-site-packager",
+      sandboxed: true,
+      rollbackStrategy: "restore_previous",
+    },
+  },
 ];

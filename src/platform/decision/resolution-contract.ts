@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { RecipeRoutingHints } from "../recipe/planner.js";
 import type { ArtifactKind } from "../schemas/artifact.js";
+import type { DeliverableSpec } from "../produce/registry.js";
 import type {
   CandidateExecutionFamily,
   OutcomeContract,
@@ -73,6 +74,7 @@ export type ResolutionBridgePlannerInput = {
   outcomeContract: OutcomeContract;
   executionContract: QualificationExecutionContract;
   candidateFamilies?: CandidateExecutionFamily[];
+  deliverable?: DeliverableSpec;
 };
 
 const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process", "browser", "web_search"]);

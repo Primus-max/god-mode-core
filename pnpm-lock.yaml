@@ -551,6 +551,8 @@ importers:
 
   extensions/perplexity: {}
 
+  extensions/platform-profile-foundation: {}
+
   extensions/qianfan: {}
 
   extensions/sglang: {}

@@ -23,6 +23,7 @@ import {
   selectExecutionFamily,
 } from "./family-selector.js";
 import type { ResolutionContract } from "../decision/resolution-contract.js";
+import type { DeliverableSpec } from "../produce/registry.js";
 
 export type RecipeRoutingHints = {
   localEligible?: boolean;
@@ -44,6 +45,7 @@ export type RecipePlannerInput = ProfileResolverInput & {
   resolutionContract?: ResolutionContract;
   recipes?: ExecutionRecipe[];
   routing?: RecipeRoutingHints;
+  deliverable?: DeliverableSpec;
 };
 
 export type ExecutionPlan = {

@@ -8,36 +8,56 @@ export type PromptOnlyPdfImageAsset = {
   base64: string;
 };
 
-export function promptOnlyPdfNeedsManagedRenderer(prompt: string): boolean {
-  return /(?:\b(?:report|table|invoice|formatted|layout|spreadsheet|save|html|infographic|presentation|slides|chart|graph|visual)\b|\.html?\b|html[-\s]?file|html[-\s]?файл|отч[её]т|таблиц|сохрани|сохранить|инфограф|презентац|слайд|график|диаграм|визуал)/iu.test(
-    prompt,
-  );
+export type PromptOnlyPdfConstraints = {
+  pageCount?: number;
+  style?: "minimal" | "rich" | "infographic" | "presentation";
+  needsManagedRenderer?: boolean;
+};
+
+/**
+ * Pure consumer of `DeliverableSpec.constraints`. This module NEVER parses user prompt.
+ * The classifier (LLM) decides what the user asked for and fills constraints accordingly.
+ */
+export function pdfNeedsManagedRendererFromConstraints(
+  constraints: PromptOnlyPdfConstraints | undefined,
+): boolean {
+  if (constraints?.needsManagedRenderer === true) {
+    return true;
+  }
+  if (constraints?.style && constraints.style !== "minimal") {
+    return true;
+  }
+  return false;
 }
 
-export function promptOnlyPdfWantsRichDraft(prompt: string): boolean {
-  return /(?:\b(?:infographic|presentation|slides|magazine|brochure|visual|chart|graph)\b|инфограф|презентац|слайд|журнал|брошюр|визуал|график|диаграм)/iu.test(
-    prompt,
-  );
+export function pdfWantsRichDraftFromConstraints(
+  constraints: PromptOnlyPdfConstraints | undefined,
+): boolean {
+  if (!constraints?.style) {
+    return false;
+  }
+  return constraints.style !== "minimal";
 }
 
-export function inferRequestedPageCount(prompt: string): number | null {
-  const match = prompt.match(
-    /(\d{1,2})\s*(?:pages?|slides?|страниц(?:а|ы|е)?|страниц|слайд(?:а|ов)?)/iu,
-  );
-  const raw = match?.[1];
-  if (!raw) {
+export function pdfRequestedPageCount(
+  constraints: PromptOnlyPdfConstraints | undefined,
+): number | null {
+  const raw = constraints?.pageCount;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
     return null;
   }
-  const count = Number.parseInt(raw, 10);
-  return Number.isFinite(count) && count > 0 && count <= 12 ? count : null;
+  if (raw <= 0 || raw > 12) {
+    return null;
+  }
+  return Math.floor(raw);
 }
 
-export function buildGeneratedPdfText(prompt: string): string {
-  return prompt
-    .replace(/\s+/gu, " ")
-    .replace(/^(create|generate|make|создай|сгенерируй|сделай)\s+/iu, "")
-    .trim()
-    .slice(0, 4000);
+/**
+ * Whitespace-normalize raw body text for embedding in an HTML fallback page.
+ * No language parsing — purely a text hygiene helper.
+ */
+export function normalizePdfBodyText(rawText: string): string {
+  return rawText.replace(/\s+/gu, " ").trim().slice(0, 4000);
 }
 
 function normalizePromptOnlyPdfMarkdown(markdown: string): string {
