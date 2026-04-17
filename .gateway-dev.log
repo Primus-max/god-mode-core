@@ -107,3 +107,347 @@
 2026-04-17T11:37:26.716+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
 2026-04-17T11:37:27.018+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=1740 out=1740 removed=0 applied=false
 2026-04-17T11:37:27.073+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:37:44.974+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=2951 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:37:45.015+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T11:37:45.016+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T11:37:45.018+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:37:45.330+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=5904 out=5904 removed=0 applied=false
+2026-04-17T11:37:45.371+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:38:09.104+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=3172 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:38:09.144+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T11:38:09.146+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T11:38:09.147+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:38:09.437+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=6125 out=6125 removed=0 applied=false
+2026-04-17T11:38:09.477+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:38:33.970+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=3393 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:38:34.010+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T11:38:34.012+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T11:38:34.013+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:38:34.259+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=6336 out=6336 removed=0 applied=false
+2026-04-17T11:38:34.323+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:39:01.568+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=3614 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:39:01.576+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T11:39:01.578+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T11:39:01.579+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:39:01.890+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=6526 out=6526 removed=0 applied=false
+2026-04-17T11:39:01.892+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:39:26.656+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=3835 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:39:26.657+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T11:39:26.658+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T11:39:26.660+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:39:26.898+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=6788 out=6788 removed=0 applied=false
+2026-04-17T11:39:26.969+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:39:28.754+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=433 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:39:28.795+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T11:39:28.796+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T11:39:28.798+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:39:38.304+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2417 out=2417 removed=0 applied=false
+2026-04-17T11:39:38.345+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:40:20.317+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=4056 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:40:20.319+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T11:40:20.331+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T11:40:20.343+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:40:20.617+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=6997 out=6997 removed=0 applied=false
+2026-04-17T11:40:20.656+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:40:41.867+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=418 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:40:41.908+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T11:40:41.910+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T11:40:41.911+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:40:41.917+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T11:40:41.918+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T11:40:42.124+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2301 out=2301 removed=0 applied=false
+2026-04-17T11:40:42.126+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:40:45.232+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=4277 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:40:45.273+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T11:40:45.274+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T11:40:45.276+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:40:59.647+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=7189 out=7189 removed=0 applied=false
+2026-04-17T11:40:59.687+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:41:08.810+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=1054 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:41:08.860+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T11:41:08.862+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T11:41:08.864+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:41:08.867+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T11:41:08.868+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T11:41:09.073+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2956 out=2956 removed=0 applied=false
+2026-04-17T11:41:09.079+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:41:29.740+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=4963 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:41:29.780+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T11:41:29.782+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T11:41:29.783+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:41:29.787+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T11:41:29.788+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T11:41:29.922+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=6751 out=6751 removed=0 applied=false
+2026-04-17T11:41:29.923+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T11:46:36.087+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=399 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T11:46:36.127+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T11:46:36.128+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T11:46:36.130+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T11:46:36.343+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2318 out=2318 removed=0 applied=false
+2026-04-17T11:46:36.345+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T12:16:36.631+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=399 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T12:16:36.672+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T12:16:36.674+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T12:16:36.675+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T12:16:36.884+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2329 out=2329 removed=0 applied=false
+2026-04-17T12:16:36.886+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T12:24:34.166+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=425 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T12:24:34.207+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T12:24:34.209+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T12:24:34.210+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T12:24:34.216+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T12:24:34.217+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T12:24:34.454+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2302 out=2302 removed=0 applied=false
+2026-04-17T12:24:34.456+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T12:26:23.637+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=468 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T12:26:23.677+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T12:26:23.678+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T12:26:23.680+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T12:26:23.685+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T12:26:23.686+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T12:26:23.911+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2223 out=2223 removed=0 applied=false
+2026-04-17T12:26:23.913+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T12:29:24.949+03:00 typing TTL reached (2m); stopping typing indicator
+2026-04-17T12:35:25.782+03:00 [telegram] sendMessage ok chat=6533456892 message=928
+2026-04-17T12:35:34.320+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=352 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T12:35:34.360+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T12:35:34.362+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T12:35:34.363+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T12:35:34.580+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=1709 out=1709 removed=0 applied=false
+2026-04-17T12:35:34.582+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T12:36:23.306+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=377 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T12:36:23.307+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T12:36:23.309+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T12:36:23.310+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T12:36:23.530+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2212 out=2212 removed=0 applied=false
+2026-04-17T12:36:23.533+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T12:37:34.590+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=454 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T12:37:34.630+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T12:37:34.631+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T12:37:34.633+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T12:37:34.858+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2427 out=2427 removed=0 applied=false
+2026-04-17T12:37:34.938+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T12:39:31.857+03:00 typing TTL reached (2m); stopping typing indicator
+2026-04-17T12:45:32.895+03:00 [telegram] sendMessage ok chat=6533456892 message=937
+2026-04-17T12:45:37.388+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=651 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T12:45:37.429+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T12:45:37.430+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T12:45:37.432+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T12:45:37.656+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2418 out=2418 removed=0 applied=false
+2026-04-17T12:45:37.659+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:03:14.164+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=565 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:03:14.166+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T13:03:14.168+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T13:03:14.169+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:03:14.440+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2070 out=2067 removed=3 applied=true reasoning=stripped trailing spaces and tabs on lines
+2026-04-17T13:03:14.442+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":3,"collapsedLines":0,"strategyId":"deterministic-v2","applied":true}
+2026-04-17T13:04:12.886+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=475 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:04:12.888+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:04:12.890+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:04:12.892+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:04:13.031+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2690 out=2688 removed=2 applied=true reasoning=stripped trailing spaces and tabs on lines
+2026-04-17T13:04:13.034+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":2,"collapsedLines":0,"strategyId":"deterministic-v2","applied":true}
+2026-04-17T13:04:56.402+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=403 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:04:56.416+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T13:04:56.418+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T13:04:56.419+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:04:56.637+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2566 out=2566 removed=0 applied=false
+2026-04-17T13:04:56.643+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:05:33.245+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=385 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:05:33.286+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T13:05:33.288+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T13:05:33.289+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:05:33.503+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2158 out=2158 removed=0 applied=false
+2026-04-17T13:05:33.505+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:06:04.034+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=468 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:06:04.109+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:06:04.111+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:06:04.112+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:06:04.118+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T13:06:04.119+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T13:06:04.333+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2277 out=2277 removed=0 applied=false
+2026-04-17T13:06:04.334+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:08:59.561+03:00 [telegram] sendMessage ok chat=6533456892 message=950
+2026-04-17T13:09:00.588+03:00 [telegram] sendMessage ok chat=6533456892 message=951
+2026-04-17T13:12:37.688+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=406 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:12:37.728+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T13:12:37.729+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T13:12:37.731+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:12:37.955+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=1805 out=1805 removed=0 applied=false
+2026-04-17T13:12:37.961+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:16:22.127+03:00 typing TTL reached (2m); stopping typing indicator
+2026-04-17T13:34:20.226+03:00 [telegram] sendMessage ok chat=6533456892 message=958
+2026-04-17T13:34:21.041+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=399 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:34:21.044+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T13:34:21.046+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T13:34:21.048+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:34:21.396+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=1032 out=1032 removed=0 applied=false
+2026-04-17T13:34:21.442+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:35:33.215+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=367 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:35:33.216+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T13:35:33.218+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T13:35:33.219+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:35:33.434+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2182 out=2182 removed=0 applied=false
+2026-04-17T13:35:33.435+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:36:06.772+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=373 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:36:06.844+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T13:36:06.846+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T13:36:06.848+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:36:07.170+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=1730 out=1730 removed=0 applied=false
+2026-04-17T13:36:07.211+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:38:01.320+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=361 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:38:01.322+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T13:38:01.324+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T13:38:01.326+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:38:01.645+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2251 out=2251 removed=0 applied=false
+2026-04-17T13:38:01.647+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:38:05.170+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=236 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:38:05.172+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T13:38:05.174+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T13:38:05.176+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:38:05.492+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=1595 out=1595 removed=0 applied=false
+2026-04-17T13:38:05.494+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:38:16.776+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=259 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:38:16.778+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:38:16.780+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:38:16.781+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:38:16.787+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T13:38:16.789+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T13:38:17.028+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2394 out=2394 removed=0 applied=false
+2026-04-17T13:38:17.031+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:38:52.814+03:00 [agent/embedded] [transcript-rewrite] rewrote 1 entry bytesFreed=0 sessionKey=live-routing-smoke:02-image:1776422293282
+2026-04-17T13:38:59.838+03:00 [ws] ⇄ res ✓ chat.history 636ms conn=7d390002…2867 id=77d727b8…9e10
+2026-04-17T13:38:59.914+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=408 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:38:59.916+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:38:59.918+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:38:59.920+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:38:59.925+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T13:38:59.926+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T13:39:00.132+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2228 out=2228 removed=0 applied=false
+2026-04-17T13:39:00.135+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:39:04.712+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=310 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:39:04.716+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:39:04.718+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:39:04.720+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:39:05.059+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=4087 out=4087 removed=0 applied=false
+2026-04-17T13:39:05.126+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:39:54.849+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=960 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:39:54.851+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:39:54.853+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:39:54.855+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:39:56.382+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T13:39:56.384+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T13:39:56.651+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2838 out=2838 removed=0 applied=false
+2026-04-17T13:39:56.653+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:40:01.466+03:00 [ws] ⇄ res ✓ chat.history 584ms conn=7d390002…2867 id=8aa09f73…ecd3
+2026-04-17T13:40:42.408+03:00 [agent/embedded] [transcript-rewrite] rewrote 1 entry bytesFreed=0 sessionKey=live-routing-smoke:chain-pdf-docx-1776422282223
+2026-04-17T13:40:47.021+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=651 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:40:47.024+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T13:40:47.026+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T13:40:47.027+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:40:47.352+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2580 out=2580 removed=0 applied=false
+2026-04-17T13:40:47.393+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:40:50.427+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=623 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:40:50.430+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:40:50.432+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:40:50.434+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:40:50.708+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=4387 out=4387 removed=0 applied=false
+2026-04-17T13:40:50.709+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:41:02.870+03:00 [ws] ⇄ res ✓ chat.history 785ms conn=7d390002…2867 id=4f8a8300…88b1
+2026-04-17T13:41:09.302+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=263 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:41:09.348+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:41:09.350+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:41:09.352+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:41:09.659+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=3175 out=3175 removed=0 applied=false
+2026-04-17T13:41:09.661+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:42:04.754+03:00 [ws] ⇄ res ✓ chat.history 629ms conn=7d390002…2867 id=49c71903…08af
+2026-04-17T13:42:05.332+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=259 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:42:05.335+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:42:05.337+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:42:05.339+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:42:05.697+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=3723 out=3723 removed=0 applied=false
+2026-04-17T13:42:05.739+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:42:38.362+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=430 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:42:38.363+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:42:38.365+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:42:38.367+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:42:38.797+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=3383 out=3383 removed=0 applied=false
+2026-04-17T13:42:38.799+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:42:41.788+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=262 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:42:41.791+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:42:41.793+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:42:41.795+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:42:42.159+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=3698 out=3698 removed=0 applied=false
+2026-04-17T13:42:42.161+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:43:07.083+03:00 [ws] ⇄ res ✓ chat.history 884ms conn=7d390002…2867 id=1afb42b4…1435
+2026-04-17T13:43:28.971+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=304 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:43:28.974+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:43:28.977+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:43:28.980+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:43:28.987+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T13:43:28.990+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T13:43:29.360+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=3270 out=3270 removed=0 applied=false
+2026-04-17T13:43:29.363+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:43:36.165+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=429 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:43:36.167+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:43:36.169+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:43:36.175+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:43:36.473+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=3863 out=3863 removed=0 applied=false
+2026-04-17T13:43:36.484+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:44:08.972+03:00 [ws] ⇄ res ✓ chat.history 674ms conn=7d390002…2867 id=0654ede9…5eb8
+2026-04-17T13:45:10.692+03:00 [ws] ⇄ res ✓ chat.history 763ms conn=7d390002…2867 id=76a4fb73…7f4c
+2026-04-17T13:46:12.177+03:00 [ws] ⇄ res ✓ chat.history 612ms conn=7d390002…2867 id=443fc92a…8b45
+2026-04-17T13:47:13.926+03:00 [ws] ⇄ res ✓ chat.history 906ms conn=7d390002…2867 id=111fdfb2…ff11
+2026-04-17T13:48:15.412+03:00 [ws] ⇄ res ✓ chat.history 614ms conn=7d390002…2867 id=13537e21…6aa7
+2026-04-17T13:48:29.155+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=313 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:48:29.158+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:48:29.159+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:48:29.161+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:48:29.467+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2638 out=2638 removed=0 applied=false
+2026-04-17T13:48:29.469+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:48:47.928+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=373 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:48:47.931+03:00 [model-fallback] preflightMode: local_eligible
+2026-04-17T13:48:47.933+03:00 [model-fallback] route preflight: decision=preflight_no_local_candidate eligible=true reordered=false first=hydra/gpt-5.4
+2026-04-17T13:48:47.934+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:48:48.244+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2414 out=2414 removed=0 applied=false
+2026-04-17T13:48:48.251+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:48:59.574+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=393 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:48:59.575+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:48:59.577+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:48:59.579+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:48:59.584+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T13:48:59.586+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T13:48:59.891+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2148 out=2148 removed=0 applied=false
+2026-04-17T13:48:59.893+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:49:16.694+03:00 [ws] ⇄ res ✓ chat.history 862ms conn=7d390002…2867 id=7a54d5af…bfd9
+2026-04-17T13:49:17.207+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=386 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:49:17.212+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:49:17.214+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:49:17.216+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:49:17.223+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T13:49:17.226+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T13:49:17.581+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2141 out=2141 removed=0 applied=false
+2026-04-17T13:49:17.583+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:49:35.076+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=336 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:49:35.116+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:49:35.119+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:49:35.121+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:49:35.438+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2131 out=2131 removed=0 applied=false
+2026-04-17T13:49:35.478+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:52:50.882+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=370 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:52:50.884+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:52:50.886+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:52:50.888+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:52:50.892+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T13:52:50.894+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T13:52:51.129+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=2313 out=2313 removed=0 applied=false
+2026-04-17T13:52:51.131+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+2026-04-17T13:53:37.381+03:00 [model-fallback] route preflight input: promptPresent=true plannerInputPresent=true promptLength=922 mode=default skipRoutePreflight=false candidates=hydra/gpt-5.4
+2026-04-17T13:53:37.383+03:00 [model-fallback] preflightMode: remote_required
+2026-04-17T13:53:37.390+03:00 [model-fallback] route preflight: decision=preflight_stronger_route eligible=false reordered=false first=hydra/gpt-5.4
+2026-04-17T13:53:37.392+03:00 [model-fallback] route candidates ordered: hydra/gpt-5.4
+2026-04-17T13:53:37.398+03:00 [agent/embedded] [hooks] provider overridden to hydra
+2026-04-17T13:53:37.400+03:00 [agent/embedded] [hooks] model overridden to gpt-5.4
+2026-04-17T13:53:37.663+03:00 [agent/embedded] prompt optimize: strategy=deterministic-v2 in=3039 out=3039 removed=0 applied=false
+2026-04-17T13:53:37.708+03:00 [agent/embedded] promptOptimization: {"normalized":false,"trimmedWhitespace":0,"collapsedLines":0,"strategyId":"deterministic-v2","applied":false}
+ ELIFECYCLE  Command failed with exit code 1.

@@ -9,3 +9,14 @@
 2026-04-17T11:33:35.842+03:00 [agents/model-providers] Failed to discover Ollama models: TypeError: fetch failed
 2026-04-17T11:35:56.941+03:00 [tools] message failed: Local media file not found: media/banana-life-rich-word---10301912-4eac-41ac-964b-493ba056940d.docx
 2026-04-17T11:37:06.435+03:00 [tools] message failed: Local media file not found: media/banana-life-telegram-send---59aa220e-0149-4d83-937a-ab11a7118ac5.docx
+2026-04-17T11:39:37.775+03:00 [diagnostic] lane wait exceeded: lane=session:agent:dev:main waitedMs=8975 queueAhead=0
+2026-04-17T11:40:39.133+03:00 Oversized direct session detected (agent:dev:main, tokens=57145). Restarting session -> 04ca41c1-dbc4-4ed7-aee0-6fe7e681cab8.
+2026-04-17T11:40:59.363+03:00 [diagnostic] lane wait exceeded: lane=session:agent:dev:main waitedMs=14085 queueAhead=0
+2026-04-17T11:41:36.488+03:00 [tools] message failed: Local media file not found: media/banana-life-telegram-send---59aa220e-0149-4d83-937a-ab11a7118ac5.docx
+2026-04-17T12:26:40.077+03:00 [telegram] reaction failed: Call to 'setMessageReaction' failed! (400: Bad Request: REACTION_INVALID)
+2026-04-17T12:35:25.437+03:00 [agent/embedded] embedded run agent end: runId=3a9c0747-e50f-43a4-9031-839768598991 isError=true model=gpt-5.4 provider=hydra error=Provider finish_reason: error rawError=Provider finish_reason: error
+2026-04-17T13:04:09.550+03:00 Oversized direct session detected (agent:dev:main, tokens=50550). Restarting session -> 0af4cd45-809c-4b0e-b831-4bfbb4266fd8.
+2026-04-17T13:26:51.780+03:00 [tools] read failed: Offset 541 is beyond end of file (517 lines total)
+2026-04-17T13:35:29.928+03:00 Oversized direct session detected (agent:dev:main, tokens=71428). Restarting session -> 2fcc8936-f778-40e8-8b48-8dd065c0d5eb.
+2026-04-17T13:39:54.662+03:00 [agents/model-providers] Failed to discover Ollama models: TypeError: fetch failed
+2026-04-17T13:39:56.338+03:00 [agents/model-providers] Failed to discover Ollama models: TypeError: fetch failed

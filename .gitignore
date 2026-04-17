@@ -151,3 +151,10 @@ changelog/fragments/
 # MemPalace entity detect (optional local file)
 mempal.yaml
 entities.json
+
+# Local runtime logs and artifacts (never commit)
+.gateway-dev.log
+.gateway-dev.err.log
+.ui-dev.log
+.ui-dev.err.log
+.artifacts/
