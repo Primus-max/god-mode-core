@@ -25,6 +25,7 @@ export const DeliverableKindSchema = z.enum([
   "audio",
   "video",
   "code_change",
+  "repo_operation",
   "external_delivery",
   "capability_install",
 ]);
@@ -147,6 +148,42 @@ const REGISTRY: ProducerEntry[] = [
     format: "pip-package",
     toolName: "capability_install",
     mimeType: "application/x-capability-install",
+  },
+  {
+    kind: "code_change",
+    format: "patch",
+    toolName: "apply_patch",
+    mimeType: "text/x-patch",
+  },
+  {
+    kind: "code_change",
+    format: "workspace",
+    toolName: "write",
+    mimeType: "text/plain",
+  },
+  {
+    kind: "code_change",
+    format: "edit",
+    toolName: "apply_patch",
+    mimeType: "text/x-patch",
+  },
+  {
+    kind: "repo_operation",
+    format: "exec",
+    toolName: "exec",
+    mimeType: "text/plain",
+  },
+  {
+    kind: "repo_operation",
+    format: "test-report",
+    toolName: "exec",
+    mimeType: "text/plain",
+  },
+  {
+    kind: "repo_operation",
+    format: "script",
+    toolName: "exec",
+    mimeType: "text/plain",
   },
 ];
 

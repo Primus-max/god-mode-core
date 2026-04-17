@@ -14,10 +14,14 @@ import { GATEWAY_CLIENT_CAPS } from "../src/gateway/protocol/client-info.js";
 import { PROTOCOL_VERSION } from "../src/gateway/protocol/index.js";
 
 const OUT_DIR = path.resolve(".artifacts/live-routing-smoke");
+const DEV_SMOKE_DIR = path.resolve(".artifacts/dev-smoke");
+const DEV_HELLO_PATH = path.join(DEV_SMOKE_DIR, "hello.txt");
+const DEV_HELLO_REL = path.relative(process.cwd(), DEV_HELLO_PATH).split(path.sep).join("/");
 const TIMEOUT_MS = 300_000;
 const HISTORY_POLL_MS = 1500;
 
 const CHAIN_PDF_DOCX = `chain-pdf-docx-${Date.now()}`;
+const CHAIN_DEV_FILE = `chain-dev-file-${Date.now()}`;
 const SCENARIOS = [
   { id: "01-hello", message: "Привет", expect: { kind: "text" } },
   { id: "02-image", message: "Сгенерировать картинку банана", expect: { kind: "image", formats: ["png", "jpeg", "jpg", "webp"] } },
@@ -27,6 +31,38 @@ const SCENARIOS = [
   { id: "06-xlsx", message: "Какой то отчёт сделать в эксель.", expect: { kind: "document_package", formats: ["xlsx"] } },
   { id: "07-site", message: "Создание сайта — простая лендинг-страница про бананы, отдай готовый архив.", expect: { kind: "document_package", formats: ["zip", "html"] } },
   { id: "08-capability-install", message: "Установи пожалуйста стороннюю библиотеку pdfkit — она нам нужна, выполни установку.", expect: { kind: "capability_install_or_clarify" } },
+  {
+    id: "09-dev-create-file",
+    sessionGroup: CHAIN_DEV_FILE,
+    message: `Создай файл ${DEV_HELLO_REL} с ровно одной строкой содержимого: "hello from dev-smoke". Используй инструмент (apply_patch/write), не просто описывай.`,
+    expect: {
+      kind: "workspace_file",
+      path: DEV_HELLO_PATH,
+      mustContain: "hello from dev-smoke",
+      tools: ["apply_patch", "write"],
+    },
+  },
+  {
+    id: "10-dev-update-file",
+    sessionGroup: CHAIN_DEV_FILE,
+    message: `В файле ${DEV_HELLO_REL} замени строку "hello from dev-smoke" на строку "updated by dev-smoke-10". Используй инструмент редактирования файлов.`,
+    expect: {
+      kind: "workspace_file",
+      path: DEV_HELLO_PATH,
+      mustContain: "updated by dev-smoke-10",
+      tools: ["apply_patch", "edit", "multi_edit", "write"],
+    },
+  },
+  {
+    id: "11-dev-exec",
+    message:
+      "Запусти команду `node --version` через инструмент exec и покажи вывод. Используй именно exec, не описание.",
+    expect: {
+      kind: "tool_output",
+      tools: ["exec"],
+      outputContainsAny: ["v", "node"],
+    },
+  },
 ];
 
 const MAGIC_RULES = [
@@ -427,6 +463,105 @@ async function evaluate(result) {
     pass = invokedInstall || mentionsInstall || producedPaths.length > 0;
     if (!pass) notes.push("no install tool call, acknowledgment, or artifact");
     if (invokedInstall) notes.push("tool_call: capability_install");
+  } else if (scenario.expect.kind === "workspace_file") {
+    const allowedTools = scenario.expect.tools ?? [];
+    const invokedAllowed = toolCalls.filter((c) => allowedTools.includes(c.name));
+    const mustContain = scenario.expect.mustContain;
+
+    // Tools run inside the dev workspace sandbox, so the actual written path
+    // may be relative to that sandbox (e.g. C:\Users\<u>\.openclaw\workspace-dev\...).
+    // Collect every path candidate: expected literal, producedPaths, and raw
+    // `path` arguments from the invoked tool calls, resolved against both the
+    // repo cwd and known dev workspace roots.
+    const home = os.homedir();
+    const sandboxRoots = [
+      path.join(home, ".openclaw", "workspace-dev"),
+      path.join(home, ".openclaw-dev", "workspace"),
+      path.join(home, ".openclaw-dev"),
+      process.cwd(),
+    ];
+    const rawToolPaths = [];
+    for (const call of invokedAllowed) {
+      const p = call?.arguments?.path;
+      if (typeof p === "string" && p.length > 0) rawToolPaths.push(p);
+    }
+    const expanded = new Set();
+    const addCandidate = (p) => {
+      if (!p) return;
+      if (path.isAbsolute(p)) {
+        expanded.add(p);
+        return;
+      }
+      for (const root of sandboxRoots) expanded.add(path.resolve(root, p));
+    };
+    addCandidate(scenario.expect.path);
+    for (const p of producedPaths) addCandidate(p);
+    for (const p of rawToolPaths) addCandidate(p);
+    const candidatePaths = [...expanded];
+    let fileContent = null;
+    let matchedPath = null;
+    for (const candidate of candidatePaths) {
+      try {
+        const content = await fs.readFile(candidate, "utf-8");
+        fileContent = content;
+        matchedPath = candidate;
+        if (!mustContain || content.includes(mustContain)) break;
+      } catch {}
+    }
+    const contentMatches = mustContain
+      ? typeof fileContent === "string" && fileContent.includes(mustContain)
+      : typeof fileContent === "string";
+    pass = invokedAllowed.length > 0 && contentMatches;
+    if (invokedAllowed.length === 0) {
+      const callNames = toolCalls.map((c) => c.name).join(",");
+      notes.push(
+        `no workspace-mutating tool call in [${allowedTools.join(",")}] (got tool_calls=[${callNames}])`,
+      );
+    } else {
+      notes.push(`tool_call: ${invokedAllowed.map((c) => c.name).join(",")}`);
+    }
+    if (!fileContent) {
+      notes.push(`workspace file missing at any of [${candidatePaths.join(", ")}]`);
+    } else if (mustContain && !contentMatches) {
+      notes.push(
+        `file at ${matchedPath} missing expected substring "${mustContain}"`,
+      );
+    } else if (matchedPath) {
+      notes.push(`file verified at ${matchedPath}`);
+    }
+  } else if (scenario.expect.kind === "tool_output") {
+    const allowedTools = scenario.expect.tools ?? [];
+    const invokedAllowed = toolCalls.filter((c) => allowedTools.includes(c.name));
+    const outputContainsAny = scenario.expect.outputContainsAny ?? [];
+    const collectedParts = [assistantText];
+    for (const call of toolCalls) {
+      const rawName = String(call.name ?? "");
+      const isResultForAllowed =
+        rawName.startsWith("result:") &&
+        (allowedTools.includes(call.toolName ?? "") ||
+          allowedTools.some((t) => rawName.includes(t)));
+      const isAllowedCall = allowedTools.includes(rawName);
+      if (!isResultForAllowed && !isAllowedCall) continue;
+      const out = call.output;
+      if (out == null) continue;
+      if (typeof out === "string") collectedParts.push(out);
+      else collectedParts.push(JSON.stringify(out));
+    }
+    const joined = collectedParts.join("\n").toLowerCase();
+    const outputOk =
+      outputContainsAny.length === 0
+        ? invokedAllowed.length > 0
+        : outputContainsAny.some((needle) => joined.includes(String(needle).toLowerCase()));
+    pass = invokedAllowed.length > 0 && outputOk;
+    if (invokedAllowed.length === 0) {
+      const callNames = toolCalls.map((c) => c.name).join(",");
+      notes.push(`no tool call in [${allowedTools.join(",")}] (got tool_calls=[${callNames}])`);
+    } else {
+      notes.push(`tool_call: ${invokedAllowed.map((c) => c.name).join(",")}`);
+    }
+    if (invokedAllowed.length > 0 && !outputOk) {
+      notes.push(`tool output did not contain any of [${outputContainsAny.join("|")}]`);
+    }
   } else {
     const formats = scenario.expect.formats ?? [];
     const okByMagic = magics.some(({ path: p, hex }) => formats.some((f) => {
@@ -468,6 +603,18 @@ async function evaluate(result) {
 
 async function main() {
   await fs.mkdir(OUT_DIR, { recursive: true });
+  const home = os.homedir();
+  const devSmokeCleanupPaths = [
+    DEV_HELLO_PATH,
+    path.join(home, ".openclaw", "workspace-dev", ".artifacts", "dev-smoke", "hello.txt"),
+    path.join(home, ".openclaw-dev", "workspace", ".artifacts", "dev-smoke", "hello.txt"),
+  ];
+  for (const p of devSmokeCleanupPaths) {
+    try {
+      await fs.rm(p, { force: true });
+    } catch {}
+  }
+  await fs.mkdir(DEV_SMOKE_DIR, { recursive: true });
   applyCliProfileEnv({ profile: (process.env.OPENCLAW_PROFILE ?? "dev").trim().toLowerCase() || "dev" });
   const cfg = loadConfig();
   const auth = await resolveGatewayConnectionAuth({ config: cfg, env: process.env });

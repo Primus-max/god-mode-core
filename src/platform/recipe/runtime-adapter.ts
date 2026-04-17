@@ -256,6 +256,21 @@ function buildRequestedToolGuardrails(requestedToolNames?: string[]): string | u
       "Capability install contract: when the user requests installation of a library/capability, you must call capability_install with the packageRef and optional version/integrity in this turn. Do not reply with only an acknowledgement or a plan.",
     );
   }
+  if (toolSet.has("apply_patch")) {
+    guardrails.push(
+      "Code-change contract: when the deliverable is a workspace mutation (add/update/delete files), you must call apply_patch in this turn with a structured patch input (*** Begin Patch / *** Add File: <path> / *** Update File: <path> / *** End Patch). Pass the exact target path(s) and the full new or updated file contents through the patch body. Do not paste the patch into chat text instead of invoking the tool. Do not reply with a plan, acknowledgement, or diff preview without calling apply_patch first.",
+    );
+  }
+  if (toolSet.has("write") && !toolSet.has("apply_patch") && !toolSet.has("image_generate")) {
+    guardrails.push(
+      "Workspace-file contract: when the deliverable is a brand-new file under the workspace, you may call write with the exact path and full file contents in this turn. Do not only describe the file; emit the tool call that actually creates it.",
+    );
+  }
+  if (toolSet.has("exec")) {
+    guardrails.push(
+      "Repo-execution contract: when the deliverable is a command/script/test-report invocation, you must call exec in this turn with the literal command the user requested (or the closest safe equivalent for running the test suite). Pass args and cwd that reflect the request. Do not substitute exec with chat text describing what the command would print.",
+    );
+  }
   return guardrails.length > 0 ? guardrails.join(" ") : undefined;
 }
 

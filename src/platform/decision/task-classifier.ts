@@ -116,6 +116,7 @@ const TASK_CONTRACT_SCHEMA = {
             "audio",
             "video",
             "code_change",
+            "repo_operation",
             "external_delivery",
             "capability_install",
           ],
@@ -211,10 +212,18 @@ Stability examples:
 - "Какой-то отчёт сделать в эксель" / "Report in Excel" -> document_package + artifact_iteration + needs_tabular_reasoning, deliverable={kind:"data", acceptedFormats:["xlsx","csv"], preferredFormat:"xlsx"}.
 - "Создание сайта — простая лендинг-страница" / "Create a landing page" -> external_delivery + artifact_iteration + needs_multimodal_authoring, deliverable={kind:"site", acceptedFormats:["zip","html"], preferredFormat:"zip"}.
 - "Установи стороннюю библиотеку pdfkit" / "Install pdfkit library" -> external_delivery + tool_execution + needs_external_delivery, deliverable={kind:"capability_install", acceptedFormats:["npm-package"], preferredFormat:"npm-package", constraints:{manager:"npm", name:"pdfkit"}}.
+- "Создай новый файл X с содержимым Y" or "Create file X with content Y" -> workspace_change + tool_execution + needs_workspace_mutation, deliverable={kind:"code_change", acceptedFormats:["patch","workspace"], preferredFormat:"patch", constraints:{operation:"add_file"}}. Pass the exact file path and file contents through the tool arguments — never parse them in the tool itself.
+- "Обнови файл X" or "Update file X, replace A with B" -> workspace_change + tool_execution + needs_workspace_mutation, deliverable={kind:"code_change", acceptedFormats:["patch","edit"], preferredFormat:"patch", constraints:{operation:"update_file"}}.
+- "Инициализируй проект, добавь README и CI" or "Scaffold a new repo with README and CI" -> workspace_change + tool_execution + needs_workspace_mutation + needs_repo_execution, deliverable={kind:"code_change", acceptedFormats:["patch","workspace"], preferredFormat:"patch", constraints:{operation:"scaffold_repo"}}.
+- "Найди и пофикси багу в тестовой линии" or "Find and fix the leak in the tests lane" -> workspace_change + tool_execution + needs_workspace_mutation + needs_repo_execution + needs_local_runtime, deliverable={kind:"code_change", acceptedFormats:["patch","edit"], preferredFormat:"patch", constraints:{operation:"bug_fix"}}.
+- "Обнови зависимость Z и прогоняй security checks" or "Bump dependency Z and run security checks" -> workspace_change + tool_execution + needs_workspace_mutation + needs_repo_execution, deliverable={kind:"code_change", acceptedFormats:["patch","workspace"], preferredFormat:"patch", constraints:{operation:"dependency_update"}}.
+- "Запусти команду node --version" or "Run node --version" -> workspace_change + tool_execution + needs_repo_execution + needs_local_runtime, deliverable={kind:"repo_operation", acceptedFormats:["exec","script"], preferredFormat:"exec", constraints:{operation:"run_command"}}.
+- "Прогнать тесты в проекте" or "run the test suite" -> workspace_change + tool_execution + needs_repo_execution + needs_local_runtime, deliverable={kind:"repo_operation", acceptedFormats:["test-report","exec"], preferredFormat:"test-report", constraints:{operation:"run_tests"}}.
+- "Отрефактори модуль Y, покажи diff и прогоняй тесты" or "Refactor module Y, show diff and run tests" -> workspace_change + tool_execution + needs_workspace_mutation + needs_repo_execution + needs_local_runtime, deliverable={kind:"code_change", acceptedFormats:["patch","edit"], preferredFormat:"patch", constraints:{operation:"refactor"}}.
 
 Deliverable rules:
 - ALWAYS include a "deliverable" object. It declares WHAT the user wants back, independent of WHICH tool produces it.
-- deliverable.kind is one of: answer, image, document, data, site, archive, audio, video, code_change, external_delivery, capability_install.
+- deliverable.kind is one of: answer, image, document, data, site, archive, audio, video, code_change, repo_operation, external_delivery, capability_install.
 - deliverable.acceptedFormats is a non-empty list of format tokens (lower-case) the user would accept. Put the preferred/most-likely format FIRST.
 - If the user clearly named ONE format (pdf / docx / xlsx / csv / png / mp3 / zip / etc.) put exactly that format in acceptedFormats and set preferredFormat to it.
 - If the user asked for a document but did not name a format, return primaryOutcome="clarification_needed" and an ambiguity "document format not specified". Do NOT guess pdf-vs-docx.
@@ -224,7 +233,8 @@ Deliverable rules:
   - document_package (visual-only artifact like a poster, illustration, banner) -> kind: "image", acceptedFormats: ["png","jpg"]
   - document_package (authored document: pdf / docx / presentation) -> kind: "document", acceptedFormats: the named format(s)
   - document_extraction -> kind: "data", acceptedFormats: ["json"]
-  - workspace_change -> kind: "code_change", acceptedFormats: ["patch"]
+  - workspace_change (create/update/refactor files, bug fixes, dep bumps) -> kind: "code_change", acceptedFormats: ["patch","workspace"] (prefer "patch" when you want a diff; prefer "workspace" when the user asked for a fresh file). Constraints may include {operation: "add_file"|"update_file"|"refactor"|"bug_fix"|"dependency_update"|"scaffold_repo"}.
+  - workspace_change driven by running commands/tests/scripts WITHOUT editing source files -> kind: "repo_operation", acceptedFormats: ["exec","script","test-report"]. Constraints may include {operation: "run_command"|"run_tests"|"run_script"}.
   - external_delivery -> kind: "external_delivery", acceptedFormats: ["receipt"]
   - comparison_report / calculation_result -> kind: "answer", acceptedFormats: ["text"]
   - install a library / package / CLI tool -> kind: "capability_install", acceptedFormats: ["npm-package"] for node, ["pip-package"] for python, ["brew-package"] for macOS system tools, constraints: { manager: "npm"|"pip"|"brew", name: "<exact package name>", version?: "<semver or tag>" }
@@ -493,7 +503,9 @@ function normalizeTaskContract(contract: TaskContract): TaskContract {
   }
 
   if (primaryOutcome === "workspace_change") {
-    capabilities.add("needs_workspace_mutation");
+    if (contract.deliverable?.kind !== "repo_operation") {
+      capabilities.add("needs_workspace_mutation");
+    }
     interactionMode = "tool_execution";
   }
 
@@ -565,7 +577,13 @@ function inferDeliverableFallback(
     case "clarification_needed":
       return { kind: "answer", acceptedFormats: ["text"] };
     case "workspace_change":
-      return { kind: "code_change", acceptedFormats: ["patch"] };
+      if (
+        capabilities.has("needs_repo_execution") &&
+        !capabilities.has("needs_workspace_mutation")
+      ) {
+        return { kind: "repo_operation", acceptedFormats: ["exec", "script"] };
+      }
+      return { kind: "code_change", acceptedFormats: ["patch", "workspace"] };
     case "external_delivery":
       return { kind: "external_delivery", acceptedFormats: ["receipt"] };
     case "document_extraction":
@@ -669,7 +687,10 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
   if (capabilities.has("needs_repo_execution")) {
     requestedTools.push("exec");
   }
-  if (capabilities.has("needs_workspace_mutation")) {
+  if (
+    capabilities.has("needs_workspace_mutation") &&
+    contract.deliverable?.kind !== "repo_operation"
+  ) {
     requestedTools.push("apply_patch");
   }
   if (capabilities.has("needs_local_runtime")) {
@@ -1034,6 +1055,9 @@ export async function classifyTaskForDecision(params: {
           fileNames: params.fileNames,
           taskContract: normalizedContract,
         });
+        log.info(
+          `classified: outcome=${normalizedContract.primaryOutcome} mode=${normalizedContract.interactionMode} conf=${normalizedContract.confidence} deliverable=${normalizedContract.deliverable?.kind ?? "n/a"}/${(normalizedContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${normalizedContract.requiredCapabilities.join(",")}] ambig=[${normalizedContract.ambiguities.join(" | ")}]`,
+        );
         return {
           source: "llm",
           taskContract: normalizedContract,
