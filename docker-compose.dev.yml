@@ -1,0 +1,111 @@
+# Local dev contour for god-mode-core.
+#
+# Gateway runs in --dev mode inside a Linux container, with repo source
+# bind-mounted for hot edits. A separate `smoke` service runs the live
+# routing smoke driver against it and then exits.
+#
+# Quick start (PowerShell / bash):
+#   cp .env.example .env                    # fill provider keys
+#   docker compose -f docker-compose.dev.yml up --build gateway
+# In another terminal:
+#   docker compose -f docker-compose.dev.yml run --rm smoke
+#
+# Why a separate dev file:
+# - The production Dockerfile / docker-compose.yml build a pruned image
+#   around `dist/`. That image cannot hot-reload TS and is unsuited to
+#   editing classifier/adapter code. This file is the dev counterpart.
+#
+# node_modules strategy:
+# - Repo is bind-mounted at /workspace. node_modules lives in a named
+#   volume so host (Win) and container (Linux) installs never collide;
+#   native modules compiled on Win never leak into the Linux container.
+#
+# Networking:
+# - `smoke` joins gateway's network namespace via network_mode:service.
+#   The smoke driver keeps hitting ws://127.0.0.1:19001 unchanged.
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: openclaw-dev:local
+    container_name: openclaw-dev-gateway
+    init: true
+    working_dir: /workspace
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OPENCLAW_PROFILE: dev
+      OPENCLAW_SKIP_CHANNELS: "1"
+      CI: "false"
+    volumes:
+      - .:/workspace
+      - dev_node_modules:/workspace/node_modules
+      - dev_ui_node_modules:/workspace/ui/node_modules
+      # Keep pnpm store on a named volume so repeated installs are cheap.
+      - dev_pnpm_store:/root/.local/share/pnpm/store
+    ports:
+      - "19001:19001"
+    # Install deps only when the volume is empty, then start the dev gateway.
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        if [ ! -d node_modules/.bin ] || [ ! -f node_modules/.pnpm/lock.yaml ]; then
+          echo "[dev-gateway] installing dependencies (first run)"
+          pnpm install --frozen-lockfile
+        fi
+        echo "[dev-gateway] launching pnpm gateway:dev"
+        exec pnpm gateway:dev
+    # Dev gateway listens on 19001 but does not expose /healthz there, so
+    # check the TCP port is open. /dev/tcp is a bash builtin.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/19001' 2>/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 90s
+    restart: "no"
+
+  smoke:
+    image: openclaw-dev:local
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: openclaw-dev-smoke
+    init: true
+    working_dir: /workspace
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OPENCLAW_PROFILE: dev
+    # Share gateway's network namespace so the driver can keep talking to
+    # 127.0.0.1:19001 without any code changes.
+    network_mode: "service:gateway"
+    volumes:
+      - .:/workspace
+      - dev_node_modules:/workspace/node_modules
+      - dev_ui_node_modules:/workspace/ui/node_modules
+      - dev_pnpm_store:/root/.local/share/pnpm/store
+    depends_on:
+      gateway:
+        condition: service_healthy
+    entrypoint:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        if [ ! -d node_modules/.bin ]; then
+          pnpm install --frozen-lockfile
+        fi
+        exec pnpm live:routing:smoke
+    restart: "no"
+
+volumes:
+  dev_node_modules:
+  dev_ui_node_modules:
+  dev_pnpm_store:

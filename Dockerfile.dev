@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1.7
+#
+# Dev-loop image for local Linux parity with god-mode-core.
+#
+# This image is deliberately thin: it ships Node + pnpm and nothing else.
+# Source code is NOT copied in — it is bind-mounted at /workspace by
+# docker-compose.dev.yml, so edits on the host appear instantly in the
+# container and the dev loop (`pnpm gateway:dev`, tsx) keeps working.
+#
+# For the production image see the top-level Dockerfile; the two are
+# independent and must not be mixed.
+#
+FROM node:24-bookworm
+
+ENV COREPACK_HOME=/opt/corepack
+RUN install -d -m 0755 "$COREPACK_HOME" && \
+    corepack enable && \
+    chmod -R a+rX "$COREPACK_HOME"
+
+# Minimal runtime utilities used by the dev loop and smoke driver.
+# git: classifier/lint scripts shell out to it.
+# curl/openssl: network debugging and fallbacks.
+# procps/lsof: readable `ps`/`lsof` output when debugging gateway state.
+# ca-certificates: outbound HTTPS to LLM providers.
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      git curl openssl procps lsof ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Pre-activate the pnpm version pinned in package.json so the first
+# `pnpm install` inside the container skips a network fetch.
+COPY package.json /tmp/package.json
+RUN set -eux; \
+    PNPM_VER="$(node -p 'require("/tmp/package.json").packageManager')"; \
+    corepack prepare "$PNPM_VER" --activate; \
+    rm -f /tmp/package.json
