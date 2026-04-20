@@ -23,6 +23,7 @@ import {
   buildFallbackNotice,
   resolveFallbackTransition,
 } from "../fallback-state.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import type { OriginatingChannelType, TemplateContext } from "../templating.js";
 import { resolveResponseUsageMode, type VerboseLevel } from "../thinking.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
@@ -59,8 +60,14 @@ import { createReplyToModeFilterForChannel, resolveReplyToMode } from "./reply-t
 import { incrementRunCompactionCount, persistRunSessionUsage } from "./session-run-accounting.js";
 import { createTypingSignaler } from "./typing-mode.js";
 import type { TypingController } from "./typing.js";
+import { intentLedger } from "../../platform/session/intent-ledger.js";
+import {
+  reconcilePromisesWithReceipts,
+  type PromisedActionViolation,
+} from "../../platform/session/execution-evidence.js";
 
 const BLOCK_REPLY_SEND_TIMEOUT_MS = 15_000;
+const intentLedgerLog = createSubsystemLogger("intent-ledger");
 let piEmbeddedQueueRuntimePromise: Promise<
   typeof import("../../agents/pi-embedded-queue.runtime.js")
 > | null = null;
@@ -160,6 +167,20 @@ function buildDebugReplyBlock(params: {
       }
     | undefined;
   executionIntent?: string;
+  classifierTelemetry?: {
+    source: "llm" | "fail_closed";
+    backend?: string;
+    model?: string;
+    primaryOutcome?: string;
+    interactionMode?: string;
+    confidence?: number;
+    deliverableKind?: string;
+    deliverableFormats?: string[];
+  };
+  routingOutcome?:
+    | { kind: "matched"; source: "ranked" | "contract_first_fallback" }
+    | { kind: "low_confidence_clarify" }
+    | { kind: "contract_unsatisfiable"; reasons: string[] };
 }): string | undefined {
   if (!isDebugReplyRoutingEnabled()) {
     return undefined;
@@ -176,7 +197,7 @@ function buildDebugReplyBlock(params: {
       attempt.model,
       attempt.reason === "unknown"
         ? undefined
-        : attempt.reason ?? attempt.code ?? (attempt.error ? "failed" : undefined),
+        : (attempt.reason ?? attempt.code ?? (attempt.error ? "failed" : undefined)),
     );
   }
   addAttempt(params.activeProvider, params.activeModel, "used");
@@ -190,7 +211,7 @@ function buildDebugReplyBlock(params: {
   const usage = params.usage;
   const totalTokens =
     usage?.total ??
-    ((usage?.input ?? 0) + (usage?.output ?? 0) + (usage?.cacheRead ?? 0) + (usage?.cacheWrite ?? 0));
+    (usage?.input ?? 0) + (usage?.output ?? 0) + (usage?.cacheRead ?? 0) + (usage?.cacheWrite ?? 0);
   const lastCall = params.lastCallUsage;
   const summary = [
     "[debug]",
@@ -200,7 +221,44 @@ function buildDebugReplyBlock(params: {
     .filter((part): part is string => Boolean(part))
     .join(" · ");
 
+  const classifierLine = (() => {
+    const tele = params.classifierTelemetry;
+    if (!tele) {
+      return undefined;
+    }
+    const backendModel =
+      tele.backend && tele.model
+        ? `${tele.backend}/${tele.model}`
+        : (tele.model ?? tele.backend ?? "?");
+    const deliverable = tele.deliverableKind
+      ? `${tele.deliverableKind}${(tele.deliverableFormats?.length ?? 0) > 0 ? `/${tele.deliverableFormats!.join(",")}` : ""}`
+      : "n/a";
+    const confidence =
+      typeof tele.confidence === "number" && Number.isFinite(tele.confidence)
+        ? tele.confidence.toFixed(2)
+        : "?";
+    const outcome = tele.primaryOutcome ?? "?";
+    const mode = tele.interactionMode ?? "?";
+    return `classifier: \`${backendModel}\` [${tele.source}] -> ${outcome}·${mode}·${confidence} · deliverable=${deliverable}`;
+  })();
+
+  const routingLine = (() => {
+    const outcome = params.routingOutcome;
+    if (!outcome) {
+      return undefined;
+    }
+    if (outcome.kind === "matched") {
+      return `routing: \`matched:${outcome.source}\``;
+    }
+    if (outcome.kind === "low_confidence_clarify") {
+      return "routing: `low_confidence_clarify`";
+    }
+    return `routing: \`contract_unsatisfiable\` reasons=${outcome.reasons.join(",")}`;
+  })();
+
   const details = [
+    classifierLine,
+    routingLine,
     params.executionIntent ? `intent: \`${params.executionIntent}\`` : undefined,
     `selected: \`${params.selectedProvider}/${params.selectedModel}\``,
     attemptParts.length > 1 ? `attempts: ${attemptParts.join(" -> ")}` : undefined,
@@ -217,9 +275,7 @@ function buildDebugReplyBlock(params: {
 
   // Two root-level blockquotes (blank line between) so Telegram can render the details
   // as <blockquote expandable> instead of <tg-spoiler> (spoiler UX is a noisy static mask).
-  return details
-    ? `> ${summary}\n\n> ${details}`
-    : `> ${summary}`;
+  return details ? `> ${summary}\n\n> ${details}` : `> ${summary}`;
 }
 
 function shouldSuppressDeferredSemanticRetryReply(params: {
@@ -246,8 +302,9 @@ function shouldSuppressDeferredSemanticRetryReply(params: {
   }
   const expectsArtifact = (params.artifactKinds?.length ?? 0) > 0;
   const hasMediaPayload =
-    params.replyPayloads?.some((payload) => Boolean(payload.mediaUrl || payload.mediaUrls?.length)) ??
-    false;
+    params.replyPayloads?.some((payload) =>
+      Boolean(payload.mediaUrl || payload.mediaUrls?.length),
+    ) ?? false;
   const decision = params.supervisorVerdict ?? params.acceptanceOutcome;
   return (
     expectsArtifact &&
@@ -256,6 +313,83 @@ function shouldSuppressDeferredSemanticRetryReply(params: {
     decision.remediation === "semantic_retry" &&
     decision.recoveryPolicy?.exhausted !== true
   );
+}
+
+const EVIDENCE_HARD_REPLAN_REASON_CODE = "evidence_hard_replan";
+const evidenceLog = createSubsystemLogger("evidence");
+
+function buildEvidenceHardReplanPrompt(params: {
+  originalPrompt: string;
+  violation: PromisedActionViolation;
+}): string {
+  const { violation } = params;
+  const toolNames = violation.expectedToolNames ?? [];
+  const kinds = violation.expectedReceiptKinds.join(", ");
+  const toolHint =
+    toolNames.length > 0
+      ? `Execute the promised action now using the \`${toolNames.join("`/`")}\` tool. Do not reply with acknowledgement text only.`
+      : `Execute the promised action now via the appropriate runtime tool (${kinds}). Do not reply with acknowledgement text only.`;
+  const corrective = [
+    "The previous turn promised to execute an action but produced no matching execution receipt.",
+    `Expected receipt kinds: ${kinds}.`,
+    toolNames.length > 0 ? `Expected tool(s): ${toolNames.join(", ")}.` : undefined,
+    toolHint,
+    `Promise summary: "${violation.summary}".`,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" ");
+  const originalPrompt = params.originalPrompt.trim();
+  return [corrective, "[Original task]", originalPrompt].join("\n\n");
+}
+
+function enqueueEvidenceHardReplan(params: {
+  queueKey: string;
+  sourceRun: FollowupRun;
+  settings: QueueSettings;
+  violation: PromisedActionViolation;
+}): boolean {
+  if (!params.queueKey) {
+    return false;
+  }
+  const retryCount = params.sourceRun.automation?.retryCount ?? 0;
+  const prompt = buildEvidenceHardReplanPrompt({
+    originalPrompt: params.sourceRun.prompt,
+    violation: params.violation,
+  });
+  return enqueueFollowupRun(
+    params.queueKey,
+    {
+      ...params.sourceRun,
+      requestRunId: params.sourceRun.requestRunId,
+      parentRunId: params.sourceRun.requestRunId ?? params.sourceRun.parentRunId,
+      prompt,
+      messageId: undefined,
+      summaryLine: "evidence hard replan",
+      enqueuedAt: Date.now(),
+      automation: {
+        source: "acceptance_retry",
+        retryCount: retryCount + 1,
+        persisted: false,
+        reasonCode: EVIDENCE_HARD_REPLAN_REASON_CODE,
+        reasonSummary: `Promised action had no matching ${params.violation.expectedReceiptKinds.join("|")} receipt${params.violation.expectedToolNames?.length ? ` (tools: ${params.violation.expectedToolNames.join(", ")})` : ""}`,
+      },
+    },
+    params.settings,
+    "prompt",
+  );
+}
+
+function summarizeFinalAssistantText(payloads: ReplyPayload[]): string {
+  for (const payload of payloads) {
+    if (payload.isError || typeof payload.text !== "string") {
+      continue;
+    }
+    const normalized = payload.text.replace(/\s+/g, " ").trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return "";
 }
 
 export async function runReplyAgent(params: {
@@ -580,7 +714,7 @@ export async function runReplyAgent(params: {
       totalTokens >= 50_000 ||
       Boolean(
         activeSessionEntry.systemPromptReport?.systemPrompt?.chars &&
-          activeSessionEntry.systemPromptReport.systemPrompt.chars >= 30_000,
+        activeSessionEntry.systemPromptReport.systemPrompt.chars >= 30_000,
       );
     const messageLooksSimple = normalizedMessage.length > 0 && normalizedMessage.length <= 600;
     if (!isDirectChat || !sessionLooksOversized || !messageLooksSimple) {
@@ -1134,9 +1268,136 @@ export async function runReplyAgent(params: {
       usage,
       lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
       executionIntent: runResult.meta?.executionIntent?.intent,
+      classifierTelemetry: runResult.meta?.executionIntent?.classifierTelemetry,
+      routingOutcome: runResult.meta?.executionIntent?.routingOutcome,
     });
     if (debugReplyBlock) {
       finalPayloads = appendUsageLine(finalPayloads, debugReplyBlock);
+    }
+
+    const channelForLedger = (
+      replyToChannel ??
+      sessionCtx.Surface ??
+      sessionCtx.Provider ??
+      sessionCtx.OriginatingChannel
+    )
+      ?.trim()
+      .toLowerCase();
+    const ledgerSummary = summarizeFinalAssistantText(guardedReplyPayloads);
+    if (followupRun.run.sessionId && channelForLedger && ledgerSummary) {
+      const recordedLedgerEntry = intentLedger.recordFromBotTurn({
+        turnId: runId,
+        sessionId: followupRun.run.sessionId,
+        channelId: channelForLedger,
+        summary: ledgerSummary,
+        planOutput: runResult.meta?.executionIntent,
+        runtimeReceipts: runResult.meta?.executionVerification?.receipts,
+      });
+      intentLedgerLog.info(
+        `[intent-ledger] recorded session=${followupRun.run.sessionId} channel=${channelForLedger}`,
+      );
+
+      const executionReceipts = runResult.meta?.executionVerification?.receipts ?? [];
+      const executionVerification = runResult.meta?.executionVerification;
+      const pendingPromises = recordedLedgerEntry?.kind === "promised_action"
+        ? [recordedLedgerEntry]
+        : [];
+      if (pendingPromises.length > 0) {
+        const violations = reconcilePromisesWithReceipts({
+          pendingPromises,
+          receipts: executionReceipts,
+          ...(executionVerification ? { verification: executionVerification } : {}),
+        });
+        const hardViolations = violations.filter((v) => v.severity === "hard");
+        const softViolations = violations.filter((v) => v.severity === "soft");
+        const alreadyEvidenceReplan =
+          followupRun.automation?.reasonCode === EVIDENCE_HARD_REPLAN_REASON_CODE;
+        let action: "none" | "soft" | "hard-replan" = "none";
+        if (hardViolations.length > 0) {
+          if (alreadyEvidenceReplan) {
+            evidenceLog.warn("[evidence] replan-budget-exhausted");
+            for (const violation of hardViolations) {
+              intentLedger.recordViolatedPromise({
+                turnId: violation.turnId,
+                sessionId: followupRun.run.sessionId,
+                channelId: channelForLedger,
+                summary: violation.summary,
+                ...(violation.expectedReceiptKinds || violation.expectedToolNames
+                  ? {
+                      receiptMatchers: {
+                        ...(violation.expectedReceiptKinds.length > 0
+                          ? { receiptKinds: [...violation.expectedReceiptKinds] }
+                          : {}),
+                        ...(violation.expectedToolNames?.length
+                          ? { toolNames: [...violation.expectedToolNames] }
+                          : {}),
+                      },
+                    }
+                  : {}),
+              });
+            }
+            action = "soft";
+          } else {
+            const firstHard = hardViolations[0]!;
+            const enqueued = enqueueEvidenceHardReplan({
+              queueKey,
+              sourceRun: followupRun,
+              settings: resolvedQueue,
+              violation: firstHard,
+            });
+            action = enqueued ? "hard-replan" : "soft";
+            if (!enqueued) {
+              intentLedger.recordViolatedPromise({
+                turnId: firstHard.turnId,
+                sessionId: followupRun.run.sessionId,
+                channelId: channelForLedger,
+                summary: firstHard.summary,
+                ...(firstHard.expectedReceiptKinds || firstHard.expectedToolNames
+                  ? {
+                      receiptMatchers: {
+                        ...(firstHard.expectedReceiptKinds.length > 0
+                          ? { receiptKinds: [...firstHard.expectedReceiptKinds] }
+                          : {}),
+                        ...(firstHard.expectedToolNames?.length
+                          ? { toolNames: [...firstHard.expectedToolNames] }
+                          : {}),
+                      },
+                    }
+                  : {}),
+              });
+            }
+          }
+        } else if (softViolations.length > 0) {
+          action = "soft";
+          for (const violation of softViolations) {
+            intentLedger.recordViolatedPromise({
+              turnId: violation.turnId,
+              sessionId: followupRun.run.sessionId,
+              channelId: channelForLedger,
+              summary: violation.summary,
+              ...(violation.expectedReceiptKinds || violation.expectedToolNames
+                ? {
+                    receiptMatchers: {
+                      ...(violation.expectedReceiptKinds.length > 0
+                        ? { receiptKinds: [...violation.expectedReceiptKinds] }
+                        : {}),
+                      ...(violation.expectedToolNames?.length
+                        ? { toolNames: [...violation.expectedToolNames] }
+                        : {}),
+                    },
+                  }
+                : {}),
+            });
+          }
+        }
+        evidenceLog.info(
+          `[evidence] promises=${pendingPromises.length} receipts=${executionReceipts.length} violations=${violations.length} action=${action}`,
+        );
+      } else {
+        evidenceLog.info(
+          `[evidence] promises=0 receipts=${executionReceipts.length} violations=0 action=none`,
+        );
+      }
     }
 
     if (queuedSemanticRetry) {

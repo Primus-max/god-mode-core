@@ -49,7 +49,9 @@ export function buildExecutionIntentSeedFromRecipeRuntimePlan(
     ...(runtime.outcomeContract ? { outcomeContract: runtime.outcomeContract } : {}),
     ...(runtime.executionContract ? { executionContract: runtime.executionContract } : {}),
     ...(runtime.requestedEvidence?.length ? { requestedEvidence: runtime.requestedEvidence } : {}),
-    ...(runtime.lowConfidenceStrategy ? { lowConfidenceStrategy: runtime.lowConfidenceStrategy } : {}),
+    ...(runtime.lowConfidenceStrategy
+      ? { lowConfidenceStrategy: runtime.lowConfidenceStrategy }
+      : {}),
     ...(runtime.requiredCapabilities?.length
       ? { requiredCapabilities: runtime.requiredCapabilities }
       : {}),
@@ -60,6 +62,8 @@ export function buildExecutionIntentSeedFromRecipeRuntimePlan(
       ? { requireExplicitApproval: runtime.requireExplicitApproval }
       : {}),
     ...(runtime.policyAutonomy ? { policyAutonomy: runtime.policyAutonomy } : {}),
+    ...(runtime.classifierTelemetry ? { classifierTelemetry: runtime.classifierTelemetry } : {}),
+    ...(runtime.routingOutcome ? { routingOutcome: runtime.routingOutcome } : {}),
     expectations,
   };
 }

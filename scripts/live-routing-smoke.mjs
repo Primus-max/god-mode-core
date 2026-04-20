@@ -22,6 +22,7 @@ const HISTORY_POLL_MS = 1500;
 
 const CHAIN_PDF_DOCX = `chain-pdf-docx-${Date.now()}`;
 const CHAIN_DEV_FILE = `chain-dev-file-${Date.now()}`;
+const CHAIN_CONFIRM_EXEC = `chain-confirm-exec-${Date.now()}`;
 const SCENARIOS = [
   { id: "01-hello", message: "Привет", expect: { kind: "text" } },
   { id: "02-image", message: "Сгенерировать картинку банана", expect: { kind: "image", formats: ["png", "jpeg", "jpg", "webp"] } },
@@ -57,6 +58,23 @@ const SCENARIOS = [
     id: "11-dev-exec",
     message:
       "Запусти команду `node --version` через инструмент exec и покажи вывод. Используй именно exec, не описание.",
+    expect: {
+      kind: "tool_output",
+      tools: ["exec"],
+      outputContainsAny: ["v", "node"],
+    },
+  },
+  {
+    id: "12-confirmation-question",
+    sessionGroup: CHAIN_CONFIRM_EXEC,
+    message:
+      "Сначала задай короткий вопрос подтверждения: «Запустить node --version?». Ничего не запускай до моего ответа.",
+    expect: { kind: "text" },
+  },
+  {
+    id: "13-confirmation-yes-exec",
+    sessionGroup: CHAIN_CONFIRM_EXEC,
+    message: "ДА",
     expect: {
       kind: "tool_output",
       tools: ["exec"],

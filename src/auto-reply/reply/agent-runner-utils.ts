@@ -303,7 +303,10 @@ export async function resolveRoutingSnapshotForTemplateRun(params: {
   });
   return {
     plannerInput,
-    runtimePlan: resolvePlatformRuntimePlan(plannerInput).runtime,
+    runtimePlan: resolvePlatformRuntimePlan({
+      ...plannerInput,
+      callerTag: "auto-reply-runtime-plan",
+    }).runtime,
     channelHints,
     ...(shouldUseLightweightBootstrapContext(plannerInput)
       ? { bootstrapContextMode: "lightweight" as const }

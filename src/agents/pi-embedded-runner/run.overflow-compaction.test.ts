@@ -104,19 +104,21 @@ describe("runEmbeddedPiAgent overflow compaction trigger routing", () => {
     );
     mockedRunEmbeddedAttempt.mockResolvedValueOnce(makeAttemptResult({ promptError: null }));
 
+    const platformExecutionContext = {
+      selectedRecipeId: "doc_ingest",
+      selectedProfileId: "builder",
+      taskOverlayId: "document_first",
+      plannerReasoning: "doc_ingest matched the document-heavy prompt.",
+      timeoutSeconds: 180,
+      fallbackModels: ["anthropic/claude-sonnet-4.6"],
+      prependContext: "Profile: Builder.\nPlanner reasoning: doc_ingest.",
+      prependSystemContext: "Execution recipe: doc_ingest.",
+    };
+
     await runEmbeddedPiAgent({
       ...overflowBaseRunParams,
       runId: "run-platform-context",
-      platformExecutionContext: {
-        selectedRecipeId: "doc_ingest",
-        selectedProfileId: "builder",
-        taskOverlayId: "document_first",
-        plannerReasoning: "doc_ingest matched the document-heavy prompt.",
-        timeoutSeconds: 180,
-        fallbackModels: ["anthropic/claude-sonnet-4.6"],
-        prependContext: "Profile: Builder.\nPlanner reasoning: doc_ingest.",
-        prependSystemContext: "Execution recipe: doc_ingest.",
-      },
+      platformExecutionContext,
     });
 
     expect(mockedGlobalHookRunner.runBeforeModelResolve).toHaveBeenCalledWith(
@@ -133,6 +135,15 @@ describe("runEmbeddedPiAgent overflow compaction trigger routing", () => {
           prependSystemContext: "Execution recipe: doc_ingest.",
         },
       }),
+    );
+
+    // P0.1 regression: the runtime plan must also reach the attempt layer so
+    // `buildAttemptHookContext` can seed `ctx.platformExecution` for every
+    // plugin hook inside the attempt loop (e.g. before_prompt_build). Without
+    // this, `resolveHookExecution` falls back to a redundant classify+plan
+    // cycle tagged `plugin-platformContext`, which adds 300–800ms per turn.
+    expect(mockedRunEmbeddedAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ platformExecutionContext }),
     );
   });
 

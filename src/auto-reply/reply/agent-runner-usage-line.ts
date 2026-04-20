@@ -45,6 +45,8 @@ export const formatResponseUsageLine = (params: {
 };
 
 export const appendUsageLine = (payloads: ReplyPayload[], line: string): ReplyPayload[] => {
+  // Prefer the last text-bearing payload (with or without media, so we attach the
+  // debug footer as media caption when the turn only produced an artifact).
   let index = -1;
   for (let i = payloads.length - 1; i >= 0; i -= 1) {
     if (payloads[i]?.text) {
@@ -52,16 +54,23 @@ export const appendUsageLine = (payloads: ReplyPayload[], line: string): ReplyPa
       break;
     }
   }
+  // Fall back to the last media payload with no caption so we can set the caption
+  // to the debug line itself (images/PDFs otherwise swallow the debug reply).
+  if (index === -1) {
+    for (let i = payloads.length - 1; i >= 0; i -= 1) {
+      const p = payloads[i];
+      if (p && (Boolean(p.mediaUrl) || (p.mediaUrls?.length ?? 0) > 0)) {
+        index = i;
+        break;
+      }
+    }
+  }
   if (index === -1) {
     return [...payloads, { text: line }];
   }
   const existing = payloads[index];
-  const hasMedia = Boolean(existing.mediaUrl) || (existing.mediaUrls?.length ?? 0) > 0;
-  if (hasMedia) {
-    return [...payloads, { text: line }];
-  }
   const existingText = existing.text ?? "";
-  const separator = existingText.endsWith("\n") ? "" : "\n";
+  const separator = existingText ? (existingText.endsWith("\n") ? "" : "\n") : "";
   const next = {
     ...existing,
     text: `${existingText}${separator}${line}`,

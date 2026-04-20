@@ -11,8 +11,18 @@ import type {
 } from "../decision/contracts.js";
 import { inferExecutionContract, inferRequestedEvidence } from "../decision/execution-contract.js";
 import { inferOutcomeContract } from "../decision/outcome-contract.js";
+import type {
+  CandidateExecutionFamily,
+  OutcomeContract,
+  QualificationConfidence,
+  QualificationExecutionContract,
+  QualificationLowConfidenceStrategy,
+  RequestedEvidenceKind,
+} from "../decision/qualification-contract.js";
+import type { ResolutionContract } from "../decision/resolution-contract.js";
 import { evaluatePolicy } from "../policy/engine.js";
 import type { PolicyContext, PolicyDecision } from "../policy/types.js";
+import { resolveProducer, type DeliverableSpec } from "../produce/registry.js";
 import { getInitialProfile, getTaskOverlay } from "../profile/defaults.js";
 import { applyTaskOverlay } from "../profile/overlay.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
@@ -24,18 +34,15 @@ import {
 import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 import type { ArtifactKind } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
-import { resolveProducer, type DeliverableSpec } from "../produce/registry.js";
 import type {
-  CandidateExecutionFamily,
-  OutcomeContract,
-  QualificationConfidence,
-  QualificationExecutionContract,
-  QualificationLowConfidenceStrategy,
-  RequestedEvidenceKind,
-} from "../decision/qualification-contract.js";
-import type { ResolutionContract } from "../decision/resolution-contract.js";
-import type { RecipePlannerInput, RecipeRoutingHints } from "./planner.js";
+  ClassifierTelemetry,
+  RecipePlannerInput,
+  RecipeRoutingHints,
+  RoutingOutcome,
+} from "./planner.js";
 import { planExecutionRecipe, type ExecutionPlan } from "./planner.js";
+
+export type { ClassifierTelemetry, RoutingOutcome } from "./planner.js";
 
 export type RecipeRuntimePlan = {
   selectedRecipeId: string;
@@ -70,6 +77,13 @@ export type RecipeRuntimePlan = {
   deliverable?: DeliverableSpec;
   prependSystemContext?: string;
   prependContext?: string;
+  classifierTelemetry?: ClassifierTelemetry;
+  /**
+   * Structured routing status from the planner. Consumers MUST check
+   * {@link RoutingOutcome.kind} before claiming successful execution:
+   * only `matched` represents a contract that was actually satisfied.
+   */
+  routingOutcome?: RoutingOutcome;
 };
 
 export type PlatformCapabilityRequirement = {
@@ -192,9 +206,12 @@ function buildArtifactOutputGuardrails(
   outcomeContract?: OutcomeContract,
   executionContract?: QualificationExecutionContract,
 ): string | undefined {
-  const hasStructuredArtifactKind = artifactKinds?.some((kind) => STRUCTURED_OUTPUT_ARTIFACT_KINDS.has(kind));
+  const hasStructuredArtifactKind = artifactKinds?.some((kind) =>
+    STRUCTURED_OUTPUT_ARTIFACT_KINDS.has(kind),
+  );
   const contractRequiresArtifact =
-    outcomeContract === "structured_artifact" || executionContract?.requiresArtifactEvidence === true;
+    outcomeContract === "structured_artifact" ||
+    executionContract?.requiresArtifactEvidence === true;
   if (!hasStructuredArtifactKind && !contractRequiresArtifact) {
     return undefined;
   }
@@ -305,9 +322,7 @@ function buildReplyLanguageGuardrail(): string {
  * user expects and can pass matching parameters into the chosen tool (e.g.
  * pdf/image/csv). This removes the need for tools to parse user prompts.
  */
-function buildDeliverableContractGuidance(
-  deliverable?: DeliverableSpec,
-): string | undefined {
+function buildDeliverableContractGuidance(deliverable?: DeliverableSpec): string | undefined {
   if (!deliverable) {
     return undefined;
   }
@@ -320,7 +335,9 @@ function buildDeliverableContractGuidance(
     parts.push(`preferredFormat=${deliverable.preferredFormat}`);
   }
   const constraintEntries = deliverable.constraints
-    ? Object.entries(deliverable.constraints).filter(([, value]) => value !== undefined && value !== null)
+    ? Object.entries(deliverable.constraints).filter(
+        ([, value]) => value !== undefined && value !== null,
+      )
     : [];
   if (constraintEntries.length > 0) {
     const rendered = constraintEntries
@@ -558,9 +575,7 @@ function buildCapabilitySummary(params: {
   // accepted format (not just the preferred). This way if the primary producer's
   // capability fails to bootstrap, the runtime already has the fallback path ready.
   const deliverable = params.input.deliverable;
-  const producerCapabilities = deliverable
-    ? resolveProducer(deliverable).capabilityIds
-    : [];
+  const producerCapabilities = deliverable ? resolveProducer(deliverable).capabilityIds : [];
   const requiredCapabilities = Array.from(
     new Set([...recipeCapabilities, ...producerCapabilities]),
   );
@@ -774,7 +789,9 @@ export function adaptExecutionPlanToRuntime(
     params?.input?.outcomeContract ??
     inferOutcomeContract({
       ...(params?.input?.intent ? { intent: params.input.intent } : {}),
-      ...(params?.input?.artifactKinds?.length ? { artifactKinds: params.input.artifactKinds } : {}),
+      ...(params?.input?.artifactKinds?.length
+        ? { artifactKinds: params.input.artifactKinds }
+        : {}),
       ...(params?.input?.requestedTools?.length
         ? { requestedTools: params.input.requestedTools }
         : {}),
@@ -786,7 +803,9 @@ export function adaptExecutionPlanToRuntime(
     params?.input?.executionContract ??
     inferExecutionContract(outcomeContract, {
       ...(params?.input?.intent ? { intent: params.input.intent } : {}),
-      ...(params?.input?.artifactKinds?.length ? { artifactKinds: params.input.artifactKinds } : {}),
+      ...(params?.input?.artifactKinds?.length
+        ? { artifactKinds: params.input.artifactKinds }
+        : {}),
       ...(params?.input?.requestedTools?.length
         ? { requestedTools: params.input.requestedTools }
         : {}),
@@ -795,8 +814,7 @@ export function adaptExecutionPlanToRuntime(
         : {}),
     });
   const requestedEvidence =
-    params?.input?.requestedEvidence ??
-    inferRequestedEvidence(outcomeContract, executionContract);
+    params?.input?.requestedEvidence ?? inferRequestedEvidence(outcomeContract, executionContract);
   const deliverable = params?.input?.deliverable;
   const prependSystemContext = buildSystemContext(
     plan,
@@ -887,6 +905,10 @@ export function adaptExecutionPlanToRuntime(
       : {}),
     ...(prependSystemContext ? { prependSystemContext } : {}),
     ...(prependContext ? { prependContext } : {}),
+    ...(params?.input?.classifierTelemetry
+      ? { classifierTelemetry: params.input.classifierTelemetry }
+      : {}),
+    ...(plan.routingOutcome ? { routingOutcome: plan.routingOutcome } : {}),
   };
 }
 
@@ -993,5 +1015,6 @@ export function buildRecipePlannerInputFromRuntimePlan(
     ...(runtime.publishTargets?.length ? { publishTargets: runtime.publishTargets } : {}),
     ...(runtime.requestedToolNames?.length ? { requestedTools: runtime.requestedToolNames } : {}),
     ...(runtime.deliverable ? { deliverable: runtime.deliverable } : {}),
+    ...(runtime.classifierTelemetry ? { classifierTelemetry: runtime.classifierTelemetry } : {}),
   };
 }

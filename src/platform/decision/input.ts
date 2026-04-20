@@ -1,9 +1,11 @@
 import path from "node:path";
-import type { SessionEntry } from "../../config/sessions.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { SessionEntry } from "../../config/sessions.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
+import { defaultRuntime } from "../../runtime.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
+import { buildIntentLedgerContext, intentLedger } from "../session/intent-ledger.js";
 import {
   buildRecipePlannerInputFromRuntimePlan,
   resolvePlatformRuntimePlan,
@@ -11,31 +13,22 @@ import {
   type ResolvedPlatformRuntimePlan,
   type ResolvePlatformExecutionDecisionOptions,
 } from "../recipe/runtime-adapter.js";
-import {
-  classifyTaskForDecision,
-  type TaskClassifierAdapter,
-} from "./task-classifier.js";
+import { inferExecutionContract, inferRequestedEvidence } from "./execution-contract.js";
 import { inferCandidateExecutionFamilies } from "./family-candidates.js";
+import { inferOutcomeContract, type QualificationBridgePlannerInput } from "./outcome-contract.js";
 import { computeQualificationConfidence } from "./qualification-confidence.js";
 import {
   inferQualificationAmbiguityReasons,
   resolveLowConfidenceStrategy,
 } from "./qualification-confidence.js";
 import type { QualificationResult } from "./qualification-contract.js";
-import { inferExecutionContract, inferRequestedEvidence } from "./execution-contract.js";
-import {
-  inferOutcomeContract,
-  type QualificationBridgePlannerInput,
-} from "./outcome-contract.js";
+import { resolveResolutionContract, toRecipeRoutingHints } from "./resolution-contract.js";
+import { classifyTaskForDecision, type TaskClassifierAdapter } from "./task-classifier.js";
 import {
   normalizeExecutionTurn,
   resolveKeywordInferencePrompt,
   toUniqueLowercase,
 } from "./turn-normalizer.js";
-import {
-  resolveResolutionContract,
-  toRecipeRoutingHints,
-} from "./resolution-contract.js";
 
 type DecisionInputChannelHints = {
   messageChannel?: string;
@@ -58,6 +51,15 @@ export type BuildExecutionDecisionInputParams = {
     "specialistOverrideMode" | "specialistBaseProfileId" | "specialistSessionProfileId"
   > | null;
 };
+
+function resolveIntentLedgerChannelId(channelHints?: DecisionInputChannelHints): string | undefined {
+  const candidate = (
+    channelHints?.messageChannel ??
+    channelHints?.channel ??
+    channelHints?.replyChannel
+  )?.trim();
+  return candidate && candidate.length > 0 ? candidate : undefined;
+}
 
 export type BuildSessionBackedExecutionDecisionInputParams = Omit<
   BuildExecutionDecisionInputParams,
@@ -115,10 +117,7 @@ export function buildExecutionDecisionInput(
     params.channelHints?.replyChannel,
   ]);
   const publishTargets = toUniqueLowercase(params.publishTargets);
-  const integrations = toUniqueLowercase([
-    ...(params.integrations ?? []),
-    ...channelHints,
-  ]);
+  const integrations = toUniqueLowercase([...(params.integrations ?? []), ...channelHints]);
   const artifactKinds = toUniqueLowercase(
     (params.artifactKinds ?? []) as Array<string | undefined>,
   ) as NonNullable<RecipePlannerInput["artifactKinds"]>;
@@ -165,7 +164,10 @@ export function buildExecutionDecisionInput(
 export function resolveExecutionRuntimePlan(
   params: BuildExecutionDecisionInputParams,
 ): ResolvedPlatformRuntimePlan {
-  return resolvePlatformRuntimePlan(buildExecutionDecisionInput(params));
+  return resolvePlatformRuntimePlan({
+    ...buildExecutionDecisionInput(params),
+    callerTag: "legacy-resolveExecutionRuntimePlan",
+  });
 }
 
 /**
@@ -194,7 +196,10 @@ export function resolveExecutionRuntimePlanFromExistingRuntime(params: {
   options?: ResolvePlatformExecutionDecisionOptions;
 }): ResolvedPlatformRuntimePlan {
   return resolvePlatformRuntimePlan(
-    buildExecutionDecisionInputFromRuntimePlan(params),
+    {
+      ...buildExecutionDecisionInputFromRuntimePlan(params),
+      callerTag: "legacy-resolveExecutionRuntimePlanFromExistingRuntime",
+    },
     params.options ?? {},
   );
 }
@@ -262,12 +267,23 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     ...(params.sessionEntry ? { sessionEntry: params.sessionEntry } : {}),
   });
   const classifierPrompt = params.prompt.trim() || classifierInput.prompt;
+  const ledgerSessionId = params.sessionEntry?.sessionId?.trim();
+  const ledgerChannelId = resolveIntentLedgerChannelId(params.channelHints);
+  const pendingCommitments =
+    ledgerSessionId && ledgerChannelId
+      ? intentLedger.peekPending(ledgerSessionId, ledgerChannelId)
+      : [];
+  const ledgerContext = buildIntentLedgerContext(pendingCommitments);
+  defaultRuntime.log(
+    `[intent-ledger] peek=${String(pendingCommitments.length)} injected=${ledgerContext ? "1" : "0"}`,
+  );
   const classified = await classifyTaskForDecision({
     prompt: classifierPrompt,
     fileNames: classifierInput.fileNames,
     cfg: params.cfg,
     agentDir: params.agentDir,
     input: classifierInput,
+    ledgerContext,
     adapterRegistry: params.adapterRegistry,
   });
   return applySessionSpecialistOverrideToPlannerInput(
@@ -308,7 +324,10 @@ export async function resolveClassifiedSessionBackedExecutionRuntimePlan(params:
     agentDir: params.agentDir,
     adapterRegistry: params.adapterRegistry,
   });
-  return resolvePlatformRuntimePlan(plannerInput);
+  return resolvePlatformRuntimePlan({
+    ...plannerInput,
+    callerTag: "legacy-resolveClassifiedSessionBackedExecutionRuntimePlan",
+  });
 }
 
 function extractTranscriptUserText(content: unknown): string | undefined {

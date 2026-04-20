@@ -1,3 +1,4 @@
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import type {
   CandidateExecutionFamily,
   OutcomeContract,
@@ -15,6 +16,85 @@ import type { ExecutionRecipe, PlannerOutput } from "../schemas/index.js";
 import { PlannerOutputSchema } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
 import { INITIAL_RECIPES, getInitialRecipe } from "./defaults.js";
+
+const log = createSubsystemLogger("planner");
+
+type PlannerStackFrame = { fn: string | undefined; loc: string | undefined };
+
+function captureCallerTag(): string {
+  const stack = new Error("planner-caller-probe").stack ?? "";
+  const lines = stack.split("\n").slice(2);
+  const frames: PlannerStackFrame[] = [];
+  for (const line of lines) {
+    const match = line.match(/at\s+(\S+)\s+\(([^)]+)\)/) ?? line.match(/at\s+(\S+)/);
+    if (!match) {
+      continue;
+    }
+    const fn = match[1];
+    const loc = match[2];
+    if (!fn && !loc) {
+      continue;
+    }
+    frames.push({ fn, loc });
+  }
+  const interesting = frames
+    .filter(
+      (frame) =>
+        !frame.loc?.includes("recipe\\planner") &&
+        !frame.loc?.includes("recipe/planner") &&
+        !frame.loc?.includes("logPlannerSelection"),
+    )
+    .slice(0, 3)
+    .map((frame) => {
+      const shortLoc = frame.loc
+        ?.replace(/^.*[\\/]src[\\/]/, "src/")
+        .replace(/^.*[\\/]dist[\\/]/, "dist/")
+        .replace(/\\/g, "/")
+        .replace(/:\d+:\d+$/, "");
+      return frame.fn ? `${frame.fn}@${shortLoc ?? "?"}` : (shortLoc ?? "?");
+    });
+  return interesting.join(" <- ") || "unknown";
+}
+
+function logPlannerSelection(params: {
+  recipeId: string;
+  input: RecipePlannerInput;
+  routingOutcome: RoutingOutcome;
+}): void {
+  const ec = params.input.executionContract;
+  const bundles = params.input.resolutionContract?.toolBundles ?? [];
+  const requestedTools = params.input.requestedTools ?? [];
+  const caller = params.input.callerTag ?? captureCallerTag();
+  const outcome = params.routingOutcome;
+  const outcomeLabel =
+    outcome.kind === "matched"
+      ? `matched:${outcome.source}`
+      : outcome.kind === "low_confidence_clarify"
+        ? "low_confidence_clarify"
+        : `contract_unsatisfiable:${outcome.reasons.join("+")}`;
+  const base =
+    `recipe=${params.recipeId} routingOutcome=${outcomeLabel}` +
+    ` contractFirst=${params.input.contractFirst === true}` +
+    ` requiresTools=${Boolean(ec?.requiresTools)}` +
+    ` requiresDeliveryEvidence=${Boolean(ec?.requiresDeliveryEvidence)}` +
+    ` requiresWorkspaceMutation=${Boolean(ec?.requiresWorkspaceMutation)}` +
+    ` requiresLocalProcess=${Boolean(ec?.requiresLocalProcess)}` +
+    ` requiresArtifactEvidence=${Boolean(ec?.requiresArtifactEvidence)}` +
+    ` outcomeContract=${params.input.outcomeContract ?? "undefined"}` +
+    ` toolBundles=[${bundles.join(",")}]` +
+    ` requestedTools=[${requestedTools.join(",")}]` +
+    ` intent=${params.input.intent ?? "undefined"}` +
+    ` caller=${caller}`;
+  if (outcome.kind === "contract_unsatisfiable") {
+    log.warn(
+      `CONTRACT_UNSATISFIABLE planner returned a safe fallback recipe but contract cannot be satisfied. ${base}`,
+    );
+  } else {
+    log.info(`selected: ${base}`);
+  }
+}
+import type { ResolutionContract } from "../decision/resolution-contract.js";
+import type { DeliverableSpec } from "../produce/registry.js";
 import {
   deriveFamiliesFromOutcomeContract,
   hasCodeArtifact,
@@ -22,8 +102,86 @@ import {
   hasMediaArtifact,
   selectExecutionFamily,
 } from "./family-selector.js";
-import type { ResolutionContract } from "../decision/resolution-contract.js";
-import type { DeliverableSpec } from "../produce/registry.js";
+
+/**
+ * Diagnostic snapshot of how the classifier described the turn. Stored on the
+ * runtime plan so downstream layers (debug footer, UI, tests) can see exactly
+ * which model/backend classified this turn and what contract it produced,
+ * without having to thread a second channel from classifier to reply.
+ */
+export type ClassifierTelemetry = {
+  source: "llm" | "fail_closed";
+  backend?: string;
+  model?: string;
+  primaryOutcome?: string;
+  interactionMode?: string;
+  confidence?: number;
+  deliverableKind?: string;
+  deliverableFormats?: string[];
+};
+
+/**
+ * Structured signal describing HOW the recipe was selected. Decouples
+ * "which recipe to use" from "can we actually act on it?". Downstream
+ * layers (runtime, reply) check {@link RoutingOutcome.kind} to decide
+ * whether to execute the recipe normally, ask for clarification, or
+ * fail-closed with a diagnostic.
+ *
+ * States:
+ * - `matched`: recipe satisfies the contract (both `toolBundles` and
+ *   `executionContract` agree). Safe to execute.
+ * - `low_confidence_clarify`: classifier returned low confidence with
+ *   strategy=clarify. Recipe is a safe default (general_reasoning) but
+ *   caller should prefer to ask a clarifying question before acting.
+ * - `contract_unsatisfiable`: classifier declared an execution contract
+ *   (tools/evidence/mutation/etc) but no known recipe can satisfy it.
+ *   A safe fallback recipe is still returned for rendering purposes,
+ *   but callers MUST NOT claim successful execution. This is the proper
+ *   fail-closed state.
+ */
+export type RoutingOutcome =
+  | { kind: "matched"; source: "ranked" | "contract_first_fallback" }
+  | { kind: "low_confidence_clarify" }
+  | { kind: "contract_unsatisfiable"; reasons: string[] };
+
+export const ROUTING_OUTCOME_UNSATISFIABLE_REASONS = {
+  noRecipeMatchesToolBundles: "no_recipe_matches_toolBundles",
+  noRecipeSatisfiesExecutionContract: "no_recipe_satisfies_executionContract",
+  contractRequiresTools: "contract_requires_tools",
+  contractRequiresWorkspaceMutation: "contract_requires_workspace_mutation",
+  contractRequiresLocalProcess: "contract_requires_local_process",
+  contractRequiresDeliveryEvidence: "contract_requires_delivery_evidence",
+  contractRequiresArtifactEvidence: "contract_requires_artifact_evidence",
+  rankerDowngradedToGeneralReasoning:
+    "ranker_downgraded_to_general_reasoning_despite_tool_contract",
+} as const;
+
+function contractRequiresToolingFlags(ec: QualificationExecutionContract | undefined): string[] {
+  if (!ec) {
+    return [];
+  }
+  const reasons: string[] = [];
+  if (ec.requiresTools) {
+    reasons.push(ROUTING_OUTCOME_UNSATISFIABLE_REASONS.contractRequiresTools);
+  }
+  if (ec.requiresWorkspaceMutation) {
+    reasons.push(ROUTING_OUTCOME_UNSATISFIABLE_REASONS.contractRequiresWorkspaceMutation);
+  }
+  if (ec.requiresLocalProcess) {
+    reasons.push(ROUTING_OUTCOME_UNSATISFIABLE_REASONS.contractRequiresLocalProcess);
+  }
+  if (ec.requiresDeliveryEvidence) {
+    reasons.push(ROUTING_OUTCOME_UNSATISFIABLE_REASONS.contractRequiresDeliveryEvidence);
+  }
+  if (ec.requiresArtifactEvidence) {
+    reasons.push(ROUTING_OUTCOME_UNSATISFIABLE_REASONS.contractRequiresArtifactEvidence);
+  }
+  return reasons;
+}
+
+function contractDemandsTooling(ec: QualificationExecutionContract | undefined): boolean {
+  return contractRequiresToolingFlags(ec).length > 0;
+}
 
 export type RecipeRoutingHints = {
   localEligible?: boolean;
@@ -46,6 +204,13 @@ export type RecipePlannerInput = ProfileResolverInput & {
   recipes?: ExecutionRecipe[];
   routing?: RecipeRoutingHints;
   deliverable?: DeliverableSpec;
+  classifierTelemetry?: ClassifierTelemetry;
+  /**
+   * Diagnostic-only: human-readable tag identifying which call site produced this
+   * planner input. Threaded into logs so we can see how many distinct entry points
+   * are invoking the planner per user turn. Does not affect routing.
+   */
+  callerTag?: string;
 };
 
 export type ExecutionPlan = {
@@ -53,6 +218,12 @@ export type ExecutionPlan = {
   recipe: ExecutionRecipe;
   plannerOutput: PlannerOutput;
   candidateRecipes: ExecutionRecipe[];
+  /**
+   * Structured routing status. Always present. Consumers MUST switch on
+   * {@link RoutingOutcome.kind} before claiming successful execution:
+   * `matched` is the only kind that represents a satisfied contract.
+   */
+  routingOutcome: RoutingOutcome;
 };
 
 function isContractFirstInput(input: RecipePlannerInput): boolean {
@@ -101,43 +272,50 @@ function toolBundlesMatchRecipe(toolBundles: string[], recipe: ExecutionRecipe):
   }
 
   // repo_mutation or repo_run: code/recipe related
-  if ((bundles.has("repo_mutation") || bundles.has("repo_run")) &&
-      (capabilities.has("node") || capabilities.has("git"))) {
+  if (
+    (bundles.has("repo_mutation") || bundles.has("repo_run")) &&
+    (capabilities.has("node") || capabilities.has("git"))
+  ) {
     return true;
   }
 
   // interactive_browser: not specific to any current recipe, allow general or code
   if (bundles.has("interactive_browser")) {
-    return recipe.id === "general_reasoning" ||
-           recipe.id === "code_build_publish" ||
-           recipe.id === "integration_delivery";
+    return (
+      recipe.id === "general_reasoning" ||
+      recipe.id === "code_build_publish" ||
+      recipe.id === "integration_delivery"
+    );
   }
 
   // public_web_lookup: general reasoning or analysis
   if (bundles.has("public_web_lookup")) {
-    return recipe.id === "general_reasoning" ||
-           recipe.id === "calculation_report" ||
-           recipe.id === "table_compare";
+    return (
+      recipe.id === "general_reasoning" ||
+      recipe.id === "calculation_report" ||
+      recipe.id === "table_compare"
+    );
   }
 
   // document_extraction: doc/ocr/table recipes
   if (bundles.has("document_extraction")) {
-    return recipe.id.startsWith("doc_") ||
-           recipe.id.startsWith("ocr_") ||
-           recipe.id.startsWith("table_");
+    return (
+      recipe.id.startsWith("doc_") || recipe.id.startsWith("ocr_") || recipe.id.startsWith("table_")
+    );
   }
 
   // artifact_authoring: authoring / packaging recipes only
   if (bundles.has("artifact_authoring")) {
-    return recipe.id === "doc_authoring" ||
-           recipe.id === "media_production";
+    return recipe.id === "doc_authoring" || recipe.id === "media_production";
   }
 
   // external_delivery: code/integration/ops recipes
   if (bundles.has("external_delivery")) {
-    return recipe.id === "code_build_publish" ||
-           recipe.id === "integration_delivery" ||
-           recipe.id === "ops_orchestration";
+    return (
+      recipe.id === "code_build_publish" ||
+      recipe.id === "integration_delivery" ||
+      recipe.id === "ops_orchestration"
+    );
   }
 
   // If no specific bundle matches, use respond_only as default
@@ -166,10 +344,7 @@ function executionContractAllowsRecipe(
     );
   }
 
-  if (
-    executionContract.requiresWorkspaceMutation ||
-    executionContract.requiresLocalProcess
-  ) {
+  if (executionContract.requiresWorkspaceMutation || executionContract.requiresLocalProcess) {
     return (
       recipe.id === "code_build_publish" ||
       recipe.id === "integration_delivery" ||
@@ -268,10 +443,10 @@ function narrowRecipesByContract(params: {
       input.resolutionContract?.candidateFamilies?.length
         ? input.resolutionContract.candidateFamilies
         : input.candidateFamilies?.length
-        ? input.candidateFamilies
-        : input.outcomeContract
-          ? deriveFamiliesFromOutcomeContract(input.outcomeContract)
-          : [],
+          ? input.candidateFamilies
+          : input.outcomeContract
+            ? deriveFamiliesFromOutcomeContract(input.outcomeContract)
+            : [],
     ),
   );
 
@@ -298,7 +473,9 @@ function narrowRecipesByContract(params: {
 
   return {
     selectedFamily,
-    recipes: candidateRecipes.filter((recipe) => getRecipeFamilies(recipe).includes(selectedFamily)),
+    recipes: candidateRecipes.filter((recipe) =>
+      getRecipeFamilies(recipe).includes(selectedFamily),
+    ),
   };
 }
 
@@ -735,11 +912,18 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
         .join(" "),
       ...(selectedModelOverride ? { overrides: { model: selectedModelOverride } } : {}),
     });
+    const routingOutcome: RoutingOutcome = { kind: "low_confidence_clarify" };
+    logPlannerSelection({
+      recipeId: selectedRecipe.id,
+      input,
+      routingOutcome,
+    });
     return {
       profile,
       recipe: selectedRecipe,
       plannerOutput,
       candidateRecipes,
+      routingOutcome,
     };
   }
   const contractSelection = narrowRecipesByContract({ candidateRecipes, input });
@@ -752,7 +936,7 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
       input.executionContract?.requiresLocalProcess ||
       input.executionContract?.requiresDeliveryEvidence
         ? undefined
-        : getInitialRecipe("general_reasoning") ?? INITIAL_RECIPES[0]);
+        : (getInitialRecipe("general_reasoning") ?? INITIAL_RECIPES[0]));
     if (!fallbackRecipe) {
       const selectedRecipe = getInitialRecipe("general_reasoning") ?? INITIAL_RECIPES[0];
       const selectedModelOverride = resolvePlannerModelOverride({
@@ -774,11 +958,26 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
           .join(" "),
         ...(selectedModelOverride ? { overrides: { model: selectedModelOverride } } : {}),
       });
+      const reasons = [
+        ROUTING_OUTCOME_UNSATISFIABLE_REASONS.noRecipeMatchesToolBundles,
+        ROUTING_OUTCOME_UNSATISFIABLE_REASONS.noRecipeSatisfiesExecutionContract,
+        ...contractRequiresToolingFlags(input.executionContract),
+      ];
+      const routingOutcome: RoutingOutcome = {
+        kind: "contract_unsatisfiable",
+        reasons,
+      };
+      logPlannerSelection({
+        recipeId: selectedRecipe.id,
+        input,
+        routingOutcome,
+      });
       return {
         profile,
         recipe: selectedRecipe,
         plannerOutput,
         candidateRecipes,
+        routingOutcome,
       };
     }
     const fallbackModelOverride = resolvePlannerModelOverride({
@@ -801,14 +1000,25 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
         .join(" "),
       ...(fallbackModelOverride ? { overrides: { model: fallbackModelOverride } } : {}),
     });
+    const routingOutcome: RoutingOutcome = {
+      kind: "matched",
+      source: "contract_first_fallback",
+    };
+    logPlannerSelection({
+      recipeId: fallbackRecipe.id,
+      input,
+      routingOutcome,
+    });
     return {
       profile,
       recipe: fallbackRecipe,
       plannerOutput,
       candidateRecipes,
+      routingOutcome,
     };
   }
-  const contractScopedRecipes = contractSelection.recipes.length > 0 ? contractSelection.recipes : candidateRecipes;
+  const contractScopedRecipes =
+    contractSelection.recipes.length > 0 ? contractSelection.recipes : candidateRecipes;
 
   const rankedRecipes = contractScopedRecipes
     .map((recipe) => ({
@@ -852,10 +1062,47 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
       : {}),
   });
 
+  // Post-rank invariant guard: `general_reasoning` must never win a turn whose
+  // execution contract demands tools, workspace mutation, local process, or
+  // evidence. Narrowing already filters this, but if a legacy non-contractFirst
+  // call slips through, we convert the outcome to `contract_unsatisfiable` so
+  // downstream layers don't treat this as a normal successful routing.
+  if (
+    selectedRecipe.id === "general_reasoning" &&
+    contractDemandsTooling(input.executionContract)
+  ) {
+    const routingOutcome: RoutingOutcome = {
+      kind: "contract_unsatisfiable",
+      reasons: [
+        ROUTING_OUTCOME_UNSATISFIABLE_REASONS.rankerDowngradedToGeneralReasoning,
+        ...contractRequiresToolingFlags(input.executionContract),
+      ],
+    };
+    logPlannerSelection({
+      recipeId: selectedRecipe.id,
+      input,
+      routingOutcome,
+    });
+    return {
+      profile,
+      recipe: selectedRecipe,
+      plannerOutput,
+      candidateRecipes,
+      routingOutcome,
+    };
+  }
+
+  const routingOutcome: RoutingOutcome = { kind: "matched", source: "ranked" };
+  logPlannerSelection({
+    recipeId: selectedRecipe.id,
+    input,
+    routingOutcome,
+  });
   return {
     profile,
     recipe: selectedRecipe,
     plannerOutput,
     candidateRecipes,
+    routingOutcome,
   };
 }

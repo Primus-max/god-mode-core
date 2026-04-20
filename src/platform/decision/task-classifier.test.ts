@@ -24,6 +24,116 @@ describe("task classifier config", () => {
 });
 
 describe("classifyTaskForDecision", () => {
+  it("uses pending_commitments so awaiting_confirmation + 'ДА' does not stay in clarify mode", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+    const classifyCalls: Parameters<TaskClassifierAdapter["classify"]>[0][] = [];
+    const classify: TaskClassifierAdapter["classify"] = async (
+      params,
+    ): Promise<TaskContract | null> => {
+      classifyCalls.push(params);
+      const hasAwaitingConfirmation =
+        typeof params.ledgerContext === "string" &&
+        params.ledgerContext.includes("awaiting_confirmation");
+      if (params.prompt.trim().toUpperCase() === "ДА" && hasAwaitingConfirmation) {
+        return {
+          primaryOutcome: "workspace_change",
+          requiredCapabilities: ["needs_workspace_mutation", "needs_repo_execution"],
+          interactionMode: "tool_execution",
+          confidence: 0.9,
+          ambiguities: [],
+        };
+      }
+      return {
+        primaryOutcome: "clarification_needed",
+        requiredCapabilities: [],
+        interactionMode: "clarify_first",
+        confidence: 0.9,
+        ambiguities: ["confirmation context missing"],
+      };
+    };
+
+    const classified = await classifyTaskForDecision({
+      prompt: "ДА",
+      ledgerContext: '7af3c1d2 awaiting_confirmation: "начать авторизацию Trader"',
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify,
+        },
+      },
+    });
+
+    expect(classifyCalls[0]).toEqual(
+      expect.objectContaining({
+        prompt: "ДА",
+        ledgerContext: expect.stringContaining("awaiting_confirmation"),
+      }),
+    );
+    expect(classified.source).toBe("llm");
+    expect(classified.taskContract.interactionMode).toBe("tool_execution");
+    expect(classified.taskContract.primaryOutcome).not.toBe("clarification_needed");
+  });
+
+  it("keeps behavior identical to baseline when ledger context is missing or empty", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+    const adapter: TaskClassifierAdapter = {
+      classify: vi.fn(async (params) => {
+        const hasPending = Boolean(params.ledgerContext && params.ledgerContext.trim().length > 0);
+        if (hasPending) {
+          return {
+            primaryOutcome: "workspace_change",
+            requiredCapabilities: ["needs_workspace_mutation"],
+            interactionMode: "tool_execution",
+            confidence: 0.8,
+            ambiguities: [],
+          };
+        }
+        return {
+          primaryOutcome: "clarification_needed",
+          requiredCapabilities: [],
+          interactionMode: "clarify_first",
+          confidence: 0.75,
+          ambiguities: ["baseline-clarify"],
+        };
+      }),
+    };
+
+    const baseline = await classifyTaskForDecision({
+      prompt: "ДА",
+      cfg,
+      adapterRegistry: { "stub-backend": adapter },
+    });
+    const emptyLedger = await classifyTaskForDecision({
+      prompt: "ДА",
+      ledgerContext: "",
+      cfg,
+      adapterRegistry: { "stub-backend": adapter },
+    });
+
+    expect(baseline.taskContract).toEqual(emptyLedger.taskContract);
+    expect(baseline.taskContract.interactionMode).toBe("clarify_first");
+  });
+
   it("routes through a replaceable configured backend adapter", async () => {
     const classify = vi.fn<TaskClassifierAdapter["classify"]>().mockResolvedValue({
       primaryOutcome: "comparison_report",
@@ -941,6 +1051,178 @@ describe("contract-first task contract routing", () => {
     expect(runtime.runtime.outcomeContract).toBe("interactive_local_result");
     expect(runtime.runtime.requestedToolNames).toEqual(
       expect.arrayContaining(["apply_patch", "exec", "process"]),
+    );
+  });
+
+  it("P0.2: routes low-confidence workspace mutation with ambiguities through clarify", () => {
+    const plannerInput = buildPlannerInputFromTaskContract({
+      prompt: "Почини баг",
+      taskContract: {
+        primaryOutcome: "workspace_change",
+        requiredCapabilities: ["needs_workspace_mutation", "needs_repo_execution"],
+        interactionMode: "tool_execution",
+        confidence: 0.35,
+        ambiguities: ["Scope of the change is unclear.", "No target file was specified."],
+      },
+    });
+
+    expect(plannerInput.lowConfidenceStrategy).toBe("clarify");
+    expect(plannerInput.executionContract.requiresTools).toBe(false);
+    expect(plannerInput.executionContract.requiresWorkspaceMutation).toBe(false);
+    expect(plannerInput.requestedTools ?? []).toEqual([]);
+    expect(plannerInput.outcomeContract).toBe("text_response");
+  });
+
+  it("P0.2: keeps high-confidence workspace mutation on the tool path", () => {
+    const plannerInput = buildPlannerInputFromTaskContract({
+      prompt: "Перепиши src/foo.ts под новую схему.",
+      taskContract: {
+        primaryOutcome: "workspace_change",
+        requiredCapabilities: ["needs_workspace_mutation"],
+        interactionMode: "tool_execution",
+        confidence: 0.92,
+        ambiguities: [],
+      },
+    });
+
+    expect(plannerInput.lowConfidenceStrategy).toBeUndefined();
+    expect(plannerInput.executionContract.requiresWorkspaceMutation).toBe(true);
+    expect(plannerInput.requestedTools).toEqual(expect.arrayContaining(["apply_patch"]));
+  });
+
+  it("P0.3: clarify_first turn never smuggles tool requests into the planner input", () => {
+    const plannerInput = buildPlannerInputFromTaskContract({
+      prompt: "Сделай PDF-отчёт.",
+      taskContract: {
+        primaryOutcome: "document_package",
+        requiredCapabilities: ["needs_multimodal_authoring"],
+        interactionMode: "clarify_first",
+        confidence: 0.4,
+        ambiguities: ["Audience and tone are not specified."],
+        deliverable: {
+          kind: "document",
+          preferredFormat: "pdf",
+          acceptedFormats: ["pdf"],
+        },
+      },
+    });
+
+    expect(plannerInput.lowConfidenceStrategy).toBe("clarify");
+    expect(plannerInput.executionContract).toEqual(
+      expect.objectContaining({
+        requiresTools: false,
+        requiresArtifactEvidence: false,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      }),
+    );
+    expect(plannerInput.requestedTools ?? []).toEqual([]);
+    expect(plannerInput.artifactKinds ?? []).toEqual([]);
+    expect(plannerInput.deliverable).toBeUndefined();
+    expect(plannerInput.outcomeContract).toBe("text_response");
+  });
+
+  it("P1.3: repo_operation builds an exec-only bridge without apply_patch or workspace mutation", () => {
+    const plannerInput = buildPlannerInputFromTaskContract({
+      prompt: "Закоммить всё с сообщением feat: refresh recipe bindings",
+      taskContract: {
+        primaryOutcome: "workspace_change",
+        requiredCapabilities: ["needs_repo_execution"],
+        interactionMode: "tool_execution",
+        confidence: 0.88,
+        ambiguities: [],
+        deliverable: {
+          kind: "repo_operation",
+          acceptedFormats: ["exec", "script"],
+          preferredFormat: "exec",
+          constraints: { operation: "run_command" },
+        },
+      },
+    });
+
+    expect(plannerInput.lowConfidenceStrategy).toBeUndefined();
+    expect(plannerInput.outcomeContract).toBe("workspace_change");
+    expect(plannerInput.executionContract.requiresWorkspaceMutation).toBe(false);
+    expect(plannerInput.executionContract.requiresTools).toBe(true);
+    expect(plannerInput.requestedTools).toEqual(expect.arrayContaining(["exec"]));
+    expect(plannerInput.requestedTools).not.toEqual(expect.arrayContaining(["apply_patch"]));
+    expect(plannerInput.deliverable?.kind).toBe("repo_operation");
+  });
+
+  it("P1.3: low-confidence repo_operation with ambiguities does NOT trigger P0.2 clarify", () => {
+    // Justification: "just commit" is reversible at the repo level (git revert) and does
+    // not damage workspace files. The P0.2 safety rule exists to protect against wrong
+    // `apply_patch` calls. Firing it on repo_operation turns would block users from doing
+    // fast `git commit` / `run tests` even when the classifier correctly tagged the turn.
+    const plannerInput = buildPlannerInputFromTaskContract({
+      prompt: "Run tests, if green commit",
+      taskContract: {
+        primaryOutcome: "workspace_change",
+        requiredCapabilities: ["needs_repo_execution"],
+        interactionMode: "tool_execution",
+        confidence: 0.32,
+        ambiguities: ["Commit message not specified."],
+        deliverable: {
+          kind: "repo_operation",
+          acceptedFormats: ["test-report", "exec"],
+          preferredFormat: "test-report",
+          constraints: { operation: "run_tests" },
+        },
+      },
+    });
+
+    expect(plannerInput.lowConfidenceStrategy).toBeUndefined();
+    expect(plannerInput.executionContract.requiresWorkspaceMutation).toBe(false);
+    expect(plannerInput.requestedTools).toEqual(expect.arrayContaining(["exec"]));
+    expect(plannerInput.requestedTools).not.toEqual(expect.arrayContaining(["apply_patch"]));
+  });
+
+  it("P1.3 normalize: strips needs_workspace_mutation when deliverable.kind=repo_operation", async () => {
+    // Guards against a classifier mis-tagging a git-only turn with `needs_workspace_mutation`.
+    // Without this normalization the P0.2 safety rule and `apply_patch` path would both fire
+    // on a low-confidence "just commit" turn.
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "git commit with message feat: X",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "workspace_change",
+            requiredCapabilities: ["needs_workspace_mutation", "needs_repo_execution"],
+            interactionMode: "tool_execution",
+            confidence: 0.8,
+            ambiguities: [],
+            deliverable: {
+              kind: "repo_operation",
+              acceptedFormats: ["exec"],
+              preferredFormat: "exec",
+              constraints: { operation: "run_command" },
+            },
+          }),
+        },
+      },
+    });
+
+    expect(classified.taskContract.primaryOutcome).toBe("workspace_change");
+    expect(classified.taskContract.requiredCapabilities).not.toContain("needs_workspace_mutation");
+    expect(classified.taskContract.requiredCapabilities).toContain("needs_repo_execution");
+    expect(classified.plannerInput.executionContract.requiresWorkspaceMutation).toBe(false);
+    expect(classified.plannerInput.requestedTools).not.toEqual(
+      expect.arrayContaining(["apply_patch"]),
     );
   });
 });

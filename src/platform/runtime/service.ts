@@ -5,6 +5,11 @@ import { resolveStateDir } from "../../config/paths.js";
 import { emitRunClosureSummary, emitRuntimeRecoveryTelemetry } from "../../infra/agent-events.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import {
+  OutcomeContractSchema,
+  QualificationExecutionContractSchema,
+  RequestedEvidenceKindSchema,
+} from "../decision/qualification-contract.js";
+import {
   PlatformRuntimeAcceptanceResultSchema,
   PlatformRuntimeActionSchema,
   PlatformRuntimeActionStoreSchema,
@@ -56,11 +61,6 @@ import {
   type PlatformRuntimeSupervisorVerdict,
   type PlatformRuntimeTarget,
 } from "./contracts.js";
-import {
-  OutcomeContractSchema,
-  QualificationExecutionContractSchema,
-  RequestedEvidenceKindSchema,
-} from "../decision/qualification-contract.js";
 import {
   hasStructuredArtifactToolOutputReceipt,
   isCompletionEvidenceSufficient,
@@ -671,8 +671,7 @@ function deriveExecutionContractExpectations(params: {
     expectations: declared,
   });
   const requiresMessagingDelivery =
-    declared.requiresMessagingDelivery ??
-    (params.evidence.didSendViaMessagingTool === true);
+    declared.requiresMessagingDelivery ?? params.evidence.didSendViaMessagingTool === true;
   const requiresStructuredReceipts =
     declared.requireStructuredReceipts ??
     (params.outcome.actionIds.length > 0 ||
@@ -1502,6 +1501,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
           ? { requireExplicitApproval: seed.requireExplicitApproval }
           : {}),
         ...(seed.policyAutonomy ? { policyAutonomy: seed.policyAutonomy } : {}),
+        ...(seed.classifierTelemetry ? { classifierTelemetry: seed.classifierTelemetry } : {}),
+        ...(seed.routingOutcome ? { routingOutcome: seed.routingOutcome } : {}),
         expectations: PlatformRuntimeExecutionContractSchema.shape.expectations.parse(
           seed.expectations ?? {},
         ),
@@ -2106,7 +2107,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
-      const artifactReceiptCount = evidence.artifactReceiptCount ?? params.outcome.artifactIds.length;
+      const artifactReceiptCount =
+        evidence.artifactReceiptCount ?? params.outcome.artifactIds.length;
       const bootstrapReceiptCount =
         evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length;
       const bootstrapStillRequired =

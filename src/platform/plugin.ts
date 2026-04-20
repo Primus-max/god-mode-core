@@ -78,7 +78,12 @@ export async function resolveHookExecution(
     cfg: apiConfigRef.current,
     agentDir: ctx?.workspaceDir,
   });
-  return toPluginHookPlatformExecutionContext(resolvePlatformRuntimePlan(classified.plannerInput).runtime);
+  return toPluginHookPlatformExecutionContext(
+    resolvePlatformRuntimePlan({
+      ...classified.plannerInput,
+      callerTag: "plugin-platformContext",
+    }).runtime,
+  );
 }
 
 function resolveExecutionLabels(execution: PluginHookPlatformExecutionContext): {
@@ -322,14 +327,15 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
         : undefined;
       const fallbackDecision = !policyContext
         ? apiConfigRef.current
-          ? resolvePlatformRuntimePlan(
-              (
+          ? resolvePlatformRuntimePlan({
+              ...(
                 await classifyTaskForDecision({
                   prompt: runSnapshot?.prompt ?? "",
                   cfg: apiConfigRef.current,
                 })
               ).plannerInput,
-            )
+              callerTag: "plugin-fallback-decision",
+            })
           : undefined
         : undefined;
       const policy = evaluatePolicy(

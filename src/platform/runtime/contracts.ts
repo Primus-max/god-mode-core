@@ -1,16 +1,13 @@
 import { z } from "zod";
+import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
 import {
   OutcomeContractSchema,
   QualificationExecutionContractSchema,
   QualificationLowConfidenceStrategySchema,
   RequestedEvidenceKindSchema,
 } from "../decision/qualification-contract.js";
-import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
+import { DeliverableSpecSchema, ProducedArtifactSchema } from "../produce/registry.js";
 import { ArtifactKindSchema } from "../schemas/artifact.js";
-import {
-  DeliverableSpecSchema,
-  ProducedArtifactSchema,
-} from "../produce/registry.js";
 
 export const PlatformRuntimeBoundarySchema = z.enum([
   "exec_approval",
@@ -545,6 +542,53 @@ export const PlatformRuntimeRecoveryPolicySchema = z
   .strict();
 export type PlatformRuntimeRecoveryPolicy = z.infer<typeof PlatformRuntimeRecoveryPolicySchema>;
 
+export const ClassifierTelemetrySchema = z
+  .object({
+    source: z.enum(["llm", "fail_closed"]),
+    backend: z.string().min(1).optional(),
+    model: z.string().min(1).optional(),
+    primaryOutcome: z.string().min(1).optional(),
+    interactionMode: z.string().min(1).optional(),
+    confidence: z.number().optional(),
+    deliverableKind: z.string().min(1).optional(),
+    deliverableFormats: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
+export type ClassifierTelemetry = z.infer<typeof ClassifierTelemetrySchema>;
+
+/**
+ * Structured routing status produced by the recipe planner. Threaded through
+ * the runtime so downstream layers (reply, evidence, observability) can see
+ * exactly whether the planner actually matched a recipe to the contract.
+ *
+ * `matched` — recipe satisfies the contract; safe to execute.
+ * `low_confidence_clarify` — classifier said confidence is low and clarify
+ *     is the preferred strategy; recipe is a safe default.
+ * `contract_unsatisfiable` — planner could not find a recipe capable of
+ *     satisfying the declared contract; a safe fallback is still set on the
+ *     plan, but callers must NOT claim successful execution.
+ */
+export const RoutingOutcomeSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("matched"),
+      source: z.enum(["ranked", "contract_first_fallback"]),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("low_confidence_clarify"),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("contract_unsatisfiable"),
+      reasons: z.array(z.string().min(1)).min(1),
+    })
+    .strict(),
+]);
+export type RoutingOutcome = z.infer<typeof RoutingOutcomeSchema>;
+
 export const PlatformRuntimeExecutionIntentSchema = z
   .object({
     runId: z.string().min(1),
@@ -565,6 +609,8 @@ export const PlatformRuntimeExecutionIntentSchema = z
     bootstrapRequiredCapabilities: z.array(z.string().min(1)).optional(),
     requireExplicitApproval: z.boolean().optional(),
     policyAutonomy: z.enum(["chat", "assist", "guarded"]).optional(),
+    classifierTelemetry: ClassifierTelemetrySchema.optional(),
+    routingOutcome: RoutingOutcomeSchema.optional(),
     expectations: PlatformRuntimeExecutionContractExpectationSchema,
   })
   .strict();

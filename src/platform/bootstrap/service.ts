@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
+import type { FollowupRun } from "../../auto-reply/reply/queue.js";
 import { resolveStateDir } from "../../config/paths.js";
 import {
   emitAgentEvent,
   emitRuntimeRecoveryTelemetry,
   registerAgentRunContext,
 } from "../../infra/agent-events.js";
-import type { FollowupRun } from "../../auto-reply/reply/queue.js";
 import { buildExecutionDecisionInput } from "../decision/input.js";
 import type { PolicyContext } from "../policy/types.js";
 import {
@@ -126,9 +126,8 @@ async function dispatchBlockedRunResumeAfterBootstrap(params: {
   capabilityId: string;
   resume: BootstrapBlockedRunResume;
 }): Promise<boolean> {
-  const { enqueueFollowupRun, scheduleFollowupDrain } = await import(
-    "../../auto-reply/reply/queue.runtime.js"
-  );
+  const { enqueueFollowupRun, scheduleFollowupDrain } =
+    await import("../../auto-reply/reply/queue.runtime.js");
   const [{ createFollowupRunner }, { createTypingController }] = await Promise.all([
     import("../../auto-reply/reply/followup-runner.js"),
     import("../../auto-reply/reply/typing.js"),
@@ -256,11 +255,14 @@ function buildBootstrapPolicyContext(
         : "general";
   const requestedTools = request.installMethod === "builtin" ? [] : ["exec", "process"];
   const resolved = resolvePlatformRuntimePlan(
-    buildExecutionDecisionInput({
-      prompt: resolveBootstrapDecisionPrompt(request),
-      intent,
-      requestedTools,
-    }),
+    {
+      ...buildExecutionDecisionInput({
+        prompt: resolveBootstrapDecisionPrompt(request),
+        intent,
+        requestedTools,
+      }),
+      callerTag: "bootstrap-policy",
+    },
     { explicitApproval },
   );
   return {
@@ -298,7 +300,10 @@ function maybePromoteAutoContinuedBootstrapRecord(params: {
   runtimeCheckpointService: ReturnType<typeof getPlatformRuntimeCheckpointService>;
   records: Map<string, BootstrapRequestRecord>;
 }): BootstrapRequestRecord {
-  if (params.record.state !== "pending" || !shouldAutoContinueBootstrapRequest(params.record.request)) {
+  if (
+    params.record.state !== "pending" ||
+    !shouldAutoContinueBootstrapRequest(params.record.request)
+  ) {
     return params.record;
   }
   const now = new Date().toISOString();
@@ -362,10 +367,15 @@ export function createBootstrapRequestService(params?: {
         const blockedRunResumeConflict =
           normalizedRequest.blockedRunResume &&
           record.request.blockedRunResume &&
-          !blockedRunResumeMatches(normalizedRequest.blockedRunResume, record.request.blockedRunResume);
+          !blockedRunResumeMatches(
+            normalizedRequest.blockedRunResume,
+            record.request.blockedRunResume,
+          );
         return (
           buildRecordSignature(record.request) === signature &&
-          (record.state === "pending" || record.state === "approved" || record.state === "running") &&
+          (record.state === "pending" ||
+            record.state === "approved" ||
+            record.state === "running") &&
           !blockedRunResumeConflict
         );
       });
@@ -373,8 +383,7 @@ export function createBootstrapRequestService(params?: {
         const mergedRequest = BootstrapRequestSchema.parse({
           ...existing.request,
           ...normalizedRequest,
-          blockedRunResume:
-            normalizedRequest.blockedRunResume ?? existing.request.blockedRunResume,
+          blockedRunResume: normalizedRequest.blockedRunResume ?? existing.request.blockedRunResume,
         });
         const updated = BootstrapRequestRecordSchema.parse({
           ...existing,
@@ -427,7 +436,8 @@ export function createBootstrapRequestService(params?: {
           },
           {
             method: "platform.bootstrap.run",
-            label: "Execute approved install, health verification, and resume blocked work if configured",
+            label:
+              "Execute approved install, health verification, and resume blocked work if configured",
             phase: "resume",
           },
         ],

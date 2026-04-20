@@ -722,14 +722,15 @@ export function shouldFailoverEmptySemanticRetryResult(
     "отлично сделаю",
     "ага",
   ]);
-  const TOOL_NAME_FIELD_RE =
-    /"(?:name|function|function_name|tool|tool_name)"\s*:\s*"[^"\r\n]+"/;
+  const TOOL_NAME_FIELD_RE = /"(?:name|function|function_name|tool|tool_name)"\s*:\s*"[^"\r\n]+"/;
   const ARGUMENTS_FIELD_RE = /"arguments"\s*:\s*\{/;
   const extractLeadText = (text: string): string => {
-    return text
-      .split(/\n\s*\n>\s*📊\s*\[DEBUG ROUTING\]/u, 1)[0]
-      ?.split(/\n\s*\n---\s*$/u, 1)[0]
-      ?.trim() ?? "";
+    return (
+      text
+        .split(/\n\s*\n>\s*📊\s*\[DEBUG ROUTING\]/u, 1)[0]
+        ?.split(/\n\s*\n---\s*$/u, 1)[0]
+        ?.trim() ?? ""
+    );
   };
   const normalizeAckText = (text: string): string =>
     extractLeadText(text)
@@ -809,7 +810,11 @@ export function shouldFailoverEmptySemanticRetryResult(
     }
   };
   const isSemanticRetryAcknowledgementOnly = (): boolean => {
-    if (verdict?.action !== "retry" || verdict.remediation !== "semantic_retry" || payloads.length === 0) {
+    if (
+      verdict?.action !== "retry" ||
+      verdict.remediation !== "semantic_retry" ||
+      payloads.length === 0
+    ) {
       return false;
     }
     return payloads.every((payload) => {
@@ -1260,11 +1265,14 @@ async function prepareAgentCommandExecution(
     storePath,
     cfg,
   });
-  const platformRuntimePlan = resolvePlatformRuntimePlan(platformPlannerInput, {
-    explicitApproval: shouldGrantPlatformExplicitApprovalForAgentTurn({
-      senderIsOwner: opts.senderIsOwner,
-    }),
-  });
+  const platformRuntimePlan = resolvePlatformRuntimePlan(
+    { ...platformPlannerInput, callerTag: "agent-command-main" },
+    {
+      explicitApproval: shouldGrantPlatformExplicitApprovalForAgentTurn({
+        senderIsOwner: opts.senderIsOwner,
+      }),
+    },
+  );
   const laneRaw = typeof opts.lane === "string" ? opts.lane.trim() : "";
   const isSubagentLane = laneRaw === String(AGENT_LANE_SUBAGENT);
   const timeoutSecondsRaw =

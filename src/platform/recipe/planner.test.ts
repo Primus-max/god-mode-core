@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getInitialRecipe } from "./defaults.js";
 import { planExecutionRecipe } from "./planner.js";
 
 describe("planExecutionRecipe", () => {
@@ -232,7 +233,8 @@ describe("planExecutionRecipe", () => {
 
   it("keeps browser-observation contracts out of general_reasoning", () => {
     const plan = planExecutionRecipe({
-      prompt: "Open the local app in a browser, inspect the signup flow, and report visible issues.",
+      prompt:
+        "Open the local app in a browser, inspect the signup flow, and report visible issues.",
       contractFirst: true,
       outcomeContract: "text_response",
       executionContract: {
@@ -779,5 +781,140 @@ describe("planExecutionRecipe", () => {
     expect(plan.plannerOutput.reasoning).toContain(
       "external operation is inferred without an explicit publish target",
     );
+  });
+
+  describe("routingOutcome", () => {
+    it("emits `matched:ranked` for a simple respond_only contract", () => {
+      const plan = planExecutionRecipe({
+        prompt: "Привет",
+        contractFirst: true,
+        outcomeContract: "text_response",
+        executionContract: {
+          requiresTools: false,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "general_assistant",
+          candidateFamilies: ["general_assistant"],
+          toolBundles: ["respond_only"],
+          routing: {
+            localEligible: true,
+            remoteProfile: "cheap",
+            preferRemoteFirst: false,
+            needsVision: false,
+          },
+        },
+      });
+
+      expect(plan.recipe.id).toBe("general_reasoning");
+      expect(plan.routingOutcome).toEqual({ kind: "matched", source: "ranked" });
+    });
+
+    it("emits `low_confidence_clarify` when strategy is clarify", () => {
+      const plan = planExecutionRecipe({
+        prompt: "что-то неопределённое",
+        contractFirst: true,
+        outcomeContract: "external_operation",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: true,
+          mayNeedBootstrap: false,
+        },
+        confidence: "low",
+        lowConfidenceStrategy: "clarify",
+        ambiguityReasons: ["no explicit target"],
+        resolutionContract: {
+          selectedFamily: "ops_execution",
+          candidateFamilies: ["ops_execution"],
+          toolBundles: ["external_delivery"],
+          routing: {
+            localEligible: false,
+            remoteProfile: "code",
+            preferRemoteFirst: true,
+            needsVision: false,
+          },
+        },
+      });
+
+      expect(plan.recipe.id).toBe("general_reasoning");
+      expect(plan.routingOutcome).toEqual({ kind: "low_confidence_clarify" });
+    });
+
+    it("emits `contract_unsatisfiable` via post-rank guard when ranker would downgrade to general_reasoning for a tool contract", () => {
+      // Defensive invariant: if ANY path (legacy or otherwise) lets
+      // `general_reasoning` win the ranked pool while the contract demands
+      // tools/evidence/mutation/local-process, the planner must not silently
+      // route there — it must emit `contract_unsatisfiable` so downstream
+      // layers can fail-closed. We force the scenario by restricting the
+      // candidate pool to just `general_reasoning`.
+      const generalReasoning = getInitialRecipe("general_reasoning");
+      if (!generalReasoning) {
+        throw new Error("expected general_reasoning recipe to be registered");
+      }
+      const plan = planExecutionRecipe({
+        prompt: "do something that might need tools",
+        contractFirst: false,
+        recipes: [generalReasoning],
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+      });
+
+      expect(plan.recipe.id).toBe("general_reasoning");
+      expect(plan.routingOutcome.kind).toBe("contract_unsatisfiable");
+      if (plan.routingOutcome.kind === "contract_unsatisfiable") {
+        expect(plan.routingOutcome.reasons).toContain(
+          "ranker_downgraded_to_general_reasoning_despite_tool_contract",
+        );
+        expect(plan.routingOutcome.reasons).toContain("contract_requires_tools");
+      }
+    });
+
+    it("emits `matched:contract_first_fallback` when narrow is empty but requirements map to a recipe", () => {
+      const plan = planExecutionRecipe({
+        prompt: "задеплой результат",
+        contractFirst: true,
+        outcomeContract: "external_operation",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: true,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "ops_execution",
+          candidateFamilies: ["ops_execution"],
+          toolBundles: [],
+          routing: {
+            localEligible: false,
+            remoteProfile: "code",
+            preferRemoteFirst: true,
+            needsVision: false,
+          },
+        },
+      });
+
+      // With empty toolBundles, narrowing returns empty. `selectContractFallbackRecipe`
+      // sees `requiresDeliveryEvidence` and picks `integration_delivery` from the pool.
+      expect(plan.recipe.id).toBe("integration_delivery");
+      expect(plan.routingOutcome).toEqual({
+        kind: "matched",
+        source: "contract_first_fallback",
+      });
+    });
   });
 });

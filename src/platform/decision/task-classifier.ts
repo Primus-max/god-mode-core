@@ -6,26 +6,26 @@ import { resolveModelAsync } from "../../agents/pi-embedded-runner/model.js";
 import { prepareModelForSimpleCompletion } from "../../agents/simple-completion-transport.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import type { BuildExecutionDecisionInputParams } from "./input.js";
-import { inferRequestedEvidence } from "./execution-contract.js";
-import {
-  resolveResolutionContract,
-  toRecipeRoutingHints,
-  type ResolutionBridgePlannerInput,
-  type ResolutionContract,
-} from "./resolution-contract.js";
-import type { CandidateExecutionFamily } from "./qualification-contract.js";
-import type {
-  QualificationConfidence,
-  QualificationLowConfidenceStrategy,
-} from "./qualification-contract.js";
-import type { RecipePlannerInput } from "../recipe/planner.js";
 import {
   DeliverableKindSchema,
   resolveProducer,
   type DeliverableKind,
   type DeliverableSpec,
 } from "../produce/registry.js";
+import type { RecipePlannerInput } from "../recipe/planner.js";
+import { inferRequestedEvidence } from "./execution-contract.js";
+import type { BuildExecutionDecisionInputParams } from "./input.js";
+import type { CandidateExecutionFamily } from "./qualification-contract.js";
+import type {
+  QualificationConfidence,
+  QualificationLowConfidenceStrategy,
+} from "./qualification-contract.js";
+import {
+  resolveResolutionContract,
+  toRecipeRoutingHints,
+  type ResolutionBridgePlannerInput,
+  type ResolutionContract,
+} from "./resolution-contract.js";
 
 const log = createSubsystemLogger("task-classifier");
 
@@ -34,6 +34,7 @@ export const DEFAULT_TASK_CLASSIFIER_MODEL = "hydra/gpt-5-mini";
 export const DEFAULT_TASK_CLASSIFIER_TIMEOUT_MS = 20_000;
 export const DEFAULT_TASK_CLASSIFIER_MAX_TOKENS = 450;
 const FAIL_CLOSED_REASON = "task classifier unavailable";
+const MAX_PENDING_COMMITMENTS_TOKENS = 300;
 
 const TASK_CONTRACT_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -262,6 +263,35 @@ Attachment file names:
 User request:
 {{USER_REQUEST}}`;
 
+function truncatePendingCommitmentsTokens(raw: string, maxTokens: number): string {
+  const normalized = raw.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "";
+  }
+  const tokens = normalized.split(" ");
+  if (tokens.length <= maxTokens) {
+    return normalized;
+  }
+  return `${tokens.slice(0, maxTokens).join(" ")}…`;
+}
+
+function buildPendingCommitmentsInjection(ledgerContext?: string): string {
+  const normalized = truncatePendingCommitmentsTokens(
+    typeof ledgerContext === "string" ? ledgerContext : "",
+    MAX_PENDING_COMMITMENTS_TOKENS,
+  );
+  if (!normalized) {
+    return "";
+  }
+  return [
+    "",
+    "<pending_commitments>",
+    normalized,
+    "</pending_commitments>",
+    "Use pending commitments only to resolve short acknowledgements (e.g., \"да\", \"подтверждаю\").",
+  ].join("\n");
+}
+
 type PrimaryOutcome =
   | "answer"
   | "workspace_change"
@@ -323,18 +353,21 @@ const TaskContractZodSchema = z
           });
         }
       }),
-    interactionMode: z.enum(["respond_only", "clarify_first", "tool_execution", "artifact_iteration"]),
+    interactionMode: z.enum([
+      "respond_only",
+      "clarify_first",
+      "tool_execution",
+      "artifact_iteration",
+    ]),
     confidence: z.number().min(0).max(1),
-    ambiguities: z
-      .array(z.string().min(1))
-      .superRefine((values, ctx) => {
-        if (new Set(values).size !== values.length) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "ambiguities must contain unique items",
-          });
-        }
-      }),
+    ambiguities: z.array(z.string().min(1)).superRefine((values, ctx) => {
+      if (new Set(values).size !== values.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "ambiguities must contain unique items",
+        });
+      }
+    }),
     deliverable: z
       .object({
         kind: DeliverableKindSchema,
@@ -357,12 +390,7 @@ export type TaskContract = {
 };
 
 export type TaskClassifierDebugEvent = {
-  stage:
-    | "model_unresolved"
-    | "raw_response"
-    | "fallback"
-    | "disabled"
-    | "unknown_backend";
+  stage: "model_unresolved" | "raw_response" | "fallback" | "disabled" | "unknown_backend";
   backend: string;
   configuredModel: string;
   provider?: string;
@@ -386,6 +414,7 @@ export type TaskClassifierAdapter = {
   classify(params: {
     prompt: string;
     fileNames: string[];
+    ledgerContext?: string;
     config: ResolvedTaskClassifierConfig;
     cfg: OpenClawConfig;
     agentDir?: string;
@@ -503,7 +532,14 @@ function normalizeTaskContract(contract: TaskContract): TaskContract {
   }
 
   if (primaryOutcome === "workspace_change") {
-    if (contract.deliverable?.kind !== "repo_operation") {
+    if (contract.deliverable?.kind === "repo_operation") {
+      // P1.3 invariant: repo_operation (git commit, run tests, run build) must not
+      // be treated as a workspace mutation. `apply_patch` and the P0.2 low-confidence
+      // safety rule both key off `needs_workspace_mutation`; leaving this flag in when
+      // the LLM mis-tagged a git operation would force `apply_patch` and spurious
+      // clarify on low-confidence "just commit" turns.
+      capabilities.delete("needs_workspace_mutation");
+    } else {
       capabilities.add("needs_workspace_mutation");
     }
     interactionMode = "tool_execution";
@@ -552,7 +588,8 @@ function normalizeTaskContract(contract: TaskContract): TaskContract {
     interactionMode = "respond_only";
   }
 
-  const deliverable = contract.deliverable ?? inferDeliverableFallback(primaryOutcome, capabilities);
+  const deliverable =
+    contract.deliverable ?? inferDeliverableFallback(primaryOutcome, capabilities);
 
   return {
     ...contract,
@@ -630,8 +667,39 @@ function taskContractLowConfidenceStrategy(
   ) {
     return "clarify";
   }
+  // P0.2 safety rule: low classifier confidence combined with a workspace-
+  // mutating request AND unresolved ambiguities must route through clarify,
+  // not proceed optimistically. Rationale: `workspace_change` is irreversible
+  // enough that we would rather ask one question than damage the workspace on
+  // a guess. Threshold 0.5 matches `qualificationConfidence=low` upper bound.
+  const capabilities = new Set(contract.requiredCapabilities);
+  const rawConfidence = typeof contract.confidence === "number" ? contract.confidence : 1;
+  const ambiguityCount = contract.ambiguities?.length ?? 0;
+  if (
+    rawConfidence < 0.5 &&
+    capabilities.has("needs_workspace_mutation") &&
+    ambiguityCount > 0
+  ) {
+    return "clarify";
+  }
   return undefined;
 }
+
+const CLARIFY_RESPOND_ONLY_BRIDGE: ResolutionBridgePlannerInput = {
+  intent: "general",
+  artifactKinds: [],
+  requestedTools: [],
+  publishTargets: [],
+  outcomeContract: "text_response",
+  executionContract: {
+    requiresTools: false,
+    requiresWorkspaceMutation: false,
+    requiresLocalProcess: false,
+    requiresArtifactEvidence: false,
+    requiresDeliveryEvidence: false,
+    mayNeedBootstrap: false,
+  },
+};
 
 function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlannerInput {
   const capabilities = new Set(contract.requiredCapabilities);
@@ -641,7 +709,20 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
     contract.primaryOutcome === "document_package" &&
     hasVisualComposition &&
     !hasMultimodalAuthoring;
-  const artifactKinds: ("document" | "estimate" | "site" | "release" | "binary" | "report" | "video" | "image" | "audio" | "archive" | "data" | "other")[] = [];
+  const artifactKinds: (
+    | "document"
+    | "estimate"
+    | "site"
+    | "release"
+    | "binary"
+    | "report"
+    | "video"
+    | "image"
+    | "audio"
+    | "archive"
+    | "data"
+    | "other"
+  )[] = [];
   const requestedTools: string[] = [];
   let intent: ResolutionBridgePlannerInput["intent"];
 
@@ -763,12 +844,12 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
             ? "interactive_local_result"
             : hasStructuredArtifact
               ? "structured_artifact"
-          : contract.primaryOutcome === "comparison_report" ||
-              contract.primaryOutcome === "calculation_result" ||
-              contract.primaryOutcome === "answer" ||
-              contract.primaryOutcome === "clarification_needed"
-            ? "text_response"
-            : "structured_artifact",
+              : contract.primaryOutcome === "comparison_report" ||
+                  contract.primaryOutcome === "calculation_result" ||
+                  contract.primaryOutcome === "answer" ||
+                  contract.primaryOutcome === "clarification_needed"
+                ? "text_response"
+                : "structured_artifact",
     executionContract: {
       requiresTools,
       requiresWorkspaceMutation: capabilities.has("needs_workspace_mutation"),
@@ -789,6 +870,7 @@ export function buildPlannerInputFromTaskContract(params: {
   prompt: string;
   fileNames?: string[];
   taskContract: TaskContract;
+  classifierTelemetry?: import("../recipe/planner.js").ClassifierTelemetry;
 }): RecipePlannerInput {
   const fileNames = Array.from(
     new Set(
@@ -797,15 +879,25 @@ export function buildPlannerInputFromTaskContract(params: {
         .map((value) => value.trim()),
     ),
   );
-  const bridge = mapTaskContractToBridge(params.taskContract);
+  const ambiguityReasons = normalizeUnique(params.taskContract.ambiguities);
+  const confidence = taskContractConfidenceToQualification(params.taskContract.confidence);
+  const lowConfidenceStrategy = taskContractLowConfidenceStrategy(params.taskContract);
+  // P0.3 consistency invariant: when the classifier decides to clarify we must
+  // not leak tool requests or artifact expectations into the planner. Feeding
+  // `requestedTools` / `requiresTools=true` on a clarify turn produces the
+  // exact contradiction the user sees in logs (plan says clarify, runtime
+  // still proposes `apply_patch`/`exec`). Force a respond-only bridge.
+  const bridge =
+    lowConfidenceStrategy === "clarify"
+      ? CLARIFY_RESPOND_ONLY_BRIDGE
+      : mapTaskContractToBridge(params.taskContract);
+  const deliverableForPlanner =
+    lowConfidenceStrategy === "clarify" ? undefined : params.taskContract.deliverable;
   const resolutionContract = resolveResolutionContract({
     contractFirst: true,
     ...(fileNames.length > 0 ? { fileNames } : {}),
     ...bridge,
   });
-  const ambiguityReasons = normalizeUnique(params.taskContract.ambiguities);
-  const confidence = taskContractConfidenceToQualification(params.taskContract.confidence);
-  const lowConfidenceStrategy = taskContractLowConfidenceStrategy(params.taskContract);
   return {
     prompt: params.prompt,
     contractFirst: true,
@@ -814,7 +906,7 @@ export function buildPlannerInputFromTaskContract(params: {
     ...(bridge.artifactKinds?.length ? { artifactKinds: bridge.artifactKinds } : {}),
     ...(bridge.requestedTools?.length ? { requestedTools: bridge.requestedTools } : {}),
     ...(bridge.publishTargets?.length ? { publishTargets: bridge.publishTargets } : {}),
-    ...(params.taskContract.deliverable ? { deliverable: params.taskContract.deliverable } : {}),
+    ...(deliverableForPlanner ? { deliverable: deliverableForPlanner } : {}),
     outcomeContract: bridge.outcomeContract,
     executionContract: bridge.executionContract,
     requestedEvidence: inferRequestedEvidence(bridge.outcomeContract, bridge.executionContract),
@@ -824,6 +916,7 @@ export function buildPlannerInputFromTaskContract(params: {
     candidateFamilies: [...resolutionContract.candidateFamilies],
     resolutionContract,
     routing: toRecipeRoutingHints(resolutionContract),
+    ...(params.classifierTelemetry ? { classifierTelemetry: params.classifierTelemetry } : {}),
   };
 }
 
@@ -844,6 +937,7 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
   async classify(params: {
     prompt: string;
     fileNames: string[];
+    ledgerContext?: string;
     config: ResolvedTaskClassifierConfig;
     cfg: OpenClawConfig;
     agentDir?: string;
@@ -854,7 +948,12 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
     if (!parsedRef) {
       return null;
     }
-    const resolved = await resolveModelAsync(parsedRef.provider, parsedRef.model, params.agentDir, params.cfg);
+    const resolved = await resolveModelAsync(
+      parsedRef.provider,
+      parsedRef.model,
+      params.agentDir,
+      params.cfg,
+    );
     if (!resolved.model) {
       emitDebugEvent(params.onDebugEvent, {
         stage: "model_unresolved",
@@ -872,12 +971,16 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), params.config.timeoutMs);
     try {
+      const pendingCommitmentsInjection = buildPendingCommitmentsInjection(params.ledgerContext);
+      const userRequest = pendingCommitmentsInjection
+        ? `${pendingCommitmentsInjection}\n${params.prompt}`
+        : params.prompt;
       const prompt = TASK_CLASSIFIER_USER_TEMPLATE.replace(
         "{{SCHEMA_JSON}}",
         JSON.stringify(TASK_CONTRACT_SCHEMA),
       )
         .replace("{{ATTACHMENT_FILE_NAMES}}", JSON.stringify(params.fileNames))
-        .replace("{{USER_REQUEST}}", params.prompt);
+        .replace("{{USER_REQUEST}}", userRequest);
       const result = await completeSimple(
         model,
         {
@@ -968,12 +1071,18 @@ function buildFailClosedResolution(params: {
   prompt: string;
   fileNames?: string[];
   reason: string;
+  classifierConfig?: ResolvedTaskClassifierConfig;
 }): ClassifiedTaskResolution {
   const taskContract = buildFailClosedTaskContract(params.reason);
   const plannerInput = buildPlannerInputFromTaskContract({
     prompt: params.prompt,
     fileNames: params.fileNames,
     taskContract,
+    classifierTelemetry: {
+      source: "fail_closed",
+      ...(params.classifierConfig?.backend ? { backend: params.classifierConfig.backend } : {}),
+      ...(params.classifierConfig?.model ? { model: params.classifierConfig.model } : {}),
+    },
   });
   return {
     source: "fail_closed",
@@ -1000,6 +1109,7 @@ export function resolveTaskClassifierAdapter(
 export async function classifyTaskForDecision(params: {
   prompt: string;
   fileNames?: string[];
+  ledgerContext?: string;
   cfg: OpenClawConfig;
   agentDir?: string;
   input?: BuildExecutionDecisionInputParams;
@@ -1018,6 +1128,7 @@ export async function classifyTaskForDecision(params: {
       prompt: params.prompt,
       fileNames: params.fileNames,
       reason: FAIL_CLOSED_REASON,
+      classifierConfig,
     });
   }
   const adapter = resolveTaskClassifierAdapter(classifierConfig.backend, params.adapterRegistry);
@@ -1034,6 +1145,7 @@ export async function classifyTaskForDecision(params: {
       prompt: params.prompt,
       fileNames: params.fileNames,
       reason: FAIL_CLOSED_REASON,
+      classifierConfig,
     });
   }
 
@@ -1043,6 +1155,7 @@ export async function classifyTaskForDecision(params: {
       const classified = await adapter.classify({
         prompt: params.prompt,
         fileNames: params.fileNames ?? [],
+        ledgerContext: params.ledgerContext,
         config: classifierConfig,
         cfg: params.cfg,
         agentDir: params.agentDir,
@@ -1050,13 +1163,28 @@ export async function classifyTaskForDecision(params: {
       });
       if (classified) {
         const normalizedContract = normalizeTaskContract(classified);
+        const classifierTelemetry: import("../recipe/planner.js").ClassifierTelemetry = {
+          source: "llm",
+          backend: classifierConfig.backend,
+          model: classifierConfig.model,
+          primaryOutcome: normalizedContract.primaryOutcome,
+          interactionMode: normalizedContract.interactionMode,
+          confidence: normalizedContract.confidence,
+          ...(normalizedContract.deliverable?.kind
+            ? { deliverableKind: normalizedContract.deliverable.kind }
+            : {}),
+          ...(normalizedContract.deliverable?.acceptedFormats?.length
+            ? { deliverableFormats: [...normalizedContract.deliverable.acceptedFormats] }
+            : {}),
+        };
         const plannerInput = buildPlannerInputFromTaskContract({
           prompt: params.prompt,
           fileNames: params.fileNames,
           taskContract: normalizedContract,
+          classifierTelemetry,
         });
         log.info(
-          `classified: outcome=${normalizedContract.primaryOutcome} mode=${normalizedContract.interactionMode} conf=${normalizedContract.confidence} deliverable=${normalizedContract.deliverable?.kind ?? "n/a"}/${(normalizedContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${normalizedContract.requiredCapabilities.join(",")}] ambig=[${normalizedContract.ambiguities.join(" | ")}]`,
+          `classified: backend=${classifierConfig.backend} model=${classifierConfig.model} outcome=${normalizedContract.primaryOutcome} mode=${normalizedContract.interactionMode} conf=${normalizedContract.confidence} deliverable=${normalizedContract.deliverable?.kind ?? "n/a"}/${(normalizedContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${normalizedContract.requiredCapabilities.join(",")}] ambig=[${normalizedContract.ambiguities.join(" | ")}]`,
         );
         return {
           source: "llm",
@@ -1070,12 +1198,14 @@ export async function classifyTaskForDecision(params: {
         stage: "fallback",
         backend: classifierConfig.backend,
         configuredModel: classifierConfig.model,
-        message: "classifier returned no valid contract; returning fail-closed clarification contract",
+        message:
+          "classifier returned no valid contract; returning fail-closed clarification contract",
       });
       return buildFailClosedResolution({
         prompt: params.prompt,
         fileNames: params.fileNames,
         reason: FAIL_CLOSED_REASON,
+        classifierConfig,
       });
     } catch (error) {
       lastError = error;
@@ -1103,5 +1233,6 @@ export async function classifyTaskForDecision(params: {
     prompt: params.prompt,
     fileNames: params.fileNames,
     reason: FAIL_CLOSED_REASON,
+    classifierConfig,
   });
 }
