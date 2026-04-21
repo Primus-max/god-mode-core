@@ -1,7 +1,7 @@
 # Orchestrator v1.1 — P1.4 (Conversation State & Execution Evidence & Progress Bus)
 
 **Мастер-план:** `orchestrator_v1_1_master.plan.md`.
-**Статус:** IN_PROGRESS — этапы A и B закрыты (scope+live подтверждён), C/D pending (2026-04-20).
+**Статус:** IN_PROGRESS — этапы A, B, C закрыты (scope+live подтверждён), D pending (2026-04-21).
 **Зависимости:** P0 закрыт. P1.3 закрыт. Приоритетнее P1.1/P1.2, т.к. закрывает корневую
 причину их симптомов.
 
@@ -255,21 +255,47 @@ pnpm live:routing:smoke
 
 ---
 
-### Этап C — Progress Bus [ ]
+### Этап C — Progress Bus [x] (scope C закрыт 2026-04-21, live подтверждён 15/15)
 
-**Цель.** Единый стрим событий турна, потребители — Telegram edit-adapter и
-будущий сайт.
+**Цель.** Единый стрим событий турна, потребители — gateway WS broadcast
+(`progress.frame`), Telegram edit-adapter и будущий сайт.
 
-**Ключевые моменты.**
-- `ProgressFrame { sessionId, channelId, turnId, phase, detail?, ts }`.
-- `phase: "classifying" | "planning" | "preflight" | "tool_call" | "producing" | "streaming" | "waiting_user" | "done" | "error"`.
-- Эмитеры — по одной строчке в classifier/planner/runtime. Подписчик —
-  `src/plugins/telegram/*` (правит существующее сообщение, fallback — отдельный
-  short message). Транспорт для сайта — WS/SSE, но в C.1 только Telegram-адаптер
-  и in-memory bus.
+**Делiver.**
+- `src/platform/progress/progress-bus.ts` — ProgressBus, ProgressFrame,
+  `createTurnProgressEmitter`, AsyncLocalStorage-контекст, rate-limit
+  `PROGRESS_BUS_PER_TURN_LIMIT=20`, env-kill-switch `OPENCLAW_PROGRESS_BUS_DISABLED=1`.
+- `src/plugin-sdk/progress.ts` + запись в `package.json` exports +
+  `scripts/lib/plugin-sdk-entrypoints.json`.
+- Эмитеры: `decision/input.ts` (`classifying`), `recipe/planner.ts`
+  (`planning` + `preflight` с detail=bundle/family), `auto-reply/agent-runner.ts`
+  (`streaming`, `tool_call`, `evidence`, `done`, `error`).
+- `src/gateway/progress-bridge.ts` + интеграция в `server.impl.ts` +
+  cleanup в `server-close.ts` — broadcast события `progress.frame` через
+  `broadcastToConnIds` для WS-подписчиков (`dropIfSlow:true`,
+  min-gap 100ms per session).
+- `extensions/telegram/src/progress-adapter.ts` + 7 unit-тестов —
+  edit-message поверх одного статус-сообщения, kill-switch
+  `OPENCLAW_PROGRESS_TELEGRAM=0`.
+- Live smoke scenario `14-progress-bus` + вспомогательный `14a-progress-bus-question`
+  в `scripts/live-routing-smoke.mjs` — парсит `[progress] turn=... seq=... phase=...`
+  из лог-файла gateway и проверяет required phases + toolName=exec.
 
-**Зависимости.** Самостоятельный этап, но идеально после B, чтобы показывать
-evidence-reconciliation.
+**Acceptance (все ✓).**
+- [x] `pnpm vitest run src/platform/progress src/platform/session
+  src/platform/decision/task-classifier.test.ts extensions/telegram/src/progress-adapter.test.ts`
+  — 81/81 passed.
+- [x] `pnpm tsgo --noEmit` — Stage C файлы чистые; остаются pre-existing
+  ошибки в planner.test/runtime-adapter.test/service.test/ui (out of scope).
+- [x] `pnpm lint:routing:no-prompt-parsing` — зелёный.
+- [x] `pnpm live:routing:smoke` — 15/15 passed, `14-progress-bus` дал
+  `phases=[classifying,planning,preflight,tool_call,done] frames=5 toolName=exec`.
+- [x] Gateway startup лог содержит `[progress] gateway bridge attached`.
+
+**Guard-rails.**
+- Publish без подписчиков — cheap no-op (только turnCounter cleanup на terminal).
+- Rate-limit: 20 frames/turn, terminal фазы (done/error) всегда пролезают;
+  drops суммируются и логируются на terminal.
+- Нет никакого парсинга user-input в эмитерах — только phase-лейблы и tool names.
 
 ---
 
@@ -394,3 +420,46 @@ evidence-reconciliation.
   (`else { evidenceLog.info(...) }`), чтобы `[evidence] promises=0 receipts=0 violations=0 action=none`
   фиксировался и на turn'ах без executionVerification.receipts (когда бот не обещал
   tool-экшен) — для стабильной наблюдаемости stage B пути в логах.
+- 2026-04-21 — Этап C (Progress Bus) реализован и подтверждён live:
+  - добавлен `src/platform/progress/progress-bus.ts` (ProgressBus, ProgressFrame,
+    `createTurnProgressEmitter`, AsyncLocalStorage-контекст,
+    `PROGRESS_BUS_PER_TURN_LIMIT=20`, kill-switch `OPENCLAW_PROGRESS_BUS_DISABLED=1`)
+    + `progress-bus.test.ts` (15 unit-кейсов: subscribe/subscribeAll/rate-limit/
+    terminal-cleanup/disabled-env/detail-truncate/error-on-callback).
+  - добавлен `src/plugin-sdk/progress.ts` (SDK re-export) + прописан в
+    `package.json` exports и `scripts/lib/plugin-sdk-entrypoints.json`.
+  - эмитеры:
+    - `src/platform/decision/input.ts` — `classifying` перед classifyTask;
+    - `src/platform/recipe/planner.ts` — `planning` до `planExecutionRecipeCore`,
+      `preflight` если recipe требует tools (detail=bundles|requestedTools|id);
+    - `src/auto-reply/reply/agent-runner.ts` — обёртка `withTurnProgressEmitter`,
+      `streaming` (при первом onBlockReply), `tool_call` (по каждому tool-receipt,
+      meta.toolName), `evidence` (action≠none), `done`/`error` на финализации.
+  - `src/gateway/progress-bridge.ts` + интеграция в
+    `server.impl.ts` (`createGatewayProgressBridge` вызывается при старте не-minimal
+    gateway; broadcast `progress.frame` через `broadcastToConnIds` для
+    `sessionEventSubscribers.getAll`, `dropIfSlow:true`, min-gap 100ms
+    per session) + `progressBridgeUnsub` в closeHandler
+    (`server-close.ts` + обновлён `server-close.test.ts`);
+    `progress.frame` добавлено в `GATEWAY_EVENTS` (server-methods-list.ts).
+  - `extensions/telegram/src/progress-adapter.ts` + 7 unit-тестов
+    (enable/disable via `OPENCLAW_PROGRESS_TELEGRAM`, edit single status-message,
+    send→edit fallback, terminal cleanup, serialized sends).
+  - `scripts/live-routing-smoke.mjs`: сценарий `14-progress-bus` +
+    вспомогательный `14a-progress-bus-question`, парсит
+    `[progress] turn=… seq=… phase=…(toolName=…)` из лог-файла gateway;
+    `captureGatewayLogOffset`/`readGatewayLogSince` расширены на оба лога
+    (`.gateway-dev.log` и прямой `C:\tmp\openclaw\openclaw-YYYY-MM-DD.log`),
+    чтобы обойти буферизацию PowerShell `*>` редиректа.
+  - verify: `pnpm vitest run src/platform/progress src/platform/session
+    src/platform/decision/task-classifier.test.ts extensions/telegram/src/progress-adapter.test.ts`
+    → 81/81 passed; `pnpm lint:routing:no-prompt-parsing` зелёный;
+    `pnpm tsgo --noEmit` — новых ошибок нет (pre-existing в planner.test/
+    runtime-adapter.test/service.test/ui — out of scope).
+    `pnpm live:routing:smoke` → **15/15 passed**,
+    `14-progress-bus` дал `phases=[classifying,planning,preflight,tool_call,done]
+    frames=5 toolName=exec`; в gateway startup-логе присутствует
+    `[progress] gateway bridge attached`.
+  - Telegram-адаптер НЕ wired в активный telegram-плагин (ждёт явного подключения
+    через `createTelegramProgressAdapter` с `getApi`/`resolveTarget`);
+    Progress Bus уже эмитит `progress.frame` в gateway WS для future веб-адаптера.

@@ -85,6 +85,7 @@ import {
 import { getSharedExecApprovalManager } from "./exec-approval-manager.js";
 import { startGatewayModelPricingRefresh } from "./model-pricing-cache.js";
 import { NodeRegistry } from "./node-registry.js";
+import { createGatewayProgressBridge } from "./progress-bridge.js";
 import type { startBrowserControlServerIfEnabled } from "./server-browser.js";
 import { createChannelManager } from "./server-channels.js";
 import {
@@ -938,6 +939,13 @@ export async function startGatewayServer(
         );
       });
 
+  const progressBridge = minimalTestGateway
+    ? null
+    : createGatewayProgressBridge({
+        broadcastToConnIds,
+        getSessionEventSubscriberConnIds: sessionEventSubscribers.getAll,
+      });
+
   let heartbeatRunner: HeartbeatRunner = minimalTestGateway
     ? {
         stop: () => {},
@@ -1295,6 +1303,7 @@ export async function startGatewayServer(
     heartbeatUnsub,
     transcriptUnsub,
     lifecycleUnsub,
+    progressBridgeUnsub: progressBridge ? progressBridge.unsubscribe : null,
     chatRunState,
     clients,
     configReloader,

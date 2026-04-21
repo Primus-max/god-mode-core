@@ -23,6 +23,7 @@ const HISTORY_POLL_MS = 1500;
 const CHAIN_PDF_DOCX = `chain-pdf-docx-${Date.now()}`;
 const CHAIN_DEV_FILE = `chain-dev-file-${Date.now()}`;
 const CHAIN_CONFIRM_EXEC = `chain-confirm-exec-${Date.now()}`;
+const CHAIN_PROGRESS_BUS = `chain-progress-bus-${Date.now()}`;
 const SCENARIOS = [
   { id: "01-hello", message: "Привет", expect: { kind: "text" } },
   { id: "02-image", message: "Сгенерировать картинку банана", expect: { kind: "image", formats: ["png", "jpeg", "jpg", "webp"] } },
@@ -79,6 +80,27 @@ const SCENARIOS = [
       kind: "tool_output",
       tools: ["exec"],
       outputContainsAny: ["v", "node"],
+    },
+  },
+  {
+    id: "14a-progress-bus-question",
+    sessionGroup: CHAIN_PROGRESS_BUS,
+    message:
+      "Сначала задай короткий вопрос подтверждения: «Запустить node --version?». Ничего не запускай до моего ответа.",
+    expect: { kind: "text" },
+  },
+  {
+    id: "14-progress-bus",
+    sessionGroup: CHAIN_PROGRESS_BUS,
+    message: "ДА",
+    expect: {
+      kind: "tool_output",
+      tools: ["exec"],
+      outputContainsAny: ["v", "node"],
+      progressLog: {
+        requiredPhases: ["classifying", "tool_call", "done"],
+        requiredToolName: "exec",
+      },
     },
   },
 ];
@@ -225,6 +247,116 @@ async function fetchHistoryAny(client, sessionKey) {
   }
 }
 
+const GATEWAY_DEV_LOG_PATH = path.resolve(".gateway-dev.log");
+
+function resolveGatewayLogFilePath() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const name = `openclaw-${y}-${m}-${day}.log`;
+  if (process.platform === "win32") {
+    return path.join("C:\\", "tmp", "openclaw", name);
+  }
+  return path.join("/tmp", "openclaw", name);
+}
+
+const GATEWAY_FILE_LOG_PATH = resolveGatewayLogFilePath();
+
+async function captureGatewayLogOffset() {
+  const paths = [GATEWAY_FILE_LOG_PATH, GATEWAY_DEV_LOG_PATH];
+  const offsets = {};
+  for (const p of paths) {
+    try {
+      const st = await fs.stat(p);
+      offsets[p] = st.size;
+    } catch {
+      offsets[p] = 0;
+    }
+  }
+  return offsets;
+}
+
+async function readGatewayLogFileSince(filePath, offset) {
+  try {
+    const st = await fs.stat(filePath);
+    if (st.size <= offset) return "";
+    const fd = await fs.open(filePath, "r");
+    const len = st.size - offset;
+    const buf = Buffer.alloc(len);
+    await fd.read(buf, 0, len, offset);
+    await fd.close();
+    return buf.toString("utf-8");
+  } catch {
+    return "";
+  }
+}
+
+async function readGatewayLogSince(offsets) {
+  const parts = [];
+  for (const [p, off] of Object.entries(offsets ?? {})) {
+    const chunk = await readGatewayLogFileSince(p, off);
+    if (chunk) parts.push(chunk);
+  }
+  return parts.join("\n");
+}
+
+function parseProgressFramesFromLog(logChunk) {
+  const turns = new Map();
+  const re = /\[progress\] turn=([^\s]+) seq=(\d+) phase=([a-z_]+)(?: toolName=([^\s]+))?/g;
+  let match;
+  while ((match = re.exec(logChunk)) !== null) {
+    const [, turnId, seqStr, phase, toolName] = match;
+    const seq = Number.parseInt(seqStr, 10);
+    if (!Number.isFinite(seq)) continue;
+    let arr = turns.get(turnId);
+    if (!arr) {
+      arr = [];
+      turns.set(turnId, arr);
+    }
+    arr.push({ seq, phase, toolName: toolName ?? null });
+  }
+  return turns;
+}
+
+function evaluateProgressLog(logChunk, requirements) {
+  const required = new Set(requirements?.requiredPhases ?? []);
+  const requiredTool = requirements?.requiredToolName ?? null;
+  const turns = parseProgressFramesFromLog(logChunk);
+  const notes = [];
+  for (const [turnId, frames] of turns.entries()) {
+    let monotonic = true;
+    for (let i = 1; i < frames.length; i += 1) {
+      if (frames[i].seq <= frames[i - 1].seq) {
+        monotonic = false;
+        break;
+      }
+    }
+    if (!monotonic) continue;
+    const phases = new Set(frames.map((f) => f.phase));
+    const hasAllPhases = [...required].every((p) => phases.has(p));
+    if (!hasAllPhases) continue;
+    if (requiredTool) {
+      const toolOk = frames.some(
+        (f) => f.phase === "tool_call" && f.toolName === requiredTool,
+      );
+      if (!toolOk) continue;
+    }
+    notes.push(
+      `progress turn=${turnId} phases=[${[...phases].join(",")}] frames=${frames.length}`,
+    );
+    return { ok: true, notes };
+  }
+  if (turns.size === 0) {
+    notes.push("no [progress] entries found in gateway log after scenario start");
+  } else {
+    notes.push(
+      `no turn satisfied required phases=[${[...required].join(",")}]${requiredTool ? ` toolName=${requiredTool}` : ""}; seen turns=${turns.size}`,
+    );
+  }
+  return { ok: false, notes };
+}
+
 async function runScenario(client, scenario) {
   const runId = `${scenario.id}-${Date.now()}`;
   const sessionKey = scenario.sessionGroup
@@ -232,6 +364,7 @@ async function runScenario(client, scenario) {
     : `live-routing-smoke:${scenario.id}:${Date.now()}`;
   const events = [];
   client.__onEvent = (evt) => events.push(evt);
+  const logOffset = await captureGatewayLogOffset();
 
   const start = await client.request("chat.send", {
     sessionKey,
@@ -282,6 +415,15 @@ async function runScenario(client, scenario) {
     }
     await new Promise((r) => setTimeout(r, HISTORY_POLL_MS));
   }
+  let gatewayLogAppend = await readGatewayLogSince(logOffset);
+  if (scenario.expect?.progressLog && !/\[progress\]/.test(gatewayLogAppend)) {
+    const retryDeadline = Date.now() + 5000;
+    while (Date.now() < retryDeadline) {
+      await new Promise((r) => setTimeout(r, 250));
+      gatewayLogAppend = await readGatewayLogSince(logOffset);
+      if (/\[progress\]/.test(gatewayLogAppend)) break;
+    }
+  }
   return {
     scenario,
     runId,
@@ -293,6 +435,7 @@ async function runScenario(client, scenario) {
     initialMsgCount,
     events: events.slice(),
     flags: { sawToolCall, sawToolResult },
+    gatewayLogAppend,
   };
 }
 
@@ -600,6 +743,17 @@ async function evaluate(result) {
         notes.push(`artifact magic bytes: ${magics.map((m) => `${path.basename(m.path)}=${m.hex}`).join("; ")}`);
       }
     }
+  }
+
+  if (scenario.expect.progressLog) {
+    const progressResult = evaluateProgressLog(
+      result.gatewayLogAppend ?? "",
+      scenario.expect.progressLog,
+    );
+    if (!progressResult.ok) {
+      pass = false;
+    }
+    notes.push(...progressResult.notes);
   }
 
   return {

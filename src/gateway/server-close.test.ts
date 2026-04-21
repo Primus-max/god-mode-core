@@ -32,6 +32,7 @@ describe("createGatewayCloseHandler", () => {
       heartbeatUnsub: null,
       transcriptUnsub: null,
       lifecycleUnsub,
+      progressBridgeUnsub: null,
       chatRunState: { clear: vi.fn() },
       clients: new Set(),
       configReloader: { stop: vi.fn(async () => undefined) },

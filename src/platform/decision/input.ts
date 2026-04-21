@@ -3,6 +3,7 @@ import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import { defaultRuntime } from "../../runtime.js";
+import { getCurrentTurnProgressEmitter } from "../progress/progress-bus.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
 import { buildIntentLedgerContext, intentLedger } from "../session/intent-ledger.js";
@@ -277,6 +278,7 @@ export async function buildClassifiedExecutionDecisionInput(params: {
   defaultRuntime.log(
     `[intent-ledger] peek=${String(pendingCommitments.length)} injected=${ledgerContext ? "1" : "0"}`,
   );
+  getCurrentTurnProgressEmitter()?.emit("classifying");
   const classified = await classifyTaskForDecision({
     prompt: classifierPrompt,
     fileNames: classifierInput.fileNames,

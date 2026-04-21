@@ -22,6 +22,7 @@
   "outbound-runtime",
   "platform-runtime",
   "infra-runtime",
+  "progress",
   "ssrf-runtime",
   "media-runtime",
   "media-understanding-runtime",

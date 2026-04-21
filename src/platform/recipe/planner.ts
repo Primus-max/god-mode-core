@@ -15,6 +15,7 @@ import {
 import type { ExecutionRecipe, PlannerOutput } from "../schemas/index.js";
 import { PlannerOutputSchema } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
+import { getCurrentTurnProgressEmitter } from "../progress/progress-bus.js";
 import { INITIAL_RECIPES, getInitialRecipe } from "./defaults.js";
 
 const log = createSubsystemLogger("planner");
@@ -885,6 +886,27 @@ function resolvePlannerModelOverride(params: {
 }
 
 export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
+  const emitter = getCurrentTurnProgressEmitter();
+  emitter?.emit("planning");
+  const plan = planExecutionRecipeCore(input);
+  if (emitter) {
+    const needsTools =
+      input.executionContract?.requiresTools === true ||
+      (input.resolutionContract?.toolBundles?.length ?? 0) > 0 ||
+      (input.requestedTools?.length ?? 0) > 0;
+    if (needsTools) {
+      const bundles = input.resolutionContract?.toolBundles ?? [];
+      const detail =
+        bundles.length > 0
+          ? bundles.join(",")
+          : (input.requestedTools?.join(",") ?? plan.recipe.id);
+      emitter.emit("preflight", detail);
+    }
+  }
+  return plan;
+}
+
+function planExecutionRecipeCore(input: RecipePlannerInput): ExecutionPlan {
   const profile = resolveProfile(input);
   const recipes = input.recipes ?? INITIAL_RECIPES;
   const candidateRecipes = recipes.filter((recipe) =>

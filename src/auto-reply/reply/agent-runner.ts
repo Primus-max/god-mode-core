@@ -65,6 +65,11 @@ import {
   reconcilePromisesWithReceipts,
   type PromisedActionViolation,
 } from "../../platform/session/execution-evidence.js";
+import {
+  createTurnProgressEmitter,
+  withTurnProgressEmitter,
+  type TurnProgressEmitter,
+} from "../../platform/progress/progress-bus.js";
 
 const BLOCK_REPLY_SEND_TIMEOUT_MS = 15_000;
 const intentLedgerLog = createSubsystemLogger("intent-ledger");
@@ -499,8 +504,44 @@ export async function runReplyAgent(params: {
     sessionKey,
     workspaceDir: followupRun.run.workspaceDir,
   });
+  const progressSessionId =
+    typeof followupRun.run.sessionId === "string" ? followupRun.run.sessionId : "";
+  const progressChannelId = (
+    replyToChannel ??
+    sessionCtx.Surface ??
+    sessionCtx.Provider ??
+    sessionCtx.OriginatingChannel ??
+    ""
+  )
+    .toString()
+    .trim()
+    .toLowerCase();
+  const progressTurnId =
+    (typeof opts?.runId === "string" && opts.runId.trim()) ||
+    (typeof requestRunId === "string" && requestRunId.trim()) ||
+    generateSecureUuid();
+  const turnProgressEmitter: TurnProgressEmitter | null =
+    progressSessionId && progressChannelId
+      ? createTurnProgressEmitter({
+          sessionId: progressSessionId,
+          channelId: progressChannelId,
+          turnId: progressTurnId,
+        })
+      : null;
+  let progressStreamingEmitted = false;
+  const originalOnBlockReply = opts?.onBlockReply;
+  const streamingAwareBlockReply: NonNullable<GetReplyOptions["onBlockReply"]> | undefined =
+    originalOnBlockReply
+      ? (payload, options) => {
+          if (turnProgressEmitter && !progressStreamingEmitted) {
+            progressStreamingEmitted = true;
+            turnProgressEmitter.emit("streaming");
+          }
+          return originalOnBlockReply(payload, options);
+        }
+      : undefined;
   const blockReplyCoalescing =
-    blockStreamingEnabled && opts?.onBlockReply
+    blockStreamingEnabled && streamingAwareBlockReply
       ? resolveEffectiveBlockStreamingConfig({
           cfg,
           provider: sessionCtx.Provider,
@@ -509,9 +550,9 @@ export async function runReplyAgent(params: {
         }).coalescing
       : undefined;
   const blockReplyPipeline =
-    blockStreamingEnabled && opts?.onBlockReply
+    blockStreamingEnabled && streamingAwareBlockReply
       ? createBlockReplyPipeline({
-          onBlockReply: opts.onBlockReply,
+          onBlockReply: streamingAwareBlockReply,
           timeoutMs: blockReplyTimeoutMs,
           coalescing: blockReplyCoalescing,
           buffer: createAudioAsVoiceBuffer({ isAudioPayload }),
@@ -727,6 +768,7 @@ export async function runReplyAgent(params: {
       cleanupTranscripts: true,
     });
   };
+  const runTurnBody = async (): Promise<ReplyPayload | ReplyPayload[] | undefined> => {
   try {
     await maybeResetOversizedSession();
     const runStartedAt = Date.now();
@@ -1299,6 +1341,19 @@ export async function runReplyAgent(params: {
 
       const executionReceipts = runResult.meta?.executionVerification?.receipts ?? [];
       const executionVerification = runResult.meta?.executionVerification;
+      if (turnProgressEmitter) {
+        for (const receipt of executionReceipts) {
+          if (receipt.kind === "tool") {
+            const toolName =
+              typeof receipt.name === "string" && receipt.name.trim()
+                ? receipt.name.trim()
+                : undefined;
+            if (toolName) {
+              turnProgressEmitter.emit("tool_call", toolName, { toolName });
+            }
+          }
+        }
+      }
       const pendingPromises = recordedLedgerEntry?.kind === "promised_action"
         ? [recordedLedgerEntry]
         : [];
@@ -1393,6 +1448,9 @@ export async function runReplyAgent(params: {
         evidenceLog.info(
           `[evidence] promises=${pendingPromises.length} receipts=${executionReceipts.length} violations=${violations.length} action=${action}`,
         );
+        if (action !== "none" && turnProgressEmitter) {
+          turnProgressEmitter.emit("evidence", action, { violationAction: action });
+        }
       } else {
         evidenceLog.info(
           `[evidence] promises=0 receipts=${executionReceipts.length} violations=0 action=none`,
@@ -1429,4 +1487,20 @@ export async function runReplyAgent(params: {
     // `active` flag.  Same pattern as the followup runner fix (#26881).
     typing.markDispatchIdle();
   }
+  };
+  if (turnProgressEmitter) {
+    try {
+      const out = await withTurnProgressEmitter(turnProgressEmitter, runTurnBody);
+      if (!turnProgressEmitter.finalized) {
+        turnProgressEmitter.done();
+      }
+      return out;
+    } catch (err) {
+      if (!turnProgressEmitter.finalized) {
+        turnProgressEmitter.error(err);
+      }
+      throw err;
+    }
+  }
+  return runTurnBody();
 }
