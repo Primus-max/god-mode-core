@@ -3,6 +3,7 @@ import {
   INTENT_LEDGER_MAX_ENTRIES,
   INTENT_LEDGER_TTL_MS,
   IntentLedger,
+  clarifyTopicKey,
 } from "./intent-ledger.js";
 
 function createLedger() {
@@ -181,5 +182,84 @@ describe("IntentLedger storage rules", () => {
     const secondPeek = ledger.peekPending("session-pure", "telegram");
     expect(firstPeek).toEqual(secondPeek);
     expect(firstPeek[0]?.id).toBe(secondPeek[0]?.id);
+  });
+});
+
+describe("IntentLedger clarify budget", () => {
+  it("counts repeated clarify entries with the same ambiguity topic", () => {
+    let now = 10_000;
+    const ledger = new IntentLedger({
+      now: () => now,
+    });
+    const ambigs = ["receipt format", "platform action receipt"];
+    ledger.recordFromBotTurn({
+      turnId: "clarify-1",
+      sessionId: "session-clarify",
+      channelId: "telegram",
+      summary: "Какой формат receipt использовать?",
+      planOutput: { executionContract: { requiresTools: false } },
+      ambigs,
+      createdAt: now,
+    });
+    now += 60_000;
+    ledger.recordFromBotTurn({
+      turnId: "clarify-2",
+      sessionId: "session-clarify",
+      channelId: "telegram",
+      summary: "Какой именно format receipt нужен для platform action?",
+      planOutput: { executionContract: { requiresTools: false } },
+      ambigs,
+      createdAt: now,
+    });
+
+    const topic = clarifyTopicKey(ambigs);
+    expect(ledger.peekClarifyCount("session-clarify", "telegram", topic).count).toBe(2);
+  });
+
+  it("resets clarify count after budget window expires", () => {
+    let now = 50_000;
+    const ledger = new IntentLedger({
+      now: () => now,
+    });
+    const ambigs = ["platform_action receipt", "receipt format"];
+    ledger.recordFromBotTurn({
+      turnId: "clarify-window-1",
+      sessionId: "session-window",
+      channelId: "telegram",
+      summary: "Нужен формат receipt?",
+      planOutput: { executionContract: { requiresTools: false } },
+      ambigs,
+      createdAt: now,
+    });
+    now += 60_000;
+    ledger.recordFromBotTurn({
+      turnId: "clarify-window-2",
+      sessionId: "session-window",
+      channelId: "telegram",
+      summary: "Какой receipt format нужен?",
+      planOutput: { executionContract: { requiresTools: false } },
+      ambigs,
+      createdAt: now,
+    });
+    now += 6 * 60_000;
+    ledger.recordFromBotTurn({
+      turnId: "clarify-window-3",
+      sessionId: "session-window",
+      channelId: "telegram",
+      summary: "Какой receipt format выбрать в итоге?",
+      planOutput: { executionContract: { requiresTools: false } },
+      ambigs,
+      createdAt: now,
+    });
+
+    const topic = clarifyTopicKey(ambigs);
+    const count = ledger.peekClarifyCount("session-window", "telegram", topic);
+    expect(count.count).toBe(1);
+  });
+
+  it("produces different clarify topic keys for different ambiguity sets", () => {
+    const first = clarifyTopicKey(["platform action receipt", "receipt format"]);
+    const second = clarifyTopicKey(["auth token scope", "environment target"]);
+    expect(first).not.toBe(second);
   });
 });

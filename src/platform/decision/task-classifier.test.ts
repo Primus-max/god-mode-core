@@ -96,8 +96,7 @@ describe("classifyTaskForDecision", () => {
         },
       },
     } as OpenClawConfig;
-    const adapter: TaskClassifierAdapter = {
-      classify: vi.fn(async (params) => {
+    const classify = vi.fn<TaskClassifierAdapter["classify"]>(async (params) => {
         const hasPending = Boolean(params.ledgerContext && params.ledgerContext.trim().length > 0);
         if (hasPending) {
           return {
@@ -115,8 +114,8 @@ describe("classifyTaskForDecision", () => {
           confidence: 0.75,
           ambiguities: ["baseline-clarify"],
         };
-      }),
-    };
+      });
+    const adapter: TaskClassifierAdapter = { classify };
 
     const baseline = await classifyTaskForDecision({
       prompt: "ДА",
@@ -132,6 +131,77 @@ describe("classifyTaskForDecision", () => {
 
     expect(baseline.taskContract).toEqual(emptyLedger.taskContract);
     expect(baseline.taskContract.interactionMode).toBe("clarify_first");
+  });
+
+  it("passes clarify budget notice so repeated clarifications can be suppressed on the next call", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+    const observedPrompts: string[] = [];
+    const classify: TaskClassifierAdapter["classify"] = async (params) => {
+      const composedPrompt = [
+        (params.ledgerContext ?? "").trim(),
+        (params.clarifyBudgetNotice ?? "").trim(),
+        params.prompt,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      observedPrompts.push(composedPrompt);
+      return {
+        primaryOutcome: "clarification_needed",
+        requiredCapabilities: [],
+        interactionMode: "clarify_first",
+        confidence: 0.8,
+        ambiguities: ["missing context"],
+      };
+    };
+
+    await classifyTaskForDecision({
+      prompt: "Продолжим как договаривались",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify,
+        },
+      },
+    });
+    await classifyTaskForDecision({
+      prompt: "Ну давай уже",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify,
+        },
+      },
+    });
+    await classifyTaskForDecision({
+      prompt: "Просто сделай что понимаешь",
+      ledgerContext: 'abc clarifying: "формат receipt и platform action"',
+      clarifyBudgetNotice: [
+        "<clarify_budget_exceeded>",
+        "You have already asked this same clarification 2 times in the last 5 min.",
+        "Do NOT ask again.",
+        "</clarify_budget_exceeded>",
+      ].join("\n"),
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify,
+        },
+      },
+    });
+
+    expect(observedPrompts).toHaveLength(3);
+    expect(observedPrompts[2]).toContain("<clarify_budget_exceeded>");
+    expect(observedPrompts[2]).toContain("Do NOT ask again.");
   });
 
   it("routes through a replaceable configured backend adapter", async () => {

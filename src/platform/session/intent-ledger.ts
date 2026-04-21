@@ -2,6 +2,7 @@ import type { PlatformRuntimeExecutionReceiptKind } from "../runtime/contracts.j
 
 export const INTENT_LEDGER_TTL_MS = 15 * 60 * 1000;
 export const INTENT_LEDGER_MAX_ENTRIES = 8;
+export const CLARIFY_BUDGET_WINDOW_MS_DEFAULT = 5 * 60 * 1000;
 const LEDGER_MAX_CONTEXT_LINES = 3;
 const TURN_ID_SHORT_LENGTH = 8;
 
@@ -30,6 +31,7 @@ export type IntentLedgerEntry = {
   createdAt: number;
   ttlMs: number;
   receiptMatchers?: IntentLedgerReceiptMatchers;
+  clarifyTopicKey?: string;
 };
 
 export type IntentLedgerRecordParams = {
@@ -39,6 +41,7 @@ export type IntentLedgerRecordParams = {
   summary: string;
   planOutput?: unknown;
   runtimeReceipts?: unknown;
+  ambigs?: string[];
   createdAt?: number;
 };
 
@@ -51,6 +54,7 @@ type IntentLedgerOptions = {
   now?: () => number;
   ttlMs?: number;
   maxEntries?: number;
+  clarifyBudgetWindowMs?: number;
 };
 
 const CONFIRMATION_HINT_RE =
@@ -66,6 +70,26 @@ const DEFAULT_PROMISED_ACTION_RECEIPT_KINDS: PlatformRuntimeExecutionReceiptKind
   "tool",
   "platform_action",
 ];
+
+function normalizeClarifyToken(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+export function clarifyTopicKey(ambigs: string[]): string {
+  const words = ambigs
+    .flatMap((entry) => normalizeClarifyToken(entry))
+    .sort((left, right) => left.localeCompare(right));
+  const joined = words.join("|");
+  if (!joined) {
+    return "";
+  }
+  return joined.slice(0, 80);
+}
 
 function inferPromisedActionMatchers(summary: string): IntentLedgerReceiptMatchers {
   const receiptKinds = [...DEFAULT_PROMISED_ACTION_RECEIPT_KINDS];
@@ -141,11 +165,13 @@ export class IntentLedger {
   private readonly now: () => number;
   private readonly ttlMs: number;
   private readonly maxEntries: number;
+  private readonly clarifyBudgetWindowMs: number;
 
   constructor(options: IntentLedgerOptions = {}) {
     this.now = options.now ?? (() => Date.now());
     this.ttlMs = options.ttlMs ?? INTENT_LEDGER_TTL_MS;
     this.maxEntries = options.maxEntries ?? INTENT_LEDGER_MAX_ENTRIES;
+    this.clarifyBudgetWindowMs = options.clarifyBudgetWindowMs ?? CLARIFY_BUDGET_WINDOW_MS_DEFAULT;
   }
 
   recordFromBotTurn(params: IntentLedgerRecordParams): IntentLedgerEntry | undefined {
@@ -168,6 +194,14 @@ export class IntentLedger {
       ttlMs: this.ttlMs,
       ...(classified.kind === "promised_action"
         ? { receiptMatchers: inferPromisedActionMatchers(truncated) }
+        : {}),
+      ...(classified.kind === "clarifying"
+        ? {
+            clarifyTopicKey:
+              Array.isArray(params.ambigs) && params.ambigs.length > 0
+                ? clarifyTopicKey(params.ambigs)
+                : undefined,
+          }
         : {}),
     };
     const key = keyFor(params.sessionId, params.channelId);
@@ -208,6 +242,33 @@ export class IntentLedger {
     const now = this.now();
     const values = this.entries.get(key) ?? [];
     return values.filter((entry) => now - entry.createdAt <= entry.ttlMs).map((entry) => ({ ...entry }));
+  }
+
+  peekClarifyCount(
+    sessionId: string,
+    channelId: string,
+    topicKey: string,
+  ): { count: number; firstAt?: number; lastAt?: number } {
+    const normalizedTopic = topicKey.trim();
+    if (!normalizedTopic) {
+      return { count: 0 };
+    }
+    const now = this.now();
+    const windowStart = now - this.clarifyBudgetWindowMs;
+    const entries = this.peekPending(sessionId, channelId).filter(
+      (entry) =>
+        entry.kind === "clarifying" &&
+        entry.clarifyTopicKey === normalizedTopic &&
+        entry.createdAt >= windowStart,
+    );
+    if (entries.length === 0) {
+      return { count: 0 };
+    }
+    return {
+      count: entries.length,
+      firstAt: entries[0]?.createdAt,
+      lastAt: entries[entries.length - 1]?.createdAt,
+    };
   }
 
   invalidate(entryIdOrPredicate: string | ((entry: IntentLedgerEntry) => boolean)): number {

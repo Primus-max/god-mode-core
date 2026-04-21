@@ -292,6 +292,14 @@ function buildPendingCommitmentsInjection(ledgerContext?: string): string {
   ].join("\n");
 }
 
+function buildClarifyBudgetInjection(clarifyBudgetNotice?: string): string {
+  const normalized = (clarifyBudgetNotice ?? "").trim();
+  if (!normalized) {
+    return "";
+  }
+  return `\n${normalized}`;
+}
+
 type PrimaryOutcome =
   | "answer"
   | "workspace_change"
@@ -415,6 +423,7 @@ export type TaskClassifierAdapter = {
     prompt: string;
     fileNames: string[];
     ledgerContext?: string;
+    clarifyBudgetNotice?: string;
     config: ResolvedTaskClassifierConfig;
     cfg: OpenClawConfig;
     agentDir?: string;
@@ -938,6 +947,7 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
     prompt: string;
     fileNames: string[];
     ledgerContext?: string;
+    clarifyBudgetNotice?: string;
     config: ResolvedTaskClassifierConfig;
     cfg: OpenClawConfig;
     agentDir?: string;
@@ -972,8 +982,11 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
     const timeout = setTimeout(() => controller.abort(), params.config.timeoutMs);
     try {
       const pendingCommitmentsInjection = buildPendingCommitmentsInjection(params.ledgerContext);
+      const clarifyBudgetInjection = buildClarifyBudgetInjection(params.clarifyBudgetNotice);
       const userRequest = pendingCommitmentsInjection
-        ? `${pendingCommitmentsInjection}\n${params.prompt}`
+        ? `${pendingCommitmentsInjection}${clarifyBudgetInjection}\n${params.prompt}`
+        : clarifyBudgetInjection
+          ? `${clarifyBudgetInjection}\n${params.prompt}`
         : params.prompt;
       const prompt = TASK_CLASSIFIER_USER_TEMPLATE.replace(
         "{{SCHEMA_JSON}}",
@@ -1110,6 +1123,7 @@ export async function classifyTaskForDecision(params: {
   prompt: string;
   fileNames?: string[];
   ledgerContext?: string;
+  clarifyBudgetNotice?: string;
   cfg: OpenClawConfig;
   agentDir?: string;
   input?: BuildExecutionDecisionInputParams;
@@ -1156,6 +1170,7 @@ export async function classifyTaskForDecision(params: {
         prompt: params.prompt,
         fileNames: params.fileNames ?? [],
         ledgerContext: params.ledgerContext,
+        clarifyBudgetNotice: params.clarifyBudgetNotice,
         config: classifierConfig,
         cfg: params.cfg,
         agentDir: params.agentDir,

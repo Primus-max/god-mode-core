@@ -1,9 +1,8 @@
 # Orchestrator v1.1 — P1.4 (Conversation State & Execution Evidence & Progress Bus)
 
 **Мастер-план:** `orchestrator_v1_1_master.plan.md`.
-**Статус:** IN_PROGRESS — этапы A, B, C закрыты (scope+live подтверждён).
-Осталось: C.1 (wire Telegram progress adapter в плагин), D.1 (cross-turn
-clarify budget — PRIORITY 1, наблюдается живой спам-луп), D.2
+**Статус:** IN_PROGRESS — этапы A, B, C, C.1, D.1 закрыты в коде/юнитах.
+Осталось: D.2
 (ack-then-defer dispatcher) (2026-04-21).
 **Зависимости:** P0 закрыт. P1.3 закрыт. Приоритетнее P1.1/P1.2, т.к. закрывает корневую
 причину их симптомов.
@@ -302,7 +301,7 @@ pnpm live:routing:smoke
 
 ---
 
-### Этап C.1 — Wire Telegram progress adapter в плагин [ ]
+### Этап C.1 — Wire Telegram progress adapter в плагин [x]
 
 **Цель.** Адаптер (`extensions/telegram/src/progress-adapter.ts`) написан и
 покрыт тестами, но не подцеплен к активному telegram-плагину. Без этого
@@ -321,11 +320,16 @@ Stage C **невидим конечному пользователю в Telegram
   отписка/cleanup уже покрыты unit'ами адаптера).
 
 **Acceptance.**
+- [x] Telegram plugin wiring добавлен: `createTelegramProgressAdapter({ getApi, resolveTarget })`
+      подключается в `createTelegramBot`, target резолвится из sessionContext, cleanup через `unsubscribe`
+      на `bot.stop()`. Добавлен wire-smoke `extensions/telegram/src/bot.progress-wire.test.ts` (2026-04-21).
 - [ ] Фактический turn через Telegram показывает одно редактируемое
       статус-сообщение `⏳ <intent> • <phase>` поверх каждого turn'а, с
       переходами classifying → planning → preflight → tool_call → done.
-- [ ] Kill-switch работает (env=0 → нет статус-сообщений, без regression в тестах).
-- [ ] `pnpm vitest run extensions/telegram` зелёный.
+- [x] Kill-switch остаётся в адаптере (`OPENCLAW_PROGRESS_TELEGRAM`) без изменений API-контракта; unit coverage
+      сохраняется в `progress-adapter.test.ts`. (2026-04-21)
+- [ ] `pnpm vitest run extensions/telegram` зелёный. (2026-04-21: не зелёный из-за pre-existing `monitor.test.ts`
+      unhandled `deleteWebhook 404`; не связано с C.1 wiring).
 
 ---
 
@@ -334,7 +338,7 @@ Stage C **невидим конечному пользователю в Telegram
 **Цель — две связанные проблемы, разделённые на два блока, чтобы не
 увеличивать scope без нужды.**
 
-#### D.1 — Cross-turn clarify budget (PRIORITY 1, убивает спам)
+#### D.1 — Cross-turn clarify budget (PRIORITY 1, убивает спам) [x]
 
 **Симптом (наблюдается вживую, лог 2026-04-21 12:42–12:46).**
 8 подряд `task-classifier classified outcome=clarification_needed mode=clarify_first`
@@ -363,10 +367,12 @@ Stage C **невидим конечному пользователю в Telegram
 - Логирование `[clarify-budget] topic=<hash> count=<n> action=<force_action|force_answer>`.
 
 **Acceptance.**
-- [ ] Unit-тест: при 3 последовательных clarify-turn'ах с одинаковым
-      `ambigTopicHash` — четвёртый не запускает `clarify_first`.
+- [x] Unit: добавлены кейсы в `intent-ledger.test.ts` (topic-key детерминизм + окно 5 минут)
+      и `task-classifier.test.ts` (инъекция `<clarify_budget_exceeded>` на повторе). (2026-04-21)
 - [ ] Live-smoke сценарий: 3 подряд невнятных user-message → на третьем
       turn бот не спрашивает снова, а выдаёт ответ/экшен с default-assumption.
+      (2026-04-21: сценарий `15-clarify-budget` добавлен в `scripts/live-routing-smoke.mjs`,
+      но live-run заблокирован auth/model 403 и не дал валидный `[clarify-budget]` сигнал).
 
 #### D.2 — Ack-then-defer dispatcher (PRIORITY 2, для длинных тасок)
 
@@ -547,3 +553,23 @@ Stage C **невидим конечному пользователю в Telegram
   - Telegram-адаптер НЕ wired в активный telegram-плагин (ждёт явного подключения
     через `createTelegramProgressAdapter` с `getApi`/`resolveTarget`);
     Progress Bus уже эмитит `progress.frame` в gateway WS для future веб-адаптера.
+- 2026-04-21 — Этапы **C.1 + D.1** реализованы одним пакетом изменений:
+  - `extensions/telegram/src/bot.ts`: добавлен wire `wireTelegramProgressAdapterForBot(...)` с
+    `createTelegramProgressAdapter`, резолвером chat target из `loadCombinedSessionStoreForGateway`,
+    kill-switch через адаптер, и cleanup `unsubscribe` в `bot.stop()`;
+  - `extensions/telegram/src/bot.progress-wire.test.ts`: smoke на wire-resolver из sessionContext;
+  - `src/platform/session/intent-ledger.ts`: `clarifyTopicKey`, `peekClarifyCount`, окно budget
+    (`OPENCLAW_CLARIFY_BUDGET_WINDOW_MS`, default 5m), запись topic при `kind=clarifying`;
+  - `src/platform/decision/input.ts`: подсчёт clarify-repeat, лог
+    `[clarify-budget] topic=<key:8> count=<n> injected=<0|1>`, проброс
+    `<clarify_budget_exceeded>` в classifier;
+  - `src/platform/decision/task-classifier.ts`: поддержка `clarifyBudgetNotice` и инъекции
+    в user-request для LLM-backend;
+  - `src/auto-reply/reply/agent-runner.ts`: запись `ambigs` из classifier telemetry в ledger;
+  - `src/platform/session/intent-ledger.test.ts`, `src/platform/decision/task-classifier.test.ts`:
+    добавлены D.1 unit-кейсы;
+  - `scripts/live-routing-smoke.mjs`: добавлен сценарий `15-clarify-budget` и log-evaluator
+    `[clarify-budget]`, плюс multi-turn support внутри одного сценария.
+  Verify (2026-04-21): targeted vitest по изменённым файлам ✅; `lint:routing:no-prompt-parsing` ✅;
+  `tsgo --noEmit` остаётся красным по pre-existing test-типам вне scope; `live:routing:smoke`
+  запускается, но блокируется `gateway token mismatch` + upstream `HTTP 403`, итог 4/16 (не валидирует D.1 live).

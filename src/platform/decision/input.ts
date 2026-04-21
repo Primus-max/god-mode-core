@@ -31,6 +31,28 @@ import {
   toUniqueLowercase,
 } from "./turn-normalizer.js";
 
+const CLARIFY_BUDGET_WINDOW_MS_DEFAULT = 300_000;
+const CLARIFY_BUDGET_MAX_REPEAT_DEFAULT = 2;
+
+function resolveEnvPositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function buildClarifyBudgetExceededBlock(maxRepeat: number): string {
+  return [
+    "<clarify_budget_exceeded>",
+    `You have already asked this same clarification ${String(maxRepeat)} times in the last 5 min.`,
+    "Do NOT ask again. Either:",
+    "  - choose a reasonable default assumption and proceed (outcome=action),",
+    "  - or answer directly with respond_only stating the default.",
+    "</clarify_budget_exceeded>",
+  ].join("\n");
+}
+
 type DecisionInputChannelHints = {
   messageChannel?: string;
   channel?: string;
@@ -278,6 +300,42 @@ export async function buildClassifiedExecutionDecisionInput(params: {
   defaultRuntime.log(
     `[intent-ledger] peek=${String(pendingCommitments.length)} injected=${ledgerContext ? "1" : "0"}`,
   );
+  const clarifyWindowMs = resolveEnvPositiveInt(
+    process.env.OPENCLAW_CLARIFY_BUDGET_WINDOW_MS,
+    CLARIFY_BUDGET_WINDOW_MS_DEFAULT,
+  );
+  const clarifyMaxRepeat = resolveEnvPositiveInt(
+    process.env.OPENCLAW_CLARIFY_MAX_REPEAT,
+    CLARIFY_BUDGET_MAX_REPEAT_DEFAULT,
+  );
+  let clarifyBudgetNotice = "";
+  const pendingTopicKey = [...pendingCommitments]
+    .reverse()
+    .find((entry) => entry.clarifyTopicKey)
+    ?.clarifyTopicKey;
+  if (ledgerSessionId && ledgerChannelId && pendingTopicKey) {
+    const ledgerCount = intentLedger.peekClarifyCount(
+      ledgerSessionId,
+      ledgerChannelId,
+      pendingTopicKey,
+    );
+    const withinWindowCount =
+      clarifyWindowMs === CLARIFY_BUDGET_WINDOW_MS_DEFAULT
+        ? ledgerCount.count
+        : pendingCommitments.filter(
+            (entry) =>
+              entry.kind === "clarifying" &&
+              entry.clarifyTopicKey === pendingTopicKey &&
+              entry.createdAt >= Date.now() - clarifyWindowMs,
+          ).length;
+    const injected = withinWindowCount >= clarifyMaxRepeat;
+    if (injected) {
+      clarifyBudgetNotice = buildClarifyBudgetExceededBlock(clarifyMaxRepeat);
+    }
+    defaultRuntime.log(
+      `[clarify-budget] topic=${pendingTopicKey.slice(0, 8)} count=${String(withinWindowCount)} injected=${injected ? "1" : "0"}`,
+    );
+  }
   getCurrentTurnProgressEmitter()?.emit("classifying");
   const classified = await classifyTaskForDecision({
     prompt: classifierPrompt,
@@ -286,6 +344,7 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     agentDir: params.agentDir,
     input: classifierInput,
     ledgerContext,
+    clarifyBudgetNotice,
     adapterRegistry: params.adapterRegistry,
   });
   return applySessionSpecialistOverrideToPlannerInput(

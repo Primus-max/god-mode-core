@@ -24,6 +24,7 @@ const CHAIN_PDF_DOCX = `chain-pdf-docx-${Date.now()}`;
 const CHAIN_DEV_FILE = `chain-dev-file-${Date.now()}`;
 const CHAIN_CONFIRM_EXEC = `chain-confirm-exec-${Date.now()}`;
 const CHAIN_PROGRESS_BUS = `chain-progress-bus-${Date.now()}`;
+const CHAIN_CLARIFY_BUDGET = `chain-clarify-budget-${Date.now()}`;
 const SCENARIOS = [
   { id: "01-hello", message: "Привет", expect: { kind: "text" } },
   { id: "02-image", message: "Сгенерировать картинку банана", expect: { kind: "image", formats: ["png", "jpeg", "jpg", "webp"] } },
@@ -101,6 +102,19 @@ const SCENARIOS = [
         requiredPhases: ["classifying", "tool_call", "done"],
         requiredToolName: "exec",
       },
+    },
+  },
+  {
+    id: "15-clarify-budget",
+    sessionGroup: CHAIN_CLARIFY_BUDGET,
+    messages: [
+      "Продолжим как договаривались",
+      "Ну давай уже",
+      "Просто сделай что понимаешь",
+    ],
+    expect: {
+      kind: "text",
+      clarifyBudgetLog: { minCount: 2 },
     },
   },
 ];
@@ -357,63 +371,112 @@ function evaluateProgressLog(logChunk, requirements) {
   return { ok: false, notes };
 }
 
+function evaluateClarifyBudgetLog(logChunk, requirements) {
+  const minCount = Math.max(1, Number.parseInt(String(requirements?.minCount ?? "2"), 10) || 2);
+  const re = /\[clarify-budget\]\s+topic=([^\s]+)\s+count=(\d+)\s+injected=(\d+)/g;
+  const matches = [];
+  let match;
+  while ((match = re.exec(logChunk)) !== null) {
+    const count = Number.parseInt(match[2], 10);
+    const injected = match[3] === "1";
+    matches.push({ topic: match[1], count, injected });
+  }
+  const hit = matches.find((item) => item.injected && item.count >= minCount);
+  if (hit) {
+    return {
+      ok: true,
+      notes: [`clarify-budget topic=${hit.topic} count=${hit.count} injected=1`],
+    };
+  }
+  if (matches.length === 0) {
+    return {
+      ok: false,
+      notes: ["no [clarify-budget] entries found in gateway log after scenario start"],
+    };
+  }
+  return {
+    ok: false,
+    notes: [
+      `no clarify-budget entry with injected=1 and count>=${minCount}; seen=${matches
+        .map((item) => `${item.topic}:${item.count}:${item.injected ? "1" : "0"}`)
+        .join(",")}`,
+    ],
+  };
+}
+
 async function runScenario(client, scenario) {
-  const runId = `${scenario.id}-${Date.now()}`;
+  const runId = `${scenario.id}-1-${Date.now()}`;
   const sessionKey = scenario.sessionGroup
     ? `live-routing-smoke:${scenario.sessionGroup}`
     : `live-routing-smoke:${scenario.id}:${Date.now()}`;
   const events = [];
   client.__onEvent = (evt) => events.push(evt);
   const logOffset = await captureGatewayLogOffset();
-
-  const start = await client.request("chat.send", {
-    sessionKey,
-    message: scenario.message,
-    idempotencyKey: runId,
-  });
-  const deadline = Date.now() + TIMEOUT_MS;
+  let start = null;
   let finalEvent = null;
   let lastHistory = null;
   let historyKeyUsed = sessionKey;
-  let lastMsgCount = 0;
-  let stableSince = 0;
   let sawToolCall = false;
   let sawToolResult = false;
-  const initialMsgCount = (await fetchHistoryAny(client, sessionKey))?.res?.messages?.length ?? 0;
-  while (Date.now() < deadline) {
-    finalEvent =
-      events.find((evt) => evt.event === "chat" && evt.payload?.state === "final" && evt.payload?.runId === runId) ??
-      null;
-    const { key, res } = await fetchHistoryAny(client, sessionKey);
-    lastHistory = res;
-    historyKeyUsed = key;
-    const msgs = lastHistory?.messages ?? [];
-    if (msgs.length > lastMsgCount) {
-      lastMsgCount = msgs.length;
-      stableSince = Date.now();
+  let initialMsgCount = 0;
+  const scenarioMessages =
+    Array.isArray(scenario.messages) && scenario.messages.length > 0
+      ? scenario.messages
+      : [scenario.message];
+  for (let index = 0; index < scenarioMessages.length; index += 1) {
+    const turnRunId = index === 0 ? runId : `${scenario.id}-${index + 1}-${Date.now()}`;
+    const turnInitialMsgCount = (await fetchHistoryAny(client, sessionKey))?.res?.messages?.length ?? 0;
+    if (index === 0) {
+      initialMsgCount = turnInitialMsgCount;
     }
-    const turnMsgs = msgs.slice(initialMsgCount);
-    if (!sawToolCall) sawToolCall = turnMsgs.some(messageHasToolCall);
-    if (!sawToolResult) sawToolResult = turnMsgs.some(messageHasToolResult);
-    const lastTurnMsg = turnMsgs.length > 0 ? turnMsgs[turnMsgs.length - 1] : null;
-    const lastTurnIsAssistantText =
-      lastTurnMsg &&
-      lastTurnMsg.role === "assistant" &&
-      messageHasAssistantText(lastTurnMsg) &&
-      !messageHasToolCall(lastTurnMsg);
-    if (finalEvent && sawToolCall && sawToolResult && lastTurnIsAssistantText) break;
-    if (finalEvent && !sawToolCall && lastTurnIsAssistantText) break;
-    if (sawToolCall) {
-      if (sawToolResult && lastTurnIsAssistantText && stableSince > 0 && Date.now() - stableSince > 8_000) {
+    start = await client.request("chat.send", {
+      sessionKey,
+      message: scenarioMessages[index],
+      idempotencyKey: turnRunId,
+    });
+    const deadline = Date.now() + TIMEOUT_MS;
+    let lastMsgCount = 0;
+    let stableSince = 0;
+    let turnSawToolCall = false;
+    let turnSawToolResult = false;
+    while (Date.now() < deadline) {
+      finalEvent =
+        events.find(
+          (evt) => evt.event === "chat" && evt.payload?.state === "final" && evt.payload?.runId === turnRunId,
+        ) ?? null;
+      const { key, res } = await fetchHistoryAny(client, sessionKey);
+      lastHistory = res;
+      historyKeyUsed = key;
+      const msgs = lastHistory?.messages ?? [];
+      if (msgs.length > lastMsgCount) {
+        lastMsgCount = msgs.length;
+        stableSince = Date.now();
+      }
+      const turnMsgs = msgs.slice(turnInitialMsgCount);
+      if (!turnSawToolCall) turnSawToolCall = turnMsgs.some(messageHasToolCall);
+      if (!turnSawToolResult) turnSawToolResult = turnMsgs.some(messageHasToolResult);
+      const lastTurnMsg = turnMsgs.length > 0 ? turnMsgs[turnMsgs.length - 1] : null;
+      const lastTurnIsAssistantText =
+        lastTurnMsg &&
+        lastTurnMsg.role === "assistant" &&
+        messageHasAssistantText(lastTurnMsg) &&
+        !messageHasToolCall(lastTurnMsg);
+      if (finalEvent && turnSawToolCall && turnSawToolResult && lastTurnIsAssistantText) break;
+      if (finalEvent && !turnSawToolCall && lastTurnIsAssistantText) break;
+      if (turnSawToolCall) {
+        if (turnSawToolResult && lastTurnIsAssistantText && stableSince > 0 && Date.now() - stableSince > 8_000) {
+          break;
+        }
+        if (turnSawToolResult && finalEvent && stableSince > 0 && Date.now() - stableSince > 4_000) {
+          break;
+        }
+      } else if (lastTurnIsAssistantText && stableSince > 0 && Date.now() - stableSince > 6000) {
         break;
       }
-      if (sawToolResult && finalEvent && stableSince > 0 && Date.now() - stableSince > 4_000) {
-        break;
-      }
-    } else if (lastTurnIsAssistantText && stableSince > 0 && Date.now() - stableSince > 6000) {
-      break;
+      await new Promise((r) => setTimeout(r, HISTORY_POLL_MS));
     }
-    await new Promise((r) => setTimeout(r, HISTORY_POLL_MS));
+    sawToolCall = sawToolCall || turnSawToolCall;
+    sawToolResult = sawToolResult || turnSawToolResult;
   }
   let gatewayLogAppend = await readGatewayLogSince(logOffset);
   if (scenario.expect?.progressLog && !/\[progress\]/.test(gatewayLogAppend)) {
@@ -755,6 +818,16 @@ async function evaluate(result) {
     }
     notes.push(...progressResult.notes);
   }
+  if (scenario.expect.clarifyBudgetLog) {
+    const clarifyBudgetResult = evaluateClarifyBudgetLog(
+      result.gatewayLogAppend ?? "",
+      scenario.expect.clarifyBudgetLog,
+    );
+    if (!clarifyBudgetResult.ok) {
+      pass = false;
+    }
+    notes.push(...clarifyBudgetResult.notes);
+  }
 
   return {
     id: scenario.id,
@@ -831,14 +904,17 @@ async function main() {
 
     for (const scenario of SCENARIOS) {
       const started = Date.now();
-      console.log(`\n[scn ${scenario.id}] send: ${scenario.message}`);
+      const scenarioPreview = Array.isArray(scenario.messages)
+        ? scenario.messages.join(" -> ")
+        : scenario.message;
+      console.log(`\n[scn ${scenario.id}] send: ${scenarioPreview}`);
       let raw;
       try {
         raw = await runScenario(client, scenario);
       } catch (err) {
         overall.results.push({
           id: scenario.id,
-          message: scenario.message,
+          message: scenarioPreview,
           expect: scenario.expect,
           pass: false,
           notes: [`scenario threw: ${String(err?.message || err)}`],

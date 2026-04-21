@@ -40,6 +40,13 @@ import { tagTelegramNetworkError } from "./network-errors.js";
 import { createTelegramSendChatActionHandler } from "./sendchataction-401-backoff.js";
 import { getTelegramSequentialKey } from "./sequential-key.js";
 import { createTelegramThreadBindingManager } from "./thread-bindings.js";
+import {
+  createTelegramProgressAdapter,
+  type TelegramProgressTarget,
+} from "./progress-adapter.js";
+import type { ProgressBus } from "openclaw/plugin-sdk/progress";
+import { parseTelegramTarget } from "./targets.js";
+import { loadCombinedSessionStoreForGateway } from "../../../src/gateway/session-utils.js";
 
 export type TelegramBotOptions = {
   token: string;
@@ -82,6 +89,7 @@ const DEFAULT_TELEGRAM_BOT_RUNTIME: TelegramBotRuntime = {
 };
 
 const TELEGRAM_GET_UPDATES_REQUEST_TIMEOUT_MS = 45_000;
+const TELEGRAM_CHANNEL_ID = "telegram";
 
 let telegramBotRuntimeForTest: TelegramBotRuntime | undefined;
 
@@ -121,6 +129,118 @@ function extractTelegramApiMethod(input: TelegramFetchInput): string | null {
   } catch {
     return null;
   }
+}
+
+type TelegramProgressSessionEntry = {
+  sessionId?: string;
+  updatedAt?: number;
+  deliveryContext?: {
+    channel?: string;
+    to?: string;
+    accountId?: string;
+    threadId?: string | number;
+  };
+  lastChannel?: string;
+  lastTo?: string;
+  lastAccountId?: string;
+  lastThreadId?: string | number;
+};
+
+function normalizeAccountKey(value: string | undefined): string {
+  return (value?.trim().toLowerCase() || "default");
+}
+
+export function resolveTelegramProgressTargetFromSessionContext(params: {
+  frameSessionId: string;
+  frameChannelId: string;
+  accountId: string;
+  store: Record<string, TelegramProgressSessionEntry>;
+}): TelegramProgressTarget | undefined {
+  if (params.frameChannelId.trim().toLowerCase() !== TELEGRAM_CHANNEL_ID) {
+    return undefined;
+  }
+  const candidates = Object.values(params.store).filter(
+    (entry) => entry?.sessionId === params.frameSessionId,
+  );
+  if (candidates.length === 0) {
+    return undefined;
+  }
+  const selected = [...candidates].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))[0];
+  if (!selected) {
+    return undefined;
+  }
+  const lastChannel = (
+    selected.deliveryContext?.channel ??
+    selected.lastChannel ??
+    ""
+  )
+    .trim()
+    .toLowerCase();
+  if (lastChannel !== TELEGRAM_CHANNEL_ID) {
+    return undefined;
+  }
+  const target = (
+    selected.deliveryContext?.to ??
+    selected.lastTo ??
+    ""
+  ).trim();
+  if (!target) {
+    return undefined;
+  }
+  const selectedAccount = normalizeAccountKey(
+    selected.deliveryContext?.accountId ?? selected.lastAccountId,
+  );
+  if (selectedAccount !== normalizeAccountKey(params.accountId)) {
+    return undefined;
+  }
+  const parsed = parseTelegramTarget(target);
+  return {
+    chatId: parsed.chatId,
+    ...(parsed.messageThreadId !== undefined ? { messageThreadId: parsed.messageThreadId } : {}),
+  };
+}
+
+export function wireTelegramProgressAdapterForBot(params: {
+  accountId: string;
+  cfg: OpenClawConfig;
+  bus?: ProgressBus;
+  getApi: () => {
+    sendMessage: (
+      chatId: number | string,
+      text: string,
+      opts?: { message_thread_id?: number; disable_notification?: boolean },
+    ) => Promise<{ message_id: number } | null | undefined>;
+    editMessageText?: (
+      chatId: number | string,
+      messageId: number,
+      text: string,
+      opts?: Record<string, unknown>,
+    ) => Promise<unknown>;
+  };
+}): { unsubscribe: () => void } {
+  const progressLog = createSubsystemLogger("progress");
+  const adapter = createTelegramProgressAdapter({
+    getApi: params.getApi,
+    ...(params.bus ? { bus: params.bus } : {}),
+    resolveTarget: (frame) => {
+      const { store } = loadCombinedSessionStoreForGateway(params.cfg);
+      return (
+        resolveTelegramProgressTargetFromSessionContext({
+          frameSessionId: frame.sessionId,
+          frameChannelId: frame.channelId,
+          accountId: params.accountId,
+          store: store as Record<string, TelegramProgressSessionEntry>,
+        }) ?? null
+      );
+    },
+    logger: {
+      info: (msg, meta) => progressLog.info(msg, meta),
+      warn: (msg, meta) => progressLog.warn(msg, meta),
+    },
+  });
+  return {
+    unsubscribe: adapter.unsubscribe,
+  };
 }
 
 export function createTelegramBot(opts: TelegramBotOptions) {
@@ -564,8 +684,15 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     telegramDeps,
   });
 
+  const progressAdapterHandle = wireTelegramProgressAdapterForBot({
+    accountId: account.accountId,
+    cfg,
+    getApi: () => bot.api,
+  });
+
   const originalStop = bot.stop.bind(bot);
   bot.stop = ((...args: Parameters<typeof originalStop>) => {
+    progressAdapterHandle.unsubscribe();
     threadBindingManager?.stop();
     return originalStop(...args);
   }) as typeof bot.stop;

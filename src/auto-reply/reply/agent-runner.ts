@@ -397,6 +397,21 @@ function summarizeFinalAssistantText(payloads: ReplyPayload[]): string {
   return "";
 }
 
+function extractClassifierAmbiguities(executionIntent: unknown): string[] | undefined {
+  if (!executionIntent || typeof executionIntent !== "object") {
+    return undefined;
+  }
+  const raw = (executionIntent as { ambiguityReasons?: unknown }).ambiguityReasons;
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  const values = raw
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return values.length > 0 ? values : undefined;
+}
+
 export async function runReplyAgent(params: {
   commandBody: string;
   followupRun: FollowupRun;
@@ -1334,6 +1349,7 @@ export async function runReplyAgent(params: {
         summary: ledgerSummary,
         planOutput: runResult.meta?.executionIntent,
         runtimeReceipts: runResult.meta?.executionVerification?.receipts,
+        ambigs: extractClassifierAmbiguities(runResult.meta?.executionIntent),
       });
       intentLedgerLog.info(
         `[intent-ledger] recorded session=${followupRun.run.sessionId} channel=${channelForLedger}`,
