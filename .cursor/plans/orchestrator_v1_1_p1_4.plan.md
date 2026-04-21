@@ -1,7 +1,10 @@
 # Orchestrator v1.1 — P1.4 (Conversation State & Execution Evidence & Progress Bus)
 
 **Мастер-план:** `orchestrator_v1_1_master.plan.md`.
-**Статус:** IN_PROGRESS — этапы A, B, C закрыты (scope+live подтверждён), D pending (2026-04-21).
+**Статус:** IN_PROGRESS — этапы A, B, C закрыты (scope+live подтверждён).
+Осталось: C.1 (wire Telegram progress adapter в плагин), D.1 (cross-turn
+clarify budget — PRIORITY 1, наблюдается живой спам-луп), D.2
+(ack-then-defer dispatcher) (2026-04-21).
 **Зависимости:** P0 закрыт. P1.3 закрыт. Приоритетнее P1.1/P1.2, т.к. закрывает корневую
 причину их симптомов.
 
@@ -299,30 +302,111 @@ pnpm live:routing:smoke
 
 ---
 
-### Этап D — Ack-then-defer dispatcher [ ]
+### Этап C.1 — Wire Telegram progress adapter в плагин [ ]
 
-**Цель.** Длинные turn'ы (≥ 3 сек) получают немедленный ack и уезжают в bg-job.
+**Цель.** Адаптер (`extensions/telegram/src/progress-adapter.ts`) написан и
+покрыт тестами, но не подцеплен к активному telegram-плагину. Без этого
+Stage C **невидим конечному пользователю в Telegram-чате**.
 
-**Ключевые моменты.**
+**Scope.**
+- В точке инициализации telegram-плагина вызвать
+  `createTelegramProgressAdapter({ getApi, resolveTarget })`:
+  - `getApi` — существующая Telegram Bot API обёртка плагина (sendMessage/editMessageText).
+  - `resolveTarget(frame)` — маппит `{sessionId, channelId}` → `{chatId, replyToMessageId?}`
+    через текущий sessionContext плагина (уже есть для routing ответов).
+- Учитывать kill-switch `OPENCLAW_PROGRESS_TELEGRAM=0`.
+- Cleanup handle при shutdown/reload плагина.
+- 1 unit-тест поверх реально исполняемого wire-кода (smoke: при эмите
+  `classifying` в активный session вызывается `sendMessage`, при `done` —
+  отписка/cleanup уже покрыты unit'ами адаптера).
+
+**Acceptance.**
+- [ ] Фактический turn через Telegram показывает одно редактируемое
+      статус-сообщение `⏳ <intent> • <phase>` поверх каждого turn'а, с
+      переходами classifying → planning → preflight → tool_call → done.
+- [ ] Kill-switch работает (env=0 → нет статус-сообщений, без regression в тестах).
+- [ ] `pnpm vitest run extensions/telegram` зелёный.
+
+---
+
+### Этап D — Ack-then-defer dispatcher + Clarify budget [ ]
+
+**Цель — две связанные проблемы, разделённые на два блока, чтобы не
+увеличивать scope без нужды.**
+
+#### D.1 — Cross-turn clarify budget (PRIORITY 1, убивает спам)
+
+**Симптом (наблюдается вживую, лог 2026-04-21 12:42–12:46).**
+8 подряд `task-classifier classified outcome=clarification_needed mode=clarify_first`
+с одинаковой семантикой ambig (`platform_action receipt / receipt format`),
+`[intent-ledger] peek=1 injected=1` на каждом, но classifier всё равно
+спрашивает заново. Ledger инжектится, но у классификатора нет лимита «я уже
+спрашивал это, не повторяй».
+
+**Scope.**
+- Расширить `intent-ledger.ts`: при `recordFromBotTurn` с kind=`clarifying`
+  сохранять normalized-ключ клариф-темы (`ambigTopicHash` — нормализация
+  `ambigs[]` → отсортированный hash по first N≤8 токенов каждой формулировки).
+- Новое поле `IntentLedgerEntry.clarifyTopicKey?: string` и счётчик
+  `clarifyCountByTopic: Record<string, { count, firstAt, lastAt }>` в session-state.
+- В `buildTaskClassificationInputs` передать classifier'у блок
+  `<clarify_budget>` вида
+  `you already asked the user this 3 times in last 5 min; if asked again, choose a default
+   or escalate to action instead of clarify_first`.
+- Порог из env: `OPENCLAW_CLARIFY_MAX_REPEAT=2` (по умолчанию 2 — третий
+  повтор должен быть escalation).
+- На превышении — **форсим** один из двух путей:
+  - `outcome=action` с `requestedTools` из best-guess по ambig ↔ recipe map
+    (если `ambig` содержит `receipt|platform_action` → bundle=respond_only+deliverable),
+  - либо `outcome=answer·respond_only` с эксплицитным «I'll proceed with default
+    assumption: X. Say 'stop' to abort.» — не задавая нового вопроса.
+- Логирование `[clarify-budget] topic=<hash> count=<n> action=<force_action|force_answer>`.
+
+**Acceptance.**
+- [ ] Unit-тест: при 3 последовательных clarify-turn'ах с одинаковым
+      `ambigTopicHash` — четвёртый не запускает `clarify_first`.
+- [ ] Live-smoke сценарий: 3 подряд невнятных user-message → на третьем
+      turn бот не спрашивает снова, а выдаёт ответ/экшен с default-assumption.
+
+#### D.2 — Ack-then-defer dispatcher (PRIORITY 2, для длинных тасок)
+
+**Цель.** Длинные turn'ы (> 3 сек оценочно, или с `capability_install` +
+`exec`) получают немедленный ack-ответ и уезжают в bg-job.
+
+**Scope.**
 - Новая capability `ack_then_defer` на уровне planner. Включается когда
-  `plan.estimatedDurationMs > THRESHOLD` (например, `ensureCapability` +
-  `exec` на Telegram auth).
-- Bg-job state: `FOLLOWUP_QUEUES` расширяется новым `mode=deferred_job`, статусы
-  `queued|running|done|failed`. Пользовательские сообщения, прилетающие во время
-  job'а, идут в steer/interrupt по правилам queue-policy, а не в новый turn.
+  `plan.estimatedDurationMs > THRESHOLD_MS` (env `OPENCLAW_ACK_DEFER_MS=3000`)
+  **или** recipe содержит `capability_install`.
+- Bg-job state: расширить существующие `FOLLOWUP_QUEUES` новым `mode=deferred_job`,
+  статусы `queued|running|done|failed`.
+- Пользовательские сообщения, прилетающие во время bg-job'а, идут в
+  steer/interrupt по queue-policy, **а не в новый turn**.
 - Финальный ответ bg-job'а приходит отдельным сообщением через Progress Bus
-  `phase=done` + deliverable.
+  `phase=done` + deliverable (уже есть в Stage C).
 
-**Зависимости.** Этап C (без Progress Bus нечем сигналить о завершении).
+**Acceptance.**
+- [ ] Long-running scenario (например, `ensureCapability` на npm-pkg) не
+      блокирует пользователя: первое сообщение за ≤ 2 сек («принял, работаю»),
+      финальный результат — отдельным сообщением при завершении job'а.
+- [ ] Unit-тест queue-policy: во время deferred_job user-message идёт в
+      steer, не создаёт parallel turn.
+
+**Зависимости.** D.1 не зависит от D.2. D.2 зависит от C (Progress Bus для
+сигнала о завершении) — выполнено.
 
 ---
 
 ## Порядок выполнения
 
-1. **A первым** — минимум, даёт 80% эффекта, unblock'ает B.
-2. **B** — reconciliation promises/receipts.
-3. **C** — Progress Bus с Telegram-адаптером.
-4. **D** — dispatcher. Требует C.
+1. **A** ✅ — ledger v0, инжект в classifier.
+2. **B** ✅ — reconciliation promises/receipts.
+3. **C** ✅ — Progress Bus + gateway WS broadcast + Telegram adapter (unit).
+4. **C.1** — wire Telegram adapter в telegram-плагин.
+5. **D.1** — cross-turn clarify budget (убивает спам-луп).
+6. **D.2** — ack-then-defer dispatcher.
+
+**Следующий шаг**: C.1 + D.1 одним PR (оба трогают session/channel state,
+синергичны по тестам). D.2 — отдельным PR.
 
 Каждый этап — **отдельный PR, отдельный промпт, отдельная запись в History**.
 
