@@ -125,6 +125,32 @@ describe("IntentLedger.recordFromBotTurn", () => {
     expect(entry).toBeUndefined();
     expect(ledger.peekPending("session-a", "telegram")).toEqual([]);
   });
+
+  it("records successful receipt entries when a fingerprint is present", () => {
+    const ledger = createLedger();
+    const entry = ledger.recordFromBotTurn({
+      turnId: "turn-receipt-1",
+      sessionId: "session-a",
+      channelId: "telegram",
+      summary: "Уже сделано: dev server started",
+      planOutput: {
+        executionContract: { requiresTools: true },
+        fingerprint: "intent:receipt-1",
+      },
+      runtimeReceipts: [
+        {
+          kind: "tool",
+          name: "exec",
+          status: "success",
+          summary: "dev server started",
+        },
+      ],
+    });
+
+    expect(entry?.kind).toBe("receipt");
+    expect(entry?.fingerprint).toBe("intent:receipt-1");
+    expect(entry?.successfulReceipts).toHaveLength(1);
+  });
 });
 
 describe("IntentLedger storage rules", () => {
@@ -182,6 +208,103 @@ describe("IntentLedger storage rules", () => {
     const secondPeek = ledger.peekPending("session-pure", "telegram");
     expect(firstPeek).toEqual(secondPeek);
     expect(firstPeek[0]?.id).toBe(secondPeek[0]?.id);
+  });
+
+  it("stores successful receipts and finds them by fingerprint within the idempotency window", () => {
+    let now = 25_000;
+    const ledger = new IntentLedger({
+      now: () => now,
+    });
+    ledger.recordFromBotTurn({
+      turnId: "turn-exec-1",
+      sessionId: "session-receipts",
+      channelId: "telegram",
+      summary: "Уже сделал: dev server started.",
+      planOutput: {
+        executionContract: { requiresTools: true },
+        fingerprint: "intent:abc123",
+      },
+      runtimeReceipts: [
+        {
+          kind: "tool",
+          name: "exec",
+          status: "success",
+          summary: "dev server started",
+          metadata: {
+            pid: 4242,
+            url: "http://127.0.0.1:3000",
+          },
+        },
+      ],
+      createdAt: now,
+    });
+
+    const found = ledger.lookupRecentReceipt({
+      sessionId: "session-receipts",
+      channelId: "telegram",
+      fingerprint: "intent:abc123",
+      windowMs: 60_000,
+    });
+
+    expect(found).toEqual(
+      expect.objectContaining({
+        fingerprint: "intent:abc123",
+        receipts: [
+          expect.objectContaining({
+            kind: "tool",
+            name: "exec",
+            metadata: expect.objectContaining({
+              pid: 4242,
+              url: "http://127.0.0.1:3000",
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("does not return old or missing fingerprints from recent receipt lookup", () => {
+    let now = 50_000;
+    const ledger = new IntentLedger({
+      now: () => now,
+    });
+    ledger.recordFromBotTurn({
+      turnId: "turn-exec-old",
+      sessionId: "session-receipts-window",
+      channelId: "telegram",
+      summary: "Уже сделал: test run complete.",
+      planOutput: {
+        executionContract: { requiresTools: true },
+        fingerprint: "intent:old",
+      },
+      runtimeReceipts: [
+        {
+          kind: "tool",
+          name: "exec",
+          status: "success",
+          summary: "tests passed",
+        },
+      ],
+      createdAt: now,
+    });
+    now += 61_000;
+
+    expect(
+      ledger.lookupRecentReceipt({
+        sessionId: "session-receipts-window",
+        channelId: "telegram",
+        fingerprint: "intent:old",
+        windowMs: 60_000,
+      }),
+    ).toBeUndefined();
+    expect(
+      ledger.lookupRecentReceipt({
+        sessionId: "session-receipts-window",
+        channelId: "telegram",
+        fingerprint: "intent:missing",
+        windowMs: 60_000,
+      }),
+    ).toBeUndefined();
   });
 });
 

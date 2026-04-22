@@ -28,7 +28,8 @@ const STRUCTURED_ARTIFACT_KINDS = new Set<ArtifactKind>([
   "binary",
 ]);
 
-const PROCESS_TOOL_NAMES = new Set(["exec", "process", "write", "apply_patch"]);
+const WORKSPACE_TOOL_NAMES = new Set(["exec", "process", "write", "apply_patch"]);
+const PROCESS_EVIDENCE_TOOL_NAMES = new Set(["exec", "process"]);
 
 export type CompletionEvidenceRequirements = {
   outcomeContract: OutcomeContract;
@@ -77,6 +78,49 @@ export function requiresStructuredEvidence(params: {
 
 function normalizeToolName(name: string): string {
   return name.trim().toLowerCase();
+}
+
+function readReceiptNumericMetadata(
+  metadata: PlatformRuntimeExecutionReceipt["metadata"] | undefined,
+  key: string,
+): number | undefined {
+  const value = metadata?.[key];
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function readReceiptStringMetadata(
+  metadata: PlatformRuntimeExecutionReceipt["metadata"] | undefined,
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function hasExecReceiptRuntimeEvidence(receipt: PlatformRuntimeExecutionReceipt): boolean {
+  if (receipt.kind !== "tool" || receipt.status !== "success") {
+    return false;
+  }
+  const toolName = normalizeToolName(receipt.name);
+  if (!PROCESS_EVIDENCE_TOOL_NAMES.has(toolName)) {
+    return false;
+  }
+  const exitCode = readReceiptNumericMetadata(receipt.metadata, "exitCode");
+  if (exitCode !== 0) {
+    return false;
+  }
+  const stdout = readReceiptStringMetadata(receipt.metadata, "stdout");
+  const url = readReceiptStringMetadata(receipt.metadata, "url");
+  const pid = readReceiptNumericMetadata(receipt.metadata, "pid");
+  return Boolean(stdout || url || (typeof pid === "number" && pid > 0));
 }
 
 /**
@@ -401,16 +445,23 @@ function observeEvidence(params: {
   const successfulToolReceiptCount = params.receipts.filter(
     (receipt) => receipt.kind === "tool" && receipt.status === "success",
   ).length;
-  const successfulProcessReceiptCount =
-    params.evidence.confirmedActionCount ??
-    params.outcome?.confirmedActionIds.length ??
+  const successfulWorkspaceToolReceiptCount = params.receipts.filter(
+    (receipt) =>
+      receipt.kind === "tool" &&
+      receipt.status === "success" &&
+      WORKSPACE_TOOL_NAMES.has(normalizeToolName(receipt.name)),
+  ).length;
+  const successfulProcessReceiptCount = Math.max(
+    params.evidence.confirmedActionCount ?? 0,
+    params.outcome?.confirmedActionIds.length ?? 0,
     params.receipts.filter(
       (receipt) =>
-        (receipt.kind === "tool" && PROCESS_TOOL_NAMES.has(normalizeToolName(receipt.name))) ||
+        hasExecReceiptRuntimeEvidence(receipt) ||
         (receipt.kind === "platform_action" &&
           receipt.status === "success" &&
           receipt.proof === "verified"),
-    ).length;
+    ).length,
+  );
   const successfulCapabilityReceiptCount =
     params.receipts.filter(
       (receipt) => receipt.kind === "capability" && receipt.status === "success",
@@ -422,7 +473,9 @@ function observeEvidence(params: {
     toolReceipt:
       params.requirements.outcomeContract === "structured_artifact"
         ? matchingArtifactToolReceipt || canUseVerifiedExecutionShortcut
-        : successfulToolReceiptCount > 0,
+        : params.requirements.outcomeContract === "workspace_change"
+          ? successfulWorkspaceToolReceiptCount > 0
+          : successfulToolReceiptCount > 0,
     artifactDescriptor:
       params.evidence.hasStructuredReplyPayload === true ||
       (params.outcome?.artifactIds.length ?? 0) > 0 ||

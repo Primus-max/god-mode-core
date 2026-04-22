@@ -82,6 +82,7 @@ import {
   withTurnProgressEmitter,
   type TurnProgressEmitter,
 } from "../../platform/progress/progress-bus.js";
+import { computeIntentFingerprint } from "../../platform/session/intent-fingerprint.js";
 
 const BLOCK_REPLY_SEND_TIMEOUT_MS = 15_000;
 const intentLedgerLog = createSubsystemLogger("intent-ledger");
@@ -906,6 +907,10 @@ export async function runReplyAgent(params: {
     }
 
     const payloadArray = runResult.payloads ?? [];
+    const executionFingerprint = computeIntentFingerprint(
+      runResult.meta?.executionIntent?.deliverable,
+      runResult.meta?.executionIntent?.requiredCapabilities,
+    );
 
     if (blockReplyPipeline) {
       await blockReplyPipeline.flush({ force: true });
@@ -1403,7 +1408,13 @@ export async function runReplyAgent(params: {
         sessionId: followupRun.run.sessionId,
         channelId: channelForLedger,
         summary: ledgerSummary,
-        planOutput: runResult.meta?.executionIntent,
+        planOutput:
+          runResult.meta?.executionIntent && executionFingerprint
+            ? {
+                ...runResult.meta.executionIntent,
+                fingerprint: executionFingerprint,
+              }
+            : runResult.meta?.executionIntent,
         runtimeReceipts: runResult.meta?.executionVerification?.receipts,
         ambigs: extractClassifierAmbiguities(runResult.meta?.executionIntent),
       });

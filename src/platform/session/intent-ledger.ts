@@ -29,7 +29,8 @@ export type IntentLedgerKind =
   | "awaiting_input"
   | "promised_action"
   | "violated_promise"
-  | "clarifying";
+  | "clarifying"
+  | "receipt";
 
 export type IntentLedgerExpectsFrom = "user" | "system";
 
@@ -50,6 +51,8 @@ export type IntentLedgerEntry = {
   ttlMs: number;
   receiptMatchers?: IntentLedgerReceiptMatchers;
   clarifyTopicKey?: string;
+  fingerprint?: string;
+  successfulReceipts?: SuccessfulIntentReceipt[];
 };
 
 export type IntentLedgerRecordParams = {
@@ -73,6 +76,20 @@ type IntentLedgerOptions = {
   ttlMs?: number;
   maxEntries?: number;
   clarifyBudgetWindowMs?: number;
+};
+
+export type SuccessfulIntentReceipt = {
+  kind: PlatformRuntimeExecutionReceiptKind;
+  name: string;
+  summary?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type IntentLedgerRecentReceiptMatch = {
+  entry: IntentLedgerEntry;
+  fingerprint: string;
+  receipts: SuccessfulIntentReceipt[];
+  matchedAt: number;
 };
 
 type IntentLedgerSessionState = {
@@ -150,6 +167,13 @@ function normalizeSummary(summary: string): string {
   return summary.replace(/\s+/g, " ").trim();
 }
 
+function normalizeMetadata(record: unknown): Record<string, unknown> | undefined {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return undefined;
+  }
+  return { ...(record as Record<string, unknown>) };
+}
+
 function resolvePositiveInt(raw: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(raw ?? "", 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -213,6 +237,13 @@ function shortSessionId(sessionId: string): string {
   return shortTurnId(sessionId);
 }
 
+function cloneSuccessfulReceipt(receipt: SuccessfulIntentReceipt): SuccessfulIntentReceipt {
+  return {
+    ...receipt,
+    ...(receipt.metadata ? { metadata: { ...receipt.metadata } } : {}),
+  };
+}
+
 function cloneWorkspaceSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
   return {
     ...snapshot,
@@ -236,6 +267,72 @@ function hasSessionStateData(state: IntentLedgerSessionState | undefined): boole
     return false;
   }
   return state.entries.length > 0 || Boolean(state.workspace) || Boolean(state.identity);
+}
+
+function isSuccessfulRuntimeReceipt(receipt: unknown): receipt is {
+  kind: PlatformRuntimeExecutionReceiptKind;
+  name: string;
+  status: string;
+  summary?: string;
+  metadata?: Record<string, unknown>;
+} {
+  if (!receipt || typeof receipt !== "object") {
+    return false;
+  }
+  const candidate = receipt as {
+    kind?: unknown;
+    name?: unknown;
+    status?: unknown;
+    summary?: unknown;
+    metadata?: unknown;
+  };
+  return (
+    typeof candidate.kind === "string" &&
+    typeof candidate.name === "string" &&
+    (candidate.status === "success" || candidate.status === "partial") &&
+    (candidate.summary === undefined || typeof candidate.summary === "string") &&
+    (candidate.metadata === undefined ||
+      (candidate.metadata !== null &&
+        typeof candidate.metadata === "object" &&
+        !Array.isArray(candidate.metadata)))
+  );
+}
+
+function extractSuccessfulReceipts(runtimeReceipts: unknown): SuccessfulIntentReceipt[] {
+  if (!Array.isArray(runtimeReceipts)) {
+    return [];
+  }
+  return runtimeReceipts
+    .filter(isSuccessfulRuntimeReceipt)
+    .map((receipt) => ({
+      kind: receipt.kind,
+      name: receipt.name,
+      ...(typeof receipt.summary === "string" && receipt.summary.trim()
+        ? { summary: receipt.summary.trim() }
+        : {}),
+      ...(normalizeMetadata(receipt.metadata) ? { metadata: normalizeMetadata(receipt.metadata) } : {}),
+    }));
+}
+
+function cloneIntentLedgerEntry(entry: IntentLedgerEntry): IntentLedgerEntry {
+  return {
+    ...entry,
+    ...(entry.receiptMatchers
+      ? {
+          receiptMatchers: {
+            ...(entry.receiptMatchers.receiptKinds
+              ? { receiptKinds: [...entry.receiptMatchers.receiptKinds] }
+              : {}),
+            ...(entry.receiptMatchers.toolNames
+              ? { toolNames: [...entry.receiptMatchers.toolNames] }
+              : {}),
+          },
+        }
+      : {}),
+    ...(entry.successfulReceipts
+      ? { successfulReceipts: entry.successfulReceipts.map(cloneSuccessfulReceipt) }
+      : {}),
+  };
 }
 
 export class IntentLedger {
@@ -275,9 +372,19 @@ export class IntentLedger {
     const summary = normalizeSummary(params.summary);
     const heuristic = classifyBotTurn(summary, params.planOutput);
     const hasAmbigs = Array.isArray(params.ambigs) && params.ambigs.length > 0;
+    const successfulReceipts = extractSuccessfulReceipts(params.runtimeReceipts);
+    const runtimeFingerprint =
+      params.planOutput && typeof params.planOutput === "object"
+        ? (params.planOutput as { fingerprint?: unknown }).fingerprint
+        : undefined;
     const classified: LedgerClassifierResult = hasAmbigs
       ? { kind: "clarifying", expectsFrom: "user" }
-      : heuristic;
+      : heuristic ??
+        (successfulReceipts.length > 0 &&
+        typeof runtimeFingerprint === "string" &&
+        runtimeFingerprint.trim()
+          ? { kind: "receipt", expectsFrom: "system" }
+          : null);
     if (!classified) {
       return undefined;
     }
@@ -304,6 +411,10 @@ export class IntentLedger {
                 : GENERIC_CLARIFY_TOPIC_KEY,
           }
         : {}),
+      ...(typeof runtimeFingerprint === "string" && runtimeFingerprint.trim()
+        ? { fingerprint: runtimeFingerprint.trim() }
+        : {}),
+      ...(successfulReceipts.length > 0 ? { successfulReceipts } : {}),
     };
     const state = this.getOrCreateState(params.sessionId, params.channelId);
     state.entries = [...state.entries, entry].slice(-this.maxEntries);
@@ -340,7 +451,41 @@ export class IntentLedger {
     const key = keyFor(sessionId, channelId);
     const now = this.now();
     const values = this.sessionState.get(key)?.entries ?? [];
-    return values.filter((entry) => now - entry.createdAt <= entry.ttlMs).map((entry) => ({ ...entry }));
+    return values
+      .filter((entry) => now - entry.createdAt <= entry.ttlMs)
+      .map((entry) => cloneIntentLedgerEntry(entry));
+  }
+
+  lookupRecentReceipt(params: {
+    sessionId: string;
+    channelId: string;
+    fingerprint: string;
+    windowMs: number;
+  }): IntentLedgerRecentReceiptMatch | undefined {
+    const fingerprint = params.fingerprint.trim();
+    if (!fingerprint || params.windowMs <= 0) {
+      return undefined;
+    }
+    const now = this.now();
+    const windowStart = now - params.windowMs;
+    const entries = this.peekPending(params.sessionId, params.channelId)
+      .filter(
+        (entry) =>
+          entry.fingerprint === fingerprint &&
+          entry.createdAt >= windowStart &&
+          (entry.successfulReceipts?.length ?? 0) > 0,
+      )
+      .toSorted((left, right) => right.createdAt - left.createdAt);
+    const entry = entries[0];
+    if (!entry || !entry.successfulReceipts?.length) {
+      return undefined;
+    }
+    return {
+      entry,
+      fingerprint,
+      receipts: entry.successfulReceipts.map(cloneSuccessfulReceipt),
+      matchedAt: now,
+    };
   }
 
   async getOrProbeWorkspace(

@@ -968,12 +968,28 @@ describe("platform runtime checkpoint service", () => {
           name: "image_generate",
           status: "success",
           proof: "reported",
+          producedArtifacts: [
+            {
+              kind: "image",
+              format: "png",
+              mimeType: "image/png",
+              path: "/tmp/structured-media.png",
+            },
+          ],
         },
         {
           kind: "tool",
           name: "pdf",
           status: "success",
           proof: "reported",
+          producedArtifacts: [
+            {
+              kind: "document",
+              format: "pdf",
+              mimeType: "application/pdf",
+              path: "/tmp/structured-media.pdf",
+            },
+          ],
         },
       ],
       executionIntent: {
@@ -1135,12 +1151,28 @@ describe("platform runtime checkpoint service", () => {
           name: "image_generate",
           status: "success",
           proof: "reported",
+          producedArtifacts: [
+            {
+              kind: "image",
+              format: "png",
+              mimeType: "image/png",
+              path: "/tmp/closure-structured-media.png",
+            },
+          ],
         },
         {
           kind: "tool",
           name: "pdf",
           status: "success",
           proof: "reported",
+          producedArtifacts: [
+            {
+              kind: "document",
+              format: "pdf",
+              mimeType: "application/pdf",
+              path: "/tmp/closure-structured-media.pdf",
+            },
+          ],
         },
       ],
       executionIntent: {
@@ -1779,6 +1811,14 @@ describe("platform runtime checkpoint service", () => {
           status: "success",
           proof: "verified",
           summary: "PDF generated",
+          producedArtifacts: [
+            {
+              kind: "document",
+              format: "pdf",
+              mimeType: "application/pdf",
+              path: "/tmp/no-evidence-reset.pdf",
+            },
+          ],
         },
       ],
     });
@@ -1901,6 +1941,146 @@ describe("platform runtime checkpoint service", () => {
       expect.objectContaining({
         status: "satisfied",
         action: "close",
+      }),
+    );
+  });
+
+  it("does not require platform_action receipts for exec-only repo_operation contracts", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-exec-only-repo-operation",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: ["exec-action-1"],
+      attemptedActionIds: ["exec-action-1"],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const contract = service.buildExecutionContract({
+      runId: outcome.runId,
+      outcome,
+      receipts: [
+        {
+          kind: "tool",
+          name: "exec",
+          status: "success",
+          proof: "reported",
+          summary: "dev server started",
+          metadata: {
+            exitCode: 0,
+            pid: 4242,
+            url: "http://127.0.0.1:3000",
+          },
+        },
+      ],
+      executionIntent: {
+        runId: outcome.runId,
+        recipeId: "ops_orchestration",
+        intent: "code",
+        artifactKinds: ["site"],
+        requestedToolNames: ["exec"],
+        deliverable: {
+          kind: "repo_operation",
+          acceptedFormats: ["exec"],
+          preferredFormat: "exec",
+          constraints: { operation: "run_command" },
+        },
+        outcomeContract: "interactive_local_result",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: true,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        requestedEvidence: ["tool_receipt", "process_receipt"],
+        expectations: {},
+      },
+      evidence: {
+        hasOutput: true,
+      },
+    });
+
+    expect(contract.expectations).toEqual(
+      expect.objectContaining({
+        requiresOutput: true,
+        requiresConfirmedAction: false,
+        requireStructuredReceipts: false,
+      }),
+    );
+    expect(contract.expectations.requiredReceiptKinds).toBeUndefined();
+
+    const verification = service.verifyExecutionContract({
+      contract,
+      outcome,
+      evidence: {
+        hasOutput: true,
+        declaredIntent: "code",
+        declaredArtifactKinds: ["site"],
+        declaredOutcomeContract: "interactive_local_result",
+        declaredExecutionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: true,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        declaredRequestedEvidence: ["tool_receipt", "process_receipt"],
+      },
+    });
+    expect(verification.status).toBe("verified");
+
+    const evidence = service.buildAcceptanceEvidence({
+      outcome,
+      evidence: {
+        hasOutput: true,
+      },
+      executionIntent: {
+        runId: outcome.runId,
+        recipeId: "ops_orchestration",
+        intent: "code",
+        artifactKinds: ["site"],
+        requestedToolNames: ["exec"],
+        deliverable: {
+          kind: "repo_operation",
+          acceptedFormats: ["exec"],
+          preferredFormat: "exec",
+          constraints: { operation: "run_command" },
+        },
+        outcomeContract: "interactive_local_result",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: true,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        requestedEvidence: ["tool_receipt", "process_receipt"],
+        expectations: {},
+      },
+      executionVerification: verification,
+    });
+    const acceptance = service.evaluateAcceptance({
+      runId: outcome.runId,
+      outcome,
+      evidence,
+      receipts: contract.receipts,
+    });
+    expect(acceptance).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+        remediation: "none",
       }),
     );
   });

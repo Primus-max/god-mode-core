@@ -134,7 +134,6 @@ export const TRUSTED_CAPABILITY_CATALOG: CapabilityCatalogEntry[] = [
       label: "Repo Execution Credentials Gate",
       status: "available",
       trusted: true,
-      requiredEnv: ["TELEGRAM_API_HASH", "OPENAI_API_KEY", "BYBIT_API_KEY"],
       tags: ["routing", "credentials", "scaffold"],
     },
     source: "catalog",

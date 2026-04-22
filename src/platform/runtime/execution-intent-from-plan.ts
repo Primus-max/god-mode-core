@@ -46,6 +46,7 @@ export function buildExecutionIntentSeedFromRecipeRuntimePlan(
     ...(runtime.requestedToolNames?.length
       ? { requestedToolNames: runtime.requestedToolNames }
       : {}),
+    ...(runtime.deliverable ? { deliverable: runtime.deliverable } : {}),
     ...(runtime.outcomeContract ? { outcomeContract: runtime.outcomeContract } : {}),
     ...(runtime.executionContract ? { executionContract: runtime.executionContract } : {}),
     ...(runtime.requestedEvidence?.length ? { requestedEvidence: runtime.requestedEvidence } : {}),

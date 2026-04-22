@@ -13,6 +13,7 @@ import {
   type DeliverableKind,
   type DeliverableSpec,
 } from "../produce/registry.js";
+import { collectMissingRequiredEnvForDeliverable } from "../recipe/credentials-preflight.js";
 import {
   collectMissingRequiredEnvForCapabilities,
   type RecipePlannerInput,
@@ -255,6 +256,7 @@ Constraints guidance (deliverable.constraints):
 - For image: constraints may include aspectRatio ("16:9","1:1","9:16") and overlayText (the literal quoted text to overlay).
 - For capability_install: constraints MUST include manager, name; include version only if the user named one.
 - For site: constraints may include pages:[string,...] and theme:"dark"|"light".
+- For code_change / repo_operation that integrates with a specific external system, set constraints.provider to one of: "bybit" (Bybit exchange / trading bot), "openai" (OpenAI API integration), "telegram_userbot" (Telegram userbot using TELEGRAM_API_HASH). Use "integration" as a synonym if a single string is awkward. Do NOT set provider just because the user mentioned the platform in passing - only when the deliverable itself is wired to that provider's API. A poem, a picture, a plain pnpm dev run, or a generic test-suite run has NO provider.
 
 Output contract:
 - confidence must be between 0 and 1.
@@ -724,11 +726,23 @@ function applyCredentialsPreflight(params: {
   if (!isScaffoldContract(params.contract)) {
     return params.contract;
   }
-  const missingCredentials = collectMissingRequiredEnvForCapabilities({
+  // P1.6.1: union of capability-declared env (legacy path; the bundled
+  // `needs_repo_execution` no longer carries `requiredEnv`) and the
+  // deliverable's provider/integration tag resolved through the
+  // provider→envKeys table. Without an explicit provider signal in the
+  // structured deliverable we no longer raise a credentials clarification.
+  const capabilityMissing = collectMissingRequiredEnvForCapabilities({
     capabilityIds: params.contract.requiredCapabilities,
     capabilityCatalog: TRUSTED_CAPABILITY_CATALOG,
     envSnapshot: process.env,
   });
+  const deliverableMissing = collectMissingRequiredEnvForDeliverable({
+    deliverable: params.contract.deliverable,
+    envSnapshot: process.env,
+  });
+  const missingCredentials = Array.from(
+    new Set([...capabilityMissing, ...deliverableMissing]),
+  ).toSorted();
   if (missingCredentials.length === 0) {
     return params.contract;
   }

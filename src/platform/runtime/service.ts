@@ -645,6 +645,7 @@ function normalizeOptionalStringArray(values: string[] | undefined): string[] | 
 function deriveRequiredReceiptKinds(params: {
   outcome: PlatformRuntimeRunOutcome;
   evidence: PlatformRuntimeAcceptanceEvidence;
+  executionIntent?: PlatformRuntimeExecutionIntent;
 }): PlatformRuntimeExecutionReceiptKind[] | undefined {
   const kinds = new Set<PlatformRuntimeExecutionReceiptKind>();
   const requiresMessagingDelivery = params.evidence.didSendViaMessagingTool === true;
@@ -654,10 +655,35 @@ function deriveRequiredReceiptKinds(params: {
   if (params.outcome.bootstrapRequestIds.length > 0) {
     kinds.add("capability");
   }
-  if (params.outcome.actionIds.length > 0 && !requiresMessagingDelivery) {
+  if (
+    params.outcome.actionIds.length > 0 &&
+    !requiresMessagingDelivery &&
+    !allowsExecOnlyContractClosure(params.executionIntent)
+  ) {
     kinds.add("platform_action");
   }
   return kinds.size > 0 ? Array.from(kinds) : undefined;
+}
+
+function allowsExecOnlyContractClosure(
+  executionIntent: PlatformRuntimeExecutionIntent | undefined,
+): boolean {
+  if (!executionIntent) {
+    return false;
+  }
+  if (executionIntent.lowConfidenceStrategy === "clarify") {
+    return false;
+  }
+  if (executionIntent.deliverable?.kind !== "repo_operation") {
+    return false;
+  }
+  const acceptedFormats = executionIntent.deliverable.acceptedFormats.map((format) =>
+    format.trim().toLowerCase(),
+  );
+  if (!acceptedFormats.includes("exec")) {
+    return false;
+  }
+  return executionIntent.executionContract?.requiresWorkspaceMutation !== true;
 }
 
 function deriveExecutionContractExpectations(params: {
@@ -670,14 +696,21 @@ function deriveExecutionContractExpectations(params: {
     executionIntent: params.executionIntent,
     expectations: declared,
   });
+  const execOnlyContractClosure = allowsExecOnlyContractClosure(params.executionIntent);
   const requiresMessagingDelivery =
     declared.requiresMessagingDelivery ?? params.evidence.didSendViaMessagingTool === true;
   const requiresStructuredReceipts =
     declared.requireStructuredReceipts ??
-    (params.outcome.actionIds.length > 0 ||
+    ((params.outcome.actionIds.length > 0 ||
       params.outcome.artifactIds.length > 0 ||
-      params.outcome.bootstrapRequestIds.length > 0);
-  const requiredReceiptKinds = declared.requiredReceiptKinds ?? deriveRequiredReceiptKinds(params);
+      params.outcome.bootstrapRequestIds.length > 0) &&
+      !execOnlyContractClosure);
+  const requiredReceiptKinds =
+    declared.requiredReceiptKinds ??
+    deriveRequiredReceiptKinds({
+      ...params,
+      executionIntent: params.executionIntent,
+    });
   return PlatformRuntimeExecutionContractSchema.shape.expectations.parse({
     requiresOutput:
       declared.requiresOutput ??
@@ -686,7 +719,8 @@ function deriveExecutionContractExpectations(params: {
         params.evidence.hasStructuredReplyPayload === true),
     requiresMessagingDelivery,
     requiresConfirmedAction:
-      declared.requiresConfirmedAction ?? params.outcome.actionIds.length > 0,
+      declared.requiresConfirmedAction ??
+      (params.outcome.actionIds.length > 0 && !execOnlyContractClosure),
     requireStructuredReceipts: requiresStructuredReceipts,
     minimumVerifiedReceiptCount:
       declared.minimumVerifiedReceiptCount ?? (requiresStructuredReceipts ? 1 : 0),
@@ -1479,6 +1513,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         ...(normalizeOptionalStringArray(seed.requestedToolNames)
           ? { requestedToolNames: normalizeOptionalStringArray(seed.requestedToolNames) }
           : {}),
+        ...(seed.deliverable ? { deliverable: seed.deliverable } : {}),
         ...(seed.outcomeContract ? { outcomeContract: seed.outcomeContract } : {}),
         ...(seed.executionContract ? { executionContract: seed.executionContract } : {}),
         ...(normalizeOptionalStringArray(seed.requestedEvidence)
@@ -2126,9 +2161,15 @@ export function createPlatformRuntimeCheckpointService(params?: {
         confirmedDeliveryCount > 0 ||
         confirmedActionCount > 0 ||
         (evidence.successfulCronAdds ?? 0) > 0;
+      const hasExecBackedProcessClosureEvidence =
+        sufficiency.requirements.executionContract.requiresLocalProcess === true &&
+        sufficiency.requirements.executionContract.requiresWorkspaceMutation !== true &&
+        sufficiency.observed.toolReceipt &&
+        sufficiency.observed.processReceipt;
       const requiresVerifiedNonMessagingClosure =
         attemptedDeliveryCount === 0 &&
         confirmedDeliveryCount === 0 &&
+        !hasExecBackedProcessClosureEvidence &&
         (artifactReceiptCount > 0 ||
           bootstrapStillRequired > 0 ||
           attemptedActionCount > 0 ||

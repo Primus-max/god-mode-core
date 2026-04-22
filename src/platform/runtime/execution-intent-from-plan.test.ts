@@ -45,6 +45,7 @@ describe("execution intent from recipe runtime plan", () => {
     });
     expect(intent.profileId).toBe(runtime.selectedProfileId);
     expect(intent.recipeId).toBe(runtime.selectedRecipeId);
+    expect(intent.deliverable).toEqual(runtime.deliverable);
     expect(intent.outcomeContract).toBe("structured_artifact");
     expect(intent.executionContract).toEqual(
       expect.objectContaining({
@@ -70,8 +71,8 @@ describe("execution intent from recipe runtime plan", () => {
     );
     const seed = buildExecutionIntentSeedFromRecipeRuntimePlan(runtime);
 
-    expect(seed.outcomeContract).toBe("external_operation");
-    expect(seed.lowConfidenceStrategy).toBe("clarify");
-    expect(seed.expectations).toEqual({});
+    expect(seed.outcomeContract).toBe("text_response");
+    expect(seed.lowConfidenceStrategy).toBeUndefined();
+    expect(seed.expectations).toEqual({ requiresOutput: true });
   });
 });

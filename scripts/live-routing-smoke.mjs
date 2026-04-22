@@ -26,6 +26,7 @@ const CHAIN_CONFIRM_EXEC = `chain-confirm-exec-${Date.now()}`;
 const CHAIN_PROGRESS_BUS = `chain-progress-bus-${Date.now()}`;
 const CHAIN_CLARIFY_BUDGET = `chain-clarify-budget-${Date.now()}`;
 const CHAIN_ACK_DEFER = `chain-ack-defer-${Date.now()}`;
+const CHAIN_INTENT_IDEMPOTENCY = `chain-intent-idempotency-${Date.now()}`;
 
 const REPO_ROOT = path.resolve(process.cwd());
 const WORKSPACE_ROOTS_FROM_ENV = (() => {
@@ -45,6 +46,8 @@ const WORKSPACE_AWARE_SIBLING_DIR =
   WORKSPACE_ROOTS_FROM_ENV?.[1] ??
   path.resolve(os.tmpdir(), `openclaw-smoke-sibling-stage-c`);
 const WORKSPACE_AWARE_ROOTS = `${WORKSPACE_AWARE_EXPECTED_ROOT};${WORKSPACE_AWARE_SIBLING_DIR}`;
+const WORKSPACE_DEV_ROOT = path.join(os.homedir(), ".openclaw", "workspace-dev");
+const DEV_SERVER_NOTE_PATH = path.join(WORKSPACE_DEV_ROOT, "server-status-note.txt");
 const SCENARIOS = [
   { id: "01-hello", message: "Привет", expect: { kind: "text" } },
   { id: "02-image", message: "Сгенерировать картинку банана", expect: { kind: "image", formats: ["png", "jpeg", "jpg", "webp"] } },
@@ -173,6 +176,28 @@ const SCENARIOS = [
     },
   },
   {
+    id: "17b-start-dev-server",
+    message:
+      "Запусти в проекте god-mode-core dev-сервер через exec: `pnpm dev`. Если процесс успешно стартовал, верни PID и localhost URL. Ничего не записывай в workspace ради статуса.",
+    expect: {
+      kind: "tool_output",
+      tools: ["exec"],
+      outputContainsAny: ["http://", "https://", "localhost", "127.0.0.1", "pid"],
+      workspaceAwareExec: {
+        expectedRoot: WORKSPACE_AWARE_EXPECTED_ROOT,
+        siblingRoot: WORKSPACE_AWARE_SIBLING_DIR,
+        commandIncludes: "pnpm dev",
+      },
+      absentPaths: [DEV_SERVER_NOTE_PATH],
+    },
+    requirements: {
+      gatewayEnvPresent: ["OPENCLAW_WORKSPACE_ROOTS"],
+      gatewayEnvIncludes: {
+        OPENCLAW_WORKSPACE_ROOTS: [WORKSPACE_AWARE_EXPECTED_ROOT, WORKSPACE_AWARE_SIBLING_DIR],
+      },
+    },
+  },
+  {
     id: "18-identity-aware-recall",
     message:
       "Дай мне настоящее четверостишье Пушкина, переведённое на английский известным переводчиком. Если ты не уверен в каноническом переводе — скажи и используй web_search.",
@@ -189,6 +214,32 @@ const SCENARIOS = [
       kind: "credentials_preflight_clarify",
       missingKeysAny: ["TELEGRAM_API_HASH", "BYBIT_API_KEY", "OPENAI_API_KEY"],
       forbiddenTools: ["exec", "apply_patch"],
+    },
+  },
+  {
+    id: "20-intent-idempotency",
+    sessionGroup: CHAIN_INTENT_IDEMPOTENCY,
+    messages: [
+      "Запусти в проекте god-mode-core dev-сервер через exec: `pnpm dev`. Если процесс успешно стартовал, верни PID и localhost URL. Ничего не записывай в workspace ради статуса.",
+      "Запусти в проекте god-mode-core dev-сервер через exec: `pnpm dev`. Если он уже поднят, не запускай второй раз и верни receipt предыдущего запуска.",
+    ],
+    expect: {
+      kind: "tool_output",
+      tools: ["exec"],
+      outputContainsAny: ["http://", "https://", "localhost", "127.0.0.1", "pid", "уже сделано"],
+      progressLog: {
+        requiredPhases: ["classifying", "done"],
+      },
+      idempotentExec: {
+        expectedExecToolCalls: 1,
+      },
+      absentPaths: [DEV_SERVER_NOTE_PATH],
+    },
+    requirements: {
+      gatewayEnvPresent: ["OPENCLAW_WORKSPACE_ROOTS"],
+      gatewayEnvIncludes: {
+        OPENCLAW_WORKSPACE_ROOTS: [WORKSPACE_AWARE_EXPECTED_ROOT, WORKSPACE_AWARE_SIBLING_DIR],
+      },
     },
   },
 ];
@@ -1031,6 +1082,17 @@ async function evaluate(result) {
         );
       }
     }
+    const absentPaths = Array.isArray(scenario.expect.absentPaths)
+      ? scenario.expect.absentPaths.filter((value) => typeof value === "string" && value.trim().length > 0)
+      : [];
+    for (const absentPath of absentPaths) {
+      if (fsSync.existsSync(absentPath)) {
+        pass = false;
+        notes.push(`unexpected file created: ${absentPath}`);
+      } else {
+        notes.push(`confirmed absent: ${absentPath}`);
+      }
+    }
   } else if (scenario.expect.kind === "identity_aware_recall") {
     const invokedWebSearch = toolCalls.some(
       (c) => c.name === "web_search" || c.toolName === "web_search",
@@ -1147,6 +1209,33 @@ async function evaluate(result) {
     }
     notes.push(...progressResult.notes);
   }
+  if (scenario.expect.idempotentExec) {
+    const progressTurns = parseProgressFramesFromEvents(result.events ?? []);
+    let execToolCallCount = 0;
+    for (const frames of progressTurns.values()) {
+      execToolCallCount += frames.filter(
+        (frame) => frame.phase === "tool_call" && frame.toolName === "exec",
+      ).length;
+    }
+    const expectedExecToolCalls = Number.parseInt(
+      String(scenario.expect.idempotentExec.expectedExecToolCalls ?? "1"),
+      10,
+    );
+    if (execToolCallCount !== expectedExecToolCalls) {
+      pass = false;
+      notes.push(
+        `expected exactly ${String(expectedExecToolCalls)} progress.frame tool_call=exec, got ${String(execToolCallCount)}`,
+      );
+    } else {
+      notes.push(`progress.frame tool_call=exec count=${String(execToolCallCount)}`);
+    }
+    if (!/уже сделано|already done/i.test(assistantText)) {
+      pass = false;
+      notes.push("second reply did not indicate already-done reuse");
+    } else {
+      notes.push("already-done reply observed");
+    }
+  }
   if (scenario.expect.clarifyBudgetLog) {
     const clarifyBudgetResult = evaluateClarifyBudgetLog(
       result.gatewayLogAppend ?? "",
@@ -1180,6 +1269,7 @@ async function main() {
   const home = os.homedir();
   const devSmokeCleanupPaths = [
     DEV_HELLO_PATH,
+    DEV_SERVER_NOTE_PATH,
     path.join(home, ".openclaw", "workspace-dev", ".artifacts", "dev-smoke", "hello.txt"),
     path.join(home, ".openclaw-dev", "workspace", ".artifacts", "dev-smoke", "hello.txt"),
   ];

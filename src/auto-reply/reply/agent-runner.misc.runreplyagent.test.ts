@@ -11,6 +11,9 @@ import type { TemplateContext } from "../templating.js";
 import type { FollowupRun, QueueSettings } from "./queue.js";
 import { enqueueFollowupRun } from "./queue.js";
 import { createMockTypingController } from "./test-helpers.js";
+import { intentLedger } from "../../platform/session/intent-ledger.js";
+import { computeIntentFingerprint } from "../../platform/session/intent-fingerprint.js";
+import * as agentRunnerUtils from "./agent-runner-utils.js";
 
 const runEmbeddedPiAgentMock = vi.fn();
 const runCliAgentMock = vi.fn();
@@ -153,6 +156,7 @@ beforeEach(() => {
       model,
     }),
   );
+  intentLedger.invalidate(() => true);
 });
 
 afterEach(() => {
@@ -575,6 +579,133 @@ describe("runReplyAgent semantic acceptance orchestration", () => {
 
     expect(result).toMatchObject({ mediaUrl: "https://example.com/report.png" });
     expect(enqueueFollowupRun).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits repeated repo exec within the idempotency window", async () => {
+    const typing = createMockTypingController();
+    const sessionCtx = {
+      Provider: "telegram",
+      Surface: "telegram",
+      OriginatingTo: "chat:1",
+      AccountId: "primary",
+      MessageSid: "msg-1",
+    } as unknown as TemplateContext;
+    const resolvedQueue = { mode: "followup", debounceMs: 0, cap: 20 } as QueueSettings;
+    const followupRun = {
+      prompt:
+        "Запусти в проекте god-mode-core dev-сервер через exec: `pnpm dev`. Если процесс успешно стартовал, верни PID и localhost URL.",
+      summaryLine: "start dev server",
+      enqueuedAt: Date.now(),
+      run: {
+        agentId: "main",
+        agentDir: "/tmp/agent",
+        sessionId: "session-idempotent",
+        sessionKey: "main",
+        messageProvider: "telegram",
+        sessionFile: "/tmp/session-idempotent.jsonl",
+        workspaceDir: "/tmp",
+        config: {},
+        skillsSnapshot: {},
+        provider: "anthropic",
+        model: "claude",
+        thinkLevel: "low",
+        verboseLevel: "off",
+        elevatedLevel: "off",
+        bashElevated: { enabled: false, allowed: false, defaultLevel: "off" },
+        timeoutMs: 5_000,
+        blockReplyBreak: "message_end",
+      },
+    } as unknown as FollowupRun;
+    const deliverable = {
+      kind: "repo_operation",
+      acceptedFormats: ["exec"],
+      preferredFormat: "exec",
+      constraints: {
+        target_repo: "/tmp",
+        command_signature: "pnpm dev",
+        operation: "run_command",
+      },
+    } as const;
+    const requiredCapabilities = ["needs_repo_execution", "needs_local_runtime"];
+    const fingerprint = computeIntentFingerprint(deliverable, requiredCapabilities);
+    expect(fingerprint).toBeTruthy();
+    intentLedger.recordFromBotTurn({
+      turnId: "turn-existing-exec",
+      sessionId: "session-idempotent",
+      channelId: "telegram",
+      summary: "Уже сделано: dev server started",
+      planOutput: {
+        executionContract: { requiresTools: true },
+        fingerprint,
+      },
+      runtimeReceipts: [
+        {
+          kind: "tool",
+          name: "exec",
+          status: "success",
+          summary: "dev server started",
+          metadata: {
+            pid: 4242,
+            url: "http://127.0.0.1:5173",
+          },
+        },
+      ],
+    });
+    const routingSpy = vi
+      .spyOn(agentRunnerUtils, "resolveRoutingSnapshotForTemplateRun")
+      .mockResolvedValue({
+        plannerInput: {
+          prompt: followupRun.prompt,
+        } as any,
+        runtimePlan: {
+          selectedRecipeId: "ops_orchestration",
+          selectedProfileId: "developer",
+          intent: "code",
+          deliverable,
+          requiredCapabilities,
+          executionContract: {
+            requiresTools: true,
+            requiresWorkspaceMutation: false,
+            requiresLocalProcess: true,
+            requiresArtifactEvidence: false,
+            requiresDeliveryEvidence: false,
+            mayNeedBootstrap: false,
+          },
+          requestedToolNames: ["exec"],
+        },
+        channelHints: {
+          messageChannel: "telegram",
+          channel: "telegram",
+          replyChannel: "telegram",
+        },
+      } as any);
+
+    const second = await runReplyAgent({
+      commandBody:
+        "Запусти в проекте god-mode-core dev-сервер через exec: `pnpm dev`. Если он уже поднят, не запускай второй раз и верни receipt предыдущего запуска.",
+      followupRun,
+      queueKey: "main",
+      resolvedQueue,
+      shouldSteer: false,
+      shouldFollowup: false,
+      isActive: false,
+      isStreaming: false,
+      typing: createMockTypingController(),
+      sessionCtx,
+      defaultModel: "anthropic/claude",
+      resolvedVerboseLevel: "off",
+      isNewSession: false,
+      blockStreamingEnabled: false,
+      resolvedBlockStreamingBreak: "message_end",
+      shouldInjectGroupIntro: false,
+      typingMode: "instant",
+    });
+    routingSpy.mockRestore();
+
+    expect(runEmbeddedPiAgentMock).not.toHaveBeenCalled();
+    expect(second).toMatchObject({
+      text: "Уже сделано: http://127.0.0.1:5173 (PID 4242)",
+    });
   });
 });
 

@@ -914,6 +914,204 @@ describe("planExecutionRecipe", () => {
     expect(plan.routingOutcome).toEqual({ kind: "matched", source: "ranked" });
   });
 
+  // P1.6.1: deliverable-driven credentials preflight.
+  // The default capability catalog no longer pins requiredEnv on
+  // needs_repo_execution; env requirements travel with the deliverable's
+  // `provider`/`integration` constraint.
+  it("does NOT clarify on plain exec/scaffold without a provider in deliverable.constraints", () => {
+    const scaffoldRecipe: ExecutionRecipe = {
+      id: "code_build_publish",
+      purpose: "Scaffold project structure",
+      summary: "Scaffold repository files from template.",
+      acceptedInputs: [{ type: "text", required: true }],
+      requiredCapabilities: ["needs_repo_execution"],
+      riskLevel: "medium",
+      allowedProfiles: ["developer"],
+    };
+    const credentialCatalog: CapabilityCatalogEntry[] = [
+      {
+        capability: {
+          id: "needs_repo_execution",
+          label: "Repo Execution Credentials Gate",
+          status: "available",
+          trusted: true,
+          // Intentionally NO requiredEnv — matches the bundled catalog after P1.6.1.
+        },
+        source: "catalog",
+        install: { method: "builtin" },
+      },
+    ];
+    const plan = planExecutionRecipe({
+      prompt: "Scaffold a fresh repo with README and CI",
+      contractFirst: true,
+      recipes: [scaffoldRecipe, getInitialRecipe("general_reasoning")!],
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo" },
+      },
+      taskRequiredCapabilities: ["needs_repo_execution"],
+      capabilityCatalog: credentialCatalog,
+      preflightEnvSnapshot: {},
+    });
+
+    expect(plan.recipe.id).toBe("code_build_publish");
+    expect(plan.routingOutcome).toEqual({ kind: "matched", source: "ranked" });
+    expect(plan.plannerOutput.reasoning).not.toContain("BYBIT_API_KEY");
+    expect(plan.plannerOutput.reasoning).not.toContain("TELEGRAM_API_HASH");
+    expect(plan.plannerOutput.reasoning).not.toContain("OPENAI_API_KEY");
+  });
+
+  it("clarifies when scaffold deliverable declares provider:bybit but BYBIT_API_KEY is missing", () => {
+    const scaffoldRecipe: ExecutionRecipe = {
+      id: "code_build_publish",
+      purpose: "Scaffold project structure",
+      summary: "Scaffold repository files from template.",
+      acceptedInputs: [{ type: "text", required: true }],
+      requiredCapabilities: ["needs_repo_execution"],
+      riskLevel: "medium",
+      allowedProfiles: ["developer"],
+    };
+    const credentialCatalog: CapabilityCatalogEntry[] = [
+      {
+        capability: {
+          id: "needs_repo_execution",
+          label: "Repo Execution Credentials Gate",
+          status: "available",
+          trusted: true,
+        },
+        source: "catalog",
+        install: { method: "builtin" },
+      },
+    ];
+    const plan = planExecutionRecipe({
+      prompt: "Scaffold a Bybit trading bot in this repo",
+      contractFirst: true,
+      recipes: [scaffoldRecipe, getInitialRecipe("general_reasoning")!],
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo", provider: "bybit" },
+      },
+      taskRequiredCapabilities: ["needs_repo_execution"],
+      capabilityCatalog: credentialCatalog,
+      preflightEnvSnapshot: {},
+    });
+
+    expect(plan.recipe.id).toBe("general_reasoning");
+    expect(plan.routingOutcome).toEqual({ kind: "low_confidence_clarify" });
+    expect(plan.plannerOutput.reasoning).toContain("BYBIT_API_KEY");
+  });
+
+  it("keeps scaffold execution when provider env is present (provider:openai with OPENAI_API_KEY set)", () => {
+    const scaffoldRecipe: ExecutionRecipe = {
+      id: "code_build_publish",
+      purpose: "Scaffold project structure",
+      summary: "Scaffold repository files from template.",
+      acceptedInputs: [{ type: "text", required: true }],
+      requiredCapabilities: ["needs_repo_execution"],
+      riskLevel: "medium",
+      allowedProfiles: ["developer"],
+    };
+    const credentialCatalog: CapabilityCatalogEntry[] = [
+      {
+        capability: {
+          id: "needs_repo_execution",
+          label: "Repo Execution Credentials Gate",
+          status: "available",
+          trusted: true,
+        },
+        source: "catalog",
+        install: { method: "builtin" },
+      },
+    ];
+    const plan = planExecutionRecipe({
+      prompt: "Scaffold an OpenAI-powered chatbot in this repo",
+      contractFirst: true,
+      recipes: [scaffoldRecipe, getInitialRecipe("general_reasoning")!],
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo", provider: "openai" },
+      },
+      taskRequiredCapabilities: ["needs_repo_execution"],
+      capabilityCatalog: credentialCatalog,
+      preflightEnvSnapshot: { OPENAI_API_KEY: "sk-set" },
+    });
+
+    expect(plan.recipe.id).toBe("code_build_publish");
+    expect(plan.routingOutcome).toEqual({ kind: "matched", source: "ranked" });
+  });
+
   describe("routingOutcome", () => {
     it("emits `matched:ranked` for a simple respond_only contract", () => {
       const plan = planExecutionRecipe({

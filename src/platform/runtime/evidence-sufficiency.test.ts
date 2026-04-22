@@ -337,6 +337,58 @@ describe("runtime evidence sufficiency", () => {
     expect(sufficiency.missingEvidence).toEqual([]);
   });
 
+  it("accepts exec-backed interactive local results from a successful exec receipt without confirmedActionCount", () => {
+    const executionIntent: PlatformRuntimeExecutionIntent = {
+      runId: "interactive-site-preview-exec-receipt",
+      intent: "code",
+      artifactKinds: ["site"],
+      deliverable: {
+        kind: "repo_operation",
+        acceptedFormats: ["exec"],
+        preferredFormat: "exec",
+        constraints: { operation: "run_command" },
+      },
+      requestedToolNames: ["exec"],
+      outcomeContract: "interactive_local_result",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      expectations: {},
+    };
+    const receipts: PlatformRuntimeExecutionReceipt[] = [
+      {
+        kind: "tool",
+        name: "exec",
+        status: "success",
+        proof: "reported",
+        summary: "dev server started",
+        metadata: {
+          exitCode: 0,
+          pid: 4242,
+          url: "http://127.0.0.1:3000",
+        },
+      },
+    ];
+
+    const sufficiency = isCompletionEvidenceSufficient({
+      executionIntent,
+      receipts,
+      evidence: {
+        hasOutput: true,
+      },
+      outcome: buildCompletedOutcome("interactive-site-preview-exec-receipt"),
+    });
+
+    expect(sufficiency.sufficient).toBe(true);
+    expect(sufficiency.requirements.outcomeContract).toBe("interactive_local_result");
+    expect(sufficiency.missingEvidence).toEqual([]);
+  });
+
   it("does not require capability_receipt for successful document artifacts when no bootstrap capability was declared", () => {
     const executionIntent: PlatformRuntimeExecutionIntent = {
       runId: "pdf-with-images-no-bootstrap",

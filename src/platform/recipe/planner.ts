@@ -17,6 +17,7 @@ import type { ExecutionRecipe, PlannerOutput } from "../schemas/index.js";
 import { PlannerOutputSchema } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
 import { getCurrentTurnProgressEmitter } from "../progress/progress-bus.js";
+import { collectMissingRequiredEnvForDeliverable } from "./credentials-preflight.js";
 import { INITIAL_RECIPES, getInitialRecipe } from "./defaults.js";
 
 const log = createSubsystemLogger("planner");
@@ -1162,16 +1163,28 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
   const emitter = getCurrentTurnProgressEmitter();
   emitter?.emit("planning");
   let plan = planExecutionRecipeCore(input);
-  if (
-    plan.routingOutcome.kind === "matched" &&
-    isScaffoldDeliverable(input.deliverable) &&
-    (input.taskRequiredCapabilities?.length ?? 0) > 0
-  ) {
-    const missingCredentials = collectMissingRequiredEnvForCapabilities({
+  if (plan.routingOutcome.kind === "matched" && isScaffoldDeliverable(input.deliverable)) {
+    // P1.6.1: env requirements come from two sources, unioned.
+    //   - Capabilities listed by the classifier — kept for back-compat with
+    //     any custom catalog that still pins `requiredEnv` on a capability
+    //     (the bundled `needs_repo_execution` no longer does).
+    //   - The deliverable's `provider`/`integration` constraint, resolved
+    //     through the provider→envKeys table in `credentials-preflight.ts`.
+    // The capability source no longer fires for plain exec/dev-server
+    // turns, so users only see a credentials clarification when there is
+    // an actual provider tag in the structured deliverable.
+    const capabilityMissing = collectMissingRequiredEnvForCapabilities({
       capabilityIds: input.taskRequiredCapabilities ?? [],
       capabilityCatalog: input.capabilityCatalog,
       envSnapshot: input.preflightEnvSnapshot,
     });
+    const deliverableMissing = collectMissingRequiredEnvForDeliverable({
+      deliverable: input.deliverable,
+      envSnapshot: input.preflightEnvSnapshot,
+    });
+    const missingCredentials = Array.from(
+      new Set([...capabilityMissing, ...deliverableMissing]),
+    ).toSorted();
     if (missingCredentials.length > 0) {
       plan = rewritePlanToCredentialClarification({
         input,

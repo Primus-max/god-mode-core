@@ -205,7 +205,75 @@ describe("classifyTaskForDecision", () => {
     expect(observedPrompts[2]).toContain("Do NOT ask again.");
   });
 
-  it("rewrites scaffold contracts to clarification when required credential env vars are missing", async () => {
+  // P1.6.1: env requirements are now attached to the deliverable's
+  // provider/integration constraint, not to the `needs_repo_execution`
+  // capability. The bundled catalog therefore no longer fires the gate
+  // for plain scaffold work — only when the classifier emits a known
+  // provider tag in `deliverable.constraints`.
+  it("rewrites scaffold contracts to clarification when deliverable.constraints.provider declares a known provider with missing env", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+    const classify: TaskClassifierAdapter["classify"] = async () => ({
+      primaryOutcome: "workspace_change",
+      requiredCapabilities: ["needs_repo_execution", "needs_workspace_mutation"],
+      interactionMode: "tool_execution",
+      confidence: 0.92,
+      ambiguities: [],
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch", "workspace"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo", provider: "bybit" },
+      },
+    });
+    vi.stubEnv("TELEGRAM_API_HASH", "");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("BYBIT_API_KEY", "");
+    try {
+      const classified = await classifyTaskForDecision({
+        prompt: "Сделай scaffold Bybit-бота с запуском.",
+        cfg,
+        adapterRegistry: {
+          "stub-backend": {
+            classify,
+          },
+        },
+      });
+
+      expect(classified.taskContract.primaryOutcome).toBe("clarification_needed");
+      expect(classified.taskContract.interactionMode).toBe("clarify_first");
+      expect(classified.taskContract.requiredCapabilities).toEqual([]);
+      expect(classified.taskContract.ambiguities).toEqual(
+        expect.arrayContaining(["missing_credentials: BYBIT_API_KEY"]),
+      );
+      expect(classified.plannerInput.executionContract).toEqual(
+        expect.objectContaining({
+          requiresTools: false,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+        }),
+      );
+      expect(classified.plannerInput.requestedTools ?? []).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  // P1.6.1 regression guard: a scaffold/exec contract that does NOT
+  // carry a provider tag must not be rewritten into a credentials
+  // clarification, even when env is empty. This is the symptom that
+  // P1.6.1 was introduced to fix (poems / pictures / `pnpm dev` /
+  // generic scaffold no longer ask for Bybit / OpenAI / Telegram keys).
+  it("does NOT rewrite scaffold contracts to clarification when deliverable carries no provider", async () => {
     const cfg = {
       agents: {
         defaults: {
@@ -235,7 +303,7 @@ describe("classifyTaskForDecision", () => {
     vi.stubEnv("BYBIT_API_KEY", "");
     try {
       const classified = await classifyTaskForDecision({
-        prompt: "Сделай scaffold Telegram-бота с запуском.",
+        prompt: "Scaffold a fresh repo with README and CI",
         cfg,
         adapterRegistry: {
           "stub-backend": {
@@ -244,24 +312,15 @@ describe("classifyTaskForDecision", () => {
         },
       });
 
-      expect(classified.taskContract.primaryOutcome).toBe("clarification_needed");
-      expect(classified.taskContract.interactionMode).toBe("clarify_first");
-      expect(classified.taskContract.requiredCapabilities).toEqual([]);
-      expect(classified.taskContract.ambiguities).toEqual(
-        expect.arrayContaining([
-          "missing_credentials: TELEGRAM_API_HASH",
-          "missing_credentials: OPENAI_API_KEY",
-          "missing_credentials: BYBIT_API_KEY",
-        ]),
+      expect(classified.taskContract.primaryOutcome).toBe("workspace_change");
+      expect(classified.taskContract.interactionMode).toBe("tool_execution");
+      expect(classified.taskContract.requiredCapabilities).toEqual(
+        expect.arrayContaining(["needs_repo_execution", "needs_workspace_mutation"]),
       );
-      expect(classified.plannerInput.executionContract).toEqual(
-        expect.objectContaining({
-          requiresTools: false,
-          requiresWorkspaceMutation: false,
-          requiresLocalProcess: false,
-        }),
-      );
-      expect(classified.plannerInput.requestedTools ?? []).toEqual([]);
+      const ambiguities = classified.taskContract.ambiguities ?? [];
+      for (const entry of ambiguities) {
+        expect(entry).not.toMatch(/^missing_credentials:/);
+      }
     } finally {
       vi.unstubAllEnvs();
     }
