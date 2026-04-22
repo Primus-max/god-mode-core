@@ -394,7 +394,7 @@ describe("buildRecipePlannerInputFromRuntimePlan", () => {
     expect(replay.fileNames).toEqual(["app.ts"]);
   });
 
-  it("preserves low-confidence clarification state across runtime replay", () => {
+  it("preserves respond-only qualification state across runtime replay", () => {
     const input = buildExecutionDecisionInput({
       prompt: "Ship it.",
     });
@@ -403,29 +403,27 @@ describe("buildRecipePlannerInputFromRuntimePlan", () => {
     const replay = buildRecipePlannerInputFromRuntimePlan(runtime, "continue");
 
     expect(replay.confidence).toBe("medium");
-    expect(replay.ambiguityReasons).toEqual([
-      "external operation is inferred without an explicit publish target",
-    ]);
-    expect(replay.lowConfidenceStrategy).toBe("clarify");
-    expect(replay.outcomeContract).toBe("external_operation");
-    expect(replay.requestedTools ?? []).toEqual(["exec", "apply_patch", "process"]);
+    expect(replay.ambiguityReasons).toBeUndefined();
+    expect(replay.lowConfidenceStrategy).toBeUndefined();
+    expect(replay.outcomeContract).toBe("text_response");
+    expect(replay.requestedTools ?? []).toEqual([]);
   });
 
-  it("keeps qualified publish semantics in runtime while switching clarify turns into follow-up mode", () => {
+  it("keeps prompt-only turns in respond-only runtime mode", () => {
     const input = buildExecutionDecisionInput({
       prompt: "Ship it.",
     });
     const resolved = resolvePlatformRuntimePlan(input);
 
-    expect(resolved.runtime.outcomeContract).toBe("external_operation");
+    expect(resolved.runtime.outcomeContract).toBe("text_response");
     expect(resolved.runtime.executionContract).toEqual(
       expect.objectContaining({
-        requiresTools: true,
-        requiresLocalProcess: true,
+        requiresTools: false,
+        requiresLocalProcess: false,
       }),
     );
-    expect(resolved.runtime.requestedToolNames).toEqual(["exec", "apply_patch", "process"]);
-    expect(resolved.runtime.prependSystemContext).toContain("Clarification path:");
+    expect(resolved.runtime.requestedToolNames).toBeUndefined();
+    expect(resolved.runtime.prependSystemContext).not.toContain("Clarification path:");
     expect(resolved.runtime.prependSystemContext).not.toContain(
       "must call image_generate before your first final answer",
     );

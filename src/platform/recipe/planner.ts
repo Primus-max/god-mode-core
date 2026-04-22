@@ -744,6 +744,7 @@ function buildRecipeScore(params: {
   const overlayId = profile.activeProfile.taskOverlay;
   const tools = new Set((input.requestedTools ?? []).map((value) => value.toLowerCase()));
   const artifactKinds = input.artifactKinds ?? [];
+  const fileNames = (input.fileNames ?? []).map((value) => value.toLowerCase());
   const bundles = new Set(input.resolutionContract?.toolBundles ?? []);
   const routing = input.routing ?? input.resolutionContract?.routing;
   const outcomeContract = input.outcomeContract;
@@ -752,6 +753,14 @@ function buildRecipeScore(params: {
   const hasCode = hasCodeArtifact(artifactKinds);
   const hasMedia = hasMediaArtifact(artifactKinds);
   const hasReportOrData = artifactKinds.some((kind) => kind === "report" || kind === "data");
+  const hasPdfFile = fileNames.some((name) => name.endsWith(".pdf"));
+  const hasTabularFile = fileNames.some(
+    (name) =>
+      name.endsWith(".csv") ||
+      name.endsWith(".xls") ||
+      name.endsWith(".xlsx") ||
+      name.endsWith(".ods"),
+  );
   const hasRepoMutation = bundles.has("repo_mutation");
   const hasRepoRun = bundles.has("repo_run");
   const hasDocumentExtraction = bundles.has("document_extraction");
@@ -812,6 +821,9 @@ function buildRecipeScore(params: {
     }
     if (hasDocument) {
       score += 0.9;
+    }
+    if (hasPdfFile) {
+      score += 1.8;
     }
     if (hasDocumentExtraction) {
       score += 2;
@@ -924,6 +936,12 @@ function buildRecipeScore(params: {
     }
     if (hasReportOrData) {
       score += 1.4;
+    }
+    if (hasTabularFile) {
+      score += 1.4;
+    }
+    if (hasPdfFile && !hasTabularFile) {
+      score -= 2.2;
     }
     if (!executionContract?.requiresArtifactEvidence) {
       score += 0.5;

@@ -155,6 +155,7 @@ entities.json
 # Local runtime logs and artifacts (never commit)
 .gateway-dev.log
 .gateway-dev.err.log
+.live-smoke*.out
 .ui-dev.log
 .ui-dev.err.log
 .artifacts/

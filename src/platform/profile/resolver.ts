@@ -17,7 +17,7 @@ import {
   resolveTaskOverlay,
   type EffectiveProfilePreference,
 } from "./overlay.js";
-import type { ProfileSignalInput } from "./signals.js";
+import { extractProfileSignals, type ProfileSignalInput } from "./signals.js";
 
 export type ProfileResolverInput = ProfileSignalInput & {
   baseProfile?: ProfileId;
@@ -155,7 +155,17 @@ function extractProfileSignalsFromContracts(input: ProfileResolverInput): Profil
     pushSignal(signals, "general", 1, "respond-only text contract selected");
   }
   if (signals.length === 0) {
-    pushSignal(signals, "general", 0.2, "default general profile");
+    const hasContractSignals =
+      Boolean(input.outcomeContract) ||
+      Boolean(input.executionContract) ||
+      (input.resolutionContract?.toolBundles?.length ?? 0) > 0 ||
+      (input.candidateFamilies?.length ?? 0) > 0 ||
+      (input.resolutionContract?.candidateFamilies?.length ?? 0) > 0;
+    if (hasContractSignals) {
+      pushSignal(signals, "general", 0.2, "default general profile");
+    } else {
+      return extractProfileSignals(input);
+    }
   }
   return signals;
 }
