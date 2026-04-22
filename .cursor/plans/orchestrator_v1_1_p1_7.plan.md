@@ -154,7 +154,7 @@ storage` городить НЕ нужно — это было бы прямым 
 | ------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `src/cron/service*.ts`                            | persistent cron + таймеры + рестарт-catchup                                     | ничего — используем как есть                                                      |
 | `src/agents/tools/cron-tool.ts`                   | agent-tool `add/list/remove/run/...`, REMINDER_CONTEXT_* константы              | ничего — это и есть scheduler для reminder'ов                                     |
-| `src/auto-reply/reply/agent-runner-reminder-guard.ts` | guard приписывает note про незапланированный reminder                        | regex'ы только английские (`i'll remind`, `set a reminder`); RU-вариант не ловится |
+| `src/auto-reply/reply/agent-runner-reminder-guard.ts` | defensive guard: дописывает note, когда модель пообещала reminder без cron-job | **не трогаем** — после фикса classifier'а cron-job создастся и guard не сработает |
 | `src/agents/pi-tools.policy.ts`, `system-prompt.ts` | tool `cron` (имя строго `cron`, не `cron-tool`) уже в allow-листе и в prompt'е | ничего — доступен из коробки                                                      |
 | classifier `pi-simple/hydra/gpt-5-mini`           | `respond_only` / `tool_execution` / `clarify_first`                             | **routing fix**: «напомни …» → `tool_execution` + `requestedTools=["cron"]`, **не** `external_delivery` |
 
@@ -173,17 +173,14 @@ storage` городить НЕ нужно — это было бы прямым 
    в текущий канал».
 3. Tool `cron` уже в `pi-tools.policy.ts` и `system-prompt.ts` — ничего
    расширять не нужно.
-4. Расширить regex'ы в `agent-runner-reminder-guard.ts` русским
-   вариантом («не могу поставить напоминание / нет планировщика /
-   нет интеграции … напоминан…»), чтобы guard приписывал
-   `UNSCHEDULED_REMINDER_NOTE` и при русских галлюцинациях. Это не
-   решает корневую причину (она в classifier), но защищает от
-   будущих рецидивов.
+4. **Reminder-guard НЕ трогаем.** Это defensive fallback на случай, когда
+   модель пообещала reminder, но не вызвала cron. После фикса classifier'а
+   cron-job будет создаваться → обещание становится «backed» → guard
+   вообще не срабатывает. Расширять его RU-regex'ами — плодить пластырь,
+   который не нужен после корневого фикса (по духу §4 п.1 «zero parsing»).
 5. Unit-кейс в `task-classifier.test.ts` на «напомни завтра
    в чат пообедать» → ожидаем `tool_execution` + `requestedTools=["cron"]`.
-6. Unit-кейс в `agent-runner-reminder-guard.test.ts` (если нет — рядом
-   с существующими тестами guard'а) на RU-вариант галлюцинации.
-7. Live сценарий `21-reminder-via-cron` в `scripts/live-routing-smoke.mjs`:
+6. Live сценарий `21-reminder-via-cron` в `scripts/live-routing-smoke.mjs`:
    user → «напомни через 30 секунд тестовое сообщение» → бот сам
    вызывает `cron action=add` → через 30s приходит сообщение в
    тот же канал.
@@ -193,21 +190,15 @@ storage` городить НЕ нужно — это было бы прямым 
 - Unit: `task-classifier.test.ts` — reminder-кейс уходит в
   `tool_execution` + `requestedTools=["cron"]`, не в `external_delivery`.
   Никакого нового vocabulary.
-- Unit: `agent-runner-reminder-guard.test.ts` — RU-галлюцинация
-  «не могу поставить напоминание / нет планировщика» получает
-  `UNSCHEDULED_REMINDER_NOTE`.
 - Live: `21-reminder-via-cron` PASS (один real cron-job, одно сообщение
   в чат через окно, без галлюцинации «нет планировщика»).
 - Код: нулевой объём новой инфраструктуры. Только classifier-prompt +
-  regex в reminder-guard + тесты + live-сценарий.
+  один unit-кейс + один live-сценарий. Reminder-guard не трогается.
 
 ### Файлы (ожидаемо)
 
 - `src/platform/decision/task-classifier.ts` — guidance в prompt.
-- `src/auto-reply/reply/agent-runner-reminder-guard.ts` — расширить
-  `REMINDER_COMMITMENT_PATTERNS` русскими вариантами.
 - `src/platform/decision/task-classifier.test.ts` — reminder-кейс.
-- `src/auto-reply/reply/agent-runner-reminder-guard.test.ts` — RU-кейс.
 - `scripts/live-routing-smoke.mjs` — `21-reminder-via-cron`.
 
 ### Координация с P1.7-D
