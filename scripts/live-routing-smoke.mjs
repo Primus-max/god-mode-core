@@ -181,6 +181,16 @@ const SCENARIOS = [
       kind: "identity_aware_recall",
     },
   },
+  {
+    id: "19-credentials-preflight",
+    message:
+      "Сделай scaffold нового Telegram-бота в этом репозитории: создай структуру проекта, package.json, точку входа и команду запуска. Если для запуска нужны обязательные ключи окружения, сначала запроси их явно.",
+    expect: {
+      kind: "credentials_preflight_clarify",
+      missingKeysAny: ["TELEGRAM_API_HASH", "BYBIT_API_KEY", "OPENAI_API_KEY"],
+      forbiddenTools: ["exec", "apply_patch"],
+    },
+  },
 ];
 
 const MAGIC_RULES = [
@@ -1063,6 +1073,43 @@ async function evaluate(result) {
       notes.push(
         `expected web_search tool_call OR clarification mentioning web_search; got finalState=${String(finalState)} kind=${String(finalKind)}`,
       );
+    }
+  } else if (scenario.expect.kind === "credentials_preflight_clarify") {
+    const finalState = result.finalEvent?.payload?.state ?? null;
+    const finalKind = result.finalEvent?.payload?.outcome?.kind ?? result.finalEvent?.payload?.kind ?? null;
+    const ambiguities = Array.isArray(result.finalEvent?.payload?.outcome?.ambiguities)
+      ? result.finalEvent.payload.outcome.ambiguities.join(" | ")
+      : "";
+    const missingKeysAny = Array.isArray(scenario.expect.missingKeysAny)
+      ? scenario.expect.missingKeysAny.map((value) => String(value).trim()).filter(Boolean)
+      : [];
+    const forbiddenTools = scenario.expect.forbiddenTools ?? ["exec", "apply_patch"];
+    const usedForbiddenTool = toolCalls.some((call) => forbiddenTools.includes(String(call.name ?? "")));
+    const combinedText = [assistantText, ambiguities].join("\n").toLowerCase();
+    const mentionsMissingKey =
+      missingKeysAny.length > 0
+        ? missingKeysAny.some((key) => combinedText.includes(key.toLowerCase()))
+        : /missing_credentials/i.test(combinedText);
+    const isClarification =
+      finalKind === "clarification_needed" ||
+      finalState === "needs_clarification" ||
+      /уточн|clarif/i.test(assistantText.toLowerCase());
+    pass = isClarification && mentionsMissingKey && !usedForbiddenTool;
+    if (!isClarification) {
+      notes.push(`expected clarification state, got finalState=${String(finalState)} kind=${String(finalKind)}`);
+    }
+    if (!mentionsMissingKey) {
+      notes.push(
+        missingKeysAny.length > 0
+          ? `none of missing keys [${missingKeysAny.join(", ")}] were mentioned in response/ambiguities`
+          : "missing credentials were not mentioned in response/ambiguities",
+      );
+    }
+    if (usedForbiddenTool) {
+      notes.push(`forbidden tool used: ${forbiddenTools.join(",")}`);
+    }
+    if (isClarification && mentionsMissingKey && !usedForbiddenTool) {
+      notes.push("clarification mentions missing credential key");
     }
   } else {
     const formats = scenario.expect.formats ?? [];

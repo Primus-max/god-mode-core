@@ -6,13 +6,17 @@ import { resolveModelAsync } from "../../agents/pi-embedded-runner/model.js";
 import { prepareModelForSimpleCompletion } from "../../agents/simple-completion-transport.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import {
   DeliverableKindSchema,
   resolveProducer,
   type DeliverableKind,
   type DeliverableSpec,
 } from "../produce/registry.js";
-import type { RecipePlannerInput } from "../recipe/planner.js";
+import {
+  collectMissingRequiredEnvForCapabilities,
+  type RecipePlannerInput,
+} from "../recipe/planner.js";
 import { inferRequestedEvidence } from "./execution-contract.js";
 import type { BuildExecutionDecisionInputParams } from "./input.js";
 import type { CandidateExecutionFamily } from "./qualification-contract.js";
@@ -687,6 +691,53 @@ function buildFailClosedTaskContract(reason: string): TaskContract {
   };
 }
 
+function isScaffoldContract(contract: TaskContract): boolean {
+  if (contract.primaryOutcome !== "workspace_change") {
+    return false;
+  }
+  if (contract.deliverable?.kind !== "code_change") {
+    return false;
+  }
+  const operation = contract.deliverable.constraints?.operation;
+  return typeof operation === "string" && operation === "scaffold_repo";
+}
+
+function rewriteTaskContractAsCredentialClarification(params: {
+  contract: TaskContract;
+  missingCredentials: string[];
+}): TaskContract {
+  return {
+    primaryOutcome: "clarification_needed",
+    interactionMode: "clarify_first",
+    requiredCapabilities: [],
+    confidence: Math.min(params.contract.confidence, 0.5),
+    ambiguities: normalizeUnique([
+      ...params.contract.ambiguities,
+      ...params.missingCredentials.map((envName) => `missing_credentials: ${envName}`),
+    ]),
+  };
+}
+
+function applyCredentialsPreflight(params: {
+  contract: TaskContract;
+}): TaskContract {
+  if (!isScaffoldContract(params.contract)) {
+    return params.contract;
+  }
+  const missingCredentials = collectMissingRequiredEnvForCapabilities({
+    capabilityIds: params.contract.requiredCapabilities,
+    capabilityCatalog: TRUSTED_CAPABILITY_CATALOG,
+    envSnapshot: process.env,
+  });
+  if (missingCredentials.length === 0) {
+    return params.contract;
+  }
+  return rewriteTaskContractAsCredentialClarification({
+    contract: params.contract,
+    missingCredentials,
+  });
+}
+
 function taskContractConfidenceToQualification(confidence: number): QualificationConfidence {
   if (confidence >= 0.8) {
     return "high";
@@ -950,6 +1001,7 @@ export function buildPlannerInputFromTaskContract(params: {
     executionContract: bridge.executionContract,
     requestedEvidence: inferRequestedEvidence(bridge.outcomeContract, bridge.executionContract),
     confidence,
+    taskRequiredCapabilities: [...params.taskContract.requiredCapabilities],
     ...(ambiguityReasons.length > 0 ? { ambiguityReasons } : {}),
     ...(lowConfidenceStrategy ? { lowConfidenceStrategy } : {}),
     candidateFamilies: [...resolutionContract.candidateFamilies],
@@ -1214,32 +1266,35 @@ export async function classifyTaskForDecision(params: {
       });
       if (classified) {
         const normalizedContract = normalizeTaskContract(classified);
+        const preflightAdjustedContract = applyCredentialsPreflight({
+          contract: normalizedContract,
+        });
         const classifierTelemetry: import("../recipe/planner.js").ClassifierTelemetry = {
           source: "llm",
           backend: classifierConfig.backend,
           model: classifierConfig.model,
-          primaryOutcome: normalizedContract.primaryOutcome,
-          interactionMode: normalizedContract.interactionMode,
-          confidence: normalizedContract.confidence,
-          ...(normalizedContract.deliverable?.kind
-            ? { deliverableKind: normalizedContract.deliverable.kind }
+          primaryOutcome: preflightAdjustedContract.primaryOutcome,
+          interactionMode: preflightAdjustedContract.interactionMode,
+          confidence: preflightAdjustedContract.confidence,
+          ...(preflightAdjustedContract.deliverable?.kind
+            ? { deliverableKind: preflightAdjustedContract.deliverable.kind }
             : {}),
-          ...(normalizedContract.deliverable?.acceptedFormats?.length
-            ? { deliverableFormats: [...normalizedContract.deliverable.acceptedFormats] }
+          ...(preflightAdjustedContract.deliverable?.acceptedFormats?.length
+            ? { deliverableFormats: [...preflightAdjustedContract.deliverable.acceptedFormats] }
             : {}),
         };
         const plannerInput = buildPlannerInputFromTaskContract({
           prompt: params.prompt,
           fileNames: params.fileNames,
-          taskContract: normalizedContract,
+          taskContract: preflightAdjustedContract,
           classifierTelemetry,
         });
         log.info(
-          `classified: backend=${classifierConfig.backend} model=${classifierConfig.model} outcome=${normalizedContract.primaryOutcome} mode=${normalizedContract.interactionMode} conf=${normalizedContract.confidence} deliverable=${normalizedContract.deliverable?.kind ?? "n/a"}/${(normalizedContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${normalizedContract.requiredCapabilities.join(",")}] ambig=[${normalizedContract.ambiguities.join(" | ")}]`,
+          `classified: backend=${classifierConfig.backend} model=${classifierConfig.model} outcome=${preflightAdjustedContract.primaryOutcome} mode=${preflightAdjustedContract.interactionMode} conf=${preflightAdjustedContract.confidence} deliverable=${preflightAdjustedContract.deliverable?.kind ?? "n/a"}/${(preflightAdjustedContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${preflightAdjustedContract.requiredCapabilities.join(",")}] ambig=[${preflightAdjustedContract.ambiguities.join(" | ")}]`,
         );
         return {
           source: "llm",
-          taskContract: normalizedContract,
+          taskContract: preflightAdjustedContract,
           plannerInput,
           resolutionContract: plannerInput.resolutionContract!,
           candidateFamilies: plannerInput.candidateFamilies ?? [],

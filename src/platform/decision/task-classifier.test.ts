@@ -205,6 +205,68 @@ describe("classifyTaskForDecision", () => {
     expect(observedPrompts[2]).toContain("Do NOT ask again.");
   });
 
+  it("rewrites scaffold contracts to clarification when required credential env vars are missing", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+    const classify: TaskClassifierAdapter["classify"] = async () => ({
+      primaryOutcome: "workspace_change",
+      requiredCapabilities: ["needs_repo_execution", "needs_workspace_mutation"],
+      interactionMode: "tool_execution",
+      confidence: 0.92,
+      ambiguities: [],
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch", "workspace"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo" },
+      },
+    });
+    vi.stubEnv("TELEGRAM_API_HASH", "");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("BYBIT_API_KEY", "");
+    try {
+      const classified = await classifyTaskForDecision({
+        prompt: "Сделай scaffold Telegram-бота с запуском.",
+        cfg,
+        adapterRegistry: {
+          "stub-backend": {
+            classify,
+          },
+        },
+      });
+
+      expect(classified.taskContract.primaryOutcome).toBe("clarification_needed");
+      expect(classified.taskContract.interactionMode).toBe("clarify_first");
+      expect(classified.taskContract.requiredCapabilities).toEqual([]);
+      expect(classified.taskContract.ambiguities).toEqual(
+        expect.arrayContaining([
+          "missing_credentials: TELEGRAM_API_HASH",
+          "missing_credentials: OPENAI_API_KEY",
+          "missing_credentials: BYBIT_API_KEY",
+        ]),
+      );
+      expect(classified.plannerInput.executionContract).toEqual(
+        expect.objectContaining({
+          requiresTools: false,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+        }),
+      );
+      expect(classified.plannerInput.requestedTools ?? []).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("routes through a replaceable configured backend adapter", async () => {
     const classify = vi.fn<TaskClassifierAdapter["classify"]>().mockResolvedValue({
       primaryOutcome: "comparison_report",

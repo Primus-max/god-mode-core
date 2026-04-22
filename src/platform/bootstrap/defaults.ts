@@ -128,4 +128,18 @@ export const TRUSTED_CAPABILITY_CATALOG: CapabilityCatalogEntry[] = [
       rollbackStrategy: "restore_previous",
     },
   },
+  {
+    capability: {
+      id: "needs_repo_execution",
+      label: "Repo Execution Credentials Gate",
+      status: "available",
+      trusted: true,
+      requiredEnv: ["TELEGRAM_API_HASH", "OPENAI_API_KEY", "BYBIT_API_KEY"],
+      tags: ["routing", "credentials", "scaffold"],
+    },
+    source: "catalog",
+    install: {
+      method: "builtin",
+    },
+  },
 ];

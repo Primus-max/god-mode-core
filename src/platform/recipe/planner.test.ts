@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { getInitialRecipe } from "./defaults.js";
 import { planExecutionRecipe } from "./planner.js";
+import type { CapabilityCatalogEntry } from "../schemas/capability.js";
+import type { ExecutionRecipe } from "../schemas/recipe.js";
 
 describe("planExecutionRecipe", () => {
   it("selects doc_ingest from document extraction contract fields", () => {
@@ -781,6 +783,135 @@ describe("planExecutionRecipe", () => {
     expect(plan.plannerOutput.reasoning).toContain(
       "external operation is inferred without an explicit publish target",
     );
+  });
+
+  it("fails closed to clarification when scaffold capability credentials are missing", () => {
+    const scaffoldRecipe: ExecutionRecipe = {
+      id: "code_build_publish",
+      purpose: "Scaffold project structure",
+      summary: "Scaffold repository files from template.",
+      acceptedInputs: [{ type: "text", required: true }],
+      requiredCapabilities: ["needs_repo_execution"],
+      riskLevel: "medium",
+      allowedProfiles: ["developer"],
+    };
+    const credentialCatalog: CapabilityCatalogEntry[] = [
+      {
+        capability: {
+          id: "needs_repo_execution",
+          label: "Repo Execution Credentials Gate",
+          status: "available",
+          trusted: true,
+          requiredEnv: ["TELEGRAM_API_HASH"],
+        },
+        source: "catalog",
+        install: { method: "builtin" },
+      },
+    ];
+    const plan = planExecutionRecipe({
+      prompt: "Сделай scaffold для telegram-бота в этом репозитории.",
+      contractFirst: true,
+      recipes: [scaffoldRecipe, getInitialRecipe("general_reasoning")!],
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo" },
+      },
+      taskRequiredCapabilities: ["needs_repo_execution"],
+      capabilityCatalog: credentialCatalog,
+      preflightEnvSnapshot: {},
+    });
+
+    expect(plan.recipe.id).toBe("general_reasoning");
+    expect(plan.routingOutcome).toEqual({ kind: "low_confidence_clarify" });
+    expect(plan.plannerOutput.reasoning).toContain("TELEGRAM_API_HASH");
+  });
+
+  it("keeps scaffold execution when required credential env is present", () => {
+    const scaffoldRecipe: ExecutionRecipe = {
+      id: "code_build_publish",
+      purpose: "Scaffold project structure",
+      summary: "Scaffold repository files from template.",
+      acceptedInputs: [{ type: "text", required: true }],
+      requiredCapabilities: ["needs_repo_execution"],
+      riskLevel: "medium",
+      allowedProfiles: ["developer"],
+    };
+    const credentialCatalog: CapabilityCatalogEntry[] = [
+      {
+        capability: {
+          id: "needs_repo_execution",
+          label: "Repo Execution Credentials Gate",
+          status: "available",
+          trusted: true,
+          requiredEnv: ["TELEGRAM_API_HASH"],
+        },
+        source: "catalog",
+        install: { method: "builtin" },
+      },
+    ];
+    const plan = planExecutionRecipe({
+      prompt: "Сделай scaffold для telegram-бота в этом репозитории.",
+      contractFirst: true,
+      recipes: [scaffoldRecipe, getInitialRecipe("general_reasoning")!],
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo" },
+      },
+      taskRequiredCapabilities: ["needs_repo_execution"],
+      capabilityCatalog: credentialCatalog,
+      preflightEnvSnapshot: { TELEGRAM_API_HASH: "set" },
+    });
+
+    expect(plan.recipe.id).toBe("code_build_publish");
+    expect(plan.routingOutcome).toEqual({ kind: "matched", source: "ranked" });
   });
 
   describe("routingOutcome", () => {

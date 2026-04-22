@@ -1,7 +1,7 @@
 # Orchestrator v1.1 — P1 (kinds + credentials preflight)
 
 **Мастер-план:** `orchestrator_v1_1_master.plan.md`.
-**Статус:** IN_PROGRESS (P1.3 ✅, P1.2 PENDING, P1.1 PENDING — 2026-04-20).
+**Статус:** IN_PROGRESS (P1.3 ✅, P1.2 ✅, P1.1 PENDING — 2026-04-22).
 **Зависимости:** P0 закрыт.
 
 ---
@@ -57,7 +57,7 @@
 
 ---
 
-### P1.2 — `ensureCredentials()` preflight [ ]
+### P1.2 — `ensureCredentials()` preflight [x] (2026-04-22)
 
 **Что.** Перед запуском любого deliverable, требующего внешних креденшалов
 (`TELEGRAM_API_HASH`, `BYBIT_API_KEY`, `OPENAI_API_KEY` etc.), оркестратор проверяет
@@ -202,3 +202,11 @@
   в `task-classifier.test.ts`. P1.2 и P1.1 остаются pending. Изменённые файлы:
   `src/platform/decision/task-classifier.ts`,
   `src/platform/decision/task-classifier.test.ts`.
+- 2026-04-22 — P1.2 закрыт. Добавлен credential preflight для scaffold-turn:
+  `Trusted_Capability_Catalog` расширен capability `needs_repo_execution` с
+  `requiredEnv`, planner получил preflight guard по `deliverable.constraints.operation=scaffold_repo`
+  (missing env ⇒ fail-closed в clarification), а classifier/runtime переписывает
+  `TaskContract` в `clarification_needed` с `missing_credentials:*` и инвариантом
+  clarify=`respond_only` (`requestedTools=[]`, `requiresTools=false`). Добавлены unit-тесты
+  в `src/platform/recipe/planner.test.ts` (env missing/present) и live smoke
+  сценарий `19-credentials-preflight` в `scripts/live-routing-smoke.mjs`.

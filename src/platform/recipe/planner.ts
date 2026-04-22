@@ -7,6 +7,7 @@ import type {
   QualificationLowConfidenceStrategy,
   RequestedEvidenceKind,
 } from "../decision/qualification-contract.js";
+import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import {
   resolveProfile,
   type ProfileResolution,
@@ -103,6 +104,7 @@ import {
   hasMediaArtifact,
   selectExecutionFamily,
 } from "./family-selector.js";
+import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 
 /**
  * Diagnostic snapshot of how the classifier described the turn. Stored on the
@@ -205,6 +207,9 @@ export type RecipePlannerInput = ProfileResolverInput & {
   recipes?: ExecutionRecipe[];
   routing?: RecipeRoutingHints;
   deliverable?: DeliverableSpec;
+  taskRequiredCapabilities?: string[];
+  capabilityCatalog?: CapabilityCatalogEntry[];
+  preflightEnvSnapshot?: NodeJS.ProcessEnv;
   classifierTelemetry?: ClassifierTelemetry;
   /**
    * Diagnostic-only: human-readable tag identifying which call site produced this
@@ -213,6 +218,72 @@ export type RecipePlannerInput = ProfileResolverInput & {
    */
   callerTag?: string;
 };
+
+function isScaffoldDeliverable(deliverable?: DeliverableSpec): boolean {
+  if (deliverable?.kind !== "code_change") {
+    return false;
+  }
+  const operation = deliverable.constraints?.operation;
+  return typeof operation === "string" && operation === "scaffold_repo";
+}
+
+export function collectMissingRequiredEnvForCapabilities(params: {
+  capabilityIds: string[];
+  capabilityCatalog?: CapabilityCatalogEntry[];
+  envSnapshot?: NodeJS.ProcessEnv;
+}): string[] {
+  if (params.capabilityIds.length === 0) {
+    return [];
+  }
+  const catalog = params.capabilityCatalog ?? TRUSTED_CAPABILITY_CATALOG;
+  const env = params.envSnapshot ?? process.env;
+  const missing = new Set<string>();
+  const byId = new Map(catalog.map((entry) => [entry.capability.id, entry]));
+  for (const capabilityId of params.capabilityIds) {
+    const requiredEnv = byId.get(capabilityId)?.capability.requiredEnv ?? [];
+    for (const envName of requiredEnv) {
+      const value = env[envName];
+      if (typeof value !== "string" || value.trim().length === 0) {
+        missing.add(envName);
+      }
+    }
+  }
+  return Array.from(missing).toSorted();
+}
+
+function rewritePlanToCredentialClarification(params: {
+  input: RecipePlannerInput;
+  basePlan: ExecutionPlan;
+  missingCredentials: string[];
+}): ExecutionPlan {
+  const selectedRecipe = getInitialRecipe("general_reasoning") ?? INITIAL_RECIPES[0];
+  const selectedModelOverride = resolvePlannerModelOverride({
+    recipe: selectedRecipe,
+    profile: params.basePlan.profile,
+  });
+  const plannerOutput = PlannerOutputSchema.parse({
+    selectedRecipeId: selectedRecipe.id,
+    reasoning: [
+      "Credentials preflight blocked scaffold execution before tool calls.",
+      `Missing required environment variables: ${params.missingCredentials.join(", ")}.`,
+      "Failing closed to clarification (respond-only invariant).",
+      params.input.confidence ? `Qualification confidence: ${params.input.confidence}.` : undefined,
+      params.input.ambiguityReasons?.length
+        ? `Ambiguity: ${params.input.ambiguityReasons.join("; ")}.`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(" "),
+    ...(selectedModelOverride ? { overrides: { model: selectedModelOverride } } : {}),
+  });
+  return {
+    profile: params.basePlan.profile,
+    recipe: selectedRecipe,
+    plannerOutput,
+    candidateRecipes: params.basePlan.candidateRecipes,
+    routingOutcome: { kind: "low_confidence_clarify" },
+  };
+}
 
 export type ExecutionPlan = {
   profile: ProfileResolution;
@@ -1072,7 +1143,25 @@ function resolvePlannerModelOverride(params: {
 export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
   const emitter = getCurrentTurnProgressEmitter();
   emitter?.emit("planning");
-  const plan = planExecutionRecipeCore(input);
+  let plan = planExecutionRecipeCore(input);
+  if (
+    plan.routingOutcome.kind === "matched" &&
+    isScaffoldDeliverable(input.deliverable) &&
+    (input.taskRequiredCapabilities?.length ?? 0) > 0
+  ) {
+    const missingCredentials = collectMissingRequiredEnvForCapabilities({
+      capabilityIds: input.taskRequiredCapabilities ?? [],
+      capabilityCatalog: input.capabilityCatalog,
+      envSnapshot: input.preflightEnvSnapshot,
+    });
+    if (missingCredentials.length > 0) {
+      plan = rewritePlanToCredentialClarification({
+        input,
+        basePlan: plan,
+        missingCredentials,
+      });
+    }
+  }
   const estimatedDurationMs = estimateRecipeDurationMs({
     recipe: plan.recipe,
     requestedTools: input.requestedTools,
