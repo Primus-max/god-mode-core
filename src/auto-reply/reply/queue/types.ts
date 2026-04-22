@@ -6,7 +6,14 @@ import type { InputProvenance } from "../../../sessions/input-provenance.js";
 import type { OriginatingChannelType } from "../../templating.js";
 import type { ElevatedLevel, ReasoningLevel, ThinkLevel, VerboseLevel } from "../directives.js";
 
-export type QueueMode = "steer" | "followup" | "collect" | "steer-backlog" | "interrupt" | "queue";
+export type QueueMode =
+  | "steer"
+  | "followup"
+  | "collect"
+  | "steer-backlog"
+  | "interrupt"
+  | "queue"
+  | "deferred_job";
 
 export type QueueDropPolicy = "old" | "new" | "summarize";
 

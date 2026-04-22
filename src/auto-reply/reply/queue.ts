@@ -9,11 +9,16 @@ export {
 } from "./queue/enqueue.js";
 export { resolveQueueSettings } from "./queue/settings.js";
 export {
+  clearDeferredJob,
   clearFollowupQueue,
+  isDeferredJobRunningForQueue,
   listExistingFollowupQueues,
+  markDeferredJobComplete,
+  markDeferredJobRunning,
   resetInMemoryFollowupQueuesForTests,
   resetPersistedFollowupQueuesForTests,
 } from "./queue/state.js";
+export type { DeferredJobState, DeferredJobStatus } from "./queue/state.js";
 export type {
   FollowupAutomationMetadata,
   FollowupRun,

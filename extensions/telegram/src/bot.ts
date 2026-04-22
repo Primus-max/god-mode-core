@@ -46,7 +46,7 @@ import {
 } from "./progress-adapter.js";
 import type { ProgressBus } from "openclaw/plugin-sdk/progress";
 import { parseTelegramTarget } from "./targets.js";
-import { loadCombinedSessionStoreForGateway } from "../../../src/gateway/session-utils.js";
+import { loadCombinedSessionStoreForGateway } from "openclaw/plugin-sdk/gateway-runtime";
 
 export type TelegramBotOptions = {
   token: string;

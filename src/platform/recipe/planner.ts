@@ -225,7 +225,127 @@ export type ExecutionPlan = {
    * `matched` is the only kind that represents a satisfied contract.
    */
   routingOutcome: RoutingOutcome;
+  /**
+   * Heuristic upper-bound estimate of how long the run will take, in
+   * milliseconds. Derived without LLM calls from recipe metadata (required
+   * capabilities, requested tools, recipe.timeoutSeconds). Consumed by the
+   * ack-then-defer dispatcher (P1.4 D.2) to decide whether the user should
+   * receive an immediate ack frame while the heavy work runs as a bg-job.
+   * Filled by {@link planExecutionRecipe}; internal callers should treat
+   * `undefined` as "not yet computed".
+   */
+  estimatedDurationMs?: number;
+  /**
+   * True when the planner decided this run should receive an immediate ack
+   * and be dispatched as a deferred bg-job. Activated when
+   * `estimatedDurationMs > OPENCLAW_ACK_DEFER_MS` (default 3000) or when the
+   * selected recipe declares `capability_install` as a required capability.
+   * Only present on matched routing outcomes.
+   */
+  ackThenDefer?: boolean;
 };
+
+export const DEFAULT_ACK_DEFER_THRESHOLD_MS = 3_000;
+export const ACK_DEFER_THRESHOLD_ENV = "OPENCLAW_ACK_DEFER_MS";
+
+/**
+ * Non-LLM heuristic hints that mark a run as long-running even when
+ * `estimatedDurationMs` would otherwise slot under the threshold.
+ * - `capability_install` requested tool / required capability:
+ *   bootstrap flows install deps, typically take >3s.
+ * - Any tool in the `LONG_RUN_TOOL_HINTS` set below.
+ */
+const LONG_RUN_CAPABILITY_HINTS = new Set<string>([
+  "capability_install",
+  "bootstrap",
+]);
+
+const LONG_RUN_TOOL_HINTS = new Set<string>([
+  "capability_install",
+]);
+
+export function resolveAckDeferThresholdMs(envSnapshot: NodeJS.ProcessEnv = process.env): number {
+  const raw = envSnapshot[ACK_DEFER_THRESHOLD_ENV];
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    const parsed = Number.parseInt(raw.trim(), 10);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+  return DEFAULT_ACK_DEFER_THRESHOLD_MS;
+}
+
+function recipeHasLongRunningCapability(recipe: ExecutionRecipe): boolean {
+  const capabilities = recipe.requiredCapabilities ?? [];
+  for (const capability of capabilities) {
+    if (typeof capability === "string" && LONG_RUN_CAPABILITY_HINTS.has(capability)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function requestedToolsIncludeLongRunning(requestedTools?: string[]): boolean {
+  if (!requestedTools?.length) {
+    return false;
+  }
+  for (const tool of requestedTools) {
+    if (typeof tool !== "string") {
+      continue;
+    }
+    if (LONG_RUN_TOOL_HINTS.has(tool.trim().toLowerCase())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Heuristic duration estimate for a turn based on recipe metadata and
+ * planner-declared requested tools. NOTE: This is a non-LLM upper-bound —
+ * intentionally coarse. It exists purely to feed the ack-then-defer
+ * decision. Never treat it as a real runtime budget.
+ *
+ * We intentionally do NOT use `recipe.timeoutSeconds` as a duration proxy:
+ * that value is a safety ceiling (e.g. 90s for general_reasoning) and would
+ * force nearly every turn above the 3s defer threshold.
+ */
+export function estimateRecipeDurationMs(params: {
+  recipe: ExecutionRecipe;
+  requestedTools?: string[];
+}): number {
+  const { recipe, requestedTools } = params;
+  if (recipeHasLongRunningCapability(recipe) || requestedToolsIncludeLongRunning(requestedTools)) {
+    return 8_000;
+  }
+  const tools = new Set((requestedTools ?? []).map((tool) => tool.toLowerCase()));
+  if (tools.has("exec") || tools.has("process")) {
+    return 5_000;
+  }
+  if (tools.has("apply_patch") || tools.has("pdf") || tools.has("image_generate")) {
+    return 4_000;
+  }
+  return 1_500;
+}
+
+export function decideAckThenDefer(params: {
+  estimatedDurationMs: number;
+  recipe: ExecutionRecipe;
+  requestedTools?: string[];
+  thresholdMs?: number;
+}): boolean {
+  const threshold = params.thresholdMs ?? resolveAckDeferThresholdMs();
+  if (params.estimatedDurationMs > threshold) {
+    return true;
+  }
+  if (recipeHasLongRunningCapability(params.recipe)) {
+    return true;
+  }
+  if (requestedToolsIncludeLongRunning(params.requestedTools)) {
+    return true;
+  }
+  return false;
+}
 
 function isContractFirstInput(input: RecipePlannerInput): boolean {
   return input.contractFirst === true;
@@ -889,6 +1009,23 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
   const emitter = getCurrentTurnProgressEmitter();
   emitter?.emit("planning");
   const plan = planExecutionRecipeCore(input);
+  const estimatedDurationMs = estimateRecipeDurationMs({
+    recipe: plan.recipe,
+    requestedTools: input.requestedTools,
+  });
+  const ackThenDefer =
+    plan.routingOutcome.kind === "matched"
+      ? decideAckThenDefer({
+          estimatedDurationMs,
+          recipe: plan.recipe,
+          requestedTools: input.requestedTools,
+        })
+      : false;
+  const planWithDefer: ExecutionPlan = {
+    ...plan,
+    estimatedDurationMs,
+    ackThenDefer,
+  };
   if (emitter) {
     const needsTools =
       input.executionContract?.requiresTools === true ||
@@ -899,11 +1036,11 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
       const detail =
         bundles.length > 0
           ? bundles.join(",")
-          : (input.requestedTools?.join(",") ?? plan.recipe.id);
+          : (input.requestedTools?.join(",") ?? planWithDefer.recipe.id);
       emitter.emit("preflight", detail);
     }
   }
-  return plan;
+  return planWithDefer;
 }
 
 function planExecutionRecipeCore(input: RecipePlannerInput): ExecutionPlan {

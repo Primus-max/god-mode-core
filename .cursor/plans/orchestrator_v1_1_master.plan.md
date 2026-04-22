@@ -25,13 +25,15 @@ isProject: false
 - P0 (критично, в `dev`): double-planning, low-conf workspace mutations, clarify-инвариант.
 **Статус: COMPLETED** (см. `orchestrator_v1_1_p0.plan.md`).
 - P1 (важно): `kind=agent_persona` / `code-change` / `repo-operation`, credentials preflight,
-**conversation state + execution evidence + progress bus**.
-**Статус: IN_PROGRESS** — P1.3 ✅ (2026-04-20), **P1.4 Stage A ✅ (2026-04-20)**,
-**P1.4 Stage B ✅ (2026-04-20, live `13/13` включая `13-confirmation-yes-exec` с реальным `toolCall name=exec`)**,
-**P1.4 Stage C ✅ (2026-04-21, live `15/15` включая `14-progress-bus`; `[progress] gateway bridge attached`, WS `progress.frame`)**,
-**P1.4 Stage C.1 + D.1 ✅ в коде/юнитах (2026-04-21; live smoke blocked by gateway auth/token mismatch + upstream 403)**,
-P1.2/P1.1 и P1.4 D.2 (ack-then-defer) pending
-(см. `orchestrator_v1_1_p1.plan.md`, `orchestrator_v1_1_p1_4.plan.md`).
+**conversation state + execution evidence + progress bus**, **workspace & identity self-awareness**.
+**Статус: IN_PROGRESS** — P1.3 ✅ (2026-04-20), **P1.4 полностью ✅**
+(A/B/C/C.1/D.1/D.2; 2026-04-21 поздний вечер, live
+`16-ack-then-defer`: `ackMs=1947`, `doneMs=24724`).
+**P1.5 PENDING** — `orchestrator_v1_1_p1_5.plan.md` (workspace probe + identity
+facts + conditional injection), открыт 2026-04-21 после ручного смоука.
+Активный следующий фокус P1: **P1.2**, далее **P1.5** или **P1.1** (любой
+порядок, они независимы; см. `orchestrator_v1_1_p1.plan.md`,
+`orchestrator_v1_1_p1_4.plan.md`, `orchestrator_v1_1_p1_5.plan.md`).
 - P2 (качество): `resolveRepoRoot` bug, warmup resolver, UI label drift.
 **Статус: PENDING** (см. `orchestrator_v1_1_p2.plan.md`).
 - P3 (hardening): стресс live smoke, `ensureCapability` idempotency, variant prompts.
@@ -71,19 +73,20 @@ P1.2/P1.1 и P1.4 D.2 (ack-then-defer) pending
 ### Шатается (адресовано в P0/P1/P2/P3)
 
 
-| ID       | Симптом                                                                                                                                                                                                                                                                                                                                                                                                                 | План      |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| P0.1     | Каждый turn делает два `[planner] selected` (`auto-reply-runtime-plan` + `plugin-platformContext`). Лишние 300–800ms.                                                                                                                                                                                                                                                                                                   | P0 (done) |
-| P0.2     | Мутации workspace проходят с `confidence ≈ 0.35` и непогашенными ambig.                                                                                                                                                                                                                                                                                                                                                 | P0 (done) |
-| P0.3     | `interactionMode=clarify_first` оставляет `requestedTools=[apply_patch,...]`.                                                                                                                                                                                                                                                                                                                                           | P0 (done) |
-| P1.1     | Нет `DeliverableSpec.kind = "agent_persona"` — «сделай Trader как отдельного агента» мапится в `code_change`.                                                                                                                                                                                                                                                                                                           | P1        |
-| P1.2     | Нет `ensureCredentials()` — скаффолд стартует без проверки API hash / ключей.                                                                                                                                                                                                                                                                                                                                           | P1        |
-| ~~P1.3~~ | ~~Нет явных `kind: "code_change"` / `"repo_operation"` для git-потоков.~~ Типы/producers/classifier-bridge уже были; добавлен защитный инвариант в `normalizeTaskContract` + 3 теста.                                                                                                                                                                                                                                   | P1 (done) |
-| P1.4     | Stage A ✅ (ledger v0). Stage B ✅ (evidence reconciler + hard-replan). Stage C ✅ (Progress Bus + gateway WS broadcast, live 15/15). **C.1 ✅ (Telegram plugin wiring + cleanup, unit). D.1 ✅ (cross-turn clarify budget + classifier injection + smoke scenario).** Осталось: **D.2 ack-then-defer dispatcher**. Live rerun 2026-04-21 невалиден из-за `gateway token mismatch` и upstream `HTTP 403` (fail-closed path). | P1        |
-| P2.1     | `scripts/lib/ts-guard-utils.mjs::resolveRepoRoot` off-by-one → guards молчаливо зелёные.                                                                                                                                                                                                                                                                                                                                | P2        |
-| P2.2     | Startup warmup падает: `Unknown model: hydra/gpt-5.4`.                                                                                                                                                                                                                                                                                                                                                                  | P2        |
-| P2.3     | UI показывает `general_reasoning / General` даже когда активный plan — contract-first.                                                                                                                                                                                                                                                                                                                                  | P2        |
-| P3.x     | Нет авто-стресса (10×) routing smoke и idempotency гарантий `ensureCapability`.                                                                                                                                                                                                                                                                                                                                         | P3        |
+| ID       | Симптом                                                                                                                                                                                                                                                                                                                        | План      |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| P0.1     | Каждый turn делает два `[planner] selected` (`auto-reply-runtime-plan` + `plugin-platformContext`). Лишние 300–800ms.                                                                                                                                                                                                          | P0 (done) |
+| P0.2     | Мутации workspace проходят с `confidence ≈ 0.35` и непогашенными ambig.                                                                                                                                                                                                                                                        | P0 (done) |
+| P0.3     | `interactionMode=clarify_first` оставляет `requestedTools=[apply_patch,...]`.                                                                                                                                                                                                                                                  | P0 (done) |
+| P1.1     | Нет `DeliverableSpec.kind = "agent_persona"` — «сделай Trader как отдельного агента» мапится в `code_change`.                                                                                                                                                                                                                  | P1        |
+| P1.2     | Нет `ensureCredentials()` — скаффолд стартует без проверки API hash / ключей.                                                                                                                                                                                                                                                  | P1        |
+| ~~P1.3~~ | ~~Нет явных `kind: "code_change"` / `"repo_operation"` для git-потоков.~~ Типы/producers/classifier-bridge уже были; добавлен защитный инвариант в `normalizeTaskContract` + 3 теста.                                                                                                                                          | P1 (done) |
+| P1.4     | **DONE.** Stage A ✅ (ledger v0). Stage B ✅ (evidence reconciler + hard-replan). Stage C ✅ (Progress Bus + gateway WS broadcast, live 15/15). C.1 ✅ (Telegram plugin wiring + cleanup, SDK-safe import). D.1 ✅ live 1/1 `15-clarify-budget` `count=2 injected=1`. **D.2 ✅ live 1/1 `16-ack-then-defer` with `ackMs=1947`, `doneMs=24724` (2026-04-21 21:49–21:50 MSK).** | P1 (done) |
+| P1.5     | Оркестратор не знает свою среду: угадывает cwd (live `kitty vs banana` → ENOENT в `workspace-dev`), уходит в clarify на read-only ops (`/media`), галлюцинирует там, где работает `web_search` («Пушкин на англ»). Решение — пассивный `WorkspaceProbe` + `IdentityFacts` + conditional injection в classifier prompt. | P1.5 (pending) |
+| P2.1     | `scripts/lib/ts-guard-utils.mjs::resolveRepoRoot` off-by-one → guards молчаливо зелёные.                                                                                                                                                                                                                                       | P2        |
+| P2.2     | Startup warmup падает: `Unknown model: hydra/gpt-5.4`.                                                                                                                                                                                                                                                                         | P2        |
+| P2.3     | UI показывает `general_reasoning / General` даже когда активный plan — contract-first.                                                                                                                                                                                                                                         | P2        |
+| P3.x     | Нет авто-стресса (10×) routing smoke и idempotency гарантий `ensureCapability`.                                                                                                                                                                                                                                                | P3        |
 
 
 ---
@@ -95,6 +98,7 @@ P1.2/P1.1 и P1.4 D.2 (ack-then-defer) pending
 .cursor/plans/orchestrator_v1_1_p0.plan.md       ← latency / safety / invariants (done)
 .cursor/plans/orchestrator_v1_1_p1.plan.md       ← kinds + credentials
 .cursor/plans/orchestrator_v1_1_p1_4.plan.md     ← intent ledger / evidence / progress bus / dispatcher
+.cursor/plans/orchestrator_v1_1_p1_5.plan.md     ← workspace probe + identity facts + conditional injection
 .cursor/plans/orchestrator_v1_1_p2.plan.md       ← guards / warmup / UI labels
 .cursor/plans/orchestrator_v1_1_p3.plan.md       ← hardening / stress
 
@@ -260,3 +264,63 @@ Verify: targeted vitest по изменённым файлам ✅, `lint:routin
 `tsgo --noEmit` остаётся красным по pre-existing test-типам вне scope.
 Live rerun 2026-04-21: `gateway token mismatch` + upstream `HTTP 403` → fail-closed,
 smoke 4/16, поэтому live acceptance требует повторного прогона в валидном окружении.
+- 2026-04-21 (вечер) — **P1.4 C.1 + D.1 live ПОДТВЕРЖДЕНЫ**. Пять дополнительных
+фиксов, раскрытых при прогоне на свежем gateway:
+  1. `src/plugin-sdk/gateway-runtime.ts` re-exports `loadCombinedSessionStoreForGateway`;
+    `extensions/telegram/src/bot.ts` переведён с относительного `../../../src/gateway/session-utils.js`
+     на `openclaw/plugin-sdk/gateway-runtime` — устраняет
+     `TypeError: Cannot redefine property: isSenderAllowed` (двойная загрузка модуля в плагине).
+  2. `src/platform/decision/input.ts::resolveIntentLedgerChannelId` нормализует
+    channel-id через `normalizeAnyChannelId(...)?.trim().toLowerCase()`; раньше
+     writer писал `webchat`, а reader peek-ал `web` → budget никогда не взводился.
+  3. `src/platform/session/intent-ledger.ts`: `GENERIC_CLARIFY_TOPIC_KEY="*generic*"`
+    как fallback для clarifying без ambigs; `YES_NO_RE` / `INPUT_HINT_RE`
+     переписаны с `\p{L}` word-boundaries (убран false-positive «задачу»→«да»);
+     `ambigs.length>0` форсит `kind="clarifying"`, синхронизируя ledger
+     с явным сигналом классификатора.
+  4. `src/auto-reply/reply/agent-runner.ts` диагностика: `[intent-ledger] recorded …
+    kind=… topicKey=…`.
+  5. `scripts/live-routing-smoke.mjs`: сценарий 15 переписан на 4-turn chain
+    (`Продолжим / Делай / Ну сделай уже / Давай просто`), добавлен env-filter
+     `SMOKE_ONLY` (CSV scenario ids) для таргетированных прогонов.
+  Live verify (19:13 MSK, PID 12380): `SMOKE_ONLY=15-clarify-budget pnpm live:routing:smoke`
+  → **1/1 passed**, `[clarify-budget] topic=*generic count=2 injected=1`.
+  Targeted vitest 67/67 (`intent-ledger`, `input`, `task-classifier`,
+  `bot.progress-wire`, `agent-runner-usage-line`), lint зелёный.
+- 2026-04-21 (поздний вечер) — **P1.4 полностью закрыт: D.2 Ack-then-defer dispatcher
+  внедрён и live-подтверждён**. Добавлены planner/runtime heuristics
+  `estimatedDurationMs` + `ackThenDefer`, queue mode `deferred_job`,
+  `ack_deferred` phase в Progress Bus, единый ack/bg-job lifecycle в
+  `agent-runner`, ранний UX-ack для явного `capability_install`, сценарий
+  `16-ack-then-defer` в `scripts/live-routing-smoke.mjs` с timing-проверкой по
+  `progress.frame` / structured gateway log. Verify:
+  targeted vitest `33/33` (D.2 новые тесты), доп. targeted vitest `47/47` +
+  queue `14/14`, `pnpm lint:routing:no-prompt-parsing` ✅, live
+  `SMOKE_ONLY=16-ack-then-defer pnpm live:routing:smoke` → **1/1 passed**
+  с `ackMs=1947`, `doneMs=24724`. Широкий `pnpm vitest run src/platform/recipe src/auto-reply src/platform/session`
+  остаётся красным по pre-existing baseline вне scope D.2; следующий активный
+  пункт P1 — `P1.2 ensureCredentials()`.
+- 2026-04-21 (после ручного смоука) — зафиксированы **deferred live-UX gaps**
+  P1.4 D.2 (ack-overscope: «принял, работаю» на любом code-change) и
+  P1.4 C.1 (Telegram status edits не видны в живом чате, хотя
+  `progress.frame` эмитится gateway'ем). См. секцию **«Known live-UX gaps
+  (deferred)»** в `orchestrator_v1_1_p1_4.plan.md`. Эти пункты НЕ
+  блокируют P1.2 и далее; не считаются регрессией P1.4 acceptance.
+  Параллельно ручной тест выявил **новый класс архитектурных дыр уровня
+  P1.5 (orchestrator self-knowledge)**: бот не знает свой workspace
+  (запустил `npm run` в `C:\Users\Tanya\.openclaw\workspace-dev`, упал ENOENT),
+  asks-before-attempts на read-only ops (спросил про `/media` вместо
+  попытки list), и галлюцинирует там, где знает источник
+  («четверостишье Пушкина на англ» → выдал свой стих «в духе Пушкина»).
+  Открыт под-план **`orchestrator_v1_1_p1_5.plan.md`** —
+  workspace context + identity honesty (без жёстких рамок и без prompt-parsing).
+- 2026-04-21 — **P1.5 план создан**. Три этапа: A (`WorkspaceProbe` + `IdentityFacts`
+  + расширение in-memory `SessionContext` без новых external deps, ~150
+  токенов на затронутый turn), B (conditional injection блоков
+  `<workspace>` / `<identity>` в classifier prompt — только при
+  `code_change` / `repo_operation` / tools∈{exec,apply_patch,...}), C (live
+  smoke `17-workspace-aware-exec` + `18-identity-aware-recall` +
+  invalidate snapshot после `apply_patch`). Инварианты: только факты, не
+  правила; `lint:routing:no-prompt-parsing` остаётся guard'ом; storage
+  in-memory, future-trained-model меняет только проекцию JSON→prompt.
+  P1.5 не блокирует P1.2 — идут независимо.

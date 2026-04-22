@@ -104,6 +104,23 @@ export async function runAgentTurnWithFallback(params: {
   activeSessionStore?: Record<string, SessionEntry>;
   storePath?: string;
   resolvedVerboseLevel: VerboseLevel;
+  /**
+   * Invoked once, right after the routing snapshot is resolved, when the
+   * planner flagged this turn as `ackThenDefer` (P1.4 D.2). Implementations
+   * are expected to:
+   *   - emit a `ack_deferred` progress frame,
+   *   - deliver an immediate "принял, работаю" ack reply,
+   *   - mark the run as a deferred bg-job on the follow-up queue.
+   * The async contract is awaited so the immediate reply races ahead of any
+   * downstream agent call. Errors are swallowed — a failed ack must never
+   * block the actual work.
+   */
+  onAckThenDefer?: (context: {
+    runId: string;
+    estimatedDurationMs?: number;
+    requiredCapabilities?: string[];
+    requestedToolNames?: string[];
+  }) => Promise<void> | void;
 }): Promise<AgentRunLoopResult> {
   const TRANSIENT_HTTP_RETRY_DELAY_MS = 2_500;
   let didLogHeartbeatStrip = false;
@@ -126,6 +143,27 @@ export async function runAgentTurnWithFallback(params: {
     sessionEntry: params.getActiveSessionEntry(),
   });
   const platformExecutionContext = routingSnapshot.runtimePlan;
+  if (platformExecutionContext.ackThenDefer === true && params.onAckThenDefer && !params.isHeartbeat) {
+    try {
+      await params.onAckThenDefer({
+        runId,
+        ...(typeof platformExecutionContext.estimatedDurationMs === "number"
+          ? { estimatedDurationMs: platformExecutionContext.estimatedDurationMs }
+          : {}),
+        ...(platformExecutionContext.requiredCapabilities?.length
+          ? { requiredCapabilities: platformExecutionContext.requiredCapabilities }
+          : {}),
+        ...(platformExecutionContext.requestedToolNames?.length
+          ? { requestedToolNames: platformExecutionContext.requestedToolNames }
+          : {}),
+      });
+    } catch (ackError) {
+      // Ack delivery must never block the actual work. Downstream logs
+      // will surface this as a progress-bus error frame if wiring emits
+      // one; here we just preserve the run.
+      void ackError;
+    }
+  }
   const bootstrapContextMode =
     params.opts?.bootstrapContextMode ?? routingSnapshot.bootstrapContextMode;
   const normalizeReplyMediaPaths = createReplyMediaPathNormalizer({

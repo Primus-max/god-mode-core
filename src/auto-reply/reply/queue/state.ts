@@ -5,6 +5,16 @@ import { resolveGlobalMap } from "../../../shared/global-singleton.js";
 import { applyQueueRuntimeSettings } from "../../../utils/queue-helpers.js";
 import type { FollowupRun, QueueDropPolicy, QueueMode, QueueSettings } from "./types.js";
 
+export type DeferredJobStatus = "queued" | "running" | "done" | "failed";
+
+export type DeferredJobState = {
+  turnId: string;
+  status: DeferredJobStatus;
+  startedAt: number;
+  completedAt?: number;
+  ackMessage?: string;
+};
+
 export type FollowupQueueState = {
   items: FollowupRun[];
   draining: boolean;
@@ -16,6 +26,13 @@ export type FollowupQueueState = {
   droppedCount: number;
   summaryLines: string[];
   lastRun?: FollowupRun["run"];
+  /**
+   * Optional background job state for ack-then-defer dispatcher (P1.4 D.2).
+   * When present with `status="running"`, new user-message runs on the same
+   * queue key are routed through the steer/enqueue-followup path by
+   * {@link resolveActiveRunQueueAction}, instead of creating a parallel turn.
+   */
+  deferredJob?: DeferredJobState;
 };
 
 export const DEFAULT_QUEUE_DEBOUNCE_MS = 1000;
@@ -200,6 +217,78 @@ export function getFollowupQueue(key: string, settings: QueueSettings): Followup
   });
   FOLLOWUP_QUEUES.set(key, created);
   return created;
+}
+
+/**
+ * Returns true when a deferred bg-job is currently running for this queue key.
+ * Used by {@link resolveActiveRunQueueAction} to route new user messages to
+ * steer/enqueue-followup while the background job owns the turn.
+ */
+export function isDeferredJobRunningForQueue(key: string): boolean {
+  const queue = getExistingFollowupQueue(key);
+  return queue?.deferredJob?.status === "running";
+}
+
+export function markDeferredJobRunning(
+  key: string,
+  params: {
+    turnId: string;
+    ackMessage?: string;
+    startedAt?: number;
+  },
+): void {
+  ensurePersistedQueuesRehydrated();
+  const cleaned = key.trim();
+  if (!cleaned) {
+    return;
+  }
+  let queue = FOLLOWUP_QUEUES.get(cleaned);
+  if (!queue) {
+    queue = {
+      items: [],
+      draining: false,
+      lastEnqueuedAt: 0,
+      mode: "deferred_job",
+      debounceMs: DEFAULT_QUEUE_DEBOUNCE_MS,
+      cap: DEFAULT_QUEUE_CAP,
+      dropPolicy: DEFAULT_QUEUE_DROP,
+      droppedCount: 0,
+      summaryLines: [],
+    };
+    FOLLOWUP_QUEUES.set(cleaned, queue);
+  }
+  queue.deferredJob = {
+    turnId: params.turnId,
+    status: "running",
+    startedAt: params.startedAt ?? Date.now(),
+    ...(params.ackMessage ? { ackMessage: params.ackMessage } : {}),
+  };
+}
+
+export function markDeferredJobComplete(
+  key: string,
+  params: { turnId: string; status: "done" | "failed"; completedAt?: number },
+): void {
+  const queue = getExistingFollowupQueue(key);
+  if (!queue || !queue.deferredJob) {
+    return;
+  }
+  if (queue.deferredJob.turnId !== params.turnId) {
+    return;
+  }
+  queue.deferredJob = {
+    ...queue.deferredJob,
+    status: params.status,
+    completedAt: params.completedAt ?? Date.now(),
+  };
+}
+
+export function clearDeferredJob(key: string): void {
+  const queue = getExistingFollowupQueue(key);
+  if (!queue) {
+    return;
+  }
+  queue.deferredJob = undefined;
 }
 
 export function clearFollowupQueue(key: string): number {

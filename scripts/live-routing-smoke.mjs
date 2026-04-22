@@ -25,6 +25,7 @@ const CHAIN_DEV_FILE = `chain-dev-file-${Date.now()}`;
 const CHAIN_CONFIRM_EXEC = `chain-confirm-exec-${Date.now()}`;
 const CHAIN_PROGRESS_BUS = `chain-progress-bus-${Date.now()}`;
 const CHAIN_CLARIFY_BUDGET = `chain-clarify-budget-${Date.now()}`;
+const CHAIN_ACK_DEFER = `chain-ack-defer-${Date.now()}`;
 const SCENARIOS = [
   { id: "01-hello", message: "Привет", expect: { kind: "text" } },
   { id: "02-image", message: "Сгенерировать картинку банана", expect: { kind: "image", formats: ["png", "jpeg", "jpg", "webp"] } },
@@ -108,13 +109,27 @@ const SCENARIOS = [
     id: "15-clarify-budget",
     sessionGroup: CHAIN_CLARIFY_BUDGET,
     messages: [
-      "Продолжим как договаривались",
-      "Ну давай уже",
-      "Просто сделай что понимаешь",
+      "Продолжим",
+      "Делай",
+      "Ну сделай уже",
+      "Давай просто",
     ],
     expect: {
       kind: "text",
       clarifyBudgetLog: { minCount: 2 },
+    },
+  },
+  {
+    id: "16-ack-then-defer",
+    sessionGroup: CHAIN_ACK_DEFER,
+    message:
+      "Установи пожалуйста стороннюю библиотеку pdfkit через capability_install — она нам нужна, выполни установку целиком.",
+    expect: {
+      kind: "capability_install_or_clarify",
+      progressLog: {
+        requiredPhases: ["ack_deferred", "done"],
+        ackDeferTiming: { ackMaxMs: 2000, doneMinMs: 3000 },
+      },
     },
   },
 ];
@@ -333,11 +348,84 @@ function parseProgressFramesFromLog(logChunk) {
   return turns;
 }
 
-function evaluateProgressLog(logChunk, requirements) {
+function parseProgressFramesFromStructuredLog(logChunk) {
+  const turns = new Map();
+  for (const line of String(logChunk ?? "").split(/\r?\n/)) {
+    if (!line.includes("[progress] turn=")) continue;
+    try {
+      const parsed = JSON.parse(line);
+      const payload = parsed?.["1"];
+      if (!payload || typeof payload !== "object") continue;
+      const turnId = typeof payload.turnId === "string" ? payload.turnId : null;
+      const seq = typeof payload.seq === "number" ? payload.seq : Number.NaN;
+      const phase = typeof payload.phase === "string" ? payload.phase : null;
+      if (!turnId || !Number.isFinite(seq) || !phase) continue;
+      const timeIso =
+        typeof parsed?.time === "string"
+          ? parsed.time
+          : typeof parsed?._meta?.date === "string"
+            ? parsed._meta.date
+            : null;
+      let arr = turns.get(turnId);
+      if (!arr) {
+        arr = [];
+        turns.set(turnId, arr);
+      }
+      arr.push({
+        seq,
+        phase,
+        toolName: typeof payload.toolName === "string" ? payload.toolName : null,
+        ts: timeIso ? Date.parse(timeIso) : null,
+      });
+    } catch {
+      // Ignore non-JSON and differently encoded log lines.
+    }
+  }
+  return turns;
+}
+
+function parseProgressFramesFromEvents(events) {
+  const turns = new Map();
+  for (const evt of events ?? []) {
+    if (evt?.event !== "progress.frame") continue;
+    const payload = evt.payload;
+    if (!payload || typeof payload !== "object") continue;
+    const turnId = typeof payload.turnId === "string" ? payload.turnId : null;
+    const seq = typeof payload.seq === "number" ? payload.seq : Number.NaN;
+    const phase = typeof payload.phase === "string" ? payload.phase : null;
+    if (!turnId || !Number.isFinite(seq) || !phase) continue;
+    let arr = turns.get(turnId);
+    if (!arr) {
+      arr = [];
+      turns.set(turnId, arr);
+    }
+    arr.push({
+      seq,
+      phase,
+      toolName:
+        payload.meta && typeof payload.meta === "object" && typeof payload.meta.toolName === "string"
+          ? payload.meta.toolName
+          : null,
+      ts: typeof payload.ts === "number" ? payload.ts : null,
+    });
+  }
+  return turns;
+}
+
+function evaluateProgressLog(logChunk, requirements, options = {}) {
   const required = new Set(requirements?.requiredPhases ?? []);
   const requiredTool = requirements?.requiredToolName ?? null;
-  const turns = parseProgressFramesFromLog(logChunk);
+  const turnsFromEvents = parseProgressFramesFromEvents(options.events ?? []);
+  const turnsFromStructuredLog = parseProgressFramesFromStructuredLog(logChunk);
+  const turnsFromPlainLog = parseProgressFramesFromLog(logChunk);
+  const turns =
+    turnsFromEvents.size > 0
+      ? turnsFromEvents
+      : turnsFromStructuredLog.size > 0
+        ? turnsFromStructuredLog
+        : turnsFromPlainLog;
   const notes = [];
+  const ackDeferTiming = requirements?.ackDeferTiming ?? null;
   for (const [turnId, frames] of turns.entries()) {
     let monotonic = true;
     for (let i = 1; i < frames.length; i += 1) {
@@ -355,6 +443,38 @@ function evaluateProgressLog(logChunk, requirements) {
         (f) => f.phase === "tool_call" && f.toolName === requiredTool,
       );
       if (!toolOk) continue;
+    }
+    if (ackDeferTiming) {
+      const timingFrames =
+        turnsFromStructuredLog.get(turnId)?.length > 0 ? turnsFromStructuredLog.get(turnId) : frames;
+      const ackFrame = timingFrames?.find((f) => f.phase === "ack_deferred" && typeof f.ts === "number");
+      const doneFrame = [...(timingFrames ?? [])].reverse().find(
+        (f) => f.phase === "done" && typeof f.ts === "number",
+      );
+      const startedAtMs = options.startedAtMs ?? null;
+      if (!ackFrame || !doneFrame || !startedAtMs) {
+        notes.push(
+          `progress turn=${turnId} missing timing inputs for ackDeferTiming (startedAtMs=${String(startedAtMs)} ackTs=${String(ackFrame?.ts)} doneTs=${String(doneFrame?.ts)})`,
+        );
+        continue;
+      }
+      const ackLatencyMs = ackFrame.ts - startedAtMs;
+      const doneLatencyMs = doneFrame.ts - startedAtMs;
+      if (Number.isFinite(ackDeferTiming.ackMaxMs) && ackLatencyMs > ackDeferTiming.ackMaxMs) {
+        notes.push(
+          `progress turn=${turnId} ack_deferred latency ${String(ackLatencyMs)}ms exceeded max ${String(ackDeferTiming.ackMaxMs)}ms`,
+        );
+        continue;
+      }
+      if (Number.isFinite(ackDeferTiming.doneMinMs) && doneLatencyMs < ackDeferTiming.doneMinMs) {
+        notes.push(
+          `progress turn=${turnId} done latency ${String(doneLatencyMs)}ms was below min ${String(ackDeferTiming.doneMinMs)}ms`,
+        );
+        continue;
+      }
+      notes.push(
+        `progress timing turn=${turnId} ackMs=${String(ackLatencyMs)} doneMs=${String(doneLatencyMs)}`,
+      );
     }
     notes.push(
       `progress turn=${turnId} phases=[${[...phases].join(",")}] frames=${frames.length}`,
@@ -410,9 +530,10 @@ async function runScenario(client, scenario) {
     ? `live-routing-smoke:${scenario.sessionGroup}`
     : `live-routing-smoke:${scenario.id}:${Date.now()}`;
   const events = [];
-  client.__onEvent = (evt) => events.push(evt);
+  client.__onEvent = (evt) => events.push({ ...evt, __receivedAtMs: Date.now() });
   const logOffset = await captureGatewayLogOffset();
   let start = null;
+  let startedAtMs = 0;
   let finalEvent = null;
   let lastHistory = null;
   let historyKeyUsed = sessionKey;
@@ -429,11 +550,15 @@ async function runScenario(client, scenario) {
     if (index === 0) {
       initialMsgCount = turnInitialMsgCount;
     }
+    const turnStartedAtMs = Date.now();
     start = await client.request("chat.send", {
       sessionKey,
       message: scenarioMessages[index],
       idempotencyKey: turnRunId,
     });
+    if (index === 0) {
+      startedAtMs = turnStartedAtMs;
+    }
     const deadline = Date.now() + TIMEOUT_MS;
     let lastMsgCount = 0;
     let stableSince = 0;
@@ -493,6 +618,7 @@ async function runScenario(client, scenario) {
     sessionKey,
     historyKeyUsed,
     start,
+    startedAtMs,
     finalEvent,
     history: lastHistory,
     initialMsgCount,
@@ -812,6 +938,10 @@ async function evaluate(result) {
     const progressResult = evaluateProgressLog(
       result.gatewayLogAppend ?? "",
       scenario.expect.progressLog,
+      {
+        events: result.events ?? [],
+        startedAtMs: result.startedAtMs ?? 0,
+      },
     );
     if (!progressResult.ok) {
       pass = false;
@@ -902,7 +1032,20 @@ async function main() {
     ]);
     console.log(`[hello] connected to ${conn.url}`);
 
-    for (const scenario of SCENARIOS) {
+    const smokeOnly = (process.env.SMOKE_ONLY ?? "").trim();
+    const scenariosToRun = smokeOnly
+      ? SCENARIOS.filter((scn) =>
+          smokeOnly
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean)
+            .includes(scn.id),
+        )
+      : SCENARIOS;
+    if (smokeOnly && scenariosToRun.length === 0) {
+      console.log(`[smoke] SMOKE_ONLY=${smokeOnly} matched zero scenarios; running nothing`);
+    }
+    for (const scenario of scenariosToRun) {
       const started = Date.now();
       const scenarioPreview = Array.isArray(scenario.messages)
         ? scenario.messages.join(" -> ")

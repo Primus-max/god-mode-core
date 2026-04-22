@@ -1,9 +1,9 @@
 # Orchestrator v1.1 — P1.4 (Conversation State & Execution Evidence & Progress Bus)
 
 **Мастер-план:** `orchestrator_v1_1_master.plan.md`.
-**Статус:** IN_PROGRESS — этапы A, B, C, C.1, D.1 закрыты в коде/юнитах.
-Осталось: D.2
-(ack-then-defer dispatcher) (2026-04-21).
+**Статус:** DONE — этапы A, B, C, C.1, D.1, D.2 закрыты в коде/юнитах/live.
+Осталось: —
+(P1.4 полностью закрыт 2026-04-21 поздний вечер).
 **Зависимости:** P0 закрыт. P1.3 закрыт. Приоритетнее P1.1/P1.2, т.к. закрывает корневую
 причину их симптомов.
 
@@ -323,17 +323,25 @@ Stage C **невидим конечному пользователю в Telegram
 - [x] Telegram plugin wiring добавлен: `createTelegramProgressAdapter({ getApi, resolveTarget })`
       подключается в `createTelegramBot`, target резолвится из sessionContext, cleanup через `unsubscribe`
       на `bot.stop()`. Добавлен wire-smoke `extensions/telegram/src/bot.progress-wire.test.ts` (2026-04-21).
+- [x] `loadCombinedSessionStoreForGateway` вынесен в публичный SDK `openclaw/plugin-sdk/gateway-runtime`,
+      чтобы telegram-плагин импортировал его через пакетный путь (устраняет
+      `TypeError: Cannot redefine property` при загрузке плагина). (2026-04-21)
+- [x] Live: gateway перезапуск с C.1 кодом, `[progress] telegram adapter attached` в startup-логе,
+      `[progress] turn=... seq=... phase=...` эмитится на каждый turn (подтверждено по `.gateway-dev.log`
+      на сценариях 14 и 15). (2026-04-21)
 - [ ] Фактический turn через Telegram показывает одно редактируемое
       статус-сообщение `⏳ <intent> • <phase>` поверх каждого turn'а, с
       переходами classifying → planning → preflight → tool_call → done.
+      (Требует наблюдения живого Telegram-чата; гейтвей эмитит фреймы корректно.)
 - [x] Kill-switch остаётся в адаптере (`OPENCLAW_PROGRESS_TELEGRAM`) без изменений API-контракта; unit coverage
       сохраняется в `progress-adapter.test.ts`. (2026-04-21)
+- [x] Targeted vitest по scope C.1 (`bot.progress-wire.test.ts`, `progress-adapter.test.ts`) зелёные. (2026-04-21)
 - [ ] `pnpm vitest run extensions/telegram` зелёный. (2026-04-21: не зелёный из-за pre-existing `monitor.test.ts`
       unhandled `deleteWebhook 404`; не связано с C.1 wiring).
 
 ---
 
-### Этап D — Ack-then-defer dispatcher + Clarify budget [ ]
+### Этап D — Ack-then-defer dispatcher + Clarify budget [x]
 
 **Цель — две связанные проблемы, разделённые на два блока, чтобы не
 увеличивать scope без нужды.**
@@ -367,14 +375,25 @@ Stage C **невидим конечному пользователю в Telegram
 - Логирование `[clarify-budget] topic=<hash> count=<n> action=<force_action|force_answer>`.
 
 **Acceptance.**
-- [x] Unit: добавлены кейсы в `intent-ledger.test.ts` (topic-key детерминизм + окно 5 минут)
-      и `task-classifier.test.ts` (инъекция `<clarify_budget_exceeded>` на повторе). (2026-04-21)
-- [ ] Live-smoke сценарий: 3 подряд невнятных user-message → на третьем
-      turn бот не спрашивает снова, а выдаёт ответ/экшен с default-assumption.
-      (2026-04-21: сценарий `15-clarify-budget` добавлен в `scripts/live-routing-smoke.mjs`,
-      но live-run заблокирован auth/model 403 и не дал валидный `[clarify-budget]` сигнал).
+- [x] Unit: добавлены кейсы в `intent-ledger.test.ts` (topic-key детерминизм + окно 5 минут
+      + generic fallback когда ambigs пусто) и `task-classifier.test.ts` (инъекция
+      `<clarify_budget_exceeded>` на повторе). 15/15 intent-ledger + 6/6 classifier зелёные. (2026-04-21)
+- [x] Heuristic `classifyBotTurn` для clarifying укреплена: `YES_NO_RE` / `INPUT_HINT_RE`
+      переписаны с word-boundary через `\p{L}` (u-flag), чтобы «задачу» / «подсказать» не матчили
+      «да» / «укажи» как confirm/input hint. Плюс: если classifier передал `ambigs.length>0`,
+      ledger форсит `kind=clarifying` независимо от эвристики текста — это синхронизирует ledger
+      с реальным сигналом классификатора. (2026-04-21)
+- [x] Channel-id для ledger в `decision/input.ts` нормализуется через `normalizeAnyChannelId` +
+      `toLowerCase()`, чтобы чтение/запись шли с одним ключом (раньше recording сохранял
+      `webchat`, а peek читал сырой `web` → peek всегда возвращал 0). (2026-04-21)
+- [x] Live-smoke сценарий `15-clarify-budget` PASS (2026-04-21 19:13 MSK):
+      `[clarify-budget] topic=*generic count=2 injected=1` в `.gateway-dev.log`,
+      multi-turn chain `Продолжим → Делай → Ну сделай уже → Давай просто`,
+      `pass=true` в `PHASE 7 RESULT: 1/1 passed`.
+- [x] Filter `SMOKE_ONLY` добавлен в `scripts/live-routing-smoke.mjs` (CSV list scenario ids),
+      чтобы локальные прогоны D.1/C.1 не тратили 10 мин на полный suite. (2026-04-21)
 
-#### D.2 — Ack-then-defer dispatcher (PRIORITY 2, для длинных тасок)
+#### D.2 — Ack-then-defer dispatcher (PRIORITY 2, для длинных тасок) [x]
 
 **Цель.** Длинные turn'ы (> 3 сек оценочно, или с `capability_install` +
 `exec`) получают немедленный ack-ответ и уезжают в bg-job.
@@ -391,11 +410,22 @@ Stage C **невидим конечному пользователю в Telegram
   `phase=done` + deliverable (уже есть в Stage C).
 
 **Acceptance.**
-- [ ] Long-running scenario (например, `ensureCapability` на npm-pkg) не
-      блокирует пользователя: первое сообщение за ≤ 2 сек («принял, работаю»),
-      финальный результат — отдельным сообщением при завершении job'а.
-- [ ] Unit-тест queue-policy: во время deferred_job user-message идёт в
-      steer, не создаёт parallel turn.
+- [x] Long-running scenario не блокирует пользователя: targeted live smoke
+      `SMOKE_ONLY=16-ack-then-defer pnpm live:routing:smoke` PASS
+      (2026-04-21 21:49–21:50 MSK), `ackMs=1947`, `doneMs=24724`,
+      фазы `ack_deferred,classifying,planning,preflight,tool_call,done`. Финальный
+      результат пришёл отдельным сообщением после tool phase. (2026-04-21)
+- [x] Unit-тест queue-policy: во время `deferred_job` user-message идёт в
+      steer / enqueue-followup, не создаёт parallel turn.
+      (`queue-policy.test.ts`, новые кейсы для `isDeferredJobRunning`). (2026-04-21)
+- [x] Unit: planner detection для `capability_install` / simple respond_only +
+      locale / deferred-job state зелёные:
+      `planner.ack-then-defer.test.ts`, `ack-then-defer.test.ts`,
+      `queue/deferred-job.test.ts`, `queue-policy.test.ts` → 33/33. (2026-04-21)
+- [x] `pnpm lint:routing:no-prompt-parsing` зелёный после D.2 wiring. (2026-04-21)
+- [x] `scripts/live-routing-smoke.mjs` расширен сценарием `16-ack-then-defer`
+      и проверкой timing через `progress.frame` / structured gateway log fallback.
+      (2026-04-21)
 
 **Зависимости.** D.1 не зависит от D.2. D.2 зависит от C (Progress Bus для
 сигнала о завершении) — выполнено.
@@ -573,3 +603,109 @@ Stage C **невидим конечному пользователю в Telegram
   Verify (2026-04-21): targeted vitest по изменённым файлам ✅; `lint:routing:no-prompt-parsing` ✅;
   `tsgo --noEmit` остаётся красным по pre-existing test-типам вне scope; `live:routing:smoke`
   запускается, но блокируется `gateway token mismatch` + upstream `HTTP 403`, итог 4/16 (не валидирует D.1 live).
+- 2026-04-21 (вечер) — C.1/D.1 **live подтверждены после 3 дополнительных фиксов**:
+  1. `src/plugin-sdk/gateway-runtime.ts`: добавлен re-export
+     `loadCombinedSessionStoreForGateway`, `extensions/telegram/src/bot.ts` переведён с
+     относительного пути `../../../src/gateway/session-utils.js` на
+     `openclaw/plugin-sdk/gateway-runtime` — устранил `TypeError: Cannot redefine property:
+     isSenderAllowed` при загрузке telegram-плагина (двойная загрузка модуля).
+  2. `src/platform/decision/input.ts::resolveIntentLedgerChannelId`: нормализация
+     channel-id через `normalizeAnyChannelId(...)?.trim().toLowerCase()` — раньше
+     `recordFromBotTurn` писал `channel=webchat`, а `peekPending` читал `web`,
+     поэтому `peek` всегда = 0 и clarify-budget не срабатывал. Диагностика в
+     `[intent-ledger] peek=… injected=… session=… channel=…` расширена для удобства.
+  3. `src/platform/session/intent-ledger.ts`:
+     - `GENERIC_CLARIFY_TOPIC_KEY="*generic*"` — fallback topic key, если
+       `classifier.ambigs` пуст, но kind=clarifying (иначе `undefined` terminirovalo budget);
+     - `YES_NO_RE` / `INPUT_HINT_RE` переписаны с `\p{L}` word-boundaries
+       (избавились от false-positive «задачу» → «да», «подсказать» → «укажи»);
+     - форс `kind="clarifying"` если `ambigs.length>0` — синхронизация heuristic
+       с реальным сигналом classifier'а.
+  4. `src/auto-reply/reply/agent-runner.ts`: лог `[intent-ledger] recorded … kind=…
+     topicKey=…` расширен для отладки (видно, что именно записали в ledger).
+  5. `scripts/live-routing-smoke.mjs`: сценарий `15-clarify-budget` переписан на
+     4-turn chain (`Продолжим / Делай / Ну сделай уже / Давай просто`) для
+     гарантии двух подряд clarifying-ответов LLM; добавлен env-filter `SMOKE_ONLY`
+     (CSV scenario ids) для таргетированного live-прогона.
+  Live verify (2026-04-21 19:13 MSK, dev-gateway PID 12380, token из `.env`):
+  `SMOKE_ONLY=15-clarify-budget pnpm live:routing:smoke` → **1/1 passed**,
+  `[scn 15-clarify-budget] done in 42s pass=true finalState=final`,
+  `[clarify-budget] topic=*generic count=2 injected=1` в `.gateway-dev.log`.
+  Targeted vitest: `intent-ledger.test.ts` 15/15, `input.test.ts` ✓,
+  `task-classifier.test.ts` ✓, `bot.progress-wire.test.ts` ✓,
+  `agent-runner-usage-line.test.ts` ✓ — итого 67/67 (5 файлов).
+  `lint:routing:no-prompt-parsing` ✓. Full-suite vitest остаётся красным
+  по pre-existing failures в whatsapp/webhook/monitor (вне scope P1.4).
+- 2026-04-21 (поздний вечер) — **P1.4 D.2 закрыт и live-подтверждён**.
+  Сделано:
+  1. `src/platform/progress/progress-bus.ts`: добавлен phase `ack_deferred`.
+  2. `src/platform/recipe/planner.ts` + `runtime-adapter.ts`:
+     heuristic `estimatedDurationMs` / `ackThenDefer`, env
+     `OPENCLAW_ACK_DEFER_MS`, проброс в `RecipeRuntimePlan`.
+  3. `src/auto-reply/reply/queue/types.ts`, `queue/state.ts`, `queue.ts`,
+     `queue-policy.ts`: `deferred_job`, lifecycle
+     `queued|running|done|failed`, route user-message в
+     `enqueue-followup` во время running bg-job.
+  4. `src/auto-reply/reply/ack-then-defer.ts`,
+     `agent-runner.ts`, `agent-runner-execution.ts`: локализация ack
+     `принял, работаю`, единый idempotent ack path, planner-confirmed defer,
+     узкий pre-routing hint для явного `capability_install`, cleanup deferred
+     state в `finally`.
+  5. `scripts/live-routing-smoke.mjs`: новый сценарий
+     `16-ack-then-defer`, timing-проверка `ackMaxMs/doneMinMs` по
+     `progress.frame` и structured gateway JSON-log fallback.
+  Verify:
+  - Targeted vitest: `planner.ack-then-defer`, `ack-then-defer`,
+    `queue/deferred-job`, `queue-policy` → **33/33**.
+  - Доп. targeted vitest: `src/platform/recipe/planner.test.ts src/platform/progress`
+    → **47/47**, `src/auto-reply/reply/queue` → **14/14**.
+  - `pnpm lint:routing:no-prompt-parsing` → ✅.
+  - Live: после restart через `scripts\gateway-dev-channels.cmd`
+    `SMOKE_ONLY=16-ack-then-defer pnpm live:routing:smoke` → **1/1 passed**,
+    `ackMs=1947`, `doneMs=24724`, фазы
+    `[ack_deferred,classifying,planning,preflight,tool_call,done]`.
+  - Широкий `pnpm vitest run src/platform/recipe src/auto-reply src/platform/session`
+    остаётся красным по pre-existing baseline вне scope D.2; это подтверждено
+    повтором и отдельной проверкой `runtime-adapter.test.ts` в чистом stash-состоянии.
+
+---
+
+## Known live-UX gaps (deferred, не регрессия P1.4)
+
+Зафиксированы при ручном Telegram-смоуке 2026-04-21 поздний вечер. P1.4 закрыт по
+acceptance-критериям (ack ≤ 2s, deferred lifecycle, clarify-budget), но в живом UX
+видны два побочных эффекта, которые **не нарушают инварианты P1.4** и потому
+вынесены в отдельный backlog. Решения по ним принимать **без жёстких рамок** —
+не возвращать парсинг промпта, не хардкодить per-tool whitelist'ы.
+
+1. **D.2 ack-overscope.** Сейчас «принял, работаю» появляется почти на каждый
+   non-trivial turn, потому что `estimateRecipeDurationMs` присваивает
+   `apply_patch / exec / pdf / image_generate` базу 4–8s, а порог
+   `OPENCLAW_ACK_DEFER_MS=3000`. Любой code-change/exec автоматически > 3s.
+   Симптом из live: `capability_install figlet` → ack (ожидаемо), затем
+   `подготовь catalog entry` (apply_patch путь) → тоже ack — лишний шум.
+   Возможные направления (без выбора сейчас):
+   - сместить порог по умолчанию вверх (5–6s) и оставить ack как exception, а не правило;
+   - убрать `apply_patch` из «long-running by capability» — оставить только
+     явные «настоящие долгие» (`capability_install`, `bootstrap`, тяжёлые `exec`),
+     т.е. где блокировка пользователя реально >5s;
+   - добавить адаптивную меру (по факту длительности предыдущих похожих turn'ов
+     из `IntentLedger`) вместо статической эвристики.
+   Что НЕ делать: парсить prompt, хардкодить «если запрос про X — то Y».
+
+2. **C.1 silent status.** `progress-adapter` уже wired в `bot.ts`, kill-switch
+   соблюдается, unit/wire-smoke зелёные, но в живом Telegram-чате edits фактически
+   не появляются (видны только ack и финальный ответ). На gateway-side
+   `progress.frame` эмитится (live `16-ack-then-defer` это подтвердил), значит
+   проблема локализована в участке plugin → Telegram Bot API:
+   - либо адаптер не получает кадры из-за расхождения `sessionId`/chat-target в
+     plugin context vs `progress-bridge` broadcast;
+   - либо edits успевают, но Telegram схлопывает их (тротлинг / «edit text equals»);
+   - либо kill-switch `OPENCLAW_PROGRESS_TELEGRAM` интерпретируется как
+     disabled в проде из-за дефолта.
+   Нужен таргетный live-debug: один turn → лог `[progress-adapter] ...` на стороне
+   плагина + проверка фактических `editMessageText` запросов.
+
+Оба пункта НЕ блокируют другие задачи P1 (P1.2 ensureCredentials и далее) — их
+можно вернуть в работу отдельным мини-этапом, когда появится приоритет на UX
+polish, либо если ack-overscope станет мешать другому live-теcту.

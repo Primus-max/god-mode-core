@@ -84,6 +84,18 @@ export type RecipeRuntimePlan = {
    * only `matched` represents a contract that was actually satisfied.
    */
   routingOutcome?: RoutingOutcome;
+  /**
+   * Heuristic upper-bound estimate of the run's duration in milliseconds.
+   * Forwarded from the execution plan so downstream dispatchers can decide
+   * whether to issue an immediate ack and defer the actual work.
+   * See {@link ExecutionPlan.estimatedDurationMs}.
+   */
+  estimatedDurationMs?: number;
+  /**
+   * Deferral decision from the planner (P1.4 D.2 "Ack-then-defer").
+   * See {@link ExecutionPlan.ackThenDefer}.
+   */
+  ackThenDefer?: boolean;
 };
 
 export type PlatformCapabilityRequirement = {
@@ -909,6 +921,10 @@ export function adaptExecutionPlanToRuntime(
       ? { classifierTelemetry: params.input.classifierTelemetry }
       : {}),
     ...(plan.routingOutcome ? { routingOutcome: plan.routingOutcome } : {}),
+    ...(typeof plan.estimatedDurationMs === "number"
+      ? { estimatedDurationMs: plan.estimatedDurationMs }
+      : {}),
+    ...(plan.ackThenDefer ? { ackThenDefer: true } : {}),
   };
 }
 

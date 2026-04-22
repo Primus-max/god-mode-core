@@ -5,6 +5,7 @@ export type ProgressPhase =
   | "classifying"
   | "planning"
   | "preflight"
+  | "ack_deferred"
   | "tool_call"
   | "producing"
   | "streaming"

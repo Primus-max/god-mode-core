@@ -55,6 +55,17 @@ import { readPostCompactionContext } from "./post-compaction-context.js";
 import { resolveActiveRunQueueAction } from "./queue-policy.js";
 import type { FollowupRun, QueueSettings } from "./queue.js";
 import { enqueueFollowupRun } from "./queue/enqueue.js";
+import {
+  clearDeferredJob,
+  isDeferredJobRunningForQueue,
+  markDeferredJobComplete,
+  markDeferredJobRunning,
+} from "./queue/state.js";
+import {
+  hasExplicitAckThenDeferHint,
+  resolveAckLocale,
+  resolveAckMessage,
+} from "./ack-then-defer.js";
 import { createReplyMediaPathNormalizer } from "./reply-media-paths.runtime.js";
 import { createReplyToModeFilterForChannel, resolveReplyToMode } from "./reply-threading.js";
 import { incrementRunCompactionCount, persistRunSessionUsage } from "./session-run-accounting.js";
@@ -535,6 +546,8 @@ export async function runReplyAgent(params: {
     (typeof opts?.runId === "string" && opts.runId.trim()) ||
     (typeof requestRunId === "string" && requestRunId.trim()) ||
     generateSecureUuid();
+  const effectiveOpts =
+    typeof opts?.runId === "string" && opts.runId.trim() ? opts : { ...opts, runId: progressTurnId };
   const turnProgressEmitter: TurnProgressEmitter | null =
     progressSessionId && progressChannelId
       ? createTurnProgressEmitter({
@@ -600,11 +613,13 @@ export async function runReplyAgent(params: {
     }
   }
 
+  const isDeferredJobRunning = isDeferredJobRunningForQueue(queueKey);
   const activeRunQueueAction = resolveActiveRunQueueAction({
     isActive,
     isHeartbeat,
     shouldFollowup,
     queueMode: resolvedQueue.mode,
+    isDeferredJobRunning,
   });
 
   if (activeRunQueueAction === "drop") {
@@ -784,14 +799,50 @@ export async function runReplyAgent(params: {
     });
   };
   const runTurnBody = async (): Promise<ReplyPayload | ReplyPayload[] | undefined> => {
+  let deferredJobTurnId: string | undefined;
+  let deferredJobOutcome: "done" | "failed" | undefined;
+  let didEmitDeferredAck = false;
+  const emitDeferredAck = async (ackRunId: string): Promise<void> => {
+    if (didEmitDeferredAck) {
+      return;
+    }
+    didEmitDeferredAck = true;
+    const ackLocale = resolveAckLocale();
+    const ackText = resolveAckMessage(ackLocale);
+    if (turnProgressEmitter && !turnProgressEmitter.finalized) {
+      turnProgressEmitter.emit("ack_deferred", ackText);
+    }
+    deferredJobTurnId = ackRunId;
+    markDeferredJobRunning(queueKey, {
+      turnId: ackRunId,
+      ackMessage: ackText,
+    });
+    const deliver = effectiveOpts?.onBlockReply;
+    if (deliver) {
+      try {
+        await deliver(applyReplyToMode({ text: ackText }));
+      } catch (deliveryError) {
+        void deliveryError;
+      }
+    }
+  };
   try {
     await maybeResetOversizedSession();
+    if (
+      !isHeartbeat &&
+      hasExplicitAckThenDeferHint({
+        prompt: followupRun.prompt,
+        commandBody,
+      })
+    ) {
+      await emitDeferredAck(progressTurnId);
+    }
     const runStartedAt = Date.now();
     const runOutcome = await runAgentTurnWithFallback({
       commandBody,
       followupRun,
       sessionCtx,
-      opts,
+      opts: effectiveOpts,
       typingSignals,
       blockReplyPipeline,
       blockStreamingEnabled,
@@ -809,6 +860,10 @@ export async function runReplyAgent(params: {
       activeSessionStore,
       storePath,
       resolvedVerboseLevel,
+      onAckThenDefer: async ({ runId: ackRunId, estimatedDurationMs }) => {
+        await emitDeferredAck(ackRunId);
+        void estimatedDurationMs;
+      },
     });
 
     if (runOutcome.kind === "final") {
@@ -1352,7 +1407,7 @@ export async function runReplyAgent(params: {
         ambigs: extractClassifierAmbiguities(runResult.meta?.executionIntent),
       });
       intentLedgerLog.info(
-        `[intent-ledger] recorded session=${followupRun.run.sessionId} channel=${channelForLedger}`,
+        `[intent-ledger] recorded session=${followupRun.run.sessionId} channel=${channelForLedger} kind=${recordedLedgerEntry?.kind ?? "-"} topicKey=${recordedLedgerEntry?.clarifyTopicKey ?? "-"}`,
       );
 
       const executionReceipts = runResult.meta?.executionVerification?.receipts ?? [];
@@ -1491,6 +1546,9 @@ export async function runReplyAgent(params: {
     // Keep the followup queue moving even when an unexpected exception escapes
     // the run path; the caller still receives the original error.
     finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
+    if (deferredJobTurnId) {
+      deferredJobOutcome = "failed";
+    }
     throw error;
   } finally {
     blockReplyPipeline?.stop();
@@ -1502,6 +1560,13 @@ export async function runReplyAgent(params: {
     // Calling this twice is harmless — cleanup() is guarded by the
     // `active` flag.  Same pattern as the followup runner fix (#26881).
     typing.markDispatchIdle();
+    if (deferredJobTurnId) {
+      markDeferredJobComplete(queueKey, {
+        turnId: deferredJobTurnId,
+        status: deferredJobOutcome ?? "done",
+      });
+      clearDeferredJob(queueKey);
+    }
   }
   };
   if (turnProgressEmitter) {
