@@ -300,6 +300,34 @@ function buildClarifyBudgetInjection(clarifyBudgetNotice?: string): string {
   return `\n${normalized}`;
 }
 
+function buildContextBlockInjection(tag: "workspace" | "identity", body?: string): string {
+  const normalized = typeof body === "string" ? body.trim() : "";
+  if (!normalized) {
+    return "";
+  }
+  return `\n<${tag}>\n${normalized}\n</${tag}>`;
+}
+
+/**
+ * Builds the user-message preamble in the canonical order required by P1.5 §B:
+ * `<workspace>` → `<identity>` → `<pending_commitments>` → clarify-budget → user prompt.
+ * Exported only for unit-test verification; production callers go through the adapter.
+ */
+export function composeClassifierUserRequestForTest(params: {
+  prompt: string;
+  workspaceContext?: string;
+  identityContext?: string;
+  ledgerContext?: string;
+  clarifyBudgetNotice?: string;
+}): string {
+  const workspaceInjection = buildContextBlockInjection("workspace", params.workspaceContext);
+  const identityInjection = buildContextBlockInjection("identity", params.identityContext);
+  const pendingCommitmentsInjection = buildPendingCommitmentsInjection(params.ledgerContext);
+  const clarifyBudgetInjection = buildClarifyBudgetInjection(params.clarifyBudgetNotice);
+  const preamble = `${workspaceInjection}${identityInjection}${pendingCommitmentsInjection}${clarifyBudgetInjection}`;
+  return preamble ? `${preamble.replace(/^\n/, "")}\n${params.prompt}` : params.prompt;
+}
+
 type PrimaryOutcome =
   | "answer"
   | "workspace_change"
@@ -424,6 +452,8 @@ export type TaskClassifierAdapter = {
     fileNames: string[];
     ledgerContext?: string;
     clarifyBudgetNotice?: string;
+    workspaceContext?: string;
+    identityContext?: string;
     config: ResolvedTaskClassifierConfig;
     cfg: OpenClawConfig;
     agentDir?: string;
@@ -948,6 +978,8 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
     fileNames: string[];
     ledgerContext?: string;
     clarifyBudgetNotice?: string;
+    workspaceContext?: string;
+    identityContext?: string;
     config: ResolvedTaskClassifierConfig;
     cfg: OpenClawConfig;
     agentDir?: string;
@@ -981,13 +1013,13 @@ class PiTaskClassifierAdapter implements TaskClassifierAdapter {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), params.config.timeoutMs);
     try {
-      const pendingCommitmentsInjection = buildPendingCommitmentsInjection(params.ledgerContext);
-      const clarifyBudgetInjection = buildClarifyBudgetInjection(params.clarifyBudgetNotice);
-      const userRequest = pendingCommitmentsInjection
-        ? `${pendingCommitmentsInjection}${clarifyBudgetInjection}\n${params.prompt}`
-        : clarifyBudgetInjection
-          ? `${clarifyBudgetInjection}\n${params.prompt}`
-        : params.prompt;
+      const userRequest = composeClassifierUserRequestForTest({
+        prompt: params.prompt,
+        ...(params.workspaceContext ? { workspaceContext: params.workspaceContext } : {}),
+        ...(params.identityContext ? { identityContext: params.identityContext } : {}),
+        ...(params.ledgerContext ? { ledgerContext: params.ledgerContext } : {}),
+        ...(params.clarifyBudgetNotice ? { clarifyBudgetNotice: params.clarifyBudgetNotice } : {}),
+      });
       const prompt = TASK_CLASSIFIER_USER_TEMPLATE.replace(
         "{{SCHEMA_JSON}}",
         JSON.stringify(TASK_CONTRACT_SCHEMA),
@@ -1124,6 +1156,8 @@ export async function classifyTaskForDecision(params: {
   fileNames?: string[];
   ledgerContext?: string;
   clarifyBudgetNotice?: string;
+  workspaceContext?: string;
+  identityContext?: string;
   cfg: OpenClawConfig;
   agentDir?: string;
   input?: BuildExecutionDecisionInputParams;
@@ -1171,6 +1205,8 @@ export async function classifyTaskForDecision(params: {
         fileNames: params.fileNames ?? [],
         ledgerContext: params.ledgerContext,
         clarifyBudgetNotice: params.clarifyBudgetNotice,
+        ...(params.workspaceContext ? { workspaceContext: params.workspaceContext } : {}),
+        ...(params.identityContext ? { identityContext: params.identityContext } : {}),
         config: classifierConfig,
         cfg: params.cfg,
         agentDir: params.agentDir,

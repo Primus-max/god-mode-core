@@ -4,6 +4,7 @@ import { resolvePlatformRuntimePlan } from "../recipe/runtime-adapter.js";
 import {
   buildPlannerInputFromTaskContract,
   classifyTaskForDecision,
+  composeClassifierUserRequestForTest,
   resolveTaskClassifierConfig,
   type TaskClassifierAdapter,
   type TaskContract,
@@ -1294,5 +1295,82 @@ describe("contract-first task contract routing", () => {
     expect(classified.plannerInput.requestedTools).not.toEqual(
       expect.arrayContaining(["apply_patch"]),
     );
+  });
+});
+
+describe("classifier prompt composition (P1.5 §B context blocks)", () => {
+  it("composes <workspace>, <identity>, <pending_commitments>, clarify_budget, prompt in canonical order", () => {
+    const userRequest = composeClassifierUserRequestForTest({
+      prompt: "запусти node --version",
+      workspaceContext: "default_cwd: /repo\nroots:\n  - /repo [git=org/repo@dev]",
+      identityContext: "persona: Trader\navailable_tools: exec, apply_patch",
+      ledgerContext: "abc clarifying: \"format\"",
+      clarifyBudgetNotice: "<clarify_budget_exceeded>limit</clarify_budget_exceeded>",
+    });
+
+    const workspaceIdx = userRequest.indexOf("<workspace>");
+    const identityIdx = userRequest.indexOf("<identity>");
+    const pendingIdx = userRequest.indexOf("<pending_commitments>");
+    const clarifyIdx = userRequest.indexOf("<clarify_budget_exceeded>");
+    const promptIdx = userRequest.indexOf("запусти node --version");
+
+    expect(workspaceIdx).toBeGreaterThanOrEqual(0);
+    expect(identityIdx).toBeGreaterThan(workspaceIdx);
+    expect(pendingIdx).toBeGreaterThan(identityIdx);
+    expect(clarifyIdx).toBeGreaterThan(pendingIdx);
+    expect(promptIdx).toBeGreaterThan(clarifyIdx);
+  });
+
+  it("emits identity even when workspace is absent (cheap baseline injection)", () => {
+    const userRequest = composeClassifierUserRequestForTest({
+      prompt: "что у тебя есть?",
+      identityContext: "persona: Trader\navailable_tools: exec, web_search",
+    });
+    expect(userRequest).toContain("<identity>");
+    expect(userRequest).not.toContain("<workspace>");
+    expect(userRequest).toMatch(/<\/identity>\s*\nчто у тебя есть\?/);
+  });
+
+  it("falls back to bare prompt when no context blocks are provided", () => {
+    const userRequest = composeClassifierUserRequestForTest({ prompt: "hello" });
+    expect(userRequest).toBe("hello");
+  });
+
+  it("propagates workspaceContext and identityContext through classifyTaskForDecision into the adapter", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: { backend: "stub-backend" },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const seenParams: Array<Parameters<TaskClassifierAdapter["classify"]>[0]> = [];
+    const adapter: TaskClassifierAdapter = {
+      async classify(params) {
+        seenParams.push(params);
+        return {
+          primaryOutcome: "workspace_change",
+          requiredCapabilities: ["needs_workspace_mutation", "needs_repo_execution"],
+          interactionMode: "tool_execution",
+          confidence: 0.9,
+          ambiguities: [],
+        };
+      },
+    };
+
+    await classifyTaskForDecision({
+      prompt: "fix the leak in the tests lane",
+      cfg,
+      workspaceContext: "default_cwd: /repo\nroots:\n  - /repo [git=org/repo@dev]",
+      identityContext: "persona: Trader\navailable_tools: exec, apply_patch, web_search",
+      adapterRegistry: { "stub-backend": adapter },
+    });
+
+    expect(seenParams).toHaveLength(1);
+    expect(seenParams[0]?.workspaceContext).toContain("default_cwd: /repo");
+    expect(seenParams[0]?.identityContext).toContain("persona: Trader");
   });
 });

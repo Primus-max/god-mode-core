@@ -1,8 +1,26 @@
 import type { PlatformRuntimeExecutionReceiptKind } from "../runtime/contracts.js";
+import { defaultRuntime } from "../../runtime.js";
+import {
+  buildIdentityFacts,
+  createProducerToolRegistry,
+  createTrustedCapabilityRegistry,
+  type BuildIdentityFactsOptions,
+  type IdentityFacts,
+  type ToolRegistry,
+  type CapabilityRegistry,
+} from "./identity-facts.js";
+import {
+  probeWorkspace,
+  type ProbeWorkspaceOptions,
+  type WorkspaceSnapshot,
+} from "./workspace-probe.js";
 
 export const INTENT_LEDGER_TTL_MS = 15 * 60 * 1000;
 export const INTENT_LEDGER_MAX_ENTRIES = 8;
 export const CLARIFY_BUDGET_WINDOW_MS_DEFAULT = 5 * 60 * 1000;
+export const WORKSPACE_TTL_MS_DEFAULT = 5 * 60 * 1000;
+export const IDENTITY_TTL_MS_DEFAULT = 30 * 60 * 1000;
+export const GENERIC_CLARIFY_TOPIC_KEY = "*generic*";
 const LEDGER_MAX_CONTEXT_LINES = 3;
 const TURN_ID_SHORT_LENGTH = 8;
 
@@ -57,10 +75,33 @@ type IntentLedgerOptions = {
   clarifyBudgetWindowMs?: number;
 };
 
+type IntentLedgerSessionState = {
+  entries: IntentLedgerEntry[];
+  workspace?: WorkspaceSnapshot;
+  identity?: IdentityFacts;
+};
+
+export type GetOrProbeWorkspaceOptions = Pick<
+  ProbeWorkspaceOptions,
+  "cwd" | "extraRootsEnv" | "fs" | "readGitInfo"
+> & {
+  now?: () => number;
+  probe?: (options: ProbeWorkspaceOptions) => Promise<WorkspaceSnapshot>;
+};
+
+export type GetOrBuildIdentityOptions = {
+  personaResolver?: BuildIdentityFactsOptions["personaResolver"];
+  toolRegistry?: ToolRegistry;
+  capabilityRegistry?: CapabilityRegistry;
+  now?: () => number;
+  build?: (options: BuildIdentityFactsOptions) => IdentityFacts;
+};
+
 const CONFIRMATION_HINT_RE =
   /(подтверд(?:и|ите|ишь|ите)|confirm|confirmation|да\/нет|yes\/no)/i;
-const YES_NO_RE = /(да|нет|yes|no)/i;
-const INPUT_HINT_RE = /(пришли|укажи|введи|send|provide|enter)/i;
+const YES_NO_RE = /(?:^|[^\p{L}])(?:да|нет|yes|no)(?=[^\p{L}]|$)/iu;
+const INPUT_HINT_RE =
+  /(?:^|[^\p{L}])(?:пришл(?:и|ите)|укажи(?:те)?|введи(?:те)?|напиши(?:те)?|send|provide|enter)(?=[^\p{L}]|$)/iu;
 const PROMISED_ACTION_RE =
   /(запускаю|начинаем|сейчас\s+сделаю|применяю|running|starting|i\s+will)/i;
 const MATCHER_EXEC_RE = /(exec|команд|node|npm|pnpm|test|build|install)/i;
@@ -107,6 +148,14 @@ function inferPromisedActionMatchers(summary: string): IntentLedgerReceiptMatche
 
 function normalizeSummary(summary: string): string {
   return summary.replace(/\s+/g, " ").trim();
+}
+
+function resolvePositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
 }
 
 function keyFor(sessionId: string, channelId: string): string {
@@ -160,8 +209,37 @@ function shortTurnId(turnId: string): string {
   return compact.length <= TURN_ID_SHORT_LENGTH ? compact : compact.slice(0, TURN_ID_SHORT_LENGTH);
 }
 
+function shortSessionId(sessionId: string): string {
+  return shortTurnId(sessionId);
+}
+
+function cloneWorkspaceSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  return {
+    ...snapshot,
+    roots: snapshot.roots.map((root) => ({
+      ...root,
+      topLevelDirs: [...root.topLevelDirs],
+    })),
+  };
+}
+
+function cloneIdentityFacts(identity: IdentityFacts): IdentityFacts {
+  return {
+    ...identity,
+    availableTools: [...identity.availableTools],
+    availableCapabilities: [...identity.availableCapabilities],
+  };
+}
+
+function hasSessionStateData(state: IntentLedgerSessionState | undefined): boolean {
+  if (!state) {
+    return false;
+  }
+  return state.entries.length > 0 || Boolean(state.workspace) || Boolean(state.identity);
+}
+
 export class IntentLedger {
-  private readonly entries = new Map<string, IntentLedgerEntry[]>();
+  private readonly sessionState = new Map<string, IntentLedgerSessionState>();
   private readonly now: () => number;
   private readonly ttlMs: number;
   private readonly maxEntries: number;
@@ -174,9 +252,32 @@ export class IntentLedger {
     this.clarifyBudgetWindowMs = options.clarifyBudgetWindowMs ?? CLARIFY_BUDGET_WINDOW_MS_DEFAULT;
   }
 
+  private getOrCreateState(sessionId: string, channelId: string): IntentLedgerSessionState {
+    const key = keyFor(sessionId, channelId);
+    const existing = this.sessionState.get(key);
+    if (existing) {
+      return existing;
+    }
+    const created: IntentLedgerSessionState = { entries: [] };
+    this.sessionState.set(key, created);
+    return created;
+  }
+
+  private resolveWorkspaceTtlMs(): number {
+    return resolvePositiveInt(process.env.OPENCLAW_WORKSPACE_TTL_MS, WORKSPACE_TTL_MS_DEFAULT);
+  }
+
+  private resolveIdentityTtlMs(): number {
+    return resolvePositiveInt(process.env.OPENCLAW_IDENTITY_TTL_MS, IDENTITY_TTL_MS_DEFAULT);
+  }
+
   recordFromBotTurn(params: IntentLedgerRecordParams): IntentLedgerEntry | undefined {
     const summary = normalizeSummary(params.summary);
-    const classified = classifyBotTurn(summary, params.planOutput);
+    const heuristic = classifyBotTurn(summary, params.planOutput);
+    const hasAmbigs = Array.isArray(params.ambigs) && params.ambigs.length > 0;
+    const classified: LedgerClassifierResult = hasAmbigs
+      ? { kind: "clarifying", expectsFrom: "user" }
+      : heuristic;
     if (!classified) {
       return undefined;
     }
@@ -200,13 +301,12 @@ export class IntentLedger {
             clarifyTopicKey:
               Array.isArray(params.ambigs) && params.ambigs.length > 0
                 ? clarifyTopicKey(params.ambigs)
-                : undefined,
+                : GENERIC_CLARIFY_TOPIC_KEY,
           }
         : {}),
     };
-    const key = keyFor(params.sessionId, params.channelId);
-    const next = [...(this.entries.get(key) ?? []), entry].slice(-this.maxEntries);
-    this.entries.set(key, next);
+    const state = this.getOrCreateState(params.sessionId, params.channelId);
+    state.entries = [...state.entries, entry].slice(-this.maxEntries);
     return entry;
   }
 
@@ -231,17 +331,89 @@ export class IntentLedger {
       ttlMs: this.ttlMs,
       ...(params.receiptMatchers ? { receiptMatchers: params.receiptMatchers } : {}),
     };
-    const key = keyFor(params.sessionId, params.channelId);
-    const next = [...(this.entries.get(key) ?? []), entry].slice(-this.maxEntries);
-    this.entries.set(key, next);
+    const state = this.getOrCreateState(params.sessionId, params.channelId);
+    state.entries = [...state.entries, entry].slice(-this.maxEntries);
     return entry;
   }
 
   peekPending(sessionId: string, channelId: string): IntentLedgerEntry[] {
     const key = keyFor(sessionId, channelId);
     const now = this.now();
-    const values = this.entries.get(key) ?? [];
+    const values = this.sessionState.get(key)?.entries ?? [];
     return values.filter((entry) => now - entry.createdAt <= entry.ttlMs).map((entry) => ({ ...entry }));
+  }
+
+  async getOrProbeWorkspace(
+    sessionId: string,
+    channelId: string,
+    options: GetOrProbeWorkspaceOptions = {},
+  ): Promise<WorkspaceSnapshot> {
+    const now = options.now?.() ?? this.now();
+    const state = this.getOrCreateState(sessionId, channelId);
+    if (state.workspace && now - state.workspace.capturedAt <= state.workspace.ttlMs) {
+      const cachedSnapshot = cloneWorkspaceSnapshot(state.workspace);
+      defaultRuntime.log(
+        `[workspace-probe] session=${shortSessionId(sessionId)} roots=${String(cachedSnapshot.roots.length)} probedMs=0 cached=1 skipped=${String(cachedSnapshot.skippedRoots)}`,
+      );
+      return cachedSnapshot;
+    }
+    const probe = options.probe ?? probeWorkspace;
+    const startedAt = Date.now();
+    const snapshot = await probe({
+      cwd: options.cwd,
+      extraRootsEnv: options.extraRootsEnv,
+      fs: options.fs,
+      readGitInfo: options.readGitInfo,
+      ttlMs: this.resolveWorkspaceTtlMs(),
+    });
+    const normalized: WorkspaceSnapshot = {
+      ...snapshot,
+      ttlMs: this.resolveWorkspaceTtlMs(),
+    };
+    state.workspace = normalized;
+    defaultRuntime.log(
+      `[workspace-probe] session=${shortSessionId(sessionId)} roots=${String(normalized.roots.length)} probedMs=${String(Date.now() - startedAt)} cached=0 skipped=${String(normalized.skippedRoots)}`,
+    );
+    return cloneWorkspaceSnapshot(normalized);
+  }
+
+  invalidateWorkspace(sessionId: string, channelId: string): boolean {
+    const key = keyFor(sessionId, channelId);
+    const state = this.sessionState.get(key);
+    if (!state?.workspace) {
+      return false;
+    }
+    delete state.workspace;
+    if (!hasSessionStateData(state)) {
+      this.sessionState.delete(key);
+    }
+    return true;
+  }
+
+  getOrBuildIdentity(
+    sessionId: string,
+    channelId: string,
+    options: GetOrBuildIdentityOptions = {},
+  ): IdentityFacts {
+    const now = options.now?.() ?? this.now();
+    const state = this.getOrCreateState(sessionId, channelId);
+    if (state.identity && now - state.identity.capturedAt <= state.identity.ttlMs) {
+      return cloneIdentityFacts(state.identity);
+    }
+    const identityBuilder = options.build ?? buildIdentityFacts;
+    const built = identityBuilder({
+      personaResolver: options.personaResolver,
+      toolRegistry: options.toolRegistry ?? createProducerToolRegistry(),
+      capabilityRegistry: options.capabilityRegistry ?? createTrustedCapabilityRegistry(),
+      now: () => now,
+      ttlMs: this.resolveIdentityTtlMs(),
+    });
+    const normalized: IdentityFacts = {
+      ...built,
+      ttlMs: this.resolveIdentityTtlMs(),
+    };
+    state.identity = normalized;
+    return cloneIdentityFacts(normalized);
   }
 
   peekClarifyCount(
@@ -273,7 +445,8 @@ export class IntentLedger {
 
   invalidate(entryIdOrPredicate: string | ((entry: IntentLedgerEntry) => boolean)): number {
     let removed = 0;
-    for (const [key, values] of this.entries.entries()) {
+    for (const [key, state] of this.sessionState.entries()) {
+      const values = state.entries;
       const nextValues = values.filter((entry) => {
         const shouldRemove =
           typeof entryIdOrPredicate === "string"
@@ -284,17 +457,18 @@ export class IntentLedger {
         }
         return !shouldRemove;
       });
-      if (nextValues.length === 0) {
-        this.entries.delete(key);
-      } else if (nextValues.length !== values.length) {
-        this.entries.set(key, nextValues);
+      if (nextValues.length !== values.length) {
+        state.entries = nextValues;
+      }
+      if (!hasSessionStateData(state)) {
+        this.sessionState.delete(key);
       }
     }
     return removed;
   }
 
   debugEntryCount(sessionId: string, channelId: string): number {
-    return (this.entries.get(keyFor(sessionId, channelId)) ?? []).length;
+    return (this.sessionState.get(keyFor(sessionId, channelId))?.entries ?? []).length;
   }
 }
 

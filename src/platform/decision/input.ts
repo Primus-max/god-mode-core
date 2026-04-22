@@ -1,12 +1,15 @@
 import path from "node:path";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
+import { normalizeAnyChannelId } from "../../channels/registry.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import { defaultRuntime } from "../../runtime.js";
 import { getCurrentTurnProgressEmitter } from "../progress/progress-bus.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
+import { projectIdentityForPrompt } from "../session/identity-facts.js";
 import { buildIntentLedgerContext, intentLedger } from "../session/intent-ledger.js";
+import { projectWorkspaceForPrompt } from "../session/workspace-probe.js";
 import {
   buildRecipePlannerInputFromRuntimePlan,
   resolvePlatformRuntimePlan,
@@ -24,7 +27,11 @@ import {
 } from "./qualification-confidence.js";
 import type { QualificationResult } from "./qualification-contract.js";
 import { resolveResolutionContract, toRecipeRoutingHints } from "./resolution-contract.js";
-import { classifyTaskForDecision, type TaskClassifierAdapter } from "./task-classifier.js";
+import {
+  classifyTaskForDecision,
+  type TaskClassifierAdapter,
+  type TaskContract,
+} from "./task-classifier.js";
 import {
   normalizeExecutionTurn,
   resolveKeywordInferencePrompt,
@@ -33,6 +40,64 @@ import {
 
 const CLARIFY_BUDGET_WINDOW_MS_DEFAULT = 300_000;
 const CLARIFY_BUDGET_MAX_REPEAT_DEFAULT = 2;
+
+const WORKSPACE_TRIGGER_TOOL_NAMES = new Set(["exec", "apply_patch", "process", "bootstrap"]);
+const WORKSPACE_TRIGGER_DELIVERABLE_KINDS = new Set(["code_change", "repo_operation"]);
+const WORKSPACE_TRIGGER_CAPABILITIES = new Set([
+  "needs_workspace_mutation",
+  "needs_repo_execution",
+  "needs_local_runtime",
+]);
+
+export type ShouldInjectWorkspaceContextInput = {
+  taskContract: Pick<
+    TaskContract,
+    "primaryOutcome" | "interactionMode" | "requiredCapabilities" | "deliverable"
+  >;
+  requestedTools?: readonly string[];
+};
+
+/**
+ * Pure decision: does this turn need workspace facts in the classifier prompt?
+ * P1.5 rule — only on turns whose first-pass contract proves a workspace touch is required.
+ * Inputs are facts derived by the LLM (deliverable kind, capabilities, requested tools), never
+ * the user prompt — keeps `lint:routing:no-prompt-parsing` happy.
+ */
+export function shouldInjectWorkspaceContext(input: ShouldInjectWorkspaceContextInput): boolean {
+  const { taskContract } = input;
+  const deliverableKind = taskContract.deliverable?.kind;
+  if (deliverableKind && WORKSPACE_TRIGGER_DELIVERABLE_KINDS.has(deliverableKind)) {
+    return true;
+  }
+  if (
+    deliverableKind === "external_delivery" &&
+    taskContract.interactionMode === "tool_execution"
+  ) {
+    return true;
+  }
+  for (const tool of input.requestedTools ?? []) {
+    if (WORKSPACE_TRIGGER_TOOL_NAMES.has(tool.toLowerCase())) {
+      return true;
+    }
+  }
+  for (const capability of taskContract.requiredCapabilities) {
+    if (WORKSPACE_TRIGGER_CAPABILITIES.has(capability)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function shortIdForLog(id: string | undefined): string {
+  if (!id) {
+    return "-";
+  }
+  return id.slice(0, 8);
+}
+
+function approximateTokenCount(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
 
 function resolveEnvPositiveInt(raw: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(raw ?? "", 10);
@@ -81,7 +146,14 @@ function resolveIntentLedgerChannelId(channelHints?: DecisionInputChannelHints):
     channelHints?.channel ??
     channelHints?.replyChannel
   )?.trim();
-  return candidate && candidate.length > 0 ? candidate : undefined;
+  if (!candidate) {
+    return undefined;
+  }
+  const normalized = normalizeAnyChannelId(candidate)?.trim().toLowerCase();
+  if (normalized && normalized.length > 0) {
+    return normalized;
+  }
+  return candidate.toLowerCase();
 }
 
 export type BuildSessionBackedExecutionDecisionInputParams = Omit<
@@ -298,7 +370,7 @@ export async function buildClassifiedExecutionDecisionInput(params: {
       : [];
   const ledgerContext = buildIntentLedgerContext(pendingCommitments);
   defaultRuntime.log(
-    `[intent-ledger] peek=${String(pendingCommitments.length)} injected=${ledgerContext ? "1" : "0"}`,
+    `[intent-ledger] peek=${String(pendingCommitments.length)} injected=${ledgerContext ? "1" : "0"} session=${ledgerSessionId ?? "-"} channel=${ledgerChannelId ?? "-"}`,
   );
   const clarifyWindowMs = resolveEnvPositiveInt(
     process.env.OPENCLAW_CLARIFY_BUDGET_WINDOW_MS,
@@ -336,6 +408,17 @@ export async function buildClassifiedExecutionDecisionInput(params: {
       `[clarify-budget] topic=${pendingTopicKey.slice(0, 8)} count=${String(withinWindowCount)} injected=${injected ? "1" : "0"}`,
     );
   }
+  let identityContext = "";
+  if (ledgerSessionId && ledgerChannelId) {
+    try {
+      const identity = intentLedger.getOrBuildIdentity(ledgerSessionId, ledgerChannelId);
+      identityContext = projectIdentityForPrompt(identity);
+    } catch (error) {
+      defaultRuntime.log(
+        `[identity-inject] error session=${shortIdForLog(ledgerSessionId)} channel=${shortIdForLog(ledgerChannelId)} reason=${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   getCurrentTurnProgressEmitter()?.emit("classifying");
   const classified = await classifyTaskForDecision({
     prompt: classifierPrompt,
@@ -345,17 +428,81 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     input: classifierInput,
     ledgerContext,
     clarifyBudgetNotice,
+    ...(identityContext ? { identityContext } : {}),
     adapterRegistry: params.adapterRegistry,
   });
+
+  let finalClassified = classified;
+  if (
+    ledgerSessionId &&
+    ledgerChannelId &&
+    shouldInjectWorkspaceContext({
+      taskContract: classified.taskContract,
+      requestedTools: classified.plannerInput.requestedTools,
+    })
+  ) {
+    let workspaceContext = "";
+    try {
+      const snapshot = await intentLedger.getOrProbeWorkspace(ledgerSessionId, ledgerChannelId);
+      workspaceContext = projectWorkspaceForPrompt(snapshot);
+    } catch (error) {
+      defaultRuntime.log(
+        `[workspace-inject] error session=${shortIdForLog(ledgerSessionId)} channel=${shortIdForLog(ledgerChannelId)} reason=${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (workspaceContext) {
+      const reason = workspaceInjectionReason(classified.taskContract, classified.plannerInput.requestedTools);
+      defaultRuntime.log(
+        `[workspace-inject] session=${shortIdForLog(ledgerSessionId)} channel=${shortIdForLog(ledgerChannelId)} reason=${reason} tokens=${String(approximateTokenCount(workspaceContext))}`,
+      );
+      finalClassified = await classifyTaskForDecision({
+        prompt: classifierPrompt,
+        fileNames: classifierInput.fileNames,
+        cfg: params.cfg,
+        agentDir: params.agentDir,
+        input: classifierInput,
+        ledgerContext,
+        clarifyBudgetNotice,
+        workspaceContext,
+        ...(identityContext ? { identityContext } : {}),
+        adapterRegistry: params.adapterRegistry,
+      });
+    }
+  }
   return applySessionSpecialistOverrideToPlannerInput(
     {
-      ...classified.plannerInput,
+      ...finalClassified.plannerInput,
       ...(classifierInput.integrations?.length
         ? { integrations: classifierInput.integrations }
         : {}),
     },
     params.sessionEntry,
   );
+}
+
+function workspaceInjectionReason(
+  taskContract: Pick<
+    TaskContract,
+    "primaryOutcome" | "interactionMode" | "requiredCapabilities" | "deliverable"
+  >,
+  requestedTools: readonly string[] | undefined,
+): "contract" | "tools" {
+  const deliverableKind = taskContract.deliverable?.kind;
+  if (deliverableKind && WORKSPACE_TRIGGER_DELIVERABLE_KINDS.has(deliverableKind)) {
+    return "contract";
+  }
+  if (
+    deliverableKind === "external_delivery" &&
+    taskContract.interactionMode === "tool_execution"
+  ) {
+    return "contract";
+  }
+  for (const tool of requestedTools ?? []) {
+    if (WORKSPACE_TRIGGER_TOOL_NAMES.has(tool.toLowerCase())) {
+      return "tools";
+    }
+  }
+  return "contract";
 }
 
 export async function resolveClassifiedSessionBackedExecutionRuntimePlan(params: {

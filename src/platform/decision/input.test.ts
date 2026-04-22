@@ -11,9 +11,11 @@ import {
   buildExecutionDecisionInputFromRuntimePlan,
   buildClassifiedExecutionDecisionInput,
   buildSessionBackedExecutionDecisionInput,
+  shouldInjectWorkspaceContext,
   shouldUseLightweightBootstrapContext,
 } from "./input.js";
 import { resolveResolutionContract } from "./resolution-contract.js";
+import type { TaskContract } from "./task-classifier.js";
 
 describe("buildSessionBackedExecutionDecisionInput", () => {
   it("merges transcript-derived prompt and file names with the current draft prompt", async () => {
@@ -472,5 +474,122 @@ describe("resolveResolutionContract", () => {
         }),
       }),
     );
+  });
+});
+
+describe("shouldInjectWorkspaceContext", () => {
+  function makeContract(overrides: Partial<TaskContract> = {}): TaskContract {
+    return {
+      primaryOutcome: "answer",
+      requiredCapabilities: [],
+      interactionMode: "respond_only",
+      confidence: 0.9,
+      ambiguities: [],
+      ...overrides,
+    };
+  }
+
+  it("injects when deliverable.kind=code_change", () => {
+    const contract = makeContract({
+      primaryOutcome: "workspace_change",
+      interactionMode: "tool_execution",
+      requiredCapabilities: ["needs_workspace_mutation"],
+      deliverable: { kind: "code_change", acceptedFormats: ["patch"] },
+    });
+    expect(shouldInjectWorkspaceContext({ taskContract: contract })).toBe(true);
+  });
+
+  it("injects when deliverable.kind=repo_operation", () => {
+    const contract = makeContract({
+      primaryOutcome: "workspace_change",
+      interactionMode: "tool_execution",
+      requiredCapabilities: ["needs_repo_execution"],
+      deliverable: { kind: "repo_operation", acceptedFormats: ["exec"] },
+    });
+    expect(shouldInjectWorkspaceContext({ taskContract: contract })).toBe(true);
+  });
+
+  it("injects when deliverable.kind=external_delivery + tool_execution mode", () => {
+    const contract = makeContract({
+      primaryOutcome: "external_delivery",
+      interactionMode: "tool_execution",
+      requiredCapabilities: ["needs_external_delivery"],
+      deliverable: { kind: "external_delivery", acceptedFormats: ["receipt"] },
+    });
+    expect(shouldInjectWorkspaceContext({ taskContract: contract })).toBe(true);
+  });
+
+  it("does NOT inject for external_delivery with artifact_iteration mode", () => {
+    const contract = makeContract({
+      primaryOutcome: "external_delivery",
+      interactionMode: "artifact_iteration",
+      requiredCapabilities: ["needs_multimodal_authoring"],
+      deliverable: { kind: "external_delivery", acceptedFormats: ["receipt"] },
+    });
+    expect(shouldInjectWorkspaceContext({ taskContract: contract })).toBe(false);
+  });
+
+  it("injects when requestedTools contains exec", () => {
+    const contract = makeContract();
+    expect(
+      shouldInjectWorkspaceContext({ taskContract: contract, requestedTools: ["exec"] }),
+    ).toBe(true);
+  });
+
+  it("injects when requestedTools contains apply_patch (case-insensitive)", () => {
+    const contract = makeContract();
+    expect(
+      shouldInjectWorkspaceContext({ taskContract: contract, requestedTools: ["APPLY_PATCH"] }),
+    ).toBe(true);
+  });
+
+  it("injects when requiredCapabilities contains needs_workspace_mutation", () => {
+    const contract = makeContract({
+      requiredCapabilities: ["needs_workspace_mutation"],
+    });
+    expect(shouldInjectWorkspaceContext({ taskContract: contract })).toBe(true);
+  });
+
+  it("injects when requiredCapabilities contains needs_local_runtime", () => {
+    const contract = makeContract({
+      requiredCapabilities: ["needs_local_runtime"],
+    });
+    expect(shouldInjectWorkspaceContext({ taskContract: contract })).toBe(true);
+  });
+
+  it("does NOT inject for clarification_needed", () => {
+    const contract = makeContract({
+      primaryOutcome: "clarification_needed",
+      interactionMode: "clarify_first",
+      ambiguities: ["unclear"],
+      deliverable: { kind: "answer", acceptedFormats: ["text"] },
+    });
+    expect(
+      shouldInjectWorkspaceContext({ taskContract: contract, requestedTools: [] }),
+    ).toBe(false);
+  });
+
+  it("does NOT inject for plain answer / respond_only", () => {
+    const contract = makeContract({
+      deliverable: { kind: "answer", acceptedFormats: ["text"] },
+    });
+    expect(
+      shouldInjectWorkspaceContext({ taskContract: contract, requestedTools: [] }),
+    ).toBe(false);
+  });
+
+  it("does NOT inject for pure image generation (visual artifact)", () => {
+    const contract = makeContract({
+      primaryOutcome: "document_package",
+      interactionMode: "artifact_iteration",
+      requiredCapabilities: ["needs_visual_composition"],
+      deliverable: { kind: "image", acceptedFormats: ["png", "jpg"] },
+    });
+    expect(
+      shouldInjectWorkspaceContext({
+        taskContract: contract,
+        requestedTools: ["image_generate"],
+      }),
+    ).toBe(false);
   });
 });

@@ -262,4 +262,29 @@ describe("IntentLedger clarify budget", () => {
     const second = clarifyTopicKey(["auth token scope", "environment target"]);
     expect(first).not.toBe(second);
   });
+
+  it("assigns generic clarify topic key when classifier produced no ambiguities", () => {
+    let now = 100_000;
+    const ledger = new IntentLedger({ now: () => now });
+    ledger.recordFromBotTurn({
+      turnId: "clarify-generic-1",
+      sessionId: "session-generic",
+      channelId: "telegram",
+      summary: "Что именно сделать?",
+      planOutput: { executionContract: { requiresTools: false } },
+      createdAt: now,
+    });
+    now += 30_000;
+    ledger.recordFromBotTurn({
+      turnId: "clarify-generic-2",
+      sessionId: "session-generic",
+      channelId: "telegram",
+      summary: "Что ты имеешь в виду?",
+      planOutput: { executionContract: { requiresTools: false } },
+      createdAt: now,
+    });
+
+    const count = ledger.peekClarifyCount("session-generic", "telegram", "*generic*");
+    expect(count.count).toBe(2);
+  });
 });
