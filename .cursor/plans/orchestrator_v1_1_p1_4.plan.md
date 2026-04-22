@@ -707,6 +707,53 @@ Stage C **невидим конечному пользователю в Telegram
   Out of scope осталось: pre-existing красные в
   `src/platform/recipe/runtime-adapter.test.ts` (10 fail) — те же, что и в
   baseline без D.2 правок (проверено `git stash` в чистом состоянии).
+- 2026-04-22 — **C.1 Telegram progress visibility закрыт** (live-UX gap снят).
+  Симптом до фикса: `progress.frame` эмитился gateway'ем, но edits status-сообщения
+  в Telegram-чате не были видны пользователю. Корневая причина — баг
+  throttle-логики в `extensions/telegram/src/progress-adapter.ts`: при попадании
+  второго кадра в окно `MIN_EDIT_GAP_MS=150ms` старый `processFrame` уходил в
+  microtask busy-spin (`await new Promise(r => setTimeout(r, ...))` крутился без
+  очистки `pending`), что приводило к тому, что первый edit заглушался, а
+  последующие кадры перезаписывали `pendingFrame` без обработки. Дополнительно
+  `resolveTarget()` молча возвращал `null` без диагностики, и Telegram-`edit text
+  equals` реакции никак не различались от настоящих ошибок.
+  Сделано:
+  1. `extensions/telegram/src/progress-adapter.ts`: рефакторинг под детерминированный
+     drain-цикл с реальным `setTimeout`-планировщиком (`scheduleTimer`/`clearTimer`
+     инжектируемые для тестов), `busy`-flag вместо microtask-spin, явная очередь
+     `pendingFrame`, terminal-фазы (`done`/`error`) вытесняют throttle.
+  2. Лог-тег `[tg-progress] sent=<n> edited=<n> skipped=<n> reason=<…> phase=<…>
+     msg_id=<…>`: счётчики `sentCount`/`editedCount`/`skippedCount` per-session,
+     `SkipReason ∈ {no_api, no_target, duplicate_text, throttled,
+     edit_failed_no_fallback}`, отдельный `reason=edit_ok|edit_not_modified|
+     send_ok|send_failed`. Telegram-`message is not modified` распознаётся
+     явно как skipped (без бесконечного fallback в `sendMessage`).
+  3. `resolveTarget()` → `null` теперь логируется как
+     `[tg-progress] no_target for frame phase=… session=… channel=…` —
+     silent-failure стал видимым.
+  4. `extensions/telegram/src/progress-adapter.test.ts` расширен с 5 до 11 кейсов:
+     - `send → edit → done` (классический happy-path с throttle-headroom),
+     - `send → edit → edit` через `classifying → planning → tool_call`
+       (минимум 2 edit'а на exec-turn, требование задачи),
+     - throttle: второй кадр в окне 150ms откладывается, latest-pending
+       выгружается после `scheduleTimer.advance()`,
+     - fallback `sendMessage`-если-`editMessageText` отвергает (chat not found),
+     - `message is not modified` → `reason=edit_not_modified`, без fallback,
+     - `editMessageText=undefined` → каждый кадр через `sendMessage`,
+     - `resolveTarget=null` → `[tg-progress] no_target` в warn,
+     - `unsubscribe()` чистит pending drain-таймеры и блокирует дальнейшие кадры,
+     - duplicate-text edit'ы collapsed без вызовов API (`reason=duplicate_text`).
+  Verify (2026-04-22):
+  - `pnpm vitest run extensions/telegram/src/progress-adapter.test.ts
+    extensions/telegram/src/bot.progress-wire.test.ts` → **13/13 passed**
+    (11 progress-adapter + 2 progress-wire).
+  - `pnpm lint:routing:no-prompt-parsing` → ✅ (адаптер не парсит prompt'ы,
+    только структурные `ProgressFrame` поля).
+  Manual live verification предполагается отдельным прогоном
+  `pnpm gateway:dev + Telegram` пользователем — теперь любой exec-turn
+  должен показать минимум 2 edit'а status-сообщения и оставить
+  `[tg-progress] sent=1 edited=… skipped=… reason=edit_ok` цепочку в логах
+  гейтвея, что делает любую будущую регрессию диагностируемой.
 
 ---
 
@@ -720,20 +767,9 @@ acceptance-критериям (ack ≤ 2s, deferred lifecycle, clarify-budget), 
 
 > D.2 ack-overscope **закрыт 2026-04-22** — см. соответствующую запись в History
 > ниже.
+>
+> C.1 Telegram progress visibility **закрыт 2026-04-22** — см. соответствующую
+> запись в History ниже (throttle-spin фикс + `[tg-progress]` лог-тег + расширенные
+> юнит-кейсы send→edit→edit / throttle / fallback).
 
-1. **C.1 silent status.** `progress-adapter` уже wired в `bot.ts`, kill-switch
-   соблюдается, unit/wire-smoke зелёные, но в живом Telegram-чате edits фактически
-   не появляются (видны только ack и финальный ответ). На gateway-side
-   `progress.frame` эмитится (live `16-ack-then-defer` это подтвердил), значит
-   проблема локализована в участке plugin → Telegram Bot API:
-   - либо адаптер не получает кадры из-за расхождения `sessionId`/chat-target в
-     plugin context vs `progress-bridge` broadcast;
-   - либо edits успевают, но Telegram схлопывает их (тротлинг / «edit text equals»);
-   - либо kill-switch `OPENCLAW_PROGRESS_TELEGRAM` интерпретируется как
-     disabled в проде из-за дефолта.
-   Нужен таргетный live-debug: один turn → лог `[progress-adapter] ...` на стороне
-   плагина + проверка фактических `editMessageText` запросов.
-
-Этот пункт НЕ блокирует другие задачи P1 (P1.2 ensureCredentials и далее) — его
-можно вернуть в работу отдельным мини-этапом, когда появится приоритет на UX
-polish.
+_На текущий момент известных live-UX gap'ов в scope P1.4 нет._
