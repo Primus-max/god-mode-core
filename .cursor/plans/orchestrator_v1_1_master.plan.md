@@ -64,11 +64,9 @@ isProject: false
   идемпотентность перенесена в state-driven путь через
   `runtime/evidence-sufficiency.ts` + `priorEvidence`, ledger стал первым
   probe'ом на родном TTL=15m, runner-preflight и его 60s окно сняты.
-- Активный следующий фокус P1: **P1.7-E reminder = scheduled FollowupQueue**
-  (см. `orchestrator_v1_1_p1_7.plan.md`). Параллельно в backlog'е P1.7:
+- **P1.7-E ✅** (2026-04-22) — reminder routing-fix в classifier landed: один guidance-параграф в `task-classifier.ts` + чтение `deliverable.constraints.tool` → `requestedTools` в `mapTaskContractToBridge` (без новых outcome/kind/strategy/env). Built-in cron-tool (`src/agents/tools/cron-tool.ts`, name="cron") используется как есть; reminder-guard, FollowupQueue, cron API/schemas — не тронуты. Live `21-reminder-via-cron` PASS. Активный следующий фокус P1: **P1.1 `agent_persona`** (P1.7-D и P1.7-E закрыты). В backlog'е P1.7 остаются:
   -A (`inReplyTo` channel-agnostic), -B (coalescing same-intent в `lane`
-  через fingerprint), -C (warm restart oversized session). P1.1
-  `agent_persona` остаётся в очереди после P1.7-E.
+  через fingerprint), -C (warm restart oversized session).
 - P2 (качество): `resolveRepoRoot` bug, warmup resolver, UI label drift.
 **Статус: PENDING** (см. `orchestrator_v1_1_p2.plan.md`).
 - P3 (hardening): стресс live smoke, `ensureCapability` idempotency, variant prompts.
@@ -125,7 +123,7 @@ isProject: false
 | P1.7-A       | Channel-agnostic `inReplyTo` в `progress.frame` (Telegram `reply_to_message_id`, Max thread, UI thread).                                                                                                                                                                                                                       | P1.7  |
 | P1.7-B       | Coalescing same-intent сообщений в окне одного `lane` по `intent-fingerprint` (а не во времени). Решает «5 одновременных «подними сервер» в одной очереди» — не дедуп по часам, а сериализация по ключу.                                                                                                                       | P1.7  |
 | P1.7-C       | Warm restart oversized session: при `Oversized direct session` инжектировать компактный summary вместо холодного старта.                                                                                                                                                                                                       | P1.7  |
-| P1.7-E       | Reminder ≠ `external_delivery`. **Routing fix в classifier**: «напомни …» → `tool_execution` + `requestedTools=["cron-tool"]`. Уже встроенный OpenClaw cron-stack (`src/cron/service*.ts`, `src/agents/tools/cron-tool.ts` с REMINDER_CONTEXT_*, gateway+CLI+protocol+`agent-runner-reminder-guard.ts`) делает всё. Никакой новой инфраструктуры — это §4 п.6 «Inventory before invent». | P1.7  |
+| P1.7-E ✅    | DONE 2026-04-22. Reminder ≠ `external_delivery`. **Routing fix в classifier**: «напомни …» → `tool_execution` + `requestedTools=["cron"]` (имя tool строго `cron`). Reminder-guard, FollowupQueue, cron API/schemas — не тронуты; built-in cron-stack используется как есть. § 4 п.6 «Inventory before invent». | P1.7  |
 | P2.1     | `scripts/lib/ts-guard-utils.mjs::resolveRepoRoot` off-by-one → guards молчаливо зелёные.                                                                                                                                                                                                                                       | P2        |
 | P2.2     | Startup warmup падает: `Unknown model: hydra/gpt-5.4`.                                                                                                                                                                                                                                                                         | P2        |
 | P2.3     | UI показывает `general_reasoning / General` даже когда активный plan — contract-first.                                                                                                                                                                                                                                         | P2        |

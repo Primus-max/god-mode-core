@@ -1418,6 +1418,58 @@ describe("contract-first task contract routing", () => {
       expect.arrayContaining(["apply_patch"]),
     );
   });
+
+  it("P1.7-E: routes reminder requests to the built-in cron tool, not external_delivery", async () => {
+    // Symptom: «напомни завтра в чат пообедать» previously routed to
+    // external_delivery and the agent hallucinated «no scheduler available»,
+    // even though the cron-tool (src/agents/tools/cron-tool.ts, name="cron")
+    // is fully wired. This is a pure classifier routing fix: the contract
+    // must surface tool_execution + requestedTools containing "cron" so the
+    // agent picks the existing cron-tool. external_delivery stays reserved
+    // for integrations with an external provider.
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "напомни завтра в чат пообедать",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "answer",
+            requiredCapabilities: [],
+            interactionMode: "tool_execution",
+            confidence: 0.9,
+            ambiguities: [],
+            deliverable: {
+              kind: "answer",
+              acceptedFormats: ["text"],
+              constraints: { tool: "cron" },
+            },
+          }),
+        },
+      },
+    });
+
+    expect(classified.taskContract.primaryOutcome).not.toBe("external_delivery");
+    expect(classified.taskContract.interactionMode).toBe("tool_execution");
+    expect(classified.taskContract.interactionMode).not.toBe("clarify_first");
+    expect(classified.taskContract.requiredCapabilities).not.toContain("needs_external_delivery");
+    expect(classified.plannerInput.executionContract?.requiresTools).toBe(true);
+    expect(classified.plannerInput.requestedTools).toEqual(expect.arrayContaining(["cron"]));
+    expect(classified.plannerInput.requestedTools).not.toEqual(
+      expect.arrayContaining(["external_delivery"]),
+    );
+  });
 });
 
 describe("classifier prompt composition (P1.5 §B context blocks)", () => {

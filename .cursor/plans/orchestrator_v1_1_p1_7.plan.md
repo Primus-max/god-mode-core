@@ -116,7 +116,7 @@ P1.6.3 кладёт ленту проверки **перед** runner'ом, не
 
 ---
 
-## P1.7-E — Reminder = существующий cron-tool (routing fix, без новой инфраструктуры) [PRIORITY 2]
+## P1.7-E — Reminder = существующий cron-tool (routing fix, без новой инфраструктуры) [DONE 2026-04-22]
 
 ### Симптом (живой лог 2026-04-22 21:09–21:23)
 
@@ -160,10 +160,10 @@ storage` городить НЕ нужно — это было бы прямым 
 
 ### Что делаем (минимум)
 
-1. **Не трогаем** `FollowupQueue`, не вводим `runAt`, не пишем persistent
+1. [x] **Не трогаем** `FollowupQueue`, не вводим `runAt`, не пишем persistent
    storage, не вводим новый outcome/kind/strategy. Cron уже всё это
    делает.
-2. В classifier-prompt (`src/platform/decision/task-classifier.ts`)
+2. [x] В classifier-prompt (`src/platform/decision/task-classifier.ts`)
    добавить **один** guidance-параграф:
    «Напоминания (`напомни …`, `reminder …`, явная дата/время в будущем
    и просьба что-то сообщить позже) — это `tool_execution` с
@@ -171,16 +171,16 @@ storage` городить НЕ нужно — это было бы прямым 
    `external_delivery` — только для интеграций с внешним провайдером
    (Bybit/OpenAI/telegram_userbot и т.п.), не для отложенного сообщения
    в текущий канал».
-3. Tool `cron` уже в `pi-tools.policy.ts` и `system-prompt.ts` — ничего
+3. [x] Tool `cron` уже в `pi-tools.policy.ts` и `system-prompt.ts` — ничего
    расширять не нужно.
-4. **Reminder-guard НЕ трогаем.** Это defensive fallback на случай, когда
+4. [x] **Reminder-guard НЕ тронут.** Это defensive fallback на случай, когда
    модель пообещала reminder, но не вызвала cron. После фикса classifier'а
    cron-job будет создаваться → обещание становится «backed» → guard
    вообще не срабатывает. Расширять его RU-regex'ами — плодить пластырь,
    который не нужен после корневого фикса (по духу §4 п.1 «zero parsing»).
-5. Unit-кейс в `task-classifier.test.ts` на «напомни завтра
+5. [x] Unit-кейс в `task-classifier.test.ts` на «напомни завтра
    в чат пообедать» → ожидаем `tool_execution` + `requestedTools=["cron"]`.
-6. Live сценарий `21-reminder-via-cron` в `scripts/live-routing-smoke.mjs`:
+6. [x] Live сценарий `21-reminder-via-cron` в `scripts/live-routing-smoke.mjs`:
    user → «напомни через 30 секунд тестовое сообщение» → бот сам
    вызывает `cron action=add` → через 30s приходит сообщение в
    тот же канал.
@@ -301,3 +301,4 @@ pnpm live:routing:smoke
   окружении не подтвердился: scenario SKIP из-за `gateway token mismatch`
   и `OPENCLAW_WORKSPACE_ROOTS=<unset>`, то есть acceptance live требует
   повторного прогона в валидно сконфигурированном gateway.
+- 2026-04-22 — **P1.7-E реализован**. classifier-prompt получил один guidance-параграф «reminder requests = tool_execution + requestedTools=["cron"], не external_delivery»; в `mapTaskContractToBridge` добавлено чтение `deliverable.constraints.tool` → `requestedTools` (без новых outcome/kind/strategy/env), чтобы classifier мог явно прицелиться в built-in `cron` без записи в `produce/registry.ts`. Unit-тест `task-classifier.test.ts` зелёный (41/41). `pnpm lint:routing:no-prompt-parsing` ✅. Live `SMOKE_ONLY=21-reminder-via-cron pnpm live:routing:smoke` PASS: `tool_call: cron(action=add) count=1`, cron-delivered followup в тот же channelId (assistant_text_count=2), `progress.frame phases=[classifying,planning,preflight,tool_call,done]`. Reminder-guard, FollowupQueue, cron API/schemas — не тронуты.

@@ -226,6 +226,7 @@ Stability examples:
 - "Запусти команду node --version" or "Run node --version" -> workspace_change + tool_execution + needs_repo_execution + needs_local_runtime, deliverable={kind:"repo_operation", acceptedFormats:["exec","script"], preferredFormat:"exec", constraints:{operation:"run_command"}}.
 - "Прогнать тесты в проекте" or "run the test suite" -> workspace_change + tool_execution + needs_repo_execution + needs_local_runtime, deliverable={kind:"repo_operation", acceptedFormats:["test-report","exec"], preferredFormat:"test-report", constraints:{operation:"run_tests"}}.
 - "Отрефактори модуль Y, покажи diff и прогоняй тесты" or "Refactor module Y, show diff and run tests" -> workspace_change + tool_execution + needs_workspace_mutation + needs_repo_execution + needs_local_runtime, deliverable={kind:"code_change", acceptedFormats:["patch","edit"], preferredFormat:"patch", constraints:{operation:"refactor"}}.
+- Reminder requests — phrases asking the bot to say something later in the SAME chat (Russian "напомни ...", English "reminder ..." or "remind me ..."), an explicit future timestamp plus a deferred-message intent — are \`tool_execution\` with \`requestedTools=["cron"]\` (deferred message back to the CURRENT channel via the built-in cron-tool), NEVER \`external_delivery\`. \`external_delivery\` is reserved for integrations with an external provider (Bybit, OpenAI, telegram_userbot, etc.), not for a deferred message back to the current channel. Emit primaryOutcome="answer", interactionMode="tool_execution", deliverable={kind:"answer", acceptedFormats:["text"], constraints:{tool:"cron"}}. Do NOT add needs_external_delivery for these. Examples: "Напомни завтра в 12:00 пообедать", "Напомни через 30 секунд тестовое сообщение", "Remind me in 5 minutes to drink water".
 
 Deliverable rules:
 - ALWAYS include a "deliverable" object. It declares WHAT the user wants back, independent of WHICH tool produces it.
@@ -893,6 +894,17 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
   const producerResolution = resolveProducer(contract.deliverable);
   for (const toolName of producerResolution.toolNames) {
     requestedTools.push(toolName);
+  }
+  // P1.7-E: surface a classifier-requested tool through deliverable.constraints.tool
+  // (free-form constraint, no new outcome/kind/strategy). Used today by reminder
+  // routing to expose the built-in "cron" tool without needing a producer entry
+  // for the "answer" deliverable kind.
+  const constraintsTool = contract.deliverable?.constraints?.tool;
+  if (typeof constraintsTool === "string") {
+    const trimmedTool = constraintsTool.trim();
+    if (trimmedTool.length > 0) {
+      requestedTools.push(trimmedTool);
+    }
   }
   if (contract.deliverable) {
     const deliverableKind = contract.deliverable.kind;

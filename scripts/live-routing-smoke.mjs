@@ -242,6 +242,22 @@ const SCENARIOS = [
       },
     },
   },
+  {
+    id: "21-reminder-via-cron",
+    message:
+      "Напомни мне через 30 секунд тестовое сообщение в этот же чат. Используй инструмент cron (action add, schedule.kind='at', одноразово через ~30 секунд), не описывай.",
+    expect: {
+      kind: "reminder_via_cron",
+      cronAction: "add",
+      // Wait beyond the 30s reminder fire so the cron-delivered assistant
+      // message lands in the same session before evaluation.
+      afterRunWaitMs: 60_000,
+      progressLog: {
+        requiredPhases: ["classifying", "tool_call", "done"],
+        requiredToolName: "cron",
+      },
+    },
+  },
 ];
 
 const MAGIC_RULES = [
@@ -713,6 +729,21 @@ async function runScenario(client, scenario) {
     sawToolCall = sawToolCall || turnSawToolCall;
     sawToolResult = sawToolResult || turnSawToolResult;
   }
+  // Optional post-run polling window (e.g. for cron-delivered reminders that
+  // arrive after the assistant's initial reply). Keeps refreshing history and
+  // the gateway log while waiting; never reduces existing TIMEOUT_MS coverage.
+  const afterRunWaitMs = Math.max(0, Number(scenario.expect?.afterRunWaitMs ?? 0));
+  if (afterRunWaitMs > 0) {
+    const extraDeadline = Date.now() + afterRunWaitMs;
+    while (Date.now() < extraDeadline) {
+      const { key, res } = await fetchHistoryAny(client, sessionKey);
+      if (res) {
+        lastHistory = res;
+        historyKeyUsed = key;
+      }
+      await new Promise((r) => setTimeout(r, HISTORY_POLL_MS));
+    }
+  }
   let gatewayLogAppend = await readGatewayLogSince(logOffset);
   if (scenario.expect?.progressLog && !/\[progress\]/.test(gatewayLogAppend)) {
     const retryDeadline = Date.now() + 5000;
@@ -1135,6 +1166,74 @@ async function evaluate(result) {
       notes.push(
         `expected web_search tool_call OR clarification mentioning web_search; got finalState=${String(finalState)} kind=${String(finalKind)}`,
       );
+    }
+  } else if (scenario.expect.kind === "reminder_via_cron") {
+    // P1.7-E live check:
+    //   1. The classifier must NOT route reminders to external_delivery.
+    //   2. The agent must call the built-in cron-tool with action="add" so the
+    //      reminder is backed by a real cron job (no FollowupQueue, no guard).
+    //   3. After the assistant's initial reply, the cron-delivered assistant
+    //      message must arrive in the same session within the wait window —
+    //      that's a second assistant message with no user message in between.
+    const expectedAction = String(scenario.expect.cronAction ?? "add");
+    const cronCalls = toolCalls.filter((c) => c.name === "cron");
+    const cronCallsWithAction = cronCalls.filter((c) => {
+      const args = c.arguments;
+      if (!args || typeof args !== "object") return false;
+      const action = typeof args.action === "string" ? args.action : "";
+      return action === expectedAction;
+    });
+    if (cronCalls.length === 0) {
+      pass = false;
+      const callNames = toolCalls.map((c) => c.name).join(",") || "<none>";
+      notes.push(`expected cron tool_call, got tool_calls=[${callNames}]`);
+    } else if (cronCallsWithAction.length === 0) {
+      pass = false;
+      const seenActions = cronCalls
+        .map((c) => (c.arguments && typeof c.arguments === "object" ? String(c.arguments.action ?? "?") : "?"))
+        .join(",");
+      notes.push(
+        `expected cron tool_call with action="${expectedAction}", got actions=[${seenActions}]`,
+      );
+    } else {
+      pass = true;
+      notes.push(`tool_call: cron(action=${expectedAction}) count=${cronCallsWithAction.length}`);
+    }
+
+    // Guard against external_delivery regression in tool selection.
+    const externalDeliveryCalls = toolCalls.filter((c) =>
+      String(c.name ?? "").includes("external_delivery"),
+    );
+    if (externalDeliveryCalls.length > 0) {
+      pass = false;
+      notes.push(`unexpected external_delivery tool_call observed: ${externalDeliveryCalls.length}`);
+    }
+
+    // Verify the cron-delivered followup landed: a second assistant text
+    // message after the initial reply, with no user message in between.
+    const turnAssistantTextMsgs = turnMsgs.filter(
+      (m) => m.role === "assistant" && messageHasAssistantText(m),
+    );
+    let lastUserIdx = -1;
+    for (let i = turnMsgs.length - 1; i >= 0; i--) {
+      if (turnMsgs[i]?.role === "user") {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    const followupAssistantMsgs =
+      lastUserIdx >= 0
+        ? turnMsgs
+            .slice(lastUserIdx + 1)
+            .filter((m) => m.role === "assistant" && messageHasAssistantText(m))
+        : turnAssistantTextMsgs;
+    if (followupAssistantMsgs.length < 2) {
+      pass = false;
+      notes.push(
+        `expected >=2 assistant text messages in the same turn (initial reply + cron-delivered), got ${followupAssistantMsgs.length}`,
+      );
+    } else {
+      notes.push(`cron-delivered followup observed (assistant_text_count=${followupAssistantMsgs.length})`);
     }
   } else if (scenario.expect.kind === "credentials_preflight_clarify") {
     const finalState = result.finalEvent?.payload?.state ?? null;
