@@ -667,6 +667,46 @@ Stage C **невидим конечному пользователю в Telegram
   - Широкий `pnpm vitest run src/platform/recipe src/auto-reply src/platform/session`
     остаётся красным по pre-existing baseline вне scope D.2; это подтверждено
     повтором и отдельной проверкой `runtime-adapter.test.ts` в чистом stash-состоянии.
+- 2026-04-22 — **D.2 ack-overscope закрыт** (live-UX gap из секции «Known live-UX
+  gaps» снят). До фикса `estimateRecipeDurationMs` присваивал `apply_patch /
+  exec / pdf / image_generate` базу 4–5s, что при пороге `OPENCLAW_ACK_DEFER_MS=3000`
+  автоматически уводило практически любой code-change/exec turn в ack — короткий
+  «поправь typo» получал «принял, работаю». Сделано:
+  1. `src/platform/recipe/planner.ts`: эвристика `estimateRecipeDurationMs`
+     переписана на структурные сигналы из классификатора (без парсинга промпта,
+     `lint:routing:no-prompt-parsing` ✓):
+     - `capability_install` (requested tool / required capability) и
+       `bootstrap` (required capability) → 8000ms (ack);
+     - `outcomeContract === "interactive_local_result"` → 7000ms (ack) — это
+       структурный дискриминатор «настоящего» долгого процесса (dev-server,
+       build, test runner) от одноразового exec вроде `node --version`;
+     - `image_generate` с `deliverable.constraints.batch|count > 1` → 6000ms (ack);
+     - всё остальное (короткий `apply_patch`, одноразовый `exec`, `pdf`,
+       single `image_generate`, `write`, …) → 1500ms (НЕ ack).
+     `decideAckThenDefer` оставлен с тем же контрактом (capability-install
+     hint всегда уводит в ack даже при низком estimate).
+     Сигналы `executionContract` / `outcomeContract` / `deliverable` теперь
+     прокидываются в `estimateRecipeDurationMs` из `planExecutionRecipe`.
+  2. `src/platform/recipe/planner.ack-then-defer.test.ts`: набор unit-кейсов
+     расширен под новую эвристику — короткий `apply_patch` НЕ ack, exec
+     `node --version` (`outcomeContract=external_operation`) НЕ ack, exec
+     длинного build (`outcomeContract=interactive_local_result`) → ack,
+     `image_generate` batch=1 НЕ ack, batch>1 → ack, capability_install
+     (tool / required capability) → ack. Итого 27/27 pass.
+  3. `pnpm lint:routing:no-prompt-parsing` → ✅ (структурные сигналы, никаких
+     regex / keyword-словарей по prompt).
+  Live verify (2026-04-22 после рестарта `gateway:dev`, PID 24904):
+  - `SMOKE_ONLY=16-ack-then-defer pnpm live:routing:smoke` → **1/1 passed**,
+    `ackMs=1313`, `doneMs=21223`, фазы
+    `[ack_deferred,classifying,planning,preflight,tool_call,done]`.
+  - `SMOKE_ONLY=09-dev-create-file,11-dev-exec pnpm live:routing:smoke` →
+    **2/2 passed**, в `.gateway-dev.log` для обоих turn'ов **отсутствует**
+    `phase=ack_deferred` (фазы `[classifying,planning,preflight,tool_call,done]`),
+    что подтверждает: короткий `apply_patch/write` и exec `node --version`
+    больше не получают «принял, работаю».
+  Out of scope осталось: pre-existing красные в
+  `src/platform/recipe/runtime-adapter.test.ts` (10 fail) — те же, что и в
+  baseline без D.2 правок (проверено `git stash` в чистом состоянии).
 
 ---
 
@@ -674,26 +714,14 @@ Stage C **невидим конечному пользователю в Telegram
 
 Зафиксированы при ручном Telegram-смоуке 2026-04-21 поздний вечер. P1.4 закрыт по
 acceptance-критериям (ack ≤ 2s, deferred lifecycle, clarify-budget), но в живом UX
-видны два побочных эффекта, которые **не нарушают инварианты P1.4** и потому
-вынесены в отдельный backlog. Решения по ним принимать **без жёстких рамок** —
+осталось одно последствие, которое **не нарушает инварианты P1.4** и потому
+вынесено в отдельный backlog. Решения по нему принимать **без жёстких рамок** —
 не возвращать парсинг промпта, не хардкодить per-tool whitelist'ы.
 
-1. **D.2 ack-overscope.** Сейчас «принял, работаю» появляется почти на каждый
-   non-trivial turn, потому что `estimateRecipeDurationMs` присваивает
-   `apply_patch / exec / pdf / image_generate` базу 4–8s, а порог
-   `OPENCLAW_ACK_DEFER_MS=3000`. Любой code-change/exec автоматически > 3s.
-   Симптом из live: `capability_install figlet` → ack (ожидаемо), затем
-   `подготовь catalog entry` (apply_patch путь) → тоже ack — лишний шум.
-   Возможные направления (без выбора сейчас):
-   - сместить порог по умолчанию вверх (5–6s) и оставить ack как exception, а не правило;
-   - убрать `apply_patch` из «long-running by capability» — оставить только
-     явные «настоящие долгие» (`capability_install`, `bootstrap`, тяжёлые `exec`),
-     т.е. где блокировка пользователя реально >5s;
-   - добавить адаптивную меру (по факту длительности предыдущих похожих turn'ов
-     из `IntentLedger`) вместо статической эвристики.
-   Что НЕ делать: парсить prompt, хардкодить «если запрос про X — то Y».
+> D.2 ack-overscope **закрыт 2026-04-22** — см. соответствующую запись в History
+> ниже.
 
-2. **C.1 silent status.** `progress-adapter` уже wired в `bot.ts`, kill-switch
+1. **C.1 silent status.** `progress-adapter` уже wired в `bot.ts`, kill-switch
    соблюдается, unit/wire-smoke зелёные, но в живом Telegram-чате edits фактически
    не появляются (видны только ack и финальный ответ). На gateway-side
    `progress.frame` эмитится (live `16-ack-then-defer` это подтвердил), значит
@@ -706,6 +734,6 @@ acceptance-критериям (ack ≤ 2s, deferred lifecycle, clarify-budget), 
    Нужен таргетный live-debug: один turn → лог `[progress-adapter] ...` на стороне
    плагина + проверка фактических `editMessageText` запросов.
 
-Оба пункта НЕ блокируют другие задачи P1 (P1.2 ensureCredentials и далее) — их
+Этот пункт НЕ блокирует другие задачи P1 (P1.2 ensureCredentials и далее) — его
 можно вернуть в работу отдельным мини-этапом, когда появится приоритет на UX
-polish, либо если ack-overscope станет мешать другому live-теcту.
+polish.

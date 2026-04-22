@@ -227,19 +227,21 @@ export type ExecutionPlan = {
   routingOutcome: RoutingOutcome;
   /**
    * Heuristic upper-bound estimate of how long the run will take, in
-   * milliseconds. Derived without LLM calls from recipe metadata (required
-   * capabilities, requested tools, recipe.timeoutSeconds). Consumed by the
-   * ack-then-defer dispatcher (P1.4 D.2) to decide whether the user should
-   * receive an immediate ack frame while the heavy work runs as a bg-job.
-   * Filled by {@link planExecutionRecipe}; internal callers should treat
-   * `undefined` as "not yet computed".
+   * milliseconds. Derived without LLM calls from structured classifier
+   * signals (outcomeContract, deliverable.constraints) and recipe metadata
+   * (required capabilities, requested tools). Consumed by the ack-then-defer
+   * dispatcher (P1.4 D.2) to decide whether the user should receive an
+   * immediate ack frame while the heavy work runs as a bg-job. Filled by
+   * {@link planExecutionRecipe}; internal callers should treat `undefined`
+   * as "not yet computed".
    */
   estimatedDurationMs?: number;
   /**
    * True when the planner decided this run should receive an immediate ack
    * and be dispatched as a deferred bg-job. Activated when
-   * `estimatedDurationMs > OPENCLAW_ACK_DEFER_MS` (default 3000) or when the
-   * selected recipe declares `capability_install` as a required capability.
+   * `estimatedDurationMs > OPENCLAW_ACK_DEFER_MS` (default 3000), when the
+   * selected recipe declares `capability_install`/`bootstrap` as a required
+   * capability, or when `requestedTools` includes `capability_install`.
    * Only present on matched routing outcomes.
    */
   ackThenDefer?: boolean;
@@ -249,11 +251,25 @@ export const DEFAULT_ACK_DEFER_THRESHOLD_MS = 3_000;
 export const ACK_DEFER_THRESHOLD_ENV = "OPENCLAW_ACK_DEFER_MS";
 
 /**
- * Non-LLM heuristic hints that mark a run as long-running even when
+ * Non-LLM hints that mark a run as long-running even when
  * `estimatedDurationMs` would otherwise slot under the threshold.
- * - `capability_install` requested tool / required capability:
- *   bootstrap flows install deps, typically take >3s.
- * - Any tool in the `LONG_RUN_TOOL_HINTS` set below.
+ *
+ * We intentionally narrow these to the cases where the structural signal is
+ * strong enough that an immediate "принял, работаю" ack is genuinely useful:
+ * - `capability_install` (requested tool or required capability): bootstrap
+ *   flows install dependencies, typically >3s.
+ * - `outcomeContract === "interactive_local_result"`: classifier explicitly
+ *   marked this turn as needing a long-lived local process (dev server,
+ *   build, test runner). This is the structural discriminator that lets us
+ *   distinguish `exec "node --version"` (one-shot) from `exec "npm run build"`
+ *   (long), without parsing the user prompt.
+ * - `image_generate` with `deliverable.constraints.batch > 1`: multi-image
+ *   batches noticeably exceed the threshold; single image renders do not.
+ *
+ * What is intentionally NOT here:
+ * - `apply_patch`, single `image_generate`, `pdf`, plain `exec`/`process`:
+ *   these are typically <3s and previously over-triggered the ack ("принял
+ *   на каждый non-trivial turn", live UX gap from 2026-04-21).
  */
 const LONG_RUN_CAPABILITY_HINTS = new Set<string>([
   "capability_install",
@@ -262,6 +278,10 @@ const LONG_RUN_CAPABILITY_HINTS = new Set<string>([
 
 const LONG_RUN_TOOL_HINTS = new Set<string>([
   "capability_install",
+]);
+
+const LONG_RUN_OUTCOME_CONTRACTS = new Set<OutcomeContract>([
+  "interactive_local_result",
 ]);
 
 export function resolveAckDeferThresholdMs(envSnapshot: NodeJS.ProcessEnv = process.env): number {
@@ -300,11 +320,51 @@ function requestedToolsIncludeLongRunning(requestedTools?: string[]): boolean {
   return false;
 }
 
+function outcomeContractImpliesLongRun(outcomeContract?: OutcomeContract): boolean {
+  return Boolean(outcomeContract && LONG_RUN_OUTCOME_CONTRACTS.has(outcomeContract));
+}
+
+function readBatchHint(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function deliverableImpliesLongRun(
+  deliverable?: DeliverableSpec,
+  requestedTools?: string[],
+): boolean {
+  if (!deliverable || deliverable.kind !== "image") {
+    return false;
+  }
+  const usesImageGenerate = (requestedTools ?? []).some(
+    (tool) => typeof tool === "string" && tool.trim().toLowerCase() === "image_generate",
+  );
+  if (!usesImageGenerate) {
+    return false;
+  }
+  const constraints = deliverable.constraints ?? {};
+  const batch = readBatchHint(constraints.batch) ?? readBatchHint(constraints.count);
+  return typeof batch === "number" && batch > 1;
+}
+
 /**
- * Heuristic duration estimate for a turn based on recipe metadata and
- * planner-declared requested tools. NOTE: This is a non-LLM upper-bound —
- * intentionally coarse. It exists purely to feed the ack-then-defer
- * decision. Never treat it as a real runtime budget.
+ * Heuristic duration estimate for a turn. NOTE: This is a non-LLM upper-bound,
+ * intentionally coarse. It exists purely to feed the ack-then-defer decision
+ * (P1.4 D.2). Never treat it as a real runtime budget.
+ *
+ * Signals are taken exclusively from structured classifier output and recipe
+ * metadata — never from parsing the user prompt (guard:
+ * lint:routing:no-prompt-parsing). The triggers are intentionally narrow so
+ * short turns (typo fix, single apply_patch, `node --version` exec) do not
+ * receive an "принял, работаю" frame.
  *
  * We intentionally do NOT use `recipe.timeoutSeconds` as a duration proxy:
  * that value is a safety ceiling (e.g. 90s for general_reasoning) and would
@@ -313,17 +373,21 @@ function requestedToolsIncludeLongRunning(requestedTools?: string[]): boolean {
 export function estimateRecipeDurationMs(params: {
   recipe: ExecutionRecipe;
   requestedTools?: string[];
+  outcomeContract?: OutcomeContract;
+  executionContract?: QualificationExecutionContract;
+  deliverable?: DeliverableSpec;
 }): number {
-  const { recipe, requestedTools } = params;
-  if (recipeHasLongRunningCapability(recipe) || requestedToolsIncludeLongRunning(requestedTools)) {
+  if (
+    recipeHasLongRunningCapability(params.recipe) ||
+    requestedToolsIncludeLongRunning(params.requestedTools)
+  ) {
     return 8_000;
   }
-  const tools = new Set((requestedTools ?? []).map((tool) => tool.toLowerCase()));
-  if (tools.has("exec") || tools.has("process")) {
-    return 5_000;
+  if (outcomeContractImpliesLongRun(params.outcomeContract)) {
+    return 7_000;
   }
-  if (tools.has("apply_patch") || tools.has("pdf") || tools.has("image_generate")) {
-    return 4_000;
+  if (deliverableImpliesLongRun(params.deliverable, params.requestedTools)) {
+    return 6_000;
   }
   return 1_500;
 }
@@ -1012,6 +1076,9 @@ export function planExecutionRecipe(input: RecipePlannerInput): ExecutionPlan {
   const estimatedDurationMs = estimateRecipeDurationMs({
     recipe: plan.recipe,
     requestedTools: input.requestedTools,
+    outcomeContract: input.outcomeContract,
+    executionContract: input.executionContract,
+    deliverable: input.deliverable,
   });
   const ackThenDefer =
     plan.routingOutcome.kind === "matched"
