@@ -26,6 +26,25 @@ const CHAIN_CONFIRM_EXEC = `chain-confirm-exec-${Date.now()}`;
 const CHAIN_PROGRESS_BUS = `chain-progress-bus-${Date.now()}`;
 const CHAIN_CLARIFY_BUDGET = `chain-clarify-budget-${Date.now()}`;
 const CHAIN_ACK_DEFER = `chain-ack-defer-${Date.now()}`;
+
+const REPO_ROOT = path.resolve(process.cwd());
+const WORKSPACE_ROOTS_FROM_ENV = (() => {
+  const raw = process.env.OPENCLAW_WORKSPACE_ROOTS;
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const parts = raw
+    .split(path.delimiter)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+    .map((p) => path.resolve(p));
+  if (parts.length === 0) return null;
+  return parts;
+})();
+const WORKSPACE_AWARE_EXPECTED_ROOT =
+  WORKSPACE_ROOTS_FROM_ENV?.[0] ?? REPO_ROOT;
+const WORKSPACE_AWARE_SIBLING_DIR =
+  WORKSPACE_ROOTS_FROM_ENV?.[1] ??
+  path.resolve(os.tmpdir(), `openclaw-smoke-sibling-stage-c`);
+const WORKSPACE_AWARE_ROOTS = `${WORKSPACE_AWARE_EXPECTED_ROOT};${WORKSPACE_AWARE_SIBLING_DIR}`;
 const SCENARIOS = [
   { id: "01-hello", message: "Привет", expect: { kind: "text" } },
   { id: "02-image", message: "Сгенерировать картинку банана", expect: { kind: "image", formats: ["png", "jpeg", "jpg", "webp"] } },
@@ -130,6 +149,36 @@ const SCENARIOS = [
         requiredPhases: ["ack_deferred", "done"],
         ackDeferTiming: { ackMaxMs: 2000, doneMinMs: 3000 },
       },
+    },
+  },
+  {
+    id: "17-workspace-aware-exec",
+    message:
+      'Запусти команду `node --version` в проекте god-mode-core через инструмент exec и покажи вывод. Используй именно exec.',
+    expect: {
+      kind: "tool_output",
+      tools: ["exec"],
+      outputContainsAny: ["v", "node"],
+      workspaceAwareExec: {
+        expectedRoot: WORKSPACE_AWARE_EXPECTED_ROOT,
+        siblingRoot: WORKSPACE_AWARE_SIBLING_DIR,
+        commandIncludes: "node --version",
+      },
+    },
+    requirements: {
+      gatewayEnvPresent: ["OPENCLAW_WORKSPACE_ROOTS"],
+      gatewayEnvIncludes: {
+        OPENCLAW_WORKSPACE_ROOTS: [WORKSPACE_AWARE_EXPECTED_ROOT, WORKSPACE_AWARE_SIBLING_DIR],
+      },
+    },
+  },
+  {
+    id: "18-identity-aware-recall",
+    message:
+      "Дай мне настоящее четверостишье Пушкина, переведённое на английский известным переводчиком. Если ты не уверен в каноническом переводе — скажи и используй web_search.",
+    retryBudget: 1,
+    expect: {
+      kind: "identity_aware_recall",
     },
   },
 ];
@@ -912,6 +961,109 @@ async function evaluate(result) {
     if (invokedAllowed.length > 0 && !outputOk) {
       notes.push(`tool output did not contain any of [${outputContainsAny.join("|")}]`);
     }
+    if (scenario.expect.workspaceAwareExec) {
+      const wae = scenario.expect.workspaceAwareExec;
+      const logChunk = result.gatewayLogAppend ?? "";
+      const injectMatch = logChunk.match(/\[workspace-inject\][^\n]*reason=(\w+)/);
+      const injectReason = injectMatch?.[1] ?? null;
+      const acceptableReasons = new Set(["tools", "contract"]);
+      const injectOk = injectReason && acceptableReasons.has(injectReason);
+      if (!injectOk) {
+        pass = false;
+        notes.push(
+          injectReason
+            ? `[workspace-inject] reason=${injectReason} not in {tools,contract}`
+            : "expected [workspace-inject] entry not found in gateway log",
+        );
+      } else {
+        notes.push(`workspace-inject reason=${injectReason} observed`);
+      }
+      const execCalls = invokedAllowed.filter((c) => c.name === "exec");
+      const commandOk = execCalls.some((c) => {
+        const cmd = c?.arguments?.command;
+        return typeof cmd === "string" && cmd.toLowerCase().includes(wae.commandIncludes.toLowerCase());
+      });
+      if (!commandOk) {
+        pass = false;
+        notes.push(`exec command did not include "${wae.commandIncludes}"`);
+      }
+      const expectedNorm = path.resolve(wae.expectedRoot).toLowerCase();
+      const siblingNorm = path.resolve(wae.siblingRoot).toLowerCase();
+      let workdirNote = null;
+      const workdirCorrect = execCalls.some((c) => {
+        const wd = c?.arguments?.workdir;
+        if (typeof wd !== "string" || !wd.trim()) return false;
+        const norm = path.resolve(wd).toLowerCase();
+        if (norm === siblingNorm) {
+          workdirNote = `exec workdir=${wd} matched sibling root (wrong)`;
+          return false;
+        }
+        if (norm === expectedNorm) {
+          workdirNote = `exec workdir=${wd} matched expected root`;
+          return true;
+        }
+        workdirNote = `exec workdir=${wd} (no exact match against expected/sibling)`;
+        return false;
+      });
+      const anyWorkdirSeen = execCalls.some(
+        (c) => typeof c?.arguments?.workdir === "string" && c.arguments.workdir.trim().length > 0,
+      );
+      if (anyWorkdirSeen) {
+        if (!workdirCorrect) {
+          pass = false;
+          notes.push(workdirNote ?? "exec workdir did not match expected root");
+        } else {
+          notes.push(workdirNote);
+        }
+      } else {
+        notes.push(
+          "exec call did not specify workdir; relying on gateway default cwd (acceptable when default cwd is the expected root)",
+        );
+      }
+    }
+  } else if (scenario.expect.kind === "identity_aware_recall") {
+    const invokedWebSearch = toolCalls.some(
+      (c) => c.name === "web_search" || c.toolName === "web_search",
+    );
+    const finalState = result.finalEvent?.payload?.state ?? null;
+    const finalKind = result.finalEvent?.payload?.outcome?.kind ?? result.finalEvent?.payload?.kind ?? null;
+    const ambigText = (() => {
+      const ambig = result.finalEvent?.payload?.outcome?.ambiguities;
+      if (Array.isArray(ambig)) return ambig.join(" | ").toLowerCase();
+      return "";
+    })();
+    const lowerText = assistantText.toLowerCase();
+    const mentionsWebSearch =
+      /web[_\s-]?search|поиск(?:\s+в\s+)?(?:вебе|интернете)|web search/i.test(assistantText) ||
+      ambigText.includes("web_search") ||
+      ambigText.includes("web search");
+    const isClarification =
+      finalKind === "clarification_needed" ||
+      finalState === "needs_clarification" ||
+      /\?$/.test(assistantText.trim()) ||
+      /уточн|clarif/i.test(lowerText);
+    const looksLikeFakePoetry =
+      !invokedWebSearch &&
+      !mentionsWebSearch &&
+      /(в духе|in the (?:style|spirit) of)/i.test(assistantText);
+    if (invokedWebSearch) {
+      pass = true;
+      notes.push("tool_call: web_search");
+    } else if (isClarification && mentionsWebSearch) {
+      pass = true;
+      notes.push("clarification_needed mentioning web_search");
+    } else if (looksLikeFakePoetry) {
+      pass = false;
+      notes.push("assistant produced 'в духе'/'in the style of' prose without web_search — identity-unaware");
+    } else if (mentionsWebSearch) {
+      pass = true;
+      notes.push("assistant mentioned web_search availability");
+    } else {
+      pass = false;
+      notes.push(
+        `expected web_search tool_call OR clarification mentioning web_search; got finalState=${String(finalState)} kind=${String(finalKind)}`,
+      );
+    }
   } else {
     const formats = scenario.expect.formats ?? [];
     const okByMagic = magics.some(({ path: p, hex }) => formats.some((f) => {
@@ -990,6 +1142,14 @@ async function main() {
     } catch {}
   }
   await fs.mkdir(DEV_SMOKE_DIR, { recursive: true });
+  await fs.mkdir(WORKSPACE_AWARE_SIBLING_DIR, { recursive: true });
+  try {
+    await fs.writeFile(
+      path.join(WORKSPACE_AWARE_SIBLING_DIR, "README.md"),
+      "stub sibling root for live smoke 17-workspace-aware-exec — no package.json on purpose\n",
+      "utf-8",
+    );
+  } catch {}
   applyCliProfileEnv({ profile: (process.env.OPENCLAW_PROFILE ?? "dev").trim().toLowerCase() || "dev" });
   const cfg = loadConfig();
   const auth = await resolveGatewayConnectionAuth({ config: cfg, env: process.env });
@@ -1050,30 +1210,82 @@ async function main() {
       const scenarioPreview = Array.isArray(scenario.messages)
         ? scenario.messages.join(" -> ")
         : scenario.message;
-      console.log(`\n[scn ${scenario.id}] send: ${scenarioPreview}`);
-      let raw;
-      try {
-        raw = await runScenario(client, scenario);
-      } catch (err) {
+      const requirements = scenario.requirements ?? {};
+      const envIssues = [];
+      for (const name of requirements.gatewayEnvPresent ?? []) {
+        if (!process.env[name] || !String(process.env[name]).trim()) {
+          envIssues.push(`${name}=<unset>`);
+        }
+      }
+      for (const [name, mustInclude] of Object.entries(
+        requirements.gatewayEnvIncludes ?? {},
+      )) {
+        const actual = String(process.env[name] ?? "").toLowerCase();
+        for (const needle of mustInclude) {
+          const norm = String(needle).toLowerCase();
+          if (!actual.includes(norm)) {
+            envIssues.push(`${name} missing fragment "${needle}"`);
+          }
+        }
+      }
+      if (envIssues.length > 0) {
+        const detail = envIssues.join(", ");
+        console.log(
+          `\n[scn ${scenario.id}] SKIP — gateway env not configured: ${detail}`,
+        );
         overall.results.push({
           id: scenario.id,
           message: scenarioPreview,
           expect: scenario.expect,
           pass: false,
-          notes: [`scenario threw: ${String(err?.message || err)}`],
+          skipped: true,
+          notes: [`skipped: gateway env not configured (${detail})`],
         });
         continue;
       }
-      const evalResult = await evaluate(raw);
-      const durSec = Math.round((Date.now() - started) / 1000);
-      console.log(`[scn ${scenario.id}] done in ${durSec}s pass=${evalResult.pass} finalState=${evalResult.finalState}`);
-      if (!evalResult.pass) {
+      const retryBudget = Math.max(0, Number(scenario.retryBudget ?? 0));
+      let evalResult = null;
+      let raw = null;
+      const attempts = 1 + retryBudget;
+      for (let attempt = 1; attempt <= attempts; attempt++) {
+        const tag = attempts > 1 ? ` (attempt ${attempt}/${attempts})` : "";
+        console.log(`\n[scn ${scenario.id}]${tag} send: ${scenarioPreview}`);
+        try {
+          raw = await runScenario(client, scenario);
+        } catch (err) {
+          evalResult = {
+            id: scenario.id,
+            message: scenarioPreview,
+            expect: scenario.expect,
+            pass: false,
+            notes: [`scenario threw: ${String(err?.message || err)}`],
+          };
+          continue;
+        }
+        evalResult = await evaluate(raw);
+        const durSec = Math.round((Date.now() - started) / 1000);
+        console.log(
+          `[scn ${scenario.id}]${tag} done in ${durSec}s pass=${evalResult.pass} finalState=${evalResult.finalState}`,
+        );
+        if (evalResult.pass) break;
+        if (attempt < attempts) {
+          console.log(`  retrying after notes: ${evalResult.notes.join(" | ")}`);
+        }
+      }
+      if (evalResult && !evalResult.pass) {
         console.log(`  notes: ${evalResult.notes.join(" | ")}`);
         console.log(`  assistant: ${evalResult.assistantTextPreview}`);
       }
       await fs.writeFile(
         path.join(OUT_DIR, `${scenario.id}.json`),
-        JSON.stringify({ raw: { final: raw.finalEvent?.payload ?? null, history: raw.history }, eval: evalResult }, null, 2),
+        JSON.stringify(
+          {
+            raw: { final: raw?.finalEvent?.payload ?? null, history: raw?.history ?? [] },
+            eval: evalResult,
+          },
+          null,
+          2,
+        ),
         "utf-8",
       );
       overall.results.push(evalResult);

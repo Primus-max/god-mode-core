@@ -76,6 +76,7 @@ import {
   reconcilePromisesWithReceipts,
   type PromisedActionViolation,
 } from "../../platform/session/execution-evidence.js";
+import { maybeInvalidateWorkspaceForReceipts } from "../../platform/session/workspace-invalidation.js";
 import {
   createTurnProgressEmitter,
   withTurnProgressEmitter,
@@ -1425,6 +1426,11 @@ export async function runReplyAgent(params: {
           }
         }
       }
+      maybeInvalidateWorkspaceForReceipts({
+        receipts: executionReceipts,
+        sessionId: followupRun.run.sessionId,
+        channelId: channelForLedger,
+      });
       const pendingPromises = recordedLedgerEntry?.kind === "promised_action"
         ? [recordedLedgerEntry]
         : [];
