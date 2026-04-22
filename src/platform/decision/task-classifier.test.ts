@@ -1106,13 +1106,14 @@ describe("contract-first task contract routing", () => {
         ambiguities: [],
       },
     });
+    expect(plannerInput.executionContract).toBeDefined();
 
     const runtime = resolvePlatformRuntimePlan({
       ...plannerInput,
       artifactKinds: ["site"],
       outcomeContract: "interactive_local_result",
       executionContract: {
-        ...plannerInput.executionContract,
+        ...plannerInput.executionContract!,
         requiresTools: true,
         requiresWorkspaceMutation: true,
         requiresLocalProcess: true,
@@ -1138,8 +1139,8 @@ describe("contract-first task contract routing", () => {
     });
 
     expect(plannerInput.lowConfidenceStrategy).toBe("clarify");
-    expect(plannerInput.executionContract.requiresTools).toBe(false);
-    expect(plannerInput.executionContract.requiresWorkspaceMutation).toBe(false);
+    expect(plannerInput.executionContract?.requiresTools).toBe(false);
+    expect(plannerInput.executionContract?.requiresWorkspaceMutation).toBe(false);
     expect(plannerInput.requestedTools ?? []).toEqual([]);
     expect(plannerInput.outcomeContract).toBe("text_response");
   });
@@ -1157,7 +1158,7 @@ describe("contract-first task contract routing", () => {
     });
 
     expect(plannerInput.lowConfidenceStrategy).toBeUndefined();
-    expect(plannerInput.executionContract.requiresWorkspaceMutation).toBe(true);
+    expect(plannerInput.executionContract?.requiresWorkspaceMutation).toBe(true);
     expect(plannerInput.requestedTools).toEqual(expect.arrayContaining(["apply_patch"]));
   });
 
@@ -1215,8 +1216,8 @@ describe("contract-first task contract routing", () => {
 
     expect(plannerInput.lowConfidenceStrategy).toBeUndefined();
     expect(plannerInput.outcomeContract).toBe("workspace_change");
-    expect(plannerInput.executionContract.requiresWorkspaceMutation).toBe(false);
-    expect(plannerInput.executionContract.requiresTools).toBe(true);
+    expect(plannerInput.executionContract?.requiresWorkspaceMutation).toBe(false);
+    expect(plannerInput.executionContract?.requiresTools).toBe(true);
     expect(plannerInput.requestedTools).toEqual(expect.arrayContaining(["exec"]));
     expect(plannerInput.requestedTools).not.toEqual(expect.arrayContaining(["apply_patch"]));
     expect(plannerInput.deliverable?.kind).toBe("repo_operation");
@@ -1245,7 +1246,7 @@ describe("contract-first task contract routing", () => {
     });
 
     expect(plannerInput.lowConfidenceStrategy).toBeUndefined();
-    expect(plannerInput.executionContract.requiresWorkspaceMutation).toBe(false);
+    expect(plannerInput.executionContract?.requiresWorkspaceMutation).toBe(false);
     expect(plannerInput.requestedTools).toEqual(expect.arrayContaining(["exec"]));
     expect(plannerInput.requestedTools).not.toEqual(expect.arrayContaining(["apply_patch"]));
   });
@@ -1291,7 +1292,7 @@ describe("contract-first task contract routing", () => {
     expect(classified.taskContract.primaryOutcome).toBe("workspace_change");
     expect(classified.taskContract.requiredCapabilities).not.toContain("needs_workspace_mutation");
     expect(classified.taskContract.requiredCapabilities).toContain("needs_repo_execution");
-    expect(classified.plannerInput.executionContract.requiresWorkspaceMutation).toBe(false);
+    expect(classified.plannerInput.executionContract?.requiresWorkspaceMutation).toBe(false);
     expect(classified.plannerInput.requestedTools).not.toEqual(
       expect.arrayContaining(["apply_patch"]),
     );

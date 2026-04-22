@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import { resolveSessionTranscriptPathInDir } from "../../config/sessions/paths.js";
+import type { RecipePlannerInput } from "../recipe/planner.js";
 import { planExecutionRecipe } from "../recipe/planner.js";
 import { adaptExecutionPlanToRuntime } from "../recipe/runtime-adapter.js";
 import {
@@ -238,11 +239,11 @@ Sender (untrusted metadata):
 
 describe("buildExecutionDecisionInputFromRuntimePlan", () => {
   it("keeps structured signals when the live prompt no longer matches the original heuristics", () => {
-    const plannerInput = {
+    const plannerInput: RecipePlannerInput = {
       prompt: "Parse this PDF estimate into a report",
       fileNames: ["estimate.pdf"],
       artifactKinds: ["document", "report"],
-      intent: "document" as const,
+      intent: "document",
     };
     const priorPlan = planExecutionRecipe(plannerInput);
     const priorRuntime = adaptExecutionPlanToRuntime(priorPlan, { input: plannerInput });
@@ -263,12 +264,12 @@ describe("buildExecutionDecisionInputFromRuntimePlan", () => {
   });
 
   it("replays planner input that selects the same recipe without calling full platform resolution", () => {
-    const plannerInput = {
+    const plannerInput: RecipePlannerInput = {
       prompt: "Parse this PDF estimate into a report",
       fileNames: ["estimate.pdf"],
       artifactKinds: ["document", "report"],
-      contractFirst: true as const,
-      outcomeContract: "structured_artifact" as const,
+      contractFirst: true,
+      outcomeContract: "structured_artifact",
       executionContract: {
         requiresTools: true,
         requiresWorkspaceMutation: false,
@@ -277,21 +278,21 @@ describe("buildExecutionDecisionInputFromRuntimePlan", () => {
         requiresDeliveryEvidence: false,
         mayNeedBootstrap: true,
       },
-      candidateFamilies: ["document_render"] as const,
+      candidateFamilies: ["document_render"],
       resolutionContract: {
-        selectedFamily: "document_render" as const,
-        candidateFamilies: ["document_render"] as const,
-        toolBundles: ["document_extraction"] as const,
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["document_extraction"],
         routing: {
           localEligible: false,
-          remoteProfile: "strong" as const,
+          remoteProfile: "strong",
           preferRemoteFirst: true,
           needsVision: true,
         },
       },
       routing: {
         localEligible: false,
-        remoteProfile: "strong" as const,
+        remoteProfile: "strong",
         preferRemoteFirst: true,
         needsVision: true,
       },
@@ -543,9 +544,30 @@ describe("shouldInjectWorkspaceContext", () => {
     ).toBe(true);
   });
 
+  it("injects when requestedTools contains process", () => {
+    const contract = makeContract();
+    expect(
+      shouldInjectWorkspaceContext({ taskContract: contract, requestedTools: ["process"] }),
+    ).toBe(true);
+  });
+
+  it("injects when requestedTools contains bootstrap", () => {
+    const contract = makeContract();
+    expect(
+      shouldInjectWorkspaceContext({ taskContract: contract, requestedTools: ["bootstrap"] }),
+    ).toBe(true);
+  });
+
   it("injects when requiredCapabilities contains needs_workspace_mutation", () => {
     const contract = makeContract({
       requiredCapabilities: ["needs_workspace_mutation"],
+    });
+    expect(shouldInjectWorkspaceContext({ taskContract: contract })).toBe(true);
+  });
+
+  it("injects when requiredCapabilities contains needs_repo_execution", () => {
+    const contract = makeContract({
+      requiredCapabilities: ["needs_repo_execution"],
     });
     expect(shouldInjectWorkspaceContext({ taskContract: contract })).toBe(true);
   });
@@ -591,5 +613,75 @@ describe("shouldInjectWorkspaceContext", () => {
         requestedTools: ["image_generate"],
       }),
     ).toBe(false);
+  });
+
+  it("does NOT inject for pure web_search lookup (no workspace touch)", () => {
+    const contract = makeContract({
+      primaryOutcome: "comparison_report",
+      interactionMode: "tool_execution",
+      requiredCapabilities: ["needs_web_research"],
+      deliverable: { kind: "answer", acceptedFormats: ["text"] },
+    });
+    expect(
+      shouldInjectWorkspaceContext({
+        taskContract: contract,
+        requestedTools: ["web_search"],
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("buildClassifiedExecutionDecisionInput identity injection on respond_only", () => {
+  it("passes identityContext to the classifier even on a respond_only turn and skips the workspace second pass", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-decision-identity-"));
+    const storePath = path.join(tempDir, "sessions.json");
+    const transcriptPath = resolveSessionTranscriptPathInDir("session-identity-only", tempDir);
+    await fs.writeFile(
+      transcriptPath,
+      `${JSON.stringify({
+        id: "msg-1",
+        message: { role: "user", content: "Привет!" },
+      })}\n`,
+      "utf8",
+    );
+
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: { backend: "stub-backend" },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classify = vi.fn().mockResolvedValue({
+      primaryOutcome: "answer",
+      requiredCapabilities: [],
+      interactionMode: "respond_only",
+      confidence: 0.9,
+      ambiguities: [],
+    });
+
+    await buildClassifiedExecutionDecisionInput({
+      prompt: "Просто поздоровайся одной короткой фразой.",
+      storePath,
+      sessionEntry: {
+        sessionId: "session-identity-only",
+        sessionFile: "session-identity-only.jsonl",
+      },
+      channelHints: { messageChannel: "telegram" },
+      cfg,
+      adapterRegistry: {
+        "stub-backend": { classify },
+      },
+    });
+
+    // Identity is unconditional; workspace must NOT trigger a second pass for respond_only.
+    expect(classify).toHaveBeenCalledTimes(1);
+    const call = classify.mock.calls[0]?.[0];
+    expect(call).toBeDefined();
+    expect(typeof call.identityContext === "string" && call.identityContext.length > 0).toBe(true);
+    expect(call.workspaceContext ?? "").toBe("");
   });
 });
