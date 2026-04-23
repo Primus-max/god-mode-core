@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { CURRENT_SESSION_VERSION, SessionManager } from "@mariozechner/pi-coding-agent";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { resolveAgentWorkspaceDir, resolveSessionAgentId } from "../../agents/agent-scope.js";
@@ -1078,7 +1079,7 @@ async function rewriteAssistantTranscriptMessageMedia(params: {
     if (entry.type !== "message" || entry.message.role !== "assistant") {
       return false;
     }
-    const record = entry.message as Record<string, unknown>;
+    const record = entry.message as unknown as Record<string, unknown>;
     if (
       record.provider === "openclaw" &&
       (record.model === "gateway-injected" || record.model === "delivery-mirror")
@@ -1095,7 +1096,7 @@ async function rewriteAssistantTranscriptMessageMedia(params: {
     return undefined;
   }
 
-  const targetMessage = target.message as Record<string, unknown>;
+  const targetMessage = target.message as unknown as Record<string, unknown>;
   const targetText = extractAssistantTextForSilentCheck(targetMessage) ?? "";
   const mergedMediaUrls = Array.from(
     new Set([...collectAssistantMessageMediaUrls(targetMessage), ...params.mediaUrls]),
@@ -1111,7 +1112,7 @@ async function rewriteAssistantTranscriptMessageMedia(params: {
       replacements: [
         {
           entryId: target.id,
-          message: rewrittenMessage,
+          message: rewrittenMessage as unknown as AgentMessage,
         },
       ],
     },

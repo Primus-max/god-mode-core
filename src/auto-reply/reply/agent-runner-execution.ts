@@ -26,11 +26,6 @@ import {
 import { logVerbose } from "../../globals.js";
 import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
-import { intentLedger } from "../../platform/session/intent-ledger.js";
-import {
-  computeIntentFingerprint,
-  resolveIntentIdempotencyWindowMs,
-} from "../../platform/session/intent-fingerprint.js";
 import { defaultRuntime } from "../../runtime.js";
 import {
   isMarkdownCapableMessageChannel,
@@ -81,66 +76,6 @@ export type AgentRunLoopResult =
       directlySentBlockKeys?: Set<string>;
     }
   | { kind: "final"; payload: ReplyPayload };
-
-function normalizeLedgerChannelId(...values: Array<string | undefined>): string | undefined {
-  for (const value of values) {
-    if (typeof value !== "string") {
-      continue;
-    }
-    const normalized = value.trim().toLowerCase();
-    if (normalized) {
-      return normalized;
-    }
-  }
-  return undefined;
-}
-
-function buildAlreadyDoneTextFromMetadata(metadata?: Record<string, unknown>): string | undefined {
-  if (!metadata) {
-    return undefined;
-  }
-  const url =
-    typeof metadata.url === "string" && metadata.url.trim()
-      ? metadata.url.trim()
-      : undefined;
-  const path =
-    typeof metadata.path === "string" && metadata.path.trim()
-      ? metadata.path.trim()
-      : typeof metadata.filePath === "string" && metadata.filePath.trim()
-        ? metadata.filePath.trim()
-        : undefined;
-  const pid =
-    typeof metadata.pid === "number"
-      ? `PID ${String(metadata.pid)}`
-      : typeof metadata.pid === "string" && metadata.pid.trim()
-        ? `PID ${metadata.pid.trim()}`
-        : undefined;
-  if (url && pid) {
-    return `${url} (${pid})`;
-  }
-  return url ?? path ?? pid;
-}
-
-function buildAlreadyDoneReply(params: {
-  receipts: Array<{
-    summary?: string;
-    metadata?: Record<string, unknown>;
-  }>;
-}): ReplyPayload {
-  for (const receipt of params.receipts) {
-    const detail = buildAlreadyDoneTextFromMetadata(receipt.metadata);
-    if (detail) {
-      return { text: `Уже сделано: ${detail}` };
-    }
-  }
-  for (const receipt of params.receipts) {
-    const summary = receipt.summary?.trim();
-    if (summary) {
-      return { text: `Уже сделано: ${summary}` };
-    }
-  }
-  return { text: "Уже сделано: использую receipt предыдущего успешного запуска." };
-}
 
 export async function runAgentTurnWithFallback(params: {
   commandBody: string;
@@ -208,44 +143,6 @@ export async function runAgentTurnWithFallback(params: {
     sessionEntry: params.getActiveSessionEntry(),
   });
   const platformExecutionContext = routingSnapshot.runtimePlan;
-  const idempotencyWindowMs = resolveIntentIdempotencyWindowMs();
-  const ledgerChannelId = normalizeLedgerChannelId(
-    routingSnapshot.channelHints.messageChannel,
-    routingSnapshot.channelHints.channel,
-    routingSnapshot.channelHints.replyChannel,
-    params.followupRun.run.messageProvider,
-    params.sessionCtx.Surface,
-    params.sessionCtx.Provider,
-    params.sessionCtx.OriginatingChannel,
-  );
-  const fingerprint =
-    idempotencyWindowMs > 0
-      ? computeIntentFingerprint(
-          platformExecutionContext.deliverable,
-          platformExecutionContext.requiredCapabilities,
-        )
-      : undefined;
-  if (
-    idempotencyWindowMs > 0 &&
-    params.followupRun.run.sessionId &&
-    ledgerChannelId &&
-    fingerprint
-  ) {
-    const recentReceipt = intentLedger.lookupRecentReceipt({
-      sessionId: params.followupRun.run.sessionId,
-      channelId: ledgerChannelId,
-      fingerprint,
-      windowMs: idempotencyWindowMs,
-    });
-    if (recentReceipt) {
-      return {
-        kind: "final",
-        payload: buildAlreadyDoneReply({
-          receipts: recentReceipt.receipts,
-        }),
-      };
-    }
-  }
   if (platformExecutionContext.ackThenDefer === true && params.onAckThenDefer && !params.isHeartbeat) {
     try {
       await params.onAckThenDefer({

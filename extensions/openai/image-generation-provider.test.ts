@@ -114,6 +114,7 @@ describe("OpenAI image-generation provider", () => {
           providers: {
             hydra: {
               baseUrl: "https://api-ru.hydraai.ru/v1",
+              models: [],
             },
           },
         },

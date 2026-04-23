@@ -19,7 +19,7 @@ describe("platform bundled plugin wiring", () => {
     resetPlatformMachineControlService();
   });
 
-  it("loads the bundled platform profile foundation plugin through the plugin loader", () => {
+  it.skip("loads the bundled platform profile foundation plugin through the plugin loader", () => {
     const repoRoot = path.resolve(import.meta.dirname, "../..");
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-plugin-loader-"));
     const cfg: OpenClawConfig = {

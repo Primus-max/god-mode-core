@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getInitialRecipe } from "./defaults.js";
-import { planExecutionRecipe } from "./planner.js";
+import { planExecutionRecipe, type RecipePlannerInput } from "./planner.js";
 import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 import type { ExecutionRecipe } from "../schemas/recipe.js";
 
@@ -621,12 +621,12 @@ describe("planExecutionRecipe", () => {
   });
 
   it("keeps contract-first document-authoring routing stable across paraphrases", () => {
-    const baseInput = {
-      contractFirst: true as const,
-      artifactKinds: ["document", "image"] as const,
-      requestedTools: ["pdf", "image_generate"] as const,
-      intent: "document" as const,
-      outcomeContract: "structured_artifact" as const,
+    const baseInput: RecipePlannerInput = {
+      contractFirst: true,
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+      intent: "document",
+      outcomeContract: "structured_artifact",
       executionContract: {
         requiresTools: true,
         requiresWorkspaceMutation: false,
@@ -636,12 +636,12 @@ describe("planExecutionRecipe", () => {
         mayNeedBootstrap: false,
       },
       resolutionContract: {
-        selectedFamily: "analysis_transform" as const,
-        candidateFamilies: ["analysis_transform"] as const,
-        toolBundles: ["artifact_authoring"] as const,
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["artifact_authoring"],
         routing: {
           localEligible: false,
-          remoteProfile: "presentation" as const,
+          remoteProfile: "presentation",
           preferRemoteFirst: true,
           needsVision: false,
         },
@@ -664,12 +664,12 @@ describe("planExecutionRecipe", () => {
   });
 
   it("keeps contract-first workspace-change routing stable across paraphrases", () => {
-    const baseInput = {
-      contractFirst: true as const,
-      artifactKinds: ["binary"] as const,
-      requestedTools: ["apply_patch", "exec", "process"] as const,
-      intent: "code" as const,
-      outcomeContract: "workspace_change" as const,
+    const baseInput: RecipePlannerInput = {
+      contractFirst: true,
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      intent: "code",
+      outcomeContract: "workspace_change",
       executionContract: {
         requiresTools: true,
         requiresWorkspaceMutation: true,
@@ -679,12 +679,12 @@ describe("planExecutionRecipe", () => {
         mayNeedBootstrap: true,
       },
       resolutionContract: {
-        selectedFamily: "general_assistant" as const,
-        candidateFamilies: ["general_assistant"] as const,
-        toolBundles: ["repo_mutation", "repo_run"] as const,
+        selectedFamily: "general_assistant",
+        candidateFamilies: ["general_assistant"],
+        toolBundles: ["repo_mutation", "repo_run"],
         routing: {
           localEligible: false,
-          remoteProfile: "code" as const,
+          remoteProfile: "code",
           preferRemoteFirst: false,
           needsVision: false,
         },

@@ -746,7 +746,7 @@ describe("gateway server chat", () => {
         });
         expect(sendRes.ok).toBe(true);
         const finalEvent = await finalPromise;
-        expect(finalEvent.payload?.message?.content).toEqual([
+        expect((finalEvent.payload?.message as { content?: unknown } | undefined)?.content).toEqual([
           { type: "text", text: "Here is your banana image." },
           { type: "image", url: "https://example.com/banana.png" },
           { type: "file", url: "https://example.com/banana.pdf" },
@@ -819,7 +819,7 @@ describe("gateway server chat", () => {
         });
         expect(sendRes.ok).toBe(true);
         const finalEvent = await finalPromise;
-        expect(finalEvent.payload?.message?.content).toEqual([
+        expect((finalEvent.payload?.message as { content?: unknown } | undefined)?.content).toEqual([
           { type: "text", text: "Generated image: media/banana-block.png" },
           { type: "image", url: "https://example.com/banana-block.png" },
         ]);

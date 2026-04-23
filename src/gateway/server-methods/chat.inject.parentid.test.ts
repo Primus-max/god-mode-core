@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { rewriteTranscriptEntriesInSessionFile } from "../../agents/pi-embedded-runner/transcript-rewrite.js";
@@ -75,11 +76,11 @@ describe("gateway chat.inject transcript writes", () => {
         content: [{ type: "text", text: "Generated image: media/banana.png" }],
         timestamp: Date.now(),
         stopReason: "stop",
-        usage: { input: 0, output: 0, totalTokens: 0 },
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0 },
         api: "openai-responses",
         provider: "openclaw",
         model: "hydra/gpt-5.4",
-      });
+      } as unknown as Parameters<typeof sessionManager.appendMessage>[0]);
 
       await rewriteTranscriptEntriesInSessionFile({
         sessionFile: transcriptPath,
@@ -96,11 +97,11 @@ describe("gateway chat.inject transcript writes", () => {
                 ],
                 timestamp: Date.now(),
                 stopReason: "stop",
-                usage: { input: 0, output: 0, totalTokens: 0 },
+                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0 },
                 api: "openai-responses",
                 provider: "openclaw",
                 model: "hydra/gpt-5.4",
-              },
+              } as unknown as AgentMessage,
             },
           ],
         },

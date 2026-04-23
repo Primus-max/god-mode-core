@@ -423,38 +423,39 @@ export function createLaneTextDeliverer(params: CreateLaneTextDelivererParams) {
     previewButtons,
     canEditViaPreview,
   }: ConsumeArchivedAnswerPreviewParams): Promise<LaneDeliveryResult | undefined> => {
+    if (!canEditViaPreview) {
+      return undefined;
+    }
     const archivedPreview = params.archivedAnswerPreviews.shift();
     if (!archivedPreview) {
       return undefined;
     }
-    if (canEditViaPreview) {
-      const finalized = await tryUpdatePreviewForLane({
-        lane,
-        laneName: "answer",
-        text,
-        previewButtons,
-        stopBeforeEdit: false,
-        skipRegressive: "existingOnly",
-        context: "final",
-        previewMessageId: archivedPreview.messageId,
-        previewTextSnapshot: archivedPreview.textSnapshot,
+    const finalized = await tryUpdatePreviewForLane({
+      lane,
+      laneName: "answer",
+      text,
+      previewButtons,
+      stopBeforeEdit: false,
+      skipRegressive: "existingOnly",
+      context: "final",
+      previewMessageId: archivedPreview.messageId,
+      previewTextSnapshot: archivedPreview.textSnapshot,
+    });
+    if (finalized === "edited") {
+      return result("preview-finalized", {
+        content: text,
+        messageId: archivedPreview.messageId,
       });
-      if (finalized === "edited") {
-        return result("preview-finalized", {
-          content: text,
-          messageId: archivedPreview.messageId,
-        });
-      }
-      if (finalized === "regressive-skipped") {
-        return result("preview-finalized", {
-          content: archivedPreview.textSnapshot,
-          messageId: archivedPreview.messageId,
-        });
-      }
-      if (finalized === "retained") {
-        params.retainPreviewOnCleanupByLane.answer = true;
-        return result("preview-retained");
-      }
+    }
+    if (finalized === "regressive-skipped") {
+      return result("preview-finalized", {
+        content: archivedPreview.textSnapshot,
+        messageId: archivedPreview.messageId,
+      });
+    }
+    if (finalized === "retained") {
+      params.retainPreviewOnCleanupByLane.answer = true;
+      return result("preview-retained");
     }
     // Send the replacement message first, then clean up the old preview.
     // This avoids the visual "disappear then reappear" flash.

@@ -196,11 +196,11 @@ export function createTelegramProgressAdapter(
     text: string,
     api: TelegramProgressBotApi,
   ): Promise<void> => {
-    const canEdit =
-      state.messageId !== undefined && typeof api.editMessageText === "function";
-    if (canEdit) {
+    const editMessageText = api.editMessageText;
+    const canEdit = state.messageId !== undefined && typeof editMessageText === "function";
+    if (canEdit && editMessageText) {
       try {
-        await api.editMessageText(state.chatId ?? "", state.messageId as number, text);
+        await editMessageText(state.chatId ?? "", state.messageId as number, text);
         state.editedCount += 1;
         state.lastText = text;
         state.lastEditAt = now();

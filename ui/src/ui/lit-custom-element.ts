@@ -7,10 +7,12 @@ import { customElement as litCustomElement } from "lit/decorators.js";
  * `@customElement` would throw on the second import of the same tag.
  */
 export function safeCustomElement(tagName: string) {
-  return (cls: CustomElementConstructor & { prototype: HTMLElement }) => {
-    if (customElements.get(tagName)) {
-      return cls;
+  return <T extends CustomElementConstructor & { prototype: HTMLElement }>(cls: T): T => {
+    const existing = customElements.get(tagName);
+    if (existing) {
+      return existing as unknown as T;
     }
-    return litCustomElement(tagName)(cls);
+    const result = litCustomElement(tagName)(cls as unknown as CustomElementConstructor);
+    return ((result as T | undefined) ?? cls) as T;
   };
 }

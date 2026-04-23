@@ -2231,7 +2231,11 @@ export function buildAttentionItems(host: AttentionHost) {
   const execApprovalQueue = host.execApprovalQueue ?? [];
   if (execApprovalQueue.length > 0) {
     const primaryApproval = execApprovalQueue[0];
-    const target = primaryApproval?.request.nodeId?.trim()
+    const target: {
+      execTarget: "gateway" | "node";
+      execNode: string | null;
+      execAgent: string | null | undefined;
+    } = primaryApproval?.request.nodeId?.trim()
       ? {
           execTarget: "node",
           execNode: primaryApproval.request.nodeId,

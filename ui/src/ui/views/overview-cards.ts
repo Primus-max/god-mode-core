@@ -17,6 +17,14 @@ type OverviewCardNavigateOptions = {
   skillFilter?: string;
 };
 
+/**
+ * Tabs reachable from overview cards. Pinned to a Tab subset so callers in
+ * `overview.ts` can stay narrowly-typed and we don't accept arbitrary Tabs
+ * just because the function shape would allow them (avoids contravariant
+ * function-type drift between overview.ts and overview-cards.ts).
+ */
+type OverviewCardTab = Extract<Tab, "usage" | "sessions" | "skills" | "cron">;
+
 export type OverviewCardsProps = {
   usageResult: SessionsUsageResult | null;
   sessionsResult: SessionsListResult | null;
@@ -24,9 +32,9 @@ export type OverviewCardsProps = {
   cronJobs: CronJob[];
   cronStatus: CronStatus | null;
   presenceCount: number;
-  buildHref: (tab: Tab, options?: OverviewCardNavigateOptions) => string;
+  buildHref: (tab: OverviewCardTab, options?: OverviewCardNavigateOptions) => string;
   buildChatHref: (sessionKey: string) => string;
-  onNavigate: (tab: Tab, options?: OverviewCardNavigateOptions) => void;
+  onNavigate: (tab: OverviewCardTab, options?: OverviewCardNavigateOptions) => void;
   onNavigateToChat: (sessionKey: string) => void;
 };
 
@@ -40,7 +48,7 @@ function blurDigits(value: string): TemplateResult {
 
 type StatCard = {
   kind: string;
-  tab: Tab;
+  tab: OverviewCardTab;
   label: string;
   value: string | TemplateResult;
   hint: string | TemplateResult;
@@ -50,7 +58,7 @@ type StatCard = {
 
 function renderStatCard(
   card: StatCard,
-  onNavigate: (tab: Tab, options?: OverviewCardNavigateOptions) => void,
+  onNavigate: (tab: OverviewCardTab, options?: OverviewCardNavigateOptions) => void,
 ) {
   return html`
     <a

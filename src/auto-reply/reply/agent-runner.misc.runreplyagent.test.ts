@@ -11,6 +11,7 @@ import type { TemplateContext } from "../templating.js";
 import type { FollowupRun, QueueSettings } from "./queue.js";
 import { enqueueFollowupRun } from "./queue.js";
 import { createMockTypingController } from "./test-helpers.js";
+import type { DeliverableSpec } from "../../platform/produce/registry.js";
 import { intentLedger } from "../../platform/session/intent-ledger.js";
 import { computeIntentFingerprint } from "../../platform/session/intent-fingerprint.js";
 import * as agentRunnerUtils from "./agent-runner-utils.js";
@@ -581,7 +582,7 @@ describe("runReplyAgent semantic acceptance orchestration", () => {
     expect(enqueueFollowupRun).not.toHaveBeenCalled();
   });
 
-  it("short-circuits repeated repo exec within the idempotency window", async () => {
+  it("does not short-circuit in the runner when a fresh ledger receipt exists", async () => {
     const typing = createMockTypingController();
     const sessionCtx = {
       Provider: "telegram",
@@ -616,7 +617,7 @@ describe("runReplyAgent semantic acceptance orchestration", () => {
         blockReplyBreak: "message_end",
       },
     } as unknown as FollowupRun;
-    const deliverable = {
+    const deliverable: DeliverableSpec = {
       kind: "repo_operation",
       acceptedFormats: ["exec"],
       preferredFormat: "exec",
@@ -625,7 +626,7 @@ describe("runReplyAgent semantic acceptance orchestration", () => {
         command_signature: "pnpm dev",
         operation: "run_command",
       },
-    } as const;
+    };
     const requiredCapabilities = ["needs_repo_execution", "needs_local_runtime"];
     const fingerprint = computeIntentFingerprint(deliverable, requiredCapabilities);
     expect(fingerprint).toBeTruthy();
@@ -679,6 +680,10 @@ describe("runReplyAgent semantic acceptance orchestration", () => {
           replyChannel: "telegram",
         },
       } as any);
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "Уже сделано: http://127.0.0.1:5173 (PID 4242)" }],
+      meta: {},
+    });
 
     const second = await runReplyAgent({
       commandBody:
@@ -702,7 +707,7 @@ describe("runReplyAgent semantic acceptance orchestration", () => {
     });
     routingSpy.mockRestore();
 
-    expect(runEmbeddedPiAgentMock).not.toHaveBeenCalled();
+    expect(runEmbeddedPiAgentMock).toHaveBeenCalledTimes(1);
     expect(second).toMatchObject({
       text: "Уже сделано: http://127.0.0.1:5173 (PID 4242)",
     });

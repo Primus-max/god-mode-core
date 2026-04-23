@@ -38,6 +38,11 @@ export type CompletionEvidenceRequirements = {
   requiresStructuredEvidence: boolean;
 };
 
+export type PriorEvidenceProbe = {
+  kind: "ledger";
+  receipts: PlatformRuntimeExecutionReceipt[];
+};
+
 export type ObservedCompletionEvidence = {
   assistantText: boolean;
   toolReceipt: boolean;
@@ -50,6 +55,7 @@ export type ObservedCompletionEvidence = {
 
 export type CompletionEvidenceSufficiency = {
   sufficient: boolean;
+  sufficiencyReason?: "current_evidence" | "prior_evidence";
   requirements: CompletionEvidenceRequirements;
   observed: ObservedCompletionEvidence;
   missingEvidence: RequestedEvidenceKind[];
@@ -369,6 +375,17 @@ function buildClarificationTurnRequirements(): CompletionEvidenceRequirements {
   };
 }
 
+function buildEffectiveReceipts(params: {
+  receipts: PlatformRuntimeExecutionReceipt[];
+  priorEvidence?: PriorEvidenceProbe[];
+}): PlatformRuntimeExecutionReceipt[] {
+  const effectiveReceipts = [...params.receipts];
+  for (const probe of params.priorEvidence ?? []) {
+    effectiveReceipts.push(...probe.receipts);
+  }
+  return effectiveReceipts;
+}
+
 export function mapQualificationToEvidenceRequirements(params: {
   executionIntent?: PlatformRuntimeExecutionIntent;
   expectations?: PlatformRuntimeExecutionContract["expectations"];
@@ -409,11 +426,16 @@ function observeEvidence(params: {
   artifactKinds?: readonly string[];
   deliverable?: DeliverableSpec;
   receipts: PlatformRuntimeExecutionReceipt[];
+  priorEvidence?: PriorEvidenceProbe[];
   evidence: PlatformRuntimeAcceptanceEvidence;
   outcome?: PlatformRuntimeRunOutcome;
 }): ObservedCompletionEvidence {
-  const matchingArtifactToolReceipt = hasMatchingStructuredArtifactToolReceipt({
+  const effectiveReceipts = buildEffectiveReceipts({
     receipts: params.receipts,
+    priorEvidence: params.priorEvidence,
+  });
+  const matchingArtifactToolReceipt = hasMatchingStructuredArtifactToolReceipt({
+    receipts: effectiveReceipts,
     deliverable: params.deliverable,
     artifactKinds: params.artifactKinds,
   });
@@ -429,23 +451,23 @@ function observeEvidence(params: {
     Boolean(params.deliverable) ||
     (params.artifactKinds ?? []).some((k) => STRUCTURED_ARTIFACT_KINDS.has(k as ArtifactKind));
   const wrongToolReceiptsPresent =
-    params.receipts.length > 0 && deliverableExpectsArtifact && !matchingArtifactToolReceipt;
+    effectiveReceipts.length > 0 && deliverableExpectsArtifact && !matchingArtifactToolReceipt;
   const canUseVerifiedExecutionShortcut =
     !wrongToolReceiptsPresent &&
     params.evidence.verifiedExecution === true &&
     (params.evidence.verifiedExecutionReceiptCount ?? 0) > 0 &&
     params.evidence.hasOutput === true;
 
-  const verifiedDeliveryReceiptCount = params.receipts.filter(
+  const verifiedDeliveryReceiptCount = effectiveReceipts.filter(
     (receipt) =>
       receipt.kind === "messaging_delivery" &&
       receipt.status === "success" &&
       receipt.proof === "verified",
   ).length;
-  const successfulToolReceiptCount = params.receipts.filter(
+  const successfulToolReceiptCount = effectiveReceipts.filter(
     (receipt) => receipt.kind === "tool" && receipt.status === "success",
   ).length;
-  const successfulWorkspaceToolReceiptCount = params.receipts.filter(
+  const successfulWorkspaceToolReceiptCount = effectiveReceipts.filter(
     (receipt) =>
       receipt.kind === "tool" &&
       receipt.status === "success" &&
@@ -454,7 +476,7 @@ function observeEvidence(params: {
   const successfulProcessReceiptCount = Math.max(
     params.evidence.confirmedActionCount ?? 0,
     params.outcome?.confirmedActionIds.length ?? 0,
-    params.receipts.filter(
+    effectiveReceipts.filter(
       (receipt) =>
         hasExecReceiptRuntimeEvidence(receipt) ||
         (receipt.kind === "platform_action" &&
@@ -463,7 +485,7 @@ function observeEvidence(params: {
     ).length,
   );
   const successfulCapabilityReceiptCount =
-    params.receipts.filter(
+    effectiveReceipts.filter(
       (receipt) => receipt.kind === "capability" && receipt.status === "success",
     ).length +
     (params.outcome?.bootstrapRequestIds.length ?? 0);
@@ -497,6 +519,7 @@ export function isCompletionEvidenceSufficient(params: {
   executionIntent?: PlatformRuntimeExecutionIntent;
   expectations?: PlatformRuntimeExecutionContract["expectations"];
   receipts: PlatformRuntimeExecutionReceipt[];
+  priorEvidence?: PriorEvidenceProbe[];
   evidence?: PlatformRuntimeAcceptanceEvidence;
   outcome?: PlatformRuntimeRunOutcome;
 }): CompletionEvidenceSufficiency {
@@ -505,6 +528,17 @@ export function isCompletionEvidenceSufficient(params: {
     expectations: params.expectations,
   });
   const observed = observeEvidence({
+    requirements,
+    artifactKinds: params.executionIntent?.artifactKinds ?? params.evidence?.declaredArtifactKinds,
+    ...(params.executionIntent?.deliverable
+      ? { deliverable: params.executionIntent.deliverable }
+      : {}),
+    receipts: params.receipts,
+    priorEvidence: params.priorEvidence,
+    evidence: params.evidence ?? {},
+    outcome: params.outcome,
+  });
+  const observedFromCurrentReceipts = observeEvidence({
     requirements,
     artifactKinds: params.executionIntent?.artifactKinds ?? params.evidence?.declaredArtifactKinds,
     ...(params.executionIntent?.deliverable
@@ -555,8 +589,37 @@ export function isCompletionEvidenceSufficient(params: {
     }
   });
 
+  const missingCurrentEvidence = requirements.requestedEvidence.filter((kind) => {
+    switch (kind) {
+      case "assistant_text":
+        return !observedFromCurrentReceipts.assistantText;
+      case "tool_receipt":
+        return !observedFromCurrentReceipts.toolReceipt;
+      case "artifact_descriptor":
+        return !observedFromCurrentReceipts.artifactDescriptor;
+      case "process_receipt":
+        return !observedFromCurrentReceipts.processReceipt;
+      case "delivery_receipt":
+        return !observedFromCurrentReceipts.deliveryReceipt;
+      case "capability_receipt":
+        return !observedFromCurrentReceipts.capabilityReceipt;
+      default:
+        return true;
+    }
+  });
+
+  const sufficient = missingEvidence.length === 0;
+  const hasPriorEvidence = (params.priorEvidence?.some((probe) => probe.receipts.length > 0) ?? false) === true;
+  const sufficiencyReason =
+    !sufficient
+      ? undefined
+      : hasPriorEvidence && missingCurrentEvidence.length > 0
+        ? "prior_evidence"
+        : "current_evidence";
+
   return {
-    sufficient: missingEvidence.length === 0,
+    sufficient,
+    ...(sufficiencyReason ? { sufficiencyReason } : {}),
     requirements,
     observed,
     missingEvidence,

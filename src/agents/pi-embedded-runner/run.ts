@@ -9,6 +9,8 @@ import { computeBackoff, sleepWithAbort, type BackoffPolicy } from "../../infra/
 import { generateSecureToken } from "../../infra/secure-random.js";
 import { isLikelyControlPlaneLocalProvider } from "../../platform/decision/control-plane-local.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
+import { intentLedger } from "../../platform/session/intent-ledger.js";
+import { computeIntentFingerprint } from "../../platform/session/intent-fingerprint.js";
 import {
   buildExecutionIntentSeedFromRecipeRuntimePlan,
   getPlatformRuntimeCheckpointService,
@@ -17,6 +19,9 @@ import {
   type PlatformRuntimeExecutionReceipt,
   type PlatformRuntimeExecutionSurface,
 } from "../../platform/runtime/index.js";
+import { buildAlreadyDoneReply } from "../../platform/runtime/prior-evidence/already-done-reply.js";
+import { buildLedgerPriorEvidence } from "../../platform/runtime/prior-evidence/ledger-probe.js";
+import { isCompletionEvidenceSufficient, type PriorEvidenceProbe } from "../../platform/runtime/evidence-sufficiency.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { prepareProviderRuntimeAuth } from "../../plugins/provider-runtime.js";
 import type { PluginHookBeforeAgentStartResult } from "../../plugins/types.js";
@@ -391,6 +396,7 @@ function buildCompletionArtifacts(params: {
   executionReceipts?: PlatformRuntimeExecutionReceipt[];
   executionSurface?: PlatformRuntimeExecutionSurface;
   executionIntent?: PlatformRuntimeExecutionIntent;
+  priorEvidence?: PriorEvidenceProbe[];
   modelFallback?: EmbeddedPiRunMeta["modelFallback"];
 }) {
   const normalizedRunId = params.runId?.trim();
@@ -468,6 +474,7 @@ function buildCompletionArtifacts(params: {
     evidence: baseEvidence,
     executionSurface: params.executionSurface,
     executionIntent: params.executionIntent,
+    priorEvidence: params.priorEvidence,
   });
   runtimeService.recordRunClosure(runClosure);
   return {
@@ -541,16 +548,51 @@ export async function runEmbeddedPiAgent(
         runId: params.runId,
         platformExecutionContext: params.platformExecutionContext,
       });
-      const _mfn = params.ensureModelsJson ?? ensureOpenClawModelsJson;
-      const _modelsResult = await _mfn(params.config, agentDir);
-
-      // Run before_model_resolve hooks early so plugins can override the
-      // provider/model before resolveModel().
-      //
-      // Legacy compatibility: before_agent_start is also checked for override
-      // fields if present. New hook takes precedence when both are set.
-      let modelResolveOverride: { providerOverride?: string; modelOverride?: string } | undefined;
-      let legacyBeforeAgentStartResult: PluginHookBeforeAgentStartResult | undefined;
+      const executionFingerprint = computeIntentFingerprint(
+        executionIntent?.deliverable,
+        executionIntent?.requiredCapabilities,
+      );
+      const priorEvidence =
+        executionIntent && executionFingerprint && params.sessionId && channelHint
+          ? [
+              buildLedgerPriorEvidence({
+                ledger: intentLedger,
+                sessionId: params.sessionId,
+                channelId: channelHint,
+                fingerprint: executionFingerprint,
+              }),
+            ]
+          : [];
+      const priorSufficiency =
+        executionIntent && priorEvidence.some((probe) => probe.receipts.length > 0)
+          ? isCompletionEvidenceSufficient({
+              executionIntent,
+              receipts: [],
+              priorEvidence,
+              evidence: { hasOutput: true },
+              outcome:
+                getPlatformRuntimeCheckpointService().buildRunOutcome(params.runId) ??
+                PlatformRuntimeRunOutcomeSchema.parse({
+                  runId: params.runId,
+                  status: "completed",
+                  checkpointIds: [],
+                  blockedCheckpointIds: [],
+                  completedCheckpointIds: [],
+                  deniedCheckpointIds: [],
+                  pendingApprovalIds: [],
+                  artifactIds: [],
+                  bootstrapRequestIds: [],
+                  actionIds: [],
+                  attemptedActionIds: [],
+                  confirmedActionIds: [],
+                  failedActionIds: [],
+                  boundaries: [],
+                }),
+            })
+          : undefined;
+      // Hoisted above the prior-evidence early return: finalizeRecipeResult is
+      // invoked inside that branch (see #2026-04 reorder fix), and TS2448 would
+      // crash at runtime as a TDZ ReferenceError otherwise.
       const hookRunner = getGlobalHookRunner();
       const hookCtx = {
         agentId: workspaceResolution.agentId,
@@ -581,6 +623,38 @@ export async function runEmbeddedPiAgent(
         }
         return result;
       };
+      if (priorSufficiency?.sufficient && priorSufficiency.sufficiencyReason === "prior_evidence") {
+        return finalizeRecipeResult({
+          payloads: [
+            buildAlreadyDoneReply({
+              receipts: priorEvidence.flatMap((probe) => probe.receipts),
+            }),
+          ],
+          meta: {
+            durationMs: Date.now() - started,
+            ...buildCompletionArtifacts({
+              runId: params.runId,
+              sessionKey: params.sessionKey,
+              requestRunId: params.requestRunId,
+              parentRunId: params.parentRunId,
+              hasOutput: true,
+              executionSurface,
+              executionIntent,
+              priorEvidence,
+            }),
+          },
+        });
+      }
+      const _mfn = params.ensureModelsJson ?? ensureOpenClawModelsJson;
+      const _modelsResult = await _mfn(params.config, agentDir);
+
+      // Run before_model_resolve hooks early so plugins can override the
+      // provider/model before resolveModel().
+      //
+      // Legacy compatibility: before_agent_start is also checked for override
+      // fields if present. New hook takes precedence when both are set.
+      let modelResolveOverride: { providerOverride?: string; modelOverride?: string } | undefined;
+      let legacyBeforeAgentStartResult: PluginHookBeforeAgentStartResult | undefined;
       if (hookRunner?.hasHooks("before_recipe_execute") && executionIntent) {
         try {
           const recipeGate = await hookRunner.runBeforeRecipeExecute(

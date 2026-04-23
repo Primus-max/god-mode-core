@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as agentEvents from "../../infra/agent-events.js";
+import type { DeliverableSpec } from "../produce/registry.js";
+import { IntentLedger } from "../session/intent-ledger.js";
+import { computeIntentFingerprint } from "../session/intent-fingerprint.js";
+import { buildLedgerPriorEvidence } from "./prior-evidence/ledger-probe.js";
 import {
   createPlatformRuntimeCheckpointService,
   resetPlatformRuntimeCheckpointService,
@@ -693,9 +697,11 @@ describe("platform runtime checkpoint service", () => {
         },
       ],
       executionIntent: {
+        runId: "run-structured-artifact-required",
         recipeId: "doc_ingest",
         intent: "document",
         artifactKinds: ["document"],
+        expectations: {},
       },
       evidence: {
         hasOutput: true,
@@ -993,9 +999,11 @@ describe("platform runtime checkpoint service", () => {
         },
       ],
       executionIntent: {
+        runId: "run-structured-media-tools",
         recipeId: "media_production",
         intent: "document",
         artifactKinds: ["image", "document"],
+        expectations: {},
       },
       evidence: {
         hasOutput: false,
@@ -1090,9 +1098,11 @@ describe("platform runtime checkpoint service", () => {
         },
       ],
       executionIntent: {
+        runId: "run-structured-site-tools",
         recipeId: "code_build_publish",
         intent: "code",
         artifactKinds: ["site"],
+        expectations: {},
       },
       evidence: {
         hasOutput: false,
@@ -1176,9 +1186,11 @@ describe("platform runtime checkpoint service", () => {
         },
       ],
       executionIntent: {
+        runId: "run-closure-structured-media",
         recipeId: "media_production",
         intent: "document",
         artifactKinds: ["image", "document"],
+        expectations: {},
       },
       evidence: {
         hasOutput: false,
@@ -2016,7 +2028,7 @@ describe("platform runtime checkpoint service", () => {
         requireStructuredReceipts: false,
       }),
     );
-    expect(contract.expectations.requiredReceiptKinds).toBeUndefined();
+    expect(contract.expectations?.requiredReceiptKinds).toBeUndefined();
 
     const verification = service.verifyExecutionContract({
       contract,
@@ -2083,5 +2095,117 @@ describe("platform runtime checkpoint service", () => {
         remediation: "none",
       }),
     );
+  });
+
+  it("accepts exec-same-intent via ledger priorEvidence after five minutes without a new tool receipt", () => {
+    let now = 10_000;
+    const ledger = new IntentLedger({ now: () => now });
+    const service = createPlatformRuntimeCheckpointService();
+    const runId = "run-exec-same-intent-five-minutes";
+    const deliverable: DeliverableSpec = {
+      kind: "repo_operation",
+      acceptedFormats: ["exec"],
+      preferredFormat: "exec",
+      constraints: {
+        target_repo: "/tmp/god-mode-core",
+        command_signature: "pnpm dev",
+        operation: "run_command",
+      },
+    };
+    const requiredCapabilities = ["needs_repo_execution", "needs_local_runtime"];
+    const fingerprint = computeIntentFingerprint(deliverable, requiredCapabilities);
+
+    expect(fingerprint).toBeTruthy();
+
+    ledger.recordFromBotTurn({
+      turnId: "turn-exec-original",
+      sessionId: "session-exec-same-intent",
+      channelId: "telegram",
+      summary: "Уже сделано: dev server started",
+      planOutput: {
+        executionContract: { requiresTools: true },
+        fingerprint,
+      },
+      runtimeReceipts: [
+        {
+          kind: "tool",
+          name: "exec",
+          status: "success",
+          summary: "dev server started",
+          metadata: {
+            exitCode: 0,
+            pid: 4242,
+            url: "http://127.0.0.1:5173",
+          },
+        },
+      ],
+      createdAt: now,
+    });
+
+    now += 5 * 60 * 1000;
+
+    const priorEvidence = [
+      buildLedgerPriorEvidence({
+        ledger,
+        sessionId: "session-exec-same-intent",
+        channelId: "telegram",
+        fingerprint: fingerprint!,
+      }),
+    ];
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId,
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const closure = service.buildRunClosure({
+      runId,
+      outcome,
+      receipts: [],
+      evidence: {
+        hasOutput: true,
+      },
+      executionIntent: {
+        runId,
+        recipeId: "ops_orchestration",
+        intent: "code",
+        artifactKinds: ["site"],
+        requestedToolNames: ["exec"],
+        deliverable,
+        outcomeContract: "interactive_local_result",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: true,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        requestedEvidence: ["tool_receipt", "process_receipt"],
+        requiredCapabilities,
+        expectations: {},
+      },
+      priorEvidence,
+    });
+
+    expect(priorEvidence[0]?.receipts).toHaveLength(1);
+    expect(closure.acceptanceOutcome).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
+        reasonCode: "completed_with_output",
+      }),
+    );
+    expect(closure.executionVerification.status).toBe("verified");
   });
 });

@@ -159,3 +159,4 @@ entities.json
 .ui-dev.log
 .ui-dev.err.log
 .artifacts/
+eval-results/

@@ -269,6 +269,7 @@ export function createOpenClawTools(
     }),
     createCronTool({
       agentSessionKey: options?.agentSessionKey,
+      senderIsOwner: options?.senderIsOwner,
     }),
     ...(messageTool ? [messageTool] : []),
     createTtsTool({

@@ -45,7 +45,17 @@ describe("createOpenClawTools PDF registration", () => {
               baseUrl: "https://api-ru.hydraai.ru/v1",
               api: "openai-completions",
               apiKey: "hydra-test-key",
-              models: [{ id: "gpt-5.3-codex", name: "GPT-5.3 Codex" }],
+              models: [
+                {
+                  id: "gpt-5.3-codex",
+                  name: "GPT-5.3 Codex",
+                  reasoning: false,
+                  input: ["text"],
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                  contextWindow: 128_000,
+                  maxTokens: 8_000,
+                },
+              ],
             },
           },
         },

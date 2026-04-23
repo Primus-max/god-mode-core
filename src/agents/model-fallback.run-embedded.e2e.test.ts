@@ -143,7 +143,7 @@ beforeAll(async () => {
   runEmbeddedPiAgent = (params) =>
     _runEmbeddedPiAgent({
       ...params,
-      ensureModelsJson: async () => ({ wrote: false }),
+      ensureModelsJson: async () => ({ agentDir: "", wrote: false }),
       prepareRuntimeAuth: async () => undefined,
       resolveModelAsync: stubResolveModelAsync,
       runAttempt: (attemptParams) => runEmbeddedAttemptMock(attemptParams),

@@ -2,6 +2,7 @@
 
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
+import type { BootstrapLifecycleResult } from "../../../../src/platform/bootstrap/contracts.ts";
 import { i18n } from "../../i18n/index.ts";
 import { renderBootstrap, type BootstrapProps } from "./bootstrap.ts";
 
@@ -280,13 +281,13 @@ describe("bootstrap view", () => {
       reasons: [] as string[],
       deniedReasons: [] as string[],
     };
-    const lifecycle = {
+    const lifecycle: BootstrapLifecycleResult = {
       capabilityId: request.capabilityId,
       installMethod: request.installMethod,
-      verificationStatus: "passed" as const,
-      rollbackStatus: "not_needed" as const,
-      status: "available" as const,
-      transitions: ["requested", "approved", "installing", "verifying", "available"] as const,
+      verificationStatus: "passed",
+      rollbackStatus: "not_needed",
+      status: "available",
+      transitions: ["requested", "approved", "installing", "verifying", "available"],
     };
     const container = document.createElement("div");
     render(

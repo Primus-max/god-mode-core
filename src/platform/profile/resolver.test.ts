@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveProfile, scoreProfiles } from "./resolver.js";
+import { type ProfileResolverInput, resolveProfile, scoreProfiles } from "./resolver.js";
 
 const DEFAULT_ROUTING = {
   localEligible: false,
@@ -8,7 +8,7 @@ const DEFAULT_ROUTING = {
   needsVision: false,
 };
 
-function makeContractInput(overrides: Record<string, unknown> = {}) {
+function makeContractInput(overrides: Partial<ProfileResolverInput> = {}): ProfileResolverInput {
   return {
     contractFirst: true,
     outcomeContract: "text_response",

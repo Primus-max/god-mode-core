@@ -19,7 +19,7 @@ export type EffectiveProfilePreference = {
   timeoutSeconds?: number;
 };
 
-type ProfileOverlayInput = ProfileSignalInput & {
+export type ProfileOverlayInput = ProfileSignalInput & {
   outcomeContract?: OutcomeContract;
   executionContract?: QualificationExecutionContract;
   candidateFamilies?: CandidateExecutionFamily[];

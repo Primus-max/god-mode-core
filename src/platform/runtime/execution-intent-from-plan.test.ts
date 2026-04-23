@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planExecutionRecipe } from "../recipe/planner.js";
+import { planExecutionRecipe, type RecipePlannerInput } from "../recipe/planner.js";
 import { adaptExecutionPlanToRuntime } from "../recipe/runtime-adapter.js";
 import { buildExecutionDecisionInput } from "../decision/input.js";
 import {
@@ -29,11 +29,11 @@ describe("execution intent from recipe runtime plan", () => {
 
   it("builds a seed compatible with buildExecutionIntent", () => {
     resetPlatformRuntimeCheckpointService();
-    const docInput = {
+    const docInput: RecipePlannerInput = {
       prompt: "Parse this PDF estimate into a report",
       fileNames: ["estimate.pdf"],
-      artifactKinds: ["document", "report"] as const,
-      intent: "document" as const,
+      artifactKinds: ["document", "report"],
+      intent: "document",
     };
     const plan = planExecutionRecipe(docInput);
     const runtime = adaptExecutionPlanToRuntime(plan, { input: docInput });

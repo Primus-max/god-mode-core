@@ -17,7 +17,7 @@ async function loadGatewayMethod(entry?: SessionEntry) {
     readSessionMessages: vi.fn(() => []),
   }));
   vi.doMock("../../config/config.js", () => ({
-    loadConfig: (...args: unknown[]) => hoisted.loadConfigMock(...args),
+    loadConfig: (...args: unknown[]) => (hoisted.loadConfigMock as (...a: unknown[]) => unknown)(...args),
   }));
   vi.doMock("../decision/task-classifier.js", () => ({
     classifyTaskForDecision: (...args: unknown[]) => hoisted.classifyTaskForDecisionMock(...args),

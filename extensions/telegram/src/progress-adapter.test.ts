@@ -102,7 +102,9 @@ describe("createTelegramProgressAdapter", () => {
   it("sends initial status via sendMessage and then edits it", async () => {
     const bus = new ProgressBus();
     const sendMessage = vi.fn(async () => ({ message_id: 77 }));
-    const editMessageText = vi.fn(async () => undefined);
+    const editMessageText = vi.fn(
+      async (_chatId: number | string, _messageId: number, _text: string) => undefined,
+    );
     const api: TelegramProgressBotApi = { sendMessage, editMessageText };
     const clock = { value: 1000 };
     const timers = makeFakeTimers(clock);
@@ -145,7 +147,9 @@ describe("createTelegramProgressAdapter", () => {
   it("send -> edit -> edit emits exactly one send and two edits across full phase chain", async () => {
     const bus = new ProgressBus();
     const sendMessage = vi.fn(async () => ({ message_id: 100 }));
-    const editMessageText = vi.fn(async () => undefined);
+    const editMessageText = vi.fn(
+      async (_chatId: number | string, _messageId: number, _text: string) => undefined,
+    );
     const api: TelegramProgressBotApi = { sendMessage, editMessageText };
     const clock = { value: 0 };
     const timers = makeFakeTimers(clock);
@@ -183,7 +187,9 @@ describe("createTelegramProgressAdapter", () => {
   it("throttles edits within MIN_EDIT_GAP_MS and drains the latest queued frame after the gap", async () => {
     const bus = new ProgressBus();
     const sendMessage = vi.fn(async () => ({ message_id: 555 }));
-    const editMessageText = vi.fn(async () => undefined);
+    const editMessageText = vi.fn(
+      async (_chatId: number | string, _messageId: number, _text: string) => undefined,
+    );
     const api: TelegramProgressBotApi = { sendMessage, editMessageText };
     const clock = { value: 1000 };
     const timers = makeFakeTimers(clock);
@@ -335,7 +341,9 @@ describe("createTelegramProgressAdapter", () => {
   it("unsubscribing stops further deliveries and clears scheduled drain timers", async () => {
     const bus = new ProgressBus();
     const sendMessage = vi.fn(async () => ({ message_id: 42 }));
-    const editMessageText = vi.fn(async () => undefined);
+    const editMessageText = vi.fn(
+      async (_chatId: number | string, _messageId: number, _text: string) => undefined,
+    );
     const clock = { value: 1000 };
     const timers = makeFakeTimers(clock);
     const handle = createTelegramProgressAdapter({
@@ -365,7 +373,9 @@ describe("createTelegramProgressAdapter", () => {
   it("collapses duplicate-text edits without making API calls", async () => {
     const bus = new ProgressBus();
     const sendMessage = vi.fn(async () => ({ message_id: 13 }));
-    const editMessageText = vi.fn(async () => undefined);
+    const editMessageText = vi.fn(
+      async (_chatId: number | string, _messageId: number, _text: string) => undefined,
+    );
     const clock = { value: 0 };
     const timers = makeFakeTimers(clock);
     const { logger, infoMessages } = makeLoggerSpy();

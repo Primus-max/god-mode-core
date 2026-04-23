@@ -4,7 +4,7 @@ import { buildExecutionDecisionInput } from "../decision/input.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/index.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { ExecutionRecipe } from "../schemas/index.js";
-import { planExecutionRecipe } from "./planner.js";
+import { planExecutionRecipe, type RecipePlannerInput } from "./planner.js";
 import {
   adaptExecutionPlanToRuntime,
   buildRecipePlannerInputFromRuntimePlan,
@@ -365,13 +365,13 @@ describe("contract-first guardrail wiring", () => {
 
 describe("buildRecipePlannerInputFromRuntimePlan", () => {
   it("copies structured runtime fields onto the prompt without prompt-only inference", () => {
-    const input = {
+    const input: RecipePlannerInput = {
       prompt: "Ship the preview to production",
       contractFirst: true,
       publishTargets: ["vercel"],
       requestedTools: ["exec"],
-      intent: "publish" as const,
-      candidateFamilies: ["ops_execution"] as const,
+      intent: "publish",
+      candidateFamilies: ["ops_execution"],
     };
     const plan = planExecutionRecipe(input);
     const runtime = adaptExecutionPlanToRuntime(plan, { input });

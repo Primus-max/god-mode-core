@@ -389,6 +389,95 @@ describe("runtime evidence sufficiency", () => {
     expect(sufficiency.missingEvidence).toEqual([]);
   });
 
+  it("accepts priorEvidence for exec-backed interactive local results when current receipts are empty", () => {
+    const executionIntent: PlatformRuntimeExecutionIntent = {
+      runId: "interactive-site-preview-prior-evidence",
+      intent: "code",
+      artifactKinds: ["site"],
+      deliverable: {
+        kind: "repo_operation",
+        acceptedFormats: ["exec"],
+        preferredFormat: "exec",
+        constraints: { operation: "run_command" },
+      },
+      requestedToolNames: ["exec"],
+      outcomeContract: "interactive_local_result",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      expectations: {},
+    };
+
+    const sufficiency = isCompletionEvidenceSufficient({
+      executionIntent,
+      receipts: [],
+      priorEvidence: [
+        {
+          kind: "ledger",
+          receipts: [
+            {
+              kind: "tool",
+              name: "exec",
+              status: "success",
+              proof: "reported",
+              summary: "dev server already started",
+              metadata: {
+                exitCode: 0,
+                pid: 4242,
+                url: "http://127.0.0.1:3000",
+              },
+            },
+          ],
+        },
+      ],
+      outcome: buildCompletedOutcome("interactive-site-preview-prior-evidence"),
+    });
+
+    expect(sufficiency.sufficient).toBe(true);
+    expect(sufficiency.sufficiencyReason).toBe("prior_evidence");
+    expect(sufficiency.missingEvidence).toEqual([]);
+  });
+
+  it("keeps baseline behavior when both current receipts and priorEvidence are absent", () => {
+    const executionIntent: PlatformRuntimeExecutionIntent = {
+      runId: "interactive-site-preview-no-evidence-baseline",
+      intent: "code",
+      artifactKinds: ["site"],
+      deliverable: {
+        kind: "repo_operation",
+        acceptedFormats: ["exec"],
+        preferredFormat: "exec",
+        constraints: { operation: "run_command" },
+      },
+      requestedToolNames: ["exec"],
+      outcomeContract: "interactive_local_result",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      expectations: {},
+    };
+
+    const sufficiency = isCompletionEvidenceSufficient({
+      executionIntent,
+      receipts: [],
+      outcome: buildCompletedOutcome("interactive-site-preview-no-evidence-baseline"),
+    });
+
+    expect(sufficiency.sufficient).toBe(false);
+    expect(sufficiency.sufficiencyReason).toBeUndefined();
+    expect(sufficiency.missingEvidence).toEqual(["tool_receipt", "process_receipt"]);
+  });
+
   it("does not require capability_receipt for successful document artifacts when no bootstrap capability was declared", () => {
     const executionIntent: PlatformRuntimeExecutionIntent = {
       runId: "pdf-with-images-no-bootstrap",

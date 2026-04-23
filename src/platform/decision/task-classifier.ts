@@ -9,7 +9,6 @@ import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import {
   DeliverableKindSchema,
-  resolveProducer,
   type DeliverableKind,
   type DeliverableSpec,
 } from "../produce/registry.js";
@@ -18,6 +17,12 @@ import {
   collectMissingRequiredEnvForCapabilities,
   type RecipePlannerInput,
 } from "../recipe/planner.js";
+import {
+  TASK_CAPABILITY_IDS,
+  applyCatalogNormalizer,
+  buildCapabilityPromptSection,
+  type TaskCapabilityId,
+} from "./capability-catalog.js";
 import { inferRequestedEvidence } from "./execution-contract.js";
 import type { BuildExecutionDecisionInputParams } from "./input.js";
 import type { CandidateExecutionFamily } from "./qualification-contract.js";
@@ -31,6 +36,7 @@ import {
   type ResolutionBridgePlannerInput,
   type ResolutionContract,
 } from "./resolution-contract.js";
+import { deriveRequestedTools } from "./tool-registry.js";
 
 const log = createSubsystemLogger("task-classifier");
 
@@ -72,19 +78,7 @@ const TASK_CONTRACT_SCHEMA = {
       type: "array",
       items: {
         type: "string",
-        enum: [
-          "needs_visual_composition",
-          "needs_multimodal_authoring",
-          "needs_repo_execution",
-          "needs_document_extraction",
-          "needs_local_runtime",
-          "needs_interactive_browser",
-          "needs_high_reliability_provider",
-          "needs_workspace_mutation",
-          "needs_external_delivery",
-          "needs_tabular_reasoning",
-          "needs_web_research",
-        ],
+        enum: [...TASK_CAPABILITY_IDS],
       },
       uniqueItems: true,
     },
@@ -168,17 +162,7 @@ Decision ladder:
    - artifact_iteration: the main result is an authored artifact.
    - clarify_first: use only with primaryOutcome "clarification_needed".
 3. Add only capabilities that are explicitly required by the task:
-   - needs_workspace_mutation: only for editing repo/workspace contents.
-   - needs_repo_execution: run checks, tests, builds, scripts, or validation.
-   - needs_local_runtime: local runtime/process is explicitly requested or obviously required by the wording.
-   - needs_document_extraction: extract from supplied docs/images/PDFs.
-   - needs_interactive_browser: inspect/click/smoke-test/compare live pages in browser.
-   - needs_web_research: latest public facts/pricing/news/web lookup.
-   - needs_tabular_reasoning: structured table/spreadsheet comparison or numeric reasoning is central.
-   - needs_visual_composition: image/poster/banner/illustration or strong visual layout is the primary artifact.
-   - needs_multimodal_authoring: authored document/deck/PDF/infographic from mixed materials, notes, tables, or images.
-   - needs_external_delivery: explicit deploy/publish/send external.
-   - needs_high_reliability_provider: only for production/live external delivery.
+{{CAPABILITY_LADDER}}
 
 Canonical mapping rules:
 - Attached files alone do not imply document_extraction, multimodal_authoring, or tool_execution.
@@ -268,7 +252,7 @@ Attachment file names:
 {{ATTACHMENT_FILE_NAMES}}
 
 User request:
-{{USER_REQUEST}}`;
+{{USER_REQUEST}}`.replace("{{CAPABILITY_LADDER}}", buildCapabilityPromptSection());
 
 function truncatePendingCommitmentsTokens(raw: string, maxTokens: number): string {
   const normalized = raw.replace(/\s+/g, " ").trim();
@@ -345,18 +329,7 @@ type PrimaryOutcome =
   | "document_extraction"
   | "clarification_needed";
 
-type Capability =
-  | "needs_visual_composition"
-  | "needs_multimodal_authoring"
-  | "needs_repo_execution"
-  | "needs_document_extraction"
-  | "needs_local_runtime"
-  | "needs_interactive_browser"
-  | "needs_high_reliability_provider"
-  | "needs_workspace_mutation"
-  | "needs_external_delivery"
-  | "needs_tabular_reasoning"
-  | "needs_web_research";
+type Capability = TaskCapabilityId;
 
 type InteractionMode = "respond_only" | "clarify_first" | "tool_execution" | "artifact_iteration";
 
@@ -373,21 +346,7 @@ const TaskContractZodSchema = z
       "clarification_needed",
     ]),
     requiredCapabilities: z
-      .array(
-        z.enum([
-          "needs_visual_composition",
-          "needs_multimodal_authoring",
-          "needs_repo_execution",
-          "needs_document_extraction",
-          "needs_local_runtime",
-          "needs_interactive_browser",
-          "needs_high_reliability_provider",
-          "needs_workspace_mutation",
-          "needs_external_delivery",
-          "needs_tabular_reasoning",
-          "needs_web_research",
-        ]),
-      )
+      .array(z.enum(TASK_CAPABILITY_IDS))
       .superRefine((values, ctx) => {
         if (new Set(values).size !== values.length) {
           ctx.addIssue({
@@ -609,10 +568,8 @@ function normalizeTaskContract(contract: TaskContract): TaskContract {
     }
   }
 
-  if (primaryOutcome !== "external_delivery") {
-    capabilities.delete("needs_external_delivery");
-    capabilities.delete("needs_high_reliability_provider");
-  }
+  // Delivery-only flags (`needs_external_delivery`, `needs_high_reliability_provider`)
+  // are pruned by the catalog's `requiresOutcomes` rule once the final pass runs.
   if (primaryOutcome === "external_delivery") {
     capabilities.delete("needs_workspace_mutation");
     capabilities.add("needs_external_delivery");
@@ -637,11 +594,21 @@ function normalizeTaskContract(contract: TaskContract): TaskContract {
   const deliverable =
     contract.deliverable ?? inferDeliverableFallback(primaryOutcome, capabilities);
 
+  // Final pass: enforce catalog-declared invariants (e.g. needs_visual_composition
+  // can only ride on a kind=image deliverable). Runs LAST so that the legacy
+  // outcome/capability mutations and deliverable inference above have already
+  // settled — catalog rules are pure filtering, never re-derivation.
+  const catalogFiltered = applyCatalogNormalizer({
+    capabilities,
+    primaryOutcome,
+    deliverableKind: deliverable?.kind,
+  });
+
   return {
     ...contract,
     primaryOutcome,
     interactionMode,
-    requiredCapabilities: normalizeUnique(Array.from(capabilities)),
+    requiredCapabilities: normalizeUnique(Array.from(catalogFiltered)),
     confidence: clampConfidence(contract.confidence),
     ambiguities: normalizeUnique(contract.ambiguities),
     ...(deliverable ? { deliverable } : {}),
@@ -870,41 +837,16 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
   if (hasMultimodalAuthoring) {
     artifactKinds.push("document", "image");
   }
-  if (capabilities.has("needs_repo_execution")) {
-    requestedTools.push("exec");
-  }
-  if (
-    capabilities.has("needs_workspace_mutation") &&
-    contract.deliverable?.kind !== "repo_operation"
-  ) {
-    requestedTools.push("apply_patch");
-  }
-  if (capabilities.has("needs_local_runtime")) {
-    requestedTools.push("process");
-  }
-  if (capabilities.has("needs_interactive_browser")) {
-    requestedTools.push("browser");
-  }
-  if (capabilities.has("needs_web_research")) {
-    requestedTools.push("web_search");
-  }
-  if (hasMultimodalAuthoring || hasVisualComposition) {
-    requestedTools.push("image_generate");
-  }
-  const producerResolution = resolveProducer(contract.deliverable);
-  for (const toolName of producerResolution.toolNames) {
+  // ToolRegistry-driven derivation. The capability→tool mapping, the
+  // suppression of `apply_patch` for repo_operation deliverables, the
+  // producer-chain inclusion, and the `deliverable.constraints.tool` escape
+  // hatch (used today by the reminder/cron flow) all live inside the registry.
+  // Anything we used to push manually here now belongs in `tool-registry.ts`.
+  for (const toolName of deriveRequestedTools({
+    capabilities,
+    deliverable: contract.deliverable,
+  })) {
     requestedTools.push(toolName);
-  }
-  // P1.7-E: surface a classifier-requested tool through deliverable.constraints.tool
-  // (free-form constraint, no new outcome/kind/strategy). Used today by reminder
-  // routing to expose the built-in "cron" tool without needing a producer entry
-  // for the "answer" deliverable kind.
-  const constraintsTool = contract.deliverable?.constraints?.tool;
-  if (typeof constraintsTool === "string") {
-    const trimmedTool = constraintsTool.trim();
-    if (trimmedTool.length > 0) {
-      requestedTools.push(trimmedTool);
-    }
   }
   if (contract.deliverable) {
     const deliverableKind = contract.deliverable.kind;

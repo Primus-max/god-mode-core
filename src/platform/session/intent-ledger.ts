@@ -460,14 +460,15 @@ export class IntentLedger {
     sessionId: string;
     channelId: string;
     fingerprint: string;
-    windowMs: number;
+    windowMs?: number;
   }): IntentLedgerRecentReceiptMatch | undefined {
     const fingerprint = params.fingerprint.trim();
-    if (!fingerprint || params.windowMs <= 0) {
+    const windowMs = params.windowMs ?? this.ttlMs;
+    if (!fingerprint || windowMs <= 0) {
       return undefined;
     }
     const now = this.now();
-    const windowStart = now - params.windowMs;
+    const windowStart = now - windowMs;
     const entries = this.peekPending(params.sessionId, params.channelId)
       .filter(
         (entry) =>

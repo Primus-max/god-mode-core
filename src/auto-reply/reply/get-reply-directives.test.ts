@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import type { SessionEntry } from "../../config/sessions.js";
+import type { TypingController } from "./typing.js";
 
 vi.mock("../../agents/agent-scope.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../agents/agent-scope.js")>();
@@ -59,7 +61,7 @@ describe("resolveReplyDirectives mixed inline directives", () => {
   it("preserves a mixed-content model directive for authorized webchat operators", async () => {
     const body =
       'Используй model:hydra/gpt-4o. Переведи на английский: "Умный роутинг экономит токены"';
-    const sessionEntry = {} as Record<string, unknown>;
+    const sessionEntry = { sessionId: "agent:main:thread:test", updatedAt: Date.now() } as unknown as SessionEntry;
 
     const result = await resolveReplyDirectives({
       ctx: {
@@ -103,7 +105,7 @@ describe("resolveReplyDirectives mixed inline directives", () => {
       provider: "ollama",
       model: "gemma4:e4b",
       hasResolvedHeartbeatModelOverride: false,
-      typing: { cleanup() {} },
+      typing: { cleanup() {} } as unknown as TypingController,
       opts: undefined,
       skillFilter: undefined,
     });

@@ -1,15 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { getInitialProfile } from "./defaults.js";
-import { applyTaskOverlay, resolveTaskOverlay } from "./overlay.js";
+import { applyTaskOverlay, type ProfileOverlayInput, resolveTaskOverlay } from "./overlay.js";
 
-const DEFAULT_ROUTING = {
-  localEligible: false,
-  remoteProfile: "cheap" as const,
-  preferRemoteFirst: true,
-  needsVision: false,
-};
-
-function makeOverlayInput(overrides: Record<string, unknown> = {}) {
+function makeOverlayInput(overrides: Partial<ProfileOverlayInput> = {}): ProfileOverlayInput {
   return {
     outcomeContract: "text_response",
     executionContract: {
@@ -24,7 +17,6 @@ function makeOverlayInput(overrides: Record<string, unknown> = {}) {
       selectedFamily: "general_assistant",
       candidateFamilies: ["general_assistant"],
       toolBundles: ["respond_only"],
-      routing: DEFAULT_ROUTING,
     },
     ...overrides,
   };
@@ -50,7 +42,6 @@ describe("resolveTaskOverlay", () => {
           selectedFamily: "document_render",
           candidateFamilies: ["document_render"],
           toolBundles: ["document_extraction"],
-          routing: DEFAULT_ROUTING,
         },
       }),
     );
@@ -75,10 +66,6 @@ describe("resolveTaskOverlay", () => {
           selectedFamily: "code_build",
           candidateFamilies: ["code_build"],
           toolBundles: ["repo_mutation", "repo_run"],
-          routing: {
-            ...DEFAULT_ROUTING,
-            remoteProfile: "code",
-          },
         },
       }),
     );
@@ -103,10 +90,6 @@ describe("resolveTaskOverlay", () => {
           selectedFamily: "code_build",
           candidateFamilies: ["code_build"],
           toolBundles: ["repo_mutation", "external_delivery"],
-          routing: {
-            ...DEFAULT_ROUTING,
-            remoteProfile: "code",
-          },
         },
       }),
     );
@@ -137,10 +120,6 @@ describe("resolveTaskOverlay", () => {
           selectedFamily: "ops_execution",
           candidateFamilies: ["ops_execution"],
           toolBundles: ["external_delivery"],
-          routing: {
-            ...DEFAULT_ROUTING,
-            remoteProfile: "strong",
-          },
         },
       }),
     );
@@ -165,10 +144,6 @@ describe("resolveTaskOverlay", () => {
           selectedFamily: "ops_execution",
           candidateFamilies: ["ops_execution"],
           toolBundles: ["repo_run"],
-          routing: {
-            ...DEFAULT_ROUTING,
-            localEligible: true,
-          },
         },
       }),
     );
@@ -190,10 +165,6 @@ describe("resolveTaskOverlay", () => {
           selectedFamily: "ops_execution",
           candidateFamilies: ["ops_execution"],
           toolBundles: ["repo_run"],
-          routing: {
-            ...DEFAULT_ROUTING,
-            localEligible: true,
-          },
         },
       }),
     );
@@ -219,7 +190,6 @@ describe("resolveTaskOverlay", () => {
           selectedFamily: "media_generation",
           candidateFamilies: ["media_generation"],
           toolBundles: ["artifact_authoring"],
-          routing: DEFAULT_ROUTING,
         },
       }),
     );

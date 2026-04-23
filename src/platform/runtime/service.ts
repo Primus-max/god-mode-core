@@ -66,6 +66,7 @@ import {
   isCompletionEvidenceSufficient,
   mapQualificationToEvidenceRequirements,
   requiresStructuredEvidence,
+  type PriorEvidenceProbe,
 } from "./evidence-sufficiency.js";
 
 const PLATFORM_RUNTIME_SERVICE_KEY = Symbol.for("openclaw.platform.runtime.service");
@@ -193,17 +194,20 @@ export type PlatformRuntimeCheckpointService = {
     evidence?: PlatformRuntimeAcceptanceEvidence;
     executionSurface?: PlatformRuntimeExecutionSurface;
     executionIntent?: PlatformRuntimeExecutionIntent;
+    priorEvidence?: PriorEvidenceProbe[];
   }) => PlatformRuntimeRunClosure;
   verifyExecutionContract: (params: {
     contract: PlatformRuntimeExecutionContract;
     outcome?: PlatformRuntimeRunOutcome;
     evidence?: PlatformRuntimeAcceptanceEvidence;
+    priorEvidence?: PriorEvidenceProbe[];
   }) => PlatformRuntimeExecutionVerification;
   evaluateAcceptance: (params: {
     runId: string;
     outcome: PlatformRuntimeRunOutcome;
     evidence?: PlatformRuntimeAcceptanceEvidence;
     receipts?: PlatformRuntimeExecutionReceipt[];
+    priorEvidence?: PriorEvidenceProbe[];
   }) => PlatformRuntimeAcceptanceResult;
   evaluateSupervisorVerdict: (params: {
     runId: string;
@@ -1697,6 +1701,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         contract,
         outcome,
         evidence: verificationEvidence,
+        priorEvidence: params.priorEvidence,
       });
       const evidence = this.buildAcceptanceEvidence({
         outcome,
@@ -1710,6 +1715,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         outcome,
         evidence,
         receipts: contract.receipts,
+        priorEvidence: params.priorEvidence,
       });
       const supervisorVerdict = this.evaluateSupervisorVerdict({
         runId: params.runId,
@@ -1809,6 +1815,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         }),
         expectations,
         receipts,
+        priorEvidence: params.priorEvidence,
         evidence,
         outcome: params.outcome,
       });
@@ -1959,6 +1966,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         }),
         receipts: params.receipts ?? [],
+        priorEvidence: params.priorEvidence,
         evidence,
         outcome: params.outcome,
       });

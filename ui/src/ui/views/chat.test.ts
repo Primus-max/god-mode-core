@@ -202,7 +202,7 @@ function createProps(overrides: Partial<ChatProps> = {}): ChatProps {
 }
 
 function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewProps {
-  return {
+  const base: OverviewProps = {
     connected: false,
     hello: null,
     settings: {
@@ -264,11 +264,12 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
       options?.skillFilter ? `/ui/${tab}?skillFilter=${encodeURIComponent(options.skillFilter)}` : `/ui/${tab}`,
     buildChatHref: (sessionKey) => `/ui/chat?session=${encodeURIComponent(sessionKey)}`,
     onNavigate: () => undefined,
+    onNavigateAttention: () => undefined,
     onNavigateToChat: () => undefined,
     onRefreshLogs: () => undefined,
     onSpecialistOverrideChange: () => undefined,
-    ...overrides,
   };
+  return { ...base, ...overrides };
 }
 
 describe("chat view", () => {

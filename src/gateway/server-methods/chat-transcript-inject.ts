@@ -61,7 +61,7 @@ export function appendInjectedAssistantMessageToTranscript(params: {
         : "file";
     content.push({ type, url: trimmed });
   }
-  const messageBody: AppendMessageArg & Record<string, unknown> = {
+  const messageBody = {
     role: "assistant",
     content,
     timestamp: now,
@@ -83,13 +83,13 @@ export function appendInjectedAssistantMessageToTranscript(params: {
           },
         }
       : {}),
-  };
+  } satisfies Record<string, unknown>;
 
   try {
     // IMPORTANT: Use SessionManager so the entry is attached to the current leaf via parentId.
     // Raw jsonl appends break the parent chain and can hide compaction summaries from context.
     const sessionManager = SessionManager.open(params.transcriptPath);
-    const messageId = sessionManager.appendMessage(messageBody);
+    const messageId = sessionManager.appendMessage(messageBody as unknown as AppendMessageArg);
     emitSessionTranscriptUpdate({
       sessionFile: params.transcriptPath,
       message: messageBody,

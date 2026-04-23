@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { RecipeRuntimePlan } from "../../platform/recipe/index.js";
 import {
   makeAttemptResult,
   makeCompactionSuccess,
@@ -104,7 +105,7 @@ describe("runEmbeddedPiAgent overflow compaction trigger routing", () => {
     );
     mockedRunEmbeddedAttempt.mockResolvedValueOnce(makeAttemptResult({ promptError: null }));
 
-    const platformExecutionContext = {
+    const platformExecutionContext: RecipeRuntimePlan = {
       selectedRecipeId: "doc_ingest",
       selectedProfileId: "builder",
       taskOverlayId: "document_first",

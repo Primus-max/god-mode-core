@@ -96,7 +96,7 @@ function createProps(overrides: Partial<UsageProps> = {}): UsageProps {
           cacheWriteCost: 0.2,
         },
       ],
-    } as UsageProps["data"],
+    } as unknown as UsageProps["data"],
     filters: {
       startDate: "2026-03-01",
       endDate: "2026-03-31",

@@ -56,7 +56,7 @@ function createState(overrides: Partial<AppViewState> = {}): AppViewState {
       ],
       totals: baseUsage,
       aggregates: null,
-    } as AppViewState["usageResult"],
+    } as unknown as AppViewState["usageResult"],
     usageCostSummary: {
       daily: [
         {

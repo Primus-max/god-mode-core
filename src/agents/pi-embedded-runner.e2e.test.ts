@@ -484,7 +484,7 @@ describe("runEmbeddedPiAgent", () => {
         agentDir,
         runId: nextRunId("assistant-local-oom"),
         enqueue: immediateEnqueue,
-        runAttempt: oomAssistantRunAttempt,
+        runAttempt: oomAssistantRunAttempt as unknown as Parameters<typeof runEmbeddedPiAgent>[0]["runAttempt"],
       }),
     ).rejects.toThrow(/temporarily overloaded/i);
   });
