@@ -9,6 +9,7 @@ import {
   QualificationExecutionContractSchema,
   RequestedEvidenceKindSchema,
 } from "../decision/qualification-contract.js";
+import type { DeliverableKind as PlatformRuntimeDeliverableKind } from "../produce/registry.js";
 import {
   PlatformRuntimeAcceptanceResultSchema,
   PlatformRuntimeActionSchema,
@@ -646,12 +647,38 @@ function normalizeOptionalStringArray(values: string[] | undefined): string[] | 
   return normalized.length > 0 ? Array.from(new Set(normalized)) : undefined;
 }
 
+/**
+ * Derive the set of receipt kinds that the execution contract should require
+ * for verification. The decision is driven primarily by `executionIntent`
+ * (deliverable kind + executionContract booleans), not by side-effects of the
+ * run such as `outcome.actionIds.length`.
+ *
+ * Principles:
+ *   - Artifact-producing deliverables (document, data, image, audio, video,
+ *     site, archive) are satisfied by a `tool` receipt that carries the
+ *     produced-artifact descriptor. They never demand a `platform_action`
+ *     receipt — there is no platform-level action to confirm.
+ *   - Messaging delivery: when the run actually delivered via a messaging
+ *     tool, require a `messaging_delivery` receipt (the natural proof).
+ *   - Capability bootstrap: if bootstrap requests were created, require a
+ *     `capability` receipt to confirm the bootstrap reached a terminal
+ *     state.
+ *   - `platform_action` is only required for genuine platform-level
+ *     operations: repo workspace mutations, external delivery routes,
+ *     capability installs, or — when no intent is available at all — when
+ *     the run staged confirmed actions outside the messaging path
+ *     (legacy fallback).
+ */
 function deriveRequiredReceiptKinds(params: {
   outcome: PlatformRuntimeRunOutcome;
   evidence: PlatformRuntimeAcceptanceEvidence;
   executionIntent?: PlatformRuntimeExecutionIntent;
 }): PlatformRuntimeExecutionReceiptKind[] | undefined {
   const kinds = new Set<PlatformRuntimeExecutionReceiptKind>();
+  const intent = params.executionIntent;
+  const deliverable = intent?.deliverable;
+  const contract = intent?.executionContract;
+
   const requiresMessagingDelivery = params.evidence.didSendViaMessagingTool === true;
   if (requiresMessagingDelivery) {
     kinds.add("messaging_delivery");
@@ -659,14 +686,70 @@ function deriveRequiredReceiptKinds(params: {
   if (params.outcome.bootstrapRequestIds.length > 0) {
     kinds.add("capability");
   }
+
+  if (deliverable && isArtifactProducingDeliverable(deliverable.kind)) {
+    if (contract?.requiresTools !== false) {
+      kinds.add("tool");
+    }
+    return kinds.size > 0 ? Array.from(kinds) : undefined;
+  }
+
   if (
+    deliverable &&
+    intentRequiresPlatformAction(deliverable.kind, contract, params.executionIntent)
+  ) {
+    kinds.add("platform_action");
+    return kinds.size > 0 ? Array.from(kinds) : undefined;
+  }
+
+  // Legacy fallback: no deliverable spec was provided. Preserve historical
+  // behaviour so platform-level effects still get verified, but stay aware of
+  // messaging-only flows (already handled above).
+  if (
+    !deliverable &&
     params.outcome.actionIds.length > 0 &&
     !requiresMessagingDelivery &&
     !allowsExecOnlyContractClosure(params.executionIntent)
   ) {
     kinds.add("platform_action");
   }
+
   return kinds.size > 0 ? Array.from(kinds) : undefined;
+}
+
+function isArtifactProducingDeliverable(kind: PlatformRuntimeDeliverableKind): boolean {
+  switch (kind) {
+    case "document":
+    case "data":
+    case "image":
+    case "audio":
+    case "video":
+    case "site":
+    case "archive":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function intentRequiresPlatformAction(
+  kind: PlatformRuntimeDeliverableKind,
+  contract: PlatformRuntimeExecutionIntent["executionContract"] | undefined,
+  intent: PlatformRuntimeExecutionIntent | undefined,
+): boolean {
+  if (kind === "repo_operation") {
+    if (allowsExecOnlyContractClosure(intent)) {
+      return false;
+    }
+    return contract?.requiresWorkspaceMutation === true;
+  }
+  if (kind === "code_change") {
+    return contract?.requiresWorkspaceMutation === true;
+  }
+  if (kind === "external_delivery" || kind === "capability_install") {
+    return true;
+  }
+  return false;
 }
 
 function allowsExecOnlyContractClosure(

@@ -270,6 +270,90 @@ describe("extractToolResultMediaPaths", () => {
     expect(filterToolResultMediaUrls("pdf", ["/tmp/report.pdf"])).toEqual(["/tmp/report.pdf"]);
   });
 
+  it("trusts artifact-producing tools via the producer registry contract (docx)", () => {
+    const result = {
+      content: [{ type: "text", text: "DOCX document ready: /tmp/report.docx" }],
+      details: {
+        artifact: {
+          kind: "document",
+          format: "docx",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          path: "/tmp/report.docx",
+          sizeBytes: 1024,
+        },
+        media: { mediaUrl: "/tmp/report.docx" },
+      },
+    };
+    expect(isToolResultMediaTrusted("docx_write", result)).toBe(true);
+    expect(filterToolResultMediaUrls("docx_write", ["/tmp/report.docx"], result)).toEqual([
+      "/tmp/report.docx",
+    ]);
+  });
+
+  it("trusts artifact-producing tools via the producer registry contract (xlsx)", () => {
+    const result = {
+      content: [{ type: "text", text: "Spreadsheet ready" }],
+      details: {
+        artifact: {
+          kind: "data",
+          format: "xlsx",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          path: "/tmp/sheet.xlsx",
+        },
+      },
+    };
+    expect(isToolResultMediaTrusted("xlsx_write", result)).toBe(true);
+  });
+
+  it("does not trust unknown artifact kind/format combinations", () => {
+    const result = {
+      details: {
+        artifact: {
+          kind: "document",
+          format: "made-up-format",
+          mimeType: "application/octet-stream",
+          path: "/tmp/x.bin",
+        },
+      },
+    };
+    expect(isToolResultMediaTrusted("mystery_writer", result)).toBe(false);
+  });
+
+  it("rejects artifact contracts coming from MCP-provenance results", () => {
+    const result = {
+      details: {
+        mcpServer: "evil",
+        mcpTool: "evil_writer",
+        artifact: {
+          kind: "document",
+          format: "docx",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          path: "/tmp/evil.docx",
+        },
+      },
+    };
+    expect(isToolResultMediaTrusted("docx_write", result)).toBe(false);
+  });
+
+  it("extracts media from details.artifact when details.media is absent", () => {
+    expect(
+      extractToolResultMediaArtifact({
+        details: {
+          artifact: {
+            kind: "document",
+            format: "docx",
+            mimeType:
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            path: "/tmp/no-media-block.docx",
+          },
+        },
+      }),
+    ).toEqual({ mediaUrls: ["/tmp/no-media-block.docx"] });
+  });
+
   it("does not trust local MEDIA paths for MCP-provenance results", () => {
     expect(
       filterToolResultMediaUrls("browser", ["/tmp/screenshot.png"], {

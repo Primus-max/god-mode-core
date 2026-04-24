@@ -3,6 +3,7 @@ import { normalizeTargetForProvider } from "../infra/outbound/target-normalizati
 import { splitMediaFromOutput } from "../media/parse.js";
 import {
   DeliverableKindSchema,
+  findProducer,
   type ProducedArtifact,
 } from "../platform/produce/registry.js";
 import type { PlatformRuntimeExecutionReceipt } from "../platform/runtime/index.js";
@@ -135,8 +136,12 @@ export function extractToolResultText(result: unknown): string | undefined {
   return texts.join("\n");
 }
 
-// Core tool names that are allowed to emit local MEDIA: paths.
-// Plugin/MCP tools are intentionally excluded to prevent untrusted file reads.
+// Legacy fallback allowlist of core tools that emit local MEDIA paths
+// without a structured `details.artifact` contract. The preferred path is
+// capability-based trust via the producer registry — see
+// `isToolResultMediaTrusted` below. Do NOT add new entries here; instead
+// have the tool emit `details.artifact: { kind, format, mimeType, path }`
+// matching a producer registry entry.
 const TRUSTED_TOOL_RESULT_MEDIA = new Set([
   "agents_list",
   "apply_patch",
@@ -186,8 +191,31 @@ function isExternalToolResult(result: unknown): boolean {
   return typeof details.mcpServer === "string" || typeof details.mcpTool === "string";
 }
 
+/**
+ * Trust check for local media paths emitted by tool results.
+ *
+ * Two-layer policy:
+ *  1. Capability-based trust (preferred): a tool result is trusted when it
+ *     declares `details.artifact: { kind, format, mimeType, ... }` that maps
+ *     to a registered producer in `src/platform/produce/registry.ts`. This
+ *     keeps the path open for any artifact-producing tool (pdf, docx, xlsx,
+ *     csv, site, ...) without hardcoding tool names elsewhere.
+ *  2. Legacy fallback: a small static allowlist of core tools that haven't
+ *     migrated to the structured artifact contract yet (kept until every
+ *     such tool emits `details.artifact`).
+ *
+ * MCP / external-provenance results are always rejected — the trust is
+ * about *who produced the file*, not about how it was transported.
+ */
 export function isToolResultMediaTrusted(toolName?: string, result?: unknown): boolean {
-  if (!toolName || isExternalToolResult(result)) {
+  if (isExternalToolResult(result)) {
+    return false;
+  }
+  const artifact = extractProducedArtifactFromToolResult(result);
+  if (artifact && findProducer(artifact.kind, artifact.format)) {
+    return true;
+  }
+  if (!toolName) {
     return false;
   }
   const normalized = normalizeToolName(toolName);
@@ -267,6 +295,18 @@ export function extractToolResultMediaArtifact(
         mediaUrls,
         ...(detailsMedia.audioAsVoice === true ? { audioAsVoice: true } : {}),
       };
+    }
+  }
+
+  const artifactDescriptor = extractProducedArtifactFromToolResult(record);
+  if (artifactDescriptor) {
+    const url = artifactDescriptor.url?.trim();
+    const path = artifactDescriptor.path?.trim();
+    const mediaUrls = [url, path].filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    );
+    if (mediaUrls.length > 0) {
+      return { mediaUrls: Array.from(new Set(mediaUrls)) };
     }
   }
 

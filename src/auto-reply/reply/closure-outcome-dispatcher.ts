@@ -146,6 +146,7 @@ export type MessagingClosureOutcomeDispatchResult = {
   queuedSemanticRetry: boolean;
   approvalId?: string;
   bootstrapRequestIds?: string[];
+  bootstrapNoOp?: boolean;
 };
 
 export type ClosureRecoveryStartupReconcileResult = {
@@ -832,18 +833,44 @@ export function dispatchMessagingClosureOutcome(params: {
     return { queuedSemanticRetry: true };
   }
 
-  const bootstrapRequestIds =
-    decision.remediation === "bootstrap"
-      ? ensureBootstrapRequests({
-          decision,
-          executionIntent: params.executionIntent,
-          queueKey: params.queueKey,
-          sourceRun: params.sourceRun,
-          settings: params.settings,
-        })
-      : [];
+  const isBootstrapRemediation = decision.remediation === "bootstrap";
+  const bootstrapRequestIds = isBootstrapRemediation
+    ? ensureBootstrapRequests({
+        decision,
+        executionIntent: params.executionIntent,
+        queueKey: params.queueKey,
+        sourceRun: params.sourceRun,
+        settings: params.settings,
+      })
+    : [];
+
+  // Fail-closed safety net: the verifier asked for a bootstrap but the
+  // intent did not actually advertise any capabilities to install (e.g.
+  // the missing receipt was never a real bootstrap problem — usually a
+  // contract-derivation false positive). Mark the closure recovery
+  // checkpoint as cancelled so the run does not silently loop.
+  // `markClosureRecoveryCheckpointFailed` already emits the
+  // `recovery_checkpoint_terminal` telemetry, so callers see the no-op via
+  // checkpoint state + the explicit `bootstrapNoOp: true` flag returned
+  // below.
+  const bootstrapNoOp =
+    isBootstrapRemediation &&
+    bootstrapRequestIds.length === 0 &&
+    !shouldCreateHumanApproval(decision);
+  if (bootstrapNoOp) {
+    const reason =
+      decision.reasons[0] ??
+      "bootstrap remediation requested but no capabilities are pending bootstrap";
+    markClosureRecoveryCheckpointFailed({
+      sourceRun: params.sourceRun,
+      error: `bootstrap_noop: ${reason}`,
+    });
+  }
+
   const approvalId =
-    bootstrapRequestIds.length === 0 && shouldCreateHumanApproval(decision)
+    !bootstrapNoOp &&
+    bootstrapRequestIds.length === 0 &&
+    shouldCreateHumanApproval(decision)
       ? ensureClosureApprovalRequest({
           decision,
           sourceRun: params.sourceRun,
@@ -856,6 +883,7 @@ export function dispatchMessagingClosureOutcome(params: {
     queuedSemanticRetry: false,
     ...(approvalId ? { approvalId } : {}),
     ...(bootstrapRequestIds.length > 0 ? { bootstrapRequestIds } : {}),
+    ...(bootstrapNoOp ? { bootstrapNoOp: true } : {}),
   };
 }
 

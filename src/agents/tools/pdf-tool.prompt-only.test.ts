@@ -2,8 +2,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  buildPromptOnlyPdfHtml,
+  buildFallbackPdfHtmlBody,
   buildPromptOnlyPdfMaterializationRequest,
+  inlinePdfImageAssets,
+  looksLikeCompletePdfHtmlDocument,
+  looksLikePdfHtmlPayload,
   normalizePdfBodyText,
   pdfNeedsManagedRendererFromConstraints,
   pdfRequestedPageCount,
@@ -11,16 +14,17 @@ import {
 } from "./pdf-tool.prompt-only.js";
 
 describe("pdf tool prompt-only helpers", () => {
-  it("derives managed-renderer signal from deliverable constraints only", () => {
+  it("only demands the managed renderer when the deliverable explicitly says so", () => {
     expect(pdfNeedsManagedRendererFromConstraints(undefined)).toBe(false);
     expect(pdfNeedsManagedRendererFromConstraints({ style: "minimal" })).toBe(false);
     expect(pdfNeedsManagedRendererFromConstraints({ style: "infographic" })).toBe(true);
+    expect(pdfNeedsManagedRendererFromConstraints({ style: "presentation" })).toBe(true);
     expect(pdfNeedsManagedRendererFromConstraints({ needsManagedRenderer: true })).toBe(true);
   });
 
-  it("derives rich-draft signal from deliverable constraints only", () => {
-    expect(pdfWantsRichDraftFromConstraints(undefined)).toBe(false);
-    expect(pdfWantsRichDraftFromConstraints({ style: "minimal" })).toBe(false);
+  it("always asks the model to draft a design — no minimal/rich fork", () => {
+    expect(pdfWantsRichDraftFromConstraints(undefined)).toBe(true);
+    expect(pdfWantsRichDraftFromConstraints({ style: "minimal" })).toBe(true);
     expect(pdfWantsRichDraftFromConstraints({ style: "rich" })).toBe(true);
     expect(pdfWantsRichDraftFromConstraints({ style: "presentation" })).toBe(true);
   });
@@ -39,43 +43,62 @@ describe("pdf tool prompt-only helpers", () => {
     );
   });
 
-  it("builds html pages with embedded images and page breaks", () => {
-    const html = buildPromptOnlyPdfHtml({
-      bodyMarkdown: "# Cover\n\nOne\n\n---\n\n# Page 2\n\nTwo",
-      images: [
-        {
-          fileName: "chart.png",
-          mimeType: "image/png",
-          base64: "ZmFrZQ==",
-        },
-      ],
-    });
-
-    expect(html).toContain("data:image/png;base64,ZmFrZQ==");
-    expect(html).toContain("break-before:page");
-    expect(html).toContain("<h1>Cover</h1>");
-    expect(html).toContain("oc-pdf-page");
+  it("recognises a complete LLM-authored HTML document", () => {
+    expect(looksLikeCompletePdfHtmlDocument("<!doctype html><html></html>")).toBe(true);
+    expect(looksLikeCompletePdfHtmlDocument("<html><body>x</body></html>")).toBe(true);
+    expect(looksLikeCompletePdfHtmlDocument("# Just markdown")).toBe(false);
   });
 
-  it("normalizes collapsed rich markdown and resolves inline image references", () => {
-    const html = buildPromptOnlyPdfHtml({
-      bodyMarkdown:
-        "# infographic_city_cat_life ## Стр. 1 ![Городской котик](sandbox:/media/city_cat_page1.png) ### Маршрут - Проснуться у окна - Проверить двор - Вернуться домой --- ## Стр. 2 ### Формула счастья - Тепло - Еда - Уют",
-      images: [
-        {
-          fileName: "city_cat_page1.png",
-          mimeType: "image/png",
-          base64: "ZmFrZQ==",
-        },
-      ],
+  it("recognises styled HTML fragments as PDF-ready payloads", () => {
+    expect(looksLikePdfHtmlPayload("<style>body{}</style><section>hi</section>")).toBe(true);
+    expect(looksLikePdfHtmlPayload("<h1>Title</h1><p>body</p>")).toBe(true);
+    expect(looksLikePdfHtmlPayload("Just a sentence with no tags.")).toBe(false);
+  });
+
+  it("inlines image assets referenced by file name into LLM HTML output", () => {
+    const html =
+      '<article><img src="chart.png" alt="Chart"><img src="https://x/y.png" alt="external"></article>';
+    const inlined = inlinePdfImageAssets(html, [
+      { fileName: "chart.png", mimeType: "image/png", base64: "ZmFrZQ==" },
+    ]);
+    expect(inlined).toContain('src="data:image/png;base64,ZmFrZQ=="');
+    expect(inlined).toContain('src="https://x/y.png"');
+  });
+
+  it("does not double-inline data URIs already present in the HTML", () => {
+    const html = '<img src="data:image/png;base64,AAAA">';
+    const inlined = inlinePdfImageAssets(html, [
+      { fileName: "chart.png", mimeType: "image/png", base64: "ZmFrZQ==" },
+    ]);
+    expect(inlined).toBe(html);
+  });
+
+  it("renders the minimal fallback body without any opinionated styling", () => {
+    const html = buildFallbackPdfHtmlBody({
+      bodyMarkdown: "# Title\n\nBody paragraph.",
+      images: [{ fileName: "diagram.png", mimeType: "image/png", base64: "ZmFrZQ==" }],
     });
 
-    expect(html).toContain("<h1>infographic_city_cat_life</h1>");
-    expect(html).toContain("<h2>Стр. 1</h2>");
-    expect(html).toContain("<h3>Маршрут</h3>");
-    expect(html).toContain("<li>Проснуться у окна</li>");
-    expect(html).toContain("<li>Проверить двор</li>");
+    expect(html).toContain("<h1>Title</h1>");
     expect(html).toContain("data:image/png;base64,ZmFrZQ==");
+    // No layered "deck" template, no decorative gradients, no font-family stack,
+    // no hardcoded color palette — the LLM (or the eventual viewer) decides.
+    expect(html).not.toContain("oc-pdf-deck");
+    expect(html).not.toContain("oc-pdf-page");
+    expect(html).not.toContain("break-before:page");
+    expect(html).not.toContain("font-family");
+    expect(html).not.toContain("linear-gradient");
+    expect(html).not.toMatch(/#[0-9a-fA-F]{3,8}\b/u);
+  });
+
+  it("does not duplicate images that are already referenced by the markdown", () => {
+    const html = buildFallbackPdfHtmlBody({
+      bodyMarkdown: "# Title\n\n![alt](diagram.png)",
+      images: [{ fileName: "diagram.png", mimeType: "image/png", base64: "ZmFrZQ==" }],
+    });
+
+    expect(html.match(/diagram\.png/giu)?.length ?? 0).toBeGreaterThanOrEqual(1);
+    expect(html.match(/<figure>/giu) ?? []).toHaveLength(0);
   });
 
   it("builds a canonical prompt-only pdf materialization request", () => {

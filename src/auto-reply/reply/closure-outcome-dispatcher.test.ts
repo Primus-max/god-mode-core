@@ -370,4 +370,94 @@ describe("dispatchMessagingClosureOutcome bootstrap resume merge", () => {
     expect(drained[0]?.prompt).toContain("[Original task - preserve exact task intent below]");
     expect(drained[0]?.prompt).toContain("Надо сделать pdf файл, с инфографикой о жизни городского котика");
   });
+
+  it("fails the closure-recovery checkpoint when bootstrap remediation has no capabilities to install", () => {
+    const runtimeCheckpointService = getPlatformRuntimeCheckpointService();
+    const checkpoint = runtimeCheckpointService.createCheckpoint({
+      id: "closure:run-bootstrap-noop:bootstrap:retry",
+      runId: "run-bootstrap-noop",
+      sessionKey: "agent:main:main",
+      boundary: "exec_approval",
+      blockedReason: "bootstrap noop",
+      target: {
+        approvalId: "closure:run-bootstrap-noop:bootstrap:retry",
+        operation: "closure.recovery",
+      },
+      continuation: {
+        kind: "closure_recovery",
+        state: "idle",
+        attempts: 0,
+        input: {},
+      },
+    });
+
+    const sourceRun = {
+      prompt: "Сделай документ docx",
+      enqueuedAt: 0,
+      automation: {
+        source: "closure_recovery",
+        retryCount: 0,
+        runtimeCheckpointId: checkpoint.id,
+      },
+      run: {
+        agentId: "agent-noop",
+        agentDir: "/tmp/agent",
+        sessionId: "sess-noop",
+        sessionKey: "agent:main:main",
+        sessionFile: "/tmp/sess-noop.jsonl",
+        workspaceDir: "/tmp/ws-noop",
+        config: {},
+        provider: "test",
+        model: "test-model",
+        modelRoutePreflightDisabled: true,
+        timeoutMs: 60_000,
+        blockReplyBreak: "message_end",
+      },
+    };
+
+    const dispatched = dispatchMessagingClosureOutcome({
+      queueKey: "openclaw-bootstrap-noop",
+      sourceRun: sourceRun as never,
+      settings: { mode: "followup" },
+      acceptance: {
+        action: "retry",
+        remediation: "bootstrap",
+        reasons: ["Run completed but contract demands platform_action."],
+        runId: "run-bootstrap-noop",
+        recoveryPolicy: {
+          remediation: "bootstrap",
+          recoveryClass: "bootstrap",
+          cadence: "manual",
+          continuous: false,
+          attemptCount: 0,
+          maxAttempts: 0,
+          remainingAttempts: 0,
+          exhausted: false,
+          exhaustedAction: "stop",
+        },
+        outcome: {
+          bootstrapRequestIds: [],
+          pendingApprovalIds: [],
+        },
+      } as never,
+      executionIntent: {
+        runId: "run-bootstrap-noop",
+        profileId: "builder",
+        recipeId: "doc_authoring",
+        intent: "document",
+        bootstrapRequiredCapabilities: [],
+        expectations: { requiresOutput: true },
+      },
+    });
+
+    expect(dispatched.bootstrapNoOp).toBe(true);
+    expect(dispatched.bootstrapRequestIds).toBeUndefined();
+    expect(dispatched.approvalId).toBeUndefined();
+    expect(dispatched.queuedSemanticRetry).toBe(false);
+
+    const closed = runtimeCheckpointService.get(checkpoint.id);
+    expect(closed?.status).toBe("cancelled");
+    expect(closed?.continuation?.state).toBe("failed");
+    expect(closed?.continuation?.lastError ?? "").toMatch(/bootstrap_noop/);
+  });
 });

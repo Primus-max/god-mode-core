@@ -16,7 +16,6 @@ import type {
   MaterializationRendererTarget,
   MaterializedArtifactOutput,
 } from "./contracts.js";
-import { buildHtmlDocument } from "./html-preview-materializer.js";
 
 const require = createRequire(import.meta.url);
 
@@ -94,6 +93,12 @@ export function resolvePdfPlaywrightModuleUrl(): string {
 
 function writePlaywrightPdf(params: { htmlPath: string; pdfPath: string }): void {
   const launchOptions = resolvePdfBrowserLaunchOptions();
+  // Page geometry is intentionally driven from the document via CSS `@page`:
+  //   @page { size: A4 landscape; margin: 0 } / @page { size: 1280px 720px } / etc.
+  // We keep A4 + modest margins as a fallback only for legacy callers that emit
+  // bare HTML without a `@page` rule. `preferCSSPageSize: true` ensures the
+  // document wins whenever it declares its own size. Background colors/images
+  // are always printed so dark themes, gradients and full-bleed art survive.
   const script = `
     import { pathToFileURL } from "node:url";
 
@@ -123,6 +128,7 @@ function writePlaywrightPdf(params: { htmlPath: string; pdfPath: string }): void
         path: pdfPath,
         format: "A4",
         printBackground: true,
+        preferCSSPageSize: true,
         margin: { top: "14mm", right: "12mm", bottom: "14mm", left: "12mm" },
       });
     } finally {
@@ -143,6 +149,43 @@ function writePlaywrightPdf(params: { htmlPath: string; pdfPath: string }): void
   });
 }
 
+const COMPLETE_HTML_DOCUMENT_HEAD = /^\s*(?:<!doctype\b|<html\b)/iu;
+
+function htmlIsCompleteDocument(html: string): boolean {
+  return COMPLETE_HTML_DOCUMENT_HEAD.test(html);
+}
+
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/gu, "&amp;")
+    .replace(/"/gu, "&quot;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;");
+}
+
+/**
+ * Wrap an HTML fragment with the bare minimum needed for Playwright to render it
+ * to PDF: a doctype, charset, viewport and title. We deliberately do NOT inject
+ * any opinionated typography, colors, gradients or layout — that's the LLM's job
+ * (or the caller's). Page-break behaviour is left to the document author via
+ * `break-before:page` / `page-break-before:always`.
+ */
+function wrapPdfHtmlFragment(params: { title: string; bodyHtml: string }): string {
+  return [
+    "<!doctype html>",
+    '<html lang="en">',
+    "<head>",
+    '<meta charset="utf-8" />',
+    '<meta name="viewport" content="width=device-width, initial-scale=1" />',
+    `<title>${escapeHtmlAttr(params.title)}</title>`,
+    "</head>",
+    "<body>",
+    params.bodyHtml,
+    "</body>",
+    "</html>",
+  ].join("\n");
+}
+
 function writeTempHtmlForPdf(params: {
   outputDir: string;
   baseFileName: string;
@@ -152,15 +195,10 @@ function writeTempHtmlForPdf(params: {
 }): string {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-pdf-render-"));
   const htmlPath = path.join(tempDir, `${params.baseFileName}.html`);
-  fs.writeFileSync(
-    htmlPath,
-    buildHtmlDocument({
-      title: params.title,
-      bodyHtml: params.bodyHtml,
-      summary: params.summary,
-    }),
-    "utf8",
-  );
+  const documentHtml = htmlIsCompleteDocument(params.bodyHtml)
+    ? params.bodyHtml
+    : wrapPdfHtmlFragment({ title: params.title, bodyHtml: params.bodyHtml });
+  fs.writeFileSync(htmlPath, documentHtml, "utf8");
   return htmlPath;
 }
 

@@ -2208,4 +2208,144 @@ describe("platform runtime checkpoint service", () => {
     );
     expect(closure.executionVerification.status).toBe("verified");
   });
+
+  it("requires only `tool` (and optional messaging_delivery) for document deliverables, never platform_action", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-document-docx",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: ["messaging:run-document-docx"],
+      attemptedActionIds: [],
+      confirmedActionIds: ["messaging:run-document-docx"],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const contract = service.buildExecutionContract({
+      runId: outcome.runId,
+      outcome,
+      receipts: [
+        {
+          kind: "tool",
+          name: "docx_write",
+          status: "success",
+          proof: "reported",
+          producedArtifacts: [
+            {
+              kind: "document",
+              format: "docx",
+              mimeType:
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              path: "/tmp/report.docx",
+              sizeBytes: 7671,
+            },
+          ],
+        },
+        {
+          kind: "messaging_delivery",
+          name: "delivery.telegram",
+          status: "success",
+          proof: "verified",
+        },
+      ],
+      executionIntent: {
+        runId: outcome.runId,
+        recipeId: "doc_authoring",
+        intent: "document",
+        artifactKinds: ["document"],
+        requestedToolNames: ["docx_write"],
+        deliverable: {
+          kind: "document",
+          acceptedFormats: ["docx"],
+          preferredFormat: "docx",
+        },
+        outcomeContract: "structured_artifact",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: true,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        requestedEvidence: ["tool_receipt", "artifact_descriptor"],
+        expectations: { requiresOutput: true },
+      },
+      evidence: {
+        hasOutput: true,
+        didSendViaMessagingTool: true,
+      },
+    });
+    const required = contract.expectations?.requiredReceiptKinds ?? [];
+    expect(required).toContain("tool");
+    expect(required).toContain("messaging_delivery");
+    expect(required).not.toContain("platform_action");
+  });
+
+  it("requires platform_action for repo_operation contracts that mutate the workspace", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-repo-mutation",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: ["platform:repo:run-repo-mutation"],
+      attemptedActionIds: [],
+      confirmedActionIds: ["platform:repo:run-repo-mutation"],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const contract = service.buildExecutionContract({
+      runId: outcome.runId,
+      outcome,
+      receipts: [
+        {
+          kind: "platform_action",
+          name: "repo.write",
+          status: "success",
+          proof: "verified",
+        },
+      ],
+      executionIntent: {
+        runId: outcome.runId,
+        recipeId: "ops_orchestration",
+        intent: "code",
+        artifactKinds: ["other"],
+        requestedToolNames: ["apply_patch"],
+        deliverable: {
+          kind: "repo_operation",
+          acceptedFormats: ["script"],
+          preferredFormat: "script",
+        },
+        outcomeContract: "workspace_change",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: true,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        requestedEvidence: ["tool_receipt"],
+        expectations: {},
+      },
+      evidence: {
+        hasOutput: true,
+      },
+    });
+    expect(contract.expectations?.requiredReceiptKinds).toEqual(
+      expect.arrayContaining(["platform_action"]),
+    );
+  });
 });

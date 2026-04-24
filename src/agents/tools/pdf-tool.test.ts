@@ -438,29 +438,23 @@ describe("createPdfTool", () => {
     });
   });
 
-  it("uses a model-drafted layout for prompt-only infographic requests without source images", async () => {
+  it("uses a model-drafted self-contained HTML document for prompt-only requests without source images", async () => {
     await withTempAgentDir(async (agentDir) => {
       await stubPdfToolInfra(agentDir, { provider: "openai", input: ["text"] });
+      const llmHtml = [
+        "<!doctype html>",
+        '<html lang="ru"><head><meta charset="utf-8"><title>Banana</title>',
+        "<style>body{margin:0}.page{break-before:page}</style>",
+        "</head><body>",
+        "<section><h1>Жизнь весёлого банана</h1></section>",
+        '<section class="page"><h1>Зрелость</h1></section>',
+        '<section class="page"><h1>Финал</h1></section>',
+        "</body></html>",
+      ].join("\n");
       completeMock.mockResolvedValue({
         role: "assistant",
         stopReason: "stop",
-        content: [
-          {
-            type: "text",
-            text: [
-              "# Жизнь весёлого банана",
-              "",
-              "- Харизма: 100%",
-              "- Мемность: 98%",
-              "",
-              "---",
-              "",
-              "## Страница 2",
-              "",
-              "- График зрелости",
-            ].join("\n"),
-          },
-        ],
+        content: [{ type: "text", text: llmHtml }],
       } as never);
 
       const tool = requirePdfTool(
@@ -477,8 +471,10 @@ describe("createPdfTool", () => {
         ?.content?.find?.((entry) => (entry as { type?: string }).type === "text") as
         | { text?: string }
         | undefined)?.text;
-      expect(richPrompt).toContain("Target exactly 3 page(s)/slide(s)");
-      expect(richPrompt).toContain("Open with a strong cover page");
+      expect(richPrompt).toContain("complete HTML document for Playwright PDF");
+      expect(richPrompt).toContain("Inline all CSS");
+      expect(richPrompt).toContain("@page");
+      expect(richPrompt).not.toContain("Open with a strong cover page");
       expect(result).toMatchObject({
         details: {
           provider: "openai",

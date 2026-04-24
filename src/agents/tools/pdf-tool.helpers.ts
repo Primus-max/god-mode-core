@@ -59,6 +59,13 @@ export function coercePdfAssistantText(params: {
   message: AssistantMessage;
   provider: string;
   model: string;
+  /**
+   * When true, do not reject responses that embed `data:image/...;base64,...` URIs.
+   * Used by the HTML-drafting path where the model is encouraged to inline images
+   * the tool has already provided as data URIs. Defaults to false to keep the
+   * legacy markdown path strict (image data is not valid PDF-ready markdown).
+   */
+  allowDataUris?: boolean;
 }): string {
   const label = `${params.provider}/${params.model}`;
   const errorMessage = params.message.errorMessage?.trim();
@@ -75,7 +82,7 @@ export function coercePdfAssistantText(params: {
   }
   const text = extractAssistantText(params.message);
   const trimmed = text.trim();
-  if (/\bdata:image\/[a-z0-9.+-]+;base64,/iu.test(trimmed)) {
+  if (!params.allowDataUris && /\bdata:image\/[a-z0-9.+-]+;base64,/iu.test(trimmed)) {
     fail("returned inline image data instead of PDF-ready markdown");
   }
   if (trimmed) {

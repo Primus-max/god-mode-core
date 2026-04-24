@@ -41,12 +41,13 @@ import {
   resolvePdfToolMaxTokens,
 } from "./pdf-tool.helpers.js";
 import {
-  buildPromptOnlyPdfHtml,
+  buildFallbackPdfHtmlBody,
   buildPromptOnlyPdfMaterializationRequest,
+  inlinePdfImageAssets,
+  looksLikePdfHtmlPayload,
   normalizePdfBodyText,
   pdfNeedsManagedRendererFromConstraints,
   pdfRequestedPageCount,
-  pdfWantsRichDraftFromConstraints,
   type PromptOnlyPdfConstraints,
   type PromptOnlyPdfImageAsset,
 } from "./pdf-tool.prompt-only.js";
@@ -280,7 +281,7 @@ async function loadPromptOnlyPdfImageAsset(params: {
   };
 }
 
-async function draftPromptOnlyPdfMarkdown(params: {
+async function draftPromptOnlyPdfHtml(params: {
   cfg: OpenClawConfig;
   agentDir: string;
   pdfModelConfig: ImageModelConfig;
@@ -298,6 +299,19 @@ async function draftPromptOnlyPdfMarkdown(params: {
   const authStorage = discoverAuthStorage(params.agentDir);
   const modelRegistry = discoverModels(authStorage, params.agentDir);
   const requestedPageCount = pdfRequestedPageCount(params.constraints);
+
+  const guidanceLines: string[] = [
+    "Design a complete HTML document for Playwright PDF (printBackground + preferCSSPageSize). Return raw HTML only — start with `<!doctype html>`, no code fences.",
+    "Inline all CSS in one `<style>`. Pick the `@page` size/orientation/margins that fit the request (e.g. `@page { size: A4; margin: 18mm }` or `@page { size: 1280px 720px; margin: 0 }` for slides). System fonts only.",
+  ];
+  if (params.images.length > 0) {
+    guidanceLines.push(
+      `Reference attached images by file name with <img src="FILENAME">: ${params.images.map((image) => image.fileName).join(", ")}.`,
+    );
+  }
+  if (requestedPageCount) {
+    guidanceLines.push(`Produce exactly ${requestedPageCount} page(s); force breaks with CSS \`break-before: page\`.`);
+  }
 
   const result = await runWithImageModelFallback({
     cfg: effectiveCfg,
@@ -322,22 +336,7 @@ async function draftPromptOnlyPdfMarkdown(params: {
               })),
               {
                 type: "text" as const,
-                text: [
-                  "Create polished PDF-ready markdown for the user's requested document.",
-                  "Return markdown only, no code fences, no explanations.",
-                  "If reference images are attached, treat them as the main visual already available for layout.",
-                  "If the user asks for multiple pages/slides, separate them with a standalone line containing ---.",
-                  "Prefer visually structured sections, compact tables, punchy labels, KPI strips, comparison grids, and infographic-style callouts over long prose.",
-                  "Open with a strong cover page, then keep each following page dense but scannable.",
-                  "Use short sections and concrete data points; avoid filler paragraphs and generic motivational text.",
-                  "When relevant, include markdown tables or compact metric blocks instead of plain bullet dumps.",
-                  requestedPageCount
-                    ? `Target exactly ${requestedPageCount} page(s)/slide(s), separated with --- between pages.`
-                    : "If the user implies a deck or infographic, create a multi-page structure instead of a single wall of text.",
-                  "Use the user's requested language and formatting intent.",
-                  "",
-                  `User request:\n${params.prompt}`,
-                ].join("\n"),
+                text: [...guidanceLines, "", `User request:\n${params.prompt}`].join("\n"),
               },
             ],
             timestamp: Date.now(),
@@ -348,7 +347,12 @@ async function draftPromptOnlyPdfMarkdown(params: {
         apiKey,
         maxTokens: resolvePdfToolMaxTokens(model.maxTokens),
       });
-      const text = coercePdfAssistantText({ message, provider, model: modelId });
+      const text = coercePdfAssistantText({
+        message,
+        provider,
+        model: modelId,
+        allowDataUris: true,
+      });
       return { text, provider, model: modelId };
     },
   });
@@ -657,7 +661,7 @@ export function createPdfTool(options?: {
   });
 
   const description =
-    "Analyze one or more PDF documents with a model. Supports native PDF analysis for Anthropic and Google models, with text/image extraction fallback for other providers. If no source PDF is provided, the tool can render a prompt-only PDF; richer infographic/presentation prompts first attempt a model-drafted markdown layout before rendering. Use pdf for a single path/URL, or pdfs for multiple (up to 10).";
+    "Analyze one or more PDF documents with a model. Supports native PDF analysis for Anthropic and Google models, with text/image extraction fallback for other providers. If no source PDF is provided, the tool runs a prompt-only PDF flow: it asks the model to draft a self-contained HTML document tailored to that specific request (no shared template) and renders it to PDF via Playwright. Use pdf for a single path/URL, or pdfs for multiple (up to 10).";
 
   return {
     label: "PDF",
@@ -792,7 +796,20 @@ export function createPdfTool(options?: {
       if (pdfInputs.length === 0) {
         const fallbackPrompt = promptOnlyFallbackParts.join("\n\n").trim();
         if (!fallbackPrompt) {
-          throw new Error("pdf required: provide a path or URL to a PDF document");
+          // Surface as a tool result, not a thrown exception, so the LLM can retry
+          // with proper arguments instead of hanging the whole turn.
+          const reason =
+            "pdf tool was called without a source PDF and without prompt content. " +
+            "To analyze an existing PDF, pass `pdf` (single path/URL) or `pdfs` (array). " +
+            "To generate a brand-new PDF from text, put the full document text or HTML in the `prompt` field — that is the document body, not the user message.";
+          await options?.onYield?.(reason);
+          return {
+            content: [{ type: "text", text: reason }],
+            details: {
+              error: "pdf_input_required",
+              hint: "set `pdf`/`pdfs` for analysis, or `prompt` for prompt-only PDF generation",
+            },
+          };
         }
         const generatedText = normalizePdfBodyText(fallbackPrompt);
         const filename =
@@ -809,26 +826,30 @@ export function createPdfTool(options?: {
             }),
           ),
         );
-        const drafted =
-          imageAssets.length > 0 || pdfWantsRichDraftFromConstraints(pdfConstraints)
-            ? await draftPromptOnlyPdfMarkdown({
-                cfg: options?.config ?? {},
-                agentDir,
-                pdfModelConfig,
-                modelOverride: typeof record.model === "string" ? record.model : undefined,
-                prompt: fallbackPrompt,
-                images: imageAssets,
-                constraints: pdfConstraints,
-              }).catch(() => null)
-            : null;
+        const drafted = await draftPromptOnlyPdfHtml({
+          cfg: options?.config ?? {},
+          agentDir,
+          pdfModelConfig,
+          modelOverride: typeof record.model === "string" ? record.model : undefined,
+          prompt: fallbackPrompt,
+          images: imageAssets,
+          constraints: pdfConstraints,
+        }).catch(() => null);
         const title = path.parse(filename).name || "Generated PDF";
-        const bodyHtml =
-          drafted || imageAssets.length > 0
-            ? buildPromptOnlyPdfHtml({
-                bodyMarkdown: drafted?.text || generatedText,
+        const draftedHtmlIsUsable = !!drafted && looksLikePdfHtmlPayload(drafted.text);
+        const bodyHtml = draftedHtmlIsUsable
+          ? inlinePdfImageAssets(drafted!.text, imageAssets)
+          : drafted
+            ? buildFallbackPdfHtmlBody({
+                bodyMarkdown: drafted.text || generatedText,
                 images: imageAssets,
               })
-            : resolveHtmlBody({ text: generatedText });
+            : imageAssets.length > 0
+              ? buildFallbackPdfHtmlBody({
+                  bodyMarkdown: generatedText,
+                  images: imageAssets,
+                })
+              : resolveHtmlBody({ text: generatedText });
         const materializationRequest = buildPromptOnlyPdfMaterializationRequest({
           filename,
           title,
