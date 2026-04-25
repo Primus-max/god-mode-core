@@ -297,6 +297,11 @@ export type AgentDefaultsConfig = {
     maxChildrenPerAgent?: number;
     /** Auto-archive sub-agent sessions after N minutes (default: 60, set 0 to disable). */
     archiveAfterMinutes?: number;
+    /**
+     * Default allowlist for cross-agent spawns when a requester does not
+     * declare its own subagents.allowAgents. Use "*" to allow any.
+     */
+    allowAgents?: string[];
     /** Default model selection for spawned sub-agents (string or {primary,fallbacks}). */
     model?: AgentModelConfig;
     /** Default thinking level for spawned sub-agents (e.g. "off", "low", "medium", "high"). */

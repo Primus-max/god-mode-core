@@ -98,4 +98,9 @@ export type AgentConfig = {
 export type AgentsConfig = {
   defaults?: AgentDefaultsConfig;
   list?: AgentConfig[];
+  /**
+   * Opt-in guard: when true, sessions_spawn requires an explicit agentId on the
+   * request and a resolvable requester agentId. Default off.
+   */
+  requireAgentId?: boolean;
 };

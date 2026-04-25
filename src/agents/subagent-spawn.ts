@@ -387,12 +387,29 @@ export async function spawnSubagentDirect(
     };
   }
 
-  const requesterAgentId = normalizeAgentId(
-    ctx.requesterAgentIdOverride ?? parseAgentSessionKey(requesterInternalKey)?.agentId,
-  );
+  const parsedRequesterAgentId = parseAgentSessionKey(requesterInternalKey)?.agentId;
+  const requesterAgentIdSignal = ctx.requesterAgentIdOverride ?? parsedRequesterAgentId;
+  if (cfg.agents?.requireAgentId === true) {
+    const hasExplicitTarget = Boolean(requestedAgentId);
+    const hasResolvableRequester = Boolean(
+      ctx.requesterAgentIdOverride?.trim() || parsedRequesterAgentId,
+    );
+    if (!hasExplicitTarget && !hasResolvableRequester) {
+      return {
+        status: "forbidden",
+        error:
+          "sessions_spawn requires an explicit agentId. Use agents_list to discover allowed targets.",
+      };
+    }
+  }
+  const requesterAgentId = normalizeAgentId(requesterAgentIdSignal);
   const targetAgentId = requestedAgentId ? normalizeAgentId(requestedAgentId) : requesterAgentId;
   if (targetAgentId !== requesterAgentId) {
-    const allowAgents = resolveAgentConfig(cfg, requesterAgentId)?.subagents?.allowAgents ?? [];
+    const perAgentConfig = resolveAgentConfig(cfg, requesterAgentId);
+    const allowAgents =
+      perAgentConfig?.subagents?.allowAgents ??
+      cfg.agents?.defaults?.subagents?.allowAgents ??
+      [];
     const allowAny = allowAgents.some((value) => value.trim() === "*");
     const normalizedTargetId = targetAgentId.toLowerCase();
     const allowSet = new Set(
@@ -686,6 +703,7 @@ export async function spawnSubagentDirect(
         // Best-effort cleanup only.
       }
     }
+    let emitLifecycleHooksOnDelete = false;
     if (threadBindingReady) {
       const hasEndedHook = hookRunner?.hasHooks("subagent_ended") === true;
       let endedHookEmitted = false;
@@ -713,21 +731,24 @@ export async function spawnSubagentDirect(
           // Spawn should still return an actionable error even if cleanup hooks fail.
         }
       }
-      // Always delete the provisional child session after a failed spawn attempt.
-      // If we already emitted subagent_ended above, suppress a duplicate lifecycle hook.
-      try {
-        await callGateway({
-          method: "sessions.delete",
-          params: {
-            key: childSessionKey,
-            deleteTranscript: true,
-            emitLifecycleHooks: !endedHookEmitted,
-          },
-          timeoutMs: 10_000,
-        });
-      } catch {
-        // Best-effort only.
-      }
+      // If we already emitted subagent_ended above, suppress a duplicate lifecycle hook
+      // when the gateway tears the session down.
+      emitLifecycleHooksOnDelete = !endedHookEmitted;
+    }
+    // Always delete the provisional child session after a failed spawn attempt,
+    // including the non-thread path so we don't leak orphaned sessions.
+    try {
+      await callGateway({
+        method: "sessions.delete",
+        params: {
+          key: childSessionKey,
+          deleteTranscript: true,
+          emitLifecycleHooks: emitLifecycleHooksOnDelete,
+        },
+        timeoutMs: 10_000,
+      });
+    } catch {
+      // Best-effort only.
     }
     const messageText = summarizeError(err);
     return {
@@ -758,7 +779,7 @@ export async function spawnSubagentDirect(
       attachmentsRootDir: attachmentRootDir,
       retainAttachmentsOnKeep: retainOnSessionKeep,
     });
-  } catch (err) {
+  } catch {
     if (attachmentAbsDir) {
       try {
         await fs.rm(attachmentAbsDir, { recursive: true, force: true });
@@ -769,7 +790,14 @@ export async function spawnSubagentDirect(
     try {
       await callGateway({
         method: "sessions.delete",
-        params: { key: childSessionKey, deleteTranscript: true, emitLifecycleHooks: false },
+        params: {
+          key: childSessionKey,
+          deleteTranscript: true,
+          // Preserve gateway-side cleanup hooks when the thread binding had
+          // already been established; without this, dangling thread state
+          // could leak even though registration failed.
+          emitLifecycleHooks: threadBindingReady,
+        },
         timeoutMs: 10_000,
       });
     } catch {
@@ -777,9 +805,7 @@ export async function spawnSubagentDirect(
     }
     return {
       status: "error",
-      error: `Failed to register subagent run: ${summarizeError(err)}`,
-      childSessionKey,
-      runId: childRunId,
+      error: "Failed to register subagent run.",
     };
   }
 
