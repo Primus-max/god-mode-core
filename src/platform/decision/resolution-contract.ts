@@ -18,6 +18,7 @@ export const ResolutionToolBundleSchema = z.enum([
   "document_extraction",
   "artifact_authoring",
   "external_delivery",
+  "session_orchestration",
 ]);
 export type ResolutionToolBundle = z.infer<typeof ResolutionToolBundleSchema>;
 
@@ -77,7 +78,14 @@ export type ResolutionBridgePlannerInput = {
   deliverable?: DeliverableSpec;
 };
 
-const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process", "browser", "web_search"]);
+const HEAVY_TOOL_IDS = new Set([
+  "exec",
+  "apply_patch",
+  "process",
+  "browser",
+  "web_search",
+  "sessions_spawn",
+]);
 const HEAVY_ARTIFACT_KINDS = new Set([
   "image",
   "video",
@@ -199,6 +207,7 @@ function inferRemoteRoutingProfile(params: {
   }
   if (
     params.outcomeContract === "external_operation" ||
+    params.requestedTools.includes("sessions_spawn") ||
     params.requestedTools.includes("browser") ||
     params.requestedTools.includes("web_search") ||
     !params.localEligible ||
@@ -223,7 +232,11 @@ function inferPreferRemoteFirst(params: {
   ) {
     return true;
   }
-  if (params.requestedTools.includes("browser") || params.requestedTools.includes("web_search")) {
+  if (
+    params.requestedTools.includes("browser") ||
+    params.requestedTools.includes("web_search") ||
+    params.requestedTools.includes("sessions_spawn")
+  ) {
     return true;
   }
   if (
@@ -288,6 +301,9 @@ function deriveToolBundles(params: {
   if (params.publishTargets.length > 0 || params.outcomeContract === "external_operation") {
     bundles.add("external_delivery");
   }
+  if (tools.has("sessions_spawn")) {
+    bundles.add("session_orchestration");
+  }
   return sortUnique(Array.from(bundles));
 }
 
@@ -308,6 +324,9 @@ function deriveDebugFamilyLabel(params: {
     return families.find((family) => family === "code_build") ?? families[0];
   }
   if (params.outcomeContract === "external_operation") {
+    return families.find((family) => family === "ops_execution") ?? families[0];
+  }
+  if (params.requestedTools.includes("sessions_spawn")) {
     return families.find((family) => family === "ops_execution") ?? families[0];
   }
   if (params.outcomeContract === "text_response") {

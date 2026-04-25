@@ -622,6 +622,7 @@
     "dev": "node scripts/run-node.mjs",
     "eval:classifier": "node --import tsx scripts/eval-classifier.ts",
     "eval:classifier:compare": "node --import tsx scripts/eval-classifier-compare.ts",
+    "eval:decision": "node --import tsx scripts/dev/decision-eval.ts",
     "docs:bin": "node scripts/build-docs-list.mjs",
     "docs:check-i18n-glossary": "node scripts/check-docs-i18n-glossary.mjs",
     "docs:check-links": "node scripts/docs-link-audit.mjs",

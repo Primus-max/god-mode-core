@@ -17,6 +17,7 @@ import {
   mergeAlsoAllowPolicy,
   resolveToolProfilePolicy,
 } from "../agents/tool-policy.js";
+import { sanitizeToolErrorForUser } from "../agents/tool-error-sanitizer.js";
 import { ToolInputError } from "../agents/tools/common.js";
 import { loadConfig } from "../config/config.js";
 import { resolveMainSessionKey } from "../config/sessions.js";
@@ -336,7 +337,10 @@ export async function handleToolsInvokeHttpRequest(
     if (hookResult.blocked) {
       sendJson(res, 403, {
         ok: false,
-        error: { type: "tool_call_blocked", message: hookResult.reason },
+        error: {
+          type: "tool_call_blocked",
+          message: sanitizeToolErrorForUser(hookResult.reason) ?? "Tool execution blocked.",
+        },
       });
       return true;
     }
@@ -367,7 +371,11 @@ export async function handleToolsInvokeHttpRequest(
     if (inputStatus !== null) {
       sendJson(res, inputStatus, {
         ok: false,
-        error: { type: "tool_error", message: getErrorMessage(err) || "invalid tool arguments" },
+        error: {
+          type: "tool_error",
+          message:
+            sanitizeToolErrorForUser(getErrorMessage(err)) ?? "invalid tool arguments",
+        },
       });
       return true;
     }

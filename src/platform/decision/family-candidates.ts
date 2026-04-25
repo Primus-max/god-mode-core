@@ -5,6 +5,9 @@ export function inferCandidateExecutionFamilies(
   outcomeContract: OutcomeContract,
   input: QualificationBridgePlannerInput,
 ): CandidateExecutionFamily[] {
+  if (input.requestedTools?.includes("sessions_spawn")) {
+    return ["ops_execution"];
+  }
   switch (outcomeContract) {
     case "structured_artifact":
       if (input.artifactKinds?.some((kind) => ["image", "video", "audio"].includes(kind))) {

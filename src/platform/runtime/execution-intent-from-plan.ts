@@ -21,6 +21,7 @@ export function deriveExecutionContractExpectationsFromRuntimePlan(
     return {};
   }
   const declaredRequiresOutput =
+    runtime.executionContract?.requiresTools === true ||
     runtime.executionContract?.requiresArtifactEvidence === true ||
     runtime.executionContract?.requiresWorkspaceMutation === true ||
     runtime.executionContract?.requiresLocalProcess === true ||

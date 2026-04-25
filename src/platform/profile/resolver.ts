@@ -140,6 +140,9 @@ function extractProfileSignalsFromContracts(input: ProfileResolverInput): Profil
       pushSignal(signals, "integrator", 0.9, "integration delivery contract selected");
     }
   }
+  if (bundles.has("session_orchestration")) {
+    pushSignal(signals, "operator", 1, "session orchestration contract selected");
+  }
   if (
     executionContract?.requiresLocalProcess &&
     !bundles.has("external_delivery") &&

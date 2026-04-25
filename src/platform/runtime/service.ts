@@ -746,7 +746,7 @@ function intentRequiresPlatformAction(
   if (kind === "code_change") {
     return contract?.requiresWorkspaceMutation === true;
   }
-  if (kind === "external_delivery" || kind === "capability_install") {
+  if (kind === "external_delivery" || kind === "capability_install" || kind === "session") {
     return true;
   }
   return false;

@@ -300,6 +300,11 @@ function buildRequestedToolGuardrails(requestedToolNames?: string[]): string | u
       "Repo-execution contract: when the deliverable is a command/script/test-report invocation, you must call exec in this turn with the literal command the user requested (or the closest safe equivalent for running the test suite). Pass args and cwd that reflect the request. Do not substitute exec with chat text describing what the command would print.",
     );
   }
+  if (toolSet.has("sessions_spawn")) {
+    guardrails.push(
+      "Session orchestration contract: when the user asks for a persistent worker, named subagent, or follow-up/background session, you must call sessions_spawn in this turn. Use continuation=\"followup\" unless the deliverable contract explicitly says otherwise. Do not use cron, publish, repo execution, or a text-only plan as a substitute.",
+    );
+  }
   return guardrails.length > 0 ? guardrails.join(" ") : undefined;
 }
 

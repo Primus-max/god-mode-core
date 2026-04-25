@@ -179,7 +179,7 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
     allowedProfiles: ["operator"],
     riskLevel: "high",
     systemPrompt:
-      "Work operations-first. Prefer inspection, explain planned impact, and keep approvals explicit for machine or bootstrap actions.",
+      "Work operations-first. Prefer inspection, explain planned impact, and keep approvals explicit for machine, bootstrap, or session-orchestration actions. For persistent worker requests, use sessions_spawn with continuation=\"followup\".",
     timeoutSeconds: 360,
   },
   {

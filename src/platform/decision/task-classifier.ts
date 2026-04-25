@@ -71,6 +71,7 @@ const TASK_CONTRACT_SCHEMA = {
         "calculation_result",
         "document_package",
         "document_extraction",
+        "persistent_worker",
         "clarification_needed",
       ],
     },
@@ -118,6 +119,7 @@ const TASK_CONTRACT_SCHEMA = {
             "code_change",
             "repo_operation",
             "external_delivery",
+            "session",
             "capability_install",
           ],
         },
@@ -151,6 +153,7 @@ Decision ladder:
    - answer: direct text reply, summarization, rewrite, explanation, brainstorm.
    - workspace_change: edit repository, source files, config, tests, scripts, or local project state.
    - external_delivery: deploy, publish, release, ship, send, or deliver to an external system/environment.
+   - persistent_worker: create/spawn a persistent worker, named subagent, background/follow-up session, or long-running assistant session.
    - comparison_report: compare, inspect, audit, evaluate, research, review, or summarize options/findings.
    - calculation_result: arithmetic, estimation, or numeric/tabular calculation where the result is mainly the calculation.
    - document_package: create an authored artifact such as PDF, deck, report, infographic, poster, image, or other deliverable asset.
@@ -184,6 +187,7 @@ Canonical mapping rules:
 - Field extraction from docs/forms/invoices should not add needs_tabular_reasoning unless table/spreadsheet comparison or numeric reasoning is central.
 - Spreadsheet/table attachments used only for comparison do not imply needs_document_extraction.
 - Deploy/publish/release requests should usually be external_delivery + tool_execution + needs_external_delivery.
+- Persistent worker/session requests should be persistent_worker + tool_execution + needs_session_orchestration, deliverable={kind:"session", acceptedFormats:["receipt"], preferredFormat:"receipt", constraints:{continuation:"followup"}}. This maps to sessions_spawn with continuation="followup". Do NOT classify these as external_delivery, workspace_change, cron, repo_run, or publish unless the user explicitly asks to deploy/publish/send to an outside provider.
 - Release validation of an already-prepared build is not workspace mutation.
 - Add needs_high_reliability_provider only for production/live external delivery.
 - Explicit production/live publish or deploy of an already-prepared build should usually be external_delivery + tool_execution + needs_external_delivery + needs_repo_execution + needs_local_runtime + needs_high_reliability_provider, without needs_workspace_mutation unless source edits are explicitly requested.
@@ -210,11 +214,12 @@ Stability examples:
 - "Запусти команду node --version" or "Run node --version" -> workspace_change + tool_execution + needs_repo_execution + needs_local_runtime, deliverable={kind:"repo_operation", acceptedFormats:["exec","script"], preferredFormat:"exec", constraints:{operation:"run_command"}}.
 - "Прогнать тесты в проекте" or "run the test suite" -> workspace_change + tool_execution + needs_repo_execution + needs_local_runtime, deliverable={kind:"repo_operation", acceptedFormats:["test-report","exec"], preferredFormat:"test-report", constraints:{operation:"run_tests"}}.
 - "Отрефактори модуль Y, покажи diff и прогоняй тесты" or "Refactor module Y, show diff and run tests" -> workspace_change + tool_execution + needs_workspace_mutation + needs_repo_execution + needs_local_runtime, deliverable={kind:"code_change", acceptedFormats:["patch","edit"], preferredFormat:"patch", constraints:{operation:"refactor"}}.
+- "Создай сабагента Валера, чтобы он каждый день слал отчёт" / "Create a persistent subagent Valera for daily reports" / "start a background worker session" -> persistent_worker + tool_execution + needs_session_orchestration, deliverable={kind:"session", acceptedFormats:["receipt"], preferredFormat:"receipt", constraints:{continuation:"followup"}}.
 - Reminder requests — phrases asking the bot to say something later in the SAME chat (Russian "напомни ...", English "reminder ..." or "remind me ..."), an explicit future timestamp plus a deferred-message intent — are \`tool_execution\` with \`requestedTools=["cron"]\` (deferred message back to the CURRENT channel via the built-in cron-tool), NEVER \`external_delivery\`. \`external_delivery\` is reserved for integrations with an external provider (Bybit, OpenAI, telegram_userbot, etc.), not for a deferred message back to the current channel. Emit primaryOutcome="answer", interactionMode="tool_execution", deliverable={kind:"answer", acceptedFormats:["text"], constraints:{tool:"cron"}}. Do NOT add needs_external_delivery for these. Examples: "Напомни завтра в 12:00 пообедать", "Напомни через 30 секунд тестовое сообщение", "Remind me in 5 minutes to drink water".
 
 Deliverable rules:
 - ALWAYS include a "deliverable" object. It declares WHAT the user wants back, independent of WHICH tool produces it.
-- deliverable.kind is one of: answer, image, document, data, site, archive, audio, video, code_change, repo_operation, external_delivery, capability_install.
+- deliverable.kind is one of: answer, image, document, data, site, archive, audio, video, code_change, repo_operation, external_delivery, session, capability_install.
 - deliverable.acceptedFormats is a non-empty list of format tokens (lower-case) the user would accept. Put the preferred/most-likely format FIRST.
 - If the user clearly named ONE format (pdf / docx / xlsx / csv / png / mp3 / zip / etc.) put exactly that format in acceptedFormats and set preferredFormat to it.
 - If the user asked for a document but did not name a format, return primaryOutcome="clarification_needed" and an ambiguity "document format not specified". Do NOT guess pdf-vs-docx.
@@ -227,6 +232,7 @@ Deliverable rules:
   - workspace_change (create/update/refactor files, bug fixes, dep bumps) -> kind: "code_change", acceptedFormats: ["patch","workspace"] (prefer "patch" when you want a diff; prefer "workspace" when the user asked for a fresh file). Constraints may include {operation: "add_file"|"update_file"|"refactor"|"bug_fix"|"dependency_update"|"scaffold_repo"}.
   - workspace_change driven by running commands/tests/scripts WITHOUT editing source files -> kind: "repo_operation", acceptedFormats: ["exec","script","test-report"]. Constraints may include {operation: "run_command"|"run_tests"|"run_script"}.
   - external_delivery -> kind: "external_delivery", acceptedFormats: ["receipt"]
+  - persistent_worker -> kind: "session", acceptedFormats: ["receipt"], preferredFormat: "receipt", constraints: { continuation: "followup" }
   - comparison_report / calculation_result -> kind: "answer", acceptedFormats: ["text"]
   - install a library / package / CLI tool -> kind: "capability_install", acceptedFormats: ["npm-package"] for node, ["pip-package"] for python, ["brew-package"] for macOS system tools, constraints: { manager: "npm"|"pip"|"brew", name: "<exact package name>", version?: "<semver or tag>" }
   - build/create a website/landing page -> kind: "site", acceptedFormats: ["zip"]
@@ -327,6 +333,7 @@ type PrimaryOutcome =
   | "calculation_result"
   | "document_package"
   | "document_extraction"
+  | "persistent_worker"
   | "clarification_needed";
 
 type Capability = TaskCapabilityId;
@@ -343,6 +350,7 @@ const TaskContractZodSchema = z
       "calculation_result",
       "document_package",
       "document_extraction",
+      "persistent_worker",
       "clarification_needed",
     ]),
     requiredCapabilities: z
@@ -531,6 +539,16 @@ function normalizeTaskContract(contract: TaskContract): TaskContract {
     capabilities.delete("needs_visual_composition");
   }
 
+  if (primaryOutcome === "persistent_worker") {
+    interactionMode = "tool_execution";
+    capabilities.add("needs_session_orchestration");
+    capabilities.delete("needs_external_delivery");
+    capabilities.delete("needs_high_reliability_provider");
+    capabilities.delete("needs_workspace_mutation");
+    capabilities.delete("needs_repo_execution");
+    capabilities.delete("needs_local_runtime");
+  }
+
   if (capabilities.has("needs_workspace_mutation") && primaryOutcome !== "external_delivery") {
     primaryOutcome = "workspace_change";
     interactionMode = "tool_execution";
@@ -636,6 +654,13 @@ function inferDeliverableFallback(
       return { kind: "code_change", acceptedFormats: ["patch", "workspace"] };
     case "external_delivery":
       return { kind: "external_delivery", acceptedFormats: ["receipt"] };
+    case "persistent_worker":
+      return {
+        kind: "session",
+        acceptedFormats: ["receipt"],
+        preferredFormat: "receipt",
+        constraints: { continuation: "followup" },
+      };
     case "document_extraction":
       return { kind: "data", acceptedFormats: ["json"] };
     case "document_package":
@@ -826,6 +851,9 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
       intent = "document";
       artifactKinds.push("document", "report");
       break;
+    case "persistent_worker":
+      intent = "general";
+      break;
     default:
       intent = "general";
       break;
@@ -898,16 +926,18 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
         ? "workspace_change"
         : contract.primaryOutcome === "external_delivery"
           ? "external_operation"
-          : normalizedArtifactKinds.includes("site")
-            ? "interactive_local_result"
-            : hasStructuredArtifact
-              ? "structured_artifact"
-              : contract.primaryOutcome === "comparison_report" ||
-                  contract.primaryOutcome === "calculation_result" ||
-                  contract.primaryOutcome === "answer" ||
-                  contract.primaryOutcome === "clarification_needed"
-                ? "text_response"
-                : "structured_artifact",
+          : contract.primaryOutcome === "persistent_worker"
+            ? "text_response"
+            : normalizedArtifactKinds.includes("site")
+              ? "interactive_local_result"
+              : hasStructuredArtifact
+                ? "structured_artifact"
+                : contract.primaryOutcome === "comparison_report" ||
+                    contract.primaryOutcome === "calculation_result" ||
+                    contract.primaryOutcome === "answer" ||
+                    contract.primaryOutcome === "clarification_needed"
+                  ? "text_response"
+                  : "structured_artifact",
     executionContract: {
       requiresTools,
       requiresWorkspaceMutation: capabilities.has("needs_workspace_mutation"),

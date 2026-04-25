@@ -1470,6 +1470,58 @@ describe("contract-first task contract routing", () => {
       expect.arrayContaining(["external_delivery"]),
     );
   });
+
+  it("routes persistent worker requests to sessions_spawn followup instead of publish/cron/repo tools", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Создай сабагента Валера, чтобы он каждый день слал отчёт в этот чат",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "persistent_worker",
+            requiredCapabilities: ["needs_session_orchestration"],
+            interactionMode: "tool_execution",
+            confidence: 0.88,
+            ambiguities: [],
+          }),
+        },
+      },
+    });
+    const runtime = resolvePlatformRuntimePlan(classified.plannerInput);
+
+    expect(classified.taskContract.primaryOutcome).toBe("persistent_worker");
+    expect(classified.taskContract.requiredCapabilities).toEqual([
+      "needs_session_orchestration",
+    ]);
+    expect(classified.taskContract.deliverable).toEqual({
+      kind: "session",
+      acceptedFormats: ["receipt"],
+      preferredFormat: "receipt",
+      constraints: { continuation: "followup" },
+    });
+    expect(classified.plannerInput.requestedTools).toEqual(["sessions_spawn"]);
+    expect(classified.plannerInput.requestedTools).not.toEqual(
+      expect.arrayContaining(["cron", "exec", "process", "apply_patch"]),
+    );
+    expect(classified.plannerInput.publishTargets ?? []).toEqual([]);
+    expect(classified.plannerInput.resolutionContract?.toolBundles).toEqual([
+      "session_orchestration",
+    ]);
+    expect(runtime.runtime.selectedRecipeId).toBe("ops_orchestration");
+    expect(runtime.runtime.requestedToolNames).toEqual(["sessions_spawn"]);
+  });
 });
 
 describe("classifier prompt composition (P1.5 §B context blocks)", () => {

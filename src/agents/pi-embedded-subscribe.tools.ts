@@ -10,10 +10,10 @@ import type { PlatformRuntimeExecutionReceipt } from "../platform/runtime/index.
 import { truncateUtf16Safe } from "../utils.js";
 import { collectTextContentBlocks } from "./content-blocks.js";
 import { type MessagingToolSend } from "./pi-embedded-messaging.js";
+import { sanitizeToolErrorForUser } from "./tool-error-sanitizer.js";
 import { normalizeToolName } from "./tool-policy.js";
 
 const TOOL_RESULT_MAX_CHARS = 8000;
-const TOOL_ERROR_MAX_CHARS = 400;
 
 function truncateToolText(text: string): string {
   if (text.length <= TOOL_RESULT_MAX_CHARS) {
@@ -23,17 +23,7 @@ function truncateToolText(text: string): string {
 }
 
 function normalizeToolErrorText(text: string): string | undefined {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  const firstLine = trimmed.split(/\r?\n/)[0]?.trim() ?? "";
-  if (!firstLine) {
-    return undefined;
-  }
-  return firstLine.length > TOOL_ERROR_MAX_CHARS
-    ? `${truncateUtf16Safe(firstLine, TOOL_ERROR_MAX_CHARS)}…`
-    : firstLine;
+  return sanitizeToolErrorForUser(text);
 }
 
 function isErrorLikeStatus(status: string): boolean {

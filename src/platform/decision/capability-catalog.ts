@@ -33,6 +33,7 @@ export const TASK_CAPABILITY_IDS = [
   "needs_high_reliability_provider",
   "needs_workspace_mutation",
   "needs_external_delivery",
+  "needs_session_orchestration",
   "needs_tabular_reasoning",
   "needs_web_research",
 ] as const;
@@ -145,6 +146,15 @@ export const TASK_CAPABILITY_CATALOG: readonly TaskCapabilityEntry[] = [
     promptBullet: "needs_external_delivery: explicit deploy/publish/send external.",
     normalizer: {
       requiresOutcomes: ["external_delivery"],
+    },
+  },
+  {
+    id: "needs_session_orchestration",
+    intent: "the turn must spawn or maintain a follow-up worker session",
+    promptBullet:
+      "needs_session_orchestration: create/spawn a persistent worker, background session, follow-up subagent, or named assistant session. This is not deploy/publish/send external.",
+    normalizer: {
+      requiresOutcomes: ["persistent_worker"],
     },
   },
   {

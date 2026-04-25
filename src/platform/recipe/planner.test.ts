@@ -233,6 +233,38 @@ describe("planExecutionRecipe", () => {
     expect(plan.recipe.id).toBe("ops_orchestration");
   });
 
+  it("selects ops_orchestration for session orchestration contracts", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Создай постоянного сабагента Валера для ежедневных отчётов",
+      contractFirst: true,
+      requestedTools: ["sessions_spawn"],
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "ops_execution",
+        candidateFamilies: ["ops_execution"],
+        toolBundles: ["session_orchestration"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("operator");
+    expect(plan.recipe.id).toBe("ops_orchestration");
+    expect(plan.routingOutcome).toEqual({ kind: "matched", source: "ranked" });
+  });
+
   it("keeps browser-observation contracts out of general_reasoning", () => {
     const plan = planExecutionRecipe({
       prompt:

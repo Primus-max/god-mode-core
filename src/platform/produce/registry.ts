@@ -27,6 +27,7 @@ export const DeliverableKindSchema = z.enum([
   "code_change",
   "repo_operation",
   "external_delivery",
+  "session",
   "capability_install",
 ]);
 export type DeliverableKind = z.infer<typeof DeliverableKindSchema>;
@@ -184,6 +185,12 @@ const REGISTRY: ProducerEntry[] = [
     format: "script",
     toolName: "exec",
     mimeType: "text/plain",
+  },
+  {
+    kind: "session",
+    format: "receipt",
+    toolName: "sessions_spawn",
+    mimeType: "application/x-session-receipt",
   },
 ];
 

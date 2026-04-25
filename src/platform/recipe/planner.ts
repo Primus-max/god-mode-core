@@ -151,6 +151,7 @@ export type RoutingOutcome =
 export const ROUTING_OUTCOME_UNSATISFIABLE_REASONS = {
   noRecipeMatchesToolBundles: "no_recipe_matches_toolBundles",
   noRecipeSatisfiesExecutionContract: "no_recipe_satisfies_executionContract",
+  noRecipeMatchesSessionOrchestration: "no_recipe_matches_session_orchestration",
   contractRequiresTools: "contract_requires_tools",
   contractRequiresWorkspaceMutation: "contract_requires_workspace_mutation",
   contractRequiresLocalProcess: "contract_requires_local_process",
@@ -575,6 +576,11 @@ function toolBundlesMatchRecipe(toolBundles: string[], recipe: ExecutionRecipe):
     );
   }
 
+  // session_orchestration: persistent worker/subagent setup only
+  if (bundles.has("session_orchestration")) {
+    return recipe.id === "ops_orchestration";
+  }
+
   // If no specific bundle matches, use respond_only as default
   return recipe.id === "general_reasoning";
 }
@@ -625,7 +631,9 @@ function selectContractFallbackRecipe(params: {
   const bundles = new Set(input.resolutionContract?.toolBundles ?? []);
 
   const preferredIds =
-    executionContract?.requiresWorkspaceMutation || executionContract?.requiresLocalProcess
+    bundles.has("session_orchestration")
+      ? ["ops_orchestration"]
+      : executionContract?.requiresWorkspaceMutation || executionContract?.requiresLocalProcess
       ? ["code_build_publish", "integration_delivery", "ops_orchestration"]
       : executionContract?.requiresArtifactEvidence || bundles.has("artifact_authoring")
         ? ["doc_authoring", "doc_ingest", "media_production", "table_compare", "calculation_report"]
@@ -769,6 +777,7 @@ function buildRecipeScore(params: {
   const hasBrowserBundle = bundles.has("interactive_browser");
   const hasWebLookup = bundles.has("public_web_lookup");
   const hasDeliveryBundle = bundles.has("external_delivery");
+  const hasSessionOrchestration = bundles.has("session_orchestration");
   const profileBias =
     routing?.remoteProfile === "presentation"
       ? "presentation"
@@ -1030,6 +1039,9 @@ function buildRecipeScore(params: {
     if (hasDeliveryBundle) {
       score += 0.7;
     }
+    if (hasSessionOrchestration) {
+      score -= 2.5;
+    }
     if (hasDocument && !hasCode) {
       score -= 1.2;
     }
@@ -1054,6 +1066,9 @@ function buildRecipeScore(params: {
     }
     if (hasDeliveryBundle) {
       score += 1.8;
+    }
+    if (hasSessionOrchestration) {
+      score -= 2.2;
     }
     if (hasCode) {
       score += 0.4;
@@ -1087,6 +1102,9 @@ function buildRecipeScore(params: {
     }
     if (outcomeContract === "external_operation") {
       score += 1;
+    }
+    if (hasSessionOrchestration) {
+      score += 3.2;
     }
     if (executionContract?.requiresLocalProcess) {
       score += 1.2;

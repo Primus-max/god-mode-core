@@ -72,6 +72,11 @@ export const TASK_TOOL_REGISTRY: readonly TaskToolEntry[] = [
     // both in this list mirrors the prior bridge logic.
     satisfiesCapabilities: ["needs_visual_composition", "needs_multimodal_authoring"],
   },
+  {
+    name: "sessions_spawn",
+    intent: "spawn a follow-up worker session for persistent orchestration",
+    satisfiesCapabilities: ["needs_session_orchestration"],
+  },
 ];
 
 const TOOLS_BY_CAPABILITY = (() => {
