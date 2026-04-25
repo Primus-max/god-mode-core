@@ -98,24 +98,24 @@ describe("classifyTaskForDecision", () => {
       },
     } as OpenClawConfig;
     const classify = vi.fn<TaskClassifierAdapter["classify"]>(async (params) => {
-        const hasPending = Boolean(params.ledgerContext && params.ledgerContext.trim().length > 0);
-        if (hasPending) {
-          return {
-            primaryOutcome: "workspace_change",
-            requiredCapabilities: ["needs_workspace_mutation"],
-            interactionMode: "tool_execution",
-            confidence: 0.8,
-            ambiguities: [],
-          };
-        }
+      const hasPending = Boolean(params.ledgerContext && params.ledgerContext.trim().length > 0);
+      if (hasPending) {
         return {
-          primaryOutcome: "clarification_needed",
-          requiredCapabilities: [],
-          interactionMode: "clarify_first",
-          confidence: 0.75,
-          ambiguities: ["baseline-clarify"],
+          primaryOutcome: "workspace_change",
+          requiredCapabilities: ["needs_workspace_mutation"],
+          interactionMode: "tool_execution",
+          confidence: 0.8,
+          ambiguities: [],
         };
-      });
+      }
+      return {
+        primaryOutcome: "clarification_needed",
+        requiredCapabilities: [],
+        interactionMode: "clarify_first",
+        confidence: 0.75,
+        ambiguities: ["baseline-clarify"],
+      };
+    });
     const adapter: TaskClassifierAdapter = { classify };
 
     const baseline = await classifyTaskForDecision({
@@ -519,7 +519,8 @@ describe("classifyTaskForDecision", () => {
       expect.arrayContaining([
         expect.objectContaining({
           stage: "fallback",
-          message: "classifier returned no valid contract; returning fail-closed clarification contract",
+          message:
+            "classifier returned no valid contract; returning fail-closed clarification contract",
         }),
       ]),
     );
@@ -654,7 +655,8 @@ describe("classifyTaskForDecision", () => {
     } as OpenClawConfig;
 
     const classified = await classifyTaskForDecision({
-      prompt: "Run the release checks and publish the already-prepared build to production once validation passes.",
+      prompt:
+        "Run the release checks and publish the already-prepared build to production once validation passes.",
       cfg,
       adapterRegistry: {
         "stub-backend": {
@@ -694,7 +696,8 @@ describe("classifyTaskForDecision", () => {
     } as OpenClawConfig;
 
     const classified = await classifyTaskForDecision({
-      prompt: "Research current public pricing for three hosted vector databases and compare the tradeoffs.",
+      prompt:
+        "Research current public pricing for three hosted vector databases and compare the tradeoffs.",
       cfg,
       adapterRegistry: {
         "stub-backend": {
@@ -877,7 +880,8 @@ describe("classifyTaskForDecision", () => {
     } as OpenClawConfig;
 
     const classified = await classifyTaskForDecision({
-      prompt: "Open the local app, click through the signup flow, and report any visible UI or console issues.",
+      prompt:
+        "Open the local app, click through the signup flow, and report any visible UI or console issues.",
       cfg,
       adapterRegistry: {
         "stub-backend": {
@@ -914,7 +918,8 @@ describe("classifyTaskForDecision", () => {
     } as OpenClawConfig;
 
     const classified = await classifyTaskForDecision({
-      prompt: "Create a cartoon poster image of a rasta cat with bright colors and clean composition.",
+      prompt:
+        "Create a cartoon poster image of a rasta cat with bright colors and clean composition.",
       cfg,
       adapterRegistry: {
         "stub-backend": {
@@ -953,7 +958,8 @@ describe("classifyTaskForDecision", () => {
     } as OpenClawConfig;
 
     const classified = await classifyTaskForDecision({
-      prompt: "Run the release checks and publish the already-prepared build to production once validation passes.",
+      prompt:
+        "Run the release checks and publish the already-prepared build to production once validation passes.",
       cfg,
       adapterRegistry: {
         "stub-backend": {
@@ -1072,7 +1078,8 @@ describe("classifyTaskForDecision", () => {
     } as OpenClawConfig;
 
     const classified = await classifyTaskForDecision({
-      prompt: "Create a cartoon poster image of a rasta cat with bright colors and clean composition.",
+      prompt:
+        "Create a cartoon poster image of a rasta cat with bright colors and clean composition.",
       cfg,
     });
 
@@ -1160,7 +1167,8 @@ describe("contract-first task contract routing", () => {
       taskContract,
     });
     const repoPrompt = buildPlannerInputFromTaskContract({
-      prompt: "Patch the repo, run the checks, and leave the local preview working before you finish.",
+      prompt:
+        "Patch the repo, run the checks, and leave the local preview working before you finish.",
       taskContract,
     });
 
@@ -1471,6 +1479,35 @@ describe("contract-first task contract routing", () => {
     );
   });
 
+  it("P2: bridge uses v2 persistent worker fields before legacy outcome fallback", () => {
+    const plannerInput = buildPlannerInputFromTaskContract({
+      prompt: "Create a persistent worker named ReportsBot for weekly summaries",
+      taskContract: {
+        primaryOutcome: "external_delivery",
+        requiredCapabilities: [],
+        interactionMode: "tool_execution",
+        confidence: 0.88,
+        ambiguities: [],
+        executionMode: "persistent_worker",
+        target: "persistent_session",
+        schedule: "weekly",
+        evidence: ["spawn_receipt"],
+        deliverable: {
+          kind: "session",
+          acceptedFormats: ["receipt"],
+          preferredFormat: "receipt",
+          constraints: { continuation: "followup", name: "ReportsBot" },
+        },
+      },
+    });
+
+    expect(plannerInput.outcomeContract).toBe("text_response");
+    expect(plannerInput.requestedTools).toEqual(["sessions_spawn"]);
+    expect(plannerInput.publishTargets ?? []).toEqual([]);
+    expect(plannerInput.executionContract?.requiresDeliveryEvidence).toBe(false);
+    expect(plannerInput.resolutionContract?.toolBundles).toEqual(["session_orchestration"]);
+  });
+
   it("routes persistent worker requests to sessions_spawn followup instead of publish/cron/repo tools", async () => {
     const cfg = {
       agents: {
@@ -1502,9 +1539,7 @@ describe("contract-first task contract routing", () => {
     const runtime = resolvePlatformRuntimePlan(classified.plannerInput);
 
     expect(classified.taskContract.primaryOutcome).toBe("persistent_worker");
-    expect(classified.taskContract.requiredCapabilities).toEqual([
-      "needs_session_orchestration",
-    ]);
+    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_session_orchestration"]);
     expect(classified.taskContract.deliverable).toEqual({
       kind: "session",
       acceptedFormats: ["receipt"],
@@ -1522,6 +1557,105 @@ describe("contract-first task contract routing", () => {
     expect(runtime.runtime.selectedRecipeId).toBe("ops_orchestration");
     expect(runtime.runtime.requestedToolNames).toEqual(["sessions_spawn"]);
   });
+
+  it("lets v2 persistent worker fields override legacy external_delivery drift", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Create a persistent subagent for daily reports",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "external_delivery",
+            requiredCapabilities: ["needs_external_delivery"],
+            interactionMode: "tool_execution",
+            confidence: 0.86,
+            ambiguities: [],
+            executionMode: "persistent_worker",
+            target: "persistent_session",
+            schedule: "daily",
+            evidence: ["spawn_receipt"],
+            deliverable: {
+              kind: "session",
+              acceptedFormats: ["receipt"],
+              preferredFormat: "receipt",
+              constraints: { continuation: "followup", name: "reports" },
+            },
+          }),
+        },
+      },
+    });
+
+    expect(classified.taskContract.primaryOutcome).toBe("persistent_worker");
+    expect(classified.taskContract.requiredCapabilities).toEqual(["needs_session_orchestration"]);
+    expect(classified.taskContract.executionMode).toBe("persistent_worker");
+    expect(classified.taskContract.target).toBe("persistent_session");
+    expect(classified.taskContract.schedule).toBe("daily");
+    expect(classified.taskContract.evidence).toEqual(["spawn_receipt"]);
+    expect(classified.plannerInput.requestedTools).toEqual(["sessions_spawn"]);
+    expect(classified.plannerInput.publishTargets ?? []).toEqual([]);
+    expect(classified.plannerInput.resolutionContract?.toolBundles).toEqual([
+      "session_orchestration",
+    ]);
+  });
+
+  it("routes v2 scheduled same-chat requests to cron instead of external delivery", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Напомни завтра в 12:00 пообедать",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "external_delivery",
+            requiredCapabilities: ["needs_external_delivery"],
+            interactionMode: "tool_execution",
+            confidence: 0.9,
+            ambiguities: [],
+            executionMode: "scheduled_worker",
+            target: "current_chat",
+            schedule: "once",
+            evidence: ["tool_receipt"],
+          }),
+        },
+      },
+    });
+
+    expect(classified.taskContract.primaryOutcome).toBe("answer");
+    expect(classified.taskContract.requiredCapabilities).not.toContain("needs_external_delivery");
+    expect(classified.taskContract.executionMode).toBe("scheduled_worker");
+    expect(classified.taskContract.target).toBe("current_chat");
+    expect(classified.taskContract.schedule).toBe("once");
+    expect(classified.taskContract.deliverable).toEqual({
+      kind: "answer",
+      acceptedFormats: ["text"],
+      constraints: { tool: "cron" },
+    });
+    expect(classified.plannerInput.requestedTools).toEqual(["cron"]);
+    expect(classified.plannerInput.publishTargets ?? []).toEqual([]);
+  });
 });
 
 describe("classifier prompt composition (P1.5 §B context blocks)", () => {
@@ -1530,7 +1664,7 @@ describe("classifier prompt composition (P1.5 §B context blocks)", () => {
       prompt: "запусти node --version",
       workspaceContext: "default_cwd: /repo\nroots:\n  - /repo [git=org/repo@dev]",
       identityContext: "persona: Trader\navailable_tools: exec, apply_patch",
-      ledgerContext: "abc clarifying: \"format\"",
+      ledgerContext: 'abc clarifying: "format"',
       clarifyBudgetNotice: "<clarify_budget_exceeded>limit</clarify_budget_exceeded>",
     });
 

@@ -9,7 +9,6 @@ import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import {
   DeliverableKindSchema,
-  type DeliverableKind,
   type DeliverableSpec,
 } from "../produce/registry.js";
 import { collectMissingRequiredEnvForDeliverable } from "../recipe/credentials-preflight.js";
@@ -132,13 +131,48 @@ const TASK_CONTRACT_SCHEMA = {
         constraints: { type: "object", additionalProperties: true },
       },
     },
+    executionMode: {
+      type: "string",
+      enum: [
+        "respond",
+        "clarify",
+        "tool_run",
+        "artifact_authoring",
+        "persistent_worker",
+        "scheduled_worker",
+        "repo_mutation",
+      ],
+    },
+    target: {
+      type: "string",
+      enum: [
+        "current_chat",
+        "persistent_session",
+        "external_provider",
+        "workspace",
+        "local_runtime",
+      ],
+    },
+    schedule: {
+      type: "string",
+      enum: ["none", "once", "daily", "weekly", "cron-like"],
+    },
+    evidence: {
+      type: "array",
+      items: {
+        type: "string",
+        enum: ["tool_receipt", "artifact", "spawn_receipt", "delivery_receipt", "test_report"],
+      },
+      uniqueItems: true,
+    },
   },
 } as const;
 
 const TASK_CLASSIFIER_SYSTEM_PROMPT =
   "You are a deterministic TaskContract classifier. Classify only. Do not execute, refuse, explain, chat, or ask for access. Return exactly one minified JSON object and nothing else.";
 
-const TASK_CLASSIFIER_USER_TEMPLATE = `Return exactly one minified JSON object matching this JSON Schema:
+const TASK_CLASSIFIER_USER_TEMPLATE =
+  `Return exactly one minified JSON object matching this JSON Schema:
 {{SCHEMA_JSON}}
 
 Rules:
@@ -149,7 +183,7 @@ Rules:
 - Normalize Russian and English wording to the same abstract contract.
 
 Decision ladder:
-1. Pick exactly one dominant primaryOutcome:
+1. Pick exactly one dominant primaryOutcome (legacy compatibility label only):
    - answer: direct text reply, summarization, rewrite, explanation, brainstorm.
    - workspace_change: edit repository, source files, config, tests, scripts, or local project state.
    - external_delivery: deploy, publish, release, ship, send, or deliver to an external system/environment.
@@ -159,12 +193,19 @@ Decision ladder:
    - document_package: create an authored artifact such as PDF, deck, report, infographic, poster, image, or other deliverable asset.
    - document_extraction: extract fields/content from supplied files.
    - clarification_needed: only when the dominant outcome is materially unclear, or when the user asks to fix/change something and then send it to production without clear approval.
-2. Pick the lightest valid interactionMode:
+2. Fill the v2 composition fields when the intent is clear:
+   - deliverable: WHAT the user wants back (answer, document, data, report-like answer, code_change, repo_operation, session for a worker, etc.).
+   - executionMode: HOW to execute: respond, clarify, tool_run, artifact_authoring, persistent_worker, scheduled_worker, repo_mutation.
+   - target: WHERE the result/execution belongs: current_chat, persistent_session, external_provider, workspace, local_runtime.
+   - schedule: none, once, daily, weekly, or cron-like when the user explicitly asks for periodic/deferred behavior.
+   - evidence: proof expected from execution: tool_receipt, artifact, spawn_receipt, delivery_receipt, test_report.
+   primaryOutcome is legacy; v2 fields describe the independent composition and should be preferred when available.
+3. Pick the lightest valid interactionMode:
    - respond_only: text-only answer without external inspection or tool-dependent execution.
    - tool_execution: browser, web research, extraction, repo execution, or delivery is needed.
    - artifact_iteration: the main result is an authored artifact.
    - clarify_first: use only with primaryOutcome "clarification_needed".
-3. Add only capabilities that are explicitly required by the task:
+4. Add only capabilities that are explicitly required by the task:
 {{CAPABILITY_LADDER}}
 
 Canonical mapping rules:
@@ -187,7 +228,7 @@ Canonical mapping rules:
 - Field extraction from docs/forms/invoices should not add needs_tabular_reasoning unless table/spreadsheet comparison or numeric reasoning is central.
 - Spreadsheet/table attachments used only for comparison do not imply needs_document_extraction.
 - Deploy/publish/release requests should usually be external_delivery + tool_execution + needs_external_delivery.
-- Persistent worker/session requests should be persistent_worker + tool_execution + needs_session_orchestration, deliverable={kind:"session", acceptedFormats:["receipt"], preferredFormat:"receipt", constraints:{continuation:"followup"}}. This maps to sessions_spawn with continuation="followup". Do NOT classify these as external_delivery, workspace_change, cron, repo_run, or publish unless the user explicitly asks to deploy/publish/send to an outside provider.
+- Persistent worker/session requests should be persistent_worker + tool_execution + needs_session_orchestration, deliverable={kind:"session", acceptedFormats:["receipt"], preferredFormat:"receipt", constraints:{continuation:"followup"}}, executionMode="persistent_worker", target="persistent_session", schedule="none" unless explicit recurrence, evidence=["spawn_receipt"]. This maps to sessions_spawn with continuation="followup". Do NOT classify these as external_delivery, workspace_change, cron, repo_run, or publish unless the user explicitly asks to deploy/publish/send to an outside provider.
 - Release validation of an already-prepared build is not workspace mutation.
 - Add needs_high_reliability_provider only for production/live external delivery.
 - Explicit production/live publish or deploy of an already-prepared build should usually be external_delivery + tool_execution + needs_external_delivery + needs_repo_execution + needs_local_runtime + needs_high_reliability_provider, without needs_workspace_mutation unless source edits are explicitly requested.
@@ -214,7 +255,7 @@ Stability examples:
 - "Запусти команду node --version" or "Run node --version" -> workspace_change + tool_execution + needs_repo_execution + needs_local_runtime, deliverable={kind:"repo_operation", acceptedFormats:["exec","script"], preferredFormat:"exec", constraints:{operation:"run_command"}}.
 - "Прогнать тесты в проекте" or "run the test suite" -> workspace_change + tool_execution + needs_repo_execution + needs_local_runtime, deliverable={kind:"repo_operation", acceptedFormats:["test-report","exec"], preferredFormat:"test-report", constraints:{operation:"run_tests"}}.
 - "Отрефактори модуль Y, покажи diff и прогоняй тесты" or "Refactor module Y, show diff and run tests" -> workspace_change + tool_execution + needs_workspace_mutation + needs_repo_execution + needs_local_runtime, deliverable={kind:"code_change", acceptedFormats:["patch","edit"], preferredFormat:"patch", constraints:{operation:"refactor"}}.
-- "Создай сабагента Валера, чтобы он каждый день слал отчёт" / "Create a persistent subagent Valera for daily reports" / "start a background worker session" -> persistent_worker + tool_execution + needs_session_orchestration, deliverable={kind:"session", acceptedFormats:["receipt"], preferredFormat:"receipt", constraints:{continuation:"followup"}}.
+- "Создай сабагента Валера, чтобы он каждый день слал отчёт" / "Create a persistent subagent Valera for daily reports" / "start a background worker session" -> persistent_worker + tool_execution + needs_session_orchestration, deliverable={kind:"session", acceptedFormats:["receipt"], preferredFormat:"receipt", constraints:{continuation:"followup"}}, executionMode="persistent_worker", target="persistent_session", schedule="daily", evidence=["spawn_receipt"].
 - Reminder requests — phrases asking the bot to say something later in the SAME chat (Russian "напомни ...", English "reminder ..." or "remind me ..."), an explicit future timestamp plus a deferred-message intent — are \`tool_execution\` with \`requestedTools=["cron"]\` (deferred message back to the CURRENT channel via the built-in cron-tool), NEVER \`external_delivery\`. \`external_delivery\` is reserved for integrations with an external provider (Bybit, OpenAI, telegram_userbot, etc.), not for a deferred message back to the current channel. Emit primaryOutcome="answer", interactionMode="tool_execution", deliverable={kind:"answer", acceptedFormats:["text"], constraints:{tool:"cron"}}. Do NOT add needs_external_delivery for these. Examples: "Напомни завтра в 12:00 пообедать", "Напомни через 30 секунд тестовое сообщение", "Remind me in 5 minutes to drink water".
 
 Deliverable rules:
@@ -285,7 +326,7 @@ function buildPendingCommitmentsInjection(ledgerContext?: string): string {
     "<pending_commitments>",
     normalized,
     "</pending_commitments>",
-    "Use pending commitments only to resolve short acknowledgements (e.g., \"да\", \"подтверждаю\").",
+    'Use pending commitments only to resolve short acknowledgements (e.g., "да", "подтверждаю").',
   ].join("\n");
 }
 
@@ -340,6 +381,31 @@ type Capability = TaskCapabilityId;
 
 type InteractionMode = "respond_only" | "clarify_first" | "tool_execution" | "artifact_iteration";
 
+type ContractExecutionMode =
+  | "respond"
+  | "clarify"
+  | "tool_run"
+  | "artifact_authoring"
+  | "persistent_worker"
+  | "scheduled_worker"
+  | "repo_mutation";
+
+type ContractTarget =
+  | "current_chat"
+  | "persistent_session"
+  | "external_provider"
+  | "workspace"
+  | "local_runtime";
+
+type ContractSchedule = "none" | "once" | "daily" | "weekly" | "cron-like";
+
+type ContractEvidenceKind =
+  | "tool_receipt"
+  | "artifact"
+  | "spawn_receipt"
+  | "delivery_receipt"
+  | "test_report";
+
 const TaskContractZodSchema = z
   .object({
     primaryOutcome: z.enum([
@@ -353,16 +419,14 @@ const TaskContractZodSchema = z
       "persistent_worker",
       "clarification_needed",
     ]),
-    requiredCapabilities: z
-      .array(z.enum(TASK_CAPABILITY_IDS))
-      .superRefine((values, ctx) => {
-        if (new Set(values).size !== values.length) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "requiredCapabilities must contain unique items",
-          });
-        }
-      }),
+    requiredCapabilities: z.array(z.enum(TASK_CAPABILITY_IDS)).superRefine((values, ctx) => {
+      if (new Set(values).size !== values.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "requiredCapabilities must contain unique items",
+        });
+      }
+    }),
     interactionMode: z.enum([
       "respond_only",
       "clarify_first",
@@ -387,6 +451,40 @@ const TaskContractZodSchema = z
       })
       .strict()
       .optional(),
+    executionMode: z
+      .enum([
+        "respond",
+        "clarify",
+        "tool_run",
+        "artifact_authoring",
+        "persistent_worker",
+        "scheduled_worker",
+        "repo_mutation",
+      ])
+      .optional(),
+    target: z
+      .enum([
+        "current_chat",
+        "persistent_session",
+        "external_provider",
+        "workspace",
+        "local_runtime",
+      ])
+      .optional(),
+    schedule: z.enum(["none", "once", "daily", "weekly", "cron-like"]).optional(),
+    evidence: z
+      .array(
+        z.enum(["tool_receipt", "artifact", "spawn_receipt", "delivery_receipt", "test_report"]),
+      )
+      .superRefine((values, ctx) => {
+        if (new Set(values).size !== values.length) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "evidence must contain unique items",
+          });
+        }
+      })
+      .optional(),
   })
   .strict();
 
@@ -397,6 +495,10 @@ export type TaskContract = {
   confidence: number;
   ambiguities: string[];
   deliverable?: DeliverableSpec;
+  executionMode?: ContractExecutionMode;
+  target?: ContractTarget;
+  schedule?: ContractSchedule;
+  evidence?: ContractEvidenceKind[];
 };
 
 export type TaskClassifierDebugEvent = {
@@ -516,10 +618,79 @@ function clampConfidence(confidence: number): number {
   return Math.min(1, Math.max(0, confidence));
 }
 
+function isActiveSchedule(schedule: ContractSchedule | undefined): boolean {
+  return schedule !== undefined && schedule !== "none";
+}
+
+function asCurrentChatScheduleDeliverable(
+  deliverable: DeliverableSpec | undefined,
+): DeliverableSpec {
+  if (deliverable?.kind === "answer") {
+    return {
+      ...deliverable,
+      acceptedFormats:
+        deliverable.acceptedFormats.length > 0 ? deliverable.acceptedFormats : ["text"],
+      constraints: { ...deliverable.constraints, tool: "cron" },
+    };
+  }
+  return {
+    kind: "answer",
+    acceptedFormats: ["text"],
+    constraints: { tool: "cron" },
+  };
+}
+
 function normalizeTaskContract(contract: TaskContract): TaskContract {
   const capabilities = new Set(contract.requiredCapabilities);
   let primaryOutcome = contract.primaryOutcome;
   let interactionMode = contract.interactionMode;
+  let deliverable = contract.deliverable;
+
+  if (contract.executionMode === "clarify") {
+    primaryOutcome = "clarification_needed";
+    interactionMode = "clarify_first";
+  }
+  if (contract.executionMode === "respond") {
+    interactionMode = "respond_only";
+  }
+  if (contract.executionMode === "tool_run") {
+    interactionMode = "tool_execution";
+  }
+  if (contract.executionMode === "artifact_authoring") {
+    interactionMode = "artifact_iteration";
+  }
+  if (contract.executionMode === "repo_mutation") {
+    primaryOutcome = "workspace_change";
+    interactionMode = "tool_execution";
+    capabilities.add("needs_workspace_mutation");
+  }
+  if (contract.target === "external_provider") {
+    primaryOutcome = "external_delivery";
+    interactionMode = "tool_execution";
+    capabilities.add("needs_external_delivery");
+  }
+  if (
+    contract.executionMode === "persistent_worker" ||
+    contract.target === "persistent_session" ||
+    deliverable?.kind === "session"
+  ) {
+    primaryOutcome = "persistent_worker";
+    interactionMode = "tool_execution";
+    capabilities.add("needs_session_orchestration");
+    deliverable = deliverable ?? {
+      kind: "session",
+      acceptedFormats: ["receipt"],
+      preferredFormat: "receipt",
+      constraints: { continuation: "followup" },
+    };
+  } else if (contract.executionMode === "scheduled_worker" || isActiveSchedule(contract.schedule)) {
+    primaryOutcome = "answer";
+    interactionMode = "tool_execution";
+    capabilities.delete("needs_external_delivery");
+    capabilities.delete("needs_high_reliability_provider");
+    deliverable = asCurrentChatScheduleDeliverable(deliverable);
+  }
+
   if (primaryOutcome === "clarification_needed") {
     interactionMode = "clarify_first";
   } else if (interactionMode === "clarify_first") {
@@ -609,8 +780,7 @@ function normalizeTaskContract(contract: TaskContract): TaskContract {
     interactionMode = "respond_only";
   }
 
-  const deliverable =
-    contract.deliverable ?? inferDeliverableFallback(primaryOutcome, capabilities);
+  deliverable = deliverable ?? inferDeliverableFallback(primaryOutcome, capabilities);
 
   // Final pass: enforce catalog-declared invariants (e.g. needs_visual_composition
   // can only ride on a kind=image deliverable). Runs LAST so that the legacy
@@ -629,6 +799,7 @@ function normalizeTaskContract(contract: TaskContract): TaskContract {
     requiredCapabilities: normalizeUnique(Array.from(catalogFiltered)),
     confidence: clampConfidence(contract.confidence),
     ambiguities: normalizeUnique(contract.ambiguities),
+    ...(contract.evidence ? { evidence: normalizeUnique(contract.evidence) } : {}),
     ...(deliverable ? { deliverable } : {}),
   };
 }
@@ -713,9 +884,7 @@ function rewriteTaskContractAsCredentialClarification(params: {
   };
 }
 
-function applyCredentialsPreflight(params: {
-  contract: TaskContract;
-}): TaskContract {
+function applyCredentialsPreflight(params: { contract: TaskContract }): TaskContract {
   if (!isScaffoldContract(params.contract)) {
     return params.contract;
   }
@@ -772,11 +941,7 @@ function taskContractLowConfidenceStrategy(
   const capabilities = new Set(contract.requiredCapabilities);
   const rawConfidence = typeof contract.confidence === "number" ? contract.confidence : 1;
   const ambiguityCount = contract.ambiguities?.length ?? 0;
-  if (
-    rawConfidence < 0.5 &&
-    capabilities.has("needs_workspace_mutation") &&
-    ambiguityCount > 0
-  ) {
+  if (rawConfidence < 0.5 && capabilities.has("needs_workspace_mutation") && ambiguityCount > 0) {
     return "clarify";
   }
   return undefined;
@@ -797,6 +962,31 @@ const CLARIFY_RESPOND_ONLY_BRIDGE: ResolutionBridgePlannerInput = {
     mayNeedBootstrap: false,
   },
 };
+
+function inferBridgeIntentFromV2(
+  contract: TaskContract,
+): ResolutionBridgePlannerInput["intent"] | undefined {
+  if (contract.executionMode === "repo_mutation" || contract.target === "workspace") {
+    return "code";
+  }
+  if (contract.target === "external_provider") {
+    return "publish";
+  }
+  if (contract.executionMode === "artifact_authoring") {
+    return contract.deliverable?.kind === "data" ? "calculation" : "document";
+  }
+  if (
+    contract.executionMode === "persistent_worker" ||
+    contract.executionMode === "scheduled_worker" ||
+    contract.target === "persistent_session"
+  ) {
+    return "general";
+  }
+  if (contract.executionMode === "respond" || contract.executionMode === "tool_run") {
+    return "general";
+  }
+  return undefined;
+}
 
 function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlannerInput {
   const capabilities = new Set(contract.requiredCapabilities);
@@ -821,42 +1011,68 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
     | "other"
   )[] = [];
   const requestedTools: string[] = [];
-  let intent: ResolutionBridgePlannerInput["intent"];
+  let intent: ResolutionBridgePlannerInput["intent"] | undefined =
+    inferBridgeIntentFromV2(contract);
 
-  switch (contract.primaryOutcome) {
-    case "workspace_change":
-      intent = "code";
-      artifactKinds.push("binary");
-      break;
-    case "external_delivery":
-      intent = "publish";
-      artifactKinds.push("release");
-      break;
-    case "comparison_report":
-      intent = "compare";
-      artifactKinds.push("data", "report");
-      break;
-    case "calculation_result":
-      intent = "calculation";
-      artifactKinds.push("data", "report");
-      break;
-    case "document_package":
-      if (!isPureVisualArtifact) {
+  if (!intent) {
+    switch (contract.primaryOutcome) {
+      case "workspace_change":
+        intent = "code";
+        artifactKinds.push("binary");
+        break;
+      case "external_delivery":
+        intent = "publish";
+        artifactKinds.push("release");
+        break;
+      case "comparison_report":
+        intent = "compare";
+        artifactKinds.push("data", "report");
+        break;
+      case "calculation_result":
+        intent = "calculation";
+        artifactKinds.push("data", "report");
+        break;
+      case "document_package":
+        if (!isPureVisualArtifact) {
+          intent = "document";
+          artifactKinds.push("document");
+        }
+        // For pure visual artifacts, intent remains undefined (no document intent needed)
+        break;
+      case "document_extraction":
         intent = "document";
-        artifactKinds.push("document");
-      }
-      // For pure visual artifacts, intent remains undefined (no document intent needed)
-      break;
-    case "document_extraction":
-      intent = "document";
-      artifactKinds.push("document", "report");
-      break;
-    case "persistent_worker":
-      intent = "general";
-      break;
-    default:
-      intent = "general";
-      break;
+        artifactKinds.push("document", "report");
+        break;
+      case "persistent_worker":
+        intent = "general";
+        break;
+      default:
+        intent = "general";
+        break;
+    }
+  }
+  if (contract.primaryOutcome === "workspace_change" && !artifactKinds.includes("binary")) {
+    artifactKinds.push("binary");
+  }
+  if (contract.primaryOutcome === "external_delivery" && !artifactKinds.includes("release")) {
+    artifactKinds.push("release");
+  }
+  if (
+    (contract.primaryOutcome === "comparison_report" ||
+      contract.primaryOutcome === "calculation_result") &&
+    !artifactKinds.includes("data")
+  ) {
+    artifactKinds.push("data", "report");
+  }
+  if (
+    contract.primaryOutcome === "document_package" &&
+    !isPureVisualArtifact &&
+    !artifactKinds.includes("document")
+  ) {
+    artifactKinds.push("document");
+  }
+  if (contract.primaryOutcome === "document_extraction") {
+    artifactKinds.push("document", "report");
   }
 
   if (hasVisualComposition) {
@@ -875,6 +1091,16 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
     deliverable: contract.deliverable,
   })) {
     requestedTools.push(toolName);
+  }
+  if (contract.executionMode === "persistent_worker" || contract.target === "persistent_session") {
+    requestedTools.push("sessions_spawn");
+  }
+  if (
+    contract.executionMode === "scheduled_worker" &&
+    contract.target !== "persistent_session" &&
+    contract.deliverable?.kind !== "session"
+  ) {
+    requestedTools.push("cron");
   }
   if (contract.deliverable) {
     const deliverableKind = contract.deliverable.kind;
@@ -913,16 +1139,42 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
   const requiresTools =
     normalizedRequestedTools.length > 0 ||
     contract.interactionMode === "tool_execution" ||
-    contract.interactionMode === "artifact_iteration";
+    contract.interactionMode === "artifact_iteration" ||
+    (contract.executionMode !== undefined &&
+      contract.executionMode !== "respond" &&
+      contract.executionMode !== "clarify");
+  const v2RequiresWorkspaceMutation =
+    contract.executionMode === "repo_mutation" || contract.target === "workspace";
+  const v2RequiresLocalProcess = contract.target === "local_runtime";
+  const v2RequiresDeliveryEvidence =
+    contract.target === "external_provider" ||
+    contract.evidence?.includes("delivery_receipt") === true;
+  const v2RequiresArtifactEvidence =
+    contract.executionMode === "artifact_authoring" ||
+    contract.evidence?.includes("artifact") === true;
+  const v2OutcomeContract =
+    contract.executionMode === "repo_mutation" || contract.target === "workspace"
+      ? "workspace_change"
+      : contract.target === "external_provider"
+        ? "external_operation"
+        : contract.executionMode === "persistent_worker" ||
+            contract.executionMode === "scheduled_worker" ||
+            contract.target === "persistent_session"
+          ? "text_response"
+          : undefined;
 
   return {
     intent,
     artifactKinds: normalizedArtifactKinds,
     requestedTools: normalizedRequestedTools,
-    publishTargets: capabilities.has("needs_external_delivery") ? ["external"] : [],
+    publishTargets:
+      capabilities.has("needs_external_delivery") || contract.target === "external_provider"
+        ? ["external"]
+        : [],
     ...(contract.deliverable ? { deliverable: contract.deliverable } : {}),
     outcomeContract:
-      contract.primaryOutcome === "workspace_change"
+      v2OutcomeContract ??
+      (contract.primaryOutcome === "workspace_change"
         ? "workspace_change"
         : contract.primaryOutcome === "external_delivery"
           ? "external_operation"
@@ -937,19 +1189,23 @@ function mapTaskContractToBridge(contract: TaskContract): ResolutionBridgePlanne
                     contract.primaryOutcome === "answer" ||
                     contract.primaryOutcome === "clarification_needed"
                   ? "text_response"
-                  : "structured_artifact",
+                  : "structured_artifact"),
     executionContract: {
       requiresTools,
-      requiresWorkspaceMutation: capabilities.has("needs_workspace_mutation"),
-      requiresLocalProcess: capabilities.has("needs_local_runtime"),
+      requiresWorkspaceMutation:
+        capabilities.has("needs_workspace_mutation") || v2RequiresWorkspaceMutation,
+      requiresLocalProcess: capabilities.has("needs_local_runtime") || v2RequiresLocalProcess,
       requiresArtifactEvidence:
+        v2RequiresArtifactEvidence ||
         contract.primaryOutcome === "document_package" ||
         contract.primaryOutcome === "document_extraction",
-      requiresDeliveryEvidence: capabilities.has("needs_external_delivery"),
+      requiresDeliveryEvidence:
+        capabilities.has("needs_external_delivery") || v2RequiresDeliveryEvidence,
       mayNeedBootstrap:
         capabilities.has("needs_repo_execution") ||
         capabilities.has("needs_document_extraction") ||
-        capabilities.has("needs_local_runtime"),
+        capabilities.has("needs_local_runtime") ||
+        v2RequiresLocalProcess,
     },
   };
 }
