@@ -124,11 +124,15 @@ function expectThreadBindFailureCleanup(
   pattern: RegExp,
 ): void {
   expect(details.error).toMatch(pattern);
+  // childSessionKey must NEVER leak through error/forbidden results.
+  expect(details.childSessionKey).toBeUndefined();
   expect(hookRunnerMocks.runSubagentSpawned).not.toHaveBeenCalled();
   expectSessionsDeleteWithoutAgentStart();
   const deleteCall = findGatewayRequest("sessions.delete");
+  // Cleanup still targets the provisional child session key — capture it from
+  // the gateway call rather than relying on the now-removed result field.
   expect(deleteCall?.params).toMatchObject({
-    key: details.childSessionKey,
+    key: expect.stringMatching(/^agent:[a-z0-9_-]+:subagent:/i),
     emitLifecycleHooks: false,
   });
 }
@@ -287,7 +291,7 @@ describe("sessions_spawn subagent lifecycle hooks", () => {
         error: "Unable to create or bind a Discord thread for this subagent session.",
       },
     });
-    expectThreadBindFailureCleanup(details, /thread/i);
+    expectThreadBindFailureCleanup(details, /not available in this channel/i);
   });
 
   it("returns error when thread binding is not marked ready", async () => {
@@ -298,7 +302,7 @@ describe("sessions_spawn subagent lifecycle hooks", () => {
         threadBindingReady: false,
       },
     });
-    expectThreadBindFailureCleanup(details, /unable to create or bind a thread/i);
+    expectThreadBindFailureCleanup(details, /not available in this channel/i);
   });
 
   it("rejects mode=session when thread=true is not requested", async () => {
@@ -333,7 +337,7 @@ describe("sessions_spawn subagent lifecycle hooks", () => {
       mode: "session",
     });
 
-    expectErrorResultMessage(result, /only discord/i);
+    expectErrorResultMessage(result, /not available in this channel/i);
     expect(hookRunnerMocks.runSubagentSpawning).toHaveBeenCalledTimes(1);
     expect(hookRunnerMocks.runSubagentSpawned).not.toHaveBeenCalled();
     expectSessionsDeleteWithoutAgentStart();
@@ -396,10 +400,13 @@ describe("sessions_spawn subagent lifecycle hooks", () => {
 
     const result = await executeDiscordThreadSessionSpawn("call9");
 
-    expect(result.details).toMatchObject({
+    const details = result.details as { status?: string; error?: string; childSessionKey?: string };
+    expect(details).toMatchObject({
       status: "error",
-      error: "lineage patch failed",
+      error: "Cannot start a subagent right now.",
     });
+    // Sanitized error path must not leak the provisional child session key.
+    expect(details.childSessionKey).toBeUndefined();
     expect(hookRunnerMocks.runSubagentSpawned).not.toHaveBeenCalled();
     expect(hookRunnerMocks.runSubagentEnded).not.toHaveBeenCalled();
     const methods = getGatewayMethods();
@@ -407,7 +414,7 @@ describe("sessions_spawn subagent lifecycle hooks", () => {
     expect(methods).not.toContain("agent");
     const deleteCall = findGatewayRequest("sessions.delete");
     expect(deleteCall?.params).toMatchObject({
-      key: (result.details as { childSessionKey?: string }).childSessionKey,
+      key: expect.stringMatching(/^agent:[a-z0-9_-]+:subagent:/i),
       deleteTranscript: true,
       emitLifecycleHooks: true,
     });

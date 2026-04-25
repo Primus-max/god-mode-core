@@ -1168,7 +1168,10 @@ describe("spawnAcpDirect", () => {
     );
 
     expect(result.status).toBe("error");
-    expect(result.error).toContain("agent dispatch failed");
+    // Verbose gateway error is sanitized to a user-safe message; the original
+    // detail is logged via "[acp-spawn]" instead of being surfaced to the LLM.
+    expect(result.error).toBe("Cannot start a subagent right now.");
+    expect(result.childSessionKey).toBeUndefined();
     expect(relayHandle.dispose).toHaveBeenCalledTimes(1);
     expect(relayHandle.notifyStarted).not.toHaveBeenCalled();
   });

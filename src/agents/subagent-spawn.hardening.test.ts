@@ -136,6 +136,7 @@ describe("spawnSubagentDirect — allowAgents fallback (a57766bad0)", () => {
 describe("spawnSubagentDirect — non-thread spawn cleanup (b72d0c8459)", () => {
   it("calls sessions.delete when a non-thread spawn fails after the child session is created", async () => {
     const deletes: string[] = [];
+    const patches: string[] = [];
     callGatewaySpy.mockImplementation((async ({
       method,
       params,
@@ -143,6 +144,12 @@ describe("spawnSubagentDirect — non-thread spawn cleanup (b72d0c8459)", () => 
       method?: string;
       params?: { key?: string };
     }) => {
+      if (method === "sessions.patch") {
+        if (params?.key) {
+          patches.push(params.key);
+        }
+        return {};
+      }
       if (method === "agent") {
         throw new Error("simulated post-create spawn failure");
       }
@@ -158,8 +165,11 @@ describe("spawnSubagentDirect — non-thread spawn cleanup (b72d0c8459)", () => 
     const result = await spawnSubagentDirect({ task: "fail-me", thread: false }, requesterCtx);
 
     expect(result.status).toBe("error");
-    const childKey = result.childSessionKey;
-    expect(typeof childKey).toBe("string");
+    // After error-surface hardening, internal child session keys must NOT be
+    // returned to the LLM; capture the key from the patch call instead.
+    expect(result.childSessionKey).toBeUndefined();
+    expect(patches.length).toBeGreaterThan(0);
+    const childKey = patches[0];
     expect(deletes).toContain(childKey);
   });
 });

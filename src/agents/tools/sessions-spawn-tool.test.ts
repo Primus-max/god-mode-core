@@ -244,6 +244,87 @@ describe("sessions_spawn tool", () => {
     expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
   });
 
+  describe("LLM-facing result sanitization", () => {
+    const UUID_V4_REGEX =
+      /[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
+    const SUBAGENT_KEY_REGEX = /agent:[a-z0-9_-]+:subagent:/i;
+
+    function expectSanitized(text: string): void {
+      expect(text).not.toContain("childSessionKey");
+      expect(text).not.toContain("subagent_spawning");
+      expect(text).not.toContain("subagent_delivery_target");
+      expect(text).not.toMatch(SUBAGENT_KEY_REGEX);
+      expect(text).not.toMatch(UUID_V4_REGEX);
+    }
+
+    // We exercise the exported builder functions directly: they are the single
+    // sink that converts internal SpawnSubagentResult/SpawnAcpResult shapes
+    // into the LLM-facing payload and are the contract the tool relies on.
+
+    it("strips internal hints when subagent spawn returns error with leaked fields", async () => {
+      const { buildSubagentSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildSubagentSpawnLlmResult({
+        status: "error",
+        error: "Cannot start a subagent right now.",
+        // Simulate upstream code that incorrectly leaked these fields:
+        childSessionKey: "agent:main:subagent:11111111-1111-4111-8111-111111111111",
+        runId: "33333333-3333-4333-8333-333333333333",
+      } as never);
+      expectSanitized(JSON.stringify(safe));
+      expect(safe.status).toBe("error");
+      expect(safe.error).toBe("Cannot start a subagent right now.");
+    });
+
+    it("strips internal hints when subagent spawn returns forbidden with leaked fields", async () => {
+      const { buildSubagentSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildSubagentSpawnLlmResult({
+        status: "forbidden",
+        error: "Subagent depth limit reached.",
+        childSessionKey: "agent:main:subagent:44444444-4444-4444-8444-444444444444",
+      } as never);
+      expectSanitized(JSON.stringify(safe));
+      expect(safe.status).toBe("forbidden");
+      expect(safe.error).toBe("Subagent depth limit reached.");
+    });
+
+    it("strips internal hints when ACP spawn returns error with leaked fields", async () => {
+      const { buildAcpSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildAcpSpawnLlmResult({
+        status: "error",
+        error: "Cannot start a subagent right now.",
+        childSessionKey: "agent:codex:subagent:55555555-5555-4555-8555-555555555555",
+        runId: "66666666-6666-4666-8666-666666666666",
+      } as never);
+      expectSanitized(JSON.stringify(safe));
+      expect(safe.status).toBe("error");
+      expect(safe.error).toBe("Cannot start a subagent right now.");
+    });
+
+    it("preserves childSessionKey on subagent success", async () => {
+      const { buildSubagentSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildSubagentSpawnLlmResult({
+        status: "accepted",
+        childSessionKey: "agent:main:subagent:1",
+        runId: "run-subagent",
+      } as never);
+      expect(safe.status).toBe("accepted");
+      expect(safe.childSessionKey).toBe("agent:main:subagent:1");
+      expect(safe.runId).toBe("run-subagent");
+    });
+
+    it("preserves childSessionKey on ACP success", async () => {
+      const { buildAcpSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildAcpSpawnLlmResult({
+        status: "accepted",
+        childSessionKey: "agent:codex:acp:1",
+        runId: "run-acp",
+      } as never);
+      expect(safe.status).toBe("accepted");
+      expect(safe.childSessionKey).toBe("agent:codex:acp:1");
+      expect(safe.runId).toBe("run-acp");
+    });
+  });
+
   it("keeps attachment content schema unconstrained for llama.cpp grammar safety", () => {
     const tool = createSessionsSpawnTool();
     const schema = tool.parameters as {

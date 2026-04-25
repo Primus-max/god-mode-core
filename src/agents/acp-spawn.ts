@@ -307,6 +307,33 @@ function summarizeError(err: unknown): string {
   return "error";
 }
 
+// User-safe error messages. Verbose internals (raw gateway / hook / binding
+// errors, internal session ids, UUIDs) must NEVER appear in returned `error`
+// strings — they are routed to logs only via `logAcpSpawnFailure` below.
+const SAFE_ACP_CANNOT_START = "Cannot start a subagent right now.";
+
+type AcpSpawnFailurePhase = "init" | "thread-binding" | "dispatch";
+
+function logAcpSpawnFailure(args: {
+  phase: AcpSpawnFailurePhase;
+  message: string;
+  childSessionKey?: string;
+  runId?: string;
+  extra?: Record<string, unknown>;
+}): void {
+  const meta: Record<string, unknown> = { phase: args.phase };
+  if (args.childSessionKey) {
+    meta.childSessionKey = args.childSessionKey;
+  }
+  if (args.runId) {
+    meta.runId = args.runId;
+  }
+  if (args.extra) {
+    Object.assign(meta, args.extra);
+  }
+  log.warn(`[acp-spawn] ${args.message}`, meta);
+}
+
 function resolveRequesterInternalSessionKey(params: {
   cfg: OpenClawConfig;
   requesterSessionKey?: string;
@@ -831,9 +858,15 @@ export async function spawnAcpDirect(
       deleteTranscript: true,
       runtimeCloseHandle: initializedRuntime,
     });
+    logAcpSpawnFailure({
+      phase: preparedBinding ? "thread-binding" : "init",
+      message: isSessionBindingError(err) ? err.message : summarizeError(err),
+      childSessionKey: sessionKey,
+      extra: { sessionCreated },
+    });
     return {
       status: "error",
-      error: isSessionBindingError(err) ? err.message : summarizeError(err),
+      error: SAFE_ACP_CANNOT_START,
     };
   }
 
@@ -891,10 +924,15 @@ export async function spawnAcpDirect(
       shouldDeleteSession: true,
       deleteTranscript: true,
     });
+    logAcpSpawnFailure({
+      phase: "dispatch",
+      message: summarizeError(err),
+      childSessionKey: sessionKey,
+      runId: childRunId,
+    });
     return {
       status: "error",
-      error: summarizeError(err),
-      childSessionKey: sessionKey,
+      error: SAFE_ACP_CANNOT_START,
     };
   }
 

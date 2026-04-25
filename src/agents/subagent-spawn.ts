@@ -230,6 +230,44 @@ function summarizeError(err: unknown): string {
   return "error";
 }
 
+// User-safe error messages. Verbose internals (hook names, internal session ids,
+// raw gateway errors, UUIDs) must NEVER appear in returned `error` strings — they
+// are routed to logs only via `logSubagentSpawnFailure` below.
+const SAFE_ERROR_SESSIONS_UNAVAILABLE =
+  "Persistent subagent sessions are not available in this channel yet.";
+const SAFE_ERROR_CANNOT_START = "Cannot start a subagent right now.";
+
+type SpawnFailurePhase =
+  | "patch"
+  | "thread-binding"
+  | "register"
+  | "dispatch"
+  | "attachments"
+  | "runtime-model";
+
+function logSubagentSpawnFailure(args: {
+  phase: SpawnFailurePhase;
+  message: string;
+  childSessionKey?: string;
+  runId?: string;
+  extra?: Record<string, unknown>;
+}): void {
+  const payload: Record<string, unknown> = {
+    phase: args.phase,
+    message: args.message,
+  };
+  if (args.childSessionKey) {
+    payload.childSessionKey = args.childSessionKey;
+  }
+  if (args.runId) {
+    payload.runId = args.runId;
+  }
+  if (args.extra) {
+    Object.assign(payload, args.extra);
+  }
+  console.warn("[subagent-spawn]", payload);
+}
+
 async function ensureThreadBindingForSubagentSpawn(params: {
   hookRunner: ReturnType<typeof getGlobalHookRunner>;
   childSessionKey: string;
@@ -246,10 +284,15 @@ async function ensureThreadBindingForSubagentSpawn(params: {
 }): Promise<{ status: "ok" } | { status: "error"; error: string }> {
   const hookRunner = params.hookRunner;
   if (!hookRunner?.hasHooks("subagent_spawning")) {
+    logSubagentSpawnFailure({
+      phase: "thread-binding",
+      message:
+        "thread=true is unavailable because no channel plugin registered subagent_spawning hooks.",
+      childSessionKey: params.childSessionKey,
+    });
     return {
       status: "error",
-      error:
-        "thread=true is unavailable because no channel plugin registered subagent_spawning hooks.",
+      error: SAFE_ERROR_SESSIONS_UNAVAILABLE,
     };
   }
 
@@ -269,24 +312,38 @@ async function ensureThreadBindingForSubagentSpawn(params: {
       },
     );
     if (result?.status === "error") {
-      const error = result.error.trim();
+      logSubagentSpawnFailure({
+        phase: "thread-binding",
+        message: result.error?.trim() || "subagent_spawning hook returned error",
+        childSessionKey: params.childSessionKey,
+      });
       return {
         status: "error",
-        error: error || "Failed to prepare thread binding for this subagent session.",
+        error: SAFE_ERROR_SESSIONS_UNAVAILABLE,
       };
     }
     if (result?.status !== "ok" || !result.threadBindingReady) {
+      logSubagentSpawnFailure({
+        phase: "thread-binding",
+        message: "subagent_spawning hook did not complete thread binding",
+        childSessionKey: params.childSessionKey,
+        extra: { hookStatus: result?.status ?? "missing" },
+      });
       return {
         status: "error",
-        error:
-          "Unable to create or bind a thread for this subagent session. Session mode is unavailable for this target.",
+        error: SAFE_ERROR_SESSIONS_UNAVAILABLE,
       };
     }
     return { status: "ok" };
   } catch (err) {
+    logSubagentSpawnFailure({
+      phase: "thread-binding",
+      message: `Thread bind threw: ${summarizeError(err)}`,
+      childSessionKey: params.childSessionKey,
+    });
     return {
       status: "error",
-      error: `Thread bind failed: ${summarizeError(err)}`,
+      error: SAFE_ERROR_CANNOT_START,
     };
   }
 }
@@ -506,10 +563,15 @@ export async function spawnSubagentDirect(
 
   const initialPatchError = await patchChildSession(initialChildSessionPatch);
   if (initialPatchError) {
+    logSubagentSpawnFailure({
+      phase: "patch",
+      message: initialPatchError,
+      childSessionKey,
+      extra: { step: "initial-session-patch" },
+    });
     return {
       status: "error",
-      error: initialPatchError,
-      childSessionKey,
+      error: SAFE_ERROR_CANNOT_START,
     };
   }
   if (resolvedModel) {
@@ -528,10 +590,14 @@ export async function spawnSubagentDirect(
       } catch {
         // Best-effort cleanup only.
       }
+      logSubagentSpawnFailure({
+        phase: "runtime-model",
+        message: runtimeModelPersistError,
+        childSessionKey,
+      });
       return {
         status: "error",
-        error: runtimeModelPersistError,
-        childSessionKey,
+        error: SAFE_ERROR_CANNOT_START,
       };
     }
     modelApplied = true;
@@ -561,10 +627,11 @@ export async function spawnSubagentDirect(
       } catch {
         // Best-effort cleanup only.
       }
+      // bindResult.error is already a SAFE_ERROR_* string assembled by
+      // ensureThreadBindingForSubagentSpawn (which logs the verbose detail).
       return {
         status: "error",
         error: bindResult.error,
-        childSessionKey,
       };
     }
     threadBindingReady = true;
@@ -604,6 +671,12 @@ export async function spawnSubagentDirect(
     await cleanupProvisionalSession(childSessionKey, {
       emitLifecycleHooks: threadBindingReady,
       deleteTranscript: true,
+    });
+    logSubagentSpawnFailure({
+      phase: "attachments",
+      message: materializedAttachments.error,
+      childSessionKey,
+      extra: { attachmentStatus: materializedAttachments.status },
     });
     return {
       status: materializedAttachments.status,
@@ -657,10 +730,15 @@ export async function spawnSubagentDirect(
       emitLifecycleHooks: threadBindingReady,
       deleteTranscript: true,
     });
+    logSubagentSpawnFailure({
+      phase: "patch",
+      message: spawnLineagePatchError,
+      childSessionKey,
+      extra: { step: "spawn-lineage-patch" },
+    });
     return {
       status: "error",
-      error: spawnLineagePatchError,
-      childSessionKey,
+      error: SAFE_ERROR_CANNOT_START,
     };
   }
 
@@ -751,11 +829,15 @@ export async function spawnSubagentDirect(
       // Best-effort only.
     }
     const messageText = summarizeError(err);
-    return {
-      status: "error",
-      error: messageText,
+    logSubagentSpawnFailure({
+      phase: "dispatch",
+      message: messageText,
       childSessionKey,
       runId: childRunId,
+    });
+    return {
+      status: "error",
+      error: SAFE_ERROR_CANNOT_START,
     };
   }
 
@@ -779,7 +861,7 @@ export async function spawnSubagentDirect(
       attachmentsRootDir: attachmentRootDir,
       retainAttachmentsOnKeep: retainOnSessionKeep,
     });
-  } catch {
+  } catch (err) {
     if (attachmentAbsDir) {
       try {
         await fs.rm(attachmentAbsDir, { recursive: true, force: true });
@@ -803,9 +885,15 @@ export async function spawnSubagentDirect(
     } catch {
       // Best-effort cleanup only.
     }
+    logSubagentSpawnFailure({
+      phase: "register",
+      message: `registerSubagentRun threw: ${summarizeError(err)}`,
+      childSessionKey,
+      runId: childRunId,
+    });
     return {
       status: "error",
-      error: "Failed to register subagent run.",
+      error: SAFE_ERROR_CANNOT_START,
     };
   }
 

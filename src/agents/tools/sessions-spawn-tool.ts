@@ -1,11 +1,80 @@
 import { Type } from "@sinclair/typebox";
 import type { GatewayMessageChannel } from "../../utils/message-channel.js";
-import { ACP_SPAWN_MODES, ACP_SPAWN_STREAM_TARGETS, spawnAcpDirect } from "../acp-spawn.js";
+import {
+  ACP_SPAWN_MODES,
+  ACP_SPAWN_STREAM_TARGETS,
+  type SpawnAcpResult,
+  spawnAcpDirect,
+} from "../acp-spawn.js";
 import { optionalStringEnum } from "../schema/typebox.js";
 import type { SpawnedToolContext } from "../spawned-context.js";
-import { SUBAGENT_SPAWN_MODES, spawnSubagentDirect } from "../subagent-spawn.js";
+import {
+  SUBAGENT_SPAWN_MODES,
+  type SpawnSubagentResult,
+  spawnSubagentDirect,
+} from "../subagent-spawn.js";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readStringParam, ToolInputError } from "./common.js";
+
+// Cherry-pick fields that are safe to surface to the LLM/user.
+// On error/forbidden we deliberately drop childSessionKey, runId, and any other
+// internal hint added by upstream branches; verbose details belong in logs.
+export function buildSubagentSpawnLlmResult(result: SpawnSubagentResult): Record<string, unknown> {
+  if (result.status === "accepted") {
+    const out: Record<string, unknown> = { status: result.status };
+    if (result.childSessionKey) {
+      out.childSessionKey = result.childSessionKey;
+    }
+    if (result.runId) {
+      out.runId = result.runId;
+    }
+    if (result.mode) {
+      out.mode = result.mode;
+    }
+    if (result.note) {
+      out.note = result.note;
+    }
+    if (result.modelApplied !== undefined) {
+      out.modelApplied = result.modelApplied;
+    }
+    if (result.attachments) {
+      out.attachments = result.attachments;
+    }
+    return out;
+  }
+  const out: Record<string, unknown> = { status: result.status };
+  if (result.error) {
+    out.error = result.error;
+  }
+  return out;
+}
+
+export function buildAcpSpawnLlmResult(result: SpawnAcpResult): Record<string, unknown> {
+  if (result.status === "accepted") {
+    const out: Record<string, unknown> = { status: result.status };
+    if (result.childSessionKey) {
+      out.childSessionKey = result.childSessionKey;
+    }
+    if (result.runId) {
+      out.runId = result.runId;
+    }
+    if (result.mode) {
+      out.mode = result.mode;
+    }
+    if (result.streamLogPath) {
+      out.streamLogPath = result.streamLogPath;
+    }
+    if (result.note) {
+      out.note = result.note;
+    }
+    return out;
+  }
+  const out: Record<string, unknown> = { status: result.status };
+  if (result.error) {
+    out.error = result.error;
+  }
+  return out;
+}
 
 const SESSIONS_SPAWN_RUNTIMES = ["subagent", "acp"] as const;
 const SESSIONS_SPAWN_SANDBOX_MODES = ["inherit", "require"] as const;
@@ -170,7 +239,7 @@ export function createSessionsSpawnTool(
             sandboxed: opts?.sandboxed,
           },
         );
-        return jsonResult(result);
+        return jsonResult(buildAcpSpawnLlmResult(result));
       }
 
       const result = await spawnSubagentDirect(
@@ -206,7 +275,7 @@ export function createSessionsSpawnTool(
         },
       );
 
-      return jsonResult(result);
+      return jsonResult(buildSubagentSpawnLlmResult(result));
     },
   };
 }
