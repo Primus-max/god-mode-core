@@ -88,7 +88,16 @@ export type SpawnSubagentContext = {
 export const SUBAGENT_SPAWN_ACCEPTED_NOTE =
   "Auto-announce is push-based. After spawning children, do NOT call sessions_list, sessions_history, exec sleep, or any polling tool. Wait for completion events to arrive as user messages, track expected child session keys, and only send your final answer after ALL expected completions arrive. If a child completion event arrives AFTER your final answer, reply ONLY with NO_REPLY.";
 export const SUBAGENT_SPAWN_SESSION_ACCEPTED_NOTE =
-  "thread-bound session stays active after this task; continue in-thread for follow-ups.";
+  "follow-up session stays active after this task; send more messages to continue.";
+
+/**
+ * Structured discriminator values for error results. Callers should branch on
+ * this enum (NOT parse the `error` string) when they need to react to a
+ * specific failure class — e.g. the sessions_spawn tool transparently retries
+ * a `followup` request as one-shot when the channel reports
+ * `thread_binding_unsupported`.
+ */
+export type SpawnSubagentErrorReason = "thread_binding_unsupported";
 
 export type SpawnSubagentResult = {
   status: "accepted" | "forbidden" | "error";
@@ -98,6 +107,7 @@ export type SpawnSubagentResult = {
   note?: string;
   modelApplied?: boolean;
   error?: string;
+  errorReason?: SpawnSubagentErrorReason;
   attachments?: {
     count: number;
     totalBytes: number;
@@ -281,7 +291,10 @@ async function ensureThreadBindingForSubagentSpawn(params: {
     to?: string;
     threadId?: string | number;
   };
-}): Promise<{ status: "ok" } | { status: "error"; error: string }> {
+}): Promise<
+  | { status: "ok" }
+  | { status: "error"; error: string; errorReason?: SpawnSubagentErrorReason }
+> {
   const hookRunner = params.hookRunner;
   if (!hookRunner?.hasHooks("subagent_spawning")) {
     logSubagentSpawnFailure({
@@ -293,6 +306,7 @@ async function ensureThreadBindingForSubagentSpawn(params: {
     return {
       status: "error",
       error: SAFE_ERROR_SESSIONS_UNAVAILABLE,
+      errorReason: "thread_binding_unsupported",
     };
   }
 
@@ -320,6 +334,7 @@ async function ensureThreadBindingForSubagentSpawn(params: {
       return {
         status: "error",
         error: SAFE_ERROR_SESSIONS_UNAVAILABLE,
+        errorReason: "thread_binding_unsupported",
       };
     }
     if (result?.status !== "ok" || !result.threadBindingReady) {
@@ -332,6 +347,7 @@ async function ensureThreadBindingForSubagentSpawn(params: {
       return {
         status: "error",
         error: SAFE_ERROR_SESSIONS_UNAVAILABLE,
+        errorReason: "thread_binding_unsupported",
       };
     }
     return { status: "ok" };
@@ -632,6 +648,7 @@ export async function spawnSubagentDirect(
       return {
         status: "error",
         error: bindResult.error,
+        ...(bindResult.errorReason ? { errorReason: bindResult.errorReason } : {}),
       };
     }
     threadBindingReady = true;

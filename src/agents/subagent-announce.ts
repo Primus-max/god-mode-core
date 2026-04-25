@@ -1094,7 +1094,7 @@ export function buildSubagentSystemPrompt(params: {
             "Do not ask users to run slash commands or CLI when `sessions_spawn` can do it directly.",
             "Do not use `exec` (`openclaw ...`, `acpx ...`) to spawn ACP sessions.",
             'Use `subagents` only for OpenClaw subagents (`runtime: "subagent"`).',
-            "Subagent results auto-announce back to you; ACP sessions continue in their bound thread.",
+            "Subagent results auto-announce back to you; ACP follow-up sessions continue in the same conversation.",
             "Avoid polling loops; spawn, orchestrate, and synthesize results.",
           ]
         : []),

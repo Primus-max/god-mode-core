@@ -253,7 +253,7 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("not agents_list");
   });
 
-  it("guides harness requests to ACP thread-bound spawns", () => {
+  it("guides harness requests to ACP follow-up spawns", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",
       toolNames: ["sessions_spawn", "subagents", "agents_list", "exec"],
@@ -263,13 +263,13 @@ describe("buildAgentSystemPrompt", () => {
       'For requests like "do this in codex/claude code/gemini", treat it as ACP harness intent',
     );
     expect(prompt).toContain(
-      'On Discord, default ACP harness requests to thread-bound persistent sessions (`thread: true`, `mode: "session"`)',
+      'On Discord, default ACP harness requests to follow-up sessions (`continuation: "followup"`)',
     );
     expect(prompt).toContain(
       "do not route ACP harness requests through `subagents`/`agents_list` or local PTY exec flows",
     );
     expect(prompt).toContain(
-      'do not call `message` with `action=thread-create`; use `sessions_spawn` (`runtime: "acp"`, `thread: true`) as the single thread creation path',
+      'do not call `message` with `action=thread-create`; use `sessions_spawn` (`runtime: "acp"`, `continuation: "followup"`) as the single creation path',
     );
   });
 
@@ -304,7 +304,7 @@ describe("buildAgentSystemPrompt", () => {
       'For requests like "do this in codex/claude code/gemini", treat it as ACP harness intent',
     );
     expect(prompt).not.toContain(
-      'do not call `message` with `action=thread-create`; use `sessions_spawn` (`runtime: "acp"`, `thread: true`) as the single thread creation path',
+      'do not call `message` with `action=thread-create`; use `sessions_spawn` (`runtime: "acp"`, `continuation: "followup"`) as the single creation path',
     );
     expect(prompt).toContain("ACP harness spawns are blocked from sandboxed sessions");
     expect(prompt).toContain('`runtime: "acp"`');

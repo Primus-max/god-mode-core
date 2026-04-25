@@ -10,14 +10,14 @@ const hoisted = vi.hoisted(() => {
 });
 
 vi.mock("../subagent-spawn.js", () => ({
-  SUBAGENT_SPAWN_MODES: ["run", "session"],
   spawnSubagentDirect: (...args: unknown[]) => hoisted.spawnSubagentDirectMock(...args),
+  SUBAGENT_SPAWN_MODES: ["run", "session"],
 }));
 
 vi.mock("../acp-spawn.js", () => ({
+  spawnAcpDirect: (...args: unknown[]) => hoisted.spawnAcpDirectMock(...args),
   ACP_SPAWN_MODES: ["run", "session"],
   ACP_SPAWN_STREAM_TARGETS: ["parent"],
-  spawnAcpDirect: (...args: unknown[]) => hoisted.spawnAcpDirectMock(...args),
 }));
 
 const { createSessionsSpawnTool } = await import("./sessions-spawn-tool.js");
@@ -36,7 +36,7 @@ describe("sessions_spawn tool", () => {
     });
   });
 
-  it("uses subagent runtime by default", async () => {
+  it("uses subagent runtime by default and maps continuation=followup to {thread:true, mode:session}", async () => {
     const tool = createSessionsSpawnTool({
       agentSessionKey: "agent:main:main",
       agentChannel: "discord",
@@ -51,8 +51,7 @@ describe("sessions_spawn tool", () => {
       model: "anthropic/claude-sonnet-4-6",
       thinking: "medium",
       runTimeoutSeconds: 5,
-      thread: true,
-      mode: "session",
+      continuation: "followup",
       cleanup: "keep",
     });
 
@@ -60,6 +59,7 @@ describe("sessions_spawn tool", () => {
       status: "accepted",
       childSessionKey: "agent:main:subagent:1",
       runId: "run-subagent",
+      effectiveContinuation: "followup",
     });
     expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -77,6 +77,137 @@ describe("sessions_spawn tool", () => {
       }),
     );
     expect(hoisted.spawnAcpDirectMock).not.toHaveBeenCalled();
+  });
+
+  it('maps continuation="one_shot" to {thread:false, mode:"run"}', async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    const result = await tool.execute("call-os", {
+      task: "single check",
+      continuation: "one_shot",
+    });
+
+    expect(result.details).toMatchObject({
+      status: "accepted",
+      effectiveContinuation: "one_shot",
+    });
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "single check",
+        thread: false,
+        mode: "run",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("defaults continuation to one_shot when not provided", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    const result = await tool.execute("call-default", {
+      task: "default behavior",
+    });
+
+    expect(result.details).toMatchObject({
+      status: "accepted",
+      effectiveContinuation: "one_shot",
+    });
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "default behavior",
+        thread: false,
+        mode: "run",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("retries followup as one_shot when channel reports thread_binding_unsupported", async () => {
+    hoisted.spawnSubagentDirectMock
+      .mockReset()
+      .mockResolvedValueOnce({
+        status: "error",
+        error: "Subagent sessions are unavailable in this channel.",
+        errorReason: "thread_binding_unsupported",
+      })
+      .mockResolvedValueOnce({
+        status: "accepted",
+        childSessionKey: "agent:main:subagent:fallback",
+        runId: "run-fallback",
+      });
+
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    const result = await tool.execute("call-fallback", {
+      task: "would prefer followup",
+      continuation: "followup",
+    });
+
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledTimes(2);
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ thread: true, mode: "session" }),
+      expect.any(Object),
+    );
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ thread: false, mode: "run" }),
+      expect.any(Object),
+    );
+
+    expect(result.details).toMatchObject({
+      status: "accepted",
+      childSessionKey: "agent:main:subagent:fallback",
+      runId: "run-fallback",
+      effectiveContinuation: "one_shot",
+      note: "Follow-up unavailable in this channel; ran one-shot instead.",
+    });
+    const detailsJson = JSON.stringify(result.details);
+    expect(detailsJson).not.toContain("thread");
+    expect(detailsJson).not.toContain("mode");
+  });
+
+  it("rejects legacy thread parameter with a clear error pointing to continuation", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    await expect(
+      tool.execute("call-legacy-thread", {
+        task: "legacy",
+        thread: true,
+      }),
+    ).rejects.toThrow(/continuation/);
+    expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy mode parameter with a clear error pointing to continuation", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    await expect(
+      tool.execute("call-legacy-mode", {
+        task: "legacy",
+        mode: "session",
+      }),
+    ).rejects.toThrow(/continuation/);
+    expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+  });
+
+  it("does not advertise legacy thread/mode keys on the tool schema", () => {
+    const tool = createSessionsSpawnTool();
+    const schema = tool.parameters as { properties?: Record<string, unknown> };
+    expect(schema.properties).toBeDefined();
+    expect(schema.properties).not.toHaveProperty("thread");
+    expect(schema.properties).not.toHaveProperty("mode");
+    expect(schema.properties).toHaveProperty("continuation");
   });
 
   it("passes inherited workspaceDir from tool context, not from tool args", async () => {
@@ -112,8 +243,7 @@ describe("sessions_spawn tool", () => {
       task: "investigate the failing CI run",
       agentId: "codex",
       cwd: "/workspace",
-      thread: true,
-      mode: "session",
+      continuation: "followup",
       streamTo: "parent",
     });
 

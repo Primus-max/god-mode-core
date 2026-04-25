@@ -65,10 +65,18 @@ function mockAgentStartFailure() {
   });
 }
 
-async function runSessionThreadSpawnAndGetError(params: {
+async function runSessionThreadSpawnFallbackAndGetDetails(params: {
   toolCallId: string;
   spawningResult: { status: "error"; error: string } | { status: "ok"; threadBindingReady: false };
-}): Promise<{ error?: string; childSessionKey?: string }> {
+}): Promise<{
+  status?: string;
+  error?: string;
+  childSessionKey?: string;
+  effectiveContinuation?: string;
+  note?: string;
+}> {
+  // Only the FIRST attempt (continuation=followup → thread=true) consults
+  // subagent_spawning; the one-shot retry skips thread binding entirely.
   hookRunnerMocks.runSubagentSpawning.mockResolvedValueOnce(params.spawningResult);
   const tool = await getSessionsSpawnTool({
     agentSessionKey: "main",
@@ -80,11 +88,15 @@ async function runSessionThreadSpawnAndGetError(params: {
   const result = await tool.execute(params.toolCallId, {
     task: "do thing",
     runTimeoutSeconds: 1,
-    thread: true,
-    mode: "session",
+    continuation: "followup",
   });
-  expect(result.details).toMatchObject({ status: "error" });
-  return result.details as { error?: string; childSessionKey?: string };
+  return result.details as {
+    status?: string;
+    error?: string;
+    childSessionKey?: string;
+    effectiveContinuation?: string;
+    note?: string;
+  };
 }
 
 async function getDiscordThreadSessionTool() {
@@ -101,8 +113,7 @@ async function executeDiscordThreadSessionSpawn(toolCallId: string) {
   const tool = await getDiscordThreadSessionTool();
   return await tool.execute(toolCallId, {
     task: "do thing",
-    thread: true,
-    mode: "session",
+    continuation: "followup",
   });
 }
 
@@ -181,7 +192,7 @@ describe("sessions_spawn subagent lifecycle hooks", () => {
       task: "do thing",
       label: "research",
       runTimeoutSeconds: 1,
-      thread: true,
+      continuation: "followup",
     });
 
     expect(result.details).toMatchObject({ status: "accepted", runId: "run-1" });
@@ -260,71 +271,56 @@ describe("sessions_spawn subagent lifecycle hooks", () => {
     });
   });
 
-  it("respects explicit mode=run when thread binding is requested", async () => {
-    const tool = await getSessionsSpawnTool({
-      agentSessionKey: "main",
-      agentChannel: "discord",
-      agentTo: "channel:123",
-    });
-
-    const result = await tool.execute("call3", {
-      task: "do thing",
-      runTimeoutSeconds: 1,
-      thread: true,
-      mode: "run",
-    });
-
-    expect(result.details).toMatchObject({ status: "accepted", runId: "run-1", mode: "run" });
-    expect(hookRunnerMocks.runSubagentSpawning).toHaveBeenCalledTimes(1);
-    const event = getSpawnedEventCall();
-    expect(event).toMatchObject({
-      mode: "run",
-      threadRequested: true,
-    });
-  });
-
-  it("returns error when thread binding cannot be created", async () => {
-    const details = await runSessionThreadSpawnAndGetError({
+  it("transparently falls back to one-shot when thread binding cannot be created", async () => {
+    const details = await runSessionThreadSpawnFallbackAndGetDetails({
       toolCallId: "call4",
       spawningResult: {
         status: "error",
         error: "Unable to create or bind a Discord thread for this subagent session.",
       },
     });
-    expectThreadBindFailureCleanup(details, /not available in this channel/i);
+    expect(details).toMatchObject({
+      status: "accepted",
+      effectiveContinuation: "one_shot",
+      note: "Follow-up unavailable in this channel; ran one-shot instead.",
+    });
   });
 
-  it("returns error when thread binding is not marked ready", async () => {
-    const details = await runSessionThreadSpawnAndGetError({
+  it("transparently falls back to one-shot when thread binding is not marked ready", async () => {
+    const details = await runSessionThreadSpawnFallbackAndGetDetails({
       toolCallId: "call4b",
       spawningResult: {
         status: "ok",
         threadBindingReady: false,
       },
     });
-    expectThreadBindFailureCleanup(details, /not available in this channel/i);
+    expect(details).toMatchObject({
+      status: "accepted",
+      effectiveContinuation: "one_shot",
+      note: "Follow-up unavailable in this channel; ran one-shot instead.",
+    });
   });
 
-  it("rejects mode=session when thread=true is not requested", async () => {
+  it("rejects legacy mode parameter at the schema boundary", async () => {
     const tool = await getSessionsSpawnTool({
       agentSessionKey: "main",
       agentChannel: "discord",
       agentTo: "channel:123",
     });
 
-    const result = await tool.execute("call6", {
-      task: "do thing",
-      mode: "session",
-    });
-
-    expectErrorResultMessage(result, /requires thread=true/i);
+    await expect(
+      tool.execute("call6", {
+        task: "do thing",
+        mode: "session",
+      }),
+    ).rejects.toThrow(/continuation/);
     expect(hookRunnerMocks.runSubagentSpawning).not.toHaveBeenCalled();
     expect(hookRunnerMocks.runSubagentSpawned).not.toHaveBeenCalled();
     const callGatewayMock = getCallGatewayMock();
     expect(callGatewayMock).not.toHaveBeenCalled();
   });
 
-  it("rejects thread=true on channels without thread support", async () => {
+  it("falls back to one-shot when followup is requested on a channel without thread support", async () => {
     const tool = await getSessionsSpawnTool({
       agentSessionKey: "main",
       agentChannel: "signal",
@@ -333,14 +329,17 @@ describe("sessions_spawn subagent lifecycle hooks", () => {
 
     const result = await tool.execute("call5", {
       task: "do thing",
-      thread: true,
-      mode: "session",
+      continuation: "followup",
     });
 
-    expectErrorResultMessage(result, /not available in this channel/i);
+    // Channels without thread binding now silently degrade rather than
+    // surfacing an error. The first attempt still triggers the hook (which
+    // reports thread_binding_unsupported); the retry runs as one-shot.
+    expect(result.details).toMatchObject({
+      effectiveContinuation: "one_shot",
+      note: "Follow-up unavailable in this channel; ran one-shot instead.",
+    });
     expect(hookRunnerMocks.runSubagentSpawning).toHaveBeenCalledTimes(1);
-    expect(hookRunnerMocks.runSubagentSpawned).not.toHaveBeenCalled();
-    expectSessionsDeleteWithoutAgentStart();
   });
 
   it("runs subagent_ended cleanup hook when agent start fails after successful bind", async () => {
