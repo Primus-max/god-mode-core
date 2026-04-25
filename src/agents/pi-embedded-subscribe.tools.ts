@@ -10,7 +10,7 @@ import type { PlatformRuntimeExecutionReceipt } from "../platform/runtime/index.
 import { truncateUtf16Safe } from "../utils.js";
 import { collectTextContentBlocks } from "./content-blocks.js";
 import { type MessagingToolSend } from "./pi-embedded-messaging.js";
-import { sanitizeToolErrorForUser } from "./tool-error-sanitizer.js";
+import { sanitizeToolErrorForUser, sanitizeToolErrorReasonForReceipt } from "./tool-error-sanitizer.js";
 import { normalizeToolName } from "./tool-policy.js";
 
 const TOOL_RESULT_MAX_CHARS = 8000;
@@ -43,32 +43,36 @@ function isErrorLikeStatus(status: string): boolean {
   return /error|fail|timeout|timed[_\s-]?out|denied|cancel|invalid|forbidden/.test(normalized);
 }
 
-function readErrorCandidate(value: unknown): string | undefined {
+function readErrorCandidate(value: unknown, sanitize: boolean): string | undefined {
   if (typeof value === "string") {
-    return normalizeToolErrorText(value);
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    return sanitize ? normalizeToolErrorText(trimmed) : trimmed.split(/\r?\n/)[0]?.trim() ?? trimmed;
   }
   if (!value || typeof value !== "object") {
     return undefined;
   }
   const record = value as Record<string, unknown>;
   if (typeof record.message === "string") {
-    return normalizeToolErrorText(record.message);
+    return readErrorCandidate(record.message, sanitize);
   }
   if (typeof record.error === "string") {
-    return normalizeToolErrorText(record.error);
+    return readErrorCandidate(record.error, sanitize);
   }
   return undefined;
 }
 
-function extractErrorField(value: unknown): string | undefined {
+function extractErrorField(value: unknown, sanitize: boolean): string | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
   }
   const record = value as Record<string, unknown>;
   const direct =
-    readErrorCandidate(record.error) ??
-    readErrorCandidate(record.message) ??
-    readErrorCandidate(record.reason);
+    readErrorCandidate(record.error, sanitize) ??
+    readErrorCandidate(record.message, sanitize) ??
+    readErrorCandidate(record.reason, sanitize);
   if (direct) {
     return direct;
   }
@@ -76,7 +80,7 @@ function extractErrorField(value: unknown): string | undefined {
   if (!status || !isErrorLikeStatus(status)) {
     return undefined;
   }
-  return normalizeToolErrorText(status);
+  return sanitize ? normalizeToolErrorText(status) : status;
 }
 
 export function sanitizeToolResult(result: unknown): unknown {
@@ -365,16 +369,17 @@ export function isToolResultError(result: unknown): boolean {
   return normalized === "error" || normalized === "timeout";
 }
 
-export function extractToolErrorMessage(result: unknown): string | undefined {
+/** Raw tool error text for logging and receipt classification — may contain internal policy strings. */
+export function extractToolErrorRawMessage(result: unknown): string | undefined {
   if (!result || typeof result !== "object") {
     return undefined;
   }
   const record = result as Record<string, unknown>;
-  const fromDetails = extractErrorField(record.details);
+  const fromDetails = extractErrorField(record.details, false);
   if (fromDetails) {
     return fromDetails;
   }
-  const fromRoot = extractErrorField(record);
+  const fromRoot = extractErrorField(record, false);
   if (fromRoot) {
     return fromRoot;
   }
@@ -384,7 +389,38 @@ export function extractToolErrorMessage(result: unknown): string | undefined {
   }
   try {
     const parsed = JSON.parse(text) as unknown;
-    const fromJson = extractErrorField(parsed);
+    const fromJson = extractErrorField(parsed, false);
+    if (fromJson) {
+      return fromJson;
+    }
+  } catch {
+    // Fall through to first-line text fallback.
+  }
+  const first = text.trim().split(/\r?\n/)[0]?.trim();
+  return first || undefined;
+}
+
+/** User-facing sanitized tool error (never internal policy phrasing). */
+export function extractToolErrorMessage(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") {
+    return undefined;
+  }
+  const record = result as Record<string, unknown>;
+  const fromDetails = extractErrorField(record.details, true);
+  if (fromDetails) {
+    return fromDetails;
+  }
+  const fromRoot = extractErrorField(record, true);
+  if (fromRoot) {
+    return fromRoot;
+  }
+  const text = extractToolResultText(result);
+  if (!text) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    const fromJson = extractErrorField(parsed, true);
     if (fromJson) {
       return fromJson;
     }
@@ -497,12 +533,13 @@ export function buildToolExecutionReceipt(params: {
   const reasons: string[] = [];
   const normalizedToolName = normalizeToolName(params.toolName) || "unknown_tool";
   const statusText = readToolResultStatus(params.result);
-  const errorMessage = params.isToolError ? extractToolErrorMessage(params.result) : undefined;
+  const rawToolError = params.isToolError ? extractToolErrorRawMessage(params.result) : undefined;
+  const receiptReason = rawToolError ? sanitizeToolErrorReasonForReceipt(rawToolError) : undefined;
   let status: PlatformRuntimeExecutionReceipt["status"] = "success";
   if (params.isToolError) {
     status = "failed";
-    if (errorMessage) {
-      reasons.push(errorMessage);
+    if (receiptReason) {
+      reasons.push(receiptReason);
     }
   } else if (isToolResultNoProgress(normalizedToolName, params.result)) {
     status = "blocked";

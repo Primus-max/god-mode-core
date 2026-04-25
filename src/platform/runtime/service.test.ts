@@ -666,6 +666,56 @@ describe("platform runtime checkpoint service", () => {
     );
   });
 
+  it("fails execution verification when routingOutcome is contract_unsatisfiable", () => {
+    const service = createPlatformRuntimeCheckpointService();
+    const outcome: PlatformRuntimeRunOutcome = {
+      runId: "run-routing-unsat",
+      status: "completed",
+      checkpointIds: [],
+      blockedCheckpointIds: [],
+      completedCheckpointIds: [],
+      deniedCheckpointIds: [],
+      pendingApprovalIds: [],
+      artifactIds: [],
+      bootstrapRequestIds: [],
+      actionIds: [],
+      attemptedActionIds: [],
+      confirmedActionIds: [],
+      failedActionIds: [],
+      boundaries: [],
+    };
+    const executionIntent = service.buildExecutionIntent({
+      runId: "run-routing-unsat",
+      executionIntent: {
+        expectations: {},
+        routingOutcome: {
+          kind: "contract_unsatisfiable",
+          reasons: ["contract_requires_tools"],
+        },
+      },
+    });
+    const verification = service.verifyExecutionContract({
+      contract: {
+        runId: "run-routing-unsat",
+        receipts: [
+          {
+            kind: "tool",
+            name: "write",
+            status: "success",
+            proof: "reported",
+            summary: "ok",
+          },
+        ],
+        expectations: {},
+      },
+      outcome,
+      evidence: { hasOutput: true },
+      executionIntent,
+    });
+    expect(verification.status).toBe("failed");
+    expect(verification.reasons).toContain("execution_contract_unsatisfied");
+  });
+
   it("does not close physical artifact requests from text-only confirmed delivery", () => {
     const service = createPlatformRuntimeCheckpointService();
     const outcome: PlatformRuntimeRunOutcome = {

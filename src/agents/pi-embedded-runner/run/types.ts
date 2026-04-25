@@ -51,6 +51,7 @@ export type EmbeddedRunAttemptResult = {
     toolName: string;
     meta?: string;
     error?: string;
+    rawError?: string;
     mutatingAction?: boolean;
     actionFingerprint?: string;
   };

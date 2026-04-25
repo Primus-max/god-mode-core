@@ -17,6 +17,7 @@ import {
   sanitizeUserFacingText,
 } from "../../agents/pi-embedded-helpers.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
+import { userFacingToolPolicyOrTransientMessage } from "../../agents/tool-error-sanitizer.js";
 import {
   resolveGroupSessionKey,
   resolveSessionTranscriptPath,
@@ -719,10 +720,10 @@ export async function runAgentTurnWithFallback(params: {
       }
 
       defaultRuntime.error(`Embedded agent failed before reply: ${message}`);
+      const policyOrTransientCopy = userFacingToolPolicyOrTransientMessage(message);
       const safeMessage =
-        isTransientHttp || isFailoverMessage
-          ? sanitizeUserFacingText(message, { errorContext: true })
-          : message;
+        policyOrTransientCopy ??
+        sanitizeUserFacingText(message, { errorContext: true });
       const trimmedMessage = safeMessage.replace(/\.\s*$/, "");
       const fallbackText = isBilling
         ? BILLING_ERROR_USER_MESSAGE

@@ -202,6 +202,7 @@ export type PlatformRuntimeCheckpointService = {
     outcome?: PlatformRuntimeRunOutcome;
     evidence?: PlatformRuntimeAcceptanceEvidence;
     priorEvidence?: PriorEvidenceProbe[];
+    executionIntent?: PlatformRuntimeExecutionIntent;
   }) => PlatformRuntimeExecutionVerification;
   evaluateAcceptance: (params: {
     runId: string;
@@ -1785,6 +1786,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         outcome,
         evidence: verificationEvidence,
         priorEvidence: params.priorEvidence,
+        executionIntent,
       });
       const evidence = this.buildAcceptanceEvidence({
         outcome,
@@ -1852,6 +1854,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
             : {}),
         }),
       );
+      const routingUnsatisfiable =
+        params.executionIntent?.routingOutcome?.kind === "contract_unsatisfiable";
       const evidence = params.evidence ?? {};
       const counts = buildExecutionReceiptCounts(receipts);
       const proofCounts = buildExecutionReceiptProofCounts(receipts);
@@ -2022,6 +2026,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
             "Execution receipts were only derived and cannot verify closure on their own.",
           );
         }
+      }
+
+      if (routingUnsatisfiable) {
+        reasons.push("execution_contract_unsatisfied");
+        status = "failed";
       }
 
       return PlatformRuntimeExecutionVerificationSchema.parse({

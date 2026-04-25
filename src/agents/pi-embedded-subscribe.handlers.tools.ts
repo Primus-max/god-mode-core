@@ -17,6 +17,7 @@ import {
   extractToolResultMediaArtifact,
   extractMessagingToolSend,
   extractToolErrorMessage,
+  extractToolErrorRawMessage,
   extractToolResultText,
   filterToolResultMediaUrls,
   isToolResultError,
@@ -492,11 +493,18 @@ export async function handleToolExecutionEnd(
   ctx.state.toolMetaById.delete(toolCallId);
   ctx.state.toolSummaryById.delete(toolCallId);
   if (isToolError) {
+    const rawError = extractToolErrorRawMessage(sanitizedResult);
     const errorMessage = extractToolErrorMessage(sanitizedResult);
+    if (rawError) {
+      ctx.log.debug(
+        `tool_error tool=${toolName} toolCallId=${toolCallId} raw=${JSON.stringify(rawError)}`,
+      );
+    }
     ctx.state.lastToolError = {
       toolName,
       meta,
       error: errorMessage,
+      rawError: rawError ?? undefined,
       mutatingAction: callSummary?.mutatingAction,
       actionFingerprint: callSummary?.actionFingerprint,
     };

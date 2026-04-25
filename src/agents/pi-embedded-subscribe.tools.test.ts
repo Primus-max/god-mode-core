@@ -3,6 +3,7 @@ import {
   buildToolExecutionReceipt,
   extractToolErrorMessage,
 } from "./pi-embedded-subscribe.tools.js";
+import { sanitizeToolErrorReasonForReceipt } from "./tool-error-sanitizer.js";
 
 describe("extractToolErrorMessage", () => {
   it("ignores non-error status values", () => {
@@ -34,6 +35,31 @@ describe("extractToolErrorMessage", () => {
         isToolError: true,
         result,
       }).reasons,
-    ).toEqual(["This action is not allowed from this chat or tool context."]);
+    ).toEqual(["tool_not_allowed_in_channel"]);
+  });
+
+  it("does not invent receipt reasons for unclassified tool errors", () => {
+    const result = {
+      details: {
+        status: "error",
+        error: "ENOENT: no such file or directory",
+      },
+    };
+
+    expect(sanitizeToolErrorReasonForReceipt("ENOENT: no such file or directory")).toBeUndefined();
+    expect(
+      buildToolExecutionReceipt({
+        toolName: "read",
+        toolCallId: "tool-2",
+        isToolError: true,
+        result,
+      }).reasons,
+    ).toBeUndefined();
+  });
+
+  it("classifies transient tool errors into receipt reasons", () => {
+    expect(sanitizeToolErrorReasonForReceipt("upstream returned HTTP 503")).toBe(
+      "tool_temporarily_unavailable",
+    );
   });
 });

@@ -623,7 +623,11 @@ export async function runEmbeddedPiAgent(
         }
         return result;
       };
-      if (priorSufficiency?.sufficient && priorSufficiency.sufficiencyReason === "prior_evidence") {
+      if (
+        priorSufficiency?.sufficient &&
+        priorSufficiency.sufficiencyReason === "prior_evidence" &&
+        executionIntent?.routingOutcome?.kind !== "contract_unsatisfiable"
+      ) {
         return finalizeRecipeResult({
           payloads: [
             buildAlreadyDoneReply({

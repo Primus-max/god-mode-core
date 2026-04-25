@@ -26,6 +26,7 @@ type LastToolError = {
   toolName: string;
   meta?: string;
   error?: string;
+  rawError?: string;
   mutatingAction?: boolean;
   actionFingerprint?: string;
 };
@@ -44,8 +45,8 @@ const RECOVERABLE_TOOL_ERROR_KEYWORDS = [
   "requires",
 ] as const;
 
-function isRecoverableToolError(error: string | undefined): boolean {
-  const errorLower = (error ?? "").toLowerCase();
+function isRecoverableToolError(params: { error?: string; rawError?: string }): boolean {
+  const errorLower = (params.rawError ?? params.error ?? "").toLowerCase();
   return RECOVERABLE_TOOL_ERROR_KEYWORDS.some((keyword) => errorLower.includes(keyword));
 }
 
@@ -83,7 +84,12 @@ function resolveToolErrorWarningPolicy(params: {
     return { showWarning: false, includeDetails };
   }
   return {
-    showWarning: !params.hasUserFacingReply && !isRecoverableToolError(params.lastToolError.error),
+    showWarning:
+      !params.hasUserFacingReply &&
+      !isRecoverableToolError({
+        error: params.lastToolError.error,
+        rawError: params.lastToolError.rawError,
+      }),
     includeDetails,
   };
 }

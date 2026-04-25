@@ -21,7 +21,10 @@ export type EmbeddedSubscribeLogger = {
 export type ToolErrorSummary = {
   toolName: string;
   meta?: string;
+  /** Sanitized for chat surfaces */
   error?: string;
+  /** Original message for logging and recoverability heuristics only */
+  rawError?: string;
   mutatingAction?: boolean;
   actionFingerprint?: string;
 };
