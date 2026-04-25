@@ -10,10 +10,10 @@ todos:
     status: pending
   - id: sanitize-hard-stops
     content: Unify tool/policy error sanitization and enforce contract_unsatisfiable as non-success.
-    status: pending
+    status: completed
   - id: observability-trace
     content: Add compact decisionTrace for logs, debug, and failed eval cases.
-    status: pending
+    status: completed
   - id: clarify-policy-rework
     content: Classify ambiguities by blocking versus preference and suppress repeated clarify loops.
     status: pending

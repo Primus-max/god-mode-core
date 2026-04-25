@@ -1,4 +1,5 @@
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import type {
   CandidateExecutionFamily,
   OutcomeContract,
@@ -7,16 +8,15 @@ import type {
   QualificationLowConfidenceStrategy,
   RequestedEvidenceKind,
 } from "../decision/qualification-contract.js";
-import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import {
   resolveProfile,
   type ProfileResolution,
   type ProfileResolverInput,
 } from "../profile/resolver.js";
+import { getCurrentTurnProgressEmitter } from "../progress/progress-bus.js";
 import type { ExecutionRecipe, PlannerOutput } from "../schemas/index.js";
 import { PlannerOutputSchema } from "../schemas/index.js";
 import type { ProfileId } from "../schemas/profile.js";
-import { getCurrentTurnProgressEmitter } from "../progress/progress-bus.js";
 import { collectMissingRequiredEnvForDeliverable } from "./credentials-preflight.js";
 import { INITIAL_RECIPES, getInitialRecipe } from "./defaults.js";
 
@@ -97,7 +97,9 @@ function logPlannerSelection(params: {
   }
 }
 import type { ResolutionContract } from "../decision/resolution-contract.js";
+import type { DecisionTrace } from "../decision/trace.js";
 import type { DeliverableSpec } from "../produce/registry.js";
+import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 import {
   deriveFamiliesFromOutcomeContract,
   hasCodeArtifact,
@@ -105,7 +107,6 @@ import {
   hasMediaArtifact,
   selectExecutionFamily,
 } from "./family-selector.js";
-import type { CapabilityCatalogEntry } from "../schemas/capability.js";
 
 /**
  * Diagnostic snapshot of how the classifier described the turn. Stored on the
@@ -213,6 +214,7 @@ export type RecipePlannerInput = ProfileResolverInput & {
   capabilityCatalog?: CapabilityCatalogEntry[];
   preflightEnvSnapshot?: NodeJS.ProcessEnv;
   classifierTelemetry?: ClassifierTelemetry;
+  decisionTrace?: DecisionTrace;
   /**
    * Diagnostic-only: human-readable tag identifying which call site produced this
    * planner input. Threaded into logs so we can see how many distinct entry points
@@ -344,18 +346,11 @@ export const ACK_DEFER_THRESHOLD_ENV = "OPENCLAW_ACK_DEFER_MS";
  *   these are typically <3s and previously over-triggered the ack ("принял
  *   на каждый non-trivial turn", live UX gap from 2026-04-21).
  */
-const LONG_RUN_CAPABILITY_HINTS = new Set<string>([
-  "capability_install",
-  "bootstrap",
-]);
+const LONG_RUN_CAPABILITY_HINTS = new Set<string>(["capability_install", "bootstrap"]);
 
-const LONG_RUN_TOOL_HINTS = new Set<string>([
-  "capability_install",
-]);
+const LONG_RUN_TOOL_HINTS = new Set<string>(["capability_install"]);
 
-const LONG_RUN_OUTCOME_CONTRACTS = new Set<OutcomeContract>([
-  "interactive_local_result",
-]);
+const LONG_RUN_OUTCOME_CONTRACTS = new Set<OutcomeContract>(["interactive_local_result"]);
 
 export function resolveAckDeferThresholdMs(envSnapshot: NodeJS.ProcessEnv = process.env): number {
   const raw = envSnapshot[ACK_DEFER_THRESHOLD_ENV];
@@ -630,10 +625,9 @@ function selectContractFallbackRecipe(params: {
   const executionContract = input.executionContract;
   const bundles = new Set(input.resolutionContract?.toolBundles ?? []);
 
-  const preferredIds =
-    bundles.has("session_orchestration")
-      ? ["ops_orchestration"]
-      : executionContract?.requiresWorkspaceMutation || executionContract?.requiresLocalProcess
+  const preferredIds = bundles.has("session_orchestration")
+    ? ["ops_orchestration"]
+    : executionContract?.requiresWorkspaceMutation || executionContract?.requiresLocalProcess
       ? ["code_build_publish", "integration_delivery", "ops_orchestration"]
       : executionContract?.requiresArtifactEvidence || bundles.has("artifact_authoring")
         ? ["doc_authoring", "doc_ingest", "media_production", "table_compare", "calculation_report"]

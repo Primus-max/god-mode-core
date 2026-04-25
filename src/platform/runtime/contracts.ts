@@ -6,6 +6,7 @@ import {
   QualificationLowConfidenceStrategySchema,
   RequestedEvidenceKindSchema,
 } from "../decision/qualification-contract.js";
+import type { DecisionTrace } from "../decision/trace.js";
 import { DeliverableSpecSchema, ProducedArtifactSchema } from "../produce/registry.js";
 import { ArtifactKindSchema } from "../schemas/artifact.js";
 
@@ -589,6 +590,11 @@ export const RoutingOutcomeSchema = z.discriminatedUnion("kind", [
 ]);
 export type RoutingOutcome = z.infer<typeof RoutingOutcomeSchema>;
 
+const DecisionTraceSchema = z.custom<DecisionTrace>(
+  (value) =>
+    typeof value === "object" && value !== null && (value as { version?: unknown }).version === 1,
+);
+
 export const PlatformRuntimeExecutionIntentSchema = z
   .object({
     runId: z.string().min(1),
@@ -611,6 +617,7 @@ export const PlatformRuntimeExecutionIntentSchema = z
     policyAutonomy: z.enum(["chat", "assist", "guarded"]).optional(),
     classifierTelemetry: ClassifierTelemetrySchema.optional(),
     routingOutcome: RoutingOutcomeSchema.optional(),
+    decisionTrace: DecisionTraceSchema.optional(),
     expectations: PlatformRuntimeExecutionContractExpectationSchema,
   })
   .strict();

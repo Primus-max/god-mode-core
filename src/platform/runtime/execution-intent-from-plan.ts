@@ -66,6 +66,7 @@ export function buildExecutionIntentSeedFromRecipeRuntimePlan(
     ...(runtime.policyAutonomy ? { policyAutonomy: runtime.policyAutonomy } : {}),
     ...(runtime.classifierTelemetry ? { classifierTelemetry: runtime.classifierTelemetry } : {}),
     ...(runtime.routingOutcome ? { routingOutcome: runtime.routingOutcome } : {}),
+    ...(runtime.decisionTrace ? { decisionTrace: runtime.decisionTrace } : {}),
     expectations,
   };
 }

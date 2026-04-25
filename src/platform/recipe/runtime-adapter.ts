@@ -20,6 +20,7 @@ import type {
   RequestedEvidenceKind,
 } from "../decision/qualification-contract.js";
 import type { ResolutionContract } from "../decision/resolution-contract.js";
+import { finalizeDecisionTrace, type DecisionTrace } from "../decision/trace.js";
 import { evaluatePolicy } from "../policy/engine.js";
 import type { PolicyContext, PolicyDecision } from "../policy/types.js";
 import { resolveProducer, type DeliverableSpec } from "../produce/registry.js";
@@ -78,6 +79,7 @@ export type RecipeRuntimePlan = {
   prependSystemContext?: string;
   prependContext?: string;
   classifierTelemetry?: ClassifierTelemetry;
+  decisionTrace?: DecisionTrace;
   /**
    * Structured routing status from the planner. Consumers MUST check
    * {@link RoutingOutcome.kind} before claiming successful execution:
@@ -302,7 +304,7 @@ function buildRequestedToolGuardrails(requestedToolNames?: string[]): string | u
   }
   if (toolSet.has("sessions_spawn")) {
     guardrails.push(
-      "Session orchestration contract: when the user asks for a persistent worker, named subagent, or follow-up/background session, you must call sessions_spawn in this turn. Use continuation=\"followup\" unless the deliverable contract explicitly says otherwise. Do not use cron, publish, repo execution, or a text-only plan as a substitute.",
+      'Session orchestration contract: when the user asks for a persistent worker, named subagent, or follow-up/background session, you must call sessions_spawn in this turn. Use continuation="followup" unless the deliverable contract explicitly says otherwise. Do not use cron, publish, repo execution, or a text-only plan as a substitute.',
     );
   }
   return guardrails.length > 0 ? guardrails.join(" ") : undefined;
@@ -926,6 +928,69 @@ export function adaptExecutionPlanToRuntime(
       ? { classifierTelemetry: params.input.classifierTelemetry }
       : {}),
     ...(plan.routingOutcome ? { routingOutcome: plan.routingOutcome } : {}),
+    ...(params?.input?.decisionTrace
+      ? {
+          decisionTrace: finalizeDecisionTrace({
+            ...params.input.decisionTrace,
+            contracts: {
+              ...params.input.decisionTrace.contracts,
+              ...(outcomeContract ? { outcomeContract } : {}),
+              ...(executionContract ? { executionContract } : {}),
+              ...(requestedEvidence.length ? { requestedEvidence } : {}),
+              ...(params.input.confidence ? { confidence: params.input.confidence } : {}),
+              ...(params.input.ambiguityReasons?.length
+                ? { ambiguityReasons: params.input.ambiguityReasons }
+                : {}),
+              ...(params.input.lowConfidenceStrategy
+                ? { lowConfidenceStrategy: params.input.lowConfidenceStrategy }
+                : {}),
+              ...(deliverable ? { deliverable } : {}),
+            },
+            requestedTools: params.input.requestedTools ?? [],
+            resolution: {
+              ...params.input.decisionTrace.resolution,
+              ...(params.input.candidateFamilies?.length
+                ? { candidateFamilies: params.input.candidateFamilies }
+                : {}),
+              ...(params.input.resolutionContract?.selectedFamily
+                ? { selectedFamily: params.input.resolutionContract.selectedFamily }
+                : {}),
+              ...(params.input.resolutionContract?.toolBundles
+                ? { toolBundles: params.input.resolutionContract.toolBundles }
+                : {}),
+              ...(params.input.resolutionContract?.routing
+                ? { routing: params.input.resolutionContract.routing }
+                : {}),
+              ...(params.input.routing ? { routingHints: params.input.routing } : {}),
+            },
+            planner: {
+              ...params.input.decisionTrace.planner,
+              selectedRecipeId: plan.recipe.id,
+              ...(plan.routingOutcome ? { routingOutcome: plan.routingOutcome } : {}),
+            },
+            policy: {
+              ...params.input.decisionTrace.policy,
+              ...(params.policyPreview
+                ? {
+                    requireExplicitApproval: params.policyPreview.requireExplicitApproval,
+                    autonomy: params.policyPreview.autonomy,
+                  }
+                : {}),
+            },
+            readiness: {
+              ...params.input.decisionTrace.readiness,
+              ...(params.readiness
+                ? {
+                    status: params.readiness.status,
+                    ...(params.readiness.reasons.length
+                      ? { reasons: params.readiness.reasons }
+                      : {}),
+                  }
+                : {}),
+            },
+          }),
+        }
+      : {}),
     ...(typeof plan.estimatedDurationMs === "number"
       ? { estimatedDurationMs: plan.estimatedDurationMs }
       : {}),
@@ -1037,5 +1102,6 @@ export function buildRecipePlannerInputFromRuntimePlan(
     ...(runtime.requestedToolNames?.length ? { requestedTools: runtime.requestedToolNames } : {}),
     ...(runtime.deliverable ? { deliverable: runtime.deliverable } : {}),
     ...(runtime.classifierTelemetry ? { classifierTelemetry: runtime.classifierTelemetry } : {}),
+    ...(runtime.decisionTrace ? { decisionTrace: runtime.decisionTrace } : {}),
   };
 }

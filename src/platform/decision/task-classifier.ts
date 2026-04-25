@@ -7,10 +7,7 @@ import { prepareModelForSimpleCompletion } from "../../agents/simple-completion-
 import type { OpenClawConfig } from "../../config/config.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
-import {
-  DeliverableKindSchema,
-  type DeliverableSpec,
-} from "../produce/registry.js";
+import { DeliverableKindSchema, type DeliverableSpec } from "../produce/registry.js";
 import { collectMissingRequiredEnvForDeliverable } from "../recipe/credentials-preflight.js";
 import {
   collectMissingRequiredEnvForCapabilities,
@@ -36,6 +33,7 @@ import {
   type ResolutionContract,
 } from "./resolution-contract.js";
 import { deriveRequestedTools } from "./tool-registry.js";
+import { compactDecisionTraceDebugEvents, type DecisionTrace } from "./trace.js";
 
 const log = createSubsystemLogger("task-classifier");
 
@@ -1215,6 +1213,7 @@ export function buildPlannerInputFromTaskContract(params: {
   fileNames?: string[];
   taskContract: TaskContract;
   classifierTelemetry?: import("../recipe/planner.js").ClassifierTelemetry;
+  decisionTrace?: DecisionTrace;
 }): RecipePlannerInput {
   const fileNames = Array.from(
     new Set(
@@ -1262,6 +1261,7 @@ export function buildPlannerInputFromTaskContract(params: {
     resolutionContract,
     routing: toRecipeRoutingHints(resolutionContract),
     ...(params.classifierTelemetry ? { classifierTelemetry: params.classifierTelemetry } : {}),
+    ...(params.decisionTrace ? { decisionTrace: params.decisionTrace } : {}),
   };
 }
 
@@ -1423,16 +1423,27 @@ function buildFailClosedResolution(params: {
   fileNames?: string[];
   reason: string;
   classifierConfig?: ResolvedTaskClassifierConfig;
+  debugEvents?: TaskClassifierDebugEvent[];
 }): ClassifiedTaskResolution {
   const taskContract = buildFailClosedTaskContract(params.reason);
+  const debugEvents = compactDecisionTraceDebugEvents(params.debugEvents);
+  const classifierTelemetry = {
+    source: "fail_closed",
+    ...(params.classifierConfig?.backend ? { backend: params.classifierConfig.backend } : {}),
+    ...(params.classifierConfig?.model ? { model: params.classifierConfig.model } : {}),
+  } satisfies import("../recipe/planner.js").ClassifierTelemetry;
   const plannerInput = buildPlannerInputFromTaskContract({
     prompt: params.prompt,
     fileNames: params.fileNames,
     taskContract,
-    classifierTelemetry: {
-      source: "fail_closed",
-      ...(params.classifierConfig?.backend ? { backend: params.classifierConfig.backend } : {}),
-      ...(params.classifierConfig?.model ? { model: params.classifierConfig.model } : {}),
+    classifierTelemetry,
+    decisionTrace: {
+      version: 1,
+      classifier: {
+        ...classifierTelemetry,
+        finalContract: taskContract,
+        ...(debugEvents ? { debugEvents } : {}),
+      },
     },
   });
   return {
@@ -1505,6 +1516,11 @@ export async function classifyTaskForDecision(params: {
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const debugEvents: TaskClassifierDebugEvent[] = [];
+    const onDebugEvent = (event: TaskClassifierDebugEvent) => {
+      debugEvents.push(event);
+      params.onDebugEvent?.(event);
+    };
     try {
       const classified = await adapter.classify({
         prompt: params.prompt,
@@ -1516,10 +1532,11 @@ export async function classifyTaskForDecision(params: {
         config: classifierConfig,
         cfg: params.cfg,
         agentDir: params.agentDir,
-        onDebugEvent: params.onDebugEvent,
+        onDebugEvent,
       });
       if (classified) {
-        const normalizedContract = normalizeTaskContract(classified);
+        const rawContract = classified;
+        const normalizedContract = normalizeTaskContract(rawContract);
         const preflightAdjustedContract = applyCredentialsPreflight({
           contract: normalizedContract,
         });
@@ -1537,11 +1554,23 @@ export async function classifyTaskForDecision(params: {
             ? { deliverableFormats: [...preflightAdjustedContract.deliverable.acceptedFormats] }
             : {}),
         };
+        const compactDebugEvents = compactDecisionTraceDebugEvents(debugEvents);
+        const decisionTrace: DecisionTrace = {
+          version: 1,
+          classifier: {
+            ...classifierTelemetry,
+            rawContract,
+            normalizedContract,
+            finalContract: preflightAdjustedContract,
+            ...(compactDebugEvents ? { debugEvents: compactDebugEvents } : {}),
+          },
+        };
         const plannerInput = buildPlannerInputFromTaskContract({
           prompt: params.prompt,
           fileNames: params.fileNames,
           taskContract: preflightAdjustedContract,
           classifierTelemetry,
+          decisionTrace,
         });
         log.info(
           `classified: backend=${classifierConfig.backend} model=${classifierConfig.model} outcome=${preflightAdjustedContract.primaryOutcome} mode=${preflightAdjustedContract.interactionMode} conf=${preflightAdjustedContract.confidence} deliverable=${preflightAdjustedContract.deliverable?.kind ?? "n/a"}/${(preflightAdjustedContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${preflightAdjustedContract.requiredCapabilities.join(",")}] ambig=[${preflightAdjustedContract.ambiguities.join(" | ")}]`,
@@ -1554,7 +1583,7 @@ export async function classifyTaskForDecision(params: {
           candidateFamilies: plannerInput.candidateFamilies ?? [],
         };
       }
-      emitDebugEvent(params.onDebugEvent, {
+      emitDebugEvent(onDebugEvent, {
         stage: "fallback",
         backend: classifierConfig.backend,
         configuredModel: classifierConfig.model,
@@ -1566,11 +1595,12 @@ export async function classifyTaskForDecision(params: {
         fileNames: params.fileNames,
         reason: FAIL_CLOSED_REASON,
         classifierConfig,
+        debugEvents,
       });
     } catch (error) {
       lastError = error;
       if (attempt < 2) {
-        emitDebugEvent(params.onDebugEvent, {
+        emitDebugEvent(onDebugEvent, {
           stage: "fallback",
           backend: classifierConfig.backend,
           configuredModel: classifierConfig.model,

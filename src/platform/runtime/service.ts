@@ -1626,6 +1626,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         ...(seed.policyAutonomy ? { policyAutonomy: seed.policyAutonomy } : {}),
         ...(seed.classifierTelemetry ? { classifierTelemetry: seed.classifierTelemetry } : {}),
         ...(seed.routingOutcome ? { routingOutcome: seed.routingOutcome } : {}),
+        ...(seed.decisionTrace ? { decisionTrace: seed.decisionTrace } : {}),
         expectations: PlatformRuntimeExecutionContractSchema.shape.expectations.parse(
           seed.expectations ?? {},
         ),

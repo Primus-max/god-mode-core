@@ -2,14 +2,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OpenClawConfig } from "../../src/config/config.js";
+import type { ResolutionContract } from "../../src/platform/decision/resolution-contract.js";
 import {
   classifyTaskForDecision,
   type TaskClassifierAdapter,
   type TaskContract,
 } from "../../src/platform/decision/task-classifier.js";
-import type { ResolutionContract } from "../../src/platform/decision/resolution-contract.js";
-import { resolvePlatformRuntimePlan } from "../../src/platform/recipe/runtime-adapter.js";
+import type { DecisionTrace } from "../../src/platform/decision/trace.js";
 import type { RecipePlannerInput } from "../../src/platform/recipe/planner.js";
+import { resolvePlatformRuntimePlan } from "../../src/platform/recipe/runtime-adapter.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -85,6 +86,7 @@ type CaseResult = {
   diffs: FieldDiff[];
   expected: ExpectedDecision;
   actual: ActualDecision;
+  decisionTrace?: DecisionTrace;
 };
 
 type EvalSummary = {
@@ -107,7 +109,10 @@ function parseArgs() {
     casesPath: readFlagValue(args, "--cases") ?? DEFAULT_CASES_PATH,
     outputPath:
       readFlagValue(args, "--output") ??
-      path.join(DEFAULT_OUTPUT_DIR, `decision-eval-${new Date().toISOString().replaceAll(":", "-")}.json`),
+      path.join(
+        DEFAULT_OUTPUT_DIR,
+        `decision-eval-${new Date().toISOString().replaceAll(":", "-")}.json`,
+      ),
     caseFilter: readCsvFlag(args, "--case"),
     jsonOnly: args.includes("--json"),
   };
@@ -126,7 +131,12 @@ function readCsvFlag(args: string[], flag: string): Set<string> | null {
   if (!raw) {
     return null;
   }
-  return new Set(raw.split(",").map((entry) => entry.trim()).filter(Boolean));
+  return new Set(
+    raw
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  );
 }
 
 function sortUnique(values: readonly string[] | undefined): string[] {
@@ -137,16 +147,14 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function arraysEqual(left: readonly string[] | undefined, right: readonly string[] | undefined): boolean {
+function arraysEqual(
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined,
+): boolean {
   return stableJson(sortUnique(left)) === stableJson(sortUnique(right));
 }
 
-function pushDiff(
-  diffs: FieldDiff[],
-  field: string,
-  expected: unknown,
-  actual: unknown,
-): void {
+function pushDiff(diffs: FieldDiff[], field: string, expected: unknown, actual: unknown): void {
   diffs.push({ field, expected, actual });
 }
 
@@ -223,7 +231,9 @@ async function runCase(caseItem: DecisionEvalCase): Promise<CaseResult> {
     primaryOutcome: classified.taskContract.primaryOutcome,
     interactionMode: classified.taskContract.interactionMode,
     executionMode: classified.taskContract.interactionMode,
-    requestedTools: sortUnique(runtime.requestedToolNames ?? classified.plannerInput.requestedTools),
+    requestedTools: sortUnique(
+      runtime.requestedToolNames ?? classified.plannerInput.requestedTools,
+    ),
     toolBundles: sortUnique(classified.resolutionContract.toolBundles),
     selectedRecipeId: runtime.selectedRecipeId,
     routingOutcomeKind: runtime.routingOutcome?.kind ?? "unknown",
@@ -237,8 +247,9 @@ async function runCase(caseItem: DecisionEvalCase): Promise<CaseResult> {
     resolutionContract: classified.resolutionContract,
     plannerInput: classified.plannerInput,
   };
+  const decisionTrace = runtime.decisionTrace;
   const diffs = diffExpected(caseItem.expected, actual);
-  const errorTags = deriveErrorTags(caseItem.expected, actual, diffs);
+  const errorTags = deriveErrorTags(caseItem.expected, actual, diffs, decisionTrace);
   const expectedTags = sortUnique(caseItem.expected.errorTags ?? []);
   const pass = arraysEqual(expectedTags, errorTags);
   return {
@@ -249,6 +260,7 @@ async function runCase(caseItem: DecisionEvalCase): Promise<CaseResult> {
     diffs,
     expected: caseItem.expected,
     actual,
+    ...(!pass && decisionTrace ? { decisionTrace } : {}),
   };
 }
 
@@ -261,32 +273,55 @@ function diffExpected(expected: ExpectedDecision, actual: ActualDecision): Field
   if (expectedMode !== undefined && expectedMode !== actual.executionMode) {
     pushDiff(diffs, "executionMode", expectedMode, actual.executionMode);
   }
-  if (expected.interactionMode !== undefined && expected.interactionMode !== actual.interactionMode) {
+  if (
+    expected.interactionMode !== undefined &&
+    expected.interactionMode !== actual.interactionMode
+  ) {
     pushDiff(diffs, "interactionMode", expected.interactionMode, actual.interactionMode);
   }
-  if (expected.requestedTools !== undefined && !arraysEqual(expected.requestedTools, actual.requestedTools)) {
+  if (
+    expected.requestedTools !== undefined &&
+    !arraysEqual(expected.requestedTools, actual.requestedTools)
+  ) {
     pushDiff(diffs, "requestedTools", sortUnique(expected.requestedTools), actual.requestedTools);
   }
-  if (expected.toolBundles !== undefined && !arraysEqual(expected.toolBundles, actual.toolBundles)) {
+  if (
+    expected.toolBundles !== undefined &&
+    !arraysEqual(expected.toolBundles, actual.toolBundles)
+  ) {
     pushDiff(diffs, "toolBundles", sortUnique(expected.toolBundles), actual.toolBundles);
   }
-  if (expected.selectedRecipeId !== undefined && expected.selectedRecipeId !== actual.selectedRecipeId) {
+  if (
+    expected.selectedRecipeId !== undefined &&
+    expected.selectedRecipeId !== actual.selectedRecipeId
+  ) {
     pushDiff(diffs, "selectedRecipeId", expected.selectedRecipeId, actual.selectedRecipeId);
   }
-  if (expected.routingOutcomeKind !== undefined && expected.routingOutcomeKind !== actual.routingOutcomeKind) {
+  if (
+    expected.routingOutcomeKind !== undefined &&
+    expected.routingOutcomeKind !== actual.routingOutcomeKind
+  ) {
     pushDiff(diffs, "routingOutcomeKind", expected.routingOutcomeKind, actual.routingOutcomeKind);
   }
   if (expected.shouldClarify !== undefined && expected.shouldClarify !== actual.shouldClarify) {
     pushDiff(diffs, "shouldClarify", expected.shouldClarify, actual.shouldClarify);
   }
-  if (expected.deliverableKind !== undefined && expected.deliverableKind !== actual.deliverableKind) {
+  if (
+    expected.deliverableKind !== undefined &&
+    expected.deliverableKind !== actual.deliverableKind
+  ) {
     pushDiff(diffs, "deliverableKind", expected.deliverableKind, actual.deliverableKind);
   }
   if (
     expected.deliverableFormats !== undefined &&
     !arraysEqual(expected.deliverableFormats, actual.deliverableFormats)
   ) {
-    pushDiff(diffs, "deliverableFormats", sortUnique(expected.deliverableFormats), actual.deliverableFormats);
+    pushDiff(
+      diffs,
+      "deliverableFormats",
+      sortUnique(expected.deliverableFormats),
+      actual.deliverableFormats,
+    );
   }
   return diffs;
 }
@@ -295,6 +330,7 @@ function deriveErrorTags(
   expected: ExpectedDecision,
   actual: ActualDecision,
   diffs: readonly FieldDiff[],
+  decisionTrace?: DecisionTrace,
 ): string[] {
   const tags = new Set<string>();
   for (const diff of diffs) {
@@ -307,14 +343,14 @@ function deriveErrorTags(
         tags.add("wrong_execution_mode");
         break;
       case "requestedTools":
-        tags.add("wrong_requested_tools");
+        tags.add("missing_required_tool");
         break;
       case "toolBundles":
-        tags.add("wrong_tool_bundle");
+        tags.add("bundle_recipe_mismatch");
         break;
       case "selectedRecipeId":
       case "routingOutcomeKind":
-        tags.add("wrong_target");
+        tags.add("bundle_recipe_mismatch");
         break;
       case "deliverableKind":
       case "deliverableFormats":
@@ -337,7 +373,10 @@ function deriveErrorTags(
     (actual.requestedTools.length > 0 ||
       actual.toolBundles.some((bundle) => bundle !== "respond_only"))
   ) {
-    tags.add("internal_leak_risk");
+    tags.add("policy_denial_leak_risk");
+  }
+  for (const tag of decisionTrace?.errorTags ?? []) {
+    tags.add(tag);
   }
   return sortUnique(Array.from(tags));
 }

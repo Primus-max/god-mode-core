@@ -16,6 +16,20 @@ import { emitAgentEvent } from "../../infra/agent-events.js";
 import { emitDiagnosticEvent, isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import { generateSecureUuid } from "../../infra/secure-random.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
+import type { DecisionTrace } from "../../platform/decision/trace.js";
+import {
+  createTurnProgressEmitter,
+  withTurnProgressEmitter,
+  type TurnProgressEmitter,
+} from "../../platform/progress/progress-bus.js";
+import {
+  reconcilePromisesWithReceipts,
+  type PromisedActionViolation,
+} from "../../platform/session/execution-evidence.js";
+import { computeIntentFingerprint } from "../../platform/session/intent-fingerprint.js";
+import { intentLedger } from "../../platform/session/intent-ledger.js";
+import { maybeInvalidateWorkspaceForReceipts } from "../../platform/session/workspace-invalidation.js";
 import { resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { defaultRuntime } from "../../runtime.js";
 import {
@@ -23,10 +37,14 @@ import {
   buildFallbackNotice,
   resolveFallbackTransition,
 } from "../fallback-state.js";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
 import type { OriginatingChannelType, TemplateContext } from "../templating.js";
 import { resolveResponseUsageMode, type VerboseLevel } from "../thinking.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
+import {
+  hasExplicitAckThenDeferHint,
+  resolveAckLocale,
+  resolveAckMessage,
+} from "./ack-then-defer.js";
 import { runAgentTurnWithFallback } from "./agent-runner-execution.runtime.js";
 import {
   buildAcceptanceFallbackPayload,
@@ -61,28 +79,11 @@ import {
   markDeferredJobComplete,
   markDeferredJobRunning,
 } from "./queue/state.js";
-import {
-  hasExplicitAckThenDeferHint,
-  resolveAckLocale,
-  resolveAckMessage,
-} from "./ack-then-defer.js";
 import { createReplyMediaPathNormalizer } from "./reply-media-paths.runtime.js";
 import { createReplyToModeFilterForChannel, resolveReplyToMode } from "./reply-threading.js";
 import { incrementRunCompactionCount, persistRunSessionUsage } from "./session-run-accounting.js";
 import { createTypingSignaler } from "./typing-mode.js";
 import type { TypingController } from "./typing.js";
-import { intentLedger } from "../../platform/session/intent-ledger.js";
-import {
-  reconcilePromisesWithReceipts,
-  type PromisedActionViolation,
-} from "../../platform/session/execution-evidence.js";
-import { maybeInvalidateWorkspaceForReceipts } from "../../platform/session/workspace-invalidation.js";
-import {
-  createTurnProgressEmitter,
-  withTurnProgressEmitter,
-  type TurnProgressEmitter,
-} from "../../platform/progress/progress-bus.js";
-import { computeIntentFingerprint } from "../../platform/session/intent-fingerprint.js";
 
 const BLOCK_REPLY_SEND_TIMEOUT_MS = 15_000;
 const intentLedgerLog = createSubsystemLogger("intent-ledger");
@@ -199,6 +200,7 @@ function buildDebugReplyBlock(params: {
     | { kind: "matched"; source: "ranked" | "contract_first_fallback" }
     | { kind: "low_confidence_clarify" }
     | { kind: "contract_unsatisfiable"; reasons: string[] };
+  decisionTrace?: DecisionTrace;
 }): string | undefined {
   if (!isDebugReplyRoutingEnabled()) {
     return undefined;
@@ -274,9 +276,24 @@ function buildDebugReplyBlock(params: {
     return `routing: \`contract_unsatisfiable\` reasons=${outcome.reasons.join(",")}`;
   })();
 
+  const traceLine = (() => {
+    const trace = params.decisionTrace;
+    if (!trace) {
+      return undefined;
+    }
+    const tags = trace.errorTags?.length ? trace.errorTags.join(",") : "none";
+    const bundles = trace.resolution?.toolBundles?.length
+      ? trace.resolution.toolBundles.join(",")
+      : "none";
+    const recipe = trace.planner?.selectedRecipeId ?? params.routingOutcome?.kind ?? "?";
+    const readiness = trace.readiness?.status ?? "unknown";
+    return `decisionTrace: tags=${tags} · bundles=${bundles} · recipe=${recipe} · readiness=${readiness}`;
+  })();
+
   const details = [
     classifierLine,
     routingLine,
+    traceLine,
     params.executionIntent ? `intent: \`${params.executionIntent}\`` : undefined,
     `selected: \`${params.selectedProvider}/${params.selectedModel}\``,
     attemptParts.length > 1 ? `attempts: ${attemptParts.join(" -> ")}` : undefined,
@@ -549,7 +566,9 @@ export async function runReplyAgent(params: {
     (typeof requestRunId === "string" && requestRunId.trim()) ||
     generateSecureUuid();
   const effectiveOpts =
-    typeof opts?.runId === "string" && opts.runId.trim() ? opts : { ...opts, runId: progressTurnId };
+    typeof opts?.runId === "string" && opts.runId.trim()
+      ? opts
+      : { ...opts, runId: progressTurnId };
   const turnProgressEmitter: TurnProgressEmitter | null =
     progressSessionId && progressChannelId
       ? createTurnProgressEmitter({
@@ -801,262 +820,220 @@ export async function runReplyAgent(params: {
     });
   };
   const runTurnBody = async (): Promise<ReplyPayload | ReplyPayload[] | undefined> => {
-  let deferredJobTurnId: string | undefined;
-  let deferredJobOutcome: "done" | "failed" | undefined;
-  let didEmitDeferredAck = false;
-  const emitDeferredAck = async (ackRunId: string): Promise<void> => {
-    if (didEmitDeferredAck) {
-      return;
-    }
-    didEmitDeferredAck = true;
-    const ackLocale = resolveAckLocale();
-    const ackText = resolveAckMessage(ackLocale);
-    if (turnProgressEmitter && !turnProgressEmitter.finalized) {
-      turnProgressEmitter.emit("ack_deferred", ackText);
-    }
-    deferredJobTurnId = ackRunId;
-    markDeferredJobRunning(queueKey, {
-      turnId: ackRunId,
-      ackMessage: ackText,
-    });
-    const deliver = effectiveOpts?.onBlockReply;
-    if (deliver) {
-      try {
-        await deliver(applyReplyToMode({ text: ackText }));
-      } catch (deliveryError) {
-        void deliveryError;
+    let deferredJobTurnId: string | undefined;
+    let deferredJobOutcome: "done" | "failed" | undefined;
+    let didEmitDeferredAck = false;
+    const emitDeferredAck = async (ackRunId: string): Promise<void> => {
+      if (didEmitDeferredAck) {
+        return;
       }
-    }
-  };
-  try {
-    await maybeResetOversizedSession();
-    if (
-      !isHeartbeat &&
-      hasExplicitAckThenDeferHint({
-        prompt: followupRun.prompt,
+      didEmitDeferredAck = true;
+      const ackLocale = resolveAckLocale();
+      const ackText = resolveAckMessage(ackLocale);
+      if (turnProgressEmitter && !turnProgressEmitter.finalized) {
+        turnProgressEmitter.emit("ack_deferred", ackText);
+      }
+      deferredJobTurnId = ackRunId;
+      markDeferredJobRunning(queueKey, {
+        turnId: ackRunId,
+        ackMessage: ackText,
+      });
+      const deliver = effectiveOpts?.onBlockReply;
+      if (deliver) {
+        try {
+          await deliver(applyReplyToMode({ text: ackText }));
+        } catch (deliveryError) {
+          void deliveryError;
+        }
+      }
+    };
+    try {
+      await maybeResetOversizedSession();
+      if (
+        !isHeartbeat &&
+        hasExplicitAckThenDeferHint({
+          prompt: followupRun.prompt,
+          commandBody,
+        })
+      ) {
+        await emitDeferredAck(progressTurnId);
+      }
+      const runStartedAt = Date.now();
+      const runOutcome = await runAgentTurnWithFallback({
         commandBody,
-      })
-    ) {
-      await emitDeferredAck(progressTurnId);
-    }
-    const runStartedAt = Date.now();
-    const runOutcome = await runAgentTurnWithFallback({
-      commandBody,
-      followupRun,
-      sessionCtx,
-      opts: effectiveOpts,
-      typingSignals,
-      blockReplyPipeline,
-      blockStreamingEnabled,
-      blockReplyChunking,
-      resolvedBlockStreamingBreak,
-      applyReplyToMode,
-      shouldEmitToolResult,
-      shouldEmitToolOutput,
-      pendingToolTasks,
-      resetSessionAfterCompactionFailure,
-      resetSessionAfterRoleOrderingConflict,
-      isHeartbeat,
-      sessionKey,
-      getActiveSessionEntry: () => activeSessionEntry,
-      activeSessionStore,
-      storePath,
-      resolvedVerboseLevel,
-      onAckThenDefer: async ({ runId: ackRunId, estimatedDurationMs }) => {
-        await emitDeferredAck(ackRunId);
-        void estimatedDurationMs;
-      },
-    });
-
-    if (runOutcome.kind === "final") {
-      return finalizeWithFollowup(runOutcome.payload, queueKey, runFollowupTurn);
-    }
-
-    const {
-      runId,
-      runResult,
-      fallbackProvider,
-      fallbackModel,
-      fallbackAttempts,
-      directlySentBlockKeys,
-    } = runOutcome;
-    let { didLogHeartbeatStrip, autoCompactionCount } = runOutcome;
-
-    if (
-      shouldInjectGroupIntro &&
-      activeSessionEntry &&
-      activeSessionStore &&
-      sessionKey &&
-      activeSessionEntry.groupActivationNeedsSystemIntro
-    ) {
-      const updatedAt = Date.now();
-      activeSessionEntry.groupActivationNeedsSystemIntro = false;
-      activeSessionEntry.updatedAt = updatedAt;
-      activeSessionStore[sessionKey] = activeSessionEntry;
-      if (storePath) {
-        const { updateSessionStoreEntry } = await loadSessionStoreRuntime();
-        await updateSessionStoreEntry({
-          storePath,
-          sessionKey,
-          update: async () => ({
-            groupActivationNeedsSystemIntro: false,
-            updatedAt,
-          }),
-        });
-      }
-    }
-
-    const payloadArray = runResult.payloads ?? [];
-    const executionFingerprint = computeIntentFingerprint(
-      runResult.meta?.executionIntent?.deliverable,
-      runResult.meta?.executionIntent?.requiredCapabilities,
-    );
-
-    if (blockReplyPipeline) {
-      await blockReplyPipeline.flush({ force: true });
-      blockReplyPipeline.stop();
-    }
-
-    // NOTE: The compaction completion notice for block-streaming mode is sent
-    // further below — after incrementRunCompactionCount — so it can include
-    // the `(count N)` suffix.  Sending it here (before the count is known)
-    // would omit that information.
-    if (pendingToolTasks.size > 0) {
-      await Promise.allSettled(pendingToolTasks);
-    }
-
-    const usage = runResult.meta?.agentMeta?.usage;
-    const promptTokens = runResult.meta?.agentMeta?.promptTokens;
-    const modelUsed = runResult.meta?.agentMeta?.model ?? fallbackModel ?? defaultModel;
-    const providerUsed =
-      runResult.meta?.agentMeta?.provider ?? fallbackProvider ?? followupRun.run.provider;
-    const verboseEnabled = resolvedVerboseLevel !== "off";
-    const selectedProvider = followupRun.run.provider;
-    const selectedModel = followupRun.run.model;
-    const fallbackStateEntry =
-      activeSessionEntry ?? (sessionKey ? activeSessionStore?.[sessionKey] : undefined);
-    const fallbackTransition = resolveFallbackTransition({
-      selectedProvider,
-      selectedModel,
-      activeProvider: providerUsed,
-      activeModel: modelUsed,
-      attempts: fallbackAttempts,
-      state: fallbackStateEntry,
-    });
-    if (fallbackTransition.stateChanged) {
-      if (fallbackStateEntry) {
-        fallbackStateEntry.fallbackNoticeSelectedModel = fallbackTransition.nextState.selectedModel;
-        fallbackStateEntry.fallbackNoticeActiveModel = fallbackTransition.nextState.activeModel;
-        fallbackStateEntry.fallbackNoticeReason = fallbackTransition.nextState.reason;
-        fallbackStateEntry.updatedAt = Date.now();
-        activeSessionEntry = fallbackStateEntry;
-      }
-      if (sessionKey && fallbackStateEntry && activeSessionStore) {
-        activeSessionStore[sessionKey] = fallbackStateEntry;
-      }
-      if (sessionKey && storePath) {
-        const { updateSessionStoreEntry } = await loadSessionStoreRuntime();
-        await updateSessionStoreEntry({
-          storePath,
-          sessionKey,
-          update: async () => ({
-            fallbackNoticeSelectedModel: fallbackTransition.nextState.selectedModel,
-            fallbackNoticeActiveModel: fallbackTransition.nextState.activeModel,
-            fallbackNoticeReason: fallbackTransition.nextState.reason,
-          }),
-        });
-      }
-    }
-    const cliSessionId = isCliProvider(providerUsed, cfg)
-      ? runResult.meta?.agentMeta?.sessionId?.trim()
-      : undefined;
-    const cachedContextTokens = lookupCachedContextTokens(modelUsed);
-    const contextTokensUsed =
-      agentCfgContextTokens ??
-      cachedContextTokens ??
-      lookupContextTokens(modelUsed, { allowAsyncLoad: false }) ??
-      activeSessionEntry?.contextTokens ??
-      DEFAULT_CONTEXT_TOKENS;
-
-    await persistRunSessionUsage({
-      storePath,
-      sessionKey,
-      cfg,
-      usage,
-      lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
-      promptTokens,
-      modelUsed,
-      providerUsed,
-      contextTokensUsed,
-      systemPromptReport: runResult.meta?.systemPromptReport,
-      cliSessionId,
-    });
-
-    // Drain any late tool/block deliveries before deciding there's "nothing to send".
-    // Otherwise, a late typing trigger (e.g. from a tool callback) can outlive the run and
-    // keep the typing indicator stuck.
-    if (payloadArray.length === 0) {
-      const closureDecision = reevaluateMessagingDecisionForMessagingRun({
-        runResult,
-        replyPayloads: [],
-        runPayloadsForEvidence: payloadArray,
-        sourceRun: followupRun,
+        followupRun,
+        sessionCtx,
+        opts: effectiveOpts,
+        typingSignals,
+        blockReplyPipeline,
+        blockStreamingEnabled,
+        blockReplyChunking,
+        resolvedBlockStreamingBreak,
+        applyReplyToMode,
+        shouldEmitToolResult,
+        shouldEmitToolOutput,
+        pendingToolTasks,
+        resetSessionAfterCompactionFailure,
+        resetSessionAfterRoleOrderingConflict,
+        isHeartbeat,
+        sessionKey,
+        getActiveSessionEntry: () => activeSessionEntry,
+        activeSessionStore,
+        storePath,
+        resolvedVerboseLevel,
+        onAckThenDefer: async ({ runId: ackRunId, estimatedDurationMs }) => {
+          await emitDeferredAck(ackRunId);
+          void estimatedDurationMs;
+        },
       });
-      const acceptanceOutcome = closureDecision?.acceptanceOutcome;
-      const supervisorVerdict = closureDecision?.supervisorVerdict;
-      const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
-      const queuedSemanticRetry = deferDeliveryClosure
-        ? false
-        : enqueueSemanticRetryFollowup({
-            queueKey,
-            sourceRun: correlationSourceRun,
-            settings: resolvedQueue,
-            acceptance: acceptanceOutcome,
-            supervisorVerdict,
+
+      if (runOutcome.kind === "final") {
+        return finalizeWithFollowup(runOutcome.payload, queueKey, runFollowupTurn);
+      }
+
+      const {
+        runId,
+        runResult,
+        fallbackProvider,
+        fallbackModel,
+        fallbackAttempts,
+        directlySentBlockKeys,
+      } = runOutcome;
+      let { didLogHeartbeatStrip, autoCompactionCount } = runOutcome;
+
+      if (
+        shouldInjectGroupIntro &&
+        activeSessionEntry &&
+        activeSessionStore &&
+        sessionKey &&
+        activeSessionEntry.groupActivationNeedsSystemIntro
+      ) {
+        const updatedAt = Date.now();
+        activeSessionEntry.groupActivationNeedsSystemIntro = false;
+        activeSessionEntry.updatedAt = updatedAt;
+        activeSessionStore[sessionKey] = activeSessionEntry;
+        if (storePath) {
+          const { updateSessionStoreEntry } = await loadSessionStoreRuntime();
+          await updateSessionStoreEntry({
+            storePath,
+            sessionKey,
+            update: async () => ({
+              groupActivationNeedsSystemIntro: false,
+              updatedAt,
+            }),
           });
-      captureMessagingDeliveryClosureCandidate({
-        onCandidate: opts?.onDeliveryClosureCandidate,
-        runResult,
-        sourceRun: correlationSourceRun,
-        queueKey,
-        settings: resolvedQueue,
-      });
-      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict, {
-        channel: replyToChannel,
-      });
-      if (fallbackPayload && !queuedSemanticRetry) {
-        return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
+        }
       }
-      return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
-    }
 
-    const payloadResult = await buildReplyPayloads({
-      payloads: payloadArray,
-      isHeartbeat,
-      didLogHeartbeatStrip,
-      blockStreamingEnabled,
-      blockReplyPipeline,
-      directlySentBlockKeys,
-      replyToMode,
-      replyToChannel,
-      currentMessageId: sessionCtx.MessageSidFull ?? sessionCtx.MessageSid,
-      messageProvider: followupRun.run.messageProvider,
-      messagingToolSentTexts: runResult.messagingToolSentTexts,
-      messagingToolSentMediaUrls: runResult.messagingToolSentMediaUrls,
-      messagingToolSentTargets: runResult.messagingToolSentTargets,
-      originatingChannel: sessionCtx.OriginatingChannel,
-      originatingTo: resolveOriginMessageTo({
-        originatingTo: sessionCtx.OriginatingTo,
-        to: sessionCtx.To,
-      }),
-      accountId: sessionCtx.AccountId,
-      normalizeMediaPaths: normalizeReplyMediaPaths,
-    });
-    const { replyPayloads, allReplyPayloadsAlreadyDelivered } = payloadResult;
-    didLogHeartbeatStrip = payloadResult.didLogHeartbeatStrip;
+      const payloadArray = runResult.payloads ?? [];
+      const executionFingerprint = computeIntentFingerprint(
+        runResult.meta?.executionIntent?.deliverable,
+        runResult.meta?.executionIntent?.requiredCapabilities,
+      );
 
-    if (replyPayloads.length === 0) {
-      if (allReplyPayloadsAlreadyDelivered) {
+      if (blockReplyPipeline) {
+        await blockReplyPipeline.flush({ force: true });
+        blockReplyPipeline.stop();
+      }
+
+      // NOTE: The compaction completion notice for block-streaming mode is sent
+      // further below — after incrementRunCompactionCount — so it can include
+      // the `(count N)` suffix.  Sending it here (before the count is known)
+      // would omit that information.
+      if (pendingToolTasks.size > 0) {
+        await Promise.allSettled(pendingToolTasks);
+      }
+
+      const usage = runResult.meta?.agentMeta?.usage;
+      const promptTokens = runResult.meta?.agentMeta?.promptTokens;
+      const modelUsed = runResult.meta?.agentMeta?.model ?? fallbackModel ?? defaultModel;
+      const providerUsed =
+        runResult.meta?.agentMeta?.provider ?? fallbackProvider ?? followupRun.run.provider;
+      const verboseEnabled = resolvedVerboseLevel !== "off";
+      const selectedProvider = followupRun.run.provider;
+      const selectedModel = followupRun.run.model;
+      const fallbackStateEntry =
+        activeSessionEntry ?? (sessionKey ? activeSessionStore?.[sessionKey] : undefined);
+      const fallbackTransition = resolveFallbackTransition({
+        selectedProvider,
+        selectedModel,
+        activeProvider: providerUsed,
+        activeModel: modelUsed,
+        attempts: fallbackAttempts,
+        state: fallbackStateEntry,
+      });
+      if (fallbackTransition.stateChanged) {
+        if (fallbackStateEntry) {
+          fallbackStateEntry.fallbackNoticeSelectedModel =
+            fallbackTransition.nextState.selectedModel;
+          fallbackStateEntry.fallbackNoticeActiveModel = fallbackTransition.nextState.activeModel;
+          fallbackStateEntry.fallbackNoticeReason = fallbackTransition.nextState.reason;
+          fallbackStateEntry.updatedAt = Date.now();
+          activeSessionEntry = fallbackStateEntry;
+        }
+        if (sessionKey && fallbackStateEntry && activeSessionStore) {
+          activeSessionStore[sessionKey] = fallbackStateEntry;
+        }
+        if (sessionKey && storePath) {
+          const { updateSessionStoreEntry } = await loadSessionStoreRuntime();
+          await updateSessionStoreEntry({
+            storePath,
+            sessionKey,
+            update: async () => ({
+              fallbackNoticeSelectedModel: fallbackTransition.nextState.selectedModel,
+              fallbackNoticeActiveModel: fallbackTransition.nextState.activeModel,
+              fallbackNoticeReason: fallbackTransition.nextState.reason,
+            }),
+          });
+        }
+      }
+      const cliSessionId = isCliProvider(providerUsed, cfg)
+        ? runResult.meta?.agentMeta?.sessionId?.trim()
+        : undefined;
+      const cachedContextTokens = lookupCachedContextTokens(modelUsed);
+      const contextTokensUsed =
+        agentCfgContextTokens ??
+        cachedContextTokens ??
+        lookupContextTokens(modelUsed, { allowAsyncLoad: false }) ??
+        activeSessionEntry?.contextTokens ??
+        DEFAULT_CONTEXT_TOKENS;
+
+      await persistRunSessionUsage({
+        storePath,
+        sessionKey,
+        cfg,
+        usage,
+        lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
+        promptTokens,
+        modelUsed,
+        providerUsed,
+        contextTokensUsed,
+        systemPromptReport: runResult.meta?.systemPromptReport,
+        cliSessionId,
+      });
+
+      // Drain any late tool/block deliveries before deciding there's "nothing to send".
+      // Otherwise, a late typing trigger (e.g. from a tool callback) can outlive the run and
+      // keep the typing indicator stuck.
+      if (payloadArray.length === 0) {
+        const closureDecision = reevaluateMessagingDecisionForMessagingRun({
+          runResult,
+          replyPayloads: [],
+          runPayloadsForEvidence: payloadArray,
+          sourceRun: followupRun,
+        });
+        const acceptanceOutcome = closureDecision?.acceptanceOutcome;
+        const supervisorVerdict = closureDecision?.supervisorVerdict;
+        const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
+        const queuedSemanticRetry = deferDeliveryClosure
+          ? false
+          : enqueueSemanticRetryFollowup({
+              queueKey,
+              sourceRun: correlationSourceRun,
+              settings: resolvedQueue,
+              acceptance: acceptanceOutcome,
+              supervisorVerdict,
+            });
         captureMessagingDeliveryClosureCandidate({
           onCandidate: opts?.onDeliveryClosureCandidate,
           runResult,
@@ -1064,11 +1041,116 @@ export async function runReplyAgent(params: {
           queueKey,
           settings: resolvedQueue,
         });
+        const fallbackPayload = buildAcceptanceFallbackPayload(
+          acceptanceOutcome,
+          supervisorVerdict,
+          {
+            channel: replyToChannel,
+          },
+        );
+        if (fallbackPayload && !queuedSemanticRetry) {
+          return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
+        }
         return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
       }
+
+      const payloadResult = await buildReplyPayloads({
+        payloads: payloadArray,
+        isHeartbeat,
+        didLogHeartbeatStrip,
+        blockStreamingEnabled,
+        blockReplyPipeline,
+        directlySentBlockKeys,
+        replyToMode,
+        replyToChannel,
+        currentMessageId: sessionCtx.MessageSidFull ?? sessionCtx.MessageSid,
+        messageProvider: followupRun.run.messageProvider,
+        messagingToolSentTexts: runResult.messagingToolSentTexts,
+        messagingToolSentMediaUrls: runResult.messagingToolSentMediaUrls,
+        messagingToolSentTargets: runResult.messagingToolSentTargets,
+        originatingChannel: sessionCtx.OriginatingChannel,
+        originatingTo: resolveOriginMessageTo({
+          originatingTo: sessionCtx.OriginatingTo,
+          to: sessionCtx.To,
+        }),
+        accountId: sessionCtx.AccountId,
+        normalizeMediaPaths: normalizeReplyMediaPaths,
+      });
+      const { replyPayloads, allReplyPayloadsAlreadyDelivered } = payloadResult;
+      didLogHeartbeatStrip = payloadResult.didLogHeartbeatStrip;
+
+      if (replyPayloads.length === 0) {
+        if (allReplyPayloadsAlreadyDelivered) {
+          captureMessagingDeliveryClosureCandidate({
+            onCandidate: opts?.onDeliveryClosureCandidate,
+            runResult,
+            sourceRun: correlationSourceRun,
+            queueKey,
+            settings: resolvedQueue,
+          });
+          return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
+        }
+        const closureDecision = reevaluateMessagingDecisionForMessagingRun({
+          runResult,
+          replyPayloads: [],
+          runPayloadsForEvidence: payloadArray,
+          sourceRun: correlationSourceRun,
+        });
+        const acceptanceOutcome = closureDecision?.acceptanceOutcome;
+        const supervisorVerdict = closureDecision?.supervisorVerdict;
+        const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
+        const queuedSemanticRetry = deferDeliveryClosure
+          ? false
+          : enqueueSemanticRetryFollowup({
+              queueKey,
+              sourceRun: correlationSourceRun,
+              settings: resolvedQueue,
+              acceptance: acceptanceOutcome,
+              supervisorVerdict,
+            });
+        captureMessagingDeliveryClosureCandidate({
+          onCandidate: opts?.onDeliveryClosureCandidate,
+          runResult,
+          sourceRun: correlationSourceRun,
+          queueKey,
+          settings: resolvedQueue,
+        });
+        const fallbackPayload = buildAcceptanceFallbackPayload(
+          acceptanceOutcome,
+          supervisorVerdict,
+          {
+            channel: replyToChannel,
+          },
+        );
+        if (fallbackPayload && !queuedSemanticRetry) {
+          return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
+        }
+        return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
+      }
+
+      const successfulCronAdds = runResult.successfulCronAdds ?? 0;
+      const hasReminderCommitment = replyPayloads.some(
+        (payload) =>
+          !payload.isError &&
+          typeof payload.text === "string" &&
+          hasUnbackedReminderCommitment(payload.text),
+      );
+      // Suppress the guard note when an existing cron job (created in a prior
+      // turn) already covers the commitment — avoids false positives (#32228).
+      const coveredByExistingCron =
+        hasReminderCommitment && successfulCronAdds === 0
+          ? await hasSessionRelatedCronJobs({
+              cronStorePath: cfg.cron?.store,
+              sessionKey,
+            })
+          : false;
+      const guardedReplyPayloads =
+        hasReminderCommitment && successfulCronAdds === 0 && !coveredByExistingCron
+          ? appendUnscheduledReminderNote(replyPayloads)
+          : replyPayloads;
       const closureDecision = reevaluateMessagingDecisionForMessagingRun({
         runResult,
-        replyPayloads: [],
+        replyPayloads: guardedReplyPayloads,
         runPayloadsForEvidence: payloadArray,
         sourceRun: correlationSourceRun,
       });
@@ -1091,375 +1173,378 @@ export async function runReplyAgent(params: {
         queueKey,
         settings: resolvedQueue,
       });
-      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict, {
-        channel: replyToChannel,
-      });
-      if (fallbackPayload && !queuedSemanticRetry) {
-        return finalizeWithFollowup(fallbackPayload, queueKey, runFollowupTurn);
-      }
-      return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
-    }
-
-    const successfulCronAdds = runResult.successfulCronAdds ?? 0;
-    const hasReminderCommitment = replyPayloads.some(
-      (payload) =>
-        !payload.isError &&
-        typeof payload.text === "string" &&
-        hasUnbackedReminderCommitment(payload.text),
-    );
-    // Suppress the guard note when an existing cron job (created in a prior
-    // turn) already covers the commitment — avoids false positives (#32228).
-    const coveredByExistingCron =
-      hasReminderCommitment && successfulCronAdds === 0
-        ? await hasSessionRelatedCronJobs({
-            cronStorePath: cfg.cron?.store,
-            sessionKey,
-          })
-        : false;
-    const guardedReplyPayloads =
-      hasReminderCommitment && successfulCronAdds === 0 && !coveredByExistingCron
-        ? appendUnscheduledReminderNote(replyPayloads)
-        : replyPayloads;
-    const closureDecision = reevaluateMessagingDecisionForMessagingRun({
-      runResult,
-      replyPayloads: guardedReplyPayloads,
-      runPayloadsForEvidence: payloadArray,
-      sourceRun: correlationSourceRun,
-    });
-    const acceptanceOutcome = closureDecision?.acceptanceOutcome;
-    const supervisorVerdict = closureDecision?.supervisorVerdict;
-    const deferDeliveryClosure = Boolean(opts?.onDeliveryClosureCandidate);
-    const queuedSemanticRetry = deferDeliveryClosure
-      ? false
-      : enqueueSemanticRetryFollowup({
-          queueKey,
-          sourceRun: correlationSourceRun,
-          settings: resolvedQueue,
-          acceptance: acceptanceOutcome,
+      if (
+        shouldSuppressDeferredSemanticRetryReply({
+          deferDeliveryClosure,
+          replyPayloads: guardedReplyPayloads,
+          artifactKinds: runResult.meta?.executionIntent?.artifactKinds,
+          acceptanceOutcome,
           supervisorVerdict,
-        });
-    captureMessagingDeliveryClosureCandidate({
-      onCandidate: opts?.onDeliveryClosureCandidate,
-      runResult,
-      sourceRun: correlationSourceRun,
-      queueKey,
-      settings: resolvedQueue,
-    });
-    if (
-      shouldSuppressDeferredSemanticRetryReply({
-        deferDeliveryClosure,
-        replyPayloads: guardedReplyPayloads,
-        artifactKinds: runResult.meta?.executionIntent?.artifactKinds,
-        acceptanceOutcome,
-        supervisorVerdict,
-      })
-    ) {
-      return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
-    }
-
-    await signalTypingIfNeeded(guardedReplyPayloads, typingSignals);
-
-    if (isDiagnosticsEnabled(cfg) && hasNonzeroUsage(usage)) {
-      const { estimateUsageCost, resolveModelCostConfig } = await loadUsageCostRuntime();
-      const input = usage.input ?? 0;
-      const output = usage.output ?? 0;
-      const cacheRead = usage.cacheRead ?? 0;
-      const cacheWrite = usage.cacheWrite ?? 0;
-      const promptTokens = input + cacheRead + cacheWrite;
-      const totalTokens = usage.total ?? promptTokens + output;
-      const costConfig = resolveModelCostConfig({
-        provider: providerUsed,
-        model: modelUsed,
-        config: cfg,
-      });
-      const costUsd = estimateUsageCost({ usage, cost: costConfig });
-      emitDiagnosticEvent({
-        type: "model.usage",
-        sessionKey,
-        sessionId: followupRun.run.sessionId,
-        channel: replyToChannel,
-        provider: providerUsed,
-        model: modelUsed,
-        usage: {
-          input,
-          output,
-          cacheRead,
-          cacheWrite,
-          promptTokens,
-          total: totalTokens,
-        },
-        lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
-        context: {
-          limit: contextTokensUsed,
-          used: totalTokens,
-        },
-        costUsd,
-        durationMs: Date.now() - runStartedAt,
-      });
-    }
-
-    const responseUsageRaw =
-      activeSessionEntry?.responseUsage ??
-      (sessionKey ? activeSessionStore?.[sessionKey]?.responseUsage : undefined);
-    const responseUsageMode = resolveResponseUsageMode(responseUsageRaw);
-    if (responseUsageMode !== "off" && hasNonzeroUsage(usage)) {
-      const { resolveModelCostConfig } = await loadUsageCostRuntime();
-      const authMode = resolveModelAuthMode(providerUsed, cfg);
-      const showCost = authMode === "api-key";
-      const costConfig = showCost
-        ? resolveModelCostConfig({
-            provider: providerUsed,
-            model: modelUsed,
-            config: cfg,
-          })
-        : undefined;
-      let formatted = formatResponseUsageLine({
-        usage,
-        showCost,
-        costConfig,
-      });
-      if (formatted && responseUsageMode === "full" && sessionKey) {
-        formatted = `${formatted} · session \`${sessionKey}\``;
+        })
+      ) {
+        return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
       }
-      if (formatted) {
-        responseUsageLine = formatted;
-      }
-    }
 
-    // If verbose is enabled, prepend operational run notices.
-    let finalPayloads = guardedReplyPayloads;
-    const verboseNotices: ReplyPayload[] = [];
+      await signalTypingIfNeeded(guardedReplyPayloads, typingSignals);
 
-    if (verboseEnabled && activeIsNewSession) {
-      verboseNotices.push({ text: `🧭 New session: ${followupRun.run.sessionId}` });
-    }
-
-    if (fallbackTransition.fallbackTransitioned) {
-      emitAgentEvent({
-        runId,
-        sessionKey,
-        stream: "lifecycle",
-        data: {
-          phase: "fallback",
-          selectedProvider,
-          selectedModel,
-          activeProvider: providerUsed,
-          activeModel: modelUsed,
-          reasonSummary: fallbackTransition.reasonSummary,
-          attemptSummaries: fallbackTransition.attemptSummaries,
-          attempts: fallbackAttempts,
-        },
-      });
-      if (verboseEnabled) {
-        const fallbackNotice = buildFallbackNotice({
-          selectedProvider,
-          selectedModel,
-          activeProvider: providerUsed,
-          activeModel: modelUsed,
-          attempts: fallbackAttempts,
+      if (isDiagnosticsEnabled(cfg) && hasNonzeroUsage(usage)) {
+        const { estimateUsageCost, resolveModelCostConfig } = await loadUsageCostRuntime();
+        const input = usage.input ?? 0;
+        const output = usage.output ?? 0;
+        const cacheRead = usage.cacheRead ?? 0;
+        const cacheWrite = usage.cacheWrite ?? 0;
+        const promptTokens = input + cacheRead + cacheWrite;
+        const totalTokens = usage.total ?? promptTokens + output;
+        const costConfig = resolveModelCostConfig({
+          provider: providerUsed,
+          model: modelUsed,
+          config: cfg,
         });
-        if (fallbackNotice) {
-          verboseNotices.push({ text: fallbackNotice });
+        const costUsd = estimateUsageCost({ usage, cost: costConfig });
+        emitDiagnosticEvent({
+          type: "model.usage",
+          sessionKey,
+          sessionId: followupRun.run.sessionId,
+          channel: replyToChannel,
+          provider: providerUsed,
+          model: modelUsed,
+          usage: {
+            input,
+            output,
+            cacheRead,
+            cacheWrite,
+            promptTokens,
+            total: totalTokens,
+          },
+          lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
+          context: {
+            limit: contextTokensUsed,
+            used: totalTokens,
+          },
+          costUsd,
+          durationMs: Date.now() - runStartedAt,
+        });
+      }
+
+      const responseUsageRaw =
+        activeSessionEntry?.responseUsage ??
+        (sessionKey ? activeSessionStore?.[sessionKey]?.responseUsage : undefined);
+      const responseUsageMode = resolveResponseUsageMode(responseUsageRaw);
+      if (responseUsageMode !== "off" && hasNonzeroUsage(usage)) {
+        const { resolveModelCostConfig } = await loadUsageCostRuntime();
+        const authMode = resolveModelAuthMode(providerUsed, cfg);
+        const showCost = authMode === "api-key";
+        const costConfig = showCost
+          ? resolveModelCostConfig({
+              provider: providerUsed,
+              model: modelUsed,
+              config: cfg,
+            })
+          : undefined;
+        let formatted = formatResponseUsageLine({
+          usage,
+          showCost,
+          costConfig,
+        });
+        if (formatted && responseUsageMode === "full" && sessionKey) {
+          formatted = `${formatted} · session \`${sessionKey}\``;
+        }
+        if (formatted) {
+          responseUsageLine = formatted;
         }
       }
-    }
-    if (fallbackTransition.fallbackCleared) {
-      emitAgentEvent({
-        runId,
-        sessionKey,
-        stream: "lifecycle",
-        data: {
-          phase: "fallback_cleared",
-          selectedProvider,
-          selectedModel,
-          activeProvider: providerUsed,
-          activeModel: modelUsed,
-          previousActiveModel: fallbackTransition.previousState.activeModel,
-        },
-      });
-      if (verboseEnabled) {
-        verboseNotices.push({
-          text: buildFallbackClearedNotice({
+
+      // If verbose is enabled, prepend operational run notices.
+      let finalPayloads = guardedReplyPayloads;
+      const verboseNotices: ReplyPayload[] = [];
+
+      if (verboseEnabled && activeIsNewSession) {
+        verboseNotices.push({ text: `🧭 New session: ${followupRun.run.sessionId}` });
+      }
+
+      if (fallbackTransition.fallbackTransitioned) {
+        emitAgentEvent({
+          runId,
+          sessionKey,
+          stream: "lifecycle",
+          data: {
+            phase: "fallback",
             selectedProvider,
             selectedModel,
-            previousActiveModel: fallbackTransition.previousState.activeModel,
-          }),
+            activeProvider: providerUsed,
+            activeModel: modelUsed,
+            reasonSummary: fallbackTransition.reasonSummary,
+            attemptSummaries: fallbackTransition.attemptSummaries,
+            attempts: fallbackAttempts,
+          },
         });
-      }
-    }
-
-    if (autoCompactionCount > 0) {
-      const count = await incrementRunCompactionCount({
-        sessionEntry: activeSessionEntry,
-        sessionStore: activeSessionStore,
-        sessionKey,
-        storePath,
-        amount: autoCompactionCount,
-        lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
-        contextTokensUsed,
-      });
-
-      // Inject post-compaction workspace context for the next agent turn
-      if (sessionKey) {
-        const workspaceDir = process.cwd();
-        readPostCompactionContext(workspaceDir, cfg)
-          .then((contextContent) => {
-            if (contextContent) {
-              enqueueSystemEvent(contextContent, { sessionKey });
-            }
-          })
-          .catch(() => {
-            // Silent failure — post-compaction context is best-effort
+        if (verboseEnabled) {
+          const fallbackNotice = buildFallbackNotice({
+            selectedProvider,
+            selectedModel,
+            activeProvider: providerUsed,
+            activeModel: modelUsed,
+            attempts: fallbackAttempts,
           });
+          if (fallbackNotice) {
+            verboseNotices.push({ text: fallbackNotice });
+          }
+        }
+      }
+      if (fallbackTransition.fallbackCleared) {
+        emitAgentEvent({
+          runId,
+          sessionKey,
+          stream: "lifecycle",
+          data: {
+            phase: "fallback_cleared",
+            selectedProvider,
+            selectedModel,
+            activeProvider: providerUsed,
+            activeModel: modelUsed,
+            previousActiveModel: fallbackTransition.previousState.activeModel,
+          },
+        });
+        if (verboseEnabled) {
+          verboseNotices.push({
+            text: buildFallbackClearedNotice({
+              selectedProvider,
+              selectedModel,
+              previousActiveModel: fallbackTransition.previousState.activeModel,
+            }),
+          });
+        }
       }
 
-      // Always notify the user when compaction completes — not just in verbose
-      // mode. The "🧹 Compacting context..." notice was already sent at start,
-      // so the completion message closes the loop for every user regardless of
-      // their verbose setting.
-      const suffix = typeof count === "number" ? ` (count ${count})` : "";
-      const completionText = verboseEnabled
-        ? `🧹 Auto-compaction complete${suffix}.`
-        : `✅ Context compacted${suffix}.`;
+      if (autoCompactionCount > 0) {
+        const count = await incrementRunCompactionCount({
+          sessionEntry: activeSessionEntry,
+          sessionStore: activeSessionStore,
+          sessionKey,
+          storePath,
+          amount: autoCompactionCount,
+          lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
+          contextTokensUsed,
+        });
 
-      if (blockReplyPipeline && opts?.onBlockReply) {
-        // In block-streaming mode, send the completion notice via
-        // fire-and-forget *after* the pipeline has flushed (so it does not set
-        // didStream()=true and cause buildReplyPayloads to discard the real
-        // assistant reply).  Now that the count is known we can include it.
-        const currentMessageId = sessionCtx.MessageSidFull ?? sessionCtx.MessageSid;
-        const noticePayload = applyReplyToMode({
-          text: completionText,
-          replyToId: currentMessageId,
-          replyToCurrent: true,
-          isCompactionNotice: true,
-        });
-        void Promise.race([
-          opts.onBlockReply(noticePayload),
-          new Promise<void>((_, reject) =>
-            setTimeout(() => reject(new Error("compaction notice timeout")), blockReplyTimeoutMs),
-          ),
-        ]).catch(() => {
-          // Intentionally swallowed — the notice is informational only.
-        });
-      } else {
-        // Non-streaming: push into verboseNotices with full compaction metadata
-        // so threading exemptions apply and replyToMode=first does not thread
-        // the notice instead of the real assistant reply.
-        const currentMessageId = sessionCtx.MessageSidFull ?? sessionCtx.MessageSid;
-        verboseNotices.push(
-          applyReplyToMode({
+        // Inject post-compaction workspace context for the next agent turn
+        if (sessionKey) {
+          const workspaceDir = process.cwd();
+          readPostCompactionContext(workspaceDir, cfg)
+            .then((contextContent) => {
+              if (contextContent) {
+                enqueueSystemEvent(contextContent, { sessionKey });
+              }
+            })
+            .catch(() => {
+              // Silent failure — post-compaction context is best-effort
+            });
+        }
+
+        // Always notify the user when compaction completes — not just in verbose
+        // mode. The "🧹 Compacting context..." notice was already sent at start,
+        // so the completion message closes the loop for every user regardless of
+        // their verbose setting.
+        const suffix = typeof count === "number" ? ` (count ${count})` : "";
+        const completionText = verboseEnabled
+          ? `🧹 Auto-compaction complete${suffix}.`
+          : `✅ Context compacted${suffix}.`;
+
+        if (blockReplyPipeline && opts?.onBlockReply) {
+          // In block-streaming mode, send the completion notice via
+          // fire-and-forget *after* the pipeline has flushed (so it does not set
+          // didStream()=true and cause buildReplyPayloads to discard the real
+          // assistant reply).  Now that the count is known we can include it.
+          const currentMessageId = sessionCtx.MessageSidFull ?? sessionCtx.MessageSid;
+          const noticePayload = applyReplyToMode({
             text: completionText,
             replyToId: currentMessageId,
             replyToCurrent: true,
             isCompactionNotice: true,
-          }),
+          });
+          void Promise.race([
+            opts.onBlockReply(noticePayload),
+            new Promise<void>((_, reject) =>
+              setTimeout(() => reject(new Error("compaction notice timeout")), blockReplyTimeoutMs),
+            ),
+          ]).catch(() => {
+            // Intentionally swallowed — the notice is informational only.
+          });
+        } else {
+          // Non-streaming: push into verboseNotices with full compaction metadata
+          // so threading exemptions apply and replyToMode=first does not thread
+          // the notice instead of the real assistant reply.
+          const currentMessageId = sessionCtx.MessageSidFull ?? sessionCtx.MessageSid;
+          verboseNotices.push(
+            applyReplyToMode({
+              text: completionText,
+              replyToId: currentMessageId,
+              replyToCurrent: true,
+              isCompactionNotice: true,
+            }),
+          );
+        }
+      }
+      if (verboseNotices.length > 0) {
+        finalPayloads = [...verboseNotices, ...finalPayloads];
+      }
+      if (responseUsageLine) {
+        finalPayloads = appendUsageLine(finalPayloads, responseUsageLine);
+      }
+      if (finalPayloads.length === 0) {
+        const fallbackPayload = buildAcceptanceFallbackPayload(
+          acceptanceOutcome,
+          supervisorVerdict,
+          {
+            channel: replyToChannel,
+          },
         );
+        if (fallbackPayload && !queuedSemanticRetry) {
+          finalPayloads = [fallbackPayload];
+        }
       }
-    }
-    if (verboseNotices.length > 0) {
-      finalPayloads = [...verboseNotices, ...finalPayloads];
-    }
-    if (responseUsageLine) {
-      finalPayloads = appendUsageLine(finalPayloads, responseUsageLine);
-    }
-    if (finalPayloads.length === 0) {
-      const fallbackPayload = buildAcceptanceFallbackPayload(acceptanceOutcome, supervisorVerdict, {
-        channel: replyToChannel,
+      const debugReplyBlock = buildDebugReplyBlock({
+        userMessage:
+          sessionCtx.BodyForCommands ??
+          sessionCtx.CommandBody ??
+          sessionCtx.RawBody ??
+          sessionCtx.Body ??
+          commandBody,
+        selectedProvider,
+        selectedModel,
+        activeProvider: providerUsed,
+        activeModel: modelUsed,
+        fallbackAttempts,
+        usage,
+        lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
+        executionIntent: runResult.meta?.executionIntent?.intent,
+        classifierTelemetry: runResult.meta?.executionIntent?.classifierTelemetry,
+        routingOutcome: runResult.meta?.executionIntent?.routingOutcome,
+        decisionTrace: runResult.meta?.executionIntent?.decisionTrace,
       });
-      if (fallbackPayload && !queuedSemanticRetry) {
-        finalPayloads = [fallbackPayload];
+      if (debugReplyBlock) {
+        finalPayloads = appendUsageLine(finalPayloads, debugReplyBlock);
       }
-    }
-    const debugReplyBlock = buildDebugReplyBlock({
-      userMessage:
-        sessionCtx.BodyForCommands ??
-        sessionCtx.CommandBody ??
-        sessionCtx.RawBody ??
-        sessionCtx.Body ??
-        commandBody,
-      selectedProvider,
-      selectedModel,
-      activeProvider: providerUsed,
-      activeModel: modelUsed,
-      fallbackAttempts,
-      usage,
-      lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
-      executionIntent: runResult.meta?.executionIntent?.intent,
-      classifierTelemetry: runResult.meta?.executionIntent?.classifierTelemetry,
-      routingOutcome: runResult.meta?.executionIntent?.routingOutcome,
-    });
-    if (debugReplyBlock) {
-      finalPayloads = appendUsageLine(finalPayloads, debugReplyBlock);
-    }
 
-    const channelForLedger = (
-      replyToChannel ??
-      sessionCtx.Surface ??
-      sessionCtx.Provider ??
-      sessionCtx.OriginatingChannel
-    )
-      ?.trim()
-      .toLowerCase();
-    const ledgerSummary = summarizeFinalAssistantText(guardedReplyPayloads);
-    if (followupRun.run.sessionId && channelForLedger && ledgerSummary) {
-      const recordedLedgerEntry = intentLedger.recordFromBotTurn({
-        turnId: runId,
-        sessionId: followupRun.run.sessionId,
-        channelId: channelForLedger,
-        summary: ledgerSummary,
-        planOutput:
-          runResult.meta?.executionIntent && executionFingerprint
-            ? {
-                ...runResult.meta.executionIntent,
-                fingerprint: executionFingerprint,
+      const channelForLedger = (
+        replyToChannel ??
+        sessionCtx.Surface ??
+        sessionCtx.Provider ??
+        sessionCtx.OriginatingChannel
+      )
+        ?.trim()
+        .toLowerCase();
+      const ledgerSummary = summarizeFinalAssistantText(guardedReplyPayloads);
+      if (followupRun.run.sessionId && channelForLedger && ledgerSummary) {
+        const recordedLedgerEntry = intentLedger.recordFromBotTurn({
+          turnId: runId,
+          sessionId: followupRun.run.sessionId,
+          channelId: channelForLedger,
+          summary: ledgerSummary,
+          planOutput:
+            runResult.meta?.executionIntent && executionFingerprint
+              ? {
+                  ...runResult.meta.executionIntent,
+                  fingerprint: executionFingerprint,
+                }
+              : runResult.meta?.executionIntent,
+          runtimeReceipts: runResult.meta?.executionVerification?.receipts,
+          ambigs: extractClassifierAmbiguities(runResult.meta?.executionIntent),
+        });
+        intentLedgerLog.info(
+          `[intent-ledger] recorded session=${followupRun.run.sessionId} channel=${channelForLedger} kind=${recordedLedgerEntry?.kind ?? "-"} topicKey=${recordedLedgerEntry?.clarifyTopicKey ?? "-"}`,
+        );
+
+        const executionReceipts = runResult.meta?.executionVerification?.receipts ?? [];
+        const executionVerification = runResult.meta?.executionVerification;
+        if (turnProgressEmitter) {
+          for (const receipt of executionReceipts) {
+            if (receipt.kind === "tool") {
+              const toolName =
+                typeof receipt.name === "string" && receipt.name.trim()
+                  ? receipt.name.trim()
+                  : undefined;
+              if (toolName) {
+                turnProgressEmitter.emit("tool_call", toolName, { toolName });
               }
-            : runResult.meta?.executionIntent,
-        runtimeReceipts: runResult.meta?.executionVerification?.receipts,
-        ambigs: extractClassifierAmbiguities(runResult.meta?.executionIntent),
-      });
-      intentLedgerLog.info(
-        `[intent-ledger] recorded session=${followupRun.run.sessionId} channel=${channelForLedger} kind=${recordedLedgerEntry?.kind ?? "-"} topicKey=${recordedLedgerEntry?.clarifyTopicKey ?? "-"}`,
-      );
-
-      const executionReceipts = runResult.meta?.executionVerification?.receipts ?? [];
-      const executionVerification = runResult.meta?.executionVerification;
-      if (turnProgressEmitter) {
-        for (const receipt of executionReceipts) {
-          if (receipt.kind === "tool") {
-            const toolName =
-              typeof receipt.name === "string" && receipt.name.trim()
-                ? receipt.name.trim()
-                : undefined;
-            if (toolName) {
-              turnProgressEmitter.emit("tool_call", toolName, { toolName });
             }
           }
         }
-      }
-      maybeInvalidateWorkspaceForReceipts({
-        receipts: executionReceipts,
-        sessionId: followupRun.run.sessionId,
-        channelId: channelForLedger,
-      });
-      const pendingPromises = recordedLedgerEntry?.kind === "promised_action"
-        ? [recordedLedgerEntry]
-        : [];
-      if (pendingPromises.length > 0) {
-        const violations = reconcilePromisesWithReceipts({
-          pendingPromises,
+        maybeInvalidateWorkspaceForReceipts({
           receipts: executionReceipts,
-          ...(executionVerification ? { verification: executionVerification } : {}),
+          sessionId: followupRun.run.sessionId,
+          channelId: channelForLedger,
         });
-        const hardViolations = violations.filter((v) => v.severity === "hard");
-        const softViolations = violations.filter((v) => v.severity === "soft");
-        const alreadyEvidenceReplan =
-          followupRun.automation?.reasonCode === EVIDENCE_HARD_REPLAN_REASON_CODE;
-        let action: "none" | "soft" | "hard-replan" = "none";
-        if (hardViolations.length > 0) {
-          if (alreadyEvidenceReplan) {
-            evidenceLog.warn("[evidence] replan-budget-exhausted");
-            for (const violation of hardViolations) {
+        const pendingPromises =
+          recordedLedgerEntry?.kind === "promised_action" ? [recordedLedgerEntry] : [];
+        if (pendingPromises.length > 0) {
+          const violations = reconcilePromisesWithReceipts({
+            pendingPromises,
+            receipts: executionReceipts,
+            ...(executionVerification ? { verification: executionVerification } : {}),
+          });
+          const hardViolations = violations.filter((v) => v.severity === "hard");
+          const softViolations = violations.filter((v) => v.severity === "soft");
+          const alreadyEvidenceReplan =
+            followupRun.automation?.reasonCode === EVIDENCE_HARD_REPLAN_REASON_CODE;
+          let action: "none" | "soft" | "hard-replan" = "none";
+          if (hardViolations.length > 0) {
+            if (alreadyEvidenceReplan) {
+              evidenceLog.warn("[evidence] replan-budget-exhausted");
+              for (const violation of hardViolations) {
+                intentLedger.recordViolatedPromise({
+                  turnId: violation.turnId,
+                  sessionId: followupRun.run.sessionId,
+                  channelId: channelForLedger,
+                  summary: violation.summary,
+                  ...(violation.expectedReceiptKinds || violation.expectedToolNames
+                    ? {
+                        receiptMatchers: {
+                          ...(violation.expectedReceiptKinds.length > 0
+                            ? { receiptKinds: [...violation.expectedReceiptKinds] }
+                            : {}),
+                          ...(violation.expectedToolNames?.length
+                            ? { toolNames: [...violation.expectedToolNames] }
+                            : {}),
+                        },
+                      }
+                    : {}),
+                });
+              }
+              action = "soft";
+            } else {
+              const firstHard = hardViolations[0]!;
+              const enqueued = enqueueEvidenceHardReplan({
+                queueKey,
+                sourceRun: followupRun,
+                settings: resolvedQueue,
+                violation: firstHard,
+              });
+              action = enqueued ? "hard-replan" : "soft";
+              if (!enqueued) {
+                intentLedger.recordViolatedPromise({
+                  turnId: firstHard.turnId,
+                  sessionId: followupRun.run.sessionId,
+                  channelId: channelForLedger,
+                  summary: firstHard.summary,
+                  ...(firstHard.expectedReceiptKinds || firstHard.expectedToolNames
+                    ? {
+                        receiptMatchers: {
+                          ...(firstHard.expectedReceiptKinds.length > 0
+                            ? { receiptKinds: [...firstHard.expectedReceiptKinds] }
+                            : {}),
+                          ...(firstHard.expectedToolNames?.length
+                            ? { toolNames: [...firstHard.expectedToolNames] }
+                            : {}),
+                        },
+                      }
+                    : {}),
+                });
+              }
+            }
+          } else if (softViolations.length > 0) {
+            action = "soft";
+            for (const violation of softViolations) {
               intentLedger.recordViolatedPromise({
                 turnId: violation.turnId,
                 sessionId: followupRun.run.sessionId,
@@ -1479,112 +1564,59 @@ export async function runReplyAgent(params: {
                   : {}),
               });
             }
-            action = "soft";
-          } else {
-            const firstHard = hardViolations[0]!;
-            const enqueued = enqueueEvidenceHardReplan({
-              queueKey,
-              sourceRun: followupRun,
-              settings: resolvedQueue,
-              violation: firstHard,
-            });
-            action = enqueued ? "hard-replan" : "soft";
-            if (!enqueued) {
-              intentLedger.recordViolatedPromise({
-                turnId: firstHard.turnId,
-                sessionId: followupRun.run.sessionId,
-                channelId: channelForLedger,
-                summary: firstHard.summary,
-                ...(firstHard.expectedReceiptKinds || firstHard.expectedToolNames
-                  ? {
-                      receiptMatchers: {
-                        ...(firstHard.expectedReceiptKinds.length > 0
-                          ? { receiptKinds: [...firstHard.expectedReceiptKinds] }
-                          : {}),
-                        ...(firstHard.expectedToolNames?.length
-                          ? { toolNames: [...firstHard.expectedToolNames] }
-                          : {}),
-                      },
-                    }
-                  : {}),
-              });
-            }
           }
-        } else if (softViolations.length > 0) {
-          action = "soft";
-          for (const violation of softViolations) {
-            intentLedger.recordViolatedPromise({
-              turnId: violation.turnId,
-              sessionId: followupRun.run.sessionId,
-              channelId: channelForLedger,
-              summary: violation.summary,
-              ...(violation.expectedReceiptKinds || violation.expectedToolNames
-                ? {
-                    receiptMatchers: {
-                      ...(violation.expectedReceiptKinds.length > 0
-                        ? { receiptKinds: [...violation.expectedReceiptKinds] }
-                        : {}),
-                      ...(violation.expectedToolNames?.length
-                        ? { toolNames: [...violation.expectedToolNames] }
-                        : {}),
-                    },
-                  }
-                : {}),
-            });
+          evidenceLog.info(
+            `[evidence] promises=${pendingPromises.length} receipts=${executionReceipts.length} violations=${violations.length} action=${action}`,
+          );
+          if (action !== "none" && turnProgressEmitter) {
+            turnProgressEmitter.emit("evidence", action, { violationAction: action });
           }
+        } else {
+          evidenceLog.info(
+            `[evidence] promises=0 receipts=${executionReceipts.length} violations=0 action=none`,
+          );
         }
-        evidenceLog.info(
-          `[evidence] promises=${pendingPromises.length} receipts=${executionReceipts.length} violations=${violations.length} action=${action}`,
-        );
-        if (action !== "none" && turnProgressEmitter) {
-          turnProgressEmitter.emit("evidence", action, { violationAction: action });
-        }
-      } else {
-        evidenceLog.info(
-          `[evidence] promises=0 receipts=${executionReceipts.length} violations=0 action=none`,
-        );
+      }
+
+      if (queuedSemanticRetry) {
+        return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
+      }
+
+      return finalizeWithFollowup(
+        finalPayloads.length === 0
+          ? undefined
+          : finalPayloads.length === 1
+            ? finalPayloads[0]
+            : finalPayloads,
+        queueKey,
+        runFollowupTurn,
+      );
+    } catch (error) {
+      // Keep the followup queue moving even when an unexpected exception escapes
+      // the run path; the caller still receives the original error.
+      finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
+      if (deferredJobTurnId) {
+        deferredJobOutcome = "failed";
+      }
+      throw error;
+    } finally {
+      blockReplyPipeline?.stop();
+      typing.markRunComplete();
+      // Safety net: the dispatcher's onIdle callback normally fires
+      // markDispatchIdle(), but if the dispatcher exits early, errors,
+      // or the reply path doesn't go through it cleanly, the second
+      // signal never fires and the typing keepalive loop runs forever.
+      // Calling this twice is harmless — cleanup() is guarded by the
+      // `active` flag.  Same pattern as the followup runner fix (#26881).
+      typing.markDispatchIdle();
+      if (deferredJobTurnId) {
+        markDeferredJobComplete(queueKey, {
+          turnId: deferredJobTurnId,
+          status: deferredJobOutcome ?? "done",
+        });
+        clearDeferredJob(queueKey);
       }
     }
-
-    if (queuedSemanticRetry) {
-      return finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
-    }
-
-    return finalizeWithFollowup(
-      finalPayloads.length === 0
-        ? undefined
-        : finalPayloads.length === 1
-          ? finalPayloads[0]
-          : finalPayloads,
-      queueKey,
-      runFollowupTurn,
-    );
-  } catch (error) {
-    // Keep the followup queue moving even when an unexpected exception escapes
-    // the run path; the caller still receives the original error.
-    finalizeWithFollowup(undefined, queueKey, runFollowupTurn);
-    if (deferredJobTurnId) {
-      deferredJobOutcome = "failed";
-    }
-    throw error;
-  } finally {
-    blockReplyPipeline?.stop();
-    typing.markRunComplete();
-    // Safety net: the dispatcher's onIdle callback normally fires
-    // markDispatchIdle(), but if the dispatcher exits early, errors,
-    // or the reply path doesn't go through it cleanly, the second
-    // signal never fires and the typing keepalive loop runs forever.
-    // Calling this twice is harmless — cleanup() is guarded by the
-    // `active` flag.  Same pattern as the followup runner fix (#26881).
-    typing.markDispatchIdle();
-    if (deferredJobTurnId) {
-      markDeferredJobComplete(queueKey, {
-        turnId: deferredJobTurnId,
-        status: deferredJobOutcome ?? "done",
-      });
-      clearDeferredJob(queueKey);
-    }
-  }
   };
   if (turnProgressEmitter) {
     try {
