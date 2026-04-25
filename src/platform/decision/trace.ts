@@ -12,6 +12,7 @@ import type {
 } from "./qualification-contract.js";
 import type { ResolutionContract, ResolutionRouting } from "./resolution-contract.js";
 import type { TaskClassifierDebugEvent, TaskContract } from "./task-classifier.js";
+import type { AmbiguityProfileEntry } from "./ambiguity-policy.js";
 
 export type DecisionTraceErrorTag =
   | "unnecessary_clarify"
@@ -45,6 +46,7 @@ export type DecisionTraceContracts = {
   requestedEvidence?: RequestedEvidenceKind[];
   confidence?: QualificationConfidence;
   ambiguityReasons?: string[];
+  ambiguityProfile?: AmbiguityProfileEntry[];
   lowConfidenceStrategy?: QualificationLowConfidenceStrategy;
   deliverable?: DeliverableSpec;
 };

@@ -118,6 +118,23 @@ function buildClarifyBudgetExceededBlock(maxRepeat: number): string {
   ].join("\n");
 }
 
+/**
+ * Builds classifier policy context for a user reply to a previous clarification.
+ *
+ * @param topicKey - Stable clarify topic key from the intent ledger.
+ * @returns Prompt block that forbids repeating the same clarification.
+ */
+function buildClarifyAnsweredContextBlock(topicKey: string): string {
+  return [
+    `<clarify_answered_context topicKey="${topicKey}">`,
+    "The user is replying after your previous clarification on this topic.",
+    "Do NOT ask the same clarification again under different wording.",
+    "Use the current user message to resolve the topic; if any remaining gap is preference-level or optional, choose a reasonable default and proceed.",
+    "Ask only for a new blocking ambiguity that is unrelated to this topic.",
+    "</clarify_answered_context>",
+  ].join("\n");
+}
+
 type DecisionInputChannelHints = {
   messageChannel?: string;
   channel?: string;
@@ -204,7 +221,6 @@ export function buildExecutionDecisionInput(
   });
   const prompt = normalizedTurn.prompt;
   const fileNames = normalizedTurn.fileNames;
-  const inferencePrompt = normalizedTurn.inferencePrompt;
   const effectiveIntent = params.intent;
   const channelHints = toUniqueLowercase([
     params.channelHints?.messageChannel,
@@ -381,11 +397,12 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     CLARIFY_BUDGET_MAX_REPEAT_DEFAULT,
   );
   let clarifyBudgetNotice = "";
-  const pendingTopicKey = [...pendingCommitments]
-    .reverse()
+  const pendingTopicKey = pendingCommitments
+    .toReversed()
     .find((entry) => entry.clarifyTopicKey)
     ?.clarifyTopicKey;
   if (ledgerSessionId && ledgerChannelId && pendingTopicKey) {
+    clarifyBudgetNotice = buildClarifyAnsweredContextBlock(pendingTopicKey);
     const ledgerCount = intentLedger.peekClarifyCount(
       ledgerSessionId,
       ledgerChannelId,
@@ -402,7 +419,10 @@ export async function buildClassifiedExecutionDecisionInput(params: {
           ).length;
     const injected = withinWindowCount >= clarifyMaxRepeat;
     if (injected) {
-      clarifyBudgetNotice = buildClarifyBudgetExceededBlock(clarifyMaxRepeat);
+      clarifyBudgetNotice = [
+        clarifyBudgetNotice,
+        buildClarifyBudgetExceededBlock(clarifyMaxRepeat),
+      ].join("\n");
     }
     defaultRuntime.log(
       `[clarify-budget] topic=${pendingTopicKey.slice(0, 8)} count=${String(withinWindowCount)} injected=${injected ? "1" : "0"}`,

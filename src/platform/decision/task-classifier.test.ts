@@ -205,6 +205,45 @@ describe("classifyTaskForDecision", () => {
     expect(observedPrompts[2]).toContain("Do NOT ask again.");
   });
 
+  it("records blocking ambiguity classification in decisionTrace for clarify turns", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: {
+              backend: "stub-backend",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const classified = await classifyTaskForDecision({
+      prompt: "Опубликуй это куда-нибудь",
+      cfg,
+      adapterRegistry: {
+        "stub-backend": {
+          classify: vi.fn().mockResolvedValue({
+            primaryOutcome: "clarification_needed",
+            requiredCapabilities: [],
+            interactionMode: "clarify_first",
+            confidence: 0.7,
+            ambiguities: ["blocking: publish target is not specified"],
+          }),
+        },
+      },
+    });
+
+    expect(classified.plannerInput.lowConfidenceStrategy).toBe("clarify");
+    expect(classified.plannerInput.decisionTrace?.contracts?.ambiguityProfile).toEqual([
+      {
+        reason: "blocking: publish target is not specified",
+        kind: "blocking",
+        blocksClarification: true,
+      },
+    ]);
+  });
+
   // P1.6.1: env requirements are now attached to the deliverable's
   // provider/integration constraint, not to the `needs_repo_execution`
   // capability. The bundled catalog therefore no longer fires the gate
@@ -1274,6 +1313,26 @@ describe("contract-first task contract routing", () => {
     expect(plannerInput.outcomeContract).toBe("text_response");
   });
 
+  it("keeps clear-enough workspace mutations on the tool path when ambiguity is only preference-level", () => {
+    const plannerInput = buildPlannerInputFromTaskContract({
+      prompt: "Почини багу любым разумным способом",
+      taskContract: {
+        primaryOutcome: "workspace_change",
+        requiredCapabilities: ["needs_workspace_mutation", "needs_repo_execution"],
+        interactionMode: "tool_execution",
+        confidence: 0.35,
+        ambiguities: ["preference: implementation approach not specified"],
+      },
+    });
+
+    expect(plannerInput.lowConfidenceStrategy).toBeUndefined();
+    expect(plannerInput.executionContract?.requiresWorkspaceMutation).toBe(true);
+    expect(plannerInput.requestedTools).toEqual(expect.arrayContaining(["apply_patch"]));
+    expect(plannerInput.ambiguityReasons).toEqual([
+      "preference: implementation approach not specified",
+    ]);
+  });
+
   it("P0.2: keeps high-confidence workspace mutation on the tool path", () => {
     const plannerInput = buildPlannerInputFromTaskContract({
       prompt: "Перепиши src/foo.ts под новую схему.",
@@ -1299,7 +1358,7 @@ describe("contract-first task contract routing", () => {
         requiredCapabilities: ["needs_multimodal_authoring"],
         interactionMode: "clarify_first",
         confidence: 0.4,
-        ambiguities: ["Audience and tone are not specified."],
+        ambiguities: ["blocking: document format not specified"],
         deliverable: {
           kind: "document",
           preferredFormat: "pdf",

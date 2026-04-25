@@ -19,6 +19,12 @@ import {
   buildCapabilityPromptSection,
   type TaskCapabilityId,
 } from "./capability-catalog.js";
+import {
+  blockingAmbiguityReasons,
+  buildAmbiguityProfile,
+  clarifyTopicKey,
+  type AmbiguityProfileEntry,
+} from "./ambiguity-policy.js";
 import { inferRequestedEvidence } from "./execution-contract.js";
 import type { BuildExecutionDecisionInputParams } from "./input.js";
 import type { CandidateExecutionFamily } from "./qualification-contract.js";
@@ -43,6 +49,8 @@ export const DEFAULT_TASK_CLASSIFIER_TIMEOUT_MS = 20_000;
 export const DEFAULT_TASK_CLASSIFIER_MAX_TOKENS = 450;
 const FAIL_CLOSED_REASON = "task classifier unavailable";
 const MAX_PENDING_COMMITMENTS_TOKENS = 300;
+const CLARIFY_ANSWERED_TOPIC_RE =
+  /<clarify_answered_context\b[^>]*\btopicKey="([^"]+)"[^>]*>/i;
 
 const TASK_CONTRACT_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -203,7 +211,16 @@ Decision ladder:
    - tool_execution: browser, web research, extraction, repo execution, or delivery is needed.
    - artifact_iteration: the main result is an authored artifact.
    - clarify_first: use only with primaryOutcome "clarification_needed".
-4. Add only capabilities that are explicitly required by the task:
+4. Apply ambiguity taxonomy before choosing clarify_first:
+   - blocking ambiguity: execution would be unsafe or impossible without the user's answer.
+   - preference ambiguity: a reasonable default can be chosen; DO NOT clarify.
+   - missing optional detail: the task is still executable; DO NOT clarify.
+   Put only blocking ambiguities in ambiguities. Prefix them as "blocking: ...".
+   Do not put style, tone, branding, template, filename, receipt format, page count, or other optional/defaultable choices in ambiguities.
+   Low confidence alone is not a reason to use clarify_first when the task is clear enough to act.
+   If the user answered a previous clarification, do not ask the same question again under a different wording.
+   Persistent worker/session requests are clear enough to act when the user asks to create a named subagent or background worker, even if the full ongoing task spec is sparse; create the persistent session and put the question/task inside it.
+5. Add only capabilities that are explicitly required by the task:
 {{CAPABILITY_LADDER}}
 
 Canonical mapping rules:
@@ -226,7 +243,7 @@ Canonical mapping rules:
 - Field extraction from docs/forms/invoices should not add needs_tabular_reasoning unless table/spreadsheet comparison or numeric reasoning is central.
 - Spreadsheet/table attachments used only for comparison do not imply needs_document_extraction.
 - Deploy/publish/release requests should usually be external_delivery + tool_execution + needs_external_delivery.
-- Persistent worker/session requests should be persistent_worker + tool_execution + needs_session_orchestration, deliverable={kind:"session", acceptedFormats:["receipt"], preferredFormat:"receipt", constraints:{continuation:"followup"}}, executionMode="persistent_worker", target="persistent_session", schedule="none" unless explicit recurrence, evidence=["spawn_receipt"]. This maps to sessions_spawn with continuation="followup". Do NOT classify these as external_delivery, workspace_change, cron, repo_run, or publish unless the user explicitly asks to deploy/publish/send to an outside provider.
+- Persistent worker/session requests should be persistent_worker + tool_execution + needs_session_orchestration, deliverable={kind:"session", acceptedFormats:["receipt"], preferredFormat:"receipt", constraints:{continuation:"followup"}}, executionMode="persistent_worker", target="persistent_session", schedule="none" unless explicit recurrence, evidence=["spawn_receipt"]. This maps to sessions_spawn with continuation="followup". Do NOT classify these as external_delivery, workspace_change, cron, repo_run, publish, or clarification_needed unless a new blocking safety issue prevents session creation.
 - Release validation of an already-prepared build is not workspace mutation.
 - Add needs_high_reliability_provider only for production/live external delivery.
 - Explicit production/live publish or deploy of an already-prepared build should usually be external_delivery + tool_execution + needs_external_delivery + needs_repo_execution + needs_local_runtime + needs_high_reliability_provider, without needs_workspace_mutation unless source edits are explicitly requested.
@@ -290,7 +307,7 @@ Constraints guidance (deliverable.constraints):
 
 Output contract:
 - confidence must be between 0 and 1.
-- ambiguities should be an empty array unless the dominant outcome is genuinely unclear.
+- ambiguities should be an empty array unless a blocking ambiguity prevents safe execution.
 - Return exactly one minified JSON object and nothing else.
 
 Attachment file names:
@@ -545,6 +562,77 @@ export type ResolvedTaskClassifierConfig = {
 
 function normalizeUnique<T extends string>(values: readonly T[]): T[] {
   return Array.from(new Set(values)).toSorted();
+}
+
+/**
+ * Builds the classifier-side ambiguity profile used by clarify policy and decision traces.
+ *
+ * @param contract - Task contract whose ambiguity reasons should be classified.
+ * @returns Classified ambiguity profile entries.
+ */
+function taskContractAmbiguityProfile(contract: TaskContract): AmbiguityProfileEntry[] {
+  return buildAmbiguityProfile(contract.ambiguities, {
+    primaryOutcome: contract.primaryOutcome,
+    interactionMode: contract.interactionMode,
+    deliverable: contract.deliverable,
+    requiredCapabilities: contract.requiredCapabilities,
+  });
+}
+
+/**
+ * Returns only blocking ambiguity reasons for a task contract.
+ *
+ * @param contract - Task contract whose ambiguity reasons should be filtered.
+ * @returns Blocking ambiguity reasons.
+ */
+function taskContractBlockingAmbiguities(contract: TaskContract): string[] {
+  return blockingAmbiguityReasons(contract.ambiguities, {
+    primaryOutcome: contract.primaryOutcome,
+    interactionMode: contract.interactionMode,
+    deliverable: contract.deliverable,
+    requiredCapabilities: contract.requiredCapabilities,
+  });
+}
+
+/**
+ * Applies the hard stop that prevents asking the same clarify topic after the user replied.
+ *
+ * @param contract - Normalized task contract returned by the classifier.
+ * @param clarifyPolicyNotice - Classifier policy context injected from the intent ledger.
+ * @returns The original contract, or a respond-only contract when a repeated clarify is suppressed.
+ */
+function suppressRepeatedClarification(
+  contract: TaskContract,
+  clarifyPolicyNotice?: string,
+): TaskContract {
+  const topicKey = CLARIFY_ANSWERED_TOPIC_RE.exec(clarifyPolicyNotice ?? "")?.[1]?.trim();
+  if (!topicKey) {
+    return contract;
+  }
+  if (
+    contract.primaryOutcome !== "clarification_needed" &&
+    contract.interactionMode !== "clarify_first"
+  ) {
+    return contract;
+  }
+  const currentTopicKey = clarifyTopicKey(contract.ambiguities);
+  if (!currentTopicKey && topicKey !== "*generic*") {
+    return contract;
+  }
+  if (currentTopicKey && currentTopicKey !== topicKey) {
+    return contract;
+  }
+  return {
+    ...contract,
+    primaryOutcome: "answer",
+    interactionMode: "respond_only",
+    requiredCapabilities: [],
+    confidence: Math.max(contract.confidence, 0.55),
+    ambiguities: [],
+    deliverable: { kind: "answer", acceptedFormats: ["text"] },
+    target: contract.target === "current_chat" ? contract.target : "current_chat",
+    ...(contract.executionMode === "clarify" ? { executionMode: "respond" as const } : {}),
+  };
 }
 
 function isTextContentBlock(block: { type: string }): block is TextContent {
@@ -925,21 +1013,24 @@ function taskContractConfidenceToQualification(confidence: number): Qualificatio
 function taskContractLowConfidenceStrategy(
   contract: TaskContract,
 ): QualificationLowConfidenceStrategy | undefined {
+  const blockingAmbiguities = taskContractBlockingAmbiguities(contract);
   if (
     contract.primaryOutcome === "clarification_needed" ||
     contract.interactionMode === "clarify_first"
   ) {
-    return "clarify";
+    return blockingAmbiguities.length > 0 ? "clarify" : undefined;
   }
   // P0.2 safety rule: low classifier confidence combined with a workspace-
-  // mutating request AND unresolved ambiguities must route through clarify,
-  // not proceed optimistically. Rationale: `workspace_change` is irreversible
-  // enough that we would rather ask one question than damage the workspace on
-  // a guess. Threshold 0.5 matches `qualificationConfidence=low` upper bound.
+  // mutating request AND unresolved blocking ambiguities must route through
+  // clarify, not proceed optimistically. Preference and optional-detail gaps
+  // should use a bounded/defaulted execution path instead.
   const capabilities = new Set(contract.requiredCapabilities);
   const rawConfidence = typeof contract.confidence === "number" ? contract.confidence : 1;
-  const ambiguityCount = contract.ambiguities?.length ?? 0;
-  if (rawConfidence < 0.5 && capabilities.has("needs_workspace_mutation") && ambiguityCount > 0) {
+  if (
+    rawConfidence < 0.5 &&
+    capabilities.has("needs_workspace_mutation") &&
+    blockingAmbiguities.length > 0
+  ) {
     return "clarify";
   }
   return undefined;
@@ -1222,7 +1313,13 @@ export function buildPlannerInputFromTaskContract(params: {
         .map((value) => value.trim()),
     ),
   );
+  const ambiguityProfile = taskContractAmbiguityProfile(params.taskContract);
   const ambiguityReasons = normalizeUnique(params.taskContract.ambiguities);
+  const blockingAmbiguityList = normalizeUnique(
+    ambiguityProfile
+      .filter((entry) => entry.blocksClarification)
+      .map((entry) => entry.reason),
+  );
   const confidence = taskContractConfidenceToQualification(params.taskContract.confidence);
   const lowConfidenceStrategy = taskContractLowConfidenceStrategy(params.taskContract);
   // P0.3 consistency invariant: when the classifier decides to clarify we must
@@ -1255,7 +1352,12 @@ export function buildPlannerInputFromTaskContract(params: {
     requestedEvidence: inferRequestedEvidence(bridge.outcomeContract, bridge.executionContract),
     confidence,
     taskRequiredCapabilities: [...params.taskContract.requiredCapabilities],
-    ...(ambiguityReasons.length > 0 ? { ambiguityReasons } : {}),
+    ...(ambiguityReasons.length > 0
+      ? {
+          ambiguityReasons:
+            lowConfidenceStrategy === "clarify" ? blockingAmbiguityList : ambiguityReasons,
+        }
+      : {}),
     ...(lowConfidenceStrategy ? { lowConfidenceStrategy } : {}),
     candidateFamilies: [...resolutionContract.candidateFamilies],
     resolutionContract,
@@ -1444,6 +1546,9 @@ function buildFailClosedResolution(params: {
         finalContract: taskContract,
         ...(debugEvents ? { debugEvents } : {}),
       },
+      contracts: {
+        ambiguityProfile: taskContractAmbiguityProfile(taskContract),
+      },
     },
   });
   return {
@@ -1540,18 +1645,22 @@ export async function classifyTaskForDecision(params: {
         const preflightAdjustedContract = applyCredentialsPreflight({
           contract: normalizedContract,
         });
+        const finalContract = suppressRepeatedClarification(
+          preflightAdjustedContract,
+          params.clarifyBudgetNotice,
+        );
         const classifierTelemetry: import("../recipe/planner.js").ClassifierTelemetry = {
           source: "llm",
           backend: classifierConfig.backend,
           model: classifierConfig.model,
-          primaryOutcome: preflightAdjustedContract.primaryOutcome,
-          interactionMode: preflightAdjustedContract.interactionMode,
-          confidence: preflightAdjustedContract.confidence,
-          ...(preflightAdjustedContract.deliverable?.kind
-            ? { deliverableKind: preflightAdjustedContract.deliverable.kind }
+          primaryOutcome: finalContract.primaryOutcome,
+          interactionMode: finalContract.interactionMode,
+          confidence: finalContract.confidence,
+          ...(finalContract.deliverable?.kind
+            ? { deliverableKind: finalContract.deliverable.kind }
             : {}),
-          ...(preflightAdjustedContract.deliverable?.acceptedFormats?.length
-            ? { deliverableFormats: [...preflightAdjustedContract.deliverable.acceptedFormats] }
+          ...(finalContract.deliverable?.acceptedFormats?.length
+            ? { deliverableFormats: [...finalContract.deliverable.acceptedFormats] }
             : {}),
         };
         const compactDebugEvents = compactDecisionTraceDebugEvents(debugEvents);
@@ -1561,23 +1670,26 @@ export async function classifyTaskForDecision(params: {
             ...classifierTelemetry,
             rawContract,
             normalizedContract,
-            finalContract: preflightAdjustedContract,
+            finalContract,
             ...(compactDebugEvents ? { debugEvents: compactDebugEvents } : {}),
+          },
+          contracts: {
+            ambiguityProfile: taskContractAmbiguityProfile(finalContract),
           },
         };
         const plannerInput = buildPlannerInputFromTaskContract({
           prompt: params.prompt,
           fileNames: params.fileNames,
-          taskContract: preflightAdjustedContract,
+          taskContract: finalContract,
           classifierTelemetry,
           decisionTrace,
         });
         log.info(
-          `classified: backend=${classifierConfig.backend} model=${classifierConfig.model} outcome=${preflightAdjustedContract.primaryOutcome} mode=${preflightAdjustedContract.interactionMode} conf=${preflightAdjustedContract.confidence} deliverable=${preflightAdjustedContract.deliverable?.kind ?? "n/a"}/${(preflightAdjustedContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${preflightAdjustedContract.requiredCapabilities.join(",")}] ambig=[${preflightAdjustedContract.ambiguities.join(" | ")}]`,
+          `classified: backend=${classifierConfig.backend} model=${classifierConfig.model} outcome=${finalContract.primaryOutcome} mode=${finalContract.interactionMode} conf=${finalContract.confidence} deliverable=${finalContract.deliverable?.kind ?? "n/a"}/${(finalContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${finalContract.requiredCapabilities.join(",")}] ambig=[${finalContract.ambiguities.join(" | ")}]`,
         );
         return {
           source: "llm",
-          taskContract: preflightAdjustedContract,
+          taskContract: finalContract,
           plannerInput,
           resolutionContract: plannerInput.resolutionContract!,
           candidateFamilies: plannerInput.candidateFamilies ?? [],

@@ -14,6 +14,9 @@ import {
   type ProbeWorkspaceOptions,
   type WorkspaceSnapshot,
 } from "./workspace-probe.js";
+import { clarifyTopicKey } from "../decision/ambiguity-policy.js";
+
+export { clarifyTopicKey } from "../decision/ambiguity-policy.js";
 
 export const INTENT_LEDGER_TTL_MS = 15 * 60 * 1000;
 export const INTENT_LEDGER_MAX_ENTRIES = 8;
@@ -128,26 +131,6 @@ const DEFAULT_PROMISED_ACTION_RECEIPT_KINDS: PlatformRuntimeExecutionReceiptKind
   "tool",
   "platform_action",
 ];
-
-function normalizeClarifyToken(value: string): string[] {
-  return value
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
-}
-
-export function clarifyTopicKey(ambigs: string[]): string {
-  const words = ambigs
-    .flatMap((entry) => normalizeClarifyToken(entry))
-    .sort((left, right) => left.localeCompare(right));
-  const joined = words.join("|");
-  if (!joined) {
-    return "";
-  }
-  return joined.slice(0, 80);
-}
 
 function inferPromisedActionMatchers(summary: string): IntentLedgerReceiptMatchers {
   const receiptKinds = [...DEFAULT_PROMISED_ACTION_RECEIPT_KINDS];

@@ -239,4 +239,42 @@ describe("qualification confidence", () => {
       }),
     ).toBe("clarify");
   });
+
+  it("does not clarify on low confidence when no blocking ambiguity exists", () => {
+    expect(
+      resolveLowConfidenceStrategy({
+        outcomeContract: "text_response",
+        executionContract: {
+          requiresTools: false,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        candidateFamilies: ["general_assistant"],
+        ambiguityReasons: [],
+        confidence: "low",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("uses safe broad execution for preference ambiguities instead of clarify", () => {
+    expect(
+      resolveLowConfidenceStrategy({
+        outcomeContract: "structured_artifact",
+        executionContract: {
+          requiresTools: false,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        candidateFamilies: ["document_render", "analysis_transform"],
+        ambiguityReasons: ["preference: exact report style not specified"],
+        confidence: "medium",
+      }),
+    ).toBe("safe_broad_family_execution");
+  });
 });

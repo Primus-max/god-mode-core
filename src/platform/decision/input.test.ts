@@ -7,6 +7,7 @@ import { resolveSessionTranscriptPathInDir } from "../../config/sessions/paths.j
 import type { RecipePlannerInput } from "../recipe/planner.js";
 import { planExecutionRecipe } from "../recipe/planner.js";
 import { adaptExecutionPlanToRuntime } from "../recipe/runtime-adapter.js";
+import { intentLedger } from "../session/intent-ledger.js";
 import {
   buildExecutionDecisionInput,
   buildExecutionDecisionInputFromRuntimePlan,
@@ -207,6 +208,66 @@ describe("buildSessionBackedExecutionDecisionInput", () => {
     expect(plannerInput.requestedTools).toEqual(["image_generate"]);
     expect(plannerInput.artifactKinds).toEqual(["image"]);
     expect(plannerInput.resolutionContract?.selectedFamily).toBe("media_generation");
+  });
+
+  it("suppresses repeated clarification after the user replies to the same topic", async () => {
+    intentLedger.invalidate(() => true);
+    try {
+      const cfg = {
+        agents: {
+          defaults: {
+            embeddedPi: {
+              taskClassifier: {
+                backend: "stub-backend",
+              },
+            },
+          },
+        },
+      } as OpenClawConfig;
+      const ambigs = ["blocking: report destination is unclear"];
+      intentLedger.recordFromBotTurn({
+        turnId: "clarify-repeat-1",
+        sessionId: "session-repeat",
+        channelId: "telegram",
+        summary: "Куда отправлять отчёт?",
+        planOutput: { executionContract: { requiresTools: false } },
+        ambigs,
+      });
+
+      const plannerInput = await buildClassifiedExecutionDecisionInput({
+        prompt: "В этот чат",
+        sessionEntry: {
+          sessionId: "session-repeat",
+          sessionFile: "session-repeat.jsonl",
+        },
+        channelHints: { messageChannel: "telegram" },
+        cfg,
+        adapterRegistry: {
+          "stub-backend": {
+            classify: vi.fn().mockResolvedValue({
+              primaryOutcome: "clarification_needed",
+              requiredCapabilities: [],
+              interactionMode: "clarify_first",
+              confidence: 0.72,
+              ambiguities: ambigs,
+              executionMode: "clarify",
+            }),
+          },
+        },
+      });
+
+      expect(plannerInput.lowConfidenceStrategy).toBeUndefined();
+      expect(plannerInput.ambiguityReasons ?? []).toEqual([]);
+      expect(plannerInput.decisionTrace?.classifier?.finalContract).toEqual(
+        expect.objectContaining({
+          primaryOutcome: "answer",
+          interactionMode: "respond_only",
+          ambiguities: [],
+        }),
+      );
+    } finally {
+      intentLedger.invalidate(() => true);
+    }
   });
 
   it("keeps short chat prompts local-eligible even inside runtime prepend context", () => {

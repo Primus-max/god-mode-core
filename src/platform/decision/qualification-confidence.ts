@@ -5,6 +5,7 @@ import type {
   QualificationExecutionContract,
   QualificationLowConfidenceStrategy,
 } from "./qualification-contract.js";
+import { blockingAmbiguityReasons } from "./ambiguity-policy.js";
 
 type QualificationSignalSnapshot = {
   outcomeContract: OutcomeContract;
@@ -142,17 +143,14 @@ export function resolveLowConfidenceStrategy(
   },
 ): QualificationLowConfidenceStrategy | undefined {
   const ambiguityReasons = params.ambiguityReasons ?? [];
+  const blockingReasons = blockingAmbiguityReasons(ambiguityReasons, {
+    outcomeContract: params.outcomeContract,
+  });
   if (params.confidence === "high" && ambiguityReasons.length === 0) {
     return undefined;
   }
 
-  if (
-    ambiguityReasons.some((reason) => reason.includes("without an explicit publish target")) ||
-    (params.confidence === "low" &&
-      !params.executionContract.requiresArtifactEvidence &&
-      !params.executionContract.requiresWorkspaceMutation &&
-      !params.executionContract.requiresLocalProcess)
-  ) {
+  if (blockingReasons.length > 0) {
     return "clarify";
   }
 
@@ -168,5 +166,5 @@ export function resolveLowConfidenceStrategy(
     return "safe_broad_family_execution";
   }
 
-  return params.confidence === "low" ? "clarify" : undefined;
+  return undefined;
 }
