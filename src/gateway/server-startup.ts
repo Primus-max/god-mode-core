@@ -1,6 +1,7 @@
 import { getAcpSessionManager } from "../acp/control-plane/manager.js";
 import { ACP_SESSION_IDENTITY_RENDERER_VERSION } from "../acp/runtime/session-identifiers.js";
 import { resolveOpenClawAgentDir } from "../agents/agent-paths.js";
+import { registerDefaultSubagentHooksIfMissing } from "../agents/default-subagent-spawning-hook.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
 import { loadModelCatalog } from "../agents/model-catalog.js";
 import {
@@ -77,6 +78,19 @@ export async function startGatewaySidecars(params: {
   logChannels: { info: (msg: string) => void; error: (msg: string) => void };
   logBrowser: { error: (msg: string) => void };
 }) {
+  try {
+    const defaultsResult = registerDefaultSubagentHooksIfMissing({
+      registry: params.pluginRegistry,
+    });
+    if (defaultsResult.registeredSpawning || defaultsResult.registeredDeliveryTarget) {
+      params.logHooks.info(
+        "core default subagent thread fallback enabled (no channel plugin supplied subagent_spawning/subagent_delivery_target)",
+      );
+    }
+  } catch (err) {
+    params.logHooks.warn(`failed to register default subagent thread hooks: ${String(err)}`);
+  }
+
   try {
     const stateDir = resolveStateDir(process.env);
     const sessionDirs = await resolveAgentSessionDirs(stateDir);
