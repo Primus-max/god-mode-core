@@ -1,0 +1,28 @@
+---
+description: 16 hard architectural invariants for Commitment Kernel; always in context for this repo
+alwaysApply: true
+---
+
+# Commitment Kernel — Hard Invariants
+
+Master plan: `.cursor/plans/commitment_kernel_v1_master.plan.md`
+Discussion artefact (full reasoning): `.cursor/plans/commitment_kernel_design_dialog.plan.md`
+
+These are **architectural constraints**, enforced by TypeScript + ESLint + CI. Violations are architecture failure, not stylistic preference. If a request seems to violate one of these, **stop and surface the conflict** before proceeding.
+
+1. `ExecutionCommitment` is tool-free; no `tool` / `recipe` / `route` fields, ever.
+2. `Affordance` is selected by (effect + target + preconditions + policy + budgets) only.
+3. Production success requires `commitmentSatisfied(...) === true`.
+4. Success requires at least one observed state-after fact.
+5. No phrase / text-rule matching on `UserPrompt` or `RawUserTurn` outside whitelist.
+6. `IntentContractor` is the only reader of raw user text.
+7. `ShadowBuilder` accepts `SemanticIntent` only; never `RawUserTurn`, never `TaskContract`.
+8. `src/platform/commitment/` does not import from `src/platform/decision/`.
+9. `DonePredicate` sees `state` / `delta` / `receipts` / `trace` only; no raw text, no `TaskContract`.
+10. `DonePredicate` lives on `Affordance`, not on `ExecutionCommitment`.
+11. Five legacy decision contracts are frozen: `TaskContract`, `OutcomeContract`, `QualificationExecutionContract`, `ResolutionContract`, `RecipeRoutingHints`.
+12. Emergency phrase / routing patches require tracking ticket + retire deadline.
+13. `terminalState` is orthogonal to `acceptanceReason`; both populated.
+14. `ShadowBuildResult` is typed `{ kind: 'commitment'; ... } | { kind: 'unsupported'; reason }`; never null, never throw.
+15. PR-1 / PR-1.5 / PR-2 / PR-3 require explicit human maintainer signoff regardless of green CI.
+16. `EffectFamilyId` and `EffectId` are distinct branded types with no implicit conversion. Direct carry-over of `EffectId` from intent to commitment is architecture failure.

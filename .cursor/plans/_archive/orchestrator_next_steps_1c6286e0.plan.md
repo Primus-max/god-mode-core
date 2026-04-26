@@ -16,7 +16,7 @@ todos:
     status: completed
   - id: clarify-policy-rework
     content: Classify ambiguities by blocking versus preference and suppress repeated clarify loops.
-    status: pending
+    status: completed
 isProject: false
 ---
 

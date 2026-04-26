@@ -1,0 +1,43 @@
+---
+description: How to start a new chat for a commitment kernel PR; read at the start of any kernel-PR session
+alwaysApply: false
+---
+
+# PR Session — Chat Launch Protocol
+
+Use this protocol when a chat is opened to work on a commitment kernel PR (PR-1 / PR-1.5 / PR-2 / PR-3).
+
+## At chat start (mandatory)
+
+1. **Identify which PR** is in flight. The user's first message should name it (e.g. "Working on PR-1"). If unclear — ask once and wait.
+2. **Read the corresponding sub-plan in full**:
+   - PR-1: `.cursor/plans/commitment_kernel_pr1_types_seed.plan.md`
+   - PR-1.5: `.cursor/plans/commitment_kernel_pr1_5_runtime_result_schema.plan.md` (created after PR-1 merges)
+   - PR-2: `.cursor/plans/commitment_kernel_pr2_shadow_and_freeze.plan.md` (created after PR-1.5 merges)
+   - PR-3: `.cursor/plans/commitment_kernel_pr3_observer_and_cutover.plan.md` (created after PR-2 merges)
+3. **Skim master plan sections relevant to this PR**:
+   - PR-1: §3 invariants, §5 types, §8.1 scope, §9 lint matrix.
+   - PR-1.5: §3, §8.2, §15 reference material.
+   - PR-2: §3, §5, §6 freeze, §8.3, §9.
+   - PR-3: §3, §5.4-5.6, §7 quant gate, §8.4.
+4. **Confirm scope explicitly** in the first reply: list files you are allowed to touch, list files you are NOT allowed to touch.
+
+## During work
+
+- Any change **outside PR scope** = stop and surface to user. Never silently widen scope.
+- Any operation that conflicts with hard invariants (see `commitment-kernel-invariants` always-applied rule) = stop and surface.
+- Touching frozen layer (see `decision-layer-frozen` glob rule) = labeled PR template required.
+- Cross-PR changes (e.g. PR-1 wants to extend `SpawnSubagentResult`) belong in **PR-1.5**, not the current PR. Park the work, do not interleave.
+
+## Before commit
+
+Walk through the PR sub-plan §8 exit-criteria checklist; every box must be checked. Human signoff is the final gate (invariant #15) — do not finalize without explicit user approval.
+
+## Crossing chats
+
+Each PR lives in its own chat. Architectural memory crosses chat boundaries via two channels:
+
+- **Master plan + invariants** travel automatically via the `commitment-kernel-invariants` always-applied rule.
+- **Sub-plan** travels via file attachment in the user's first message; agent reads it in full at start.
+
+The discussion artefact (`commitment_kernel_design_dialog.plan.md`) is reference material — read on demand, not per-chat.
