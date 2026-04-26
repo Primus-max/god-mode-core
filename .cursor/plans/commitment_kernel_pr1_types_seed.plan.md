@@ -590,6 +590,7 @@ describe('PR-1 bit-identical decision-eval snapshot', () => {
 - [ ] **PR template обновлён**: секция "Frozen layer touch" присутствует.
 - [ ] **Никаких изменений в legacy paths**: `git diff` на `src/platform/decision/**` показывает только `trace.ts` с одной добавленной строкой.
 - [ ] **Никаких изменений в `src/agents/**` / `src/platform/plugin.ts` / `src/platform/recipe/**`**.
+- [ ] **Progress marker commit** (mandatory final step, see `.cursor/rules/pr-session-bootstrap.mdc` "Final step of every PR chat"): отдельный `docs(plan): mark PR-1 completed` коммит, который flip-ит все `pr1-*` todos в master + PR-1 sub-plan на `completed` и добавляет строку в master §0 status table. Trailer: `Plan-Step: PR-1` / `Plan-Status: completed`.
 - [ ] **Human signoff** против master invariants #1, #5, #6, #7, #8, #14, #15, #16.
 
 ---
@@ -637,6 +638,9 @@ Day 2 (evening) - Day 3:
 Day 3 - Day 4 (review buffer):
   12. Address review comments (must not change scope).
   13. Final signoff.
+  14. Progress marker commit: flip all pr1-* todos in master + sub-plan
+      to completed, add row to master §0 status table.
+      Trailer: Plan-Step: PR-1 / Plan-Status: completed.
 ```
 
 ---

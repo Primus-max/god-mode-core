@@ -34,6 +34,13 @@ isProject: true
 | Last updated        | 2026-04-26                                                                                            |
 | Next gate           | Human maintainer signoff -> PR-1                                                                      |
 
+### PR Progress Log (append-only)
+
+Финальный коммит каждого PR-чата (`docs(plan): mark PR-N completed`) дописывает сюда строку. Trailer формат: `Plan-Step: PR-N` / `Plan-Status: completed`. См. `.cursor/rules/pr-session-bootstrap.mdc` "Final step of every PR chat".
+
+| Date | PR | Merge SHA | Next gate |
+| --- | --- | --- | --- |
+| _pending_ | PR-1 | _tbd_ | PR-1.5 sub-plan kickoff |
 
 Этот документ — **executable spec**. Он сам — план-концепция оркестратора v1 и одновременно мастер-план implementation. Из каждой секции `## §N` нарезается отдельный sub-plan, когда стадия идёт в работу.
 

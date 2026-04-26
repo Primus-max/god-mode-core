@@ -33,11 +33,40 @@ Use this protocol when a chat is opened to work on a commitment kernel PR (PR-1 
 
 Walk through the PR sub-plan §8 exit-criteria checklist; every box must be checked. Human signoff is the final gate (invariant #15) — do not finalize without explicit user approval.
 
+## Final step of every PR chat (mandatory progress marker)
+
+Before opening / merging the PR, the **same agent in the same chat** updates the master plan, in a separate `docs(plan): mark PR-N completed` commit. This is part of the PR, not a manual user action.
+
+Required edits to `.cursor/plans/commitment_kernel_v1_master.plan.md`:
+
+1. In the YAML frontmatter `todos:` array, flip every todo whose `id` matches this PR's scope (e.g. `pr1-*`) from `status: pending` to `status: completed`. Do not invent new ids. Do not touch other PRs' todos.
+2. In §0 "Provenance & Status" table, append a row: `<date> | PR-N merged | <commit-sha> | next gate: PR-(N+1) sub-plan kickoff`. Use the merge commit SHA (or branch HEAD SHA at PR open time if pre-merge).
+
+Equivalent edit in the sub-plan file (e.g. `commitment_kernel_pr1_types_seed.plan.md`): flip every entry in its own `todos:` frontmatter to `completed`.
+
+Commit message convention (parseable, no manual indexing needed later):
+
+```
+docs(plan): mark PR-N completed
+
+Plan-Step: PR-N
+Plan-Status: completed
+```
+
+This trailer is the canonical progress signal. A new chat reading the master plan sees the flipped todos and §0 table; no other state needed.
+
 ## Crossing chats
 
-Each PR lives in its own chat. Architectural memory crosses chat boundaries via two channels:
+Each PR lives in its own chat. Architectural memory crosses chat boundaries via three channels:
 
 - **Master plan + invariants** travel automatically via the `commitment-kernel-invariants` always-applied rule.
 - **Sub-plan** travels via file attachment in the user's first message; agent reads it in full at start.
+- **Progress** travels via master plan `todos:` statuses + §0 status table — both are updated by the previous PR's chat as its final step (see above).
+
+When a new chat opens with "Working on PR-N":
+
+1. Read master plan frontmatter `todos:` → confirm all `pr-(N-1)-*` are `completed` and all `pr-N-*` are `pending`. If not aligned, stop and surface.
+2. Read master §0 status table → confirm last row says `PR-(N-1) merged`. If not, stop and surface.
+3. Proceed with the standard chat-start steps above.
 
 The discussion artefact (`commitment_kernel_design_dialog.plan.md`) is reference material — read on demand, not per-chat.
