@@ -1,6 +1,6 @@
 ---
 name: "PR-1 — Types-Only Seed + Shadow Skeleton"
-overview: "Заложить shape будущего commitment kernel: types в src/platform/commitment/, branded UserPrompt/RawUserTurn, IntentContractor stub (low-confidence intent), ShadowBuilder skeleton (typed unsupported), DecisionTrace.shadowCommitment opt field, ESLint правила + whitelist, обновлённый PR template, bit-identical decision-eval snapshot. Никакого изменения production routing."
+overview: "Заложить shape будущего commitment kernel: types в src/platform/commitment/, branded UserPrompt/RawUserTurn, IntentContractor stub (low-confidence intent), ShadowBuilder skeleton (typed unsupported), DecisionTrace.shadowCommitment opt field, два check-скрипта (scripts/check-*.mjs в стеке репо), обновлённый PR template, bit-identical decision-eval snapshot (по results-массиву). Никакого изменения production routing."
 todos:
   - id: types-seed
     content: Create src/platform/commitment/ directory with type files (semantic-intent, execution-commitment, world-state, expected-delta, affordance, shadow-builder, intent-contractor, raw-user-turn, ids, index).
@@ -14,11 +14,11 @@ todos:
   - id: trace-shadow-field
     content: Add optional DecisionTrace.shadowCommitment field in src/platform/decision/trace.ts.
     status: pending
-  - id: eslint-no-raw-user-text-import
-    content: ESLint custom rule blocking UserPrompt/RawUserTurn import outside whitelist intent-contractor.ts.
+  - id: lint-no-raw-user-text-import
+    content: scripts/check-no-raw-user-text-import.mjs blocking UserPrompt/RawUserTurn import outside whitelist intent-contractor.ts; wired into package.json as lint:commitment:no-raw-user-text-import.
     status: pending
-  - id: eslint-no-decision-imports-from-commitment
-    content: ESLint rule blocking commitment/ -> decision/ imports.
+  - id: lint-no-decision-imports-from-commitment
+    content: scripts/check-no-decision-imports-from-commitment.mjs blocking commitment/ -> decision/ imports; wired as lint:commitment:no-decision-imports.
     status: pending
   - id: pr-template-update
     content: Update .github/PULL_REQUEST_TEMPLATE.md with frozen-layer checkbox section.
@@ -86,20 +86,20 @@ src/platform/commitment/
 | --- | --- |
 | `src/platform/decision/trace.ts` | Add optional `shadowCommitment?: ShadowBuildResult` field. Никаких других изменений. |
 | `.github/PULL_REQUEST_TEMPLATE.md` | Add "Frozen layer touch" section (см. §6 этого sub-plan). |
-| Root ESLint config (`.eslintrc.js` / `eslint.config.mjs` — что используется в репо) | Register two custom rules. |
+| `package.json` | Add two `lint:commitment:*` scripts wired into existing `check` aggregator (см. §5). |
 
-### 2.3. Create — `eslint-rules/`
+### 2.3. Create — `scripts/`
 
 ```
-eslint-rules/
-  no-raw-user-text-import.js          # invariant #5 + #6
-  no-decision-imports-from-commitment.js   # invariant #8 (или через no-restricted-imports)
+scripts/
+  check-no-raw-user-text-import.mjs           # invariant #5 + #6
+  check-no-decision-imports-from-commitment.mjs   # invariant #8
   __tests__/
-    no-raw-user-text-import.test.ts
-    no-decision-imports-from-commitment.test.ts
+    check-no-raw-user-text-import.test.ts
+    check-no-decision-imports-from-commitment.test.ts
 ```
 
-> **Implementation note**. Если в репо уже есть `eslint-plugin-*` локальный пакет, custom rules регистрируются туда. Если нет — `eslint-plugin-internal` создаётся как минимальный workspace package с двумя rules. Имплементационная деталь PR-1, не архитектурная.
+> **Implementation note** (LOCKED). Стек репо — `oxlint` + Node check-скрипты в `scripts/check-*.mjs`, подключённые через `lint:*` секцию `package.json`. ESLint целенаправленно не используется. Прямой родственник наших скриптов — `lint:routing:no-prompt-parsing` (`scripts/check-no-prompt-parsing.mjs`). Новые скрипты ложатся в ту же конвенцию. Адаптация ESLint как новой dev-dependency запрещена в scope PR-1.
 
 ### 2.4. Create — `scripts/dev/decision-eval-baseline/`
 
@@ -174,7 +174,7 @@ export type AttachmentRef = {
 };
 ```
 
-> **Только этот файл и `intent-contractor.ts` могут импортировать `UserPrompt` / `RawUserTurn`**. Это enforcement точка ESLint правила `no-raw-user-text-import` (см. §5.1).
+> **Только этот файл и `intent-contractor.ts` могут импортировать `UserPrompt` / `RawUserTurn`**. Это enforcement точка check-скрипта `no-raw-user-text-import` (см. §5.1).
 
 ### 3.3. `semantic-intent.ts`
 
@@ -236,7 +236,7 @@ export type TerminalPolicy = {
 };
 ```
 
-> **NB**. Никаких полей `tool`, `recipe`, `route`, `donePredicate` в `ExecutionCommitment`. Это hard invariants #1 и #10. ESLint и review должны это удерживать.
+> **NB**. Никаких полей `tool`, `recipe`, `route`, `donePredicate` в `ExecutionCommitment`. Это hard invariants #1 и #10. Удерживается TypeScript shape + code review.
 
 ### 3.5. `world-state.ts`
 
@@ -403,7 +403,7 @@ export const intentContractorStub: IntentContractor = {
 };
 ```
 
-> **Это единственный** файл вне `raw-user-turn.ts`, которому ESLint разрешает импортировать `UserPrompt` / `RawUserTurn`. Hard invariant #6.
+> **Это единственный** файл вне `raw-user-turn.ts`, которому check-скрипт `no-raw-user-text-import` разрешает импортировать `UserPrompt` / `RawUserTurn`. Hard invariant #6.
 >
 > **Stub не возвращает `unsupported`** — это ShadowBuilder-shape. У IntentContractor нет `unsupported`. Непонятый intent — это `low-confidence intent` с `confidence: 0`. Это намеренное разделение.
 
@@ -424,7 +424,7 @@ export type { IntentContractor } from './intent-contractor';
 export type { ShadowBuilder } from './shadow-builder';
 ```
 
-> Внимание. `index.ts` re-export-ит **типы**, не **значения**, для `RawUserTurn` / `UserPrompt` — но даже так, импорт через `index` не может обойти ESLint правило, потому что rule инспектирует **символ имени** при импорте, не путь.
+> Внимание. `index.ts` re-export-ит **типы**, не **значения**, для `RawUserTurn` / `UserPrompt` — но даже так, импорт через `index` не может обойти check-скрипт, потому что он инспектирует **символ имени** при импорте, не путь.
 
 ---
 
@@ -447,19 +447,26 @@ export type DecisionTrace = {
 
 ---
 
-## 5. ESLint Rules
+## 5. Lint Check Scripts
 
-### 5.1. `no-raw-user-text-import` (Hard invariants #5, #6)
+> Стек репо — Node check-скрипты `scripts/check-*.mjs` через `lint:*` в `package.json`. AST через `@typescript-eslint/parser` (уже dev-dep в репо для существующих check-скриптов; если не подключён — добавить минимально).
+
+### 5.1. `scripts/check-no-raw-user-text-import.mjs` (Hard invariants #5, #6)
 
 **Specification**:
 
-> Импорт символов `UserPrompt` или `RawUserTurn` (или re-exports под этими именами) разрешён **только** в файлах:
+> Импорт символов `UserPrompt` или `RawUserTurn` (или re-exports под этими именами, в том числе с переименованием `import { RawUserTurn as X }`) разрешён **только** в файлах:
 > - `src/platform/commitment/raw-user-turn.ts` (определение)
 > - `src/platform/commitment/intent-contractor.ts` (единственный whitelist consumer)
 >
-> Любой другой файл в репо, импортирующий эти символы, — error.
+> Любой другой файл в репо, импортирующий эти символы, — exit code 1 с понятным сообщением.
 
-**Test cases**:
+**Implementation**:
+- AST-проход через `@typescript-eslint/parser` по всем `**/*.{ts,tsx}` в `src/`, `extensions/`, `scripts/`.
+- Для каждой `ImportDeclaration` проверять `specifiers.imported.name`. Если `UserPrompt` или `RawUserTurn` — file path должен матчить whitelist regexp.
+- Аналог по конвенции: `scripts/check-no-prompt-parsing.mjs`.
+
+**Test cases** (Vitest, файл `scripts/__tests__/check-no-raw-user-text-import.test.ts`):
 
 | File path | Imports | Expected |
 | --- | --- | --- |
@@ -469,16 +476,24 @@ export type DecisionTrace = {
 | `src/platform/decision/task-classifier.ts` | `UserPrompt` | FAIL |
 | `src/agents/agent-command.ts` | `RawUserTurn` | FAIL |
 | `src/platform/commitment/intent-contractor.ts` | `SemanticIntent` | PASS (никакого `RawUserTurn`) |
+| любой файл | `import { RawUserTurn as RUT }` вне whitelist | FAIL |
 
-**Implementation hint** (выбор PR-1 reviewer):
-- AST-based: ESLint custom rule, инспектирует `ImportDeclaration` с `specifiers` `UserPrompt` / `RawUserTurn`, проверяет `context.getFilename()` против whitelist regexp.
-- Альтернатива: `no-restricted-imports` с `paths` массивом — проще, но не контролирует именованные импорты с переименованием через `import { RawUserTurn as RUT } from ...`. AST-based надёжнее.
+**Wire-up in `package.json`**:
+```json
+"lint:commitment:no-raw-user-text-import": "node scripts/check-no-raw-user-text-import.mjs"
+```
+И добавить в существующий aggregate `lint:*` / `check` script, в той же манере, что `lint:routing:no-prompt-parsing`.
 
-### 5.2. `no-decision-imports-from-commitment` (Hard invariant #8)
+### 5.2. `scripts/check-no-decision-imports-from-commitment.mjs` (Hard invariant #8)
 
 **Specification**:
 
-> Файл в `src/platform/commitment/**` не может импортировать из `src/platform/decision/**`.
+> Файл в `src/platform/commitment/**` не может импортировать из `src/platform/decision/**` (relative or absolute path).
+
+**Implementation**:
+- Простой AST-проход по `src/platform/commitment/**/*.ts`.
+- Для каждой `ImportDeclaration`, нормализовать `source.value` относительно файла (`path.resolve`), проверить, не указывает ли в `src/platform/decision/`.
+- Алиасы пакета (если `tsconfig.paths` маппит `~platform/decision/*`) — учесть отдельной regex-веткой.
 
 **Test cases**:
 
@@ -486,19 +501,12 @@ export type DecisionTrace = {
 | --- | --- | --- |
 | `src/platform/commitment/semantic-intent.ts` | `./ids` | PASS |
 | `src/platform/commitment/anywhere.ts` | `../decision/contracts` | FAIL |
-| `src/platform/decision/trace.ts` | `../commitment/shadow-builder` | PASS (decision -> commitment, не наоборот) |
+| `src/platform/commitment/anywhere.ts` | `../../platform/decision/contracts` | FAIL |
+| `src/platform/decision/trace.ts` | `../commitment/shadow-builder` | PASS (decision -> commitment, не наоборот; этот файл вне scope check-скрипта) |
 
-**Implementation hint**: достаточно `no-restricted-imports` config:
-
-```js
-{
-  files: ['src/platform/commitment/**/*.ts'],
-  rules: {
-    'no-restricted-imports': ['error', {
-      patterns: ['**/platform/decision/**', '../decision/**', '../../platform/decision/**']
-    }]
-  }
-}
+**Wire-up**:
+```json
+"lint:commitment:no-decision-imports": "node scripts/check-no-decision-imports-from-commitment.mjs"
 ```
 
 ---
@@ -529,13 +537,24 @@ Source of truth (если compatibility): __________________________
 
 ## 7. Decision-Eval Bit-Identical Snapshot
 
-### 7.1. Capture baseline
+### 7.1. Что сравниваем (LOCKED)
 
-1. Запустить `pnpm dev:task-contract-eval` (или эквивалент в репо) **до** любых изменений PR-1.
-2. Сохранить вывод в `scripts/dev/decision-eval-baseline/baseline.json`.
-3. Закоммитить baseline в PR-1 как первый коммит, **до** type seed.
+Только **детерминированные поля** EvalPayload — массив `results` (и опционально `summary`, если он чисто-функция от `results`).
 
-### 7.2. Test
+**Исключаем** из сравнения:
+- `generatedAt` (`new Date().toISOString()`) — недетерминирован по построению.
+- `casesPath` (абсолютный path) — разный на разных машинах / CI runners.
+- любые другие поля, зависящие от среды (если появятся в `EvalPayload` позже).
+
+`results`-массив детерминирован: classifier-adapter в eval подменён на статический `caseItem.classifierContract`, никакого LLM / таймера / случайности в пути выполнения runner-а на этих фикстурах.
+
+### 7.2. Capture baseline
+
+1. Запустить `pnpm dev:task-contract-eval` (или текущий эквивалент в репо) **до** любых изменений PR-1.
+2. Извлечь только `results` (и `summary`, если включаем) из вывода, сохранить в `scripts/dev/decision-eval-baseline/baseline.json`.
+3. Закоммитить baseline в PR-1 как **первый, отдельный** коммит, до type seed (см. §10 Implementation Order).
+
+### 7.3. Test
 
 ```ts
 // scripts/dev/task-contract-eval/__tests__/bit-identical-snapshot.test.ts
@@ -543,25 +562,28 @@ import { runDecisionEval } from '../runner';
 import baseline from '../../decision-eval-baseline/baseline.json';
 
 describe('PR-1 bit-identical decision-eval snapshot', () => {
-  it('produces output identical to baseline.json', async () => {
+  it('produces results identical to baseline.json (excluding generatedAt, casesPath)', async () => {
     const current = await runDecisionEval();
-    expect(current).toEqual(baseline);
+    const sliced = { results: current.results };
+    expect(sliced).toEqual(baseline);
   });
 });
 ```
 
-> Если результат отличается — PR-1 **по определению** trogает legacy routing, что нарушает scope. Любой diff требует:
+> Если `results` отличается — PR-1 **по определению** трогает legacy routing, что нарушает scope. Любой diff требует:
 > 1. Объяснить почему (telemetry-only? bug-fix?).
 > 2. Получить явный signoff на refresh baseline.
-> 3. Refresh baseline отдельным коммитом с описанием.
+> 3. Refresh baseline отдельным коммитом с описанием в commit message.
+
+> Менять сам `decision-eval.ts` (например, добавлять флаг `--deterministic` или мокать `Date`) — **out of scope PR-1**. Снимаем недетерминизм сравнением, не правкой runner-а.
 
 ---
 
 ## 8. Exit Criteria — Checklist
 
 - [ ] **TypeScript build green**: `tsc --noEmit` без ошибок на всех новых файлах + изменённый `trace.ts`.
-- [ ] **ESLint правила работают**: positive и negative test cases в `eslint-rules/__tests__/` проходят.
-- [ ] **Bit-identical decision-eval snapshot**: тест из §7.2 green.
+- [ ] **Lint check-скрипты работают**: positive и negative test cases в `scripts/__tests__/check-no-raw-user-text-import.test.ts` и `check-no-decision-imports-from-commitment.test.ts` проходят. Оба `lint:commitment:*` запускаются успешно на чистом репо.
+- [ ] **Bit-identical decision-eval snapshot**: тест из §7.3 green; сравнивается только `results`-массив.
 - [ ] **`shadowCommitment` field добавлен**: `DecisionTrace` имеет опциональное поле, ничего не заполняет.
 - [ ] **IntentContractor stub корректен**: возвращает `SemanticIntent` с `confidence: 0`, не `unsupported`.
 - [ ] **ShadowBuilder skeleton корректен**: возвращает `{ kind: 'unsupported', reason: 'pr1_stub' }` для любого intent.
@@ -605,11 +627,12 @@ Day 1 (afternoon) - Day 2:
 
 Day 2 (evening) - Day 3:
   6. Modify src/platform/decision/trace.ts (single optional field).
-  7. Run bit-identical snapshot test (§7.2). Must pass first try.
-  8. Create eslint-rules/no-raw-user-text-import.js + tests.
-  9. Create eslint-rules/no-decision-imports-from-commitment.js (or no-restricted-imports config).
-  10. Update PR template (§6).
-  11. Push branch, request human review against §8 checklist.
+  7. Run bit-identical snapshot test (§7.3). Must pass first try.
+  8. Create scripts/check-no-raw-user-text-import.mjs + Vitest tests.
+  9. Create scripts/check-no-decision-imports-from-commitment.mjs + Vitest tests.
+  10. Wire both into package.json (lint:commitment:no-raw-user-text-import, lint:commitment:no-decision-imports) and existing lint aggregator.
+  11. Update PR template (§6).
+  12. Push branch, request human review against §8 checklist.
 
 Day 3 - Day 4 (review buffer):
   12. Address review comments (must not change scope).
@@ -632,8 +655,8 @@ Day 3 - Day 4 (review buffer):
 
 | Risk | Mitigation in PR-1 |
 | --- | --- |
-| ESLint custom rule имеет bug, не ловит whitelist violation | Negative test cases в `eslint-rules/__tests__/` обязательны для каждого test case в §5.1 / §5.2 |
+| Check-скрипт имеет bug, не ловит whitelist violation | Negative test cases в `scripts/__tests__/check-*.test.ts` обязательны для каждого test case в §5.1 / §5.2; покрытие `import { X as Y }` rename и алиасных путей через tsconfig paths |
 | Type cycle (`affordance.ts` -> `world-state.ts` -> ...) | Все типы — `export type` only; нет runtime imports между type files; circular type imports allowed by TS |
-| Decision-eval baseline drift из-за non-determinism (timing, IDs) | Eval runner должен быть deterministic; если есть randomness — seed её или mock-нуть. PR-1 tester обязан это проверить ДО capture baseline |
+| Decision-eval baseline drift из-за non-determinism (`generatedAt`, `casesPath`, абсолютные paths) | Решено архитектурно §7.1: сравниваем только `results`-массив, недетерминированные поля исключены из baseline. Не правим runner |
 | `index.ts` через `export type *` ломает tree-shaking или pretty-printing | Minor. `export type` намеренно — runtime unused; если конкретный bundler жалуется, делаем explicit `export type { ... } from '...'` per file |
-| Команда обходит lint правило через комментарий `eslint-disable` | Code review responsibility. В PR-2 добавить CI grep на `eslint-disable.*no-raw-user-text-import` без явного PR ticket |
+| Команда обходит lint check через явный bypass | Check-скрипты — read-only AST-проход, нет директивы типа `eslint-disable`. Обход = удаление проверки из `package.json`, что видно в diff. Code review responsibility |
