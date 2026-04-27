@@ -1,9 +1,9 @@
-import type { ISO8601, SessionId } from "./ids.js";
+import type { AgentId, ISO8601, SessionId, SessionKey } from "./ids.js";
 
 export type SessionRecord = {
   readonly sessionId: SessionId;
-  readonly agentId: string;
-  readonly parentSessionKey: string | null;
+  readonly agentId: AgentId;
+  readonly parentSessionKey: SessionKey | null;
   readonly status: "active" | "paused" | "closed";
   readonly createdAt: ISO8601;
 };
