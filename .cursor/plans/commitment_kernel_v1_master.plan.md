@@ -7,7 +7,7 @@ todos:
     status: completed
   - id: pr15-runtime-result-schema-extension
     content: PR-1.5. Расширить SpawnSubagentResult полями agentId + parentSessionKey. Чистит boundary до shadow observer; одна schema-точка.
-    status: pending
+    status: completed
   - id: pr2-shadow-mode-and-freeze
     content: PR-2. Реальный IntentContractor + ShadowBuilder + unified runTurnDecision entry point + five-layer freeze enforcement + decision-eval расширен на shadow comparison. Production по-прежнему на legacy.
     status: pending
@@ -32,7 +32,7 @@ isProject: true
 | PR sequence         | 4 PR (PR-1, PR-1.5, PR-2, PR-3)                                                                       |
 | Quant gate          | 6 measurable metrics                                                                                  |
 | Last updated        | 2026-04-27                                                                                            |
-| Next gate           | PR-1.5 sub-plan kickoff (SpawnSubagentResult schema extension)                                        |
+| Next gate           | PR-2 sub-plan kickoff (real IntentContractor + ShadowBuilder + five-layer freeze)                     |
 
 
 ### PR Progress Log (append-only)
@@ -40,9 +40,10 @@ isProject: true
 Финальный коммит каждого PR-чата (`docs(plan): mark PR-N completed`) дописывает сюда строку. Trailer формат: `Plan-Step: PR-N` / `Plan-Status: completed`. См. `.cursor/rules/pr-session-bootstrap.mdc` "Final step of every PR chat".
 
 
-| Date       | PR   | Merge SHA  | Next gate               |
-| ---------- | ---- | ---------- | ----------------------- |
-| 2026-04-27 | PR-1 | bdd4f0af0a | PR-1.5 sub-plan kickoff |
+| Date       | PR     | Merge SHA  | Next gate               |
+| ---------- | ------ | ---------- | ----------------------- |
+| 2026-04-27 | PR-1   | bdd4f0af0a | PR-1.5 sub-plan kickoff |
+| 2026-04-27 | PR-1.5 | 9eeeeb6568 | PR-2 sub-plan kickoff   |
 
 
 Этот документ — **executable spec**. Он сам — план-концепция оркестратора v1 и одновременно мастер-план implementation. Из каждой секции `## §N` нарезается отдельный sub-plan, когда стадия идёт в работу.

@@ -22,7 +22,7 @@ todos:
     status: completed
   - id: human-signoff
     content: Explicit human maintainer review против master invariants #11 (no frozen-layer touch), #15 (signoff). Подтвердить scope (только runtime result schema, ничего больше).
-    status: pending
+    status: completed
 isProject: false
 ---
 
