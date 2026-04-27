@@ -1,0 +1,23 @@
+name: Check frozen layer label
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    paths:
+      - "src/platform/decision/task-classifier.ts"
+      - "src/platform/decision/input.ts"
+      - "src/platform/decision/trace.ts"
+      - "src/platform/recipe/**"
+      - "src/platform/plugin.ts"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: node scripts/check-frozen-layer-label.mjs
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.sha }}

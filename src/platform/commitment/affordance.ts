@@ -59,6 +59,7 @@ export type Affordance = {
   readonly target: TargetMatcher;
   readonly requiredPreconditions: readonly PreconditionId[];
   readonly requiredEvidence: readonly EvidenceRequirement[];
+  readonly allowedConstraintKeys: readonly string[];
   readonly riskTier: RiskTier;
   readonly defaultBudgets: CommitmentBudgets;
   readonly observerHandle: ObserverHandle;

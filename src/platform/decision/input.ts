@@ -27,11 +27,8 @@ import {
 } from "./qualification-confidence.js";
 import type { QualificationResult } from "./qualification-contract.js";
 import { resolveResolutionContract, toRecipeRoutingHints } from "./resolution-contract.js";
-import {
-  classifyTaskForDecision,
-  type TaskClassifierAdapter,
-  type TaskContract,
-} from "./task-classifier.js";
+import { runTurnDecision } from "./run-turn-decision.js";
+import type { TaskClassifierAdapter, TaskContract } from "./task-classifier.js";
 import {
   normalizeExecutionTurn,
   resolveKeywordInferencePrompt,
@@ -440,16 +437,16 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     }
   }
   getCurrentTurnProgressEmitter()?.emit("classifying");
-  const classified = await classifyTaskForDecision({
+  const { legacyDecision: classified } = await runTurnDecision({
     prompt: classifierPrompt,
     fileNames: classifierInput.fileNames,
     cfg: params.cfg,
     agentDir: params.agentDir,
-    input: classifierInput,
+    classifierInput,
     ledgerContext,
     clarifyBudgetNotice,
     ...(identityContext ? { identityContext } : {}),
-    adapterRegistry: params.adapterRegistry,
+    classifierAdapterRegistry: params.adapterRegistry,
   });
 
   let finalClassified = classified;
@@ -475,18 +472,19 @@ export async function buildClassifiedExecutionDecisionInput(params: {
       defaultRuntime.log(
         `[workspace-inject] session=${shortIdForLog(ledgerSessionId)} channel=${shortIdForLog(ledgerChannelId)} reason=${reason} tokens=${String(approximateTokenCount(workspaceContext))}`,
       );
-      finalClassified = await classifyTaskForDecision({
+      const { legacyDecision } = await runTurnDecision({
         prompt: classifierPrompt,
         fileNames: classifierInput.fileNames,
         cfg: params.cfg,
         agentDir: params.agentDir,
-        input: classifierInput,
+        classifierInput,
         ledgerContext,
         clarifyBudgetNotice,
         workspaceContext,
         ...(identityContext ? { identityContext } : {}),
-        adapterRegistry: params.adapterRegistry,
+        classifierAdapterRegistry: params.adapterRegistry,
       });
+      finalClassified = legacyDecision;
     }
   }
   return applySessionSpecialistOverrideToPlannerInput(

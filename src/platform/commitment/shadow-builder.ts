@@ -6,11 +6,17 @@ export type ShadowUnsupportedReason =
   | "low_confidence_intent"
   | "no_matching_affordance"
   | "policy_blocked"
-  | "budget_exceeded";
+  | "budget_exceeded"
+  | "shadow_timeout"
+  | "shadow_runtime_error";
 
 export type ShadowBuildResult =
   | { readonly kind: "commitment"; readonly value: ExecutionCommitment }
-  | { readonly kind: "unsupported"; readonly reason: ShadowUnsupportedReason };
+  | {
+      readonly kind: "unsupported";
+      readonly reason: ShadowUnsupportedReason;
+      readonly uncertainty?: readonly string[];
+    };
 
 /**
  * Builds an `ExecutionCommitment` (or returns a typed `unsupported` reason)

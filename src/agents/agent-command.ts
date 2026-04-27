@@ -52,10 +52,7 @@ import {
   buildSessionBackedExecutionDecisionInput,
   shouldUseLightweightBootstrapContext,
 } from "../platform/decision/input.js";
-import {
-  classifyTaskForDecision,
-  type TaskClassifierAdapter,
-} from "../platform/decision/task-classifier.js";
+import type { TaskClassifierAdapter } from "../platform/decision/task-classifier.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../platform/profile/session-overrides.js";
 import {
   resolvePlatformRuntimePlan,

@@ -30,6 +30,7 @@ export const FORBIDDEN_SYMBOLS = new Set([
 const whitelistRelative = [
   "src/platform/commitment/raw-user-turn.ts",
   "src/platform/commitment/intent-contractor.ts",
+  "src/platform/commitment/intent-contractor-impl.ts",
 ];
 
 export const WHITELIST_RELATIVE = new Set(whitelistRelative);

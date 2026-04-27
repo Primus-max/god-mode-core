@@ -144,6 +144,17 @@ export const AgentDefaultsSchema = z
           })
           .strict()
           .optional(),
+        intentContractor: z
+          .object({
+            enabled: z.boolean().optional(),
+            backend: z.string().optional(),
+            model: z.string().optional(),
+            timeoutMs: z.number().int().positive().optional(),
+            maxTokens: z.number().int().positive().optional(),
+            confidenceThreshold: z.number().min(0).max(1).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),

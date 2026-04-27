@@ -29,7 +29,7 @@ import {
   createRecipeCatalogGetGatewayMethod,
   createRecipeCatalogListGatewayMethod,
 } from "./catalog/index.js";
-import { classifyTaskForDecision } from "./decision/task-classifier.js";
+import { runTurnDecision } from "./decision/run-turn-decision.js";
 import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
 import {
@@ -73,7 +73,7 @@ export async function resolveHookExecution(
   if (!apiConfigRef.current) {
     throw new Error("Plugin API config not initialized");
   }
-  const classified = await classifyTaskForDecision({
+  const { legacyDecision: classified } = await runTurnDecision({
     prompt,
     cfg: apiConfigRef.current,
     agentDir: ctx?.workspaceDir,
@@ -329,11 +329,11 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
         ? apiConfigRef.current
           ? resolvePlatformRuntimePlan({
               ...(
-                await classifyTaskForDecision({
+                await runTurnDecision({
                   prompt: runSnapshot?.prompt ?? "",
                   cfg: apiConfigRef.current,
                 })
-              ).plannerInput,
+              ).legacyDecision.plannerInput,
               callerTag: "plugin-fallback-decision",
             })
           : undefined

@@ -12,6 +12,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 
 const sourceRoots = [
   path.join(repoRoot, "src", "platform", "decision"),
+  path.join(repoRoot, "src", "platform", "commitment", "intent-contractor-impl.ts"),
   path.join(repoRoot, "src", "platform", "planner"),
   path.join(repoRoot, "src", "platform", "recipe"),
   path.join(repoRoot, "src", "platform", "runtime"),
