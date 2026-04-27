@@ -196,4 +196,39 @@ describe("runTurnDecision cutover gate", () => {
     expect(traceGate(result)).toEqual(result.cutoverGate);
     expect(result.runtimeAttestation).toBeUndefined();
   });
+
+  it("treats missing cutoverEnabled flag as enabled (Phase B default)", async () => {
+    const monitoredRuntime = {
+      run: vi.fn(async () =>
+        attestation({
+          commitmentSatisfied: true,
+          terminalState: "action_completed",
+          acceptanceReason: "commitment_satisfied",
+        }),
+      ),
+    };
+
+    const cfgWithoutFlag = {
+      agents: {
+        defaults: {
+          embeddedPi: {
+            taskClassifier: { backend: "legacy-mock" },
+            intentContractor: { backend: "intent-mock" },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const result = await runTurnDecision({
+      prompt: "create persistent session",
+      cfg: cfgWithoutFlag,
+      classifierAdapterRegistry: { "legacy-mock": legacyAdapter() },
+      intentContractorAdapterRegistry: { "intent-mock": intentAdapter() },
+      monitoredRuntime,
+      expectedDeltaResolver: () => expectedDelta,
+    });
+
+    expect(result.cutoverGate.kind).toBe("gate_in_success");
+    expect(monitoredRuntime.run).toHaveBeenCalledTimes(1);
+  });
 });

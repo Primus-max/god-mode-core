@@ -273,7 +273,7 @@ function attachDecisionTrace(
 }
 
 function isCutoverEnabled(cfg: OpenClawConfig): boolean {
-  return cfg.agents?.defaults?.embeddedPi?.commitment?.cutoverEnabled === true;
+  return cfg.agents?.defaults?.embeddedPi?.commitment?.cutoverEnabled !== false;
 }
 
 function unsupported(reason: ShadowUnsupportedReason): ShadowBuildResult {
