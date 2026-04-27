@@ -1,22 +1,19 @@
 import type { EffectFamilyId } from "./ids.js";
-import type { RawUserTurn } from "./raw-user-turn.js";
 import type { SemanticIntent } from "./semantic-intent.js";
 
 /**
- * Sole whitelisted reader of `RawUserTurn` / `UserPrompt`. Maps raw user input
- * to a structured `SemanticIntent`. Hard invariants #5 and #6: no other file
- * in the repo may import `RawUserTurn` or `UserPrompt`; the
- * `lint:commitment:no-raw-user-text-import` check enforces this.
+ * Maps user prompt text to a structured `SemanticIntent`. Real PR-2
+ * implementations brand the prompt inside `intent-contractor-impl.ts`.
  */
 export interface IntentContractor {
   /**
-   * Classify a raw user turn into a semantic intent.
+   * Classify prompt text into a semantic intent.
    *
-   * @param turn - Raw user input including text, channel, attachments.
+   * @param prompt - User-visible prompt text.
    * @returns A `SemanticIntent`. Low-confidence inputs are returned with
    *   `confidence: 0` and an `uncertainty` reason rather than thrown.
    */
-  classify(turn: RawUserTurn): Promise<SemanticIntent>;
+  classify(prompt: string): Promise<SemanticIntent>;
 }
 
 /**
@@ -27,7 +24,7 @@ export interface IntentContractor {
  * shape (see sub-plan §3.9).
  */
 export const intentContractorStub: IntentContractor = {
-  async classify(_turn: RawUserTurn): Promise<SemanticIntent> {
+  async classify(_prompt: string): Promise<SemanticIntent> {
     return {
       desiredEffectFamily: "unknown" as EffectFamilyId,
       target: { kind: "unspecified" },
