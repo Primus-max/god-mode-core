@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
+import type { AgentId, SessionKey } from "../platform/commitment/ids.js";
 import { formatThinkingLevels, normalizeThinkLevel } from "../auto-reply/thinking.js";
 import { DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH } from "../config/agent-limits.js";
 import { loadConfig } from "../config/config.js";
@@ -99,6 +100,17 @@ export const SUBAGENT_SPAWN_SESSION_ACCEPTED_NOTE =
  */
 export type SpawnSubagentErrorReason = "thread_binding_unsupported";
 
+/**
+ * Pure-value result of a subagent spawn boundary.
+ *
+ * `agentId` / `parentSessionKey` are populated only on `status === "accepted"`;
+ * on error/forbidden they stay undefined and are dropped by the LLM-facing
+ * builder. Semantics:
+ *  - `parentSessionKey: null` -> top-level spawn (no caller session);
+ *  - `parentSessionKey: undefined` -> not applicable (drop in LLM payload);
+ *  - both fields are branded so callers cannot mix them with other ids without
+ *    explicit conversion (master invariant #16).
+ */
 export type SpawnSubagentResult = {
   status: "accepted" | "forbidden" | "error";
   childSessionKey?: string;
@@ -108,6 +120,8 @@ export type SpawnSubagentResult = {
   modelApplied?: boolean;
   error?: string;
   errorReason?: SpawnSubagentErrorReason;
+  agentId?: AgentId;
+  parentSessionKey?: SessionKey | null;
   attachments?: {
     count: number;
     totalBytes: number;
@@ -968,6 +982,8 @@ export async function spawnSubagentDirect(
     mode: spawnMode,
     note,
     modelApplied: resolvedModel ? modelApplied : undefined,
+    agentId: targetAgentId as AgentId,
+    parentSessionKey: (requesterInternalKey ?? null) as SessionKey | null,
     attachments: attachmentsReceipt,
   };
 }

@@ -306,4 +306,49 @@ describe("spawnSubagentDirect error surface", () => {
     expect(result.childSessionKey).toMatch(SUBAGENT_KEY_REGEX);
     expect(result.runId).toBeTruthy();
   });
+
+  // PR-1.5 — runtime result schema extension. The boundary now carries
+  // `agentId` (branded AgentId) and `parentSessionKey` (branded SessionKey
+  // | null) on status=accepted. PR-3 observer reads these as pure values
+  // from the followupRegistry; on error/forbidden both fields stay
+  // undefined (dropped by sanitization).
+  describe("PR-1.5 spawn boundary metadata", () => {
+    it("populates agentId from the resolved targetAgentId on accepted spawn", async () => {
+      const result = await spawnSubagentDirect(
+        { task: "x", agentId: "main" },
+        requesterCtx,
+      );
+      expect(result.status).toBe("accepted");
+      expect(result.agentId).toBe("main");
+    });
+
+    it("populates parentSessionKey from the requester internal session key", async () => {
+      const result = await spawnSubagentDirect({ task: "x" }, requesterCtx);
+      expect(result.status).toBe("accepted");
+      // requesterCtx.agentSessionKey == "agent:main:main" -> resolved to the
+      // canonical main alias by resolveInternalSessionKey. The exact alias
+      // value depends on the resolver, but it must be a non-empty string
+      // (never undefined or null on accepted with an explicit caller).
+      expect(typeof result.parentSessionKey).toBe("string");
+      expect(result.parentSessionKey).toBeTruthy();
+    });
+
+    it("does not surface agentId or parentSessionKey on forbidden spawn", async () => {
+      getSubagentDepthSpy.mockReturnValue(99);
+      const result = await spawnSubagentDirect({ task: "x" }, requesterCtx);
+      expect(result.status).toBe("forbidden");
+      expect(result.agentId).toBeUndefined();
+      expect(result.parentSessionKey).toBeUndefined();
+    });
+
+    it("does not surface agentId or parentSessionKey on error spawn", async () => {
+      const result = await spawnSubagentDirect(
+        { task: "x", agentId: "Bad Id With Spaces" },
+        requesterCtx,
+      );
+      expect(result.status).toBe("error");
+      expect(result.agentId).toBeUndefined();
+      expect(result.parentSessionKey).toBeUndefined();
+    });
+  });
 });

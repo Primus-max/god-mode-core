@@ -8,8 +8,14 @@ import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readStringParam, ToolInputError } from "./common.js";
 
 // Cherry-pick fields that are safe to surface to the LLM/user.
-// On error/forbidden we deliberately drop childSessionKey, runId, and any other
-// internal hint added by upstream branches; verbose details belong in logs.
+// On error/forbidden we deliberately drop childSessionKey, runId, agentId,
+// parentSessionKey and any other internal hint added by upstream branches;
+// verbose details belong in logs.
+//
+// `parentSessionKey: null` is meaningful (top-level spawn, no caller session)
+// and is preserved on accepted; `undefined` means "not applicable" and is
+// dropped. This split keeps the LLM payload truthful about lineage while
+// staying consistent with the runtime result schema.
 export function buildSubagentSpawnLlmResult(result: SpawnSubagentResult): Record<string, unknown> {
   if (result.status === "accepted") {
     const out: Record<string, unknown> = { status: result.status };
@@ -27,6 +33,12 @@ export function buildSubagentSpawnLlmResult(result: SpawnSubagentResult): Record
     }
     if (result.modelApplied !== undefined) {
       out.modelApplied = result.modelApplied;
+    }
+    if (result.agentId) {
+      out.agentId = result.agentId;
+    }
+    if (result.parentSessionKey !== undefined) {
+      out.parentSessionKey = result.parentSessionKey;
     }
     if (result.attachments) {
       out.attachments = result.attachments;
@@ -57,6 +69,12 @@ export function buildAcpSpawnLlmResult(result: SpawnAcpResult): Record<string, u
     }
     if (result.note) {
       out.note = result.note;
+    }
+    if (result.agentId) {
+      out.agentId = result.agentId;
+    }
+    if (result.parentSessionKey !== undefined) {
+      out.parentSessionKey = result.parentSessionKey;
     }
     return out;
   }

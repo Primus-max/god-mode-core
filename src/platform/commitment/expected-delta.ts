@@ -1,8 +1,8 @@
-import type { SessionId } from "./ids.js";
+import type { AgentId, SessionId } from "./ids.js";
 
 export type SessionRecordRef = {
   readonly sessionId: SessionId;
-  readonly agentId: string;
+  readonly agentId: AgentId;
 };
 
 export type SessionExpectedDelta = {

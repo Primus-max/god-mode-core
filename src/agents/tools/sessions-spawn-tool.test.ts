@@ -399,10 +399,14 @@ describe("sessions_spawn tool", () => {
         // Simulate upstream code that incorrectly leaked these fields:
         childSessionKey: "agent:main:subagent:11111111-1111-4111-8111-111111111111",
         runId: "33333333-3333-4333-8333-333333333333",
+        agentId: "main",
+        parentSessionKey: "agent:main:main",
       } as never);
       expectSanitized(JSON.stringify(safe));
       expect(safe.status).toBe("error");
       expect(safe.error).toBe("Cannot start a subagent right now.");
+      expect(safe.agentId).toBeUndefined();
+      expect(safe.parentSessionKey).toBeUndefined();
     });
 
     it("strips internal hints when subagent spawn returns forbidden with leaked fields", async () => {
@@ -452,6 +456,61 @@ describe("sessions_spawn tool", () => {
       expect(safe.status).toBe("accepted");
       expect(safe.childSessionKey).toBe("agent:codex:acp:1");
       expect(safe.runId).toBe("run-acp");
+    });
+
+    // PR-1.5 — runtime result schema extension. Surface agentId +
+    // parentSessionKey on accepted only. parentSessionKey: null is
+    // meaningful (top-level spawn) and must be preserved; parentSessionKey:
+    // undefined is dropped.
+    it("surfaces agentId and parentSessionKey on subagent accepted", async () => {
+      const { buildSubagentSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildSubagentSpawnLlmResult({
+        status: "accepted",
+        childSessionKey: "agent:main:subagent:1",
+        runId: "run-subagent",
+        agentId: "main",
+        parentSessionKey: "agent:main:main",
+      } as never);
+      expect(safe.agentId).toBe("main");
+      expect(safe.parentSessionKey).toBe("agent:main:main");
+    });
+
+    it("preserves parentSessionKey=null on subagent top-level accepted", async () => {
+      const { buildSubagentSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildSubagentSpawnLlmResult({
+        status: "accepted",
+        childSessionKey: "agent:main:subagent:1",
+        runId: "run-subagent",
+        agentId: "main",
+        parentSessionKey: null,
+      } as never);
+      expect(safe.parentSessionKey).toBeNull();
+      expect("parentSessionKey" in safe).toBe(true);
+    });
+
+    it("surfaces agentId and parentSessionKey on ACP accepted", async () => {
+      const { buildAcpSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildAcpSpawnLlmResult({
+        status: "accepted",
+        childSessionKey: "agent:codex:acp:1",
+        runId: "run-acp",
+        agentId: "codex",
+        parentSessionKey: "agent:main:main",
+      } as never);
+      expect(safe.agentId).toBe("codex");
+      expect(safe.parentSessionKey).toBe("agent:main:main");
+    });
+
+    it("strips agentId and parentSessionKey on ACP error", async () => {
+      const { buildAcpSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildAcpSpawnLlmResult({
+        status: "error",
+        error: "Cannot start a subagent right now.",
+        agentId: "codex",
+        parentSessionKey: "agent:main:main",
+      } as never);
+      expect(safe.agentId).toBeUndefined();
+      expect(safe.parentSessionKey).toBeUndefined();
     });
   });
 

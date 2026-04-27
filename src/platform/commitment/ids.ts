@@ -19,6 +19,12 @@ export type ChannelId = string & { readonly [ChannelIdBrand]: true };
 declare const SessionIdBrand: unique symbol;
 export type SessionId = string & { readonly [SessionIdBrand]: true };
 
+declare const AgentIdBrand: unique symbol;
+export type AgentId = string & { readonly [AgentIdBrand]: true };
+
+declare const SessionKeyBrand: unique symbol;
+export type SessionKey = string & { readonly [SessionKeyBrand]: true };
+
 declare const ISO8601Brand: unique symbol;
 export type ISO8601 = string & { readonly [ISO8601Brand]: true };
 
