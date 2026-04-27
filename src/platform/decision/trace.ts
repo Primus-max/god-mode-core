@@ -1,3 +1,4 @@
+import type { ShadowBuildResult } from "../commitment/shadow-builder.js";
 import type { DeliverableSpec } from "../produce/registry.js";
 import type { ClassifierTelemetry, RoutingOutcome } from "../recipe/planner.js";
 import type { RecipeRoutingHints } from "../recipe/planner.js";
@@ -84,6 +85,7 @@ export type DecisionTrace = {
   policy?: DecisionTracePolicy;
   readiness?: DecisionTraceReadiness;
   errorTags?: DecisionTraceErrorTag[];
+  readonly shadowCommitment?: ShadowBuildResult;
 };
 
 function sortUnique(values: readonly string[] | undefined): string[] {
