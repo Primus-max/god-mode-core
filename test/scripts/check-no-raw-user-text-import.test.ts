@@ -111,7 +111,10 @@ describe("check-no-raw-user-text-import", () => {
   it("exposes the canonical whitelist", () => {
     expect(WHITELIST_RELATIVE.has("src/platform/commitment/raw-user-turn.ts")).toBe(true);
     expect(WHITELIST_RELATIVE.has("src/platform/commitment/intent-contractor.ts")).toBe(true);
-    expect(WHITELIST_RELATIVE.size).toBe(2);
+    expect(
+      WHITELIST_RELATIVE.has("src/platform/commitment/intent-contractor-impl.ts"),
+    ).toBe(true);
+    expect(WHITELIST_RELATIVE.size).toBe(3);
   });
 
   it("exposes the canonical forbidden symbol set", () => {
