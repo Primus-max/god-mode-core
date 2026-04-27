@@ -1,0 +1,19 @@
+{
+  "generatedAt": "2026-04-27T08:51:37.178Z",
+  "n_turns": 30,
+  "metrics": {
+    "state_observability_coverage": 1,
+    "commitment_correctness": 1,
+    "satisfaction_correctness": 1,
+    "false_positive_success": 0,
+    "divergence_explained": 1,
+    "labeling_window_honored": 1
+  },
+  "thresholds_passed": true,
+  "label_source_breakdown": {
+    "auto": 24,
+    "hindsight": 4,
+    "human": 2
+  },
+  "divergence_count": 0
+}

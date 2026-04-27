@@ -24,6 +24,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const EVAL_DIR = path.join(__dirname, "task-contract-eval");
 const DEFAULT_CASES_PATH = path.join(EVAL_DIR, "cases.jsonl");
+const DEFAULT_LABELS_PATH = path.join(EVAL_DIR, "cutover1-labels.json");
+const DEFAULT_GATE_REPORT_PATH = path.join(EVAL_DIR, "cutover1-gate-report.json");
 const DEFAULT_OUTPUT_DIR = path.join(EVAL_DIR, "output");
 const EVAL_BACKEND = "decision-eval";
 const SHADOW_EVAL_BACKEND = "decision-eval-shadow";
@@ -66,6 +68,7 @@ type DecisionEvalCase = {
   classifierContract: TaskContract;
   expected: ExpectedDecision;
   expectedShadowEffect?: EffectId;
+  sessionId?: string;
 };
 
 type ActualDecision = {
@@ -100,6 +103,7 @@ type CaseResult = {
   actual: ActualDecision;
   decisionTrace?: DecisionTrace;
   shadow?: ShadowComparison;
+  cutoverLabel?: Cutover1Label;
 };
 
 type ShadowDivergenceReason =
@@ -130,6 +134,7 @@ type EvalPayload = {
   casesPath: string;
   summary: EvalSummary;
   shadowMetrics: ShadowMetrics;
+  quantGate: QuantGateReport;
   results: CaseResult[];
 };
 
@@ -140,18 +145,46 @@ type ShadowMetrics = {
   readonly divergence_count: number;
 };
 
+type Cutover1LabelSource = "auto" | "hindsight" | "human";
+
+export type Cutover1Label = {
+  readonly sessionId: string;
+  readonly expected_satisfied: boolean;
+  readonly label_source: Cutover1LabelSource;
+};
+
+export type QuantGateMetrics = {
+  readonly state_observability_coverage: number;
+  readonly commitment_correctness: number;
+  readonly satisfaction_correctness: number;
+  readonly false_positive_success: number;
+  readonly divergence_explained: number;
+  readonly labeling_window_honored: number;
+};
+
+export type QuantGateReport = {
+  readonly n_turns: number;
+  readonly metrics: QuantGateMetrics;
+  readonly thresholds_passed: boolean;
+  readonly label_source_breakdown: Record<Cutover1LabelSource, number>;
+  readonly divergence_count: number;
+};
+
 function parseArgs() {
   const args = process.argv.slice(2);
   return {
     casesPath: readFlagValue(args, "--cases") ?? DEFAULT_CASES_PATH,
+    labelsPath: readFlagValue(args, "--labels") ?? DEFAULT_LABELS_PATH,
     outputPath:
       readFlagValue(args, "--output") ??
       path.join(
         DEFAULT_OUTPUT_DIR,
         `decision-eval-${new Date().toISOString().replaceAll(":", "-")}.json`,
       ),
+    gateReportPath: readFlagValue(args, "--gate-report") ?? DEFAULT_GATE_REPORT_PATH,
     caseFilter: readCsvFlag(args, "--case"),
     jsonOnly: args.includes("--json"),
+    sixMetrics: args.includes("--six-metrics"),
   };
 }
 
@@ -215,6 +248,85 @@ async function readJsonlCases(filePath: string): Promise<DecisionEvalCase[]> {
     });
 }
 
+export async function loadCutover1Labels(filePath: string): Promise<readonly Cutover1Label[]> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${path.basename(filePath)} must contain an array of cutover labels.`);
+  }
+  return parsed.map((entry, index) => parseCutover1Label(entry, index));
+}
+
+function parseCutover1Label(entry: unknown, index: number): Cutover1Label {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    throw new Error(`cutover1-labels[${String(index)}] must be an object.`);
+  }
+  const record = entry as Record<string, unknown>;
+  const sessionId = typeof record.sessionId === "string" ? record.sessionId.trim() : "";
+  const expectedSatisfied = record.expected_satisfied;
+  const labelSource = record.label_source;
+  if (!sessionId) {
+    throw new Error(`cutover1-labels[${String(index)}].sessionId is required.`);
+  }
+  if (typeof expectedSatisfied !== "boolean") {
+    throw new Error(`cutover1-labels[${String(index)}].expected_satisfied must be boolean.`);
+  }
+  if (labelSource !== "auto" && labelSource !== "hindsight" && labelSource !== "human") {
+    throw new Error(
+      `cutover1-labels[${String(index)}].label_source must be auto, hindsight, or human.`,
+    );
+  }
+  return {
+    sessionId,
+    expected_satisfied: expectedSatisfied,
+    label_source: labelSource,
+  };
+}
+
+function indexCutover1Labels(labels: readonly Cutover1Label[]): Map<string, Cutover1Label> {
+  const out = new Map<string, Cutover1Label>();
+  for (const label of labels) {
+    if (out.has(label.sessionId)) {
+      throw new Error(`Duplicate cutover1 label for sessionId=${label.sessionId}`);
+    }
+    out.set(label.sessionId, label);
+  }
+  return out;
+}
+
+export function assertCutover1LabelsPresent(
+  cases: readonly DecisionEvalCase[],
+  labels: ReadonlyMap<string, Cutover1Label>,
+): void {
+  const missing: string[] = [];
+  for (const caseItem of cases) {
+    if (
+      caseItem.expectedShadowEffect !== PERSISTENT_SESSION_CREATED_EFFECT ||
+      caseItem.classifierContract.primaryOutcome === "answer"
+    ) {
+      continue;
+    }
+    if (!caseItem.sessionId) {
+      missing.push(`${caseItem.id}:missing_sessionId`);
+      continue;
+    }
+    if (!labels.has(caseItem.sessionId)) {
+      missing.push(`${caseItem.id}:missing_label:${caseItem.sessionId}`);
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(`Missing cutover1 labels for quant-gate pool: ${missing.join(", ")}`);
+  }
+}
+
 function resolvePrompt(caseItem: DecisionEvalCase): string {
   if (typeof caseItem.prompt === "string" && caseItem.prompt.trim().length > 0) {
     return caseItem.prompt;
@@ -246,7 +358,10 @@ function makeEvalConfig(): OpenClawConfig {
   } as OpenClawConfig;
 }
 
-async function runCase(caseItem: DecisionEvalCase): Promise<CaseResult> {
+async function runCase(
+  caseItem: DecisionEvalCase,
+  cutoverLabels: ReadonlyMap<string, Cutover1Label>,
+): Promise<CaseResult> {
   const prompt = resolvePrompt(caseItem);
   const adapter: TaskClassifierAdapter = {
     classify: async () => caseItem.classifierContract,
@@ -315,6 +430,9 @@ async function runCase(caseItem: DecisionEvalCase): Promise<CaseResult> {
       : {}),
     actual,
     shadow: buildShadowComparison(caseItem, actual, shadowIntent, shadowCommitment),
+    ...(caseItem.sessionId && cutoverLabels.has(caseItem.sessionId)
+      ? { cutoverLabel: cutoverLabels.get(caseItem.sessionId)! }
+      : {}),
     ...(!pass && decisionTrace ? { decisionTrace } : {}),
   };
 }
@@ -547,10 +665,101 @@ function summarizeShadow(results: readonly CaseResult[]): ShadowMetrics {
   };
 }
 
+export function summarizeQuantGate(results: readonly CaseResult[]): QuantGateReport {
+  const pool = results.filter(
+    (result) =>
+      result.expectedShadowEffect === PERSISTENT_SESSION_CREATED_EFFECT &&
+      result.actual.primaryOutcome !== "answer",
+  );
+  const nTurns = pool.length;
+  const correctCommitments = pool.filter(
+    (result) =>
+      result.shadow?.result.kind === "commitment" &&
+      result.shadow.result.value.effect === result.expectedShadowEffect,
+  ).length;
+  const observed = pool.filter((result) => result.cutoverLabel).length;
+  const predictedSatisfied = (result: CaseResult): boolean =>
+    result.shadow?.result.kind === "commitment" &&
+    result.shadow.result.value.effect === PERSISTENT_SESSION_CREATED_EFFECT;
+  const satisfactionCorrect = pool.filter((result) => {
+    if (!result.cutoverLabel) {
+      return false;
+    }
+    return predictedSatisfied(result) === result.cutoverLabel.expected_satisfied;
+  }).length;
+  const falsePositiveSuccess = pool.filter(
+    (result) => result.cutoverLabel && predictedSatisfied(result) && !result.cutoverLabel.expected_satisfied,
+  ).length;
+  const divergenceCount = pool.filter((result) => result.shadow?.divergence).length;
+  const divergenceExplained =
+    divergenceCount === 0
+      ? 1
+      : pool.filter((result) => result.shadow?.divergence?.reason).length / divergenceCount;
+  const labelingWindowHonoredCount = pool.filter((result) => {
+    if (!result.cutoverLabel || result.cutoverLabel.label_source !== "hindsight") {
+      return true;
+    }
+    const cutoverGate = (
+      result.actual.plannerInput.decisionTrace as
+        | { readonly cutoverGate?: { readonly kind?: string } }
+        | undefined
+    )?.cutoverGate;
+    return cutoverGate?.kind === "gate_out" || cutoverGate?.kind === "gate_in_uncertain";
+  }).length;
+  const metrics: QuantGateMetrics = {
+    state_observability_coverage: ratio(observed, nTurns, 1),
+    commitment_correctness: ratio(correctCommitments, nTurns, 1),
+    satisfaction_correctness: ratio(satisfactionCorrect, nTurns, 1),
+    false_positive_success: falsePositiveSuccess,
+    divergence_explained: divergenceExplained,
+    labeling_window_honored: ratio(labelingWindowHonoredCount, nTurns, 1),
+  };
+  return {
+    n_turns: nTurns,
+    metrics,
+    thresholds_passed: thresholdsPassed(nTurns, metrics),
+    label_source_breakdown: labelSourceBreakdown(pool),
+    divergence_count: divergenceCount,
+  };
+}
+
+function ratio(numerator: number, denominator: number, emptyValue: number): number {
+  return denominator > 0 ? numerator / denominator : emptyValue;
+}
+
+function thresholdsPassed(nTurns: number, metrics: QuantGateMetrics): boolean {
+  return (
+    nTurns >= 30 &&
+    metrics.state_observability_coverage >= 0.9 &&
+    metrics.commitment_correctness >= 0.95 &&
+    metrics.satisfaction_correctness >= 0.95 &&
+    metrics.false_positive_success === 0 &&
+    metrics.divergence_explained === 1 &&
+    metrics.labeling_window_honored === 1
+  );
+}
+
+function labelSourceBreakdown(
+  pool: readonly CaseResult[],
+): Record<Cutover1LabelSource, number> {
+  const out: Record<Cutover1LabelSource, number> = {
+    auto: 0,
+    hindsight: 0,
+    human: 0,
+  };
+  for (const result of pool) {
+    if (result.cutoverLabel) {
+      out[result.cutoverLabel.label_source] += 1;
+    }
+  }
+  return out;
+}
+
 function renderHumanReport(payload: EvalPayload): string {
   const lines = [
     `Decision eval: ${String(payload.summary.passed)}/${String(payload.summary.total)} passed`,
     `Shadow metrics: ${JSON.stringify(payload.shadowMetrics)}`,
+    `Quant gate: ${JSON.stringify(payload.quantGate)}`,
   ];
   const failed = payload.results.filter((result) => !result.pass);
   if (failed.length > 0) {
@@ -570,25 +779,41 @@ function renderHumanReport(payload: EvalPayload): string {
 async function main() {
   const args = parseArgs();
   let cases = await readJsonlCases(args.casesPath);
+  const cutoverLabels = indexCutover1Labels(await loadCutover1Labels(args.labelsPath));
   if (args.caseFilter) {
     cases = cases.filter((caseItem) => args.caseFilter?.has(caseItem.id));
   }
   if (cases.length === 0) {
     throw new Error("No decision eval cases selected.");
   }
+  if (args.sixMetrics) {
+    assertCutover1LabelsPresent(cases, cutoverLabels);
+  }
   const results: CaseResult[] = [];
   for (const caseItem of cases) {
-    results.push(await runCase(caseItem));
+    results.push(await runCase(caseItem, cutoverLabels));
   }
   const payload: EvalPayload = {
     generatedAt: new Date().toISOString(),
     casesPath: args.casesPath,
     summary: summarize(results),
     shadowMetrics: summarizeShadow(results),
+    quantGate: summarizeQuantGate(results),
     results,
   };
   await fs.mkdir(path.dirname(args.outputPath), { recursive: true });
   await fs.writeFile(args.outputPath, JSON.stringify(payload, null, 2), "utf8");
+  if (args.sixMetrics) {
+    const gatePayload = {
+      generatedAt: payload.generatedAt,
+      n_turns: payload.quantGate.n_turns,
+      metrics: payload.quantGate.metrics,
+      thresholds_passed: payload.quantGate.thresholds_passed,
+      label_source_breakdown: payload.quantGate.label_source_breakdown,
+      divergence_count: payload.quantGate.divergence_count,
+    };
+    await fs.writeFile(args.gateReportPath, JSON.stringify(gatePayload, null, 2), "utf8");
+  }
   if (args.jsonOnly) {
     console.log(JSON.stringify(payload, null, 2));
   } else {
@@ -598,19 +823,24 @@ async function main() {
   if (payload.summary.failed > 0) {
     process.exitCode = 1;
   }
+  if (args.sixMetrics && !payload.quantGate.thresholds_passed) {
+    process.exitCode = 1;
+  }
 }
 
-void main().catch((error) => {
-  console.error(
-    JSON.stringify(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      },
-      null,
-      2,
-    ),
-  );
-  process.exitCode = 1;
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  void main().catch((error) => {
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        },
+        null,
+        2,
+      ),
+    );
+    process.exitCode = 1;
+  });
+}

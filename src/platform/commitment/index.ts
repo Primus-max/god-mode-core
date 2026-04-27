@@ -8,6 +8,9 @@ export type * from "./affordance.js";
 export type * from "./effect-family-registry.js";
 export type * from "./affordance-registry.js";
 export type * from "./shadow-builder.js";
+export type * from "./session-world-state-observer.js";
+export type * from "./cutover-policy.js";
+export type * from "./monitored-runtime.js";
 
 export {
   EFFECT_FAMILY_REGISTRY,
@@ -39,6 +42,14 @@ export {
   createShadowBuilder,
   pickAllowedConstraints,
 } from "./shadow-builder-impl.js";
+export {
+  buildSessionWorldStateFromRuns,
+  createSessionWorldStateObserver,
+  createSessionWorldStateObserverFromSnapshotSource,
+} from "./session-world-state-observer.js";
+export { persistentSessionCreatedPredicate } from "./done-predicate-persistent-session.js";
+export { createCutoverPolicy, defaultCutoverPolicy } from "./cutover-policy.js";
+export { createMonitoredRuntime } from "./monitored-runtime.js";
 export type {
   IntentContractorAdapter,
   IntentContractorAdapterRegistry,

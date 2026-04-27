@@ -214,6 +214,14 @@ export type AgentDefaultsConfig = {
       /** Minimum confidence required before ShadowBuilder attempts commitment construction. */
       confidenceThreshold?: number;
     };
+    /**
+     * Commitment kernel runtime controls. PR-3 keeps cutover disabled until the quant gate
+     * and explicit maintainer signoff pass.
+     */
+    commitment?: {
+      /** Enables production cutover for cutover-policy-eligible commitment effects. */
+      cutoverEnabled?: boolean;
+    };
   };
   /** Vector memory search configuration (per-agent overrides supported). */
   memorySearch?: MemorySearchConfig;

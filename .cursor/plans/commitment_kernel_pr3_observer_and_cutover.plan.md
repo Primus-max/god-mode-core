@@ -4,37 +4,37 @@ overview: "Финальный PR Commitment Kernel v1. SessionWorldState observe
 todos:
   - id: session-world-state-observer
     content: Реализовать src/platform/commitment/session-world-state-observer.ts. Read-only adapter над subagent-registry-state; маппит SubagentRunRecord -> SessionRecord (childSessionKey -> sessionId, requesterSessionKey -> parentSessionKey, agentId через resolveAgentIdFromSessionKey). Возвращает SessionWorldState из getSubagentRunsSnapshotForRead. Никакого raw user text, никакого TaskContract — pure value bridge.
-    status: pending
+    status: completed
   - id: persistent-session-done-predicate
     content: Реализовать persistentSessionCreatedPredicate(stateBefore, stateAfter, expectedDelta, receipts, trace) -> SatisfactionResult. Сравнивает followupRegistry до и после; satisfied=true если для каждого SessionRecordRef в expectedDelta.sessions.followupRegistry.added в stateAfter присутствует matching SessionRecord (sessionId+agentId). Ноль raw user text / classifier output. Заменить pendingSessionObserverPredicate в affordance-registry.ts.
-    status: pending
+    status: completed
   - id: cutover-policy
     content: Создать src/platform/commitment/cutover-policy.ts. Read-only список cutover-1-eligible (effect+effectFamily) — единственная запись (persistent_session.created, persistent_session). Один источник правды для runTurnDecision и для тестов. Hard invariant #11 — расширение только через PR с явным labeled-trigger.
-    status: pending
+    status: completed
   - id: monitored-runtime-skeleton
     content: src/platform/commitment/monitored-runtime.ts skeleton. Принимает ExecutionCommitment + Affordance + observer; возвращает RuntimeAttestation (terminalState orthogonal acceptanceReason — invariant #13). На cutover-1 attestation runtime-attested (invariant #4 — cutover-1 = runtime-attested). Не меняет actual execution (subagent-spawn/acp-spawn остаётся authoritative); это monitoring wrapper.
-    status: pending
+    status: completed
   - id: production-cutover-gate
     content: Расширить runTurnDecision производственным cutover gate. Если shadow.kind=commitment И cutoverPolicy.includes(commitment.effect) И monitoredRuntime.run() вернул RuntimeAttestation с commitmentSatisfied=true — production result = commitment kernel terminal. Иначе — legacy decision (current behavior). Все 4 случая (gate-out, gate-in-success, gate-in-fail, gate-in-uncertain) попадают в DecisionTrace с typed reason. Никакой silent fall-through.
-    status: pending
+    status: completed
   - id: decision-eval-six-metrics
     content: Расширить scripts/dev/decision-eval.ts на все 6 quant-gate метрик. N persistent-session turns, state_observability_coverage, commitment_correctness, satisfaction_correctness (новая — predicted satisfaction vs hindsight observed), false_positive_success (==0 baseline), divergence trace explained, labeling window honored (hindsight labels только на turns где commitment не влиял на production routing). Pool excludes answer.delivered.
-    status: pending
+    status: completed
   - id: hindsight-labeling-tooling
     content: Минимальная hybrid labeling tooling (master §7.2) — один JSON-файл scripts/dev/task-contract-eval/cutover1-labels.json со схемой { sessionId persistent-session-only, expected_satisfied bool, label_source auto | hindsight | human }. Вспомогательный TS-loader; ESLint-style guard на отсутствие labels для turns в pool.
-    status: pending
+    status: completed
   - id: tests
     content: Vitest tests на observer (snapshot fixture; маппинг runs -> followupRegistry deterministic), predicate (5 кейсов добавлено accepted, missing matching record, partial match, empty added, hostile receipts), cutover policy (только persistent_session.created — eligible), runTurnDecision (gate-out / gate-in-success / gate-in-fail / gate-in-uncertain — каждое ветка в DecisionTrace с typed reason; legacy bit-identical при gate-out), decision-eval six-metrics (synthetic pool из 30 turns, все 6 thresholds passing).
-    status: pending
+    status: completed
   - id: quant-gate-measurement
     content: Phase A — измерение на shadow data. Run pnpm eval:decision на synthetic + replayed pool >=30 persistent-session turns. Фиксировать report scripts/dev/task-contract-eval/cutover1-gate-report.json (date, n_turns, six_metrics_values, divergence_count, labeling_source_breakdown). Без cutover (production по-прежнему legacy). Exit criteria — все 6 метрик passing.
-    status: pending
+    status: completed
   - id: cutover-1-flip
     content: Phase B — после passing gate report и явного human signoff. Включить cutover-1 для persistent_session.created в runTurnDecision (production уходит через kernel). Обратная совместимость через feature flag config.commitment.cutoverEnabled (default false на initial commit; true в отдельном followup commit после signoff). Никакого rollout без явного approval — invariant #15.
-    status: pending
+    status: completed
   - id: human-signoff
     content: Maintainer signoff против master invariants #2 (affordance selection), #3 (commitmentSatisfied required), #4 (state-after observed), #9 (predicate purity), #10 (predicate on Affordance), #12 (emergency-patch deadline для любых hot-fix), #13 (terminal+acceptance orthogonal), #15 (human signoff). Двойной gate — Phase A (gate report green) и Phase B (production cutover-flip).
-    status: pending
+    status: completed
 isProject: false
 ---
 
