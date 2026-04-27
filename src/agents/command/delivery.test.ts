@@ -67,6 +67,7 @@ describe("deliverAgentCommandResult", () => {
       } as never,
       sessionEntry: undefined,
       result: {
+        didSendViaMessagingTool: true,
         meta: {
           completionOutcome: {
             runId: "run-agent-delivery",
@@ -172,6 +173,7 @@ describe("deliverAgentCommandResult", () => {
       } as never,
       sessionEntry: undefined,
       result: {
+        didSendViaMessagingTool: true,
         meta: {
           completionOutcome: {
             runId: "run-from-completion-outcome",
@@ -213,6 +215,63 @@ describe("deliverAgentCommandResult", () => {
         }),
       }),
     );
+  });
+
+  it("does not include routing debug block in telegram reply payload", async () => {
+    vi.spyOn(channelResolutionModule, "resolveOutboundChannelPlugin").mockReturnValue({} as never);
+    vi.spyOn(agentDeliveryModule, "resolveAgentOutboundTarget").mockReturnValue({
+      resolvedTarget: { ok: true, to: "123" } as never,
+      resolvedTo: "123",
+      targetMode: "explicit",
+    });
+    const deliverSpy = vi.spyOn(deliverModule, "deliverOutboundPayloads");
+    deliverSpy.mockResolvedValue([
+      {
+        channel: "telegram",
+        chatId: "123",
+        messageId: "m-no-debug-routing",
+      },
+    ] as never);
+
+    const result = await deliverAgentCommandResult({
+      cfg: {} as never,
+      deps: {} as never,
+      runtime: {
+        log: vi.fn(),
+        error: vi.fn(),
+      } as never,
+      opts: {
+        deliver: true,
+        channel: "telegram",
+        to: "telegram:123",
+      } as never,
+      outboundSession: {
+        key: "agent:main:telegram:direct:123",
+      } as never,
+      sessionEntry: undefined,
+      result: {
+        meta: {
+          agentMeta: {
+            provider: "openai",
+            model: "gpt-test",
+          },
+          modelFallback: {
+            attempts: [
+              {
+                provider: "openai",
+                model: "gpt-test",
+              },
+            ],
+          },
+        },
+      } as never,
+      payloads: [{ text: "TG answer payload" }] as never,
+    });
+
+    const deliveredText = deliverSpy.mock.calls[0]?.[0]?.payloads?.[0]?.text;
+    expect(deliveredText).toMatchInlineSnapshot(`"TG answer payload"`);
+    expect(deliveredText).not.toContain("[DEBUG ROUTING]");
+    expect(result.payloads[0]?.text).not.toContain("[DEBUG ROUTING]");
   });
 
   it("bootstraps known outbound channels before validating delivery", async () => {
