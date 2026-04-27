@@ -2,6 +2,7 @@ name: Check frozen layer label
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     paths:
       - "src/platform/decision/task-classifier.ts"
       - "src/platform/decision/input.ts"
