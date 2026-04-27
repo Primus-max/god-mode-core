@@ -10,7 +10,7 @@ todos:
     status: completed
   - id: pr2-shadow-mode-and-freeze
     content: PR-2. Реальный IntentContractor + ShadowBuilder + unified runTurnDecision entry point + five-layer freeze enforcement + decision-eval расширен на shadow comparison. Production по-прежнему на legacy.
-    status: pending
+    status: completed
   - id: pr3-cutover-and-observer
     content: PR-3. SessionWorldState observer + Affordance(persistent_session.created) + commitmentSatisfied gate + quant gate measurement + first cutover.
     status: pending
@@ -32,7 +32,7 @@ isProject: true
 | PR sequence         | 4 PR (PR-1, PR-1.5, PR-2, PR-3)                                                                       |
 | Quant gate          | 6 measurable metrics                                                                                  |
 | Last updated        | 2026-04-27                                                                                            |
-| Next gate           | PR-2 sub-plan kickoff (real IntentContractor + ShadowBuilder + five-layer freeze)                     |
+| Next gate           | PR-3 sub-plan kickoff (SessionWorldState observer + commitmentSatisfied gate + first cutover)         |
 
 
 ### PR Progress Log (append-only)
@@ -44,6 +44,7 @@ isProject: true
 | ---------- | ------ | ---------- | ----------------------- |
 | 2026-04-27 | PR-1   | bdd4f0af0a | PR-1.5 sub-plan kickoff |
 | 2026-04-27 | PR-1.5 | 9eeeeb6568 | PR-2 sub-plan kickoff   |
+| 2026-04-27 | PR-2   | d09d128a19 | PR-3 sub-plan kickoff   |
 
 
 Этот документ — **executable spec**. Он сам — план-концепция оркестратора v1 и одновременно мастер-план implementation. Из каждой секции `## §N` нарезается отдельный sub-plan, когда стадия идёт в работу.
