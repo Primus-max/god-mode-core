@@ -13,7 +13,7 @@ todos:
     status: completed
   - id: pr3-cutover-and-observer
     content: PR-3. SessionWorldState observer + Affordance(persistent_session.created) + commitmentSatisfied gate + quant gate measurement + first cutover.
-    status: pending
+    status: completed
 isProject: true
 ---
 
@@ -32,7 +32,7 @@ isProject: true
 | PR sequence         | 4 PR (PR-1, PR-1.5, PR-2, PR-3)                                                                       |
 | Quant gate          | 6 measurable metrics                                                                                  |
 | Last updated        | 2026-04-27                                                                                            |
-| Next gate           | PR-3 sub-plan kickoff (SessionWorldState observer + commitmentSatisfied gate + first cutover)         |
+| Next gate           | v1 user acceptance testing on cutover-1 surface (`persistent_session.created`)                        |
 
 
 ### PR Progress Log (append-only)
@@ -45,6 +45,7 @@ isProject: true
 | 2026-04-27 | PR-1   | bdd4f0af0a | PR-1.5 sub-plan kickoff |
 | 2026-04-27 | PR-1.5 | 9eeeeb6568 | PR-2 sub-plan kickoff   |
 | 2026-04-27 | PR-2   | d09d128a19 | PR-3 sub-plan kickoff   |
+| 2026-04-27 | PR-3   | addcb196be | v1 UAT (cutover-1)      |
 
 
 Этот документ — **executable spec**. Он сам — план-концепция оркестратора v1 и одновременно мастер-план implementation. Из каждой секции `## §N` нарезается отдельный sub-plan, когда стадия идёт в работу.
@@ -683,6 +684,6 @@ Open issues Round 5 (A-G): **resolved YES**.
 PR sequence: **4 PR**, каждый с human signoff gate.
 Quant gate cutover-1: **6 measurable metrics**, все определены.
 
-**Next gate**: human maintainer signoff на этом master plan -> старт PR-1.
+**Next gate**: v1 user acceptance testing на cutover-1 surface (`persistent_session.created`) -> расширение CutoverPolicy на следующие effect-families (cutover-2+) — отдельные sub-plans.
 
 После PR-1 кода — не AI-раунд, а review кода человеком против §3 (hard invariants) + §5 (type sketch) + §8.1 (PR-1 scope).
