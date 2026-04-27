@@ -27,6 +27,10 @@ import {
 } from "./qualification-confidence.js";
 import type { QualificationResult } from "./qualification-contract.js";
 import { resolveResolutionContract, toRecipeRoutingHints } from "./resolution-contract.js";
+import {
+  createDefaultExpectedDeltaResolver,
+  createDefaultMonitoredRuntime,
+} from "../commitment/index.js";
 import { runTurnDecision } from "./run-turn-decision.js";
 import type { TaskClassifierAdapter, TaskContract } from "./task-classifier.js";
 import {
@@ -437,7 +441,7 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     }
   }
   getCurrentTurnProgressEmitter()?.emit("classifying");
-  const { legacyDecision: classified } = await runTurnDecision({
+  const { productionDecision: classified } = await runTurnDecision({
     prompt: classifierPrompt,
     fileNames: classifierInput.fileNames,
     cfg: params.cfg,
@@ -447,6 +451,8 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     clarifyBudgetNotice,
     ...(identityContext ? { identityContext } : {}),
     classifierAdapterRegistry: params.adapterRegistry,
+    monitoredRuntime: createDefaultMonitoredRuntime(),
+    expectedDeltaResolver: createDefaultExpectedDeltaResolver(),
   });
 
   let finalClassified = classified;
@@ -472,7 +478,7 @@ export async function buildClassifiedExecutionDecisionInput(params: {
       defaultRuntime.log(
         `[workspace-inject] session=${shortIdForLog(ledgerSessionId)} channel=${shortIdForLog(ledgerChannelId)} reason=${reason} tokens=${String(approximateTokenCount(workspaceContext))}`,
       );
-      const { legacyDecision } = await runTurnDecision({
+      const { productionDecision } = await runTurnDecision({
         prompt: classifierPrompt,
         fileNames: classifierInput.fileNames,
         cfg: params.cfg,
@@ -483,8 +489,10 @@ export async function buildClassifiedExecutionDecisionInput(params: {
         workspaceContext,
         ...(identityContext ? { identityContext } : {}),
         classifierAdapterRegistry: params.adapterRegistry,
+        monitoredRuntime: createDefaultMonitoredRuntime(),
+        expectedDeltaResolver: createDefaultExpectedDeltaResolver(),
       });
-      finalClassified = legacyDecision;
+      finalClassified = productionDecision;
     }
   }
   return applySessionSpecialistOverrideToPlannerInput(

@@ -1,4 +1,12 @@
-import type { ShadowBuildResult } from "../commitment/shadow-builder.js";
+import type { EffectId } from "../commitment/ids.js";
+import type {
+  RuntimeAcceptanceReason,
+  RuntimeTerminalState,
+} from "../commitment/monitored-runtime.js";
+import type {
+  ShadowBuildResult,
+  ShadowUnsupportedReason,
+} from "../commitment/shadow-builder.js";
 import type { DeliverableSpec } from "../produce/registry.js";
 import type { ClassifierTelemetry, RoutingOutcome } from "../recipe/planner.js";
 import type { RecipeRoutingHints } from "../recipe/planner.js";
@@ -75,6 +83,34 @@ export type DecisionTraceReadiness = {
   reasons?: string[];
 };
 
+/**
+ * Reason a turn fell back to the legacy classifier-derived production decision
+ * instead of becoming kernel-source-of-truth. Inherits all `ShadowUnsupportedReason`
+ * codes (raised by the shadow-builder) and adds the cutover-gate-specific codes
+ * surfaced by `runTurnDecision`.
+ */
+export type KernelFallbackReason =
+  | ShadowUnsupportedReason
+  | "cutover_disabled"
+  | "effect_not_eligible"
+  | "affordance_unavailable"
+  | "monitored_runtime_unavailable"
+  | "expected_delta_unavailable"
+  | "monitored_runtime_error"
+  | "commitment_unsatisfied";
+
+/**
+ * Marker proving a production decision was derived from the kernel pipeline
+ * (commitment + runtime attestation) rather than from the legacy classifier.
+ * Present in `DecisionTrace` only when `productionDecision !== legacyDecision`.
+ */
+export type KernelDerivedDecisionMarker = {
+  readonly sourceOfTruth: "kernel";
+  readonly effect: EffectId;
+  readonly terminalState: RuntimeTerminalState;
+  readonly acceptanceReason: RuntimeAcceptanceReason;
+};
+
 export type DecisionTrace = {
   version: 1;
   classifier?: DecisionTraceClassifier;
@@ -86,6 +122,9 @@ export type DecisionTrace = {
   readiness?: DecisionTraceReadiness;
   errorTags?: DecisionTraceErrorTag[];
   readonly shadowCommitment?: ShadowBuildResult;
+  readonly kernelDerived?: KernelDerivedDecisionMarker;
+  readonly kernelFallback?: boolean;
+  readonly fallbackReason?: KernelFallbackReason;
 };
 
 function sortUnique(values: readonly string[] | undefined): string[] {

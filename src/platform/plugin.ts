@@ -29,6 +29,10 @@ import {
   createRecipeCatalogGetGatewayMethod,
   createRecipeCatalogListGatewayMethod,
 } from "./catalog/index.js";
+import {
+  createDefaultExpectedDeltaResolver,
+  createDefaultMonitoredRuntime,
+} from "./commitment/index.js";
 import { runTurnDecision } from "./decision/run-turn-decision.js";
 import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
@@ -73,10 +77,14 @@ export async function resolveHookExecution(
   if (!apiConfigRef.current) {
     throw new Error("Plugin API config not initialized");
   }
-  const { legacyDecision: classified } = await runTurnDecision({
+  const { productionDecision: classified } = await runTurnDecision({
     prompt,
     cfg: apiConfigRef.current,
     agentDir: ctx?.workspaceDir,
+    monitoredRuntime: createDefaultMonitoredRuntime(),
+    expectedDeltaResolver: createDefaultExpectedDeltaResolver(
+      ctx?.agentId ? { targetAgentId: ctx.agentId } : {},
+    ),
   });
   return toPluginHookPlatformExecutionContext(
     resolvePlatformRuntimePlan({
@@ -332,8 +340,12 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
                 await runTurnDecision({
                   prompt: runSnapshot?.prompt ?? "",
                   cfg: apiConfigRef.current,
+                  monitoredRuntime: createDefaultMonitoredRuntime(),
+                  expectedDeltaResolver: createDefaultExpectedDeltaResolver(
+                    ctx.agentId ? { targetAgentId: ctx.agentId } : {},
+                  ),
                 })
-              ).legacyDecision.plannerInput,
+              ).productionDecision.plannerInput,
               callerTag: "plugin-fallback-decision",
             })
           : undefined

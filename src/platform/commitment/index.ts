@@ -50,6 +50,11 @@ export {
 export { persistentSessionCreatedPredicate } from "./done-predicate-persistent-session.js";
 export { createCutoverPolicy, defaultCutoverPolicy } from "./cutover-policy.js";
 export { createMonitoredRuntime } from "./monitored-runtime.js";
+export {
+  createDefaultExpectedDeltaResolver,
+  createDefaultMonitoredRuntime,
+} from "./production-runtime-defaults.js";
+export type { DefaultExpectedDeltaResolverOptions } from "./production-runtime-defaults.js";
 export type {
   IntentContractorAdapter,
   IntentContractorAdapterRegistry,

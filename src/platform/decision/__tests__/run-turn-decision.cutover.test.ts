@@ -91,6 +91,14 @@ function traceGate(result: Awaited<ReturnType<typeof runTurnDecision>>): Cutover
   )?.cutoverGate;
 }
 
+function legacyTraceGate(result: Awaited<ReturnType<typeof runTurnDecision>>): CutoverGateTrace | undefined {
+  return (
+    result.legacyDecision.plannerInput.decisionTrace as
+      | { readonly cutoverGate?: CutoverGateTrace }
+      | undefined
+  )?.cutoverGate;
+}
+
 describe("runTurnDecision cutover gate", () => {
   it("records gate_out and keeps legacy production when cutover is disabled", async () => {
     const monitoredRuntime = {
@@ -195,6 +203,89 @@ describe("runTurnDecision cutover gate", () => {
     });
     expect(traceGate(result)).toEqual(result.cutoverGate);
     expect(result.runtimeAttestation).toBeUndefined();
+  });
+
+  it("[PR-4a contract] productionDecision diverges from legacyDecision on kernel-derived success", async () => {
+    const monitoredRuntime = {
+      run: vi.fn(async () =>
+        attestation({
+          commitmentSatisfied: true,
+          terminalState: "action_completed",
+          acceptanceReason: "commitment_satisfied",
+        }),
+      ),
+    };
+
+    const result = await runTurnDecision({
+      prompt: "create persistent session",
+      cfg: cfg(true),
+      classifierAdapterRegistry: { "legacy-mock": legacyAdapter() },
+      intentContractorAdapterRegistry: { "intent-mock": intentAdapter() },
+      monitoredRuntime,
+      expectedDeltaResolver: () => expectedDelta,
+    });
+
+    expect(result.kernelFallback).toBe(false);
+    expect(result.fallbackReason).toBeUndefined();
+    expect(result.productionDecision).not.toBe(result.legacyDecision);
+    expect(legacyTraceGate(result)).toBeUndefined();
+    expect(traceGate(result)?.kind).toBe("gate_in_success");
+    const productionTrace = result.productionDecision.plannerInput.decisionTrace as
+      | {
+          readonly kernelDerived?: { readonly sourceOfTruth: "kernel"; readonly effect: string };
+          readonly kernelFallback?: boolean;
+        }
+      | undefined;
+    expect(productionTrace?.kernelDerived?.sourceOfTruth).toBe("kernel");
+    expect(productionTrace?.kernelDerived?.effect).toBe("persistent_session.created");
+    expect(productionTrace?.kernelFallback).toBe(false);
+  });
+
+  it("[PR-4a contract] productionDecision falls back with kernelFallback=true when commitment is unsatisfied", async () => {
+    const monitoredRuntime = {
+      run: vi.fn(async () =>
+        attestation({
+          commitmentSatisfied: false,
+          terminalState: "rejected",
+          acceptanceReason: "commitment_unsatisfied",
+        }),
+      ),
+    };
+
+    const result = await runTurnDecision({
+      prompt: "create persistent session",
+      cfg: cfg(true),
+      classifierAdapterRegistry: { "legacy-mock": legacyAdapter() },
+      intentContractorAdapterRegistry: { "intent-mock": intentAdapter() },
+      monitoredRuntime,
+      expectedDeltaResolver: () => expectedDelta,
+    });
+
+    expect(result.kernelFallback).toBe(true);
+    expect(result.fallbackReason).toBe("commitment_unsatisfied");
+    expect(result.productionDecision).not.toBe(result.legacyDecision);
+    const productionTrace = result.productionDecision.plannerInput.decisionTrace as
+      | { readonly kernelFallback?: boolean; readonly fallbackReason?: string }
+      | undefined;
+    expect(productionTrace?.kernelFallback).toBe(true);
+    expect(productionTrace?.fallbackReason).toBe("commitment_unsatisfied");
+  });
+
+  it("[PR-4a contract] productionDecision falls back with reason=monitored_runtime_unavailable when runtime is missing", async () => {
+    const result = await runTurnDecision({
+      prompt: "create persistent session",
+      cfg: cfg(true),
+      classifierAdapterRegistry: { "legacy-mock": legacyAdapter() },
+      intentContractorAdapterRegistry: { "intent-mock": intentAdapter() },
+      expectedDeltaResolver: () => expectedDelta,
+    });
+
+    expect(result.kernelFallback).toBe(true);
+    expect(result.fallbackReason).toBe("monitored_runtime_unavailable");
+    const productionTrace = result.productionDecision.plannerInput.decisionTrace as
+      | { readonly fallbackReason?: string }
+      | undefined;
+    expect(productionTrace?.fallbackReason).toBe("monitored_runtime_unavailable");
   });
 
   it("treats missing cutoverEnabled flag as enabled (Phase B default)", async () => {

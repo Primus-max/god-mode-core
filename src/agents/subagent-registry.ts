@@ -1738,3 +1738,17 @@ export function getSubagentRunByChildSessionKey(childSessionKey: string): Subage
 export function initSubagentRegistry() {
   restoreSubagentRunsOnce();
 }
+
+/**
+ * Returns a merged snapshot of in-memory and disk-persisted subagent runs.
+ *
+ * Exposed for `SessionWorldStateObserver` consumers (the kernel cutover gate)
+ * that need a read-only view of the registry without taking a reference to
+ * the mutable in-memory map.
+ *
+ * @returns Read-only snapshot keyed by runId; mutations on the returned map
+ *   are not propagated back into the registry.
+ */
+export function snapshotSubagentRunsForObserver(): ReadonlyMap<string, SubagentRunRecord> {
+  return getSubagentRunsSnapshotForRead(subagentRuns);
+}
