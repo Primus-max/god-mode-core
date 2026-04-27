@@ -96,7 +96,7 @@ function stripShadowCommitment(value: unknown): unknown {
   }
   const out: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value)) {
-    if (key === "shadowCommitment") {
+    if (key === "shadowCommitment" || key === "cutoverGate") {
       continue;
     }
     out[key] = stripShadowCommitment(entry);

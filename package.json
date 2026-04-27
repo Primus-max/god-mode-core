@@ -623,6 +623,7 @@
     "eval:classifier": "node --import tsx scripts/eval-classifier.ts",
     "eval:classifier:compare": "node --import tsx scripts/eval-classifier-compare.ts",
     "eval:decision": "node --import tsx scripts/dev/decision-eval.ts",
+    "eval:decision:six-metrics": "node --import tsx scripts/dev/decision-eval.ts --six-metrics --cases scripts/dev/task-contract-eval/cutover1-synthetic-cases.jsonl --labels scripts/dev/task-contract-eval/cutover1-labels.json",
     "docs:bin": "node scripts/build-docs-list.mjs",
     "docs:check-i18n-glossary": "node scripts/check-docs-i18n-glossary.mjs",
     "docs:check-links": "node scripts/docs-link-audit.mjs",
