@@ -23,6 +23,13 @@ You are editing files inside the new commitment kernel layer or its enforcement 
 - Do NOT import `UserPrompt` or `RawUserTurn` outside whitelist (`intent-contractor.ts` and `raw-user-turn.ts` only) (invariants #5, #6).
 - Do NOT return `EffectId` from `IntentContractor` (invariant #16; intent emits `EffectFamilyId`, never `EffectId`).
 
+## Cutover wiring rules (master §0.5 audit, applied for PR-4+)
+
+- Never call `runTurnDecision` from a production call-site without `monitoredRuntime` and `expectedDeltaResolver` in the input. Without them, `cutoverGate` evaluates to `gate_in_uncertain (monitored_runtime_unavailable)` and `productionDecision` collapses to `legacyDecision` regardless of cutover policy. This was the source of audit gap G2.
+- Never destructure `legacyDecision` alone from `runTurnDecision()` in a production call-site. Production code must read `productionDecision` (and optionally `kernelFallback` for observability). `legacyDecision` is reserved for telemetry / shadow comparison, never for routing. This was the source of audit gap G1.
+- Before adding a new chat-bound effect, check that its `EffectFamilyId` is registered in `effect-family-registry.ts`. New families count as new affordance graph topology — invariant #16 enforcement point. Trivially-1.0 branching factor (master §13.4) is acceptable on cutover-1 but not on cutover-2 onwards.
+- `allowAllPolicyGate` is a stub. Production call-sites must inject a real `PolicyGate` no later than cutover-2 (G6 closure). Stub usage outside tests is a planned architecture violation and must be tracked, not silently inherited.
+
 ## Before commit
 
 - TypeScript build green (`tsc --noEmit`).

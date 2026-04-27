@@ -5,22 +5,44 @@ alwaysApply: false
 
 # PR Session — Chat Launch Protocol
 
-Use this protocol when a chat is opened to work on a commitment kernel PR (PR-1 / PR-1.5 / PR-2 / PR-3).
+Use this protocol when a chat is opened to work on a commitment kernel PR (PR-1 / PR-1.5 / PR-2 / PR-3 / **PR-4a** / **PR-4b**) or an isolated cutover sub-plan (e.g. **idempotency-fix**, future `policy-gate-full`).
 
 ## At chat start (mandatory)
 
-1. **Identify which PR** is in flight. The user's first message should name it (e.g. "Working on PR-1"). If unclear — ask once and wait.
+1. **Identify which PR / sub-plan / wave** is in flight. The user's first message should name it (e.g. "Working on PR-4a", "Working on PR-4b"). If unclear — ask once and wait. Treat "PR-4" without a wave letter as ambiguous and ask which wave is intended; do **not** start coding until clarified.
+
+   **Note**: "Working on idempotency-fix" — допустимо как сокращение для commit 1 PR-4a, но финальный мерж = PR-4a. Standalone PR не открывается. Если пользователь явно хочет standalone PR — это отклонение от плана, surface and ask.
+
 2. **Read the corresponding sub-plan in full**:
    - PR-1: `.cursor/plans/commitment_kernel_pr1_types_seed.plan.md`
-   - PR-1.5: `.cursor/plans/commitment_kernel_pr1_5_runtime_result_schema.plan.md` (created after PR-1 merges)
-   - PR-2: `.cursor/plans/commitment_kernel_pr2_shadow_and_freeze.plan.md` (created after PR-1.5 merges)
-   - PR-3: `.cursor/plans/commitment_kernel_pr3_observer_and_cutover.plan.md` (created after PR-2 merges)
-3. **Skim master plan sections relevant to this PR**:
+   - PR-1.5: `.cursor/plans/commitment_kernel_pr1_5_runtime_result_schema.plan.md`
+   - PR-2: `.cursor/plans/commitment_kernel_pr2_shadow_and_freeze.plan.md`
+   - PR-3: `.cursor/plans/commitment_kernel_pr3_observer_and_cutover.plan.md`
+   - **PR-4a (Wave A)**: `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` — read frontmatter (`wave: a` todos only), §0.1 Wave separation discipline, §1.1 Why PR-4a, §2.1.A scope, §2.3 preflight, §3.A invariants, §4 sub-sections marked `[Wave A]`, §5 test plan rows with `Wave=A`, §7.A exit criteria. **Дополнительно**: `commitment_kernel_idempotency_fix.plan.md` (detail-spec для commit 1 — закрывает G3+G4; не standalone PR). PR-4a closes G1+G2+G3+G4+G5.
+   - **PR-4b (Wave B)**: `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` — read frontmatter (`wave: b` todos only), §0.1, §1.2 Why PR-4b, §2.1.B scope, §2.4 preflight (PR-4a must already be merged), §3.B invariants, §4 sub-sections marked `[Wave B]`, §5 test plan rows with `Wave=B`, §7.B exit criteria. Closes G6.a+G6.b. **Do not start PR-4b until PR-4a is merged and ≥1 час dry-run passed.**
+   - **policy-gate-full** (future, post-cutover-2): `.cursor/plans/commitment_kernel_policy_gate_full.plan.md` (создаётся отдельно; **никогда** не реализуется внутри PR-4b).
+3. **Read master plan §0.5 Audit Findings (mandatory for any PR ≥ PR-4a or any cutover sub-plan)**. **Q1..Q5 self-check (§0.5.5) НЕ печатается в чат по умолчанию.** Печатается **только** если сработал триггер (см. §0.5.5: preconditions fail / sub-plan vs master conflict / scope creep / прямая просьба пользователя).
+4. **Skim master plan sections relevant to this PR**:
    - PR-1: §3 invariants, §5 types, §8.1 scope, §9 lint matrix.
    - PR-1.5: §3, §8.2, §15 reference material.
    - PR-2: §3, §5, §6 freeze, §8.3, §9.
    - PR-3: §3, §5.4-5.6, §7 quant gate, §8.4.
-4. **Confirm scope explicitly** in the first reply: list files you are allowed to touch, list files you are NOT allowed to touch.
+   - **PR-4a (Wave A)**: §0.5 (full), §0.5.3 scope-of-fix matrix (G1+G2+G3+G4+G5 rows + правило idempotency-fix внутри PR-4a), §0.5.4 (cutover-1 ready definition), §3 invariants, §5.4-5.6 types, §6 freeze, §7 quant gate, §8.4 PR-3 reality, §8.5 wave column. **Не читать §8.5.1 для PR-4a** (PolicyGate split — это PR-4b territory).
+   - **PR-4b (Wave B)**: §0.5 (full), §0.5.3 (G6.a+G6.b rows), §0.5.4 (cutover-2 ready definition), §3 invariants (#2, #16), §6 freeze, §7 quant gate, §8.5 + **§8.5.1 PolicyGate split** (mandatory — defines what's in scope vs what's deferred), §13.4 affordance branching factor canary.
+5. **Default bootstrap output = exactly 4 строки** в первом сообщении чата:
+
+   ```text
+   Wave: <A | B | N/A>
+   Scope: <PR-id + ссылка на §sub-plan; без re-list файлов>
+   Audit gaps closing: <G-numbers либо "none">
+   Preconditions: <pass | fail: <что не так>>
+   ```
+
+   Затем агент сразу идёт в первый todo. **Не перечислять разрешённые/запрещённые файлы списком** — sub-plan §4 их уже содержит, а wave discipline (см. ниже) ловит выходы за scope в момент попытки.
+
+   **Расширение output до Q1..Q5** — только если сработал триггер (см. master §0.5.5). При триггере чат пишет 4 строки + блок Q1..Q5 (1-2 строки на ответ, не reasoning-эссе) и **останавливается**, surface user-у.
+
+   Для PR-4b: дополнительная 5-я строка в Scope-секции с явным disclaimer "approvals/budgets/role-based PolicyGate not in scope (см. §8.5.1)". См. пример в master §0.5.5.
 
 ## During work
 
@@ -28,6 +50,12 @@ Use this protocol when a chat is opened to work on a commitment kernel PR (PR-1 
 - Any operation that conflicts with hard invariants (see `commitment-kernel-invariants` always-applied rule) = stop and surface.
 - Touching frozen layer (see `decision-layer-frozen` glob rule) = labeled PR template required.
 - Cross-PR changes (e.g. PR-1 wants to extend `SpawnSubagentResult`) belong in **PR-1.5**, not the current PR. Park the work, do not interleave.
+- For PR-4* / cutover sub-plans: **never** mark a todo `completed` if its proof relies on `vi.spyOn(...)` over the very guard it claims to fix (master §0.5.2 G3/G4 anti-pattern).
+- For PR-4a / cutover sub-plans: **never** flip a call-site to `productionDecision` in isolation — all four call-sites (`src/platform/plugin.ts:76`, `src/platform/plugin.ts:332`, `src/platform/decision/input.ts:440`, `src/platform/decision/input.ts:475`) must be updated together with `monitoredRuntime` + `expectedDeltaResolver` wiring. Partial flip leaves G1+G2 open.
+- **Wave discipline (PR-4a)**: do not touch `affordance-registry.ts` (new effects), `effect-family-registry.ts` (new families), `policy-gate.ts` (replacing stub), or `cutover-policy.ts` (extending allow-list). These are Wave B (PR-4b) scope. If a Wave A todo seems to require it — stop and surface; the plan has drift.
+- **Wave discipline (PR-4b)**: do not touch the 4 production call-sites (Wave A already wired them) or modify `cutoverPolicy` for `persistent_session.created` (it stays in-pool, not modified). PR-4b inherits the working `productionDecision` path; do not duplicate it.
+- **PolicyGate scope ceiling (PR-4b)**: minimal PolicyGate exposes exactly two reason codes — `'no_credentials'` and `'channel_disabled'`. Adding `'budget_exceeded'`, `'requires_approval'`, `'role_denied'`, `'retry_limit'`, or any other reason = scope creep into the future `commitment_kernel_policy_gate_full.plan.md`. Stop and surface.
+- **Cross-wave precondition for PR-4b**: PR-4a must already be merged AND a ≥1 hour dry-run on the dev TG must have passed (no `label already in use`, no `[DEBUG ROUTING]`, `decision=kernel` visible in trace for `persistent_session.created`). If not — refuse to start PR-4b coding.
 
 ## Before commit
 
@@ -63,10 +91,41 @@ Each PR lives in its own chat. Architectural memory crosses chat boundaries via 
 - **Sub-plan** travels via file attachment in the user's first message; agent reads it in full at start.
 - **Progress** travels via master plan `todos:` statuses + §0 status table — both are updated by the previous PR's chat as its final step (see above).
 
-When a new chat opens with "Working on PR-N":
+When a new chat opens with "Working on PR-N" (or PR-Na/Nb for split waves):
 
-1. Read master plan frontmatter `todos:` → confirm all `pr-(N-1)-*` are `completed` and all `pr-N-*` are `pending`. If not aligned, stop and surface.
-2. Read master §0 status table → confirm last row says `PR-(N-1) merged`. If not, stop and surface.
-3. Proceed with the standard chat-start steps above.
+1. Read master plan frontmatter `todos:` → confirm all predecessors are `completed` and all current-PR todos are `pending`. For split-waves: PR-4b requires `pr4a-cutover1-routing-flip` completed. **PR-4a includes `idempotency-fix-persistent-session` as its first commit (in-tree)**; standalone PR for idempotency-fix is not used. If frontmatter is misaligned, stop and surface.
+2. Read master §0 status table → confirm last relevant row matches expected predecessor. For split-waves, look for explicit `PR-4a merged` row before starting PR-4b; if absent, stop and surface.
+3. **Read master §0.5 Audit Findings**. Default bootstrap = 4-line output (см. §"At chat start" п.5). Q1..Q5 печатается только при триггере (master §0.5.5).
+4. Proceed with the standard chat-start steps above. Skip Q1..Q5 unless a trigger fires.
+
+When a new chat opens with "Working on idempotency-fix" (alias for PR-4a commit 1):
+
+1. **Это не отдельный PR** — это commit 1 PR-4a. Финальный мерж = PR-4a. Если пользователь явно требует standalone PR — surface и сослаться на master §0.5.3 (правило idempotency-fix внутри PR-4a).
+2. Read `commitment_kernel_idempotency_fix.plan.md` in full + master §0.5.2 (G3+G4) + §0.5.3 (правило раздельности волн / правило idempotency-fix).
+3. Bootstrap output (4 строки): `Wave: A`, `Scope: PR-4a commit 1 — idempotency-fix; см. commitment_kernel_idempotency_fix.plan.md §2-3`, `Audit gaps closing: G3, G4`, `Preconditions: pass`.
+4. Scope is **exclusively** `findLivePersistentSessionByLabel` + `spawnSubagentDirect` guard replacement + test rewrite without `vi.spyOn`. No PR-4a commit-2/commit-3 работа в этом же коммите (routing flip + DEBUG cleanup идут отдельными коммитами в той же ветке `pr/4a/*`).
+5. Do not mark the `tests` todo `completed` until `subagent-spawn.idempotency.test.ts` no longer contains any `vi.spyOn(...)` against the guard or against `findLivePersistentSessionByLabel` itself.
+
+When a new chat opens with "Working on PR-4a":
+
+1. Read `commitment_kernel_pr4_chat_effects_cutover.plan.md` filtered to `wave: a` (frontmatter todos with `wave: a`, body sub-sections marked `[Wave A]`, §3.A invariants, §7.A exit criteria) + `commitment_kernel_idempotency_fix.plan.md` (detail-spec for commit 1) + master §0.5 + §0.5.3 (G1+G2+G3+G4+G5 rows + idempotency-fix-внутри-PR-4a правило) + §0.5.4 (cutover-1 ready definition) + §8.5 wave column.
+2. Bootstrap output (4 строки): `Wave: A`, `Scope: PR-4a, см. PR-4 sub-plan §4 [Wave A] + idempotency-fix sub-plan (commit 1)`, `Audit gaps closing: G1, G2, G3, G4, G5`, `Preconditions: pass`.
+3. Commit-структура жёсткая: (1) idempotency-fix → (2) routing flip → (3) DEBUG cleanup. Не перепутывать порядок: routing flip без работающего idempotency-guard'а даёт `label already in use` в первом же live turn-е.
+4. Scope is **exclusively** session-store guard + routing flip for `persistent_session.created` + 4 call-sites wiring + DEBUG cleanup + legacy-fallback explicit. **No** `affordance-registry.ts` / `effect-family-registry.ts` / `policy-gate.ts` / `cutover-policy.ts` changes. No new effects in cutover policy.
+5. Q1..Q5 не печатать. Если триггер сработал (preconditions fail / scope creep) — печатать 4 строки + блок Q1..Q5 и останавливаться, surface user-у.
+6. Do not mark `tg-entrypoint-kernel-first` `completed` unless a contract test asserts `productionDecision !== legacyDecision` on cutover-eligible turn-ах with successful runtime attestation, AND all 4 call-sites are simultaneously updated. Partial flip = stop.
+
+When a new chat opens with "Working on PR-4b":
+
+1. **Verify preconditions first**: master §0 status table shows `PR-4a merged` row; PR-4a §7.A exit criteria confirmed (≥1 час dry-run passed). If not — stop and surface; do not start coding.
+2. Read `commitment_kernel_pr4_chat_effects_cutover.plan.md` filtered to `wave: b` (frontmatter todos with `wave: b`, body sub-sections marked `[Wave B]`, §3.B invariants, §7.B exit criteria) + master §0.5.3 (G6.a+G6.b rows) + §0.5.4 (cutover-2 ready definition) + **§8.5.1 PolicyGate split (mandatory read)**.
+3. Bootstrap output (4 строки + 5-я строка disclaimer): `Wave: B`, `Scope: PR-4b, см. PR-4 sub-plan §4 [Wave B]. Disclaimer: approvals/budgets/role-based PolicyGate not in scope (см. §8.5.1, future commitment_kernel_policy_gate_full.plan.md)`, `Audit gaps closing: G6.a, G6.b`, `Preconditions: pass (PR-4a merged at <SHA>; dry-run ≥1h passed)`.
+4. Scope is **exclusively** `communication` effect-family + chat-effects affordance entries + `WorldStateSnapshot.deliveries` slice + `cutoverPolicy` allow-list extension + minimal PolicyGate (2 reason codes only). **No** approvals, budgets, role-based access, retry policies, escalation hooks. **No** edits to 4 production call-sites (Wave A territory).
+5. Q1..Q5 не печатать. Триггер для PR-4b: попытка добавить любой 3-й reason code в PolicyGate → автоматический scope creep → 4 строки + Q1..Q5 + stop.
+6. Do not mark `policy-gate-real` `completed` unless `policy-gate.test.ts` includes a reverse-test проверяющий, что в registry экспортируется ровно `{'no_credentials','channel_disabled'}`, и не больше. Любой extra reason code = reject.
+
+When a new chat opens with "Working on policy-gate-full" (future, post-cutover-2):
+
+1. This sub-plan does not exist yet. If the user opens such a chat **before cutover-2 is complete** — stop, surface that PR-4b must be merged first. If after — read `commitment_kernel_policy_gate_full.plan.md` (создаётся в момент открытия этого направления; см. master §8.5.1).
 
 The discussion artefact (`commitment_kernel_design_dialog.plan.md`) is reference material — read on demand, not per-chat.
