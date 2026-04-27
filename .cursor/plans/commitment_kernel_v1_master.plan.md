@@ -40,12 +40,22 @@ isProject: true
 Финальный коммит каждого PR-чата (`docs(plan): mark PR-N completed`) дописывает сюда строку. Trailer формат: `Plan-Step: PR-N` / `Plan-Status: completed`. См. `.cursor/rules/pr-session-bootstrap.mdc` "Final step of every PR chat".
 
 
-| Date       | PR     | Merge SHA  | Next gate               |
-| ---------- | ------ | ---------- | ----------------------- |
-| 2026-04-27 | PR-1   | bdd4f0af0a | PR-1.5 sub-plan kickoff |
-| 2026-04-27 | PR-1.5 | 9eeeeb6568 | PR-2 sub-plan kickoff   |
-| 2026-04-27 | PR-2   | d09d128a19 | PR-3 sub-plan kickoff   |
-| 2026-04-27 | PR-3   | addcb196be | v1 UAT (cutover-1)      |
+| Date       | PR     | Chat-completion SHA | Next gate               |
+| ---------- | ------ | ------------------- | ----------------------- |
+| 2026-04-27 | PR-1   | bdd4f0af0a          | PR-1.5 sub-plan kickoff |
+| 2026-04-27 | PR-1.5 | 9eeeeb6568          | PR-2 sub-plan kickoff   |
+| 2026-04-27 | PR-2   | d09d128a19          | PR-3 sub-plan kickoff   |
+| 2026-04-27 | PR-3   | addcb196be          | v1 UAT (cutover-1)      |
+
+
+### Merged into `dev` (2026-04-27)
+
+
+| PR     | PR #                                                         | Merge commit | Source branch                            | Method |
+| ------ | ------------------------------------------------------------ | ------------ | ---------------------------------------- | ------ |
+| PR-1.5 | [#100](https://github.com/Primus-max/god-mode-core/pull/100) | 5826b46db9   | `pr/1.5/runtime-result-schema-extension` | merge  |
+| PR-2   | [#101](https://github.com/Primus-max/god-mode-core/pull/101) | b439261f6f   | `pr/2/shadow-mode-and-freeze`            | merge  |
+| PR-3   | [#102](https://github.com/Primus-max/god-mode-core/pull/102) | f412c17348   | `pr/3/observer-and-cutover-phase-a`      | merge  |
 
 
 Этот документ — **executable spec**. Он сам — план-концепция оркестратора v1 и одновременно мастер-план implementation. Из каждой секции `## §N` нарезается отдельный sub-plan, когда стадия идёт в работу.
