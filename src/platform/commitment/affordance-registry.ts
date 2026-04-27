@@ -1,7 +1,8 @@
-import type { Affordance, SatisfactionResult } from "./affordance.js";
+import type { Affordance } from "./affordance.js";
 import type { CommitmentTarget } from "./execution-commitment.js";
 import type { AffordanceId, EffectFamilyId, EffectId } from "./ids.js";
 import { PERSISTENT_SESSION_EFFECT_FAMILY } from "./effect-family-registry.js";
+import { persistentSessionCreatedPredicate } from "./done-predicate-persistent-session.js";
 import type { OperationHint, TargetRef } from "./semantic-intent.js";
 
 export type RegisteredAffordance = Affordance & {
@@ -37,18 +38,6 @@ const PERSISTENT_SESSION_CREATED_AFFORDANCE =
   "persistent_session.created" as AffordanceId;
 
 /**
- * Placeholder predicate until PR-3 wires `SessionWorldState` observation.
- *
- * @returns Unsatisfied result with the PR-3 observer gap called out.
- */
-function pendingSessionObserverPredicate(): SatisfactionResult {
-  return {
-    satisfied: false,
-    missing: ["session_world_state_observer_pr3"],
-  };
-}
-
-/**
  * Matches the narrow target space for the PR-2 persistent-session affordance.
  *
  * @param target - Commitment target candidate.
@@ -79,7 +68,7 @@ export const PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY = Object.freeze({
     maxRetries: 0,
   }),
   observerHandle: Object.freeze({ id: "session_world_state" }),
-  donePredicate: pendingSessionObserverPredicate,
+  donePredicate: persistentSessionCreatedPredicate,
 } satisfies RegisteredAffordance);
 
 const DEFAULT_AFFORDANCES = Object.freeze([
