@@ -4,7 +4,7 @@ import type { AgentId, SessionKey } from "../platform/commitment/ids.js";
 import { formatThinkingLevels, normalizeThinkLevel } from "../auto-reply/thinking.js";
 import { DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH } from "../config/agent-limits.js";
 import { loadConfig } from "../config/config.js";
-import { mergeSessionEntry, updateSessionStore } from "../config/sessions.js";
+import { loadSessionStore, mergeSessionEntry, updateSessionStore } from "../config/sessions.js";
 import { callGateway } from "../gateway/call.js";
 import {
   pruneLegacyStoreKeys,
@@ -18,7 +18,7 @@ import {
   parseAgentSessionKey,
 } from "../routing/session-key.js";
 import { emitSessionLifecycleEvent } from "../sessions/session-lifecycle-events.js";
-import { normalizeDeliveryContext } from "../utils/delivery-context.js";
+import { deliveryContextKey, normalizeDeliveryContext } from "../utils/delivery-context.js";
 import { resolveAgentConfig } from "./agent-scope.js";
 import { AGENT_LANE_SUBAGENT } from "./lanes.js";
 import { resolveSubagentSpawnModelSelection } from "./model-selection.js";
@@ -36,6 +36,7 @@ import {
 } from "./subagent-attachments.js";
 import { resolveSubagentCapabilities } from "./subagent-capabilities.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
+import { findLivePersistentSessionByLabel } from "./subagent-persistent-session-query.js";
 import { countActiveRunsForSession, registerSubagentRun } from "./subagent-registry.js";
 import { readStringParam } from "./tools/common.js";
 import {
@@ -423,6 +424,7 @@ export async function spawnSubagentDirect(
     to: ctx.agentTo,
     threadId: ctx.agentThreadId,
   });
+
   const hookRunner = getGlobalHookRunner();
   const cfg = loadConfig();
 
@@ -454,25 +456,6 @@ export async function spawnSubagentDirect(
     alias,
     mainKey,
   });
-
-  const callerDepth = getSubagentDepthFromSessionStore(requesterInternalKey, { cfg });
-  const maxSpawnDepth =
-    cfg.agents?.defaults?.subagents?.maxSpawnDepth ?? DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH;
-  if (callerDepth >= maxSpawnDepth) {
-    return {
-      status: "forbidden",
-      error: `sessions_spawn is not allowed at this depth (current depth: ${callerDepth}, max: ${maxSpawnDepth}). Subagent nesting stays intentionally bounded—raise maxSpawnDepth only for a controlled extra hop, not deep planner stacks.`,
-    };
-  }
-
-  const maxChildren = cfg.agents?.defaults?.subagents?.maxChildrenPerAgent ?? 5;
-  const activeChildren = countActiveRunsForSession(requesterInternalKey);
-  if (activeChildren >= maxChildren) {
-    return {
-      status: "forbidden",
-      error: `sessions_spawn has reached max active children for this session (${activeChildren}/${maxChildren}). This caps fan-out per session; finish or kill in-flight children before spawning more.`,
-    };
-  }
 
   const parsedRequesterAgentId = parseAgentSessionKey(requesterInternalKey)?.agentId;
   const requesterAgentIdSignal = ctx.requesterAgentIdOverride ?? parsedRequesterAgentId;
@@ -512,6 +495,76 @@ export async function spawnSubagentDirect(
       };
     }
   }
+
+  // Commitment kernel idempotency for `persistent_session.created`.
+  //
+  // Same label + same delivery origin + live persistent subagent session
+  // already exists -> reuse it instead of spawning a duplicate. This is what
+  // the user-visible part of the cutover-1 effect promises: repeated "create
+  // Valera" requests in the same chat resolve to the same persistent session
+  // and produce a single accepted response, not duplicate spawns and
+  // "label already in use" errors.
+  //
+  // Liveness is detected via the gateway session store directly (Variant A,
+  // see commitment_kernel_idempotency_fix.plan.md §2.1). Run-mode subagents
+  // are physically removed from the store after cleanup, so a surviving
+  // entry under the canonical `agent:<id>:subagent:<uuid>` shape is, by
+  // construction, a live persistent session — independent of `endedAt`,
+  // which used to gate the broken runs-based guard (G3). Reuse runs before
+  // depth / maxChildren quotas: it does not register a new run record and
+  // therefore does not consume the parent's child budget.
+  if (label && requestThreadBinding) {
+    const storeTarget = resolveGatewaySessionStoreTarget({
+      cfg,
+      key: `agent:${targetAgentId}:main`,
+      scanLegacyKeys: false,
+    });
+    const store = loadSessionStore(storeTarget.storePath);
+    const reused = findLivePersistentSessionByLabel({
+      store,
+      label,
+      requesterOrigin,
+      targetAgentId,
+    });
+    if (reused) {
+      console.info("[commitment]", {
+        effect: "persistent_session.created",
+        action: "reuse_by_session",
+        label,
+        childSessionKey: reused.key,
+        origin: deliveryContextKey(requesterOrigin) ?? "n/a",
+      });
+      return {
+        status: "accepted",
+        childSessionKey: reused.key,
+        mode: "session",
+        note: `Reused existing persistent session "${label}" via commitment kernel; send follow-up messages with sessions_send.`,
+        modelApplied: false,
+        agentId: targetAgentId as AgentId,
+        parentSessionKey: (requesterInternalKey || null) as SessionKey | null,
+      };
+    }
+  }
+
+  const callerDepth = getSubagentDepthFromSessionStore(requesterInternalKey, { cfg });
+  const maxSpawnDepth =
+    cfg.agents?.defaults?.subagents?.maxSpawnDepth ?? DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH;
+  if (callerDepth >= maxSpawnDepth) {
+    return {
+      status: "forbidden",
+      error: `sessions_spawn is not allowed at this depth (current depth: ${callerDepth}, max: ${maxSpawnDepth}). Subagent nesting stays intentionally bounded—raise maxSpawnDepth only for a controlled extra hop, not deep planner stacks.`,
+    };
+  }
+
+  const maxChildren = cfg.agents?.defaults?.subagents?.maxChildrenPerAgent ?? 5;
+  const activeChildren = countActiveRunsForSession(requesterInternalKey);
+  if (activeChildren >= maxChildren) {
+    return {
+      status: "forbidden",
+      error: `sessions_spawn has reached max active children for this session (${activeChildren}/${maxChildren}). This caps fan-out per session; finish or kill in-flight children before spawning more.`,
+    };
+  }
+
   const childSessionKey = `agent:${targetAgentId}:subagent:${crypto.randomUUID()}`;
   const requesterRuntime = resolveSandboxRuntimeStatus({
     cfg,
