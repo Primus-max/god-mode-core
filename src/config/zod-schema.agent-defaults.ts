@@ -155,6 +155,12 @@ export const AgentDefaultsSchema = z
           })
           .strict()
           .optional(),
+        commitment: z
+          .object({
+            cutoverEnabled: z.boolean().optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),

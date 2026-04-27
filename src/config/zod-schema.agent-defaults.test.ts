@@ -42,4 +42,16 @@ describe("agent defaults schema", () => {
       }),
     ).not.toThrow();
   });
+
+  it("accepts commitment cutover runtime controls", () => {
+    expect(() =>
+      AgentDefaultsSchema.parse({
+        embeddedPi: {
+          commitment: {
+            cutoverEnabled: false,
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
 });
