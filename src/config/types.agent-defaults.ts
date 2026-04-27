@@ -197,6 +197,23 @@ export type AgentDefaultsConfig = {
       /** Optional max output tokens for classifier JSON. */
       maxTokens?: number;
     };
+    /**
+     * Optional semantic intent classifier used by commitment-kernel shadow mode.
+     * Keep this replaceable for eval fixtures and future backend adapters.
+     */
+    intentContractor?: {
+      enabled?: boolean;
+      /** Intent contractor backend adapter id, e.g. "pi-simple" or a custom adapter key. */
+      backend?: string;
+      /** Model ref used for semantic intent classification. */
+      model?: string;
+      /** Optional timeout override for semantic intent completion. */
+      timeoutMs?: number;
+      /** Optional max output tokens for semantic intent JSON. */
+      maxTokens?: number;
+      /** Minimum confidence required before ShadowBuilder attempts commitment construction. */
+      confidenceThreshold?: number;
+    };
   };
   /** Vector memory search configuration (per-agent overrides supported). */
   memorySearch?: MemorySearchConfig;

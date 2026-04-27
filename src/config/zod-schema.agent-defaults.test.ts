@@ -26,4 +26,20 @@ describe("agent defaults schema", () => {
       }),
     ).not.toThrow();
   });
+
+  it("accepts intent contractor shadow-mode overrides", () => {
+    expect(() =>
+      AgentDefaultsSchema.parse({
+        embeddedPi: {
+          intentContractor: {
+            backend: "stub-backend",
+            model: "ollama/qwen3:14b",
+            timeoutMs: 15_000,
+            maxTokens: 400,
+            confidenceThreshold: 0.6,
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
 });
