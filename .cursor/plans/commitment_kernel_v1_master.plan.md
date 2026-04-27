@@ -4,7 +4,7 @@ overview: "Архитектурная замена rule-heavy classifier-first o
 todos:
   - id: pr1-types-and-shadow-skeleton
     content: PR-1. Types-only seed + IntentContractor stub + ShadowBuilder skeleton + DecisionTrace.shadowCommitment + branded UserPrompt/RawUserTurn + два check-скрипта (scripts/check-*.mjs, конвенция репо) с whitelist. Никакого изменения production routing.
-    status: pending
+    status: completed
   - id: pr15-runtime-result-schema-extension
     content: PR-1.5. Расширить SpawnSubagentResult полями agentId + parentSessionKey. Чистит boundary до shadow observer; одна schema-точка.
     status: pending
@@ -31,16 +31,19 @@ isProject: true
 | Flexible invariants | 6 (extensibility points)                                                                              |
 | PR sequence         | 4 PR (PR-1, PR-1.5, PR-2, PR-3)                                                                       |
 | Quant gate          | 6 measurable metrics                                                                                  |
-| Last updated        | 2026-04-26                                                                                            |
-| Next gate           | Human maintainer signoff -> PR-1                                                                      |
+| Last updated        | 2026-04-27                                                                                            |
+| Next gate           | PR-1.5 sub-plan kickoff (SpawnSubagentResult schema extension)                                        |
+
 
 ### PR Progress Log (append-only)
 
 Финальный коммит каждого PR-чата (`docs(plan): mark PR-N completed`) дописывает сюда строку. Trailer формат: `Plan-Step: PR-N` / `Plan-Status: completed`. См. `.cursor/rules/pr-session-bootstrap.mdc` "Final step of every PR chat".
 
-| Date | PR | Merge SHA | Next gate |
-| --- | --- | --- | --- |
-| _pending_ | PR-1 | _tbd_ | PR-1.5 sub-plan kickoff |
+
+| Date       | PR   | Merge SHA  | Next gate               |
+| ---------- | ---- | ---------- | ----------------------- |
+| 2026-04-27 | PR-1 | bdd4f0af0a | PR-1.5 sub-plan kickoff |
+
 
 Этот документ — **executable spec**. Он сам — план-концепция оркестратора v1 и одновременно мастер-план implementation. Из каждой секции `## §N` нарезается отдельный sub-plan, когда стадия идёт в работу.
 

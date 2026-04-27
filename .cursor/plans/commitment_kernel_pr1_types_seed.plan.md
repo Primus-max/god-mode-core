@@ -4,31 +4,31 @@ overview: "Заложить shape будущего commitment kernel: types в s
 todos:
   - id: types-seed
     content: Create src/platform/commitment/ directory with type files (semantic-intent, execution-commitment, world-state, expected-delta, affordance, shadow-builder, intent-contractor, raw-user-turn, ids, index).
-    status: pending
+    status: completed
   - id: branded-user-text
     content: Branded UserPrompt and RawUserTurn types in src/platform/commitment/raw-user-turn.ts.
-    status: pending
+    status: completed
   - id: stubs
     content: IntentContractor stub returns low-confidence SemanticIntent; ShadowBuilder skeleton returns typed unsupported.
-    status: pending
+    status: completed
   - id: trace-shadow-field
     content: Add optional DecisionTrace.shadowCommitment field in src/platform/decision/trace.ts.
-    status: pending
+    status: completed
   - id: lint-no-raw-user-text-import
     content: scripts/check-no-raw-user-text-import.mjs blocking UserPrompt/RawUserTurn import outside whitelist intent-contractor.ts; wired into package.json as lint:commitment:no-raw-user-text-import.
-    status: pending
+    status: completed
   - id: lint-no-decision-imports-from-commitment
     content: scripts/check-no-decision-imports-from-commitment.mjs blocking commitment/ -> decision/ imports; wired as lint:commitment:no-decision-imports.
-    status: pending
+    status: completed
   - id: pr-template-update
     content: Update .github/PULL_REQUEST_TEMPLATE.md with frozen-layer checkbox section.
-    status: pending
+    status: completed
   - id: decision-eval-snapshot
     content: Capture decision-eval baseline JSON and add bit-identical snapshot test.
-    status: pending
+    status: completed
   - id: human-signoff
     content: Explicit human maintainer review against master invariants 1, 5, 6, 7, 8, 14, 15, 16.
-    status: pending
+    status: completed
 isProject: false
 ---
 
