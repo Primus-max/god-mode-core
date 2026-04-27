@@ -35,6 +35,7 @@ type DecisionEvalSlice = {
 type DecisionEvalRawPayload = DecisionEvalSlice & {
   generatedAt: string;
   casesPath: string;
+  shadowMetrics?: unknown;
 };
 
 async function runEval(): Promise<DecisionEvalRawPayload> {
@@ -73,7 +74,34 @@ async function runEval(): Promise<DecisionEvalRawPayload> {
 }
 
 function sliceDeterministic(payload: DecisionEvalRawPayload): DecisionEvalSlice {
-  return { summary: payload.summary, results: payload.results };
+  return {
+    summary: payload.summary,
+    results: payload.results.map((result) => {
+      if (!result || typeof result !== "object" || Array.isArray(result)) {
+        return result;
+      }
+      const { shadow: _shadow, expectedShadowEffect: _expectedShadowEffect, ...legacy } =
+        result as Record<string, unknown>;
+      return stripShadowCommitment(legacy);
+    }),
+  };
+}
+
+function stripShadowCommitment(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stripShadowCommitment);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "shadowCommitment") {
+      continue;
+    }
+    out[key] = stripShadowCommitment(entry);
+  }
+  return out;
 }
 
 describe("PR-1 bit-identical decision-eval snapshot", () => {

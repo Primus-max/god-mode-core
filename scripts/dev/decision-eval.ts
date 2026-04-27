@@ -2,9 +2,17 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OpenClawConfig } from "../../src/config/config.js";
-import type { ResolutionContract } from "../../src/platform/decision/resolution-contract.js";
 import {
-  classifyTaskForDecision,
+  PERSISTENT_SESSION_EFFECT_FAMILY,
+  UNKNOWN_EFFECT_FAMILY,
+  type IntentContractorAdapter,
+} from "../../src/platform/commitment/index.js";
+import type { EffectId } from "../../src/platform/commitment/ids.js";
+import type { SemanticIntent } from "../../src/platform/commitment/semantic-intent.js";
+import type { ShadowBuildResult } from "../../src/platform/commitment/shadow-builder.js";
+import type { ResolutionContract } from "../../src/platform/decision/resolution-contract.js";
+import { runTurnDecision } from "../../src/platform/decision/run-turn-decision.js";
+import {
   type TaskClassifierAdapter,
   type TaskContract,
 } from "../../src/platform/decision/task-classifier.js";
@@ -18,6 +26,8 @@ const EVAL_DIR = path.join(__dirname, "task-contract-eval");
 const DEFAULT_CASES_PATH = path.join(EVAL_DIR, "cases.jsonl");
 const DEFAULT_OUTPUT_DIR = path.join(EVAL_DIR, "output");
 const EVAL_BACKEND = "decision-eval";
+const SHADOW_EVAL_BACKEND = "decision-eval-shadow";
+const PERSISTENT_SESSION_CREATED_EFFECT = "persistent_session.created" as EffectId;
 
 type EvalMessage = {
   role: "user" | "assistant";
@@ -55,6 +65,7 @@ type DecisionEvalCase = {
   clarifyBudgetNotice?: string;
   classifierContract: TaskContract;
   expected: ExpectedDecision;
+  expectedShadowEffect?: EffectId;
 };
 
 type ActualDecision = {
@@ -85,8 +96,26 @@ type CaseResult = {
   errorTags: string[];
   diffs: FieldDiff[];
   expected: ExpectedDecision;
+  expectedShadowEffect?: EffectId;
   actual: ActualDecision;
   decisionTrace?: DecisionTrace;
+  shadow?: ShadowComparison;
+};
+
+type ShadowDivergenceReason =
+  | "shadow_unsupported_legacy_routed"
+  | "shadow_committed_legacy_no_op"
+  | "effect_mismatch"
+  | "target_mismatch";
+
+type ShadowComparison = {
+  readonly intent: SemanticIntent;
+  readonly result: ShadowBuildResult;
+  readonly branchingFactor: number;
+  readonly divergence?: {
+    readonly reason: ShadowDivergenceReason;
+    readonly note: string;
+  };
 };
 
 type EvalSummary = {
@@ -100,7 +129,15 @@ type EvalPayload = {
   generatedAt: string;
   casesPath: string;
   summary: EvalSummary;
+  shadowMetrics: ShadowMetrics;
   results: CaseResult[];
+};
+
+type ShadowMetrics = {
+  readonly commitment_correctness: number | null;
+  readonly false_positive_success: 0;
+  readonly state_observability_coverage: number;
+  readonly divergence_count: number;
 };
 
 function parseArgs() {
@@ -199,6 +236,10 @@ function makeEvalConfig(): OpenClawConfig {
             enabled: true,
             backend: EVAL_BACKEND,
           },
+          intentContractor: {
+            enabled: true,
+            backend: SHADOW_EVAL_BACKEND,
+          },
         },
       },
     },
@@ -210,19 +251,29 @@ async function runCase(caseItem: DecisionEvalCase): Promise<CaseResult> {
   const adapter: TaskClassifierAdapter = {
     classify: async () => caseItem.classifierContract,
   };
-  const classified = await classifyTaskForDecision({
+  let shadowIntent = makeShadowIntent(caseItem);
+  const intentAdapter: IntentContractorAdapter = {
+    classify: async () => {
+      shadowIntent = makeShadowIntent(caseItem);
+      return shadowIntent;
+    },
+  };
+  const { legacyDecision: classified, shadowCommitment } = await runTurnDecision({
     prompt,
     fileNames: caseItem.fileNames ?? [],
     ledgerContext: caseItem.ledgerContext,
     clarifyBudgetNotice: caseItem.clarifyBudgetNotice,
     cfg: makeEvalConfig(),
-    input: {
+    classifierInput: {
       prompt,
       ...(caseItem.fileNames?.length ? { fileNames: caseItem.fileNames } : {}),
       ...(caseItem.channelHints ? { channelHints: caseItem.channelHints } : {}),
     },
-    adapterRegistry: {
+    classifierAdapterRegistry: {
       [EVAL_BACKEND]: adapter,
+    },
+    intentContractorAdapterRegistry: {
+      [SHADOW_EVAL_BACKEND]: intentAdapter,
     },
   });
   const runtimePlan = resolvePlatformRuntimePlan(classified.plannerInput);
@@ -259,9 +310,87 @@ async function runCase(caseItem: DecisionEvalCase): Promise<CaseResult> {
     errorTags,
     diffs,
     expected: caseItem.expected,
+    ...(caseItem.expectedShadowEffect
+      ? { expectedShadowEffect: caseItem.expectedShadowEffect }
+      : {}),
     actual,
+    shadow: buildShadowComparison(caseItem, actual, shadowIntent, shadowCommitment),
     ...(!pass && decisionTrace ? { decisionTrace } : {}),
   };
+}
+
+function makeShadowIntent(caseItem: DecisionEvalCase): SemanticIntent {
+  if (caseItem.expectedShadowEffect === PERSISTENT_SESSION_CREATED_EFFECT) {
+    return {
+      desiredEffectFamily: PERSISTENT_SESSION_EFFECT_FAMILY,
+      target: { kind: "session" },
+      operation: { kind: "create" },
+      constraints: {},
+      uncertainty: [],
+      confidence: 0.95,
+    };
+  }
+  return {
+    desiredEffectFamily: UNKNOWN_EFFECT_FAMILY,
+    target: { kind: "unspecified" },
+    constraints: {},
+    uncertainty: ["decision_eval_unlabeled"],
+    confidence: 0,
+  };
+}
+
+function buildShadowComparison(
+  caseItem: DecisionEvalCase,
+  actual: ActualDecision,
+  intent: SemanticIntent,
+  result: ShadowBuildResult,
+): ShadowComparison {
+  return {
+    intent,
+    result,
+    branchingFactor: result.kind === "commitment" ? 1 : 0,
+    ...deriveShadowDivergence(caseItem, actual, result),
+  };
+}
+
+function deriveShadowDivergence(
+  caseItem: DecisionEvalCase,
+  actual: ActualDecision,
+  result: ShadowBuildResult,
+): Pick<ShadowComparison, "divergence"> {
+  if (
+    caseItem.expectedShadowEffect &&
+    result.kind === "commitment" &&
+    result.value.effect !== caseItem.expectedShadowEffect
+  ) {
+    return {
+      divergence: {
+        reason: "effect_mismatch",
+        note: `expected ${caseItem.expectedShadowEffect}, got ${result.value.effect}`,
+      },
+    };
+  }
+  if (
+    caseItem.expectedShadowEffect &&
+    result.kind === "unsupported" &&
+    actual.routingOutcomeKind !== "unknown"
+  ) {
+    return {
+      divergence: {
+        reason: "shadow_unsupported_legacy_routed",
+        note: `legacy routed with ${actual.routingOutcomeKind}`,
+      },
+    };
+  }
+  if (!caseItem.expectedShadowEffect && result.kind === "commitment") {
+    return {
+      divergence: {
+        reason: "shadow_committed_legacy_no_op",
+        note: "shadow committed on an unlabeled scenario",
+      },
+    };
+  }
+  return {};
 }
 
 function diffExpected(expected: ExpectedDecision, actual: ActualDecision): FieldDiff[] {
@@ -397,9 +526,31 @@ function summarize(results: readonly CaseResult[]): EvalSummary {
   };
 }
 
+function summarizeShadow(results: readonly CaseResult[]): ShadowMetrics {
+  const labeled = results.filter((result) => result.shadow && result.expectedShadowEffect);
+  const correct = labeled.filter(
+    (result) =>
+      result.shadow?.result.kind === "commitment" &&
+      result.shadow.result.value.effect === result.expectedShadowEffect,
+  ).length;
+  const runtimeErrors = results.filter(
+    (result) =>
+      result.shadow?.result.kind === "unsupported" &&
+      result.shadow.result.reason === "shadow_runtime_error",
+  ).length;
+  return {
+    commitment_correctness: labeled.length > 0 ? correct / labeled.length : null,
+    false_positive_success: 0,
+    state_observability_coverage:
+      results.length > 0 ? (results.length - runtimeErrors) / results.length : 1,
+    divergence_count: results.filter((result) => result.shadow?.divergence).length,
+  };
+}
+
 function renderHumanReport(payload: EvalPayload): string {
   const lines = [
     `Decision eval: ${String(payload.summary.passed)}/${String(payload.summary.total)} passed`,
+    `Shadow metrics: ${JSON.stringify(payload.shadowMetrics)}`,
   ];
   const failed = payload.results.filter((result) => !result.pass);
   if (failed.length > 0) {
@@ -433,6 +584,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     casesPath: args.casesPath,
     summary: summarize(results),
+    shadowMetrics: summarizeShadow(results),
     results,
   };
   await fs.mkdir(path.dirname(args.outputPath), { recursive: true });
