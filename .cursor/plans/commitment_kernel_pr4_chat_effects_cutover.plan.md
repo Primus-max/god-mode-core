@@ -831,6 +831,68 @@ Blockers: none для Wave B (preconditions met).
 
 Next recommended action: запустить новый чат для **PR-4b (Wave B)** — cutover-2 chat-effects + minimal PolicyGate. Промт см. в финальном сообщении PR-4a session.
 
+### 2026-04-28 — PR-4b Wave B implementation (G6.a + G6.b code-level closure)
+
+Completed TODO ids (Wave B frontmatter, in-chat): `preflight-wave-b-baseline`, `affordance-registry-extend`, `world-state-delivery-slice`, `effect-family-extend`, `policy-gate-real`, `cutover-policy-extend`, `tests-wave-b`. Frontmatter будет переведён в `completed` post-merge единым docs-commit-ом (см. precedent PR-4a 7ab35cfa13).
+
+Branch: `pr/4b/cutover2-chat-effects` (commit `e9fa5b21ba` поверх `dev`-tip `7ab35cfa13`). Один functional commit; preflight подтвердил, что 4 production call-sites и routing для `persistent_session.created` остаются нетронутыми (Wave A scope, frozen для PR-4b).
+
+Touched files в этой итерации:
+
+- `src/platform/commitment/effect-family-registry.ts` — добавлен `COMMUNICATION_EFFECT_FAMILY` (`allowedOperationKinds=['create','observe']`), G6.a structural canary.
+- `src/platform/commitment/world-state.ts` — добавлены `DeliveryReceiptKind`, `DeliveryReceipt`, `DeliveryWorldState`; `WorldStateSnapshot.deliveries?` слайс (invariant F2 closure).
+- `src/platform/commitment/expected-delta.ts` — добавлены `DeliveryReceiptRef`, `DeliveryExpectedDelta`; `ExpectedDelta.deliveries?` слайс.
+- `src/platform/commitment/delivery-receipt-registry.ts` (new) — process-scoped in-memory store с per-context dedupe по `messageId`.
+- `src/platform/commitment/delivery-world-state-observer.ts` (new) — read-only adapter, `observe()` возвращает frozen `DeliveryWorldState` из registry.
+- `src/platform/commitment/done-predicate-delivery.ts` (new) — `answerDeliveredPredicate`, `clarificationRequestedPredicate`, `externalEffectPerformedPredicate`; проверяют `expectedDelta.deliveries.receipts.added` против `stateAfter.deliveries.receipts`.
+- `src/platform/commitment/affordance-registry.ts` — добавлены `ANSWER_DELIVERED_AFFORDANCE_ENTRY`, `CLARIFICATION_REQUESTED_AFFORDANCE_ENTRY`, `EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY` с распределением target+operation для disambiguation в `findByFamily` (answer.delivered = `external_channel`+`create`, clarification_requested = `unspecified`+`create`, external_effect.performed = `external_channel`+`observe`).
+- `src/platform/commitment/cutover-policy.ts` — `CUTOVER_1` → `CUTOVER_2` (+ 3 chat-effects, persistent_session.created нетронут).
+- `src/platform/commitment/policy-gate.ts` (new) — `POLICY_GATE_REASONS = Object.freeze(['channel_disabled','no_credentials'])` (closed set, reverse-test enforced); `createPolicyGate({cfg})` для inject в `runShadowBranch`. Approvals/budgets/role-based/retry/escalation НЕ реализованы — это `commitment_kernel_policy_gate_full.plan.md` (master §8.5.1).
+- `src/platform/commitment/monitored-runtime.ts` — `createMonitoredRuntime` принимает опциональный `deliveryObserver`; `stateBefore`/`stateAfter` теперь включают `deliveries`.
+- `src/platform/commitment/production-runtime-defaults.ts` — `createDefaultMonitoredRuntime` wires delivery observer; `createDefaultExpectedDeltaResolver` обрабатывает chat-effects через `resolveDeliveryDelta` (idempotency-style по prior receipt в registry, mirror persistent-session reuse pattern).
+- `src/platform/commitment/index.ts` — public API surface обновлён под Wave B (POLICY_GATE_REASONS, createPolicyGate, ANSWER_*, CLARIFICATION_*, EXTERNAL_*, COMMUNICATION_EFFECT_FAMILY, delivery registry/observer/predicate exports).
+- `src/platform/decision/run-turn-decision.ts` — `RunTurnDecisionInput.policyGate?` injection point; `runShadowBranch` использует `input.policyGate ?? createPolicyGate({cfg})` вместо `allowAllPolicyGate` (G6.b закрыт).
+
+Test files:
+
+- `src/platform/commitment/__tests__/policy-gate.test.ts` (new, 8 tests):
+  - reverse-test: `POLICY_GATE_REASONS` строго `['channel_disabled','no_credentials']`, frozen.
+  - denies `external_effect.performed` без credentials → `no_credentials`.
+  - allows `external_effect.performed` с `botToken`.
+  - denies все 3 chat-effects при `enabled: false` → `channel_disabled`.
+  - allows `answer.delivered` с enabled channel без cred-проверки.
+  - allows `clarification_requested` при `unspecified` target.
+  - не gate-ит non-chat-bound семейства (passthrough для persistent_session affordance).
+- `src/platform/decision/run-turn-decision.cutover2.test.ts` (new, 6 tests):
+  - parametric: routes к kernel для `answer.delivered` / `clarification_requested` / `external_effect.performed` при policy+runtime success → `kernelDerived.sourceOfTruth === 'kernel'`, `kernelFallback=false`.
+  - falls back на legacy при `channel_disabled` → `fallbackReason='policy_blocked'`, `monitoredRuntime.run` не вызывается.
+  - bit-identical-style для эффектов вне cutover-2 pool (`artifact.created` через fixture registry) → `gate_out`/`effect_not_eligible`, `productionDecision.taskContract === legacyDecision.taskContract`.
+  - branching factor канарейка: `affordance_branching_factor=2` логируется shadow builder-ом для `(communication, external_channel, _)`.
+  - registry exposure: `defaultAffordanceRegistry.all().filter(family==='communication')` имеет 3 entries.
+- `src/platform/commitment/__tests__/delivery-world-state-observer.test.ts` (new, 4 tests): observer пуст до send, видит receipts после mock send (multi-context), frozen snapshot, dedupe по messageId.
+- `src/platform/commitment/__tests__/registries.test.ts` обновлён под расширенный `EFFECT_FAMILY_REGISTRY` (3 family-id) и 4 affordance в default catalog; новый кейс disambiguates communication-family по target+operation.
+- `src/platform/commitment/__tests__/cutover-policy.test.ts` обновлён под `CUTOVER_2` (4 effects, persistent_session.created остаётся eligible).
+
+Tests/lints run (все green):
+
+- `pnpm tsgo` — exit 0.
+- `pnpm vitest run src/platform/commitment src/platform/decision` — 24 files / 204 tests passed (включая cutover-1 регрессию).
+- `pnpm run lint:commitment:no-raw-user-text-import` — green.
+- `pnpm run lint:commitment:no-decision-imports` — green.
+- `pnpm run lint:commitment:no-classifier-imports` — green.
+- `node scripts/check-frozen-layer-label.mjs` (BASE_REF=origin/dev) — exit 0 в обоих режимах: с `PR_BODY="- [x] compatibility"` и без. PR-4b на этом diff не трогает frozen-layer pattern-ы (`task-classifier.ts`, `input.ts`, `trace.ts`, `recipe/`, `plugin.ts`); `run-turn-decision.ts` НЕ во frozen-list. Тем не менее **PR-4b body обязан содержать `- [x] compatibility`** per Wave B preflight contract в исходном промте.
+
+Что закрыто этой итерацией: G6.a + G6.b на code-level (≡ §7.B пункты 4-5 + §5 rows a..e). Формально `closed by PR-4b <merge-SHA>` в §0.5.3 master будет проставлено post-merge final docs-commit-ом.
+
+Blockers (для merge PR-4b):
+
+- §7.B пункт 6: 6 quant-gate metrics на cutover-2 pool (≥30 turns каждого из 3 chat-effects, label_source ≥80% auto, `false_positive_success==0`). Требует операторского запуска `pnpm eval:decision:six-metrics --pool=cutover2` после seeding labels (sub-plan §4.8 `decision-eval-cutover2`).
+- §7.B пункт 7: ≥1 час dry-run в TG на dev-машине, видно `[commitment] answer.delivered` в trace для простых ответов.
+- §7.B пункт 8: human signoff invariant #15 + явное подтверждение в PR description, что approvals/budgets/role-based PolicyGate **НЕ** в scope (= future sub-plan).
+- Final commit `docs(plan): mark PR-4b completed` post-merge: flip Wave B frontmatter todos в `completed`, добавить строку в master §0 PR Progress Log с `<merge-SHA>`, отметить §0.5.3 G6.a + G6.b как `closed by PR-4b <merge-SHA>`, обновить master §0 status table.
+
+Next recommended action: оператор открывает PR-4b на GitHub (base `dev` ← head `pr/4b/cutover2-chat-effects`), PR body содержит `- [x] compatibility` frozen-layer label и явный disclaimer про approvals/budgets out-of-scope; запускает quant-gate cutover-2 + dry-run; после signoff merge → запускает post-merge plan-progress chat.
+
 ---
 
 ## 8. Out-of-scope / следующие планы
