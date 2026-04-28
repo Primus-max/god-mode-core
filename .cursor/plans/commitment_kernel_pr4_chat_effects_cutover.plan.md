@@ -772,6 +772,36 @@ Blockers (для merge PR-4a):
 
 Next recommended action: запустить ≥1 час dry-run в TG, заполнить чек-лист (§7.A пункт 6); затем human signoff + final docs commit + merge PR-4a в `dev` → blocker-cleanup перед стартом PR-4b.
 
+### 2026-04-28 — PR-4a opened on GitHub as #103
+
+Completed TODO ids: none (status flip ждёт merge per master §0 protocol).
+
+Branch `pr/4a/cutover1-routing-flip` запушен в `origin` (Primus-max/god-mode-core), PR создан: [#103](https://github.com/Primus-max/god-mode-core/pull/103) base `dev` ← head `pr/4a/cutover1-routing-flip`. PR body содержит обязательный `- [x] compatibility` label per master §6.2 frozen-layer guard (`scripts/check-frozen-layer-label.mjs`).
+
+Коммиты на ветке (все уже зафиксированы в предыдущей итерации):
+
+- `a972638e48` — fix idempotency (G3+G4)
+- `85516cf3ce` — routing flip + 4 call-sites (G1+G2)
+- `0114e1923e` — DEBUG cleanup (G5)
+- `b4409b412a` — stabilization (cutover1 + delivery + idempotency tests)
+
+Touched files в этой итерации (plan-only sync):
+
+- `.cursor/plans/commitment_kernel_v1_master.plan.md` — frontmatter `idempotency-fix-persistent-session` + `pr4a-cutover1-routing-flip` переведены в `in_progress` (флип в `completed` будет post-merge); §0 status table обновлён (PR sequence / Last updated / Cutover-1 reality / Next gate ссылаются на #103); §0 Active handoff source-of-truth таблица обновлена под `in review` для PR-4a и `blocked on #103 merge` для PR-4b.
+- `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` — handoff log entry (этот блок).
+
+Tests/lints run в этой итерации: none — plan-only sync. Все gates уже зелёные с предыдущей итерации (`pnpm tsgo`, vitest 25/4, 3 lint-скрипта, frozen-layer-label).
+
+Что закрыто этой итерацией: ничего из G-rows (G1..G5 уже closed функциональными commits 1+2+3, доказательство в commit 4). Эта итерация фиксирует **operational gap** — formal GitHub PR + plan synchronization — отмеченный аудитом 2026-04-28.
+
+Blockers (для merge PR-4a #103):
+
+- ≥1 час dry-run в TG на dev-машине (§7.A пункт 6) — manual.
+- Human signoff invariant #15 (§7.A пункт 7).
+- Post-merge plan-progress commit на `dev`: flip frontmatter todos в `completed`, append PR Progress Log row с merge SHA, отметить §0.5.3 G1..G5 closed by PR-4a `<merge-SHA>`, обновить "Cutover-1 reality" с "in review" → "Production routing live".
+
+Next recommended action: оператор запускает dry-run; новый чат может стартовать **только** post-merge — для PR-4b (Wave B). См. промт в финале текущей сессии.
+
 ---
 
 ## 8. Out-of-scope / следующие планы
