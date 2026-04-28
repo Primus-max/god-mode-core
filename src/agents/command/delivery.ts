@@ -32,56 +32,6 @@ type AgentReplyPayloads = NonNullable<RunResult["payloads"]>;
 
 const NESTED_LOG_PREFIX = "[agent:nested]";
 
-/**
- * [DEBUG] Временная функция для добавления debug-логов маршрутизации в сообщения.
- * Формирует quote-блок с информацией о модели, провайдере и fallback-цепочке.
- */
-function formatRoutingDebugLog(result: RunResult): string {
-  const meta = result.meta;
-  const agentMeta = meta?.agentMeta;
-  const fallback = meta?.modelFallback;
-
-  if (!agentMeta) {
-    return "";
-  }
-
-  const lines: string[] = [];
-  lines.push("📊 [DEBUG ROUTING]");
-  lines.push("");
-  lines.push(`🎯 Model: \`${agentMeta.provider}/${agentMeta.model}\``);
-
-  if (fallback && fallback.attempts.length > 0) {
-    lines.push("");
-    lines.push("🔗 Fallback chain:");
-    const seen = new Set<string>();
-    for (const attempt of fallback.attempts) {
-      const key = `${attempt.provider}/${attempt.model}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const status = attempt.error ? `❌ (${attempt.reason || attempt.code || "failed"})` : "✅";
-      lines.push(`   ${status} ${key}`);
-    }
-    if (fallback.exhausted && fallback.finalReason) {
-      lines.push(`   ⏱️  exhausted (${fallback.finalReason})`);
-    }
-  }
-
-  // Tools from execution surface (via supervisor verdict)
-  const surface = meta?.supervisorVerdict?.surface;
-  if (surface?.failingTools && surface.failingTools.length > 0) {
-    lines.push(`⚠️  Failing tools: ${surface.failingTools.join(", ")}`);
-  }
-
-  if (meta.executionVerification?.status) {
-    lines.push(`✅ Verification: ${meta.executionVerification.status}`);
-  }
-
-  lines.push("");
-  lines.push("---");
-
-  return lines.join("\n");
-}
-
 function formatNestedLogPrefix(opts: AgentCommandOpts, sessionKey?: string): string {
   const parts = [NESTED_LOG_PREFIX];
   const session = sessionKey ?? opts.sessionKey ?? opts.sessionId;
@@ -309,19 +259,8 @@ export async function deliverAgentCommandResult(params: {
     }
   }
 
-  // [DEBUG] Добавляем debug-лог маршрутизации к каждому текстовому сообщению
-  const debugLog = formatRoutingDebugLog(result);
-  const payloadsWithDebug = (payloads ?? []).map((payload) => {
-    if (!payload.text || !debugLog) {
-      return payload;
-    }
-    return {
-      ...payload,
-      text: `${payload.text}\n\n> ${debugLog.split("\n").join("\n> ")}`,
-    };
-  });
-
-  const normalizedPayloads = normalizeOutboundPayloadsForJson(payloadsWithDebug);
+  const replyPayloads = payloads ?? [];
+  const normalizedPayloads = normalizeOutboundPayloadsForJson(replyPayloads);
   const deterministicActionId = createDeterministicDeliveryActionId({
     actionRunId,
     sessionKey: effectiveSessionKey,
@@ -348,12 +287,12 @@ export async function deliverAgentCommandResult(params: {
     }
   }
 
-  if (!payloadsWithDebug || payloadsWithDebug.length === 0) {
+  if (replyPayloads.length === 0) {
     runtime.log("No reply from agent.");
     return { payloads: [], meta: result.meta };
   }
 
-  const deliveryPayloads = normalizeOutboundPayloads(payloadsWithDebug);
+  const deliveryPayloads = normalizeOutboundPayloads(replyPayloads);
   const logPayload = (payload: NormalizedOutboundPayload) => {
     if (opts.json) {
       return;
@@ -391,13 +330,13 @@ export async function deliverAgentCommandResult(params: {
         onPayload: logPayload,
         deps: createOutboundSendDeps(deps),
       });
-  return {
-    payloads: normalizedPayloads,
-    meta: mergePostDeliveryRuntimeMeta({
-      result,
-      replyPayloads: payloadsWithDebug,
-    }),
-  };
+      return {
+        payloads: normalizedPayloads,
+        meta: mergePostDeliveryRuntimeMeta({
+          result,
+          replyPayloads,
+        }),
+      };
     }
   }
 

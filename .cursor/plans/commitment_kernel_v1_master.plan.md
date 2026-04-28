@@ -15,13 +15,13 @@ todos:
     content: PR-3. SessionWorldState observer + Affordance(persistent_session.created) + commitmentSatisfied gate + quant gate measurement + first cutover.
     status: completed
   - id: idempotency-fix-persistent-session
-    content: "Починить idempotency-guard для persistent_session.created — искать live persistent session в gateway session store по label+origin, а не в SubagentRunRegistry (текущая реализация не срабатывает в TG flow из-за endedAt mechanic). Закрывает G3+G4. См. sub-plan commitment_kernel_idempotency_fix.plan.md. ЖЁСТКО: идёт первым коммитом PR-4a (Wave A). Standalone PR не делается — фикс тривиальный, отдельный review/dry-run overhead не оправдан, dry-run для PR-4a покрывает оба фикса одновременно."
-    status: pending
+    content: "Починить idempotency-guard для persistent_session.created — искать live persistent session в gateway session store по label+origin, а не в SubagentRunRegistry. Закрывает G3+G4. Реализован коммитом a972638e48, landed on dev directly как первый функциональный коммит PR-4a; повторно живёт в PR-4a #103. Финальный flip status->completed произойдёт post-merge plan-progress-коммитом."
+    status: in_progress
   - id: pr4a-cutover1-routing-flip
-    content: "PR-4a (Wave A). Структура коммитов: (1) первый коммит — idempotency-fix (закрывает G3+G4, см. sub-plan commitment_kernel_idempotency_fix.plan.md); (2) routing flip для persistent_session.created — kernel-derived-decision-contract + 4 call-sites (plugin.ts:76, plugin.ts:332, input.ts:440, input.ts:475) с monitoredRuntime+expectedDeltaResolver wiring; (3) DEBUG ROUTING cleanup в reply. Closure G1+G2+G3+G4+G5. Не вводит новых effect-families, не трогает PolicyGate stub. Между PR-4a и PR-4b обязательна green CI с реальной production маршрутизацией persistent_session.created. См. sub-plan commitment_kernel_pr4_chat_effects_cutover.plan.md (Wave A)."
-    status: pending
+    content: "PR-4a (Wave A) — **открыт как PR [#103](https://github.com/Primus-max/god-mode-core/pull/103)** (branch `pr/4a/cutover1-routing-flip`). 3 functional commits на ветке: (1) a972638e48 idempotency-fix → G3+G4; (2) 85516cf3ce routing flip + 4 call-sites + monitoredRuntime/expectedDeltaResolver wiring → G1+G2; (3) 0114e1923e DEBUG ROUTING cleanup → G5. Plus b4409b412a stabilization (tests + lint). Closure G1+G2+G3+G4+G5 доказана тестами (cutover1, plugin.callsites, input.callsites, delivery.no-debug-routing, idempotency). Pending: ≥1h TG dry-run + human signoff (#15) → merge. Не вводит новых effect-families, не трогает PolicyGate stub."
+    status: in_progress
   - id: pr4b-cutover2-chat-effects
-    content: "PR-4b (Wave B). Cutover-2 для chat-bound effects (answer.delivered, clarification_requested, external_effect.performed). Effect-family extend (communication) + affordance registry extend + WorldState deliveries slice + cutoverPolicy flip + минимальный реальный PolicyGate (credentials + channel-disabled, не approvals/budgets). Closure G6.a+G6.b. Наследует productionDecision путь от PR-4a. См. sub-plan commitment_kernel_pr4_chat_effects_cutover.plan.md (Wave B)."
+    content: PR-4b (Wave B). Cutover-2 для chat-bound effects (answer.delivered, clarification_requested, external_effect.performed). Effect-family extend (communication) + affordance registry extend + WorldState deliveries slice + cutoverPolicy flip + минимальный реальный PolicyGate (credentials + channel-disabled, не approvals/budgets). Closure G6.a+G6.b. Наследует productionDecision путь от PR-4a. См. sub-plan commitment_kernel_pr4_chat_effects_cutover.plan.md (Wave B).
     status: pending
   - id: policy-gate-full
     content: "Future sub-plan (после cutover-2). Полный PolicyGate — approvals, budgets per-user/per-channel/per-effect, role-based access, retry policies, escalation hooks. Обязателен до cutover-4 (repo_operation.completed). Не пытаться реализовывать в PR-4b. Файл sub-plan-а: commitment_kernel_policy_gate_full.plan.md (создаётся после cutover-2)."
@@ -41,11 +41,11 @@ isProject: true
 | Discussion artefact | `.cursor/plans/commitment_kernel_design_dialog.plan.md` (1481 строк, Round 1 -> Final Direction Lock) |
 | Hard invariants     | 16 (final)                                                                                            |
 | Flexible invariants | 6 (extensibility points)                                                                              |
-| PR sequence         | PR-1..PR-3 merged; active next work = **PR-4a** (3 commits: idempotency-fix → routing flip → DEBUG cleanup) → PR-4b (cutover-2 chat-effects). idempotency-fix НЕ landed standalone. |
+| PR sequence         | PR-1..PR-3 merged; **PR-4a opened ([#103](https://github.com/Primus-max/god-mode-core/pull/103), in review)** — 3 functional commits (idempotency-fix landed direct on `dev` as first commit `a972638e48`) + 1 stabilization commit on branch `pr/4a/cutover1-routing-flip` → PR-4b (cutover-2 chat-effects) blocked on PR-4a merge. |
 | Quant gate          | 6 measurable metrics                                                                                  |
-| Last updated        | 2026-04-27 (post-audit, two-wave PR-4 split)                                                          |
-| Cutover-1 reality   | **Shadow-only**: synthetic 6-metric gate passed; production routing for `persistent_session.created` is still legacy. Closes after **PR-4a** (single PR includes idempotency-fix as first commit). See §0.5. |
-| Next gate           | PR-4a (single PR, three commits: (1) idempotency-fix → G3+G4, (2) routing flip → G1+G2, (3) DEBUG cleanup → G5) → PR-4b (G6, cutover-2 chat-effects). Между PR-4a и PR-4b обязательна green CI с реальной production маршрутизацией. |
+| Last updated        | 2026-04-28 (PR-4a opened on GitHub: #103)                                                             |
+| Cutover-1 reality   | **PR-4a code-complete on branch `pr/4a/cutover1-routing-flip` (PR [#103](https://github.com/Primus-max/god-mode-core/pull/103))**: G1+G2+G3+G4+G5 closure proven by tests; production routing for `persistent_session.created` flips to kernel after PR-4a merge. Live exit gate: ≥1h dry-run in TG + human signoff (#15) — pending operator. See §0.5. |
+| Next gate           | PR-4a [#103](https://github.com/Primus-max/god-mode-core/pull/103) ≥1h TG dry-run → human signoff → merge → post-merge plan-progress commit on `dev` (flip frontmatter, append PR Progress Log row, mark §0.5.3 G1..G5 closed). After merge: PR-4b (G6, cutover-2 chat-effects). |
 
 
 ### PR Progress Log (append-only)
@@ -90,8 +90,8 @@ Active handoff source of truth:
 
 | Work item | Plan file | Status |
 | --------- | --------- | ------ |
-| **PR-4a — single PR, three commits** (G1+G2+G3+G4+G5) | `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` (Wave A) + `.cursor/plans/commitment_kernel_idempotency_fix.plan.md` (first commit details) | pending; first commit = idempotency-fix (session-store guard, not runs-based), затем routing flip, затем DEBUG cleanup |
-| PR-4b — cutover-2 chat-effects + minimal PolicyGate (G6.a+G6.b) | `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` (Wave B) | pending; blocked on PR-4a green CI with real production routing |
+| **PR-4a — [#103](https://github.com/Primus-max/god-mode-core/pull/103)** (G1+G2+G3+G4+G5) | `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` (Wave A) + `.cursor/plans/commitment_kernel_idempotency_fix.plan.md` (first commit details) | **in review**; code-complete на branch `pr/4a/cutover1-routing-flip` (4 commits); CI/tests/lint green; pending operator: ≥1h TG dry-run + human signoff (#15) → merge → post-merge plan-progress commit |
+| PR-4b — cutover-2 chat-effects + minimal PolicyGate (G6.a+G6.b) | `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` (Wave B) | pending; blocked on PR-4a [#103](https://github.com/Primus-max/god-mode-core/pull/103) merge + dry-run sign-off |
 | Full PolicyGate (post-cutover-2, future) | `.cursor/plans/commitment_kernel_policy_gate_full.plan.md` (TBD) | not started; required before cutover-4 |
 
 

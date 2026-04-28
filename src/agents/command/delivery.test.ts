@@ -67,6 +67,7 @@ describe("deliverAgentCommandResult", () => {
       } as never,
       sessionEntry: undefined,
       result: {
+        didSendViaMessagingTool: true,
         meta: {
           completionOutcome: {
             runId: "run-agent-delivery",
@@ -172,6 +173,7 @@ describe("deliverAgentCommandResult", () => {
       } as never,
       sessionEntry: undefined,
       result: {
+        didSendViaMessagingTool: true,
         meta: {
           completionOutcome: {
             runId: "run-from-completion-outcome",
@@ -214,6 +216,11 @@ describe("deliverAgentCommandResult", () => {
       }),
     );
   });
+
+  // DEBUG ROUTING absence is covered as a dedicated G5 closure artifact in
+  // `delivery.no-debug-routing.test.ts` (PR-4 sub-plan §5 row "DEBUG ROUTING
+  // absent from reply"; anti-checklist §5.1.2 requires two independent
+  // contexts, both of which live in that file).
 
   it("bootstraps known outbound channels before validating delivery", async () => {
     vi.spyOn(channelResolutionModule, "resolveOutboundChannelPlugin").mockReturnValue({} as never);

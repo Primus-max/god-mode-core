@@ -28,7 +28,7 @@ const legacyContract: TaskContract = {
 };
 
 describe("runTurnDecision", () => {
-  it("returns authoritative legacy decision and fills shadow trace", async () => {
+  it("returns raw legacy decision and routes shadow trace to productionDecision", async () => {
     const legacyAdapter: TaskClassifierAdapter = {
       classify: vi.fn(async () => legacyContract),
     };
@@ -51,10 +51,14 @@ describe("runTurnDecision", () => {
     });
 
     expect(result.legacyDecision.taskContract.primaryOutcome).toBe("answer");
+    expect(result.productionDecision.taskContract.primaryOutcome).toBe("answer");
     expect(result.shadowCommitment.kind).toBe("commitment");
-    expect(result.legacyDecision.plannerInput.decisionTrace?.shadowCommitment).toEqual(
+    expect(result.legacyDecision.plannerInput.decisionTrace?.shadowCommitment).toBeUndefined();
+    expect(result.productionDecision.plannerInput.decisionTrace?.shadowCommitment).toEqual(
       result.shadowCommitment,
     );
+    expect(result.kernelFallback).toBe(true);
+    expect(result.fallbackReason).toBe("monitored_runtime_unavailable");
     expect(result.traceId).toMatch(/^decision_trace_/);
   });
 
@@ -80,5 +84,7 @@ describe("runTurnDecision", () => {
       kind: "unsupported",
       reason: "low_confidence_intent",
     });
+    expect(result.kernelFallback).toBe(true);
+    expect(result.fallbackReason).toBe("low_confidence_intent");
   });
 });
