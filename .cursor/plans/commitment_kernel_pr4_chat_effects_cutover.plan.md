@@ -593,6 +593,38 @@ Wave-specific:
 4. **Все 4 production call-sites обновлены одновременно** (plugin.ts:76, plugin.ts:332, input.ts:440, input.ts:475) — частичное обновление = reject PR-4a.
 5. **6 quant-gate метрик passing на cutover-1 pool**, ≥30 turns, **runtime-attested на live data** (не synthetic). `false_positive_success == 0`.
 6. **Real-traffic dry-run ≥1 час** на dev-машине под TG: ноль `label already in use`, ноль `[DEBUG ROUTING]` в payload, в trace видно `decision=kernel` для persistent_session.created.
+
+   Dry-run checklist (заполнять в PR-4a body перед signoff):
+
+   **Pre-run setup**:
+   - [ ] Дев-машина под TG, бот запущен с PR-4a HEAD (3 functional commits + non-functional test/lint commit).
+   - [ ] `cfg.commitment?.cutoverEnabled` отсутствует или `true` (Phase B default — см. cutover1 test "treats missing cutoverEnabled flag as enabled").
+   - [ ] Trace logging включён достаточно, чтобы видеть `decisionTrace.kernelDerived.sourceOfTruth` и `decisionTrace.cutoverGate.kind` в run output / logs.
+   - [ ] Старт-таймстамп зафиксирован.
+
+   **Сценарии (минимум по 1 turn каждый, общая длительность ≥1 час)**:
+   - [ ] **Spawn нового persistent subagent**: `Создай Валеру` (или аналогичный label). Trace ожидаемо:
+     - `cutoverGate.kind === "gate_in_success"`
+     - `kernelDerived.sourceOfTruth === "kernel"`
+     - `kernelDerived.effect === "persistent_session.created"`
+     - `kernelFallback === false`
+   - [ ] **Idempotent reuse того же label** (повторный prompt в том же чате): turn возвращает тот же `childSessionKey`, **никаких** `label already in use` в логах, `subagent_spawning` hook **не fire-ится** второй раз (можно проверить через hook-runner audit log).
+   - [ ] **Reuse после endedAt**: завершить run subagent-а (явный exit / timeout), затем повторить prompt с тем же label → reuse работает (G3 regression в live режиме).
+   - [ ] **Cross-chat protection**: spawn того же label из другого TG чата → создаётся новая сессия, не reuse.
+   - [ ] **Out-of-pool effect** (любой не-`persistent_session.created` turn, например answer-only): trace показывает `kernelFallback === true` и `fallbackReason === "shadow_unsupported"` (или эквивалент); production effect = legacy decision; bit-identical с pre-PR-4a поведением.
+
+   **Reply-payload assertions** (визуально по сообщениям бота в TG):
+   - [ ] **Ноль** вхождений подстроки `[DEBUG ROUTING]` в любом из reply payloads за всё время dry-run-а (G5).
+
+   **Logs assertions** (greppable):
+   - [ ] **Ноль** строк `label already in use` в run logs (G3+G4).
+   - [ ] Для каждого `persistent_session.created` turn-а в trace видно `decision=kernel` (а не `decision=legacy_fallback`), кроме явно ожидаемых fallback-кейсов (например, runtime недоступен).
+
+   **Sign-off material** (запостить в PR body):
+   - [ ] Длительность фактического dry-run-а в часах (`>=1`).
+   - [ ] Количество совершённых turn-ов и breakdown по сценариям выше.
+   - [ ] Краткий вывод: «PR-4a dry-run пройден, G1-G5 подтверждены на live-traffic».
+
 7. Human signoff (#15) внесён в PR-4a body.
 8. **Audit gap closure**: master plan §0.5.3 обновлён одной строкой `closed by PR-4a <merge-SHA>` для **G1, G2, G3, G4, G5** одновременно (G3+G4 закрыты commit 1 — idempotency-fix; G1+G2 закрыты commit 2 — routing flip; G5 закрыт commit 3 — DEBUG cleanup). Standalone idempotency-fix PR не открывается.
 9. **Commit-структура верна**: `git log` ветки `pr/4a/`* показывает ровно 3 functional commit-а в порядке (1) idempotency-fix, (2) routing flip, (3) DEBUG cleanup. Если порядок нарушен — на втором же live turn-е сломается с `label already in use`.
@@ -699,6 +731,46 @@ Blockers:
 - Никаких code changes; PR-4a по-прежнему открывается как `preflight-audit-sync` → commit 1 (idempotency-fix) → commit 2 (routing flip) → commit 3 (DEBUG cleanup).
 
 Next recommended action: открыть PR-4a chat с минимальным bootstrap output (4 строки) и сразу начать с `preflight-audit-sync`, затем перейти к commit 1.
+
+### 2026-04-28 — PR-4a stabilization (tests + lint + freeze)
+
+Completed TODO ids: `tests-wave-a`, `idempotency-test-strengthen`, `lint-and-freeze-wave-a`. Все три — **non-functional** (test/lint/plan), не сдвигают closure G-rows и могут amend-иться только до dry-run-а.
+
+Branch: `pr/4a/cutover1-routing-flip` (3 functional commits уже на ветке: a972638e48 idempotency-fix, 85516cf3ce routing flip, 0114e1923e DEBUG cleanup). Эта итерация добавляет 1 non-functional commit поверх.
+
+Touched files (test/plan only — никаких production source изменений):
+
+- `src/platform/decision/run-turn-decision.cutover1.test.ts` (new) — переименован из `src/platform/decision/__tests__/run-turn-decision.cutover.test.ts` (deleted), путь приведён к §5 row "runTurnDecision routes correctly (cutover-1)". `__tests__/` директория удалена. Содержимое идентично, relative imports перепрописаны (`../commitment/...` → `../commitment/...`, `../../../config/...` → `../../config/...`, `../run-turn-decision.js` → `./run-turn-decision.js`).
+- `src/agents/command/delivery.no-debug-routing.test.ts` (new) — dedicated G5 closure artefact: ассертит отсутствие `[DEBUG ROUTING]` на двух independent delivery contexts (Telegram + Discord) per anti-checklist §5.1.2.
+- `src/agents/command/delivery.test.ts` — удалён дубликат теста `does not include routing debug block in telegram reply payload` (теперь живёт в dedicated файле выше); оставлен короткий referer-comment.
+- `src/agents/subagent-spawn.idempotency.test.ts` — три усиления G3+G4 proof:
+  1. `runSubagentSpawning` стал `vi.fn()` с reset-ом в `setHookRunner` — позволяет ассертить, что reuse-path **не вызывает** spawning hook (§4.11 row 1).
+  2. Reuse-кейсы (G3 regression with `endedAt`, fresh entry, latest-by-updatedAt) теперь явно ассертят `expect(runSubagentSpawningMock).not.toHaveBeenCalled()`.
+  3. Добавлен явный §4.11 row 5 тест `[§4.11 deleted session] creates a new session when the previous persistent entry was removed from the store`: store сначала содержит entry → reuse работает; затем `pinStore({})` симулирует удаление entry (run-mode `sessions.delete` или operator-driven cleanup) → второй spawn НЕ reuse-ит, идёт normal spawn path с `callGatewaySpy.toHaveBeenCalled()`.
+- `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` (этот файл) — handoff log entry + dry-run чек-лист в §7.A пункт 6.
+
+Tests/lints run (все green):
+
+- `pnpm tsgo` — green (exit 0, без output).
+- `pnpm vitest run` для затронутых файлов:
+  - `src/agents/subagent-spawn.idempotency.test.ts` + `src/agents/command/delivery.no-debug-routing.test.ts` + `src/agents/command/delivery.test.ts` + `src/platform/decision/run-turn-decision.cutover1.test.ts`: 25 tests / 4 files passed.
+  - `test/scripts/decision-eval-bit-identical.test.ts` + `src/platform/plugin.callsites.test.ts` + `src/platform/decision/input.callsites.test.ts`: 5 tests / 3 files passed.
+- `pnpm run lint:commitment:no-raw-user-text-import` — green.
+- `pnpm run lint:commitment:no-decision-imports` — green.
+- `pnpm run lint:commitment:no-classifier-imports` — green.
+- `node scripts/check-frozen-layer-label.mjs` (frozen-layer label CI gate из §6) локально проверен с `BASE_REF=origin/dev`:
+  - `PR_BODY="- [x] compatibility"` → exit 0 (label валиден).
+  - `PR_BODY=""` → exit 1 со списком frozen-touched файлов (`src/platform/decision/input.ts`, `src/platform/decision/trace.ts`, `src/platform/plugin.ts`). **PR-4a body обязан содержать `- [x] compatibility`** при открытии PR.
+
+Что закрыто этой итерацией: ничего из G-rows (G1..G5 уже closed функциональными commits 1+2+3); это **proof-strengthening** и **freeze compliance** для PR-4a §7.A пункты 3 (production routing flip доказан contract тестом), 4 (4 call-sites), и закрытие anti-checklist §5.1.1 (idempotency без `vi.spyOn` на guard) + §5.1.2 (DEBUG ROUTING absence на двух контекстах).
+
+Blockers (для merge PR-4a):
+
+- ≥1 час dry-run в TG на dev-машине (manual, §7.A пункт 6) — чек-лист ниже в §7.A.
+- Human signoff invariant #15 (§7.A пункт 7).
+- Final commit `docs(plan): mark PR-4a completed` (флипнуть `pr4a-cutover1-routing-flip` + `idempotency-fix-persistent-session` в master frontmatter, добавить строку в §0 PR Progress Log, обновить §0.5.3 G1-G5 closed by PR-4a `<merge-SHA>`).
+
+Next recommended action: запустить ≥1 час dry-run в TG, заполнить чек-лист (§7.A пункт 6); затем human signoff + final docs commit + merge PR-4a в `dev` → blocker-cleanup перед стартом PR-4b.
 
 ---
 

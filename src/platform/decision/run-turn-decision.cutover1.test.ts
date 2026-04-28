@@ -1,16 +1,36 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../../../config/config.js";
+import type { OpenClawConfig } from "../../config/config.js";
 import {
   PERSISTENT_SESSION_EFFECT_FAMILY,
   type ExpectedDelta,
   type IntentContractorAdapter,
   type RuntimeAttestation,
-} from "../../commitment/index.js";
-import type { AgentId, SessionId } from "../../commitment/ids.js";
-import type { SemanticIntent } from "../../commitment/semantic-intent.js";
-import type { CutoverGateTrace } from "../run-turn-decision.js";
-import { runTurnDecision } from "../run-turn-decision.js";
-import type { TaskClassifierAdapter, TaskContract } from "../task-classifier.js";
+} from "../commitment/index.js";
+import type { AgentId, SessionId } from "../commitment/ids.js";
+import type { SemanticIntent } from "../commitment/semantic-intent.js";
+import type { CutoverGateTrace } from "./run-turn-decision.js";
+import { runTurnDecision } from "./run-turn-decision.js";
+import type { TaskClassifierAdapter, TaskContract } from "./task-classifier.js";
+
+/**
+ * Cutover-1 routing flip contract for Wave A (PR-4a).
+ *
+ * Closes audit gaps G1+G2 (master plan §0.5.3) by asserting that
+ * `runTurnDecision` actually routes through the kernel-derived
+ * `productionDecision` for `persistent_session.created` when:
+ *   - cutover is enabled (or default Phase B treats missing flag as enabled),
+ *   - the effect is in the cutover-1 pool,
+ *   - a `MonitoredRuntime` returns successful attestation.
+ *
+ * Conversely, on any legacy fallback path (cutover disabled, runtime
+ * unavailable, attestation rejected) production must mirror legacy
+ * via `kernelFallback=true` plus a typed `fallbackReason`. Anti-checklist
+ * §5.1.3 forbids asserting `productionDecision !== legacyDecision`
+ * outside of cutover-eligible turns with successful attestation.
+ *
+ * Path matches PR-4 sub-plan §5 row "runTurnDecision routes correctly
+ * (cutover-1)" — `src/platform/decision/run-turn-decision.cutover1.test.ts`.
+ */
 
 const legacyContract: TaskContract = {
   primaryOutcome: "answer",

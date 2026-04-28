@@ -87,10 +87,21 @@ function makeEntry(overrides: Partial<SessionEntry> = {}): SessionEntry {
   return { ...base, ...overrides };
 }
 
+/**
+ * Hook-runner stub shared across all idempotency tests.
+ *
+ * `runSubagentSpawning` is exposed as a `vi.fn()` so that the suite can
+ * assert it does NOT fire on the reuse path (G3+G4 closure proof per
+ * PR-4 sub-plan §4.11 "spawn after closed run -> not fire-ать второй
+ * `subagent_spawning` hook").
+ */
+const runSubagentSpawningMock = vi.fn(async () => undefined);
+
 function setHookRunner(): void {
+  runSubagentSpawningMock.mockReset().mockResolvedValue(undefined);
   getGlobalHookRunnerSpy.mockReturnValue({
     hasHooks: () => false,
-    runSubagentSpawning: async () => undefined,
+    runSubagentSpawning: runSubagentSpawningMock,
     runSubagentSpawned: async () => undefined,
     runSubagentEnded: async () => undefined,
   } as unknown as ReturnType<typeof hookRunnerGlobal.getGlobalHookRunner>);
@@ -168,6 +179,7 @@ describe("spawnSubagentDirect persistent_session.created idempotency", () => {
     expect(result.note ?? "").toMatch(/Reused existing persistent session/);
     expect(callGatewaySpy).not.toHaveBeenCalled();
     expect(registerSubagentRunSpy).not.toHaveBeenCalled();
+    expect(runSubagentSpawningMock).not.toHaveBeenCalled();
   });
 
   it("reuses a live persistent subagent session with a fresh entry (no endedAt)", async () => {
@@ -191,6 +203,7 @@ describe("spawnSubagentDirect persistent_session.created idempotency", () => {
     expect(result.note ?? "").toMatch(/Reused existing persistent session/);
     expect(callGatewaySpy).not.toHaveBeenCalled();
     expect(registerSubagentRunSpy).not.toHaveBeenCalled();
+    expect(runSubagentSpawningMock).not.toHaveBeenCalled();
   });
 
   it("picks the latest entry by updatedAt when multiple subagent entries share the label and origin", async () => {
@@ -212,6 +225,7 @@ describe("spawnSubagentDirect persistent_session.created idempotency", () => {
     );
 
     expect(result.childSessionKey).toBe("agent:main:subagent:latest");
+    expect(runSubagentSpawningMock).not.toHaveBeenCalled();
   });
 
   it("does not reuse when no live persistent session matches (empty store -> guard misses, normal spawn path)", async () => {
@@ -230,6 +244,47 @@ describe("spawnSubagentDirect persistent_session.created idempotency", () => {
 
     expect(result.note ?? "").not.toMatch(/Reused existing persistent session/);
     expect(loadSessionStoreSpy).toHaveBeenCalled();
+  });
+
+  it("[§4.11 deleted session] creates a new session when the previous persistent entry was removed from the store", async () => {
+    // First spawn observes a live entry and reuses it.
+    pinStore({
+      [REUSED_CHILD_KEY]: makeEntry({ updatedAt: 3_000 }),
+    });
+    const reuseResult = await spawnSubagentDirect(
+      {
+        task: "ping Валера",
+        label: "Валера",
+        thread: true,
+        mode: "session",
+        agentId: "main",
+      },
+      tgRequesterCtx,
+    );
+    expect(reuseResult.childSessionKey).toBe(REUSED_CHILD_KEY);
+    expect(reuseResult.note ?? "").toMatch(/Reused existing persistent session/);
+    expect(runSubagentSpawningMock).not.toHaveBeenCalled();
+
+    // The entry has since been physically removed from the store
+    // (run-mode cleanup via `sessions.delete`, or operator-driven deletion
+    // for any reason). The next spawn must NOT reuse the stale key —
+    // liveness in `findLivePersistentSessionByLabel` is "entry physically
+    // present in the store snapshot" (subagent-persistent-session-query.ts
+    // §5), so the guard must miss and the normal spawn path must run.
+    pinStore({});
+    const freshResult = await spawnSubagentDirect(
+      {
+        task: "create Валера again",
+        label: "Валера",
+        thread: true,
+        mode: "session",
+        agentId: "main",
+      },
+      tgRequesterCtx,
+    );
+    expect(freshResult.note ?? "").not.toMatch(/Reused existing persistent session/);
+    expect(freshResult.childSessionKey).not.toBe(REUSED_CHILD_KEY);
+    expect(callGatewaySpy).toHaveBeenCalled();
   });
 
   it("does not reuse when origin (to) differs (cross-chat protection)", async () => {
