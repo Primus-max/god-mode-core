@@ -1,4 +1,9 @@
-import type { EffectFamilyId, EffectId } from "./ids.js";
+import {
+  COMMUNICATION_EFFECT_FAMILY,
+  PERSISTENT_SESSION_EFFECT_FAMILY,
+} from "./effect-family-registry.js";
+import type { EffectId } from "./ids.js";
+import type { EffectFamilyId } from "./ids.js";
 
 export type CutoverEntry = {
   readonly effect: EffectId;
@@ -22,10 +27,22 @@ export interface CutoverPolicy {
   list(): readonly CutoverEntry[];
 }
 
-const CUTOVER_1 = Object.freeze([
+const CUTOVER_2 = Object.freeze([
   Object.freeze({
     effect: "persistent_session.created" as EffectId,
-    effectFamily: "persistent_session" as EffectFamilyId,
+    effectFamily: PERSISTENT_SESSION_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: "answer.delivered" as EffectId,
+    effectFamily: COMMUNICATION_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: "clarification_requested" as EffectId,
+    effectFamily: COMMUNICATION_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: "external_effect.performed" as EffectId,
+    effectFamily: COMMUNICATION_EFFECT_FAMILY,
   }),
 ] satisfies CutoverEntry[]);
 
@@ -35,7 +52,7 @@ const CUTOVER_1 = Object.freeze([
  * @param entries - Cutover-eligible effect entries.
  * @returns Read-only cutover policy.
  */
-export function createCutoverPolicy(entries: readonly CutoverEntry[] = CUTOVER_1): CutoverPolicy {
+export function createCutoverPolicy(entries: readonly CutoverEntry[] = CUTOVER_2): CutoverPolicy {
   const frozenEntries = Object.freeze(entries.map((entry) => Object.freeze({ ...entry })));
   const eligibleEffects = new Set(frozenEntries.map((entry) => entry.effect));
 

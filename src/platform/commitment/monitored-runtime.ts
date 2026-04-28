@@ -4,6 +4,7 @@ import type {
   SatisfactionResult,
   ShadowTrace,
 } from "./affordance.js";
+import type { DeliveryWorldStateObserver } from "./delivery-world-state-observer.js";
 import type { ExecutionCommitment } from "./execution-commitment.js";
 import type { ExpectedDelta } from "./expected-delta.js";
 import type { SessionWorldStateObserver } from "./session-world-state-observer.js";
@@ -45,13 +46,19 @@ export interface MonitoredRuntime {
 }
 
 /**
- * Creates the cutover-1 monitored runtime wrapper.
+ * Creates the cutover-1+cutover-2 monitored runtime wrapper.
  *
- * @param deps - Runtime-attested session observer dependency.
+ * Wave A wired the `sessionObserver` for `persistent_session.created`. Wave B
+ * adds an optional `deliveryObserver` so chat-bound effects
+ * (`answer.delivered`, `clarification_requested`, `external_effect.performed`)
+ * can be evaluated against an observed `deliveries` slice.
+ *
+ * @param deps - Session observer (required) plus optional delivery observer.
  * @returns Runtime wrapper that verifies affordance predicates against observed state.
  */
 export function createMonitoredRuntime(deps: {
   readonly sessionObserver: SessionWorldStateObserver;
+  readonly deliveryObserver?: DeliveryWorldStateObserver;
 }): MonitoredRuntime {
   return Object.freeze({
     async run(params: MonitoredRuntimeRunParams): Promise<RuntimeAttestation> {
@@ -59,9 +66,15 @@ export function createMonitoredRuntime(deps: {
       let stateAfter: WorldStateSnapshot;
 
       try {
-        stateBefore = Object.freeze({ sessions: deps.sessionObserver.observe() });
+        stateBefore = freezeSnapshot({
+          sessions: deps.sessionObserver.observe(),
+          deliveries: deps.deliveryObserver?.observe(),
+        });
         await params.execute?.();
-        stateAfter = Object.freeze({ sessions: deps.sessionObserver.observe() });
+        stateAfter = freezeSnapshot({
+          sessions: deps.sessionObserver.observe(),
+          deliveries: deps.deliveryObserver?.observe(),
+        });
       } catch {
         return observerUnavailableAttestation();
       }
@@ -100,6 +113,14 @@ export function createMonitoredRuntime(deps: {
 const EMPTY_RECEIPTS: ReceiptsBundle = Object.freeze({
   entries: Object.freeze([]),
 });
+
+function freezeSnapshot(snapshot: WorldStateSnapshot): WorldStateSnapshot {
+  const out: WorldStateSnapshot = { sessions: snapshot.sessions };
+  if (snapshot.deliveries) {
+    return Object.freeze({ ...out, deliveries: snapshot.deliveries });
+  }
+  return Object.freeze(out);
+}
 
 /**
  * Creates an empty shadow trace for predicate contexts that do not need trace facts.

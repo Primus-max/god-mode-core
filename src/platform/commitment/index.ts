@@ -9,10 +9,12 @@ export type * from "./effect-family-registry.js";
 export type * from "./affordance-registry.js";
 export type * from "./shadow-builder.js";
 export type * from "./session-world-state-observer.js";
+export type * from "./delivery-world-state-observer.js";
 export type * from "./cutover-policy.js";
 export type * from "./monitored-runtime.js";
 
 export {
+  COMMUNICATION_EFFECT_FAMILY,
   EFFECT_FAMILY_REGISTRY,
   PERSISTENT_SESSION_EFFECT_FAMILY,
   UNKNOWN_EFFECT_FAMILY,
@@ -22,6 +24,9 @@ export {
   resolveEffectFamilyId,
 } from "./effect-family-registry.js";
 export {
+  ANSWER_DELIVERED_AFFORDANCE_ENTRY,
+  CLARIFICATION_REQUESTED_AFFORDANCE_ENTRY,
+  EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
   createAffordanceRegistry,
   defaultAffordanceRegistry,
@@ -43,10 +48,31 @@ export {
   pickAllowedConstraints,
 } from "./shadow-builder-impl.js";
 export {
+  POLICY_GATE_REASONS,
+  createPolicyGate,
+} from "./policy-gate.js";
+export type { PolicyGateReason, RealPolicyGateContext } from "./policy-gate.js";
+export {
   buildSessionWorldStateFromRuns,
   createSessionWorldStateObserver,
   createSessionWorldStateObserverFromSnapshotSource,
 } from "./session-world-state-observer.js";
+export {
+  createDeliveryReceiptRegistry,
+  getProcessDeliveryReceiptRegistry,
+  setProcessDeliveryReceiptRegistryForTests,
+} from "./delivery-receipt-registry.js";
+export type {
+  DeliveryReceiptRegistry,
+  CreateDeliveryReceiptRegistryOptions,
+} from "./delivery-receipt-registry.js";
+export { createDeliveryWorldStateObserver } from "./delivery-world-state-observer.js";
+export {
+  answerDeliveredPredicate,
+  clarificationRequestedPredicate,
+  createDeliveryDonePredicate,
+  externalEffectPerformedPredicate,
+} from "./done-predicate-delivery.js";
 export { persistentSessionCreatedPredicate } from "./done-predicate-persistent-session.js";
 export { createCutoverPolicy, defaultCutoverPolicy } from "./cutover-policy.js";
 export { createMonitoredRuntime } from "./monitored-runtime.js";

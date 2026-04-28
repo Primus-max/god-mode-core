@@ -1,4 +1,5 @@
 import type { AgentId, SessionId } from "./ids.js";
+import type { DeliveryReceiptKind } from "./world-state.js";
 
 export type SessionRecordRef = {
   readonly sessionId: SessionId;
@@ -12,9 +13,19 @@ export type SessionExpectedDelta = {
   };
 };
 
+export type DeliveryReceiptRef = {
+  readonly deliveryContextKey: string;
+  readonly kind: DeliveryReceiptKind;
+};
+
+export type DeliveryExpectedDelta = {
+  readonly receipts?: {
+    readonly added?: readonly DeliveryReceiptRef[];
+  };
+};
+
 export type ArtifactExpectedDelta = Record<string, never>;
 export type WorkspaceExpectedDelta = Record<string, never>;
-export type DeliveryExpectedDelta = Record<string, never>;
 
 export type ExpectedDelta = {
   readonly sessions?: SessionExpectedDelta;

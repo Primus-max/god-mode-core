@@ -10,6 +10,7 @@ export type EffectFamilyDefinition = {
 };
 
 export const PERSISTENT_SESSION_EFFECT_FAMILY = "persistent_session" as EffectFamilyId;
+export const COMMUNICATION_EFFECT_FAMILY = "communication" as EffectFamilyId;
 export const UNKNOWN_EFFECT_FAMILY = "unknown" as EffectFamilyId;
 
 export const EFFECT_FAMILY_REGISTRY = Object.freeze([
@@ -17,6 +18,11 @@ export const EFFECT_FAMILY_REGISTRY = Object.freeze([
     id: PERSISTENT_SESSION_EFFECT_FAMILY,
     displayName: "Persistent session",
     allowedOperationKinds: Object.freeze(["create", "observe", "cancel"] satisfies OperationHintKind[]),
+  }),
+  Object.freeze({
+    id: COMMUNICATION_EFFECT_FAMILY,
+    displayName: "Communication",
+    allowedOperationKinds: Object.freeze(["create", "observe"] satisfies OperationHintKind[]),
   }),
   Object.freeze({
     id: UNKNOWN_EFFECT_FAMILY,
