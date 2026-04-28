@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  ANSWER_DELIVERED_AFFORDANCE_ENTRY,
+  CLARIFICATION_REQUESTED_AFFORDANCE_ENTRY,
+  COMMUNICATION_EFFECT_FAMILY,
   EFFECT_FAMILY_REGISTRY,
+  EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_EFFECT_FAMILY,
   UNKNOWN_EFFECT_FAMILY,
@@ -9,12 +13,13 @@ import {
   isKnownEffectFamilyId,
   resolveEffectFamilyId,
 } from "../index.js";
-import type { EffectFamilyId } from "../ids.js";
+import type { ChannelId, EffectFamilyId } from "../ids.js";
 
 describe("effect-family registry", () => {
-  it("keeps the PR-2 registry closed to persistent_session and unknown", () => {
+  it("includes persistent_session, communication (PR-4b), and unknown families", () => {
     expect(EFFECT_FAMILY_REGISTRY.map((entry) => entry.id)).toEqual([
       "persistent_session",
+      "communication",
       "unknown",
     ]);
   });
@@ -23,6 +28,10 @@ describe("effect-family registry", () => {
     expect(
       getEffectFamilyDefinition(PERSISTENT_SESSION_EFFECT_FAMILY)?.allowedOperationKinds,
     ).toEqual(["create", "observe", "cancel"]);
+    expect(getEffectFamilyDefinition(COMMUNICATION_EFFECT_FAMILY)?.allowedOperationKinds).toEqual([
+      "create",
+      "observe",
+    ]);
     expect(getEffectFamilyDefinition(UNKNOWN_EFFECT_FAMILY)?.allowedOperationKinds).toEqual(
       [],
     );
@@ -30,15 +39,21 @@ describe("effect-family registry", () => {
 
   it("brands only registered family ids and falls back to unknown", () => {
     expect(isKnownEffectFamilyId("persistent_session")).toBe(true);
+    expect(isKnownEffectFamilyId("communication")).toBe(true);
     expect(isKnownEffectFamilyId("answer_delivered")).toBe(false);
     expect(resolveEffectFamilyId("answer_delivered")).toBe(UNKNOWN_EFFECT_FAMILY);
   });
 });
 
 describe("affordance registry", () => {
-  it("registers exactly one PR-2 affordance", () => {
+  it("registers Wave A persistent-session + Wave B chat-effect affordances", () => {
     const registry = createAffordanceRegistry();
-    expect(registry.all()).toEqual([PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY]);
+    expect(registry.all()).toEqual([
+      PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
+      ANSWER_DELIVERED_AFFORDANCE_ENTRY,
+      CLARIFICATION_REQUESTED_AFFORDANCE_ENTRY,
+      EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY,
+    ]);
   });
 
   it("resolves persistent-session create intent to the catalog candidate", () => {
@@ -56,6 +71,39 @@ describe("affordance registry", () => {
       "description",
       "parentSessionKey",
     ]);
+  });
+
+  it("disambiguates communication-family affordances by target and operation", () => {
+    const registry = createAffordanceRegistry();
+
+    const channelTarget = {
+      kind: "external_channel",
+      channelId: "telegram" as ChannelId,
+    } as const;
+
+    const answerCreate = registry.findByFamily(
+      COMMUNICATION_EFFECT_FAMILY,
+      channelTarget,
+      { kind: "create" },
+    );
+    expect(answerCreate).toHaveLength(1);
+    expect(answerCreate[0]?.effect).toBe("answer.delivered");
+
+    const clarificationCreate = registry.findByFamily(
+      COMMUNICATION_EFFECT_FAMILY,
+      { kind: "unspecified" },
+      { kind: "create" },
+    );
+    expect(clarificationCreate).toHaveLength(1);
+    expect(clarificationCreate[0]?.effect).toBe("clarification_requested");
+
+    const externalObserve = registry.findByFamily(
+      COMMUNICATION_EFFECT_FAMILY,
+      channelTarget,
+      { kind: "observe" },
+    );
+    expect(externalObserve).toHaveLength(1);
+    expect(externalObserve[0]?.effect).toBe("external_effect.performed");
   });
 
   it("does not resolve unknown family, unsupported operation, or unrelated target", () => {
@@ -86,6 +134,6 @@ describe("affordance registry", () => {
 
     expect(registry.all()).toEqual([]);
     expect(registry.findByFamily(unknown, { kind: "unspecified" })).toEqual([]);
-    expect(createAffordanceRegistry().all()).toHaveLength(1);
+    expect(createAffordanceRegistry().all()).toHaveLength(4);
   });
 });

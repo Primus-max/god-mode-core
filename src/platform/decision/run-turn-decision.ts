@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
-  allowAllPolicyGate,
   createIntentContractor,
+  createPolicyGate,
   createShadowBuilder,
   defaultCutoverPolicy,
   defaultAffordanceRegistry,
@@ -12,6 +12,7 @@ import {
   type ExpectedDelta,
   type IntentContractorAdapter,
   type MonitoredRuntime,
+  type PolicyGateReader,
   type RuntimeAttestation,
 } from "../commitment/index.js";
 import type { ExecutionCommitment } from "../commitment/execution-commitment.js";
@@ -51,6 +52,12 @@ export type RunTurnDecisionInput = {
   readonly cutoverPolicy?: CutoverPolicy;
   readonly monitoredRuntime?: MonitoredRuntime;
   readonly expectedDeltaResolver?: (commitment: ExecutionCommitment) => ExpectedDelta | undefined;
+  /**
+   * Wave B injection point for the real `PolicyGate` (master §8.5.1, sub-plan
+   * §4.10). When omitted, `runShadowBranch` constructs a default real gate
+   * from `input.cfg`, replacing the Wave A `allowAllPolicyGate` stub.
+   */
+  readonly policyGate?: PolicyGateReader;
 };
 
 export type RunTurnDecisionResult = {
@@ -192,7 +199,7 @@ async function runShadowBranch(input: RunTurnDecisionInput): Promise<ShadowBuild
         });
         const shadowBuilder = createShadowBuilder({
           affordances: input.affordanceRegistry ?? defaultAffordanceRegistry,
-          policy: allowAllPolicyGate,
+          policy: input.policyGate ?? createPolicyGate({ cfg: input.cfg }),
           logger: {},
           confidenceThreshold: config.confidenceThreshold,
         });
