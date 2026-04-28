@@ -406,6 +406,71 @@ describe("agent-runner-utils", () => {
     );
   });
 
+  it("forwards inter_session inputProvenance to buildClassifiedExecutionDecisionInput so the gate can short-circuit announce-flow text", async () => {
+    // Plumbing-level regression test for the self-feedback loop fix.
+    // The announce flow ships the spawn receipt back through `callGateway`
+    // with `inputProvenance: { kind: "inter_session", ... }`. The router /
+    // queue then surfaces it on `FollowupRun.run.inputProvenance`. This test
+    // verifies that `resolveRoutingSnapshotForTemplateRun` actually threads
+    // that provenance into `buildClassifiedExecutionDecisionInput`. The
+    // `kind !== "external_user"` short-circuit itself is covered by
+    // `src/platform/decision/input.provenance-gate.test.ts`.
+    const run = makeRun({
+      messageProvider: "telegram",
+      inputProvenance: {
+        kind: "inter_session",
+        sourceTool: "subagent_announce",
+        sourceSessionKey: "agent:main:subagent:fedot",
+        sourceChannel: "internal",
+      },
+    });
+
+    await resolveRoutingSnapshotForTemplateRun({
+      prompt: "Квитанция: follow-up сессия Федот активна, на связи.",
+      run,
+      sessionCtx: {
+        Provider: "telegram",
+        OriginatingChannel: "telegram",
+        Surface: "telegram",
+      },
+      sessionEntry: {
+        sessionId: "session-feedback-loop",
+      },
+    });
+
+    expect(hoisted.buildClassifiedExecutionDecisionInputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputProvenance: expect.objectContaining({
+          kind: "inter_session",
+          sourceTool: "subagent_announce",
+        }),
+      }),
+    );
+  });
+
+  it("omits inputProvenance from the planner call when the run has no provenance (back-compat)", async () => {
+    const run = makeRun({ messageProvider: "telegram" });
+
+    await resolveRoutingSnapshotForTemplateRun({
+      prompt: "Привет",
+      run,
+      sessionCtx: {
+        Provider: "telegram",
+        OriginatingChannel: "telegram",
+        Surface: "telegram",
+      },
+      sessionEntry: {
+        sessionId: "session-legacy-undefined",
+      },
+    });
+
+    const lastCall = hoisted.buildClassifiedExecutionDecisionInputMock.mock.calls.at(-1);
+    expect(lastCall).toBeDefined();
+    const callArg = lastCall?.[0] as { inputProvenance?: unknown } | undefined;
+    expect(callArg).toBeDefined();
+    expect("inputProvenance" in (callArg ?? {})).toBe(false);
+  });
+
   it("uses transcript-derived prompt and file names when store context exists", async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-stage9-input-"));
     const storePath = path.join(tmp, "sessions.json");

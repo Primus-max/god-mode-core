@@ -545,7 +545,14 @@ export type PlatformRuntimeRecoveryPolicy = z.infer<typeof PlatformRuntimeRecove
 
 export const ClassifierTelemetrySchema = z
   .object({
-    source: z.enum(["llm", "fail_closed"]),
+    /**
+     * `provenance_guard` is emitted by the typed-provenance short-circuit in
+     * `src/platform/decision/input.ts::buildClassifiedExecutionDecisionInput`
+     * and propagates through `buildPlannerInputFromTaskContract` into the
+     * runtime intent. Diagnostic-only — `runtime` consumers should not branch
+     * on this value.
+     */
+    source: z.enum(["llm", "fail_closed", "provenance_guard"]),
     backend: z.string().min(1).optional(),
     model: z.string().min(1).optional(),
     primaryOutcome: z.string().min(1).optional(),

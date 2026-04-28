@@ -300,6 +300,7 @@ export async function resolveRoutingSnapshotForTemplateRun(params: {
     channelHints,
     cfg: params.run.config,
     agentDir: params.run.agentDir,
+    ...(params.run.inputProvenance ? { inputProvenance: params.run.inputProvenance } : {}),
   });
   return {
     plannerInput,

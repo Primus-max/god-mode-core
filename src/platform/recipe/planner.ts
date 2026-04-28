@@ -115,7 +115,14 @@ import {
  * without having to thread a second channel from classifier to reply.
  */
 export type ClassifierTelemetry = {
-  source: "llm" | "fail_closed";
+  /**
+   * `provenance_guard` is emitted when `buildClassifiedExecutionDecisionInput`
+   * short-circuits a non-`external_user` prompt to a respond-only baseline
+   * without invoking `runTurnDecision` (see
+   * `src/platform/decision/input.ts::buildNonUserProvenanceShortCircuitPlannerInput`).
+   * Diagnostic-only — does not influence planner / runtime selection.
+   */
+  source: "llm" | "fail_closed" | "provenance_guard";
   backend?: string;
   model?: string;
   primaryOutcome?: string;
