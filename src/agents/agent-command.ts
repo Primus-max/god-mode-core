@@ -63,6 +63,7 @@ import { normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { applyVerboseOverride } from "../sessions/level-overrides.js";
 import { applyModelOverrideToSessionEntry } from "../sessions/model-overrides.js";
+import type { InputProvenance } from "../sessions/input-provenance.js";
 import { resolveSendPolicy } from "../sessions/send-policy.js";
 import { emitSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { sanitizeForLog } from "../terminal/ansi.js";
@@ -678,6 +679,13 @@ export async function buildClassifiedPlatformPlannerInput(params: {
   cfg: ReturnType<typeof loadConfig>;
   agentDir?: string;
   adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
+  /**
+   * Forwarded to `buildClassifiedExecutionDecisionInput` so non-`external_user`
+   * prompts (subagent announces, sessions_send forwards, descendant wakes,
+   * post-compaction context, etc.) short-circuit to a respond-only baseline
+   * instead of being reclassified as fresh user prompts.
+   */
+  inputProvenance?: InputProvenance;
 }): Promise<Parameters<typeof resolvePlatformRuntimePlan>[0]> {
   return buildClassifiedExecutionDecisionInput({
     prompt: params.prompt,
@@ -688,6 +696,7 @@ export async function buildClassifiedPlatformPlannerInput(params: {
     cfg: params.cfg,
     agentDir: params.agentDir,
     adapterRegistry: params.adapterRegistry,
+    ...(params.inputProvenance ? { inputProvenance: params.inputProvenance } : {}),
   });
 }
 
@@ -1261,6 +1270,7 @@ async function prepareAgentCommandExecution(
     sessionEntry: sessionEntryRaw,
     storePath,
     cfg,
+    ...(opts.inputProvenance ? { inputProvenance: opts.inputProvenance } : {}),
   });
   const platformRuntimePlan = resolvePlatformRuntimePlan(
     { ...platformPlannerInput, callerTag: "agent-command-main" },

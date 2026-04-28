@@ -187,7 +187,7 @@ function buildDebugReplyBlock(params: {
     | undefined;
   executionIntent?: string;
   classifierTelemetry?: {
-    source: "llm" | "fail_closed";
+    source: "llm" | "fail_closed" | "provenance_guard";
     backend?: string;
     model?: string;
     primaryOutcome?: string;

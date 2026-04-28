@@ -4,6 +4,7 @@ import type { SessionEntry } from "../../config/sessions.js";
 import { normalizeAnyChannelId } from "../../channels/registry.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import { defaultRuntime } from "../../runtime.js";
+import type { InputProvenance } from "../../sessions/input-provenance.js";
 import { getCurrentTurnProgressEmitter } from "../progress/progress-bus.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
@@ -32,7 +33,11 @@ import {
   createDefaultMonitoredRuntime,
 } from "../commitment/index.js";
 import { runTurnDecision } from "./run-turn-decision.js";
-import type { TaskClassifierAdapter, TaskContract } from "./task-classifier.js";
+import {
+  buildPlannerInputFromTaskContract,
+  type TaskClassifierAdapter,
+  type TaskContract,
+} from "./task-classifier.js";
 import {
   normalizeExecutionTurn,
   resolveKeywordInferencePrompt,
@@ -354,6 +359,77 @@ export function resolveSessionBackedExecutionRuntimePlan(
   return resolveExecutionRuntimePlan(buildSessionBackedExecutionDecisionInput(params));
 }
 
+/**
+ * Baseline `respond_only` TaskContract used by the non-user provenance gate.
+ *
+ * The contract describes a deterministic answer-only outcome with no
+ * capabilities, no ambiguities, and no requested tools. It deliberately matches
+ * the shape produced by `normalizeTaskContract` for an `answer` /
+ * `respond_only` turn so that downstream planner / runtime behaviour stays on
+ * the existing happy path.
+ */
+const NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT: TaskContract = {
+  primaryOutcome: "answer",
+  requiredCapabilities: [],
+  interactionMode: "respond_only",
+  confidence: 1,
+  ambiguities: [],
+  deliverable: { kind: "answer", acceptedFormats: ["text"] },
+};
+
+/**
+ * Short-circuit path used when the inbound prompt has a non-user provenance.
+ *
+ * The gate is structural (typed `InputProvenance.kind`), never a text rule, so
+ * invariant #5 from `.cursor/rules/commitment-kernel-invariants.mdc` is
+ * preserved. We intentionally avoid `runTurnDecision` here so the four frozen
+ * call-sites (`src/platform/decision/input.ts:444`, `:481` and the two in
+ * `src/platform/plugin.ts`) only ever fire on user-initiated prompts.
+ *
+ * @param params - Original `buildClassifiedExecutionDecisionInput` inputs that
+ *   are still needed to build a session-backed planner input (prompt,
+ *   fileNames, sessionEntry overrides, and the typed provenance).
+ * @returns A planner input that requests `respond_only` with no tools.
+ */
+function buildNonUserProvenanceShortCircuitPlannerInput(params: {
+  prompt: string;
+  fileNames?: string[];
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
+  > | null;
+  inputProvenance: InputProvenance;
+}): RecipePlannerInput {
+  const provenanceSource =
+    params.inputProvenance.sourceTool ??
+    params.inputProvenance.sourceChannel ??
+    params.inputProvenance.sourceSessionKey ??
+    "-";
+  defaultRuntime.log(
+    `[provenance-guard] kind=${params.inputProvenance.kind} source=${provenanceSource} session=${shortIdForLog(params.sessionEntry?.sessionId)} → respond_only`,
+  );
+  const plannerInput = buildPlannerInputFromTaskContract({
+    prompt: params.prompt,
+    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+    taskContract: NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT,
+    classifierTelemetry: {
+      source: "provenance_guard",
+      primaryOutcome: NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT.primaryOutcome,
+      interactionMode: NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT.interactionMode,
+      confidence: NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT.confidence,
+      deliverableKind: NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT.deliverable?.kind,
+      deliverableFormats: [
+        ...(NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT.deliverable?.acceptedFormats ?? []),
+      ],
+    },
+  });
+  return applySessionSpecialistOverrideToPlannerInput(plannerInput, params.sessionEntry);
+}
+
 export async function buildClassifiedExecutionDecisionInput(params: {
   prompt: string;
   fileNames?: string[];
@@ -370,7 +446,28 @@ export async function buildClassifiedExecutionDecisionInput(params: {
   cfg: OpenClawConfig;
   agentDir?: string;
   adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
+  /**
+   * Typed origin of the prompt for this classification call. When the kind is
+   * anything other than `external_user` (i.e. the prompt is a subagent
+   * announce, sessions_send forward, descendant wake, post-compaction context,
+   * or any other non-user-initiated text), the classifier is short-circuited
+   * to a respond-only baseline so that the agent never reclassifies its own
+   * outbound text as a fresh user prompt. See
+   * `.cursor/plans/commitment_kernel_self_feedback_loop_fix.plan.md`.
+   *
+   * `undefined` preserves legacy behaviour (treat as user prompt) for callers
+   * that have not yet been threaded.
+   */
+  inputProvenance?: InputProvenance;
 }): Promise<RecipePlannerInput> {
+  if (params.inputProvenance && params.inputProvenance.kind !== "external_user") {
+    return buildNonUserProvenanceShortCircuitPlannerInput({
+      prompt: params.prompt,
+      fileNames: params.fileNames,
+      sessionEntry: params.sessionEntry,
+      inputProvenance: params.inputProvenance,
+    });
+  }
   const classifierInput = buildSessionBackedExecutionDecisionInput({
     draftPrompt: params.prompt,
     ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
