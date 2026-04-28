@@ -21,8 +21,8 @@ todos:
     content: "PR-4a (Wave A) — **merged** ([#103](https://github.com/Primus-max/god-mode-core/pull/103), merge SHA d042a6b03a, 2026-04-28). 4 commits на dev: (1) a972638e48 idempotency-fix → G3+G4; (2) 85516cf3ce routing flip + 4 call-sites + monitoredRuntime/expectedDeltaResolver wiring → G1+G2; (3) 0114e1923e DEBUG ROUTING cleanup → G5; (4) b4409b412a stabilization (tests + lint). Closure G1+G2+G3+G4+G5. Не ввёл новых effect-families, не тронул PolicyGate stub."
     status: completed
   - id: pr4b-cutover2-chat-effects
-    content: PR-4b (Wave B). Cutover-2 для chat-bound effects (answer.delivered, clarification_requested, external_effect.performed). Effect-family extend (communication) + affordance registry extend + WorldState deliveries slice + cutoverPolicy flip + минимальный реальный PolicyGate (credentials + channel-disabled, не approvals/budgets). Closure G6.a+G6.b. Наследует productionDecision путь от PR-4a. См. sub-plan commitment_kernel_pr4_chat_effects_cutover.plan.md (Wave B).
-    status: pending
+    content: "PR-4b (Wave B) — **merged** ([#104](https://github.com/Primus-max/god-mode-core/pull/104), merge SHA 1e6231dd60, 2026-04-28). Cutover-2 для chat-bound effects (answer.delivered, clarification_requested, external_effect.performed): effect-family extend (communication, allowedOperationKinds=['create','observe']) + affordance registry extend + WorldState deliveries slice + cutoverPolicy расширение (CUTOVER_2) + минимальный реальный PolicyGate (POLICY_GATE_REASONS=['channel_disabled','no_credentials'], frozen reverse-test). Closure G6.a+G6.b. Approvals/budgets/role-based PolicyGate НЕ в scope = future commitment_kernel_policy_gate_full.plan.md. См. sub-plan commitment_kernel_pr4_chat_effects_cutover.plan.md (Wave B)."
+    status: completed
   - id: policy-gate-full
     content: "Future sub-plan (после cutover-2). Полный PolicyGate — approvals, budgets per-user/per-channel/per-effect, role-based access, retry policies, escalation hooks. Обязателен до cutover-4 (repo_operation.completed). Не пытаться реализовывать в PR-4b. Файл sub-plan-а: commitment_kernel_policy_gate_full.plan.md (создаётся после cutover-2)."
     status: pending
@@ -41,11 +41,12 @@ isProject: true
 | Discussion artefact | `.cursor/plans/commitment_kernel_design_dialog.plan.md` (1481 строк, Round 1 -> Final Direction Lock) |
 | Hard invariants     | 16 (final)                                                                                            |
 | Flexible invariants | 6 (extensibility points)                                                                              |
-| PR sequence         | PR-1..PR-3 + **PR-4a merged** ([#103](https://github.com/Primus-max/god-mode-core/pull/103), merge SHA `d042a6b03a`, 2026-04-28). Active next work = **PR-4b** (cutover-2 chat-effects + minimal PolicyGate). |
+| PR sequence         | PR-1..PR-3 + **PR-4a merged** ([#103](https://github.com/Primus-max/god-mode-core/pull/103), merge SHA `d042a6b03a`, 2026-04-28) + **PR-4b merged** ([#104](https://github.com/Primus-max/god-mode-core/pull/104), merge SHA `1e6231dd60`, 2026-04-28). Active next work = **future `commitment_kernel_policy_gate_full.plan.md`** (full PolicyGate, post-cutover-2) или cutover-3 sub-plan. |
 | Quant gate          | 6 measurable metrics                                                                                  |
-| Last updated        | 2026-04-28 (PR-4a merged into dev)                                                                    |
+| Last updated        | 2026-04-28 (PR-4b merged into dev)                                                                    |
 | Cutover-1 reality   | **Production routing live**: `persistent_session.created` маршрутизируется через kernel (`productionDecision !== legacyDecision` на kernel-derived success), idempotency-guard бьёт по gateway session store, `[DEBUG ROUTING]` исчез из user-facing reply. Live exit gate (≥1h TG dry-run + human signoff #15) проведён оператором перед merge PR-4a `d042a6b03a`. См. §0.5. |
-| Next gate           | **PR-4b** (Wave B) — cutover-2 chat-effects (`answer.delivered`, `clarification_requested`, `external_effect.performed`) + минимальный реальный PolicyGate (`no_credentials`, `channel_disabled`). Закрывает G6.a + G6.b. См. `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` (Wave B). |
+| Cutover-2 reality   | **Production routing live**: chat-bound effects (`answer.delivered`, `clarification_requested`, `external_effect.performed`) включены в `CUTOVER_2`; effect-family `communication` зарегистрирована (allowedOperationKinds=['create','observe']); три affordance в одной семье → `affordance_branching_factor > 1` структурно; `allowAllPolicyGate` заменён на `createPolicyGate({cfg})` с закрытым набором reason-кодов `['channel_disabled','no_credentials']` (frozen reverse-test). Approvals/budgets/role-based PolicyGate НЕ в scope (= future sub-plan, master §8.5.1). Merged PR-4b `1e6231dd60` 2026-04-28. |
+| Next gate           | **Future sub-plan**: `commitment_kernel_policy_gate_full.plan.md` (full PolicyGate — approvals, budgets per-user/per-channel, role-based, retry, escalation; обязателен до cutover-4). Параллельно может стартовать `commitment_kernel_cutover3_artifacts.plan.md`. См. §8.5 / §8.5.1 / §16. |
 
 
 ### PR Progress Log (append-only)
@@ -60,6 +61,7 @@ isProject: true
 | 2026-04-27 | PR-2   | d09d128a19          | PR-3 sub-plan kickoff   |
 | 2026-04-27 | PR-3   | addcb196be          | v1 UAT (cutover-1)      |
 | 2026-04-28 | PR-4a  | d042a6b03a          | PR-4b sub-plan kickoff  |
+| 2026-04-28 | PR-4b  | 1e6231dd60          | full PolicyGate sub-plan kickoff / cutover-3 |
 
 
 ### Active Work Handoff Protocol
@@ -92,8 +94,8 @@ Active handoff source of truth:
 | Work item | Plan file | Status |
 | --------- | --------- | ------ |
 | PR-4a — [#103](https://github.com/Primus-max/god-mode-core/pull/103) (G1+G2+G3+G4+G5) | `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` (Wave A) + `.cursor/plans/commitment_kernel_idempotency_fix.plan.md` (first commit details) | **completed**; merged 2026-04-28 (SHA `d042a6b03a`); cutover-1 production routing live |
-| **PR-4b — cutover-2 chat-effects + minimal PolicyGate** (G6.a+G6.b) | `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` (Wave B) | **active next work**; preconditions met (PR-4a merged, dry-run signed off); kickoff next chat |
-| Full PolicyGate (post-cutover-2, future) | `.cursor/plans/commitment_kernel_policy_gate_full.plan.md` (TBD) | not started; required before cutover-4 |
+| PR-4b — [#104](https://github.com/Primus-max/god-mode-core/pull/104) (G6.a+G6.b) | `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` (Wave B) | **completed**; merged 2026-04-28 (SHA `1e6231dd60`); cutover-2 chat-effects + minimal PolicyGate live |
+| **Full PolicyGate (post-cutover-2)** | `.cursor/plans/commitment_kernel_policy_gate_full.plan.md` (TBD) | **active next work**; required before cutover-4; sub-plan создаётся на следующей итерации |
 
 
 ### Merged into `dev`
@@ -105,6 +107,7 @@ Active handoff source of truth:
 | PR-2   | [#101](https://github.com/Primus-max/god-mode-core/pull/101) | b439261f6f   | `pr/2/shadow-mode-and-freeze`            | merge  | 2026-04-27 |
 | PR-3   | [#102](https://github.com/Primus-max/god-mode-core/pull/102) | f412c17348   | `pr/3/observer-and-cutover-phase-a`      | merge  | 2026-04-27 |
 | PR-4a  | [#103](https://github.com/Primus-max/god-mode-core/pull/103) | d042a6b03a   | `pr/4a/cutover1-routing-flip`            | merge  | 2026-04-28 |
+| PR-4b  | [#104](https://github.com/Primus-max/god-mode-core/pull/104) | 1e6231dd60   | `pr/4b/cutover2-chat-effects`            | merge  | 2026-04-28 |
 
 
 Этот документ — **executable spec**. Он сам — план-концепция оркестратора v1 и одновременно мастер-план implementation. Из каждой секции `## §N` нарезается отдельный sub-plan, когда стадия идёт в работу.
@@ -185,8 +188,8 @@ PR-4 разделён на **две волны** (PR-4a / PR-4b) для review-a
 | G1 | **closed by PR-4a `d042a6b03a`** (Wave A, commit 2 — routing flip `85516cf3ce`) | `kernel-derived-decision-contract`, `tg-entrypoint-kernel-first` | `productionDecision !== legacyDecision` на cutover-1 turn-ах с runtime attestation |
 | G2 | **closed by PR-4a `d042a6b03a`** (Wave A, commit 2 — routing flip `85516cf3ce`) | `tg-entrypoint-kernel-first` (4 call-sites + runtime/delta wiring) | `cutoverGate` больше не возвращает `monitored_runtime_unavailable` на live turn-ах |
 | G5 | **closed by PR-4a `d042a6b03a`** (Wave A, commit 3 — DEBUG cleanup `0114e1923e`) | `debug-routing-cleanup` | `[DEBUG ROUTING]` не появляется в user-bearing reply |
-| G6.a | **PR-4b** (Wave B) | `effect-family-extend` (`communication`) | Affordance branching factor становится осмысленным (>1.0) на cutover-2 pool |
-| G6.b | **PR-4b** (Wave B) | `policy-gate-real` (минимальный contract: credentials + channel-disabled) | Invariant #2 (Affordance selected by ... policy ...) реально enforce-ится |
+| G6.a | **closed by PR-4b `1e6231dd60`** (Wave B, commit `e9fa5b21ba`) | `effect-family-extend` (`communication`) | Affordance branching factor стал осмысленным (>1.0) на cutover-2 pool: 3 affordance в семье `communication` |
+| G6.b | **closed by PR-4b `1e6231dd60`** (Wave B, commit `e9fa5b21ba`) | `policy-gate-real` (минимальный contract: credentials + channel-disabled) | Invariant #2 (Affordance selected by ... policy ...) реально enforce-ится; `POLICY_GATE_REASONS` frozen reverse-test enforced |
 | G6.c | **future sub-plan** (post-cutover-2) | full PolicyGate (approvals, budgets, role-based) | Полная policy-система для cutover-3+ |
 
 **Правило раздельности волн**:

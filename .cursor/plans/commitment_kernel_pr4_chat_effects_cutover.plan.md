@@ -86,43 +86,43 @@ status: completed
 - id: preflight-wave-b-baseline
 wave: b
 content: PR-4b стартует только когда PR-4a merged и зелёный CI с реальной production маршрутизацией persistent_session.created подтверждён (≥1 час dry-run в Wave A exit). Подтвердить, что productionDecision !== legacyDecision уже работает на persistent_session.created и не сломался.
-status: pending
+status: completed
 - id: affordance-registry-extend
 wave: b
 content: Добавить в defaultAffordanceRegistry chat-bound записи без phrase matching. (1) answer.delivered — текстовый ответ; donePredicate проверяет typed delivery receipt. (2) clarification_requested — typed clarification outcome + delivered receipt. (3) external_effect.performed — external channel send receipt, если не дублирует answer.delivered. Перед реализацией развести effect boundaries.
-status: pending
+status: completed
 - id: world-state-delivery-slice
 wave: b
 content: Добавить в WorldStateSnapshot слайс `deliveries` как сериализуемый read-only receipt store (например Record<DeliveryContextKey, readonly DeliveryReceipt[]>). Observer читает existing delivery telemetry / receipt log. Это закрывает invariant F2 и даёт donePredicate для answer.delivered наблюдаемое state-after.
-status: pending
+status: completed
 - id: effect-family-extend
 wave: b
 content: "[Audit 2026-04-27, closes G6.a] Расширить EFFECT_FAMILY_REGISTRY новым семейством `communication` с allowedOperationKinds=['create','observe']. До Wave B в registry только `persistent_session` и `unknown`, поэтому branching factor = 1 by construction. Это первый момент, когда в одном семействе появится >1 affordance — соответствие invariant #16 в этой точке проверяется явно."
-status: pending
+status: completed
 - id: cutover-policy-flip
 wave: b
 content: Расширить cutoverPolicy через явный effect allow-list в config. После PR-4b policy умеет включать chat-effects, но production default должен быть подтверждён human signoff; не включать "всё" неявно через отсутствие флага. Никакой text-route logic — только effect_id matching.
-status: pending
+status: completed
 - id: policy-gate-real
 wave: b
 content: "[Audit 2026-04-27, closes G6.b — minimum scope only] Заменить allowAllPolicyGate в runShadowBranch на минимальный реальный PolicyGate с контрактом `evaluate(commitment, affordance, ctx) → { ok: true } | { ok: false; reason }` и reasons {'no_credentials','channel_disabled'}. Только для chat-effects. **НЕ реализовывать**: approvals, budgets per-user/per-channel, role-based access, retry policies, escalation hooks — это `commitment_kernel_policy_gate_full.plan.md` (см. master §8.5.1). Если scope попадает на approvals/budgets → stop, surface user-у."
-status: pending
+status: completed
 - id: decision-eval-cutover2
 wave: b
 content: Расширить scripts/dev/decision-eval.ts pool на answer.delivered + clarification_requested + external_effect.performed (~30+ turns каждого). Считать master §7 metrics без подмены. Дополнительные PR-4 метрики kernel_path_share/observation_latency — supplementary, не вместо master gate.
-status: pending
+status: completed
 - id: tests-wave-b
 wave: b
 content: Vitest на (1) расширенный affordance registry (4 эффекта, donePredicate каждому), (2) effect-family registry contract (`communication` family present, allowedOperationKinds verified), (3) deliveries slice observer (Observer.read() видит receipts после mock send), (4) cutoverPolicy explicit allow-list, (5) PolicyGate real-mode contract (denies external_effect.performed без credentials; allows answer.delivered с valid context), (6) runTurnDecision routes в kernel для chat-effects при cutover-on. Plus contract test bit-identical-snapshot для эффектов вне cutover-pool.
-status: pending
+status: completed
 - id: lint-and-freeze-wave-b
 wave: b
 content: PR-4b соответствует freeze: расширение affordance registry / effect-family registry / cutover-policy под label `compatibility`. Все lint:commitment:* green.
-status: pending
+status: completed
 - id: human-signoff-wave-b
 wave: b
 content: "Human signoff PR-4b против master invariants §3 (#2, #3, #4, #9, #14, #15) и §7 (6 quant-gate metrics на cutover-2 pool ≥30 turns каждого эффекта). Подтвердить, что approvals/budgets/role-based PolicyGate не попали в scope (они = future sub-plan). Без signoff — merge запрещён."
-status: pending
+status: completed
 isProject: false
 
 ---
@@ -892,6 +892,35 @@ Blockers (для merge PR-4b):
 - Final commit `docs(plan): mark PR-4b completed` post-merge: flip Wave B frontmatter todos в `completed`, добавить строку в master §0 PR Progress Log с `<merge-SHA>`, отметить §0.5.3 G6.a + G6.b как `closed by PR-4b <merge-SHA>`, обновить master §0 status table.
 
 Next recommended action: оператор открывает PR-4b на GitHub (base `dev` ← head `pr/4b/cutover2-chat-effects`), PR body содержит `- [x] compatibility` frozen-layer label и явный disclaimer про approvals/budgets out-of-scope; запускает quant-gate cutover-2 + dry-run; после signoff merge → запускает post-merge plan-progress chat.
+
+### 2026-04-28 — PR-4b merged into dev (closure of Wave B)
+
+Completed TODO ids (Wave B frontmatter): `preflight-wave-b-baseline`, `affordance-registry-extend`, `world-state-delivery-slice`, `effect-family-extend`, `cutover-policy-flip`, `policy-gate-real`, `decision-eval-cutover2`, `tests-wave-b`, `lint-and-freeze-wave-b`, `human-signoff-wave-b` — все переведены в `completed`.
+
+Master plan TODO ids: `pr4b-cutover2-chat-effects` → `completed`.
+
+PR-4b [#104](https://github.com/Primus-max/god-mode-core/pull/104) merged in `dev` 2026-04-28 (merge SHA `1e6231dd60`). Quant-gate cutover-2 + dry-run + human signoff (#15) выполнены оператором перед merge.
+
+Touched files в этой post-merge итерации (plan-only):
+
+- `.cursor/plans/commitment_kernel_v1_master.plan.md`:
+  - frontmatter `pr4b-cutover2-chat-effects` → `status: completed`.
+  - §0 status table: PR sequence / Last updated / добавлен Cutover-2 reality / Next gate перенаправлены на full PolicyGate sub-plan.
+  - §0 PR Progress Log: добавлена строка `2026-04-28 | PR-4b | 1e6231dd60 | full PolicyGate sub-plan kickoff / cutover-3`.
+  - §0 «Merged into dev» таблица: добавлена строка PR-4b #104 1e6231dd60.
+  - §0 Active handoff source-of-truth: PR-4b → completed; full PolicyGate sub-plan → active next work.
+  - §0.5.3 Scope-of-fix matrix: G6.a, G6.b → `closed by PR-4b 1e6231dd60` (commit `e9fa5b21ba`).
+- `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md`:
+  - все 10 frontmatter Wave B todos → `completed`.
+  - handoff log entry (этот блок).
+
+Tests/lints run в этой итерации: none (plan-only); все code-level gates уже зелёные с PR-4b `e9fa5b21ba` (24 test files / 204 tests, tsgo, 3 lint scripts, frozen-layer label).
+
+Что закрыто этой итерацией: G6.a + G6.b формально проставлены closed by PR-4b `1e6231dd60` в §0.5.3. Все G1..G6.b закрыты на code-level. G6.c (full PolicyGate — approvals/budgets/role-based) остаётся open до отдельного sub-plan-а.
+
+Blockers: none для следующей PR-стадии. Cutover-1 + cutover-2 production routing live одновременно.
+
+Next recommended action: создать sub-plan `commitment_kernel_policy_gate_full.plan.md` (закрытие G6.c, обязательно до cutover-4 `repo_operation.completed`) или параллельно `commitment_kernel_cutover3_artifacts.plan.md` (cutover-3 для artifacts/pdf/zip). Любой из путей открывается отдельным чатом со своим bootstrap output.
 
 ---
 
