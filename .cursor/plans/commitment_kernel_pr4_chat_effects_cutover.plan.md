@@ -35,15 +35,15 @@ todos:
 - id: preflight-audit-sync
 wave: a
 content: Перед кодом синхронизировать план с текущим рабочим деревом. Подтвердить, что PR-4a стартует с legacy==production в runTurnDecision, cutover-1 policy содержит только persistent_session.created, DEBUG ROUTING остаётся user-facing, а текущий runs-based idempotency WIP заменяется session-store lookup. PR-4a НЕ трогает chat-effects, effect-family registry и PolicyGate stub.
-status: pending
+status: completed
 - id: idempotency-fix-persistent-session
 wave: a
 content: "**Commit 1 PR-4a (жёстко, не standalone PR).** Починить idempotency для persistent_session.created (см. detail-spec в commitment_kernel_idempotency_fix.plan.md, closure G3+G4). Идёт ПЕРВЫМ коммитом PR-4a, до routing flip — иначе routing flip даст `label already in use` на втором же live `Валера`. См. master §0.5.3 (правило idempotency-fix внутри PR-4a)."
-status: pending
+status: completed
 - id: kernel-derived-decision-contract
 wave: a
 content: Зафиксировать контракт deriveDecisionFromCommitment до flipping call-sites. Как ExecutionCommitment превращается в ClassifiedTaskResolution/productionDecision, какие поля остаются legacy-derived, какие становятся kernel source-of-truth, как пишутся terminalState/acceptanceReason/kernelFallback. Без этого PR-4a рискует остаться trace-only.
-status: pending
+status: completed
 - id: tg-entrypoint-kernel-first
 wave: a
 content: |
@@ -55,31 +55,31 @@ content: |
     - src/platform/decision/input.ts:440 (initial classifier call)
     - src/platform/decision/input.ts:475 (workspace-inject reclassify)
   3. Без выполнения обоих пунктов одновременно kernel остаётся shadow-only (G1+G2 не закрыты). PR-4a не считается green до contract-теста, который проверяет, что productionDecision !== legacyDecision на cutover-eligible turn-ах persistent_session.created с successful runtime attestation.
-  status: pending
+  status: completed
 - id: debug-routing-cleanup
 wave: a
 content: "[Audit 2026-04-27, closes G5] Убрать (или скрыть за dev-flag cfg.runtime?.debugRouting) блок [DEBUG ROUTING] из user-facing reply (src/agents/command/delivery.ts:44-83). Сейчас он выливается в каждый TG ответ и нарушает invariant #5. Trace-данные оставляем в decision-trace.ts / nested log, не в reply. Snapshot-test одного TG-ответа должен ассертить отсутствие подстроки `[DEBUG ROUTING]` в payload."
-status: pending
+status: completed
 - id: legacy-fallback-explicit
 wave: a
 content: Когда kernel вернул unsupported, runTurnDecision должен явным флагом помечать decision как kernel_fallback=true, чтобы это было видно в logs/traces. Это не функциональное изменение — это observability для UAT.
-status: pending
+status: completed
 - id: tests-wave-a
 wave: a
 content: Vitest на (1) runTurnDecision routes в kernel при cutover-on (persistent_session.created) + runtime attested → productionDecision !== legacyDecision; (2) runTurnDecision routes в legacy при cutover-off / runtime unavailable; (3) все 4 call-sites действительно консьюмят productionDecision и передают monitoredRuntime+expectedDeltaResolver (callsite tests на plugin.ts:76, plugin.ts:332, input.ts:440, input.ts:475); (4) DEBUG ROUTING absent from reply без флага; (5) bit-identical snapshot для эффектов вне cutover-pool. Plus переписанный subagent-spawn.idempotency.test.ts (см. idempotency-test-strengthen, идёт вместе с G3+G4).
-status: pending
+status: completed
 - id: idempotency-test-strengthen
 wave: a
 content: "[Audit 2026-04-27, closes G4] Переписать src/agents/subagent-spawn.idempotency.test.ts: убрать vi.spyOn(subagentRegistry, 'findActiveSubagentByLabel'). Новые тесты должны (a) реально вызывать findLivePersistentSessionByLabel путь, (b) симулировать TG-сценарий reuse после endedAt, (c) negative cases. Идёт вместе с idempotency-fix sub-plan-ом."
-status: pending
+status: completed
 - id: lint-and-freeze-wave-a
 wave: a
 content: PR-4a соответствует freeze: изменения в input.ts / plugin.ts под label `compatibility` (не telemetry-only). Все lint:commitment:* green. Никаких новых effect-families в registry — это Wave B.
-status: pending
+status: completed
 - id: human-signoff-wave-a
 wave: a
 content: "Human signoff PR-4a против master invariants §3 (#2, #3, #4, #14, #15). 6 quant-gate metrics на persistent_session.created pool now runtime-attested in real TG flow (≥30 turns на dev-машине под TG, ≥1 час dry-run). Без signoff — merge запрещён."
-status: pending
+status: completed
 
 # ===== Wave B (PR-4b) — closure G6.a + G6.b =====
 
@@ -801,6 +801,35 @@ Blockers (для merge PR-4a #103):
 - Post-merge plan-progress commit на `dev`: flip frontmatter todos в `completed`, append PR Progress Log row с merge SHA, отметить §0.5.3 G1..G5 closed by PR-4a `<merge-SHA>`, обновить "Cutover-1 reality" с "in review" → "Production routing live".
 
 Next recommended action: оператор запускает dry-run; новый чат может стартовать **только** post-merge — для PR-4b (Wave B). См. промт в финале текущей сессии.
+
+### 2026-04-28 — PR-4a merged into dev (closure of Wave A)
+
+Completed TODO ids (Wave A frontmatter): `preflight-audit-sync`, `idempotency-fix-persistent-session`, `kernel-derived-decision-contract`, `tg-entrypoint-kernel-first`, `debug-routing-cleanup`, `legacy-fallback-explicit`, `tests-wave-a`, `idempotency-test-strengthen`, `lint-and-freeze-wave-a`, `human-signoff-wave-a` — все переведены в `completed`.
+
+Master plan TODO ids: `idempotency-fix-persistent-session` + `pr4a-cutover1-routing-flip` → `completed`.
+
+PR-4a [#103](https://github.com/Primus-max/god-mode-core/pull/103) merged in `dev` 2026-04-28 (merge SHA `d042a6b03a`). ≥1h TG dry-run + human signoff (#15) выполнены оператором перед merge.
+
+Touched files в этой post-merge итерации (plan-only):
+
+- `.cursor/plans/commitment_kernel_v1_master.plan.md`:
+  - frontmatter `idempotency-fix-persistent-session` + `pr4a-cutover1-routing-flip` → `status: completed`.
+  - §0 status table: PR sequence / Last updated / Cutover-1 reality / Next gate перенаправлены на PR-4b.
+  - §0 PR Progress Log: добавлена строка `2026-04-28 | PR-4a | d042a6b03a | PR-4b sub-plan kickoff`.
+  - §0 «Merged into dev» таблица: добавлена строка PR-4a #103 d042a6b03a + добавлена колонка Date.
+  - §0 Active handoff source-of-truth: PR-4a → completed; PR-4b → active next work.
+  - §0.5.3 Scope-of-fix matrix: G1, G2, G3, G4, G5 → `closed by PR-4a d042a6b03a`.
+- `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md`:
+  - все 10 frontmatter Wave A todos → `completed`.
+  - handoff log entry (этот блок).
+
+Tests/lints run в этой итерации: none (plan-only); все code-level gates уже зелёные с PR-4a `b4409b412a`.
+
+Что закрыто этой итерацией: G1+G2+G3+G4+G5 формально проставлены closed by PR-4a `d042a6b03a` в §0.5.3.
+
+Blockers: none для Wave B (preconditions met).
+
+Next recommended action: запустить новый чат для **PR-4b (Wave B)** — cutover-2 chat-effects + minimal PolicyGate. Промт см. в финальном сообщении PR-4a session.
 
 ---
 
