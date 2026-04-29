@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_AFTER_SANITIZATION_FALLBACK_TEXT,
+  TOOL_CALL_MARKUP_REPLACEMENT,
   TOOL_ERROR_ENVELOPE_REPLACEMENT,
   __OUTBOUND_LEAK_PATTERN_IDS_FOR_TESTS,
   formatOutboundSanitizerLog,
@@ -33,7 +34,7 @@ describe("outbound-sanitizer / EXTERNAL_DELIVERY_SURFACES", () => {
 });
 
 describe("outbound-sanitizer / pattern coverage", () => {
-  it("ships exactly the 10 signoff-approved patternIds", () => {
+  it("ships exactly the 16 curated patternIds (10 Bug E + 6 Bug A universal tool-call)", () => {
     expect([...__OUTBOUND_LEAK_PATTERN_IDS_FOR_TESTS].sort()).toEqual(
       [
         "tool_error_marker",
@@ -46,6 +47,12 @@ describe("outbound-sanitizer / pattern coverage", () => {
         "debug_marker",
         "node_stack_trace",
         "node_error_path",
+        "universal_tool_call_xml",
+        "universal_tool_use_xml",
+        "universal_function_call_xml",
+        "universal_tool_call_json_envelope",
+        "universal_tool_call_orphan_open",
+        "universal_tool_call_orphan_close",
       ].sort(),
     );
   });
@@ -171,6 +178,130 @@ describe("outbound-sanitizer / sanitizeOutboundForExternalChannel", () => {
   });
 });
 
+describe("outbound-sanitizer / Bug A — universal tool-call markers", () => {
+  it("replaces balanced <tool_call>...</tool_call> XML with neutral marker", () => {
+    const input =
+      'Сейчас поищу.\n<tool_call>{"name":"web_search","arguments":{"q":"open models"}}</tool_call>\nГотово.';
+    const result = sanitizeOutboundForExternalChannel(input);
+    expect(result.text).toContain(TOOL_CALL_MARKUP_REPLACEMENT);
+    expect(result.text).not.toContain("<tool_call");
+    expect(result.text).not.toContain("</tool_call>");
+    expect(result.text).toContain("Сейчас поищу.");
+    expect(result.text).toContain("Готово.");
+    expect(
+      result.stripped.find((e) => e.patternId === "universal_tool_call_xml")?.count,
+    ).toBe(1);
+  });
+
+  it("replaces multiline <tool_use>...</tool_use> Anthropic-style block", () => {
+    const input = [
+      "Префикс.",
+      '<tool_use name="exec">',
+      '  {"command": "ls -la",',
+      '   "cwd": "/tmp"}',
+      "</tool_use>",
+      "Суффикс.",
+    ].join("\n");
+    const result = sanitizeOutboundForExternalChannel(input);
+    expect(result.text).toContain(TOOL_CALL_MARKUP_REPLACEMENT);
+    expect(result.text).not.toContain("<tool_use");
+    expect(result.text).not.toContain("</tool_use>");
+    expect(
+      result.stripped.find((e) => e.patternId === "universal_tool_use_xml")?.count,
+    ).toBe(1);
+  });
+
+  it("replaces legacy <function_call>...</function_call> OpenAI-style block", () => {
+    const input =
+      'Думаю...<function_call>{"name":"image","arguments":{"prompt":"кот"}}</function_call>Готово.';
+    const result = sanitizeOutboundForExternalChannel(input);
+    expect(result.text).toContain(TOOL_CALL_MARKUP_REPLACEMENT);
+    expect(result.text).not.toContain("<function_call");
+    expect(
+      result.stripped.find((e) => e.patternId === "universal_function_call_xml")?.count,
+    ).toBe(1);
+  });
+
+  it("strips orphan open <tool_call ...> tag without closing (streaming-cut tail)", () => {
+    const input = 'Префикс.\n<tool_call name="web_search">\nХвост обрезан…';
+    const result = sanitizeOutboundForExternalChannel(input);
+    expect(result.text).not.toContain("<tool_call");
+    expect(result.text).toContain("Префикс.");
+    expect(result.text).toContain("Хвост обрезан");
+    expect(
+      result.stripped.find((e) => e.patternId === "universal_tool_call_orphan_open")?.count,
+    ).toBe(1);
+  });
+
+  it("strips orphan close </function_call> tag without opening (streaming-cut head)", () => {
+    const input = "Раннее начало обрезано… </function_call>\nОстаток.";
+    const result = sanitizeOutboundForExternalChannel(input);
+    expect(result.text).not.toContain("</function_call>");
+    expect(result.text).toContain("Остаток.");
+    expect(
+      result.stripped.find((e) => e.patternId === "universal_tool_call_orphan_close")?.count,
+    ).toBe(1);
+  });
+
+  it("replaces standalone JSON tool-call envelope without status/error", () => {
+    const input =
+      'Дальше я вызову поиск: {"name":"web_search","arguments":{"q":"open models"}}. Подожди.';
+    const result = sanitizeOutboundForExternalChannel(input);
+    expect(result.text).toContain(TOOL_CALL_MARKUP_REPLACEMENT);
+    expect(result.text).not.toContain('"name":"web_search"');
+    expect(
+      result.stripped.find((e) => e.patternId === "universal_tool_call_json_envelope")?.count,
+    ).toBe(1);
+  });
+
+  it("does not confuse tool_error_envelope with tool_call_json_envelope (status/error keys win)", () => {
+    const input =
+      'Ошибка: {"status":"error","tool":"web_search","error":"timeout"}. Конец.';
+    const result = sanitizeOutboundForExternalChannel(input);
+    expect(result.text).toContain(TOOL_ERROR_ENVELOPE_REPLACEMENT);
+    expect(result.text).not.toContain(TOOL_CALL_MARKUP_REPLACEMENT);
+    expect(
+      result.stripped.find((e) => e.patternId === "tool_error_envelope")?.count,
+    ).toBe(1);
+    expect(
+      result.stripped.find((e) => e.patternId === "universal_tool_call_json_envelope"),
+    ).toBeUndefined();
+  });
+
+  it("combines Bug E line-marker strip with Bug A XML strip in single pass", () => {
+    const input = [
+      "[planner] step=1",
+      "Промежуточная фраза.",
+      '<tool_call>{"name":"x","arguments":{}}</tool_call>',
+      "Финал.",
+    ].join("\n");
+    const result = sanitizeOutboundForExternalChannel(input);
+    expect(result.text).not.toContain("[planner]");
+    expect(result.text).not.toContain("<tool_call");
+    expect(result.text).toContain(TOOL_CALL_MARKUP_REPLACEMENT);
+    expect(result.text).toContain("Промежуточная фраза.");
+    expect(result.text).toContain("Финал.");
+    const ids = result.stripped.map((e) => e.patternId);
+    expect(ids).toContain("planner_marker");
+    expect(ids).toContain("universal_tool_call_xml");
+  });
+
+  it("does not strip prose mentioning tool_call without angle brackets", () => {
+    const input =
+      "В документации описан tool_call API: для function_call нужен arguments object.";
+    const result = sanitizeOutboundForExternalChannel(input);
+    expect(result.text).toBe(input);
+    expect(result.stripped).toEqual([]);
+  });
+
+  it("does not strip code-block-like JSON without name+arguments shape", () => {
+    const input = 'Конфиг: {"foo":"bar","baz":42}.';
+    const result = sanitizeOutboundForExternalChannel(input);
+    expect(result.text).toBe(input);
+    expect(result.stripped).toEqual([]);
+  });
+});
+
 describe("outbound-sanitizer / formatOutboundSanitizerLog", () => {
   it("emits canonical telemetry line with bytes and patterns", () => {
     const line = formatOutboundSanitizerLog({
@@ -207,5 +338,6 @@ describe("outbound-sanitizer / fallback constants", () => {
   it("exports the signoff-approved fallback texts", () => {
     expect(EMPTY_AFTER_SANITIZATION_FALLBACK_TEXT).toBe("Запрос не удалось выполнить.");
     expect(TOOL_ERROR_ENVELOPE_REPLACEMENT).toBe("(внутренняя ошибка инструмента; обработана)");
+    expect(TOOL_CALL_MARKUP_REPLACEMENT).toBe("(внутренний tool-call; обработан)");
   });
 });

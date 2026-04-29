@@ -60,6 +60,54 @@ export function stripModelSpecialTokens(text: string): string {
 }
 
 /**
+ * Strip universal tool-call XML markers that leak into assistant text content.
+ *
+ * Closes Bug A (commitment-kernel sub-plan
+ * `commitment_kernel_streaming_leak.plan.md`) — generic complement to
+ * `stripMinimaxToolCallXml` (Minimax-specific) and `stripDowngradedToolCallText`
+ * (Gemini downgrade). Some models (custom OpenRouter routes, early Qwen
+ * variants, certain DeepSeek builds) emit `<tool_call>...</tool_call>`,
+ * `<tool_use>...</tool_use>`, or `<function_call>...</function_call>` blocks
+ * directly in assistant text instead of using structured tool-call channels.
+ *
+ * Strategy:
+ * 1. Skip work fast when no marker tag is present (fast-path).
+ * 2. Strip full balanced blocks (multiline, non-greedy).
+ * 3. Strip orphan open / close tags left by streaming-cut artifacts.
+ *
+ * Hard-invariant compliance (`commitment-kernel-invariants.mdc`):
+ * - #5 (no phrase-rule matching on `UserPrompt` / `RawUserTurn` outside
+ *   whitelist): patterns operate on assistant-emitted OUTPUT, never on user
+ *   input.
+ * - #6 (`IntentContractor` is the only reader of raw user text): not touched;
+ *   reinforced (internal markers no longer leak to user channel).
+ *
+ * Pattern shape is conservative: matches require the literal tag name as a
+ * word boundary so prose like "the tool_call API" is not affected.
+ */
+const UNIVERSAL_TOOL_CALL_TAGS = ["tool_call", "tool_use", "function_call"] as const;
+const UNIVERSAL_TOOL_CALL_TAG_RE = /<\/?(?:tool_call|tool_use|function_call)\b/i;
+const UNIVERSAL_TOOL_CALL_BLOCK_RES: readonly RegExp[] = UNIVERSAL_TOOL_CALL_TAGS.map(
+  (tag) => new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`, "gi"),
+);
+const UNIVERSAL_TOOL_CALL_ORPHAN_RE = /<\/?(?:tool_call|tool_use|function_call)\b[^>]*>/gi;
+
+export function stripUniversalToolCallMarkup(text: string): string {
+  if (!text) {
+    return text;
+  }
+  if (!UNIVERSAL_TOOL_CALL_TAG_RE.test(text)) {
+    return text;
+  }
+  let cleaned = text;
+  for (const blockRe of UNIVERSAL_TOOL_CALL_BLOCK_RES) {
+    cleaned = cleaned.replace(blockRe, "");
+  }
+  cleaned = cleaned.replace(UNIVERSAL_TOOL_CALL_ORPHAN_RE, "");
+  return cleaned.replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n");
+}
+
+/**
  * Strip downgraded tool call text representations that leak into text content.
  * When replaying history to Gemini, tool calls without `thought_signature` are
  * downgraded to text blocks like `[Tool Call: name (ID: ...)]`. These should
@@ -238,7 +286,11 @@ export function extractAssistantText(msg: AssistantMessage): string {
     extractTextFromChatContent(msg.content, {
       sanitizeText: (text) =>
         stripThinkingTagsFromText(
-          stripDowngradedToolCallText(stripModelSpecialTokens(stripMinimaxToolCallXml(text))),
+          stripDowngradedToolCallText(
+            stripUniversalToolCallMarkup(
+              stripModelSpecialTokens(stripMinimaxToolCallXml(text)),
+            ),
+          ),
         ).trim(),
       joinWith: "\n",
       normalizeText: (text) => text.trim(),
