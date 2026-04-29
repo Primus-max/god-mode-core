@@ -1,4 +1,5 @@
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
+import { runCommitmentPreflight } from "../platform/commitment/preflight.js";
 import { listAgentIds } from "../agents/agent-scope.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import type { CliDeps } from "../cli/deps.js";
@@ -83,6 +84,34 @@ function formatPayloadForLog(payload: {
     lines.push(`MEDIA:${url}`);
   }
   return lines.join("\n").trimEnd();
+}
+
+function createCommandCommitmentRuntime() {
+  return {
+    async observeSessionWorldState({
+      sessionId,
+      userMessage,
+    }: {
+      sessionId: string;
+      userMessage: string;
+    }) {
+      return {
+        sessionId,
+        latestUserMessage: userMessage,
+        openQuestions: userMessage.trim() ? [] : ["user-message"],
+        expectedDelta: null,
+        delivery: null,
+      };
+    },
+    clarificationPolicy(worldState: { latestUserMessage: string }) {
+      return worldState.latestUserMessage.trim()
+        ? { kind: "proceed" as const }
+        : { kind: "clarify" as const, reason: "empty-user-message" };
+    },
+    cutoverPolicy() {
+      return { kind: "proceed" as const };
+    },
+  };
 }
 
 export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: RuntimeEnv) {
@@ -189,6 +218,30 @@ export async function agentCliCommand(opts: AgentCliOpts, runtime: RuntimeEnv, d
   }
 
   try {
+    if (opts.sessionId) {
+      const preflight = await runCommitmentPreflight(createCommandCommitmentRuntime(), {
+        sessionId: opts.sessionId,
+        userMessage: opts.message ?? "",
+      });
+
+      if (preflight.clarification.kind === "clarify") {
+        console.error(
+          JSON.stringify({
+            scope: "commitment-preflight",
+            sessionId: opts.sessionId,
+            decision: preflight,
+          }),
+        );
+        return {
+          text: "I need a bit more detail before I can continue. What should I act on?",
+          data: {
+            sessionId: opts.sessionId,
+            text: "I need a bit more detail before I can continue. What should I act on?",
+          },
+        };
+      }
+    }
+
     return await agentViaGatewayCommand(opts, runtime);
   } catch (err) {
     runtime.error?.(`Gateway agent failed; falling back to embedded: ${String(err)}`);

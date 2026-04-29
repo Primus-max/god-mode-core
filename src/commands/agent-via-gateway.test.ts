@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+const openClawApiRequestMock = vi.hoisted(() => vi.fn());
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../gateway/api-client.js", () => ({
+  openClawApiRequest: openClawApiRequestMock,
+}));
 
 vi.mock("../gateway/call.js", () => ({
   callGateway: vi.fn(),
@@ -83,6 +88,21 @@ beforeEach(() => {
 });
 
 describe("agentCliCommand", () => {
+  it("returns a clarification prompt before gateway dispatch for empty session messages", async () => {
+    const runtime = createRuntimeEnv();
+    openClawApiRequestMock.mockReset();
+    const result = await agentCliCommand(
+      {
+        sessionId: "session-1",
+        message: "   ",
+      },
+      runtime,
+    );
+
+    expect(result.text).toContain("I need a bit more detail");
+    expect(openClawApiRequestMock).not.toHaveBeenCalled();
+  });
+
   it("uses a timer-safe max gateway timeout when --timeout is 0", async () => {
     await withTempStore(async () => {
       mockGatewaySuccessReply();
