@@ -64,6 +64,7 @@ isProject: true
 | 2026-04-28 | PR-4b  | 1e6231dd60          | full PolicyGate sub-plan kickoff / cutover-3 |
 | 2026-04-29 | Bug C — recipe routing для intent=publish | 9f6f8d8d3d | Bug A streaming-leak sub-plan kickoff |
 | 2026-04-29 | Bug A — streaming-leak (universal tool-call markers) | 7f56fbd9ab | Bug A.2 buffering / Bug B / Bug D / Bug F sub-plan kickoff |
+| 2026-04-29 | Bug D — clarification policy gate (PolicyGate Stage 1) | caca87a634 | PolicyGate Stages 2-6 (approvals/budgets/role-based/retry/escalation) — signoff required |
 
 
 ### Active Work Handoff Protocol

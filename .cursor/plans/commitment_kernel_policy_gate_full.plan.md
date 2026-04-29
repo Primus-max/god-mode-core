@@ -36,7 +36,7 @@ todos:
       (4) `ClarificationPolicyReader.evaluate({ intent, blockingReasons }) → ClarificationPolicyDecision | Promise<ClarificationPolicyDecision>` (signature mirror `PolicyGateReader.canUseAffordance`);
       (5) `createClarificationPolicy({ cfg })` factory — Wave Stage-1 implementation: matcher проверяет `SemanticIntent.target.kind === 'workspace'` ИЛИ `intent.constraints[<curated structural keys>]` несёт local-маркер (`hosting`, `deploymentTarget`, `executionTarget` ∈ {`local`,`localhost`,`local_machine`}) AND `blockingReasons` содержит хотя бы один reason из curated structural set (`'publish target' | 'deployment target' | 'production target'` substrings — это уже classifier OUTPUT, НЕ user input). Если оба условия выполнены → `{ shouldClarify: false, downgradeReason: 'ambiguity_resolved_by_intent' }`; иначе `{ shouldClarify: true }`.
       Экспорт через `src/platform/commitment/index.ts` (новые символы рядом с `POLICY_GATE_REASONS`/`createPolicyGate`).
-    status: pending
+    status: completed
 
   - id: stage1-runtime-wiring
     stage: 1
@@ -47,7 +47,7 @@ todos:
       (2) Refactor `runShadowBranch` чтобы возвращать `{ result: ShadowBuildResult; intent?: SemanticIntent }` — intent вытаскивается из IntentContractor.classify() результата (раньше discarded). Внешний API `runTurnDecision` остаётся неизменным;
       (3) После `legacyDecision` готов: если `legacyDecision.plannerInput.lowConfidenceStrategy === 'clarify'` И есть intent (с confidence ≥ threshold) И есть blocking-ambiguity reasons из `legacyDecision.plannerInput.decisionTrace?.contracts?.ambiguityProfile` (filter `blocksClarification === true`), то consult `input.clarificationPolicy ?? createClarificationPolicy({ cfg: input.cfg })`. Если `decision.shouldClarify === false` — построить downgraded `productionDecision` (`taskContract.primaryOutcome='answer'`, `interactionMode='respond_only'`, `lowConfidenceStrategy=undefined` или ровный `undefined` при отсутствии); записать marker в `DecisionTrace.clarificationPolicy = { downgradeReason }`.
       (4) Downgrade имеет приоритет над commitment-derived production decision только когда commitment kernel-derived path НЕ сработал (то есть legacy fallback path). Когда `productionDecision === kernel-derived` (cutover-eligible + commitmentSatisfied), clarification gate не вмешивается — kernel sourceOfTruth уже принял решение. Это сохраняет invariant #3.
-    status: pending
+    status: completed
 
   - id: stage1-trace-marker
     stage: 1
@@ -55,7 +55,7 @@ todos:
     content: |
       В `src/platform/decision/trace.ts` (FROZEN — требует PR label `compatibility`):
       добавить optional поле `clarificationPolicy?: { readonly downgradeReason: 'ambiguity_resolved_by_intent' }` в `DecisionTrace`. Это observability-only; не вводит новой orchestration-семантики (тип downgradeReason = closed string-literal). Не задевает 5 frozen contracts (TaskContract / OutcomeContract / QualificationExecutionContract / ResolutionContract / RecipeRoutingHints).
-    status: pending
+    status: completed
 
   - id: stage1-tests
     stage: 1
@@ -64,28 +64,28 @@ todos:
       (a) `src/platform/commitment/__tests__/clarification-policy.test.ts`: reverse-test `CLARIFICATION_POLICY_REASONS === ['ambiguity_resolved_by_intent']` + `Object.isFrozen` + push-throws; positive cases: target=workspace + blocking publish-target reason → `shouldClarify=false; downgradeReason='ambiguity_resolved_by_intent'`; constraints.hosting='local' + same reason → ditto; explicit signal but без blocking reason → `shouldClarify=true`; blocking reason без explicit signal → `shouldClarify=true`; non-deployment blocking reason (например `credentials missing`) — gate НЕ срабатывает даже при local intent.
       (b) `src/platform/decision/run-turn-decision.clarification-downgrade.test.ts`: end-to-end. Legacy classifier emits clarify_first + "publish target is not specified" ambiguity; SemanticIntent имеет `target.kind='workspace'` (или constraints с hosting='local'); production decision должен иметь `primaryOutcome='answer'`, `interactionMode='respond_only'`, `decisionTrace.clarificationPolicy.downgradeReason='ambiguity_resolved_by_intent'`. Negative case: тот же legacy + intent без local signal → production decision остаётся clarify (legacy preserved).
       (c) Bit-identical regression: `pnpm vitest run src/platform/decision/task-classifier.test.ts src/platform/decision/qualification-confidence.test.ts` — frozen layer behavior unchanged.
-    status: pending
+    status: completed
 
   - id: stage1-tsgo-and-lint
     stage: 1
     signoff: not_required
     content: |
-      `pnpm tsgo` clean; ReadLints clean на затронутых файлах; targeted `pnpm test -- src/platform/commitment src/platform/decision` green; `pnpm run lint:commitment:no-raw-user-text-import`, `lint:commitment:no-decision-imports`, `lint:commitment:no-classifier-imports` — все green; `node scripts/check-frozen-layer-label.mjs` с `BASE_REF=origin/dev` + `PR_BODY="- [x] compatibility"` → exit 0 (т.к. `trace.ts` затронут).
-    status: pending
+      `pnpm tsgo` clean; ReadLints clean на затронутых файлах; targeted `pnpm test -- src/platform/commitment src/platform/decision` green; `pnpm run lint:commitment:no-raw-user-text-import`, `lint:commitment:no-decision-imports`, `lint:commitment:no-classifier-imports` — все green; `node scripts/check-frozen-layer-label.mjs` с `BASE_REF=origin/dev` + `PR_BODY="- [x] bug-fix"` → exit 0 (т.к. `trace.ts` затронут; PR использовал checkbox `bug-fix`).
+    status: completed
 
   - id: stage1-commit-and-pr
     stage: 1
     signoff: not_required
     content: |
-      Коммит на русском, без Co-authored-by; `scripts/committer "<msg>" <files...>` (если доступно) или `git commit -F <file>`. PR в `dev` с label `compatibility` (т.к. trace.ts — frozen layer; per `scripts/check-frozen-layer-label.mjs` любая правка `src/platform/decision/trace.ts` требует frozen label). PR body explicitly disclaim: "approvals/budgets/role-based PolicyGate **не** в scope этого PR — Stages 2+ см. в этом sub-plan-е, требуют отдельный PR + invariant #15 signoff".
-    status: pending
+      Коммит на русском, без Co-authored-by; `scripts/committer "<msg>" <files...>` (если доступно) или `git commit -F <file>`. PR в `dev` с frozen-layer checkbox в body (per `scripts/check-frozen-layer-label.mjs` — это PR-body checkbox, не GitHub-label). PR body explicitly disclaim: "approvals/budgets/role-based PolicyGate **не** в scope этого PR — Stages 2+ см. в этом sub-plan-е, требуют отдельный PR + invariant #15 signoff". Merged: PR #110, merge SHA `caca87a634`.
+    status: completed
 
   - id: stage1-handoff-and-master-row
     stage: 1
     signoff: not_required
     content: |
       Post-merge: отдельный `docs(plan)` коммит (1) добавит строку в master §0 PR Progress Log (template Bug A row); (2) обновит frontmatter этого sub-plan-а — Stage 1 todos → `completed`, Stage 2+ остаются `pending` с `signoff: required`; (3) добавит датированную запись в Handoff Log §7.
-    status: pending
+    status: completed
 
   # ===== Stage 2 — Approvals (signoff REQUIRED, отдельный PR) =====
 
@@ -335,6 +335,17 @@ if (!isKernelDerived && shouldDowngrade(...)) {
 Это сохраняет invariant #3 (kernel-derived success — kernel sourceOfTruth, не post-processed).
 
 ## 7. Handoff Log
+
+### 2026-04-29 — Bug D merged (Stage 1 closed)
+
+- Branch: `fix/orchestrator-policy-gate-clarification` → merged into `dev`.
+- PR: [#110](https://github.com/Primus-max/god-mode-core/pull/110).
+- Merge commit: `caca87a634`. Fix commit: `0753d564c4`.
+- Touched: `src/platform/commitment/clarification-policy.ts` (NEW), `src/platform/commitment/__tests__/clarification-policy.test.ts` (NEW), `src/platform/commitment/index.ts`, `src/platform/decision/run-turn-decision.ts`, `src/platform/decision/run-turn-decision.clarification-downgrade.test.ts` (NEW), `src/platform/decision/trace.ts` (FROZEN — PR-body checkbox `- [x] bug-fix`).
+- Tests: `clarification-policy.test.ts` 9/9 green; `run-turn-decision.clarification-downgrade.test.ts` 8/8 green; адъюнктная регрессия `decision/**` + `commitment/**` 127/127 green; `pnpm tsgo` clean; `lint:commitment:imports`/`invariants`/`tools` clean; `check-frozen-layer-label.mjs` (BASE_REF=origin/dev, PR_BODY с `- [x] bug-fix`) → exit 0.
+- Master §0 PR Progress Log row added: `2026-04-29 | Bug D — clarification policy gate (PolicyGate Stage 1) | caca87a634 | PolicyGate Stages 2-6 (approvals/budgets/role-based/retry/escalation) — signoff required`.
+- Next gate (per master §16 + §8.5.1): либо адъюнктные баги (Bug A.2 buffering / Bug B / Bug F), либо PolicyGate Stage 2 (approvals) — Stages 2-6 каждая отдельным PR-ом с **maintainer signoff обязательным** (invariant #15). Все Stages 2-6 должны быть закрыты до cutover-4 (`repo_operation.completed`).
+- Stage 1 архитектурное наследие для Stages 2-6: orthogonal-policy паттерн зафиксирован — каждая новая ось (approvals / budgets / role-based) может быть либо отдельным `*POLICY_REASONS` set'ом со своим reverse-test, либо расширением существующего `POLICY_GATE_REASONS` (с обновлением frozen reverse-test в том же PR). Choice per stage TBD на момент старта.
 
 ### 2026-04-29 — Bootstrap audit (Stage 1)
 
