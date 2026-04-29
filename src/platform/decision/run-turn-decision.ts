@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
+  createClarificationPolicy,
   createIntentContractor,
   createPolicyGate,
   createShadowBuilder,
@@ -8,12 +9,14 @@ import {
   defaultAffordanceRegistry,
   resolveIntentContractorConfig,
   type AffordanceRegistry,
+  type ClarificationPolicyReader,
   type CutoverPolicy,
   type ExpectedDelta,
   type IntentContractorAdapter,
   type MonitoredRuntime,
   type PolicyGateReader,
   type RuntimeAttestation,
+  type SemanticIntent,
 } from "../commitment/index.js";
 import type { ExecutionCommitment } from "../commitment/execution-commitment.js";
 import type { EffectId } from "../commitment/ids.js";
@@ -28,6 +31,7 @@ import {
   type TaskClassifierAdapter,
 } from "./task-classifier.js";
 import type {
+  ClarificationPolicyDowngradeMarker,
   DecisionTrace,
   KernelDerivedDecisionMarker,
   KernelFallbackReason,
@@ -58,6 +62,17 @@ export type RunTurnDecisionInput = {
    * from `input.cfg`, replacing the Wave A `allowAllPolicyGate` stub.
    */
   readonly policyGate?: PolicyGateReader;
+  /**
+   * Stage 1 injection point for the orthogonal Clarification PolicyGate
+   * (`commitment_kernel_policy_gate_full.plan.md`). When omitted,
+   * `runTurnDecision` constructs a default policy from `input.cfg` to
+   * downgrade legacy classifier `clarification_needed` outcomes whose
+   * deployment-target ambiguity is already resolved by the kernel-side
+   * `SemanticIntent` (target=workspace, or constraints with explicit local
+   * marker). Active only on the legacy fallback path; never overrides a
+   * kernel-derived production decision (invariant #3).
+   */
+  readonly clarificationPolicy?: ClarificationPolicyReader;
 };
 
 export type RunTurnDecisionResult = {
@@ -114,6 +129,11 @@ type DecisionTraceWithCutoverGate = DecisionTrace & {
   readonly cutoverGate: CutoverGateTrace;
 };
 
+type ShadowBranchOutcome = {
+  readonly result: ShadowBuildResult;
+  readonly intent?: SemanticIntent;
+};
+
 /**
  * Runs legacy decision and commitment shadow branches side by side, then
  * derives a production decision through the cutover gate (kernel-source on
@@ -146,16 +166,17 @@ export async function runTurnDecision(
     throw legacySettled.reason;
   }
   const legacyDecision = legacySettled.value;
-  const shadowCommitment =
+  const shadowOutcome: ShadowBranchOutcome =
     shadowSettled.status === "fulfilled"
       ? shadowSettled.value
-      : unsupported("shadow_runtime_error");
+      : { result: unsupported("shadow_runtime_error") };
+  const shadowCommitment = shadowOutcome.result;
   const cutover = await evaluateCutoverGate(input, shadowCommitment);
 
   const isKernelDerived =
     cutover.gate.kind === "gate_in_success" && cutover.attestation?.commitmentSatisfied === true;
 
-  const productionDecision = isKernelDerived
+  const baseProductionDecision = isKernelDerived
     ? deriveDecisionFromCommitment({
         legacyDecision,
         shadowCommitment,
@@ -167,6 +188,14 @@ export async function runTurnDecision(
         shadowCommitment,
         cutoverGate: cutover.gate,
         fallbackReason: resolveFallbackReason(shadowCommitment, cutover.gate),
+      });
+
+  const productionDecision = isKernelDerived
+    ? baseProductionDecision
+    : await maybeDowngradeClarification({
+        input,
+        productionDecision: baseProductionDecision,
+        intent: shadowOutcome.intent,
       });
 
   const fallbackReason = isKernelDerived
@@ -185,7 +214,7 @@ export async function runTurnDecision(
   };
 }
 
-async function runShadowBranch(input: RunTurnDecisionInput): Promise<ShadowBuildResult> {
+async function runShadowBranch(input: RunTurnDecisionInput): Promise<ShadowBranchOutcome> {
   const config = resolveIntentContractorConfig({ cfg: input.cfg });
   try {
     return await withTimeout(
@@ -204,12 +233,15 @@ async function runShadowBranch(input: RunTurnDecisionInput): Promise<ShadowBuild
           confidenceThreshold: config.confidenceThreshold,
         });
         const intent = await intentContractor.classify(input.prompt);
-        return await shadowBuilder.build(intent);
+        const result = await shadowBuilder.build(intent);
+        return { result, intent };
       })(),
       config.timeoutMs,
     );
   } catch (error) {
-    return unsupported(isTimeoutError(error) ? "shadow_timeout" : "shadow_runtime_error");
+    return {
+      result: unsupported(isTimeoutError(error) ? "shadow_timeout" : "shadow_runtime_error"),
+    };
   }
 }
 
@@ -402,6 +434,101 @@ function resolveFallbackReason(
     case "gate_in_success":
       return "commitment_unsatisfied";
   }
+}
+
+/**
+ * Applies the Stage 1 ClarificationPolicy gate to the legacy fallback decision.
+ * Active only when the production decision still carries `lowConfidenceStrategy
+ * === "clarify"` (so kernel-derived success paths and non-clarify legacy paths
+ * are bypassed). When the gate downgrades, returns a copy of the decision with
+ * `taskContract.primaryOutcome="answer"`, `interactionMode="respond_only"`,
+ * cleared `lowConfidenceStrategy`, and an observability marker in
+ * `decisionTrace.clarificationPolicy`. Otherwise the decision is returned
+ * unchanged.
+ *
+ * @param params - Original production decision plus optional kernel-side intent.
+ * @returns Possibly-downgraded production decision.
+ */
+async function maybeDowngradeClarification(params: {
+  readonly input: RunTurnDecisionInput;
+  readonly productionDecision: ClassifiedTaskResolution;
+  readonly intent?: SemanticIntent;
+}): Promise<ClassifiedTaskResolution> {
+  const { input, productionDecision, intent } = params;
+  if (!intent) {
+    return productionDecision;
+  }
+  if (productionDecision.plannerInput.lowConfidenceStrategy !== "clarify") {
+    return productionDecision;
+  }
+  const blockingReasons = collectBlockingClarificationReasons(productionDecision);
+  if (blockingReasons.length === 0) {
+    return productionDecision;
+  }
+  const gate = input.clarificationPolicy ?? createClarificationPolicy({ cfg: input.cfg });
+  const decision = await gate.evaluate({ intent, blockingReasons });
+  if (decision.shouldClarify) {
+    return productionDecision;
+  }
+  return downgradeClarifyToAnswer(productionDecision, {
+    downgradeReason: decision.downgradeReason,
+  });
+}
+
+/**
+ * Reads classifier-emitted blocking ambiguity reasons from the production
+ * decision's trace. Returns the empty list when no ambiguity profile is
+ * attached or no entry has `blocksClarification === true`.
+ *
+ * @param decision - Production classified task resolution.
+ * @returns Blocking ambiguity reason strings (classifier output, not user text).
+ */
+function collectBlockingClarificationReasons(decision: ClassifiedTaskResolution): string[] {
+  const profile = decision.plannerInput.decisionTrace?.contracts?.ambiguityProfile;
+  if (!profile || profile.length === 0) {
+    return [];
+  }
+  return profile
+    .filter((entry) => entry.blocksClarification)
+    .map((entry) => entry.reason);
+}
+
+/**
+ * Builds a downgraded `ClassifiedTaskResolution` from a clarify-needed legacy
+ * decision. The downgrade flips `primaryOutcome` to `answer`, drops the
+ * clarify-first interaction mode, clears `lowConfidenceStrategy`, and writes a
+ * `clarificationPolicy.downgradeReason` marker into the decision trace. The
+ * marker is observability-only — it does not extend any of the five frozen
+ * legacy contracts (invariant #11).
+ *
+ * @param legacy - Production decision still carrying legacy clarify shape.
+ * @param marker - Closed-string downgrade reason from the gate.
+ * @returns Downgraded decision with answer/respond_only shape.
+ */
+function downgradeClarifyToAnswer(
+  legacy: ClassifiedTaskResolution,
+  marker: ClarificationPolicyDowngradeMarker,
+): ClassifiedTaskResolution {
+  const previousTrace = legacy.plannerInput.decisionTrace;
+  const decisionTrace: DecisionTrace = {
+    version: 1,
+    ...previousTrace,
+    clarificationPolicy: marker,
+  };
+  const taskContract = {
+    ...legacy.taskContract,
+    primaryOutcome: "answer" as const,
+    interactionMode: "respond_only" as const,
+  };
+  const { lowConfidenceStrategy: _droppedStrategy, ...plannerInputRest } = legacy.plannerInput;
+  return {
+    ...legacy,
+    taskContract,
+    plannerInput: {
+      ...plannerInputRest,
+      decisionTrace,
+    },
+  };
 }
 
 function extractCommitment(shadowCommitment: ShadowBuildResult): ExecutionCommitment {

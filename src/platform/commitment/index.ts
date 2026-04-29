@@ -53,6 +53,17 @@ export {
 } from "./policy-gate.js";
 export type { PolicyGateReason, RealPolicyGateContext } from "./policy-gate.js";
 export {
+  CLARIFICATION_POLICY_REASONS,
+  createClarificationPolicy,
+} from "./clarification-policy.js";
+export type {
+  ClarificationPolicyContext,
+  ClarificationPolicyDecision,
+  ClarificationPolicyEvaluateInput,
+  ClarificationPolicyReader,
+  ClarificationPolicyReason,
+} from "./clarification-policy.js";
+export {
   buildSessionWorldStateFromRuns,
   createSessionWorldStateObserver,
   createSessionWorldStateObserverFromSnapshotSource,
