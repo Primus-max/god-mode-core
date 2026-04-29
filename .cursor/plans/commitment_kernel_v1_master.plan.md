@@ -62,6 +62,7 @@ isProject: true
 | 2026-04-27 | PR-3   | addcb196be          | v1 UAT (cutover-1)      |
 | 2026-04-28 | PR-4a  | d042a6b03a          | PR-4b sub-plan kickoff  |
 | 2026-04-28 | PR-4b  | 1e6231dd60          | full PolicyGate sub-plan kickoff / cutover-3 |
+| 2026-04-29 | Bug C — recipe routing для intent=publish | 9f6f8d8d3d | Bug A streaming-leak sub-plan kickoff |
 
 
 ### Active Work Handoff Protocol
