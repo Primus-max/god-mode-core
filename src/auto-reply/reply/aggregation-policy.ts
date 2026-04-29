@@ -49,6 +49,20 @@ export const HOLDING_MESSAGE_TEXT =
   "Запустил воркера. Полный результат пришлю отдельным сообщением, когда будет готов.";
 
 /**
+ * Cross-turn holding-template (PR-G `commitment_kernel_subagent_await.plan.md`).
+ *
+ * Отличается от `HOLDING_MESSAGE_TEXT` назначением: первый отправляется в
+ * turn'е, где parent сам только что вызвал `sessions_spawn`; второй —
+ * на следующих turn'ах, когда child из предыдущего turn'а ещё не достиг
+ * terminal'а, а LLM пытается выдать text-only reply (которое утечёт в
+ * external channel и через провенанс / classifier породит дубликат spawn'а).
+ *
+ * Формулировка короткая, без доменных деталей и без эмодзи.
+ */
+export const PENDING_CHILD_HOLDING_MESSAGE_TEXT =
+  "Все ещё работаю над предыдущей задачей. Напишу когда будет готово.";
+
+/**
  * Telemetry event names (for `[subagent-aggregation]` log prefix).
  *
  * - `holding_sent`: parent отправил holding-template и закрыл turn.
@@ -68,7 +82,10 @@ export type AggregationTelemetryEvent =
   | "worker_terminal_complete_verbatim"
   | "worker_terminal_failed_fallback"
   | "verbatim_skipped"
-  | "policy_passthrough";
+  | "policy_passthrough"
+  | "pending_child_holding_sent"
+  | "pending_child_timeout"
+  | "pending_child_idempotent_skip";
 
 /**
  * Описание spawn-result'а в текущем parent-turn'е, нужное для решения
@@ -210,6 +227,19 @@ export function buildHoldingIdempotencyKey(params: {
 }): string {
   const suffix = params.childRunId ? `:${params.childRunId}` : "";
   return `subagent-aggregation:holding:${params.parentSessionKey}:${params.childSessionKey}${suffix}`;
+}
+
+/**
+ * Идемпотентный ключ для cross-turn holding'а (PR-G). Имеет отдельный
+ * namespace, чтобы не сталкиваться с in-turn `buildHoldingIdempotencyKey`
+ * при retry того же `(parentSessionKey, childRunId)` в разных turn'ах.
+ */
+export function buildPendingChildHoldingIdempotencyKey(params: {
+  parentSessionKey: string;
+  childSessionKey: string;
+  childRunId: string;
+}): string {
+  return `subagent-aggregation:pending-child-holding:${params.parentSessionKey}:${params.childSessionKey}:${params.childRunId}`;
 }
 
 /**
