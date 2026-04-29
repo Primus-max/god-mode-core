@@ -176,7 +176,11 @@ export const INITIAL_RECIPES: ExecutionRecipe[] = [
     producedArtifacts: [
       { type: "report", description: "Operational runbook and execution summary" },
     ],
-    allowedProfiles: ["operator"],
+    // Bug C: integrator profile тоже допустим как кандидат — профайл-резолвер
+    // выбирает integrator по умолчанию для любого external_operation, что
+    // структурно исключало ops_orchestration из пула до scoring'а. Сам
+    // scoring (см. planner.ts buildRecipeScore) теперь решает tie-break.
+    allowedProfiles: ["operator", "integrator"],
     riskLevel: "high",
     systemPrompt:
       "Work operations-first. Prefer inspection, explain planned impact, and keep approvals explicit for machine, bootstrap, or session-orchestration actions. For persistent worker requests, use sessions_spawn with continuation=\"followup\".",

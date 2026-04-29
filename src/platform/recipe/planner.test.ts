@@ -552,6 +552,11 @@ describe("planExecutionRecipe", () => {
   });
 
   it("uses candidateFamilies as the primary family-selection input", () => {
+    // Bug C (commitment_kernel_recipe_routing_publish.plan.md): intent=publish
+    // без интеграционного сигнала (нет webhook target / нет integrations поля /
+    // профиль не integrator) теперь дефолтится в ops_orchestration внутри
+    // ops_execution-семьи, а не в integration_delivery. Family-narrowing
+    // продолжает работать — recipe всё ещё в семье ops_execution.
     const plan = planExecutionRecipe({
       prompt: "Fix the failing build and publish to GitHub",
       fileNames: ["app.ts"],
@@ -562,8 +567,35 @@ describe("planExecutionRecipe", () => {
       outcomeContract: "external_operation",
     });
 
-    expect(plan.recipe.id).toBe("integration_delivery");
+    expect(plan.recipe.id).toBe("ops_orchestration");
     expect(plan.plannerOutput.reasoning).toContain("Family: ops_execution.");
+  });
+
+  it("Bug C: intent=publish без integration-сигнала не выбирает integration_delivery", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Опубликуй сборку",
+      publishTargets: ["github"],
+      requestedTools: ["exec"],
+      intent: "publish",
+      candidateFamilies: ["ops_execution"],
+      outcomeContract: "external_operation",
+    });
+
+    expect(plan.recipe.id).not.toBe("integration_delivery");
+    expect(plan.recipe.id).toBe("ops_orchestration");
+  });
+
+  it("Bug C: integration_delivery остаётся выбором при явном integration-target", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Roll out the connector",
+      publishTargets: ["webhook"],
+      requestedTools: ["exec"],
+      intent: "publish",
+      candidateFamilies: ["ops_execution"],
+      outcomeContract: "external_operation",
+    });
+
+    expect(plan.recipe.id).toBe("integration_delivery");
   });
 
   it("prefers resolution-contract family selection over legacy cross-family scoring", () => {
