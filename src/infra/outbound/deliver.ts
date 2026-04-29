@@ -44,6 +44,12 @@ import type { OutboundIdentity } from "./identity.js";
 import type { DeliveryMirror } from "./mirror.js";
 import type { NormalizedOutboundPayload } from "./payloads.js";
 import { normalizeReplyPayloadsForDelivery } from "./payloads.js";
+import {
+  EMPTY_AFTER_SANITIZATION_FALLBACK_TEXT,
+  formatOutboundSanitizerLog,
+  isExternalDeliverySurface,
+  sanitizeOutboundForExternalChannel,
+} from "./outbound-sanitizer.js";
 import { isPlainTextSurface, sanitizeForPlainText } from "./sanitize-text.js";
 import { resolveOutboundSendDep, type OutboundSendDeps } from "./send-deps.js";
 import type { OutboundSessionContext } from "./session-context.js";
@@ -371,8 +377,10 @@ function normalizePayloadsForChannelDelivery(
   payloads: ReplyPayload[],
   channel: Exclude<OutboundChannel, "none">,
   handler: ChannelHandler,
+  sessionKey?: string,
 ): ReplyPayload[] {
   const normalizedPayloads: ReplyPayload[] = [];
+  const isExternal = isExternalDeliverySurface(channel);
   for (const payload of normalizeReplyPayloadsForDelivery(payloads)) {
     let sanitizedPayload = payload;
     // Strip HTML tags for plain-text surfaces (WhatsApp, Signal, etc.)
@@ -384,6 +392,30 @@ function normalizePayloadsForChannelDelivery(
           ...sanitizedPayload,
           text: sanitizeForPlainText(sanitizedPayload.text),
         };
+      }
+    }
+    // Outbound sanitizer: defense-in-depth gate против raw internal diagnostics
+    // (`[tools] X failed:`, `[task-classifier]`, `[planner]`, `[provenance-guard]`,
+    // `[subagent-aggregation]`, `[intent-ledger]`, `[DEBUG ...]`, raw tool-error
+    // JSON envelopes, Node stack traces) leaking в external channels. Applied
+    // ПОСЛЕ HTML strip — обе sanitizations работают последовательно.
+    // См. `outbound-sanitizer.ts` + sub-plan
+    // `.cursor/plans/commitment_kernel_outbound_sanitizer.plan.md`.
+    if (isExternal && sanitizedPayload.text) {
+      const beforeText = sanitizedPayload.text;
+      const sanitizationResult = sanitizeOutboundForExternalChannel(beforeText);
+      if (sanitizationResult.stripped.length > 0) {
+        const finalText = sanitizationResult.text || EMPTY_AFTER_SANITIZATION_FALLBACK_TEXT;
+        sanitizedPayload = { ...sanitizedPayload, text: finalText };
+        log.warn(
+          formatOutboundSanitizerLog({
+            channel,
+            stripped: sanitizationResult.stripped,
+            sessionKey,
+            bytesBefore: beforeText.length,
+            bytesAfter: finalText.length,
+          }),
+        );
       }
     }
     const normalizedPayload = handler.normalizePayload
@@ -733,9 +765,14 @@ async function deliverOutboundPayloadsCore(
       results.push(await handler.sendText(chunk, overrides));
     }
   };
-  const normalizedPayloads = normalizePayloadsForChannelDelivery(payloads, channel, handler);
   const hookRunner = getGlobalHookRunner();
   const sessionKeyForInternalHooks = params.mirror?.sessionKey ?? params.session?.key;
+  const normalizedPayloads = normalizePayloadsForChannelDelivery(
+    payloads,
+    channel,
+    handler,
+    sessionKeyForInternalHooks,
+  );
   const mirrorIsGroup = params.mirror?.isGroup;
   const mirrorGroupId = params.mirror?.groupId;
   const { emitMessageSent, hasMessageSentHooks } = createMessageSentEmitter({
