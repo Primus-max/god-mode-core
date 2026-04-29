@@ -82,6 +82,7 @@ import {
 import { createReplyMediaPathNormalizer } from "./reply-media-paths.runtime.js";
 import { createReplyToModeFilterForChannel, resolveReplyToMode } from "./reply-threading.js";
 import { incrementRunCompactionCount, persistRunSessionUsage } from "./session-run-accounting.js";
+import { applyAggregationOverride } from "./subagent-aggregation.js";
 import { createTypingSignaler } from "./typing-mode.js";
 import type { TypingController } from "./typing.js";
 
@@ -925,7 +926,34 @@ export async function runReplyAgent(params: {
         }
       }
 
-      const payloadArray = runResult.payloads ?? [];
+      let payloadArray = runResult.payloads ?? [];
+      // Subagent result aggregation gate (sub-plan §4 #2 default Option A
+      // `holding`). Закрывает audit-gaps O1+O3: на каждый external_user
+      // turn parent выпускает РОВНО ОДНО финальное user-facing сообщение.
+      // Если LLM этого turn'а вызвал `sessions_spawn` и в registry есть
+      // active continuation child (persistent_session или followup с
+      // expectsCompletionMessage) — заменяем payloads на ОДНО holding-
+      // сообщение БЕЗ повторного LLM-pass'а. Worker-completion придёт
+      // отдельным сообщением через verbatim path в subagent-announce.ts.
+      const aggregationOverride = applyAggregationOverride({
+        runResult,
+        parentSessionKey: sessionKey,
+        userChannelOrigin: {
+          channel: resolveOriginMessageProvider({
+            originatingChannel: sessionCtx.OriginatingChannel,
+            provider: sessionCtx.Provider,
+          }),
+          to: resolveOriginMessageTo({
+            originatingTo: sessionCtx.OriginatingTo,
+            to: sessionCtx.To,
+          }),
+          accountId: sessionCtx.AccountId,
+          threadId: sessionCtx.MessageThreadId,
+        },
+      });
+      if (aggregationOverride) {
+        payloadArray = aggregationOverride.payloads;
+      }
       const executionFingerprint = computeIntentFingerprint(
         runResult.meta?.executionIntent?.deliverable,
         runResult.meta?.executionIntent?.requiredCapabilities,
