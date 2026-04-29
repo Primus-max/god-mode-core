@@ -29,6 +29,7 @@ multi-turn planning. It only adds a preflight decision point for one live turn.
 ## Audit Pointers
 
 - `src/platform/commitment/preflight.ts`
+- `src/platform/commitment/command-preflight-runtime.ts`
 - `src/platform/commitment/production-runtime-defaults.ts`
 - `src/commands/agent-via-gateway.ts`
 

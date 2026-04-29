@@ -1,4 +1,5 @@
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
+import { createCommandPreflightRuntime } from "../platform/commitment/command-preflight-runtime.js";
 import { runCommitmentPreflight } from "../platform/commitment/preflight.js";
 import { listAgentIds } from "../agents/agent-scope.js";
 import { formatCliCommand } from "../cli/command-format.js";
@@ -84,34 +85,6 @@ function formatPayloadForLog(payload: {
     lines.push(`MEDIA:${url}`);
   }
   return lines.join("\n").trimEnd();
-}
-
-function createCommandCommitmentRuntime() {
-  return {
-    async observeSessionWorldState({
-      sessionId,
-      userMessage,
-    }: {
-      sessionId: string;
-      userMessage: string;
-    }) {
-      return {
-        sessionId,
-        latestUserMessage: userMessage,
-        openQuestions: userMessage.trim() ? [] : ["user-message"],
-        expectedDelta: null,
-        delivery: null,
-      };
-    },
-    clarificationPolicy(worldState: { latestUserMessage: string }) {
-      return worldState.latestUserMessage.trim()
-        ? { kind: "proceed" as const }
-        : { kind: "clarify" as const, reason: "empty-user-message" };
-    },
-    cutoverPolicy() {
-      return { kind: "proceed" as const };
-    },
-  };
 }
 
 export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: RuntimeEnv) {
@@ -219,7 +192,7 @@ export async function agentCliCommand(opts: AgentCliOpts, runtime: RuntimeEnv, d
 
   try {
     if (opts.sessionId) {
-      const preflight = await runCommitmentPreflight(createCommandCommitmentRuntime(), {
+      const preflight = await runCommitmentPreflight(createCommandPreflightRuntime(), {
         sessionId: opts.sessionId,
         userMessage: opts.message ?? "",
       });
