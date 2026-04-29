@@ -111,6 +111,23 @@ export type KernelDerivedDecisionMarker = {
   readonly acceptanceReason: RuntimeAcceptanceReason;
 };
 
+/**
+ * Observability-only marker describing that the legacy classifier
+ * `clarification_needed` outcome was downgraded to a regular answer because
+ * the kernel-side `SemanticIntent` already carried a structural signal that
+ * resolves the ambiguity (Stage 1 of `commitment_kernel_policy_gate_full.plan.md`).
+ *
+ * The downgrade is emitted by `run-turn-decision.ts` and is **not** a new
+ * orchestration-semantics field on TaskContract / OutcomeContract /
+ * QualificationExecutionContract / ResolutionContract / RecipeRoutingHints
+ * (invariant #11). The closed-string `downgradeReason` mirrors the frozen
+ * `CLARIFICATION_POLICY_REASONS` set; any extension requires an explicit
+ * sub-plan stage with maintainer signoff (invariant #15).
+ */
+export type ClarificationPolicyDowngradeMarker = {
+  readonly downgradeReason: "ambiguity_resolved_by_intent";
+};
+
 export type DecisionTrace = {
   version: 1;
   classifier?: DecisionTraceClassifier;
@@ -125,6 +142,7 @@ export type DecisionTrace = {
   readonly kernelDerived?: KernelDerivedDecisionMarker;
   readonly kernelFallback?: boolean;
   readonly fallbackReason?: KernelFallbackReason;
+  readonly clarificationPolicy?: ClarificationPolicyDowngradeMarker;
 };
 
 function sortUnique(values: readonly string[] | undefined): string[] {
