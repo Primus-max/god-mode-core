@@ -786,6 +786,42 @@ function buildRecipeScore(params: {
         ? "code"
         : undefined;
 
+  // Bug C — recipe routing для intent=publish.
+  // Структурные сигналы для tie-break внутри ops_execution-семьи. Никакого
+  // text-rule matching на user prompt (invariant #5). Используются
+  // нормализованные publishTargets / integrations поля из classifier/resolution.
+  // Profile id=integrator как сигнал не используется специально: он
+  // выбирается по умолчанию для external_operation в profile/resolver.ts:140
+  // даже без явных integration-сигналов и не различает «реальный integration
+  // turn» и «default publish без сигнала».
+  const publishTargetsLower = (input.publishTargets ?? []).map((value) =>
+    value.toLowerCase(),
+  );
+  const integrationsLower = (input.integrations ?? []).map((value) =>
+    value.toLowerCase(),
+  );
+  // Target уникальный для integration_delivery vs code_build_publish (см.
+  // recipe defaults.ts): только webhook не пересекается с code_build_publish.
+  const hasIntegrationOnlyTarget = publishTargetsLower.includes("webhook");
+  // Подмножество INTEGRATOR_INTEGRATIONS из profile/signals.ts — структурный
+  // классификатор уже различает их как integrator-конфигурации.
+  const integrationSignalIntegrations = new Set([
+    "slack",
+    "discord",
+    "notion",
+    "confluence",
+    "jira",
+    "linear",
+    "zapier",
+    "webhook",
+    "mcp",
+  ]);
+  const hasIntegrationConfigSignal = integrationsLower.some((value) =>
+    integrationSignalIntegrations.has(value),
+  );
+  const isPublishIntent = input.intent === "publish";
+  const isIntegrationConfident = hasIntegrationOnlyTarget || hasIntegrationConfigSignal;
+
   if (recipe.id === "general_reasoning") {
     let score = 0.2;
     if (profile.selectedProfile.id === "general") {
@@ -1086,6 +1122,17 @@ function buildRecipeScore(params: {
     if (profileBias === "code") {
       score += 0.8;
     }
+    // Bug C: явный integration-only target → подтверждаем интеграционную ветку.
+    if (hasIntegrationOnlyTarget) {
+      score += 1.2;
+    }
+    // Bug C: для intent=publish без интеграционного сигнала integration_delivery
+    // не должен опережать ops_orchestration / code_build_publish. Симптом —
+    // ранний refusal до правильной recipe; «второй pass = ops_orchestration»
+    // достигался добавлением session_orchestration / requiresLocalProcess.
+    if (isPublishIntent && !isIntegrationConfident) {
+      score -= 2.5;
+    }
     return score;
   }
 
@@ -1121,6 +1168,12 @@ function buildRecipeScore(params: {
     }
     if (hasRepoMutation) {
       score -= 1.2;
+    }
+    // Bug C: для intent=publish без интеграционного сигнала и без session-pool'а
+    // ops_orchestration становится дефолтом семьи ops_execution (закрывает
+    // «первый pass = integration_delivery, второй pass = ops_orchestration»).
+    if (isPublishIntent && !isIntegrationConfident && !hasSessionOrchestration) {
+      score += 1.5;
     }
     return score;
   }
