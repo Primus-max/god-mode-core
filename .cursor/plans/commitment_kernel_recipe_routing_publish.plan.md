@@ -20,8 +20,8 @@ todos:
       (3) Тесты: `planner.test.ts` обновлён («uses candidateFamilies as the primary family-selection input» теперь ожидает ops_orchestration с обоснованием как Bug C structural change); добавлены два регресса — Bug C без integration-сигнала → ops_orchestration; Bug C с webhook → integration_delivery остаётся.
     status: completed
   - id: handoff-and-master-row
-    content: Handoff в §7 после merge; строка в master §0 PR Progress Log — отдельный `docs(plan)` коммит при merge PR в dev.
-    status: pending
+    content: Handoff в §7 после merge; строка в master §0 PR Progress Log — отдельный `docs(plan)` коммит при merge PR в dev. PR #108 merged 9f6f8d8d3d 2026-04-29; master row добавлена commit 09ce097e1b.
+    status: completed
 isProject: false
 ---
 
@@ -140,6 +140,10 @@ Tests:
 - `pnpm test -- src/auto-reply/reply/agent-runner-utils.test.ts` — 14/14 green.
 
 Out-of-scope невзял: commitment kernel; 4 frozen call-sites; пять frozen decision contracts (правка только в recipe/, профайл-резолвер не тронут); outbound sanitizer / aggregation / provenance gate.
+
+### 2026-04-29 — Merge
+
+PR #108 merged в `dev` как merge-commit `9f6f8d8d3d` (после простановки `bug-fix` чек-бокса в frozen-layer label). Master §0 PR Progress Log обновлён отдельным `docs(plan)` коммитом `09ce097e1b`. Следующий gate: Bug A — streaming-leak sub-plan kickoff (см. master §8).
 
 Adjacent flake’ы на dev (не от моего изменения): `claude-cli` ENOENT, anthropic tool schema mismatch, heartbeat sender vi-mock, Windows EPERM на vitest cache в `cron/isolated-agent`. Им — отдельный трекинг.
 
