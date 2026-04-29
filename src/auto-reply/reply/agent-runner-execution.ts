@@ -105,6 +105,8 @@ export async function runAgentTurnWithFallback(params: {
   activeSessionStore?: Record<string, SessionEntry>;
   storePath?: string;
   resolvedVerboseLevel: VerboseLevel;
+  /** Structural hook before tool flush — external block buffering (PR-A.2); no text inspection. */
+  onStructuralToolExecutionStarting?: () => void | Promise<void>;
   /**
    * Invoked once, right after the routing snapshot is resolved, when the
    * planner flagged this turn as `ackThenDefer` (P1.4 D.2). Implementations
@@ -525,6 +527,7 @@ export async function runAgentTurnWithFallback(params: {
                         await blockReplyPipeline.flush({ force: true });
                       }
                     : undefined,
+                onStructuralToolExecutionStarting: params.onStructuralToolExecutionStarting,
                 shouldEmitToolResult: params.shouldEmitToolResult,
                 shouldEmitToolOutput: params.shouldEmitToolOutput,
                 bootstrapPromptWarningSignaturesSeen,

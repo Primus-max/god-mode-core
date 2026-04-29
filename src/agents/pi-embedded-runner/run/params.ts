@@ -117,6 +117,11 @@ export type RunEmbeddedPiAgentParams = {
   onAssistantMessageStart?: () => void | Promise<void>;
   onBlockReply?: (payload: BlockReplyPayload) => void | Promise<void>;
   onBlockReplyFlush?: () => void | Promise<void>;
+  /**
+   * Structural signal immediately before block-buffer flush / tool execution start.
+   * PR-A.2 external-channel buffering — must not inspect user or delta text.
+   */
+  onStructuralToolExecutionStarting?: () => void | Promise<void>;
   blockReplyBreak?: "text_end" | "message_end";
   blockReplyChunking?: BlockReplyChunking;
   onReasoningStream?: (payload: { text?: string; mediaUrls?: string[] }) => void | Promise<void>;

@@ -65,10 +65,12 @@ import {
   hasUnbackedReminderCommitment,
 } from "./agent-runner-reminder-guard.js";
 import { appendUsageLine, formatResponseUsageLine } from "./agent-runner-usage-line.js";
+import { createExternalBlockReplyDeferral } from "./block-external-buffer.js";
 import { createAudioAsVoiceBuffer, createBlockReplyPipeline } from "./block-reply-pipeline.js";
 import { resolveEffectiveBlockStreamingConfig } from "./block-streaming.js";
 import { createFollowupRunner } from "./followup-runner.js";
 import { resolveOriginMessageProvider, resolveOriginMessageTo } from "./origin-routing.js";
+import { isRoutableChannel } from "./route-reply.js";
 import { readPostCompactionContext } from "./post-compaction-context.js";
 import { resolveActiveRunQueueAction } from "./queue-policy.js";
 import type { FollowupRun, QueueSettings } from "./queue.js";
@@ -580,18 +582,39 @@ export async function runReplyAgent(params: {
       : null;
   let progressStreamingEmitted = false;
   const originalOnBlockReply = opts?.onBlockReply;
+  const originatingToForBuffer = resolveOriginMessageTo({
+    originatingTo: sessionCtx.OriginatingTo,
+    to: sessionCtx.To,
+  });
+  const shouldBufferExternalBlockStreams =
+    Boolean(originatingToForBuffer) &&
+    isRoutableChannel(sessionCtx.OriginatingChannel);
   const streamingAwareBlockReply: NonNullable<GetReplyOptions["onBlockReply"]> | undefined =
     originalOnBlockReply
-      ? (payload, options) => {
-          if (turnProgressEmitter && !progressStreamingEmitted) {
-            progressStreamingEmitted = true;
-            turnProgressEmitter.emit("streaming");
-          }
-          return originalOnBlockReply(payload, options);
-        }
+      ? (payload, options) => originalOnBlockReply(payload, options)
       : undefined;
+  const externalBlockDeferral =
+    blockStreamingEnabled &&
+    streamingAwareBlockReply &&
+    shouldBufferExternalBlockStreams
+      ? createExternalBlockReplyDeferral({
+          turnId: progressTurnId,
+          sessionId: progressSessionId.trim() ? progressSessionId : undefined,
+        })
+      : null;
+  let deliveredBlockReply = streamingAwareBlockReply;
+  if (externalBlockDeferral && streamingAwareBlockReply) {
+    const wrapped = externalBlockDeferral.wrapDeliver(streamingAwareBlockReply);
+    deliveredBlockReply = (payload, options) => {
+      if (turnProgressEmitter && !progressStreamingEmitted) {
+        progressStreamingEmitted = true;
+        turnProgressEmitter.emit("streaming");
+      }
+      return wrapped(payload, options);
+    };
+  }
   const blockReplyCoalescing =
-    blockStreamingEnabled && streamingAwareBlockReply
+    blockStreamingEnabled && deliveredBlockReply
       ? resolveEffectiveBlockStreamingConfig({
           cfg,
           provider: sessionCtx.Provider,
@@ -600,9 +623,9 @@ export async function runReplyAgent(params: {
         }).coalescing
       : undefined;
   const blockReplyPipeline =
-    blockStreamingEnabled && streamingAwareBlockReply
+    blockStreamingEnabled && deliveredBlockReply
       ? createBlockReplyPipeline({
-          onBlockReply: streamingAwareBlockReply,
+          onBlockReply: deliveredBlockReply,
           timeoutMs: blockReplyTimeoutMs,
           coalescing: blockReplyCoalescing,
           buffer: createAudioAsVoiceBuffer({ isAudioPayload }),
@@ -882,6 +905,9 @@ export async function runReplyAgent(params: {
         activeSessionStore,
         storePath,
         resolvedVerboseLevel,
+        onStructuralToolExecutionStarting: externalBlockDeferral
+          ? () => externalBlockDeferral.notifyStructuralToolExecutionStarting()
+          : undefined,
         onAckThenDefer: async ({ runId: ackRunId, estimatedDurationMs }) => {
           await emitDeferredAck(ackRunId);
           void estimatedDurationMs;
@@ -961,6 +987,11 @@ export async function runReplyAgent(params: {
 
       if (blockReplyPipeline) {
         await blockReplyPipeline.flush({ force: true });
+      }
+      if (externalBlockDeferral && streamingAwareBlockReply) {
+        await externalBlockDeferral.finalizeAfterRun(streamingAwareBlockReply);
+      }
+      if (blockReplyPipeline) {
         blockReplyPipeline.stop();
       }
 

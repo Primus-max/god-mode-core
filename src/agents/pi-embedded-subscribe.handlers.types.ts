@@ -145,6 +145,7 @@ export type ToolHandlerParams = Pick<
   SubscribeEmbeddedPiSessionParams,
   | "runId"
   | "onBlockReplyFlush"
+  | "onStructuralToolExecutionStarting"
   | "onAgentEvent"
   | "onToolResult"
   | "sessionKey"

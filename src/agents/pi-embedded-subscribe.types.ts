@@ -24,6 +24,8 @@ export type SubscribeEmbeddedPiSessionParams = {
   onBlockReply?: (payload: BlockReplyPayload) => void | Promise<void>;
   /** Flush pending block replies (e.g., before tool execution to preserve message boundaries). */
   onBlockReplyFlush?: () => void | Promise<void>;
+  /** Structural hook before tool flush — external block buffering (PR-A.2); no text inspection. */
+  onStructuralToolExecutionStarting?: () => void | Promise<void>;
   blockReplyBreak?: "text_end" | "message_end";
   blockReplyChunking?: BlockReplyChunking;
   onPartialReply?: (payload: { text?: string; mediaUrls?: string[] }) => void | Promise<void>;
