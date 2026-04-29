@@ -103,6 +103,40 @@ describe("agentCliCommand", () => {
     expect(openClawApiRequestMock).not.toHaveBeenCalled();
   });
 
+  it("returns a clarification prompt when context hints contain open questions", async () => {
+    const runtime = createRuntimeEnv();
+    openClawApiRequestMock.mockReset();
+    const result = await agentCliCommand(
+      {
+        sessionId: "session-1",
+        message: "send it",
+        contextHints: {
+          openQuestions: ["target-entity"],
+        },
+      },
+      runtime,
+    );
+
+    expect(result.text).toContain("I need a bit more detail");
+    expect(openClawApiRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a clarification prompt when delivery is requested without a recipient", async () => {
+    const runtime = createRuntimeEnv();
+    openClawApiRequestMock.mockReset();
+    const result = await agentCliCommand(
+      {
+        sessionId: "session-1",
+        message: "send status update",
+        deliver: true,
+      },
+      runtime,
+    );
+
+    expect(result.text).toContain("Who should I send this to?");
+    expect(openClawApiRequestMock).not.toHaveBeenCalled();
+  });
+
   it("uses a timer-safe max gateway timeout when --timeout is 0", async () => {
     await withTempStore(async () => {
       mockGatewaySuccessReply();

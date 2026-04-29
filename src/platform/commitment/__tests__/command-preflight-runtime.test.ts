@@ -16,4 +16,19 @@ describe("createCommandPreflightRuntime", () => {
     });
     expect(runtime.cutoverPolicy(worldState)).toEqual({ kind: "proceed" });
   });
+
+  it("preserves explicit open question hints", async () => {
+    const runtime = createCommandPreflightRuntime({
+      openQuestions: ["target-entity"],
+    });
+    const worldState = await runtime.observeSessionWorldState({
+      sessionId: "session-1",
+      userMessage: "schedule it for tomorrow",
+    });
+
+    expect(runtime.clarificationPolicy(worldState)).toEqual({
+      kind: "clarify",
+      reason: "target-entity",
+    });
+  });
 });

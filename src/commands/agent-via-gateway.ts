@@ -1,5 +1,6 @@
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { createCommandPreflightRuntime } from "../platform/commitment/command-preflight-runtime.js";
+import type { CommandPreflightContextHints } from "../platform/commitment/command-preflight-runtime.js";
 import { runCommitmentPreflight } from "../platform/commitment/preflight.js";
 import { listAgentIds } from "../agents/agent-scope.js";
 import { formatCliCommand } from "../cli/command-format.js";
@@ -40,6 +41,7 @@ export type AgentCliOpts = {
   agent?: string;
   to?: string;
   sessionId?: string;
+  contextHints?: CommandPreflightContextHints;
   thinking?: string;
   verbose?: string;
   json?: boolean;
@@ -55,6 +57,27 @@ export type AgentCliOpts = {
   extraSystemPrompt?: string;
   local?: boolean;
 };
+
+function deriveCommitmentContextHints(opts: AgentCliOpts): CommandPreflightContextHints | undefined {
+  const openQuestions: string[] = [];
+
+  if (opts.deliver && !opts.to?.trim()) {
+    openQuestions.push("recipient");
+  }
+
+  return openQuestions.length > 0 ? { openQuestions } : undefined;
+}
+
+function formatClarificationPrompt(reason: string): string {
+  switch (reason) {
+    case "recipient":
+      return "I need a bit more detail before I can continue. Who should I send this to?";
+    case "target-entity":
+      return "I need a bit more detail before I can continue. What should I act on?";
+    default:
+      return "I need a bit more detail before I can continue. What should I act on?";
+  }
+}
 
 function parseTimeoutSeconds(opts: { cfg: ReturnType<typeof loadConfig>; timeout?: string }) {
   const raw =
@@ -192,12 +215,20 @@ export async function agentCliCommand(opts: AgentCliOpts, runtime: RuntimeEnv, d
 
   try {
     if (opts.sessionId) {
-      const preflight = await runCommitmentPreflight(createCommandPreflightRuntime(), {
-        sessionId: opts.sessionId,
-        userMessage: opts.message ?? "",
-      });
+      const preflight = await runCommitmentPreflight(
+        createCommandPreflightRuntime(
+          opts.contextHints ?? deriveCommitmentContextHints(opts),
+        ),
+        {
+          sessionId: opts.sessionId,
+          userMessage: opts.message ?? "",
+        },
+      );
 
       if (preflight.clarification.kind === "clarify") {
+        const clarificationText = formatClarificationPrompt(
+          preflight.clarification.reason,
+        );
         console.error(
           JSON.stringify({
             scope: "commitment-preflight",
@@ -206,10 +237,10 @@ export async function agentCliCommand(opts: AgentCliOpts, runtime: RuntimeEnv, d
           }),
         );
         return {
-          text: "I need a bit more detail before I can continue. What should I act on?",
+          text: clarificationText,
           data: {
             sessionId: opts.sessionId,
-            text: "I need a bit more detail before I can continue. What should I act on?",
+            text: clarificationText,
           },
         };
       }

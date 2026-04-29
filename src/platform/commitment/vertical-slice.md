@@ -22,6 +22,9 @@ multi-turn planning. It only adds a preflight decision point for one live turn.
 ## Path
 
 1. Build a minimal commitment input from the current session and user message.
+   Optional command-level context hints can seed unresolved questions, and the
+   gateway command now derives a first live hint when delivery is requested
+   without a recipient.
 2. Run world-state observation plus clarification and cutover policies.
 3. Return a structured decision that the caller can log, test, and honor.
 4. Integrate that decision at the runtime entrypoint before model work starts.
@@ -39,3 +42,12 @@ multi-turn planning. It only adds a preflight decision point for one live turn.
 - planner DAGs or explicit task graphs
 - broad prompt rewrites across agent surfaces
 - replacing existing agent execution infrastructure
+
+## Manual Check
+
+1. Clarification path:
+   `openclaw agent --session <id> --message "send status update" --deliver`
+   Expected: no gateway dispatch, clarification asking for recipient.
+2. Proceed path:
+   `openclaw agent --session <id> --message "send status update" --deliver --to telegram:test`
+   Expected: preflight allows execution to continue into the normal gateway path.
