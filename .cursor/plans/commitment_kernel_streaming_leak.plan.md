@@ -14,7 +14,7 @@ audit_gaps_closed: []
 todos:
   - id: signoff-and-branch
     content: Ветка `fix/orchestrator-streaming-leak` от свежего `origin/dev`. Signoff отменён по решению пользователя — двигаемся к цели, строго по плану.
-    status: pending
+    status: completed
   - id: implement-sanitizer-extend
     content: |
       Расширить `src/infra/outbound/outbound-sanitizer.ts` curated `OUTBOUND_LEAK_PATTERNS` универсальными tool-call markers:
@@ -25,29 +25,29 @@ todos:
       (5) Partial / orphan tool-call close tags `</tool_call>` / `</tool_use>` / `</function_call>` без открытия — kind=strip;
       (6) Standalone JSON tool-call envelope `{"name":"X","arguments":{...}}` (без `status`/`error` — отличается от tool-error-envelope, который уже покрыт `tool_error_envelope` pattern Bug E) — kind=replace `(внутренний tool-call; обработан)`.
       Применяется только к external-каналам через существующий `EXTERNAL_DELIVERY_SURFACES` allowlist (без изменения allowlist). Telemetry: те же `[outbound-sanitizer] event=stripped patterns=[…]` строки.
-    status: pending
+    status: completed
   - id: implement-streaming-defense
     content: |
       В `src/agents/pi-embedded-utils.ts` добавить `stripUniversalToolCallMarkup(text)` — strip'ит универсальные `<tool_call>...</tool_call>`, `<tool_use>...</tool_use>`, `<function_call>...</function_call>` блоки (multiline non-greedy) + orphan open/close теги. Применить в `extractAssistantText` рядом со `stripMinimaxToolCallXml` / `stripModelSpecialTokens` / `stripDowngradedToolCallText` (final path) и в `pi-embedded-subscribe.ts::emitBlockChunk` (streaming path) — единая точка очистки. Никакого text-rule matching на UserPrompt — работает только на assistant-emitted text.
-    status: pending
+    status: completed
   - id: tests
     content: |
       (a) `src/infra/outbound/outbound-sanitizer.test.ts` — 6 новых кейсов на универсальные tool-call markers (по одному на каждый pattern + один комбинированный с уже существующими паттернами Bug E).
       (b) `src/infra/outbound/deliver.outbound-sanitizer.test.ts` — 1 интеграционный кейс через реальный `deliverOutboundPayloads`: assistant-text c `<tool_call>` уходит в TG санитизированным.
       (c) `src/agents/pi-embedded-utils.test.ts` — 4-5 кейсов на `stripUniversalToolCallMarkup` (полный блок, orphan open, orphan close, multiline JSON arguments, no-op when absent).
       (d) Регресс: `src/agents/pi-embedded-subscribe.subscribe-embedded-pi-session.streams-soft-chunks-paragraph-preference.test.ts` (или ближайший аналог) — verify, что `<tool_call>` в `text_delta` не утекает в `onBlockReply`.
-    status: pending
+    status: completed
   - id: tsgo-and-targeted-tests
     content: |
       `pnpm tsgo` clean; ReadLints clean; targeted `pnpm test -- src/infra/outbound src/agents/pi-embedded-utils.test.ts` green. Полный `pnpm test` per AGENTS.md «scoped tests for narrowly scoped changes» — НЕ запускается по умолчанию; если оператор просит — отдельный шаг.
-    status: pending
+    status: completed
   - id: commit-and-pr
     content: |
       Коммит на русском, без Co-authored-by, scope только к изменённым файлам. PR в dev с label `bug-fix` если касается frozen layer (см. `scripts/check-frozen-layer-label.mjs`). В этом PR frozen layer НЕ затронут (правка `src/agents/**` и `src/infra/outbound/**` — НЕ frozen), но label-check утвердим в момент создания PR.
-    status: pending
+    status: completed
   - id: handoff-and-master-row
     content: После merge — отдельный `docs(plan)` коммит со строкой в master §0 PR Progress Log по шаблону Bug C; обновить frontmatter этого sub-plan'а (todos → completed) + добавить датированную запись в Handoff §7.
-    status: pending
+    status: completed
 
 isProject: false
 ---
@@ -235,6 +235,21 @@ Hard invariants check (16):
 - #15 (human signoff): по решению пользователя skip — двигаемся к цели без maintainer Q1-Q5.
 
 Дальнейший order: implement-sanitizer-extend → implement-streaming-defense → tests → tsgo-and-targeted-tests → commit-and-pr → handoff-and-master-row.
+
+### 2026-04-29 — Bug A merged
+
+- Completed TODOs: `signoff-and-branch`, `implement-sanitizer-extend`, `implement-streaming-defense`, `tests`, `tsgo-and-targeted-tests`, `commit-and-pr`, `handoff-and-master-row`.
+- Touched files:
+  - `src/agents/pi-embedded-utils.ts` (+ `stripUniversalToolCallMarkup`, подключена в `extractAssistantText`).
+  - `src/agents/tools/sessions-helpers.ts` (`sanitizeTextContent` подключает strip universal).
+  - `src/agents/pi-embedded-subscribe.ts` (`emitBlockChunk` применяет strip universal перед coalescing).
+  - `src/infra/outbound/outbound-sanitizer.ts` (+ `TOOL_CALL_MARKUP_REPLACEMENT`, +6 patterns: 3 балансных XML, 2 orphan, 1 JSON envelope).
+  - Tests: `src/infra/outbound/outbound-sanitizer.test.ts` (+9 кейсов), `src/agents/pi-embedded-utils.test.ts` (+7 кейсов).
+- Tests/lints: `pnpm tsgo` clean, targeted tests 68/68 green. Pre-existing failures в `pi-embedded-subscribe.reply-tags.test.ts` подтверждены и на baseline `origin/dev` — не относятся к этому PR.
+- G1..G6: не закрывает gap-ы (Bug A — не gap, а UX-leak фикс).
+- Unresolved blockers: нет.
+- Merge: PR #109 → `dev` `7f56fbd9ab`.
+- Next recommended: Bug A.2 (block-streaming buffering при tool_call в turn'е) — отдельный архитектурный sub-plan; либо Bug B / Bug D / Bug F per master §8 priority queue.
 
 ## 8. Adjacent bugs (NOT in scope; tracked for future sub-plans)
 
