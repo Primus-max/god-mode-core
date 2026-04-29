@@ -36,6 +36,7 @@ import {
   stripMinimaxToolCallXml,
   stripModelSpecialTokens,
   stripThinkingTagsFromText,
+  stripUniversalToolCallMarkup,
 } from "../pi-embedded-utils.js";
 
 export type SessionKind = "main" | "group" | "cron" | "hook" | "node" | "other";
@@ -170,7 +171,9 @@ export function sanitizeTextContent(text: string): string {
     return text;
   }
   return stripThinkingTagsFromText(
-    stripDowngradedToolCallText(stripModelSpecialTokens(stripMinimaxToolCallXml(text))),
+    stripDowngradedToolCallText(
+      stripUniversalToolCallMarkup(stripModelSpecialTokens(stripMinimaxToolCallXml(text))),
+    ),
   );
 }
 
