@@ -484,3 +484,45 @@ describe("gateway sessions patch", () => {
     expect(entry.modelOverride).toBe("hf:moonshotai/Kimi-K2.5");
   });
 });
+
+describe("applySessionsPatchToStore — label idempotency (G3 extension)", () => {
+  test("subagent-vs-subagent label collision under same agentId succeeds without setting label (slice 2)", async () => {
+    const store: Record<string, SessionEntry> = {
+      "agent:dev:subagent:b857": {
+        sessionId: "sid-b857",
+        updatedAt: 1000,
+        label: "Валера",
+      },
+    };
+    const result = await runPatch({
+      store,
+      storeKey: "agent:dev:subagent:c123",
+      patch: {
+        key: "agent:dev:subagent:c123",
+        label: "Валера",
+      },
+    });
+    const entry = expectPatchOk(result);
+    expect(entry.label).toBeUndefined();
+    expect(store["agent:dev:subagent:b857"]?.label).toBe("Валера");
+  });
+
+  test("cross-agentId label collision still fails with INVALID_REQUEST", async () => {
+    const store: Record<string, SessionEntry> = {
+      "agent:other:subagent:b857": {
+        sessionId: "sid-b857",
+        updatedAt: 1000,
+        label: "Валера",
+      },
+    };
+    const result = await runPatch({
+      store,
+      storeKey: "agent:dev:subagent:c123",
+      patch: {
+        key: "agent:dev:subagent:c123",
+        label: "Валера",
+      },
+    });
+    expectPatchError(result, "label already in use: Валера");
+  });
+});
