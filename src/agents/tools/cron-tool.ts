@@ -3,6 +3,7 @@ import { loadConfig } from "../../config/config.js";
 import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normalize.js";
 import type { CronDelivery, CronMessageChannel } from "../../cron/types.js";
 import { normalizeHttpWebhookUrl } from "../../cron/webhook-url.js";
+import { logInfo } from "../../logger.js";
 import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
 import { extractTextFromChatContent } from "../../shared/chat-content.js";
 import { isRecord, truncateUtf16Safe } from "../../utils.js";
@@ -218,29 +219,72 @@ function resolveReminderScopedSessionKey(agentSessionKey?: string): string | nul
   return resolveInternalSessionKey({ key: rawSessionKey, alias, mainKey });
 }
 
-function assertNonOwnerCronAddPolicy(params: {
+/**
+ * Closed reason set for non-owner cron add-policy blocks. Each value identifies
+ * a permanent rejection condition (no retry possible without changing inputs).
+ */
+export type NonOwnerCronBlockReason =
+  | "non_add_action"
+  | "gateway_override"
+  | "unsupported_payload"
+  | "no_session"
+  | "foreign_session"
+  | "agent_id_override"
+  | "session_key_override"
+  | "non_announce_delivery"
+  | "foreign_chat";
+
+export type NonOwnerCronAddPolicyResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: NonOwnerCronBlockReason; readonly message: string };
+
+/**
+ * Pure classifier for the non-owner cron add policy. Replaces the old
+ * `assertNonOwnerCronAddPolicy` (which threw bare `Error`s, leading to
+ * `[tools] cron failed: ...` LLM-visible noise + retry loops). Returns a
+ * structured outcome so the tool can emit a single info-level log line and
+ * surface a `{ blocked: true, reason, message }` payload to the LLM as a
+ * normal tool result, breaking the retry loop.
+ */
+export function evaluateNonOwnerCronAddPolicy(params: {
   action: string;
   rawParams: Record<string, unknown>;
   job: Record<string, unknown>;
   agentSessionKey?: string;
-}) {
+}): NonOwnerCronAddPolicyResult {
   if (params.action !== "add") {
-    throw new Error("Only reminder scheduling is allowed from this chat.");
+    return {
+      ok: false,
+      reason: "non_add_action",
+      message: "Only reminder scheduling is allowed from this chat.",
+    };
   }
   if (
     typeof params.rawParams.gatewayUrl === "string" ||
     typeof params.rawParams.gatewayToken === "string"
   ) {
-    throw new Error("Reminder scheduling cannot override gateway connection details.");
+    return {
+      ok: false,
+      reason: "gateway_override",
+      message: "Reminder scheduling cannot override gateway connection details.",
+    };
   }
   const payload = isRecord(params.job.payload) ? params.job.payload : undefined;
   const payloadKind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
   if (payloadKind !== "agentTurn" && payloadKind !== "systemEvent") {
-    throw new Error("Reminder scheduling only supports agentTurn or systemEvent payloads.");
+    return {
+      ok: false,
+      reason: "unsupported_payload",
+      message: "Reminder scheduling only supports agentTurn or systemEvent payloads.",
+    };
   }
   const resolvedSessionKey = resolveReminderScopedSessionKey(params.agentSessionKey);
   if (!resolvedSessionKey) {
-    throw new Error("Reminder scheduling requires an active chat session.");
+    return {
+      ok: false,
+      reason: "no_session",
+      message: "Reminder scheduling requires an active chat session.",
+    };
   }
   const sessionTarget =
     typeof params.job.sessionTarget === "string" ? params.job.sessionTarget.trim() : "";
@@ -252,29 +296,50 @@ function assertNonOwnerCronAddPolicy(params: {
     sessionTarget !== "main" &&
     sessionTarget !== allowedResolvedSessionTarget
   ) {
-    throw new Error("Reminder scheduling cannot target another session.");
+    return {
+      ok: false,
+      reason: "foreign_session",
+      message: "Reminder scheduling cannot target another session.",
+    };
   }
   if ("agentId" in params.job) {
-    throw new Error("Reminder scheduling cannot override agentId.");
+    return {
+      ok: false,
+      reason: "agent_id_override",
+      message: "Reminder scheduling cannot override agentId.",
+    };
   }
   if (
     "sessionKey" in params.job &&
     typeof params.job.sessionKey === "string" &&
     params.job.sessionKey.trim() !== resolvedSessionKey
   ) {
-    throw new Error("Reminder scheduling cannot override sessionKey.");
+    return {
+      ok: false,
+      reason: "session_key_override",
+      message: "Reminder scheduling cannot override sessionKey.",
+    };
   }
   const delivery = isRecord(params.job.delivery) ? params.job.delivery : undefined;
   const deliveryMode = typeof delivery?.mode === "string" ? delivery.mode.trim().toLowerCase() : "";
   if (deliveryMode && deliveryMode !== "announce") {
-    throw new Error("Reminder scheduling only supports announce delivery to this chat.");
+    return {
+      ok: false,
+      reason: "non_announce_delivery",
+      message: "Reminder scheduling only supports announce delivery to this chat.",
+    };
   }
   if (
     (typeof delivery?.channel === "string" && delivery.channel.trim()) ||
     (typeof delivery?.to === "string" && delivery.to.trim())
   ) {
-    throw new Error("Reminder scheduling cannot target another chat.");
+    return {
+      ok: false,
+      reason: "foreign_chat",
+      message: "Reminder scheduling cannot target another chat.",
+    };
   }
+  return { ok: true };
 }
 
 export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): AnyAgentTool {
@@ -362,7 +427,14 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             : 60_000,
       };
       if (opts?.senderIsOwner === false && action !== "add") {
-        throw new Error("Only reminder scheduling is allowed from this chat.");
+        logInfo(
+          `[cron-tool] block reason=non_add_action session=${(opts?.agentSessionKey ?? "-").slice(0, 16)}`,
+        );
+        return jsonResult({
+          blocked: true,
+          reason: "non_add_action" satisfies NonOwnerCronBlockReason,
+          message: "Only reminder scheduling is allowed from this chat.",
+        });
       }
 
       switch (action) {
@@ -435,12 +507,22 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               sessionContext: { sessionKey: opts?.agentSessionKey },
             }) ?? params.job;
           if (opts?.senderIsOwner === false && isRecord(job)) {
-            assertNonOwnerCronAddPolicy({
+            const policy = evaluateNonOwnerCronAddPolicy({
               action,
               rawParams: params,
               job,
               agentSessionKey: opts.agentSessionKey,
             });
+            if (!policy.ok) {
+              logInfo(
+                `[cron-tool] block reason=${policy.reason} session=${(opts.agentSessionKey ?? "-").slice(0, 16)}`,
+              );
+              return jsonResult({
+                blocked: true,
+                reason: policy.reason,
+                message: policy.message,
+              });
+            }
           }
           if (job && typeof job === "object") {
             const cfg = loadConfig();
