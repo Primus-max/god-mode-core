@@ -470,7 +470,15 @@ export class IntentLedger {
     intent: SemanticIntent;
     recordedAt?: number;
   }): void {
+    const sid = shortSessionId(params.sessionId);
+    const cid = shortSessionId(params.channelId);
+    const targetKind = params.intent.target?.kind ?? "-";
+    const operation = params.intent.operation?.kind ?? "-";
+    const conf = params.intent.confidence.toFixed(2);
     if (params.intent.confidence < RECENT_INTENT_CONFIDENCE_FLOOR) {
+      defaultRuntime.log(
+        `[intent-history] event=record session=${sid} channel=${cid} confidence=${conf} target.kind=${targetKind} operation=${operation} result=reject_low_confidence floor=${RECENT_INTENT_CONFIDENCE_FLOOR.toFixed(2)}`,
+      );
       return;
     }
     const recordedAt = params.recordedAt ?? this.now();
@@ -478,6 +486,9 @@ export class IntentLedger {
     const previous = state.recentIntents ?? [];
     state.recentIntents = [...previous, { intent: params.intent, recordedAt }].slice(
       -RECENT_INTENT_HISTORY_WINDOW,
+    );
+    defaultRuntime.log(
+      `[intent-history] event=record session=${sid} channel=${cid} confidence=${conf} target.kind=${targetKind} operation=${operation} result=accept window=${String(state.recentIntents.length)}`,
     );
   }
 
@@ -496,7 +507,12 @@ export class IntentLedger {
     const key = keyFor(sessionId, channelId);
     const state = this.sessionState.get(key);
     const records = state?.recentIntents;
+    const sid = shortSessionId(sessionId);
+    const cid = shortSessionId(channelId);
     if (!records || records.length === 0) {
+      defaultRuntime.log(
+        `[intent-history] event=get session=${sid} channel=${cid} records=0 result=cold_start`,
+      );
       return undefined;
     }
     const cutoff = this.now() - this.ttlMs;
@@ -506,9 +522,15 @@ export class IntentLedger {
         continue;
       }
       if (record.recordedAt >= cutoff) {
+        defaultRuntime.log(
+          `[intent-history] event=get session=${sid} channel=${cid} records=${String(records.length)} result=hit target.kind=${record.intent.target?.kind ?? "-"} operation=${record.intent.operation?.kind ?? "-"}`,
+        );
         return record.intent;
       }
     }
+    defaultRuntime.log(
+      `[intent-history] event=get session=${sid} channel=${cid} records=${String(records.length)} result=expired ttl_ms=${String(this.ttlMs)}`,
+    );
     return undefined;
   }
 
