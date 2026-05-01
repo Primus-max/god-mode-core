@@ -49,11 +49,11 @@ todos:
     content: 4 теста для classifyLabelConflict (none/same/conflict/empty) + 2 теста для sessions-patch (same-logical no-error + non-subagent conflict still errors).
     status: pending
   - id: tsgo-scoped-tests
-    content: pnpm tsgo green; pnpm test -- src/sessions/session-label-conflict.test.ts src/gateway/sessions-patch.test.ts green.
-    status: pending
+    content: pnpm tsgo green; 7/7 session-label-conflict + 33/33 sessions-patch green.
+    status: completed
   - id: branch-pr-merge-handoff
-    content: Branch fix/orchestrator-sessions-patch-label-idempotency, PR через gh, admin-merge при BlackSmith offline (после frozen-layer SUCCESS), update Handoff Log.
-    status: pending
+    content: PR #115 (admin-merged b8a240d69b) случайно taraged main; cherry-pick → PR #116 admin-merged 9fc0790bce на dev. Update Handoff Log done.
+    status: completed
 
 isProject: false
 ---
@@ -161,6 +161,7 @@ if (resolution.kind === "same_logical_session") {
 
 | Date | Step | Branch | SHA | PR # | Notes |
 | --- | --- | --- | --- | --- | --- |
+| 2026-05-01 | Slice 2 merged (retargeted) | `fix/orchestrator-sessions-patch-label-idempotency-dev` | `9fc0790bce` | [#116](https://github.com/Primus-max/god-mode-core/pull/116) | classifyLabelConflict pure helper + sessions-patch wiring. PR #115 (`b8a240d69b`) случайно ушёл в main (default base mismatch); cherry-pick на dev → #116. 7/7 session-label-conflict + 33/33 sessions-patch.test.ts green; pnpm tsgo exit 0. CI infra: BlackSmith total_count=0 → admin-merge. Live verification (после restart gateway): expect нет `INVALID_REQUEST: label already in use` спама, появляется `[commitment] action=reuse_label_on_patch` при subagent label coincidence. |
 
 ## 7. References
 
