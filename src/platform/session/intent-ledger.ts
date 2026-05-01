@@ -1,4 +1,5 @@
 import type { PlatformRuntimeExecutionReceiptKind } from "../runtime/contracts.js";
+import type { SemanticIntent } from "../commitment/semantic-intent.js";
 import { defaultRuntime } from "../../runtime.js";
 import {
   buildIdentityFacts,
@@ -24,6 +25,23 @@ export const CLARIFY_BUDGET_WINDOW_MS_DEFAULT = 5 * 60 * 1000;
 export const WORKSPACE_TTL_MS_DEFAULT = 5 * 60 * 1000;
 export const IDENTITY_TTL_MS_DEFAULT = 30 * 60 * 1000;
 export const GENERIC_CLARIFY_TOPIC_KEY = "*generic*";
+
+/**
+ * Sliding window size for the per-session `SemanticIntent` history feeding
+ * Stage 1.5 of `ClarificationPolicy` (PR-H Phase 2,
+ * `commitment_kernel_clarification_history_aware.plan.md`). The gate inspects
+ * only the most recent non-expired record, but the window is N=5 to leave
+ * headroom for future multi-history matchers without re-plumbing.
+ */
+export const RECENT_INTENT_HISTORY_WINDOW = 5;
+
+/**
+ * Confidence floor for recording a SemanticIntent into the recent-intent
+ * history. Low-confidence intents (e.g. PR-1 stub `confidence: 0`) carry no
+ * useful structural signal — recording them would shadow legitimate prior
+ * intents and degrade Stage 1.5 precision.
+ */
+export const RECENT_INTENT_CONFIDENCE_FLOOR = 0.5;
 const LEDGER_MAX_CONTEXT_LINES = 3;
 const TURN_ID_SHORT_LENGTH = 8;
 
@@ -95,10 +113,16 @@ export type IntentLedgerRecentReceiptMatch = {
   matchedAt: number;
 };
 
+type RecentIntentRecord = {
+  readonly intent: SemanticIntent;
+  readonly recordedAt: number;
+};
+
 type IntentLedgerSessionState = {
   entries: IntentLedgerEntry[];
   workspace?: WorkspaceSnapshot;
   identity?: IdentityFacts;
+  recentIntents?: RecentIntentRecord[];
 };
 
 export type GetOrProbeWorkspaceOptions = Pick<
@@ -428,6 +452,64 @@ export class IntentLedger {
     const state = this.getOrCreateState(params.sessionId, params.channelId);
     state.entries = [...state.entries, entry].slice(-this.maxEntries);
     return entry;
+  }
+
+  /**
+   * Records a kernel-derived `SemanticIntent` into the per-session sliding
+   * history feeding Stage 1.5 of `ClarificationPolicy`. Confidence below
+   * `RECENT_INTENT_CONFIDENCE_FLOOR` is silently dropped — low-confidence
+   * intents (PR-1 stub, fallback mocks) carry no useful structural signal
+   * and would shadow legitimate prior records.
+   *
+   * @param params - Session/channel keys + intent + optional recordedAt for
+   *   deterministic tests.
+   */
+  recordRecentIntent(params: {
+    sessionId: string;
+    channelId: string;
+    intent: SemanticIntent;
+    recordedAt?: number;
+  }): void {
+    if (params.intent.confidence < RECENT_INTENT_CONFIDENCE_FLOOR) {
+      return;
+    }
+    const recordedAt = params.recordedAt ?? this.now();
+    const state = this.getOrCreateState(params.sessionId, params.channelId);
+    const previous = state.recentIntents ?? [];
+    state.recentIntents = [...previous, { intent: params.intent, recordedAt }].slice(
+      -RECENT_INTENT_HISTORY_WINDOW,
+    );
+  }
+
+  /**
+   * Returns the most recent non-expired `SemanticIntent` recorded for this
+   * session+channel pair, or `undefined` for cold start / fully-expired
+   * window. Cross-session leakage impossible — composite key
+   * `${sessionId}::${channelId}` is the only lookup path.
+   *
+   * @param sessionId - Session id (caller is responsible for branding).
+   * @param channelId - Channel id (caller is responsible for branding).
+   * @returns Most recent SemanticIntent within `INTENT_LEDGER_TTL_MS`, or
+   *   `undefined`.
+   */
+  getRecentIntent(sessionId: string, channelId: string): SemanticIntent | undefined {
+    const key = keyFor(sessionId, channelId);
+    const state = this.sessionState.get(key);
+    const records = state?.recentIntents;
+    if (!records || records.length === 0) {
+      return undefined;
+    }
+    const cutoff = this.now() - this.ttlMs;
+    for (let i = records.length - 1; i >= 0; i--) {
+      const record = records[i];
+      if (!record) {
+        continue;
+      }
+      if (record.recordedAt >= cutoff) {
+        return record.intent;
+      }
+    }
+    return undefined;
   }
 
   peekPending(sessionId: string, channelId: string): IntentLedgerEntry[] {

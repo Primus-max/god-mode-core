@@ -109,6 +109,14 @@ export type RunTurnDecisionResult = {
   readonly kernelFallback: boolean;
   readonly fallbackReason?: KernelFallbackReason;
   readonly traceId: TraceId;
+  /**
+   * Kernel-derived `SemanticIntent` from `IntentContractor` (when shadow
+   * branch produced one). Exposed so caller-layer per-session intent caches
+   * (PR-H Phase 2 — `commitment_kernel_clarification_history_aware.plan.md`)
+   * can record this turn's intent for future Stage 1.5 lookups. Absent when
+   * shadow branch failed or timed out.
+   */
+  readonly intent?: SemanticIntent;
 };
 
 export type CutoverGateTrace =
@@ -224,6 +232,7 @@ export async function runTurnDecision(
     ...(cutover.attestation ? { runtimeAttestation: cutover.attestation } : {}),
     kernelFallback: !isKernelDerived,
     ...(fallbackReason ? { fallbackReason } : {}),
+    ...(shadowOutcome.intent ? { intent: shadowOutcome.intent } : {}),
     traceId,
   };
 }
