@@ -374,7 +374,29 @@ function reshapeFlattenedSemanticIntent(value: unknown): unknown {
   if (obj.uncertainty === undefined) {
     obj.uncertainty = [];
   }
+  // Strip null'd optional fields and unwrap "double-quoted" string-literal kinds.
+  // Live evidence: gpt-5-mini emits sessionId/channelId/artifactId as null and
+  // sometimes kind as `"\"session\""` — both fail strict zod.
+  obj.target = sanitizeNestedKindObject(obj.target);
+  obj.operation = sanitizeNestedKindObject(obj.operation);
   return obj;
+}
+
+function sanitizeNestedKindObject(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (raw === null || raw === "") continue;
+    if (typeof raw === "string") {
+      const unwrapped = raw.replace(/^"+|"+$/g, "");
+      cleaned[key] = unwrapped;
+    } else {
+      cleaned[key] = raw;
+    }
+  }
+  return cleaned;
 }
 
 /**
