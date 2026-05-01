@@ -168,7 +168,7 @@ const OPERATION_CLASS_BLOCKING_REASON_FRAGMENTS = [
 const FIELD_TO_BLOCKING_REASON_FRAGMENTS: ReadonlyMap<
   InheritableIntentField,
   readonly string[]
-> = new Map([
+> = new Map<InheritableIntentField, readonly string[]>([
   ["target.kind", TARGET_CLASS_BLOCKING_REASON_FRAGMENTS],
   ["operation", OPERATION_CLASS_BLOCKING_REASON_FRAGMENTS],
 ]);
