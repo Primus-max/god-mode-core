@@ -538,7 +538,11 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     }
   }
   getCurrentTurnProgressEmitter()?.emit("classifying");
-  const { productionDecision: classified } = await runTurnDecision({
+  const priorIntent =
+    ledgerSessionId && ledgerChannelId
+      ? intentLedger.getRecentIntent(ledgerSessionId, ledgerChannelId)
+      : undefined;
+  const { productionDecision: classified, intent: classifiedIntent } = await runTurnDecision({
     prompt: classifierPrompt,
     fileNames: classifierInput.fileNames,
     cfg: params.cfg,
@@ -547,12 +551,14 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     ledgerContext,
     clarifyBudgetNotice,
     ...(identityContext ? { identityContext } : {}),
+    ...(priorIntent ? { priorIntent } : {}),
     classifierAdapterRegistry: params.adapterRegistry,
     monitoredRuntime: createDefaultMonitoredRuntime(),
     expectedDeltaResolver: createDefaultExpectedDeltaResolver(),
   });
 
   let finalClassified = classified;
+  let finalClassifiedIntent = classifiedIntent;
   if (
     ledgerSessionId &&
     ledgerChannelId &&
@@ -575,7 +581,7 @@ export async function buildClassifiedExecutionDecisionInput(params: {
       defaultRuntime.log(
         `[workspace-inject] session=${shortIdForLog(ledgerSessionId)} channel=${shortIdForLog(ledgerChannelId)} reason=${reason} tokens=${String(approximateTokenCount(workspaceContext))}`,
       );
-      const { productionDecision } = await runTurnDecision({
+      const { productionDecision, intent: workspaceIntent } = await runTurnDecision({
         prompt: classifierPrompt,
         fileNames: classifierInput.fileNames,
         cfg: params.cfg,
@@ -585,12 +591,21 @@ export async function buildClassifiedExecutionDecisionInput(params: {
         clarifyBudgetNotice,
         workspaceContext,
         ...(identityContext ? { identityContext } : {}),
+        ...(priorIntent ? { priorIntent } : {}),
         classifierAdapterRegistry: params.adapterRegistry,
         monitoredRuntime: createDefaultMonitoredRuntime(),
         expectedDeltaResolver: createDefaultExpectedDeltaResolver(),
       });
       finalClassified = productionDecision;
+      finalClassifiedIntent = workspaceIntent ?? finalClassifiedIntent;
     }
+  }
+  if (finalClassifiedIntent && ledgerSessionId && ledgerChannelId) {
+    intentLedger.recordRecentIntent({
+      sessionId: ledgerSessionId,
+      channelId: ledgerChannelId,
+      intent: finalClassifiedIntent,
+    });
   }
   return applySessionSpecialistOverrideToPlannerInput(
     {

@@ -3,8 +3,25 @@ import {
   INTENT_LEDGER_MAX_ENTRIES,
   INTENT_LEDGER_TTL_MS,
   IntentLedger,
+  RECENT_INTENT_HISTORY_WINDOW,
   clarifyTopicKey,
 } from "./intent-ledger.js";
+import type { EffectFamilyId } from "../commitment/ids.js";
+import type { SemanticIntent } from "../commitment/semantic-intent.js";
+
+const PUBLISH_FAMILY: EffectFamilyId = "publish" as EffectFamilyId;
+
+function makeIntent(overrides: Partial<SemanticIntent> = {}): SemanticIntent {
+  return {
+    desiredEffectFamily: PUBLISH_FAMILY,
+    target: { kind: "workspace" },
+    operation: { kind: "create" },
+    constraints: {},
+    uncertainty: [],
+    confidence: 0.8,
+    ...overrides,
+  };
+}
 
 function createLedger() {
   return new IntentLedger({
@@ -409,5 +426,105 @@ describe("IntentLedger clarify budget", () => {
 
     const count = ledger.peekClarifyCount("session-generic", "telegram", "*generic*");
     expect(count.count).toBe(2);
+  });
+});
+
+describe("IntentLedger recent-intent history (PR-H Phase 2)", () => {
+  it("records and returns the most recent SemanticIntent for a session+channel", () => {
+    const ledger = createLedger();
+    ledger.recordRecentIntent({
+      sessionId: "session-a",
+      channelId: "telegram",
+      intent: makeIntent({ target: { kind: "workspace" } }),
+    });
+
+    expect(ledger.getRecentIntent("session-a", "telegram")?.target.kind).toBe("workspace");
+  });
+
+  it("returns the latest of multiple recorded intents within the sliding window", () => {
+    const ledger = createLedger();
+    ledger.recordRecentIntent({
+      sessionId: "session-a",
+      channelId: "telegram",
+      intent: makeIntent({ target: { kind: "workspace" } }),
+    });
+    ledger.recordRecentIntent({
+      sessionId: "session-a",
+      channelId: "telegram",
+      intent: makeIntent({ target: { kind: "external_channel", channelId: "telegram" as never } }),
+    });
+
+    expect(ledger.getRecentIntent("session-a", "telegram")?.target.kind).toBe("external_channel");
+  });
+
+  it("isolates state across sessions (no cross-session leakage)", () => {
+    const ledger = createLedger();
+    ledger.recordRecentIntent({
+      sessionId: "session-a",
+      channelId: "telegram",
+      intent: makeIntent({ target: { kind: "workspace" } }),
+    });
+
+    expect(ledger.getRecentIntent("session-b", "telegram")).toBeUndefined();
+  });
+
+  it("isolates state across channels for the same sessionId", () => {
+    const ledger = createLedger();
+    ledger.recordRecentIntent({
+      sessionId: "session-a",
+      channelId: "telegram",
+      intent: makeIntent({ target: { kind: "workspace" } }),
+    });
+
+    expect(ledger.getRecentIntent("session-a", "discord")).toBeUndefined();
+  });
+
+  it("returns undefined on cold start with no prior records", () => {
+    const ledger = createLedger();
+    expect(ledger.getRecentIntent("never-seen", "telegram")).toBeUndefined();
+  });
+
+  it("silently drops low-confidence intents below the floor", () => {
+    const ledger = createLedger();
+    ledger.recordRecentIntent({
+      sessionId: "session-a",
+      channelId: "telegram",
+      intent: makeIntent({ confidence: 0 }),
+    });
+
+    expect(ledger.getRecentIntent("session-a", "telegram")).toBeUndefined();
+  });
+
+  it("trims the sliding window to RECENT_INTENT_HISTORY_WINDOW entries", () => {
+    let now = 1_000_000;
+    const ledger = new IntentLedger({ now: () => now });
+    for (let i = 0; i < RECENT_INTENT_HISTORY_WINDOW + 3; i++) {
+      ledger.recordRecentIntent({
+        sessionId: "session-a",
+        channelId: "telegram",
+        intent: makeIntent({ confidence: 0.5 + i * 0.01 }),
+        recordedAt: now,
+      });
+      now += 1000;
+    }
+
+    const latest = ledger.getRecentIntent("session-a", "telegram");
+    expect(latest).toBeDefined();
+    expect(latest?.confidence).toBeGreaterThan(0.5);
+  });
+
+  it("evicts intents older than INTENT_LEDGER_TTL_MS", () => {
+    let now = 1_000_000;
+    const ledger = new IntentLedger({ now: () => now });
+    ledger.recordRecentIntent({
+      sessionId: "session-a",
+      channelId: "telegram",
+      intent: makeIntent({ target: { kind: "workspace" } }),
+      recordedAt: now,
+    });
+
+    now += INTENT_LEDGER_TTL_MS + 1_000;
+
+    expect(ledger.getRecentIntent("session-a", "telegram")).toBeUndefined();
   });
 });
