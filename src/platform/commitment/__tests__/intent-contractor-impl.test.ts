@@ -146,6 +146,44 @@ describe("IntentContractor parsing", () => {
     });
   });
 
+  it("strips null'd optional fields from target/operation (slice 3 phase C edge)", () => {
+    const parsed = parseSemanticIntentResponse(
+      JSON.stringify({
+        desiredEffectFamily: "communication",
+        target: { kind: "external_channel", channelId: null },
+        operation: { kind: "create", verb: "" },
+        constraints: {},
+        uncertainty: [],
+        confidence: 0.8,
+      }),
+    );
+
+    expect(parsed.parseResult).toBe("ok");
+    expect(parsed.intent).toMatchObject({
+      target: { kind: "external_channel" },
+      operation: { kind: "create" },
+    });
+  });
+
+  it("unwraps double-quoted string literal kinds emitted by gpt-5-mini", () => {
+    const parsed = parseSemanticIntentResponse(
+      JSON.stringify({
+        desiredEffectFamily: "persistent_session",
+        target: { kind: '"session"', sessionId: '"unknown"' },
+        operation: { kind: '"observe"', verb: "" },
+        constraints: {},
+        uncertainty: [],
+        confidence: 0.7,
+      }),
+    );
+
+    expect(parsed.parseResult).toBe("ok");
+    expect(parsed.intent).toMatchObject({
+      target: { kind: "session", sessionId: "unknown" },
+      operation: { kind: "observe" },
+    });
+  });
+
   it("reshapes flattened operationKind into nested operation object", () => {
     const parsed = parseSemanticIntentResponse(
       JSON.stringify({
