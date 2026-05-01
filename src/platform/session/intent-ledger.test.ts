@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   INTENT_LEDGER_MAX_ENTRIES,
   INTENT_LEDGER_TTL_MS,
@@ -8,6 +8,7 @@ import {
 } from "./intent-ledger.js";
 import type { EffectFamilyId } from "../commitment/ids.js";
 import type { SemanticIntent } from "../commitment/semantic-intent.js";
+import { defaultRuntime } from "../../runtime.js";
 
 const PUBLISH_FAMILY: EffectFamilyId = "publish" as EffectFamilyId;
 
@@ -526,5 +527,99 @@ describe("IntentLedger recent-intent history (PR-H Phase 2)", () => {
     now += INTENT_LEDGER_TTL_MS + 1_000;
 
     expect(ledger.getRecentIntent("session-a", "telegram")).toBeUndefined();
+  });
+});
+
+describe("IntentLedger recent-intent debug telemetry (slice 3)", () => {
+  it("emits [intent-history] event=record result=accept on accepted intents", () => {
+    const ledger = createLedger();
+    const logSpy = vi.spyOn(defaultRuntime, "log").mockImplementation(() => {});
+    try {
+      ledger.recordRecentIntent({
+        sessionId: "session-a-debug",
+        channelId: "telegram",
+        intent: makeIntent({ target: { kind: "workspace" } }),
+      });
+      const messages = logSpy.mock.calls.map((args) => args.join(" "));
+      const recordLine = messages.find((m) => m.includes("[intent-history] event=record"));
+      expect(recordLine).toBeDefined();
+      expect(recordLine).toContain("result=accept");
+      expect(recordLine).toContain("target.kind=workspace");
+      expect(recordLine).toContain("confidence=0.80");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("emits [intent-history] event=record result=reject_low_confidence when below floor", () => {
+    const ledger = createLedger();
+    const logSpy = vi.spyOn(defaultRuntime, "log").mockImplementation(() => {});
+    try {
+      ledger.recordRecentIntent({
+        sessionId: "session-a-debug",
+        channelId: "telegram",
+        intent: makeIntent({ confidence: 0.1 }),
+      });
+      const messages = logSpy.mock.calls.map((args) => args.join(" "));
+      const recordLine = messages.find((m) => m.includes("[intent-history] event=record"));
+      expect(recordLine).toContain("result=reject_low_confidence");
+      expect(recordLine).toContain("confidence=0.10");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("emits [intent-history] event=get result=cold_start on empty history", () => {
+    const ledger = createLedger();
+    const logSpy = vi.spyOn(defaultRuntime, "log").mockImplementation(() => {});
+    try {
+      expect(ledger.getRecentIntent("never-seen", "telegram")).toBeUndefined();
+      const messages = logSpy.mock.calls.map((args) => args.join(" "));
+      const getLine = messages.find((m) => m.includes("[intent-history] event=get"));
+      expect(getLine).toContain("result=cold_start");
+      expect(getLine).toContain("records=0");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("emits [intent-history] event=get result=hit when most recent record is non-expired", () => {
+    const ledger = createLedger();
+    ledger.recordRecentIntent({
+      sessionId: "session-a-debug",
+      channelId: "telegram",
+      intent: makeIntent({ target: { kind: "external_channel", channelId: "telegram" as never } }),
+    });
+    const logSpy = vi.spyOn(defaultRuntime, "log").mockImplementation(() => {});
+    try {
+      ledger.getRecentIntent("session-a-debug", "telegram");
+      const messages = logSpy.mock.calls.map((args) => args.join(" "));
+      const getLine = messages.find((m) => m.includes("[intent-history] event=get"));
+      expect(getLine).toContain("result=hit");
+      expect(getLine).toContain("target.kind=external_channel");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("emits [intent-history] event=get result=expired after TTL", () => {
+    let now = 1_000_000;
+    const ledger = new IntentLedger({ now: () => now });
+    ledger.recordRecentIntent({
+      sessionId: "session-a-debug",
+      channelId: "telegram",
+      intent: makeIntent({ target: { kind: "workspace" } }),
+      recordedAt: now,
+    });
+    now += INTENT_LEDGER_TTL_MS + 1_000;
+    const logSpy = vi.spyOn(defaultRuntime, "log").mockImplementation(() => {});
+    try {
+      ledger.getRecentIntent("session-a-debug", "telegram");
+      const messages = logSpy.mock.calls.map((args) => args.join(" "));
+      const getLine = messages.find((m) => m.includes("[intent-history] event=get"));
+      expect(getLine).toContain("result=expired");
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });

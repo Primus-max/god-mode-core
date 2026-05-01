@@ -542,6 +542,9 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     ledgerSessionId && ledgerChannelId
       ? intentLedger.getRecentIntent(ledgerSessionId, ledgerChannelId)
       : undefined;
+  defaultRuntime.log(
+    `[intent-history] event=wire session=${shortIdForLog(ledgerSessionId)} channel=${shortIdForLog(ledgerChannelId)} priorIntent=${priorIntent ? "1" : "0"}${priorIntent ? ` target.kind=${priorIntent.target?.kind ?? "-"} operation=${priorIntent.operation?.kind ?? "-"}` : ""}`,
+  );
   const { productionDecision: classified, intent: classifiedIntent } = await runTurnDecision({
     prompt: classifierPrompt,
     fileNames: classifierInput.fileNames,
