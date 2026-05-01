@@ -318,7 +318,8 @@ export function parseSemanticIntentResponse(raw: string): {
   }
   try {
     const parsed = JSON.parse(candidate) as unknown;
-    const validation = SemanticIntentResponseSchema.safeParse(parsed);
+    const reshaped = reshapeFlattenedSemanticIntent(parsed);
+    const validation = SemanticIntentResponseSchema.safeParse(reshaped);
     if (!validation.success) {
       return { intent: null, parseResult: "schema_invalid", normalizedCandidate: candidate };
     }
@@ -335,6 +336,45 @@ export function parseSemanticIntentResponse(raw: string): {
       parseErrorMessage: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+/**
+ * Defensive pre-normalizer for the strict Zod schema. Some LLMs (notably
+ * gpt-5-mini in production) flatten the schema and emit keys like
+ * `targetKind`, `operationKind`, or `allowedOperationKind` instead of the
+ * required nested `target: { kind }` / `operation: { kind }`. Reshape so the
+ * strict schema accepts the response when the intent is unambiguous; leave
+ * the value untouched otherwise.
+ */
+function reshapeFlattenedSemanticIntent(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const obj = { ...(value as Record<string, unknown>) };
+  if (obj.target === undefined && typeof obj.targetKind === "string") {
+    obj.target = { kind: obj.targetKind };
+  }
+  delete obj.targetKind;
+  if (obj.operation === undefined) {
+    const flatOpKind =
+      typeof obj.operationKind === "string"
+        ? obj.operationKind
+        : typeof obj.allowedOperationKind === "string"
+          ? obj.allowedOperationKind
+          : undefined;
+    if (flatOpKind) {
+      obj.operation = { kind: flatOpKind };
+    }
+  }
+  delete obj.operationKind;
+  delete obj.allowedOperationKind;
+  if (obj.constraints === undefined) {
+    obj.constraints = {};
+  }
+  if (obj.uncertainty === undefined) {
+    obj.uncertainty = [];
+  }
+  return obj;
 }
 
 /**
@@ -396,16 +436,56 @@ function buildIntentContractorPrompt(params: {
   readonly fileNames: readonly string[];
   readonly ledgerContext?: string;
 }): string {
+  const familyDirectory = EFFECT_FAMILY_REGISTRY.map((entry) => ({
+    id: entry.id,
+    allowedOperationKinds: entry.allowedOperationKinds,
+  }));
   return JSON.stringify({
-    instruction: "Return only JSON. Do not include prose.",
-    schema: {
-      desiredEffectFamily: EFFECT_FAMILY_REGISTRY.map((entry) => ({
-        id: entry.id,
-        allowedOperationKinds: entry.allowedOperationKinds,
-      })),
-      targetKinds: ["session", "artifact", "workspace", "external_channel", "unspecified"],
-      constraintObject: "flat JSON object; unknown keys may be ignored downstream",
+    instruction:
+      'Return ONLY one JSON object matching responseShape exactly. No prose, no code fences. ' +
+      'Use the nested object form `target: { "kind": "<X>" }` and `operation: { "kind": "<Y>" }` — ' +
+      "DO NOT flatten to `targetKind`/`operationKind`. `constraints` and `uncertainty` are required " +
+      "(use `{}` and `[]` if empty). Pick `desiredEffectFamily` from `familyDirectory[].id` only.",
+    responseShape: {
+      desiredEffectFamily: '"persistent_session" | "communication" | "unknown"',
+      target: {
+        kind: '"session" | "artifact" | "workspace" | "external_channel" | "unspecified"',
+        sessionId: "(optional, when kind=session)",
+        artifactId: "(optional, when kind=artifact)",
+        channelId: "(optional, when kind=external_channel)",
+      },
+      operation: {
+        kind: '"create" | "update" | "cancel" | "observe" | "custom"',
+        verb: "(required string when kind=custom)",
+      },
+      constraints: "object (use {} if none)",
+      uncertainty: "string[] (use [] if none)",
+      confidence: "number in [0,1]",
     },
+    examples: [
+      {
+        when: "user greets or chats casually",
+        response: {
+          desiredEffectFamily: "communication",
+          target: { kind: "external_channel" },
+          operation: { kind: "create" },
+          constraints: {},
+          uncertainty: [],
+          confidence: 0.8,
+        },
+      },
+      {
+        when: "intent unclear or off-topic",
+        response: {
+          desiredEffectFamily: "unknown",
+          target: { kind: "unspecified" },
+          constraints: {},
+          uncertainty: ["intent_unclear"],
+          confidence: 0.3,
+        },
+      },
+    ],
+    familyDirectory,
     context: {
       text: params.rawTurn.text,
       channel: params.rawTurn.channel,
