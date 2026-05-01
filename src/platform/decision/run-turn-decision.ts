@@ -262,6 +262,9 @@ async function runShadowBranch(input: RunTurnDecisionInput): Promise<ShadowBranc
             if (event.message) parts.push(`message=${truncateForLog(event.message, 120)}`);
             if (event.rawText !== undefined) {
               parts.push(`rawTextLen=${String(event.rawText.length)}`);
+              if (event.parseResult && event.parseResult !== "ok") {
+                parts.push(`rawText="${truncateForLog(event.rawText, 240)}"`);
+              }
             }
             defaultRuntime.log(parts.join(" "));
           },
