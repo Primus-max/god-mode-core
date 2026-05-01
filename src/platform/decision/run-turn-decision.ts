@@ -73,6 +73,20 @@ export type RunTurnDecisionInput = {
    * kernel-derived production decision (invariant #3).
    */
   readonly clarificationPolicy?: ClarificationPolicyReader;
+  /**
+   * Stage 1.5 injection point (`commitment_kernel_smart_orchestrator_roadmap.plan.md`
+   * §3 row 3 — PR-H session-history-aware clarify). Last successful
+   * kernel-derived `SemanticIntent` for the same session within a recent
+   * window (default N=5 turns). Caller is responsible for providing this
+   * value from a per-session intent cache; the policy never reads raw user
+   * text (invariant #6) and never reaches into a module-level cache
+   * (forward-compat constraint, roadmap §4 #1).
+   *
+   * When omitted (cold start, no session history, or caller does not yet
+   * maintain a per-session intent cache), Stage 1.5 is bypassed silently —
+   * Stage 1 still runs.
+   */
+  readonly priorIntent?: SemanticIntent;
 };
 
 export type RunTurnDecisionResult = {
@@ -466,13 +480,21 @@ async function maybeDowngradeClarification(params: {
     return productionDecision;
   }
   const gate = input.clarificationPolicy ?? createClarificationPolicy({ cfg: input.cfg });
-  const decision = await gate.evaluate({ intent, blockingReasons });
+  const decision = await gate.evaluate({
+    intent,
+    blockingReasons,
+    ...(input.priorIntent ? { priorIntent: input.priorIntent } : {}),
+  });
   if (decision.shouldClarify) {
     return productionDecision;
   }
-  return downgradeClarifyToAnswer(productionDecision, {
+  const marker: ClarificationPolicyDowngradeMarker = {
     downgradeReason: decision.downgradeReason,
-  });
+    ...(decision.inheritedFields && decision.inheritedFields.length > 0
+      ? { inheritedFields: decision.inheritedFields }
+      : {}),
+  };
+  return downgradeClarifyToAnswer(productionDecision, marker);
 }
 
 /**

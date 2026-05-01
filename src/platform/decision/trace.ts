@@ -115,17 +115,30 @@ export type KernelDerivedDecisionMarker = {
  * Observability-only marker describing that the legacy classifier
  * `clarification_needed` outcome was downgraded to a regular answer because
  * the kernel-side `SemanticIntent` already carried a structural signal that
- * resolves the ambiguity (Stage 1 of `commitment_kernel_policy_gate_full.plan.md`).
+ * resolves the ambiguity.
+ *
+ * Stage 1 (`ambiguity_resolved_by_intent`, see
+ * `commitment_kernel_policy_gate_full.plan.md`): current intent has explicit
+ * local-deployment signal. Stage 1.5 (`ambiguity_resolved_by_session_history`,
+ * see `commitment_kernel_smart_orchestrator_roadmap.plan.md` §3 row 3 and
+ * `commitment_kernel_clarification_history_aware.plan.md`): a prior turn's
+ * intent fills a field the current intent leaves empty; `inheritedFields`
+ * lists the inherited closed-string field names.
  *
  * The downgrade is emitted by `run-turn-decision.ts` and is **not** a new
  * orchestration-semantics field on TaskContract / OutcomeContract /
  * QualificationExecutionContract / ResolutionContract / RecipeRoutingHints
  * (invariant #11). The closed-string `downgradeReason` mirrors the frozen
- * `CLARIFICATION_POLICY_REASONS` set; any extension requires an explicit
- * sub-plan stage with maintainer signoff (invariant #15).
+ * `CLARIFICATION_POLICY_REASONS` set, and `inheritedFields` mirrors the
+ * frozen `INHERITABLE_INTENT_FIELDS` set; any extension requires an explicit
+ * sub-plan stage. Stages 1 and 1.5 land without maintainer signoff (same
+ * narrow class as Bug D); Stages 2-6 require signoff (invariant #15).
  */
 export type ClarificationPolicyDowngradeMarker = {
-  readonly downgradeReason: "ambiguity_resolved_by_intent";
+  readonly downgradeReason:
+    | "ambiguity_resolved_by_intent"
+    | "ambiguity_resolved_by_session_history";
+  readonly inheritedFields?: readonly ("target.kind" | "operation")[];
 };
 
 export type DecisionTrace = {
