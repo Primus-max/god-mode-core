@@ -66,6 +66,7 @@ isProject: true
 | 2026-04-29 | Bug A — streaming-leak (universal tool-call markers) | 7f56fbd9ab | Bug A.2 buffering / Bug B / Bug D / Bug F sub-plan kickoff |
 | 2026-04-29 | Bug D — clarification policy gate (PolicyGate Stage 1) | caca87a634 | PolicyGate Stages 2-6 (approvals/budgets/role-based/retry/escalation) — signoff required |
 | 2026-05-01 | Bug A.2 — block-streaming buffering at tool_call (PR-A.2) | 3df3138fcc | PR-H — session-history-aware clarify (Stage 1.5 PolicyGate) sub-plan kickoff |
+| 2026-05-01 | PR-H — session-history-aware clarify (Stage 1.5 ClarificationPolicy) | 185cf7d3fb | PR-H Phase 2 — per-session SemanticIntent cache wiring at caller layer (auto-reply / pi-embedded-runner); затем PR-MT concurrent broker (signoff required) |
 
 
 ### Active Work Handoff Protocol

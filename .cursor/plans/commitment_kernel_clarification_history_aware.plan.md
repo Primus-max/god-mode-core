@@ -46,9 +46,12 @@ todos:
     status: completed
   - id: tsgo-scoped-tests
     content: pnpm tsgo green; pnpm test -- src/platform/commitment/__tests__/clarification-policy.test.ts src/platform/decision/run-turn-decision.clarification-downgrade.test.ts green.
-    status: pending
+    status: completed
   - id: branch-pr-merge-docs-handoff
-    content: Ветка fix/orchestrator-clarify-session-aware от origin/dev; gh pr create vs dev с frozen-layer checkbox; polling gh pr checks; merge; finalize Handoff Log + master §0 row; sub-plan branch-pr-merge-docs-handoff todo completed.
+    content: Ветка fix/orchestrator-clarify-session-aware от origin/dev; gh pr create vs dev с frozen-layer checkbox (telemetry-only); admin-merged 185cf7d3fb (CI infra note — BlackSmith runners offline, frozen-layer check на GitHub-hosted прошёл SUCCESS, остальные 6 queued 38+ min); finalize Handoff Log + master §0 row.
+    status: completed
+  - id: phase2-caller-layer-wiring
+    content: FUTURE follow-up sub-plan — per-session SemanticIntent cache wiring в 4 callers runTurnDecision (input.ts:541, input.ts:578, plugin.ts:80, plugin.ts:340). Forward-compat constraints (roadmap §4 — sessionId keying, sliding-window N=5, TTL, max-size, idempotent reads, no cross-session leakage, no module-level singleton). Без Phase 2 Stage 1.5 gate API-complete но never fires в production.
     status: pending
 
 isProject: false
@@ -158,6 +161,7 @@ Per roadmap §pr-h-session-aware-clarify acceptance:
 
 | Date | Step | Branch | SHA | PR # | Notes |
 | --- | --- | --- | --- | --- | --- |
+| 2026-05-01 | PR-H Phase 1 (API + matcher + threading) merged | `fix/orchestrator-clarify-session-aware` | `185cf7d3fb` | [#112](https://github.com/Primus-max/god-mode-core/pull/112) | Phase 1 closes roadmap step 3 на API/matcher/test layer. Local validation: `pnpm tsgo` exit 0; 29/29 tests в `clarification-policy.test.ts` + `run-turn-decision.clarification-downgrade.test.ts`. CI infra note: BlackSmith `blacksmith-16vcpu-ubuntu-2404` runners offline (`/repos/.../actions/runners` total_count=0); 6 checks (`preflight`, `docs-scope`, `label`, `no-tabs`, `actionlint`, `label-issues`) queued 38+ min не стартовали; frozen-layer check (на GitHub-hosted) прошёл SUCCESS; admin-merged after local validation. **Phase 2 (FUTURE)**: caller-layer per-session intent cache wiring — отдельный sub-plan, без него Stage 1.5 API-complete но never fires production. |
 
 ## 7. References
 
