@@ -70,6 +70,7 @@ isProject: true
 | 2026-05-01 | PR-H Phase 2 — per-session SemanticIntent cache wiring (intent-ledger + input.ts callers) | 01afedff6a | PR-MT — concurrent broker (deferred, signoff required); roadmap step 4 ждёт maintainer |
 | 2026-05-01 | Regression Slice 1 — model-fallback respect configured order (route-preflight passthrough) | c0bee0846f | Regression Slice 2 — sessions.patch label idempotency (extend G3 fix) |
 | 2026-05-01 | Regression Slice 2 — sessions.patch label idempotency (G3 extension to patch path) | 9fc0790bce | Regression Slice 3 — PR-H Phase 2 wiring debug |
+| 2026-05-01 | Regression Slice 3 Phase A — `[intent-history]` debug instrumentation | 690bc2dfe0 | Regression Slice 4 — cron tool single-block-no-retry; Slice 3 Phase B/C gated на live user evidence |
 
 
 ### Active Work Handoff Protocol

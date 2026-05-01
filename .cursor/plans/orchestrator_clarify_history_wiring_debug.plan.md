@@ -54,8 +54,8 @@ todos:
     content: pnpm tsgo green; pnpm test -- src/platform/session/intent-ledger.test.ts 31/31 green.
     status: completed
   - id: branch-pr-merge-handoff
-    content: Branch fix/orchestrator-clarify-history-wiring-debug, PR --base dev, admin-merge при BlackSmith offline, restart gateway, collect Telegram log, проанализировать [intent-history] events.
-    status: pending
+    content: PR #117 admin-merged 690bc2dfe0 на dev. Restart gateway + collect Telegram log + analyze events — gated на user action.
+    status: completed
   - id: phase-b-collect-evidence
     content: live Telegram conversation 2-3 turn'а, grep `[intent-history]` lines, классифицировать root cause из {a,b,c}. (Out of scope для этого PR — требует пользовательской интеракции.)
     status: pending
@@ -141,6 +141,7 @@ defaultRuntime.log(`[intent-history] event=wire session=... channel=... priorInt
 
 | Date | Step | Branch | SHA | PR # | Notes |
 | --- | --- | --- | --- | --- | --- |
+| 2026-05-01 | Phase A merged | `fix/orchestrator-clarify-history-wiring-debug` | `690bc2dfe0` | [#117](https://github.com/Primus-max/god-mode-core/pull/117) | `[intent-history]` debug instrumentation на 3-х точках: recordRecentIntent (event=record + result=accept|reject_low_confidence + window/floor), getRecentIntent (event=get + result=cold_start|hit|expired + records/ttl_ms), input.ts pre-runTurnDecision (event=wire + priorIntent=0|1). 5 новых spy-based тестов (31/31 intent-ledger.test.ts green); pnpm tsgo exit 0. Hard invariants #5/#6/#8/#11/#15 соблюдены — структурные поля only. Phase B (collect Telegram evidence) и Phase C (root-cause fix) gated на user action. **Next: после restart gateway + 2-3 turn'а Telegram беседы grep `[intent-history]` events чтобы классифицировать root cause.** |
 
 ## 7. References
 
