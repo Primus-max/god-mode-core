@@ -98,6 +98,45 @@ describe("applyModelRoutePreflight", () => {
     expect(decision?.reasonCode).toBe("preflight_reordered_remote_first");
   });
 
+  it("preserves configured order for all-remote chains with no local candidate (passthrough decision)", () => {
+    const allRemote: ModelCandidate[] = [
+      { provider: "hydra", model: "claude-opus-4.6" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "hydra-gpt-pro" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: allRemote,
+      plannerInput: {
+        artifactKinds: [],
+        requestedTools: [],
+      },
+    });
+
+    expect(candidates).toEqual(allRemote);
+    expect(decision?.reasonCode).toBe("preflight_no_local_candidate");
+    expect(decision?.reordered).toBe(false);
+    expect(decision?.localRoutingEligible).toBe(true);
+  });
+
+  it("preserves configured order for stronger-route passthrough (keeping configured candidate order)", () => {
+    const allRemote: ModelCandidate[] = [
+      { provider: "hydra", model: "claude-opus-4.6" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "hydra-gpt-pro" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: allRemote,
+      plannerInput: {
+        intent: "code",
+        requestedTools: ["exec", "apply_patch"],
+      },
+    });
+
+    expect(candidates).toEqual(allRemote);
+    expect(decision?.reasonCode).toBe("preflight_stronger_route");
+    expect(decision?.reordered).toBe(false);
+  });
+
   it("honors presentation routing from structured planner hints without reading prompt text", () => {
     const { candidates, decision } = applyModelRoutePreflight({
       candidates: BASE_CHAIN,

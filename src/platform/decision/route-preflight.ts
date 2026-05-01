@@ -799,6 +799,16 @@ export function applyModelRoutePreflight(params: {
     if (!decision) {
       return { candidates, decision };
     }
+    // Heuristic-driven remote-tail reorder runs only on top of decisions that
+    // already chose to reorder (`reordered: true`). Passthrough decisions
+    // (`preflight_no_local_candidate`, `preflight_stronger_route` keep-order,
+    // `preflight_primary_control_plane_local`) preserve user-configured order
+    // — overriding them by score caused live regression where a configured
+    // primary (e.g. `hydra/claude-opus-4.6`) was bumped behind a cheaper but
+    // slower remote (e.g. `hydra/hydra-gpt-pro`) that timed out repeatedly.
+    if (!decision.reordered) {
+      return { candidates, decision };
+    }
     const remoteAdjusted = reorderRemoteTailCandidates({
       candidates,
       plannerInput,
