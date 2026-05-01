@@ -3,10 +3,11 @@ import type { OpenClawConfig } from "../../../config/config.js";
 import {
   CLARIFICATION_POLICY_REASONS,
   COMMUNICATION_EFFECT_FAMILY,
+  INHERITABLE_INTENT_FIELDS,
   createClarificationPolicy,
 } from "../index.js";
 import type { ChannelId, EffectFamilyId } from "../ids.js";
-import type { SemanticIntent } from "../semantic-intent.js";
+import type { OperationHint, SemanticIntent, TargetRef } from "../semantic-intent.js";
 
 const PUBLISH_AMBIGUITY = "external operation is inferred without an explicit publish target";
 const DEPLOYMENT_AMBIGUITY = "deployment target is not specified";
@@ -49,15 +50,31 @@ function intentExternalChannelWithoutLocalSignal(): SemanticIntent {
   };
 }
 
-describe("ClarificationPolicy exported reason set (Stage 1 reverse-test)", () => {
-  it("exposes exactly one reason code: ambiguity_resolved_by_intent", () => {
-    expect(CLARIFICATION_POLICY_REASONS).toEqual(["ambiguity_resolved_by_intent"]);
+describe("ClarificationPolicy exported reason set (Stage 1 + 1.5 reverse-test)", () => {
+  it("exposes exactly two reason codes: ambiguity_resolved_by_intent + ambiguity_resolved_by_session_history", () => {
+    expect(CLARIFICATION_POLICY_REASONS).toEqual([
+      "ambiguity_resolved_by_intent",
+      "ambiguity_resolved_by_session_history",
+    ]);
   });
 
   it("freezes the reason set so Stages 2+ cannot append silently", () => {
     expect(Object.isFrozen(CLARIFICATION_POLICY_REASONS)).toBe(true);
     expect(() => {
       (CLARIFICATION_POLICY_REASONS as unknown as string[]).push("requires_approval");
+    }).toThrow();
+  });
+});
+
+describe("INHERITABLE_INTENT_FIELDS reverse-test (Stage 1.5)", () => {
+  it("exposes exactly two inheritable fields: target.kind + operation", () => {
+    expect(INHERITABLE_INTENT_FIELDS).toEqual(["target.kind", "operation"]);
+  });
+
+  it("freezes the inheritable-fields set so silent extension fails", () => {
+    expect(Object.isFrozen(INHERITABLE_INTENT_FIELDS)).toBe(true);
+    expect(() => {
+      (INHERITABLE_INTENT_FIELDS as unknown as string[]).push("constraints");
     }).toThrow();
   });
 });
@@ -163,5 +180,144 @@ describe("createClarificationPolicy (Stage 1 — Bug D ambiguity over-blocking)"
     });
 
     expect(decision).toEqual({ shouldClarify: true });
+  });
+});
+
+const TARGET_AMBIGUITY = "target unspecified for workspace operation";
+const ACTION_AMBIGUITY = "action ambiguous: cannot derive operation verb";
+const NEXT_STEP_AMBIGUITY = "blocking: next step unclear from short prompt";
+
+function intentWithTarget(target: TargetRef, operation?: OperationHint): SemanticIntent {
+  return {
+    desiredEffectFamily: PUBLISH_FAMILY,
+    target,
+    ...(operation ? { operation } : {}),
+    constraints: {},
+    uncertainty: [],
+    confidence: 0.5,
+  };
+}
+
+describe("createClarificationPolicy (Stage 1.5 — PR-H session-history-aware clarify)", () => {
+  const cfg = {} as OpenClawConfig;
+
+  it("downgrades when prior intent fills target.kind and current intent leaves it unspecified", async () => {
+    const gate = createClarificationPolicy({ cfg });
+    const decision = await gate.evaluate({
+      intent: intentWithTarget({ kind: "unspecified" }, { kind: "create" }),
+      priorIntent: intentWithTarget({ kind: "workspace" }, { kind: "create" }),
+      blockingReasons: [TARGET_AMBIGUITY],
+    });
+
+    expect(decision).toEqual({
+      shouldClarify: false,
+      downgradeReason: "ambiguity_resolved_by_session_history",
+      inheritedFields: ["target.kind"],
+    });
+  });
+
+  it("downgrades when prior intent fills operation and current intent leaves it undefined", async () => {
+    const gate = createClarificationPolicy({ cfg });
+    const decision = await gate.evaluate({
+      intent: intentWithTarget({ kind: "workspace" }),
+      priorIntent: intentWithTarget({ kind: "workspace" }, { kind: "create" }),
+      blockingReasons: [ACTION_AMBIGUITY],
+    });
+
+    expect(decision).toEqual({
+      shouldClarify: false,
+      downgradeReason: "ambiguity_resolved_by_session_history",
+      inheritedFields: ["operation"],
+    });
+  });
+
+  it("downgrades with both inherited fields when both classes match the blocking reasons", async () => {
+    const gate = createClarificationPolicy({ cfg });
+    const decision = await gate.evaluate({
+      intent: intentWithTarget({ kind: "unspecified" }),
+      priorIntent: intentWithTarget({ kind: "workspace" }, { kind: "create" }),
+      blockingReasons: [TARGET_AMBIGUITY, NEXT_STEP_AMBIGUITY],
+    });
+
+    expect(decision).toEqual({
+      shouldClarify: false,
+      downgradeReason: "ambiguity_resolved_by_session_history",
+      inheritedFields: ["target.kind", "operation"],
+    });
+  });
+
+  it("does NOT downgrade when current intent contradicts prior intent's target.kind", async () => {
+    const gate = createClarificationPolicy({ cfg });
+    const decision = await gate.evaluate({
+      intent: intentWithTarget(
+        { kind: "external_channel", channelId: COMMUNICATION_CHANNEL },
+        { kind: "create" },
+      ),
+      priorIntent: intentWithTarget({ kind: "workspace" }, { kind: "create" }),
+      blockingReasons: [TARGET_AMBIGUITY],
+    });
+
+    expect(decision).toEqual({ shouldClarify: true });
+  });
+
+  it("does NOT downgrade when current intent contradicts prior intent's operation", async () => {
+    const gate = createClarificationPolicy({ cfg });
+    const decision = await gate.evaluate({
+      intent: intentWithTarget({ kind: "workspace" }, { kind: "observe" }),
+      priorIntent: intentWithTarget({ kind: "workspace" }, { kind: "create" }),
+      blockingReasons: [ACTION_AMBIGUITY],
+    });
+
+    expect(decision).toEqual({ shouldClarify: true });
+  });
+
+  it("does NOT downgrade on cold start when no priorIntent is supplied", async () => {
+    const gate = createClarificationPolicy({ cfg });
+    const decision = await gate.evaluate({
+      intent: intentWithTarget({ kind: "unspecified" }),
+      blockingReasons: [TARGET_AMBIGUITY],
+    });
+
+    expect(decision).toEqual({ shouldClarify: true });
+  });
+
+  it("does NOT downgrade when inheritable field is present but no blocking reason matches its curated class", async () => {
+    const gate = createClarificationPolicy({ cfg });
+    const decision = await gate.evaluate({
+      intent: intentWithTarget({ kind: "unspecified" }, { kind: "create" }),
+      priorIntent: intentWithTarget({ kind: "workspace" }, { kind: "create" }),
+      blockingReasons: [NON_DEPLOYMENT_AMBIGUITY],
+    });
+
+    expect(decision).toEqual({ shouldClarify: true });
+  });
+
+  it("Stage 1 takes precedence over Stage 1.5 when both could fire", async () => {
+    const gate = createClarificationPolicy({ cfg });
+    const decision = await gate.evaluate({
+      intent: intentWorkspace(),
+      priorIntent: intentWithTarget({ kind: "workspace" }, { kind: "create" }),
+      blockingReasons: [PUBLISH_AMBIGUITY],
+    });
+
+    expect(decision).toEqual({
+      shouldClarify: false,
+      downgradeReason: "ambiguity_resolved_by_intent",
+    });
+  });
+
+  it("downgrades only the matched subset of inheritable fields when only one reason class matches", async () => {
+    const gate = createClarificationPolicy({ cfg });
+    const decision = await gate.evaluate({
+      intent: intentWithTarget({ kind: "unspecified" }),
+      priorIntent: intentWithTarget({ kind: "workspace" }, { kind: "create" }),
+      blockingReasons: [ACTION_AMBIGUITY],
+    });
+
+    expect(decision).toEqual({
+      shouldClarify: false,
+      downgradeReason: "ambiguity_resolved_by_session_history",
+      inheritedFields: ["operation"],
+    });
   });
 });

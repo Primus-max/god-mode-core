@@ -54,6 +54,7 @@ export {
 export type { PolicyGateReason, RealPolicyGateContext } from "./policy-gate.js";
 export {
   CLARIFICATION_POLICY_REASONS,
+  INHERITABLE_INTENT_FIELDS,
   createClarificationPolicy,
 } from "./clarification-policy.js";
 export type {
@@ -62,6 +63,7 @@ export type {
   ClarificationPolicyEvaluateInput,
   ClarificationPolicyReader,
   ClarificationPolicyReason,
+  InheritableIntentField,
 } from "./clarification-policy.js";
 export {
   buildSessionWorldStateFromRuns,
