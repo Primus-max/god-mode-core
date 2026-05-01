@@ -153,32 +153,39 @@ describe("cron tool", () => {
     });
   });
 
-  it("blocks non-owner cron admin actions", async () => {
+  it("blocks non-owner cron admin actions with structured result (no throw, no retry signal)", async () => {
     const tool = createTool({
       agentSessionKey: "agent:main:telegram:direct:123",
       senderIsOwner: false,
     });
-    await expect(tool.execute("call-non-owner-list", { action: "list" })).rejects.toThrow(
-      /Only reminder scheduling is allowed from this chat\./,
-    );
+    const result = await tool.execute("call-non-owner-list", { action: "list" });
+    expect(result.details).toMatchObject({
+      blocked: true,
+      reason: "non_add_action",
+    });
+    expect(callGatewayMock).not.toHaveBeenCalled();
   });
 
-  it("blocks non-owner reminder scheduling to another chat", async () => {
+  it("blocks non-owner reminder scheduling to another chat with structured result (slice 4)", async () => {
     const tool = createTool({
       agentSessionKey: "agent:main:telegram:direct:123",
       senderIsOwner: false,
     });
-    await expect(
-      tool.execute("call-non-owner-redirect", {
-        action: "add",
-        job: {
-          name: "reminder",
-          schedule: { at: new Date(123).toISOString() },
-          payload: { kind: "agentTurn", message: "Remind me to eat." },
-          delivery: { mode: "announce", channel: "telegram", to: "999" },
-        },
-      }),
-    ).rejects.toThrow(/Reminder scheduling cannot target another chat\./);
+    const result = await tool.execute("call-non-owner-redirect", {
+      action: "add",
+      job: {
+        name: "reminder",
+        schedule: { at: new Date(123).toISOString() },
+        payload: { kind: "agentTurn", message: "Remind me to eat." },
+        delivery: { mode: "announce", channel: "telegram", to: "999" },
+      },
+    });
+    expect(result.details).toMatchObject({
+      blocked: true,
+      reason: "foreign_chat",
+      message: "Reminder scheduling cannot target another chat.",
+    });
+    expect(callGatewayMock).not.toHaveBeenCalled();
   });
 
   it("allows non-owner current-session reminder after normalization to session:<current>", async () => {
