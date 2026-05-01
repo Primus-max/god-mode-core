@@ -127,6 +127,43 @@ describe("IntentContractor parsing", () => {
     expect(parsed.intent).toBeNull();
     expect(parsed.parseResult).toBe("schema_invalid");
   });
+
+  it("reshapes the flattened gpt-5-mini production response into the strict schema (slice 3 phase C)", () => {
+    const parsed = parseSemanticIntentResponse(
+      JSON.stringify({
+        desiredEffectFamily: "unknown",
+        allowedOperationKind: null,
+        targetKind: "unspecified",
+        confidence: 0.14,
+      }),
+    );
+
+    expect(parsed.parseResult).toBe("ok");
+    expect(parsed.intent).toMatchObject({
+      desiredEffectFamily: "unknown",
+      target: { kind: "unspecified" },
+      confidence: 0.14,
+    });
+  });
+
+  it("reshapes flattened operationKind into nested operation object", () => {
+    const parsed = parseSemanticIntentResponse(
+      JSON.stringify({
+        desiredEffectFamily: "communication",
+        targetKind: "external_channel",
+        operationKind: "create",
+        confidence: 0.8,
+      }),
+    );
+
+    expect(parsed.parseResult).toBe("ok");
+    expect(parsed.intent).toMatchObject({
+      desiredEffectFamily: "communication",
+      target: { kind: "external_channel" },
+      operation: { kind: "create" },
+      confidence: 0.8,
+    });
+  });
 });
 
 describe("IntentContractor wrapper", () => {
