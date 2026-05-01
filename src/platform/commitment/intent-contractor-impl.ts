@@ -177,17 +177,29 @@ export function createIntentContractor(deps: {
         return lowConfidenceIntent("unknown_backend");
       }
       try {
-        return normalizeSemanticIntent(
-          await adapter.classify({
-            prompt,
-            fileNames: deps.fileNames ?? [],
-            ...(deps.ledgerContext ? { ledgerContext: deps.ledgerContext } : {}),
-            config,
-            cfg: deps.cfg,
-            ...(deps.agentDir ? { agentDir: deps.agentDir } : {}),
-            onDebugEvent: deps.onDebugEvent,
-          }),
-        );
+        const raw = await adapter.classify({
+          prompt,
+          fileNames: deps.fileNames ?? [],
+          ...(deps.ledgerContext ? { ledgerContext: deps.ledgerContext } : {}),
+          config,
+          cfg: deps.cfg,
+          ...(deps.agentDir ? { agentDir: deps.agentDir } : {}),
+          onDebugEvent: deps.onDebugEvent,
+        });
+        const normalized = normalizeSemanticIntent(raw);
+        if (normalized.confidence < raw.confidence) {
+          const introduced = normalized.uncertainty.find(
+            (reason) =>
+              reason === "family_not_in_registry" || reason === "operation_not_allowed_for_family",
+          );
+          emitDebugEvent(deps.onDebugEvent, {
+            stage: "fallback",
+            backend: config.backend,
+            configuredModel: config.model,
+            message: `normalize_forced_low_confidence reason=${introduced ?? "unknown"} rawConfidence=${raw.confidence.toFixed(2)} rawFamily=${String(raw.desiredEffectFamily)}`,
+          });
+        }
+        return normalized;
       } catch (error) {
         const reason = isAbortError(error) ? "llm_timeout" : "llm_error";
         emitDebugEvent(deps.onDebugEvent, {
