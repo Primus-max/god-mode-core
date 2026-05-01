@@ -1685,7 +1685,7 @@ export async function classifyTaskForDecision(params: {
           decisionTrace,
         });
         log.info(
-          `classified: backend=${classifierConfig.backend} model=${classifierConfig.model} outcome=${finalContract.primaryOutcome} mode=${finalContract.interactionMode} conf=${finalContract.confidence} deliverable=${finalContract.deliverable?.kind ?? "n/a"}/${(finalContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${finalContract.requiredCapabilities.join(",")}] ambig=[${finalContract.ambiguities.join(" | ")}]`,
+          `classified: backend=${classifierConfig.backend} model=${classifierConfig.model} outcome=${finalContract.primaryOutcome} mode=${finalContract.interactionMode} conf=${finalContract.confidence} deliverable=${finalContract.deliverable?.kind ?? "n/a"}/${(finalContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${finalContract.requiredCapabilities.join(",")}] ambig=[${finalContract.ambiguities.join(" | ")}] prompt.head="${truncatePromptForLog(params.prompt, 200)}"`,
         );
         return {
           source: "llm",
@@ -1737,4 +1737,10 @@ export async function classifyTaskForDecision(params: {
     reason: FAIL_CLOSED_REASON,
     classifierConfig,
   });
+}
+
+function truncatePromptForLog(value: string, maxLength: number): string {
+  // Strip newlines and excessive whitespace so the diagnostic line stays single-line.
+  const collapsed = value.replace(/\s+/g, " ").trim().replace(/"/g, "'");
+  return collapsed.length <= maxLength ? collapsed : `${collapsed.slice(0, maxLength - 1)}…`;
 }
