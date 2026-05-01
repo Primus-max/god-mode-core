@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { defaultRuntime } from "../../runtime.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
   createClarificationPolicy,
@@ -248,6 +249,22 @@ async function runShadowBranch(input: RunTurnDecisionInput): Promise<ShadowBranc
           ledgerContext: input.ledgerContext,
           agentDir: input.agentDir,
           adapterRegistry: input.intentContractorAdapterRegistry,
+          onDebugEvent: (event) => {
+            const parts: string[] = [
+              `[intent-contractor] stage=${event.stage}`,
+              `backend=${event.backend}`,
+              `model=${event.modelId ?? event.configuredModel}`,
+            ];
+            if (event.parseResult) parts.push(`parseResult=${event.parseResult}`);
+            if (event.parseErrorMessage) {
+              parts.push(`parseError=${truncateForLog(event.parseErrorMessage, 120)}`);
+            }
+            if (event.message) parts.push(`message=${truncateForLog(event.message, 120)}`);
+            if (event.rawText !== undefined) {
+              parts.push(`rawTextLen=${String(event.rawText.length)}`);
+            }
+            defaultRuntime.log(parts.join(" "));
+          },
         });
         const shadowBuilder = createShadowBuilder({
           affordances: input.affordanceRegistry ?? defaultAffordanceRegistry,
@@ -599,4 +616,9 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 
 function isTimeoutError(error: unknown): boolean {
   return error instanceof Error && error.message === "shadow_timeout";
+}
+
+function truncateForLog(value: string, maxLength: number): string {
+  const collapsed = value.replace(/\s+/g, " ").trim();
+  return collapsed.length <= maxLength ? collapsed : `${collapsed.slice(0, maxLength - 1)}…`;
 }
