@@ -22,6 +22,7 @@ import type {
 } from "../channels/plugins/types.js";
 import type { OpenClawConfig } from "../config/config.js";
 import type { ModelProviderConfig } from "../config/types.js";
+import type { PromptOptimizationReport } from "../context-engine/types.js";
 import type { GatewayRequestHandler } from "../gateway/server-methods/types.js";
 import type { InternalHookHandler } from "../hooks/internal-hooks.js";
 import type { HookEntry } from "../hooks/types.js";
@@ -1490,7 +1491,7 @@ export type PluginHookPlatformExecutionContext = {
   recipeId: string;
   taskOverlayId?: string;
   plannerReasoning?: string;
-  intent?: "general" | "document" | "code" | "publish";
+  intent?: "general" | "document" | "compare" | "calculation" | "code" | "publish";
   providerOverride?: string;
   modelOverride?: string;
   timeoutSeconds?: number;
@@ -1505,6 +1506,10 @@ export type PluginHookPlatformExecutionContext = {
   readinessStatus?: "ready" | "bootstrap_required" | "approval_required";
   readinessReasons?: string[];
   unattendedBoundary?: "bootstrap" | "artifact_publish";
+  /** Precomputed runtime prompt context for prompt/system hooks. */
+  prependContext?: string;
+  /** Precomputed runtime system prompt context for prompt/system hooks. */
+  prependSystemContext?: string;
 };
 
 export type PluginHookAgentContext = {
@@ -1541,7 +1546,8 @@ export type PluginHookBeforePromptBuildEvent = {
   messages: unknown[];
 };
 
-export type PluginHookBeforePromptBuildResult = {
+/** Prompt text / system mutations from `before_prompt_build` (stripped when legacy injection is constrained). */
+export type PluginHookBeforePromptBuildMutationFields = {
   systemPrompt?: string;
   prependContext?: string;
   /**
@@ -1554,6 +1560,21 @@ export type PluginHookBeforePromptBuildResult = {
    * Use for static plugin guidance instead of prependContext to avoid per-turn token cost.
    */
   appendSystemContext?: string;
+  /**
+   * Replaces the effective user prompt for this turn after prependContext and
+   * bootstrap warnings. A deterministic noise pass still runs afterward unless
+   * a context engine fully replaces the pipeline via `optimizePromptForTurn`.
+   * When multiple hooks set this, the later handler in merge order wins.
+   */
+  userPromptOverride?: string;
+};
+
+export type PluginHookBeforePromptBuildResult = PluginHookBeforePromptBuildMutationFields & {
+  /**
+   * Structured optimization visibility from plugins; merged with runtime metadata.
+   * Not stripped by `stripPromptMutationFieldsFromLegacyHookResult`.
+   */
+  promptOptimization?: PromptOptimizationReport;
 };
 
 // before_recipe_execute hook
@@ -1573,10 +1594,11 @@ export const PLUGIN_PROMPT_MUTATION_RESULT_FIELDS = [
   "prependContext",
   "prependSystemContext",
   "appendSystemContext",
-] as const satisfies readonly (keyof PluginHookBeforePromptBuildResult)[];
+  "userPromptOverride",
+] as const satisfies readonly (keyof PluginHookBeforePromptBuildMutationFields)[];
 
 type MissingPluginPromptMutationResultFields = Exclude<
-  keyof PluginHookBeforePromptBuildResult,
+  keyof PluginHookBeforePromptBuildMutationFields,
   (typeof PLUGIN_PROMPT_MUTATION_RESULT_FIELDS)[number]
 >;
 type AssertAllPluginPromptMutationResultFieldsListed =

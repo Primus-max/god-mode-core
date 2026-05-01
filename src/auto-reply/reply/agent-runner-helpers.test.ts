@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  getPlatformRuntimeCheckpointService,
-  resetPlatformRuntimeCheckpointService,
-} from "../../platform/runtime/index.js";
-import {
   getSharedExecApprovalManager,
   resetSharedExecApprovalManager,
 } from "../../gateway/exec-approval-manager.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  resetPlatformRuntimeCheckpointService,
+} from "../../platform/runtime/index.js";
 import type { ReplyPayload } from "../types.js";
 import type { TypingSignaler } from "./typing-mode.js";
 
@@ -41,10 +41,14 @@ let finalizeClosureRecoveryCheckpoint: typeof import("./agent-runner-helpers.js"
 let finalizeMessagingDeliveryClosure: typeof import("./agent-runner-helpers.js").finalizeMessagingDeliveryClosure;
 let finalizeWithFollowup: typeof import("./agent-runner-helpers.js").finalizeWithFollowup;
 let getPlatformBootstrapService: typeof import("../../platform/bootstrap/index.js").getPlatformBootstrapService;
+let getFollowupQueueDepth: typeof import("./queue.js").getFollowupQueueDepth;
+let listExistingFollowupQueues: typeof import("./queue.js").listExistingFollowupQueues;
 let resetPlatformBootstrapService: typeof import("../../platform/bootstrap/index.js").resetPlatformBootstrapService;
 let isAudioPayload: typeof import("./agent-runner-helpers.js").isAudioPayload;
 let reconcileClosureRecoveryOnStartup: typeof import("./closure-outcome-dispatcher.js").reconcileClosureRecoveryOnStartup;
 let reevaluateAcceptanceForMessagingRun: typeof import("./agent-runner-helpers.js").reevaluateAcceptanceForMessagingRun;
+let reevaluateMessagingDecisionForMessagingRun: typeof import("./agent-runner-helpers.js").reevaluateMessagingDecisionForMessagingRun;
+let scheduleFollowupDrain: typeof import("./queue.js").scheduleFollowupDrain;
 let signalTypingIfNeeded: typeof import("./agent-runner-helpers.js").signalTypingIfNeeded;
 
 describe("agent runner helpers", () => {
@@ -54,9 +58,10 @@ describe("agent runner helpers", () => {
     hoisted.scheduleFollowupDrainMock.mockClear();
     resetPlatformRuntimeCheckpointService();
     resetSharedExecApprovalManager();
-    ({ getPlatformBootstrapService, resetPlatformBootstrapService } = await import(
-      "../../platform/bootstrap/index.js"
-    ));
+    ({ getPlatformBootstrapService, resetPlatformBootstrapService } =
+      await import("../../platform/bootstrap/index.js"));
+    ({ getFollowupQueueDepth, listExistingFollowupQueues, scheduleFollowupDrain } =
+      await import("./queue.js"));
     resetPlatformBootstrapService();
     ({
       createShouldEmitToolOutput,
@@ -69,6 +74,7 @@ describe("agent runner helpers", () => {
       finalizeWithFollowup,
       isAudioPayload,
       reevaluateAcceptanceForMessagingRun,
+      reevaluateMessagingDecisionForMessagingRun,
       signalTypingIfNeeded,
     } = await import("./agent-runner-helpers.js"));
     ({ reconcileClosureRecoveryOnStartup } = await import("./closure-outcome-dispatcher.js"));
@@ -217,6 +223,7 @@ describe("agent runner helpers", () => {
       },
     });
     expect(queued).toBe(true);
+    expect(getFollowupQueueDepth("queue-1")).toBe(1);
 
     const skipped = enqueueSemanticRetryFollowup({
       queueKey: "queue-1",
@@ -265,6 +272,62 @@ describe("agent runner helpers", () => {
       },
     });
     expect(skipped).toBe(false);
+  });
+
+  it("preserves intermediate-artifact continuation instructions in semantic retries", async () => {
+    const queueKey = "queue-artifact-continuation";
+
+    const queued = enqueueSemanticRetryFollowup({
+      queueKey,
+      sourceRun: {
+        prompt: "Сделай PDF с инфографикой про жизнь городского котика и добавь пару картинок.",
+        summaryLine: "cat pdf",
+        enqueuedAt: 1,
+        run: {
+          agentId: "agent",
+          agentDir: "/tmp/agent",
+          sessionId: "session",
+          sessionFile: "/tmp/session.json",
+          workspaceDir: "/tmp/workspace",
+          config: {},
+          provider: "openai",
+          model: "gpt-5.4",
+          timeoutMs: 30_000,
+          blockReplyBreak: "message_end",
+        },
+      },
+      settings: {} as never,
+      acceptance: undefined,
+      supervisorVerdict: {
+        runId: "run-2",
+        status: "retryable",
+        action: "retry",
+        remediation: "semantic_retry",
+        recoveryPolicy: {
+          remediation: "semantic_retry",
+          recoveryClass: "semantic",
+          cadence: "immediate",
+          continuous: false,
+          attemptCount: 0,
+          maxAttempts: 1,
+          remainingAttempts: 1,
+          exhausted: false,
+          exhaustedAction: "stop",
+          nextAttemptDelayMs: 0,
+        },
+        reasonCode: "contract_mismatch",
+        reasons: ["missing verified output"],
+      },
+    });
+
+    expect(queued).toBe(true);
+    const queueEntry = listExistingFollowupQueues().find((entry) => entry.key === queueKey);
+    const queuedPrompt = queueEntry?.queue.items[0]?.prompt;
+
+    expect(queuedPrompt).toContain(
+      "continue from any successful intermediate tool outputs already produced in this session",
+    );
+    expect(queuedPrompt).toContain("Сделай PDF с инфографикой про жизнь городского котика");
   });
 
   it("does not queue semantic retry for bootstrap remediation and surfaces a specific fallback payload", () => {
@@ -371,7 +434,7 @@ describe("agent runner helpers", () => {
       }),
     ).toEqual(
       expect.objectContaining({
-        text: expect.stringContaining("bootstrap recovery"),
+        text: expect.stringMatching(/paused|Capability install/i),
       }),
     );
   });
@@ -640,7 +703,9 @@ describe("agent runner helpers", () => {
             expect.objectContaining({ type: "text", text: "Automatic recovery continuing" }),
             expect.objectContaining({
               type: "text",
-              text: expect.stringContaining("Reason: The delivered output did not satisfy the request."),
+              text: expect.stringContaining(
+                "Reason: The delivered output did not satisfy the request.",
+              ),
             }),
           ]),
         },
@@ -751,16 +816,17 @@ describe("agent runner helpers", () => {
         }),
       }),
     );
-    expect(getSharedExecApprovalManager().getSnapshot("closure:run-auth-closure:auth_refresh:escalate"))
-      .toEqual(
-        expect.objectContaining({
-          request: expect.objectContaining({
-            runtimeRunId: "run-auth-closure",
-            runtimeCheckpointId: "closure:run-auth-closure:auth_refresh:escalate",
-            blockedReason: "provider authentication refresh requires operator attention",
-          }),
+    expect(
+      getSharedExecApprovalManager().getSnapshot("closure:run-auth-closure:auth_refresh:escalate"),
+    ).toEqual(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          runtimeRunId: "run-auth-closure",
+          runtimeCheckpointId: "closure:run-auth-closure:auth_refresh:escalate",
+          blockedReason: "provider authentication refresh requires operator attention",
         }),
-      );
+      }),
+    );
     expect(
       getPlatformRuntimeCheckpointService().get("closure:run-auth-closure:auth_refresh:escalate"),
     ).toEqual(
@@ -1260,6 +1326,13 @@ describe("agent runner helpers", () => {
     ]);
     const requestId = getPlatformBootstrapService().list()[0]?.id;
     expect(requestId).toBeTruthy();
+    expect(requestId ? getPlatformBootstrapService().get(requestId)?.request.blockedRunResume : undefined).toEqual(
+      expect.objectContaining({
+        blockedRunId: "run-bootstrap-closure",
+        queueKey: "queue-1",
+        settings: expect.objectContaining({ mode: "followup" }),
+      }),
+    );
     expect(requestId ? getPlatformRuntimeCheckpointService().get(requestId) : undefined).toEqual(
       expect.objectContaining({
         runId: requestId,
@@ -1268,6 +1341,117 @@ describe("agent runner helpers", () => {
           bootstrapRequestId: requestId,
           operation: "bootstrap.run",
         }),
+      }),
+    );
+  });
+
+  it("maps compare bootstrap remediation onto the document bootstrap lane", () => {
+    finalizeMessagingDeliveryClosure({
+      candidate: {
+        runResult: {
+          meta: {
+            acceptanceOutcome: {
+              runId: "run-compare-bootstrap",
+              status: "retryable",
+              action: "retry",
+              remediation: "bootstrap",
+              reasonCode: "bootstrap_required",
+              reasons: ["Table parsing bootstrap is still required before compare can complete."],
+              recoveryPolicy: {
+                remediation: "bootstrap",
+                recoveryClass: "bootstrap",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 2,
+                remainingAttempts: 2,
+                exhausted: false,
+                exhaustedAction: "escalate",
+              },
+              outcome: {
+                runId: "run-compare-bootstrap",
+                status: "completed",
+                checkpointIds: [],
+                blockedCheckpointIds: [],
+                completedCheckpointIds: [],
+                deniedCheckpointIds: [],
+                pendingApprovalIds: [],
+                artifactIds: [],
+                bootstrapRequestIds: [],
+                actionIds: [],
+                attemptedActionIds: [],
+                confirmedActionIds: [],
+                failedActionIds: [],
+                boundaries: [],
+              },
+              evidence: {
+                executionSurfaceStatus: "bootstrap_required",
+                executionUnattendedBoundary: "bootstrap",
+              },
+            },
+            supervisorVerdict: {
+              runId: "run-compare-bootstrap",
+              status: "retryable",
+              action: "retry",
+              remediation: "bootstrap",
+              reasonCode: "bootstrap_recovery",
+              reasons: ["Table parsing bootstrap is still required before compare can complete."],
+              recoveryPolicy: {
+                remediation: "bootstrap",
+                recoveryClass: "bootstrap",
+                cadence: "manual",
+                continuous: false,
+                attemptCount: 0,
+                maxAttempts: 2,
+                remainingAttempts: 2,
+                exhausted: false,
+                exhaustedAction: "escalate",
+              },
+            },
+            executionIntent: {
+              runId: "run-compare-bootstrap",
+              profileId: "builder",
+              recipeId: "table_compare",
+              intent: "compare",
+              bootstrapRequiredCapabilities: ["table-parser"],
+              policyAutonomy: "assist",
+              expectations: {},
+            },
+          },
+        },
+        sourceRun: {
+          prompt: "compare supplier price sheets",
+          enqueuedAt: 1,
+          run: {
+            agentId: "agent",
+            agentDir: "/tmp/agent",
+            sessionId: "session",
+            sessionKey: "agent:main:main",
+            sessionFile: "/tmp/session.json",
+            workspaceDir: "/tmp/workspace",
+            config: {},
+            provider: "ollama",
+            model: "qwen2.5-coder:7b",
+            timeoutMs: 30_000,
+            blockReplyBreak: "message_end",
+          },
+        },
+        queueKey: "queue-compare",
+        settings: { mode: "followup", debounceMs: 0, cap: 20 },
+      },
+      replyPayloads: [{ text: "Bootstrap required." }],
+      deliveryReceipt: {},
+    });
+
+    const requestId = getPlatformBootstrapService().list()[0]?.id;
+    expect(requestId).toBeTruthy();
+    expect(requestId ? getPlatformBootstrapService().get(requestId)?.request.sourceDomain : undefined).toBe(
+      "document",
+    );
+    expect(requestId ? getPlatformRuntimeCheckpointService().get(requestId)?.continuation : undefined).toEqual(
+      expect.objectContaining({
+        kind: "bootstrap_run",
+        autoDispatch: true,
       }),
     );
   });
@@ -1343,13 +1527,126 @@ describe("agent runner helpers", () => {
 
     expect(acceptance).toEqual(
       expect.objectContaining({
-        status: "satisfied",
-        reasonCode: "completed_with_confirmed_delivery",
+        status: "retryable",
+        reasonCode: "completed_without_evidence",
         evidence: expect.objectContaining({
           declaredRecipeId: "code_build_publish",
           declaredIntent: "publish",
           declaredRequiresOutput: true,
         }),
+      }),
+    );
+  });
+
+  it("synthesizes verified webchat delivery receipts and ignores advisory read misses", () => {
+    const reevaluated = reevaluateMessagingDecisionForMessagingRun({
+      runResult: {
+        meta: {
+          completionOutcome: {
+            runId: "run-webchat-receipt",
+            status: "completed",
+            checkpointIds: [],
+            blockedCheckpointIds: [],
+            completedCheckpointIds: [],
+            deniedCheckpointIds: [],
+            pendingApprovalIds: [],
+            artifactIds: [],
+            bootstrapRequestIds: [],
+            actionIds: [],
+            attemptedActionIds: [],
+            confirmedActionIds: [],
+            failedActionIds: [],
+            boundaries: [],
+            hadToolError: false,
+            deterministicApprovalPromptSent: false,
+          },
+          executionVerification: {
+            runId: "run-webchat-receipt",
+            status: "mismatch",
+            reasons: [
+              "Execution receipts contain a failed outcome.",
+              "Execution contract is missing verified receipt kind(s): messaging_delivery.",
+            ],
+            receipts: [
+              {
+                kind: "tool",
+                name: "read",
+                status: "failed",
+                proof: "reported",
+                summary: "from ~/.openclaw/workspace/memory/2026-04-09.md",
+              },
+              {
+                kind: "tool",
+                name: "read",
+                status: "success",
+                proof: "reported",
+                summary: "from ~/.openclaw/workspace/MEMORY.md",
+              },
+            ],
+            receiptCounts: {
+              success: 1,
+              warning: 0,
+              partial: 0,
+              degraded: 0,
+              failed: 1,
+              blocked: 0,
+            },
+            receiptProofCounts: {
+              derived: 0,
+              reported: 2,
+              verified: 0,
+            },
+            checkedAtMs: 1,
+            missingReceiptKinds: ["messaging_delivery"],
+          },
+          executionIntent: {
+            runId: "run-webchat-receipt",
+            recipeId: "general_reasoning",
+            profileId: "builder",
+            intent: "general",
+            expectations: {
+              requiresOutput: true,
+              requiresMessagingDelivery: true,
+              requiredReceiptKinds: ["messaging_delivery"],
+            },
+          },
+        },
+      },
+      replyPayloads: [{ text: "Доброе утро, Владимир." }],
+      deliveryReceipt: {
+        attemptedDeliveryCount: 1,
+        confirmedDeliveryCount: 1,
+        failedDeliveryCount: 0,
+      },
+    });
+
+    expect(reevaluated?.executionVerification).toEqual(
+      expect.objectContaining({
+        status: "verified",
+        receipts: expect.arrayContaining([
+          expect.objectContaining({
+            kind: "tool",
+            name: "read",
+            status: "success",
+          }),
+          expect.objectContaining({
+            kind: "messaging_delivery",
+            proof: "verified",
+            status: "success",
+          }),
+        ]),
+      }),
+    );
+    expect(reevaluated?.acceptanceOutcome).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        reasonCode: "completed_with_confirmed_delivery",
+      }),
+    );
+    expect(reevaluated?.supervisorVerdict).toEqual(
+      expect.objectContaining({
+        status: "satisfied",
+        action: "close",
       }),
     );
   });

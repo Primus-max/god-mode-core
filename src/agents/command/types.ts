@@ -11,6 +11,13 @@ export type ImageContent = {
   mimeType: string;
 };
 
+export type DocumentContent = {
+  type: "file";
+  data: string;
+  mimeType: string;
+  fileName: string;
+};
+
 export type AgentStreamParams = {
   /** Provider stream params override (best-effort). */
   temperature?: number;
@@ -35,6 +42,8 @@ export type AgentCommandOpts = {
   message: string;
   /** Optional image attachments for multimodal messages. */
   images?: ImageContent[];
+  /** Optional non-image attachments staged into the agent workspace. */
+  documents?: DocumentContent[];
   /** Optional client-provided tools (OpenResponses hosted tools). */
   clientTools?: ClientToolDefinition[];
   /** Agent id override (must exist in config). */

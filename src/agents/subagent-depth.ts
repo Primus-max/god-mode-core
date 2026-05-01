@@ -1,3 +1,7 @@
+/**
+ * Session-store depth resolution for subagent spawn gating.
+ * Product guardrail: prefer shallow trees (defaults in ../config/agent-limits.ts); this module only measures depth.
+ */
 import fs from "node:fs";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveStorePath } from "../config/sessions/paths.js";
@@ -135,6 +139,39 @@ export function getSubagentDepthFromSessionStore(
   }
 
   const cache = new Map<string, Record<string, SessionDepthEntry>>();
+
+  const detectSpawnedByCycleOrRunaway = (): boolean => {
+    const seen = new Set<string>();
+    let walk = raw;
+    for (let hop = 0; hop < 64; hop++) {
+      const k = normalizeSessionKey(walk);
+      if (!k) {
+        return false;
+      }
+      if (seen.has(k)) {
+        return true;
+      }
+      seen.add(k);
+      const entry = resolveEntryForSessionKey({
+        sessionKey: k,
+        cfg: opts?.cfg,
+        store: opts?.store,
+        cache,
+      });
+      const next = normalizeSessionKey(entry?.spawnedBy);
+      if (!next) {
+        return false;
+      }
+      walk = next;
+    }
+    // Long linear ancestry: let depthFromStore walk (no repeated key seen).
+    return false;
+  };
+
+  if (detectSpawnedByCycleOrRunaway()) {
+    return fallbackDepth;
+  }
+
   const visited = new Set<string>();
 
   const depthFromStore = (key: string): number | undefined => {

@@ -13,6 +13,7 @@ import {
   runBeforeToolCallHook,
 } from "./pi-tools.before-tool-call.js";
 import { normalizeToolName } from "./tool-policy.js";
+import { sanitizeToolErrorForUser } from "./tool-error-sanitizer.js";
 import { jsonResult, payloadTextResult } from "./tools/common.js";
 
 type AnyAgentTool = AgentTool;
@@ -83,10 +84,11 @@ function buildToolExecutionErrorResult(params: {
   toolName: string;
   message: string;
 }): AgentToolResult<unknown> {
+  const safeMessage = sanitizeToolErrorForUser(params.message) ?? "Tool execution failed.";
   return jsonResult({
     status: "error",
     tool: params.toolName,
-    error: params.message,
+    error: safeMessage,
   });
 }
 
@@ -195,7 +197,7 @@ export function toClientToolDefinitions(
           ctx: hookContext,
         });
         if (outcome.blocked) {
-          throw new Error(outcome.reason);
+          throw new Error(sanitizeToolErrorForUser(outcome.reason) ?? "Tool execution blocked.");
         }
         const adjustedParams = outcome.params;
         const paramsRecord = isPlainObject(adjustedParams) ? adjustedParams : {};

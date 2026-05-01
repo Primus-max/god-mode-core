@@ -180,6 +180,28 @@ export const ru: TranslationMap = {
         session: "Session profile",
       },
     },
+    catalog: {
+      title: "Каталог платформы",
+      subtitle:
+        "Read-only витрина recipe-маршрутов и capability inventory для текущего operator-контекста.",
+      loading: "Загрузка каталога платформы…",
+      recipeRoutes: "Recipe-маршруты",
+      capabilities: "Capabilities",
+      activeRecipe: "Активный recipe",
+      bootstrapRequired: "Нужен bootstrap",
+      requiredCapabilities: "Требует",
+      usedBy: "Используется в",
+      risk: "Риск",
+      status: "Статус",
+      source: "Источник",
+      installMethod: "Установка",
+    },
+    runtime: {
+      title: "Runtime queue",
+      loading: "Загрузка runtime operator queue…",
+      scopeGlobal: "Последние runtime checkpoint'ы, видимые оператору.",
+      scopeSession: "Runtime scope: {sessionKey}",
+    },
   },
   overview: {
     access: {
@@ -319,6 +341,8 @@ export const ru: TranslationMap = {
       kind: "Тип",
       updated: "Обновлено",
       tokens: "Токены",
+      model: "Модель",
+      runtime: "Runtime",
       thinking: "Размышления",
       fast: "Быстрый",
       verbose: "Подробность",
@@ -347,6 +371,99 @@ export const ru: TranslationMap = {
     fastLevels: {
       on: "вкл",
       off: "выкл",
+    },
+    runtime: {
+      title: "Runtime Inspector",
+      usageStats: {
+        title: "Статистика использования",
+        inputTokens: "Входные токены",
+        outputTokens: "Выходные токены",
+        costEstimate: "Оценка стоимости",
+      },
+      scopeGlobal: "Последние runtime checkpoint'ы на operator-visible surfaces.",
+      scopeSession: "Фильтр по сессии {sessionKey}.",
+      clearScope: "Сбросить фильтр",
+      loading: "Загрузка runtime checkpoint'ов…",
+      loadingDetail: "Загрузка runtime detail…",
+      empty: "Для текущего фильтра runtime checkpoint'ов нет.",
+      selectHint: "Выберите checkpoint, чтобы посмотреть closures, actions и recovery state.",
+      inspect: "Открыть runtime",
+      noHint: "Operator hint недоступен.",
+      nextActions: "Следующие действия",
+      continuation: "Continuation",
+      attempts: "Попытки",
+      actionsTitle: "Actions",
+      closuresTitle: "Closures",
+      noActions: "Связанных actions нет.",
+      noClosures: "Связанных closures нет.",
+      controls: {
+        approveRecovery: "Одобрить recovery",
+        denyRecovery: "Отклонить recovery",
+        approveBootstrap: "Одобрить bootstrap",
+        denyBootstrap: "Отклонить bootstrap",
+        runBootstrap: "Запустить bootstrap",
+        retryArtifact: "Повторить transition",
+        dispatchContinuation: "Запустить continuation",
+        retryDispatch: "Повторить continuation",
+      },
+      confirmations: {
+        contextHint: "Текущая operator hint: {hint}",
+        denyRecovery:
+          "Отклонить этот recovery?\n\nRun останется заблокированным или перейдет в failed recovery state.",
+        denyBootstrap:
+          "Отклонить этот bootstrap request?\n\nCapability останется недоступной до следующего одобрения.",
+        dispatchContinuation:
+          "Запустить continuation сейчас?\n\nЭто немедленно повторит ожидающий recovery path.",
+        artifactApprove:
+          "Одобрить этот artifact transition?\n\nЭто сразу применит ожидающее artifact approval.",
+        artifactPublish:
+          "Опубликовать этот artifact сейчас?\n\nЭто изменит состояние artifact и может открыть его downstream-потребителям.",
+        artifactDelete:
+          "Удалить этот artifact из recovery flow?\n\nArtifact будет помечен как deleted, при этом история сохранится.",
+      },
+      links: {
+        openBootstrap: "Открыть bootstrap request",
+        openArtifact: "Открыть artifact",
+      },
+      bootstrapGuide: {
+        title: "Bootstrap checkpoint (подсказка оператору)",
+        pending_approval:
+          "Входящая задача на паузе. Одобрите (или отклоните) capability на вкладке Bootstrap, затем можно запускать установку.",
+        pending_run:
+          "Запрос одобрен — запустите bootstrap для установки. Поставленная задача остаётся в очереди до завершения установки.",
+        install_running:
+          "Идёт установка. После завершения используйте следующие действия ниже, чтобы возобновить или dispatch paused task при необходимости.",
+        resume_dispatch:
+          "Установка завершена — выполните dispatch continuation, когда готовы, чтобы снова запустить отложенное сообщение или задачу.",
+        resume_failed:
+          "Continuation после установки завершился ошибкой. Используйте retry/dispatch или проверьте логи и повторите.",
+        resume_complete:
+          "Continuation завершён; путь отложенной задачи должен быть закрыт или передан следующему run.",
+        completed: "Этот bootstrap checkpoint завершён.",
+        denied: "Bootstrap отклонён; задача не возобновится, пока не изменятся требования или политика.",
+        generic: "Смотрите статус, следующие действия и связанную запись bootstrap.",
+      },
+      handoff: {
+        currentTarget: "Текущий target {runId}",
+        requestAnchor: "Request anchor {runId}",
+        closureHistory: "Closure history {runId}",
+        truthSource: {
+          closure: "Handoff truth: closure",
+          recovery: "Handoff truth: recovery",
+        },
+      },
+      fields: {
+        checkpointId: "Checkpoint",
+        runId: "Run",
+        sessionKey: "Сессия",
+        updated: "Обновлено",
+        lastDecision: "Последнее решение оператора",
+        decidedBy: "Кто решил",
+        decidedAt: "Когда решил",
+        blockedReason: "Причина блокировки",
+        resultStatus: "Статус результата",
+        recipe: "Recipe",
+      },
     },
   },
   channels: {
@@ -632,6 +749,10 @@ export const ru: TranslationMap = {
       deny: "Отклонить",
       run: "Запустить bootstrap",
     },
+    runtime: {
+      title: "Runtime checkpoint",
+      loading: "Загрузка runtime checkpoint…",
+    },
     fields: {
       id: "ID",
       source: "Источник",
@@ -640,6 +761,41 @@ export const ru: TranslationMap = {
       created: "Создано",
       updated: "Обновлено",
       lifecycle: "Жизненный цикл",
+    },
+    recordStateHint: "запрос {state}",
+    planning: {
+      title: "Контекст маршрутизации и планирования",
+      subtitle:
+        "Снимок планировщика на момент запроса bootstrap (готовность, профиль, подсказки по модели).",
+      profileRecipe: "Профиль · рецепт",
+      readiness: "Готовность",
+      intent: "Намерение",
+      autonomy: "Автономия политики",
+      boundary: "Граница без присмотра",
+      bootstrapCaps: "Capabilities, требующие bootstrap",
+      requiredCaps: "Требуемые capabilities",
+      modelRoute: "Подсказки маршрута модели",
+      modelRouteTier: "Уровень маршрута модели",
+      modelRouteTierValues: {
+        local_eligible: "Допустим локальный маршрут (local_eligible)",
+        remote_required: "Нужен удалённый маршрут (remote_required)",
+      },
+      fallbackModels: "Fallback-модели",
+      tools: "Запрошенные инструменты",
+      plannerReasoning: "Обоснование планировщика",
+    },
+    blockedResume: {
+      title: "Поставленная задача (возобновится после установки)",
+      subtitle:
+        "После успешной установки и проверки эта задача в очереди будет автоматически запланирована снова.",
+      runId: "Заблокированный run",
+      sessionKey: "Сессия",
+      queueKey: "Очередь",
+      taskPreview: "Превью задачи",
+    },
+    lifecyclePath: {
+      title: "Путь жизненного цикла",
+      verification: "Проверка",
     },
   },
   machine: {

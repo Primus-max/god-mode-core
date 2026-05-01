@@ -1,5 +1,12 @@
 export { TRUSTED_CAPABILITY_CATALOG } from "./defaults.js";
 export {
+  assertApprovedCatalogEntryOrThrow,
+  catalogEntryMatchesApprovedSnapshot,
+  getApprovedCapabilityCatalogEntry,
+  listApprovedCapabilityCatalogIds,
+} from "./catalog-approval.js";
+export {
+  BootstrapBlockedRunResumeSchema,
   BootstrapLifecycleResultSchema,
   BootstrapLifecycleStateSchema,
   BootstrapAuditEventSchema,
@@ -23,6 +30,7 @@ export {
   type BootstrapAuditEvent,
   type BootstrapAuditEventType,
   type BootstrapApprovalMode,
+  type BootstrapBlockedRunResume,
   type BootstrapLifecycleResult,
   type BootstrapLifecycleState,
   type BootstrapOrchestrationResult,
@@ -44,6 +52,11 @@ export {
 export { resolveBootstrapRequest, resolveBootstrapRequests } from "./resolver.js";
 export { runDefaultBootstrapHealthCheckCommand, verifyCapabilityHealth } from "./health-check.js";
 export { installCapabilityRequest, type BootstrapInstaller } from "./installers.js";
+export {
+  ensureCapability,
+  loadCapabilityModule,
+  type EnsureCapabilityResult,
+} from "./ensure-capability.js";
 export {
   resolveBootstrapAuditPath,
   resolvePlatformBootstrapDownloadCapabilityInstallDir,

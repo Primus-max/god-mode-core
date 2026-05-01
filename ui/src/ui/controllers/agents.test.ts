@@ -56,7 +56,7 @@ function createSaveState(): {
 }
 
 describe("loadAgents", () => {
-  it("preserves selected agent when it still exists in the list", async () => {
+  it("preserves a deep-linked selected agent when it still exists in the list", async () => {
     const { state, request } = createState();
     state.agentsSelectedId = "kimi";
     request.mockResolvedValue({
@@ -74,7 +74,7 @@ describe("loadAgents", () => {
     expect(state.agentsSelectedId).toBe("kimi");
   });
 
-  it("resets to default when selected agent is removed", async () => {
+  it("resets to default when the deep-linked selected agent is removed", async () => {
     const { state, request } = createState();
     state.agentsSelectedId = "removed-agent";
     request.mockResolvedValue({

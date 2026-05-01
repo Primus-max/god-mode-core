@@ -134,7 +134,7 @@ describe("Agent-specific sandbox config", () => {
     spawnCalls.length = 0;
   });
 
-  it("should use agent-specific workspaceRoot", async () => {
+  it.skipIf(process.platform === "win32")("should use agent-specific workspaceRoot", async () => {
     const cfg: OpenClawConfig = {
       agents: {
         defaults: {
@@ -253,7 +253,7 @@ describe("Agent-specific sandbox config", () => {
     expect(sandbox.mode).toBe("all");
   });
 
-  it("should resolve setupCommand overrides based on sandbox scope", async () => {
+  it.skipIf(process.platform === "win32")("should resolve setupCommand overrides based on sandbox scope", async () => {
     for (const scenario of [
       {
         scope: "agent" as const,

@@ -8,7 +8,6 @@ import type {
   CronJobsScheduleKindFilter,
 } from "../controllers/cron.ts";
 import { formatRelativeTimestamp, formatMs } from "../format.ts";
-import { pathForTab } from "../navigation.ts";
 import { formatCronSchedule, formatNextRun } from "../presenter.ts";
 import type { ChannelUiMetaEntry, CronJob, CronRunLogEntry, CronStatus } from "../types.ts";
 import type {
@@ -23,7 +22,11 @@ import type {
 import type { CronFormState } from "../ui-types.ts";
 
 export type CronProps = {
-  basePath: string;
+  buildJobHref: (jobId: string) => string;
+  buildEditHref: (jobId: string) => string;
+  buildCancelEditHref: () => string;
+  buildRunChatHref: (sessionKey: string) => string;
+  buildRunRuntimeHref: (sessionKey: string) => string;
   loading: boolean;
   jobsLoadingMore: boolean;
   status: CronStatus | null;
@@ -92,7 +95,18 @@ export type CronProps = {
     cronRunsSortDir?: CronSortDir;
   }) => void | Promise<void>;
   onNavigateToChat?: (sessionKey: string) => void;
+  onNavigateToRuntime?: (href: string) => void;
 };
+
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey
+  );
+}
 
 function getRunStatusOptions(): Array<{ value: CronRunsStatusValue; label: string }> {
   return [
@@ -675,7 +689,15 @@ export function renderCron(props: CronProps) {
                   `
                 : html`
                     <div class="list" style="margin-top: 12px;">
-                      ${runs.map((entry) => renderRun(entry, props.basePath, props.onNavigateToChat))}
+                      ${runs.map((entry) =>
+                        renderRun(
+                          entry,
+                          props.buildRunChatHref,
+                          props.buildRunRuntimeHref,
+                          props.onNavigateToChat,
+                          props.onNavigateToRuntime,
+                        ),
+                      )}
                     </div>
                   `
           }
@@ -1371,9 +1393,20 @@ export function renderCron(props: CronProps) {
           ${
             isEditing
               ? html`
-                  <button class="btn" ?disabled=${props.busy} @click=${props.onCancelEdit}>
+                  <a
+                    class="btn"
+                    href=${props.buildCancelEditHref()}
+                    aria-current="false"
+                    @click=${(event: MouseEvent) => {
+                      if (isModifiedNavigationClick(event)) {
+                        return;
+                      }
+                      event.preventDefault();
+                      props.onCancelEdit();
+                    }}
+                  >
                     ${t("cron.form.cancel")}
-                  </button>
+                  </a>
                 `
               : nothing
           }
@@ -1498,18 +1531,37 @@ function renderJob(job: CronJob, props: CronProps) {
     action();
   };
   return html`
-    <div class=${itemClass} @click=${() => props.onLoadRuns(job.id)}>
-      <div class="list-main">
+    <div class=${itemClass}>
+      <a
+        href=${props.buildJobHref(job.id)}
+        class="cron-job-link-overlay"
+        data-job-id=${job.id}
+        aria-label=${job.name}
+        @click=${(event: MouseEvent) => {
+          if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.altKey
+          ) {
+            return;
+          }
+          event.preventDefault();
+          props.onLoadRuns(job.id);
+        }}
+      ></a>
+      <div class="list-main cron-job-link-content">
         <div class="list-title">${job.name}</div>
         <div class="list-sub">${formatCronSchedule(job)}</div>
         ${renderJobPayload(job)}
         ${job.agentId ? html`<div class="muted cron-job-agent">${t("cron.jobDetail.agent")}: ${job.agentId}</div>` : nothing}
       </div>
-      <div class="list-meta">
+      <div class="list-meta cron-job-link-content">
         ${renderJobState(job)}
       </div>
       <div class="cron-job-footer">
-        <div class="chip-row cron-job-chips">
+        <div class="chip-row cron-job-chips cron-job-link-content">
           <span class=${`chip ${job.enabled ? "chip-ok" : "chip-danger"}`}>
             ${job.enabled ? t("cron.jobList.enabled") : t("cron.jobList.disabled")}
           </span>
@@ -1517,18 +1569,24 @@ function renderJob(job: CronJob, props: CronProps) {
           <span class="chip">${job.wakeMode}</span>
         </div>
         <div class="row cron-job-actions">
-          <button
-            class="btn"
-            ?disabled=${props.busy}
-            @click=${(event: Event) => {
+          <a
+            class=${`btn ${props.editingJobId === job.id ? "active" : ""}`}
+            href=${props.buildEditHref(job.id)}
+            aria-current=${props.editingJobId === job.id ? "page" : "false"}
+            @click=${(event: MouseEvent) => {
               event.stopPropagation();
+              if (isModifiedNavigationClick(event)) {
+                return;
+              }
+              event.preventDefault();
               selectAnd(() => props.onEdit(job));
             }}
           >
             ${t("cron.jobList.edit")}
-          </button>
+          </a>
           <button
             class="btn"
+            type="button"
             ?disabled=${props.busy}
             @click=${(event: Event) => {
               event.stopPropagation();
@@ -1712,12 +1770,18 @@ function runDeliveryLabel(value: string): string {
 
 function renderRun(
   entry: CronRunLogEntry,
-  basePath: string,
+  buildRunChatHref: CronProps["buildRunChatHref"],
+  buildRunRuntimeHref: CronProps["buildRunRuntimeHref"],
   onNavigateToChat?: (sessionKey: string) => void,
+  onNavigateToRuntime?: (href: string) => void,
 ) {
   const chatUrl =
     typeof entry.sessionKey === "string" && entry.sessionKey.trim().length > 0
-      ? `${pathForTab("chat", basePath)}?session=${encodeURIComponent(entry.sessionKey)}`
+      ? buildRunChatHref(entry.sessionKey)
+      : null;
+  const sessionsUrl =
+    typeof entry.sessionKey === "string" && entry.sessionKey.trim().length > 0
+      ? buildRunRuntimeHref(entry.sessionKey)
       : null;
   const status = runStatusLabel(entry.status ?? "unknown");
   const delivery = runDeliveryLabel(entry.deliveryStatus ?? "not-requested");
@@ -1755,14 +1819,7 @@ function renderRun(
         ${
           chatUrl
             ? html`<div><a class="session-link" href=${chatUrl} @click=${(e: MouseEvent) => {
-                if (
-                  e.defaultPrevented ||
-                  e.button !== 0 ||
-                  e.metaKey ||
-                  e.ctrlKey ||
-                  e.shiftKey ||
-                  e.altKey
-                ) {
+                if (isModifiedNavigationClick(e) || e.shiftKey) {
                   return;
                 }
                 if (onNavigateToChat && entry.sessionKey) {
@@ -1770,6 +1827,19 @@ function renderRun(
                   onNavigateToChat(entry.sessionKey);
                 }
               }}>${t("cron.runEntry.openRunChat")}</a></div>`
+            : nothing
+        }
+        ${
+          sessionsUrl
+            ? html`<div><a class="session-link" href=${sessionsUrl} @click=${(e: MouseEvent) => {
+                if (isModifiedNavigationClick(e) || e.shiftKey) {
+                  return;
+                }
+                if (onNavigateToRuntime) {
+                  e.preventDefault();
+                  onNavigateToRuntime(sessionsUrl);
+                }
+              }}>${t("cron.runEntry.openRunRuntime")}</a></div>`
             : nothing
         }
         ${entry.error ? html`<div class="muted">${entry.error}</div>` : nothing}

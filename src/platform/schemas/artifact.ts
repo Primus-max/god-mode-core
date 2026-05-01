@@ -36,6 +36,8 @@ export const ArtifactDescriptorSchema = z
     mimeType: z.string().optional(),
     sizeBytes: z.number().nonnegative().optional(),
     path: z.string().optional(),
+    /** When set, correlates with `BootstrapRequestRecord.id` for audit-ready lineage. */
+    bootstrapRequestId: z.string().min(1).optional(),
     url: z.string().url().optional(),
     createdAt: z.string().datetime().optional(),
     updatedAt: z.string().datetime().optional(),

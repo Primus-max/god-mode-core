@@ -14,9 +14,17 @@ export type ChatImageContent = {
   mimeType: string;
 };
 
+export type ChatFileContent = {
+  type: "file";
+  data: string;
+  mimeType: string;
+  fileName: string;
+};
+
 export type ParsedMessageWithImages = {
   message: string;
   images: ChatImageContent[];
+  files: ChatFileContent[];
 };
 
 type AttachmentLog = {
@@ -39,6 +47,46 @@ function normalizeMime(mime?: string): string | undefined {
 
 function isImageMime(mime?: string): boolean {
   return typeof mime === "string" && mime.startsWith("image/");
+}
+
+/**
+ * Resolves a conservative mime type for non-image attachments when sniffing
+ * cannot identify the payload. This preserves useful file extensions for the
+ * planner/runtime without forcing a new transport layer.
+ *
+ * @param {string} label - Original attachment label or file name.
+ * @param {string | undefined} providedMime - Caller-provided mime type.
+ * @param {string | undefined} sniffedMime - Sniffed mime type from payload bytes.
+ * @returns {string | undefined} Best-effort mime type for a document attachment.
+ */
+function resolveFileMimeType(
+  label: string,
+  providedMime?: string,
+  sniffedMime?: string,
+): string | undefined {
+  if (sniffedMime && !isImageMime(sniffedMime)) {
+    return sniffedMime;
+  }
+  if (providedMime && !isImageMime(providedMime)) {
+    return providedMime;
+  }
+  const lowerLabel = label.toLowerCase();
+  if (lowerLabel.endsWith(".csv")) {
+    return "text/csv";
+  }
+  if (lowerLabel.endsWith(".pdf")) {
+    return "application/pdf";
+  }
+  if (lowerLabel.endsWith(".xls")) {
+    return "application/vnd.ms-excel";
+  }
+  if (lowerLabel.endsWith(".xlsx")) {
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  }
+  if (lowerLabel.endsWith(".tsv")) {
+    return "text/tab-separated-values";
+  }
+  return providedMime ?? sniffedMime;
 }
 
 function isValidBase64(value: string): boolean {
@@ -102,10 +150,11 @@ export async function parseMessageWithAttachments(
   const maxBytes = opts?.maxBytes ?? 5_000_000; // decoded bytes (5,000,000)
   const log = opts?.log;
   if (!attachments || attachments.length === 0) {
-    return { message, images: [] };
+    return { message, images: [], files: [] };
   }
 
   const images: ChatImageContent[] = [];
+  const files: ChatFileContent[] = [];
 
   for (const [idx, att] of attachments.entries()) {
     if (!att) {
@@ -121,11 +170,21 @@ export async function parseMessageWithAttachments(
     const providedMime = normalizeMime(mime);
     const sniffedMime = normalizeMime(await sniffMimeFromBase64(b64));
     if (sniffedMime && !isImageMime(sniffedMime)) {
-      log?.warn(`attachment ${label}: detected non-image (${sniffedMime}), dropping`);
+      files.push({
+        type: "file",
+        data: b64,
+        mimeType: sniffedMime,
+        fileName: label,
+      });
       continue;
     }
-    if (!sniffedMime && !isImageMime(providedMime)) {
-      log?.warn(`attachment ${label}: unable to detect image mime type, dropping`);
+    if (!sniffedMime && providedMime && !isImageMime(providedMime)) {
+      files.push({
+        type: "file",
+        data: b64,
+        mimeType: providedMime,
+        fileName: label,
+      });
       continue;
     }
     if (sniffedMime && providedMime && sniffedMime !== providedMime) {
@@ -133,15 +192,28 @@ export async function parseMessageWithAttachments(
         `attachment ${label}: mime mismatch (${providedMime} -> ${sniffedMime}), using sniffed`,
       );
     }
-
-    images.push({
-      type: "image",
+    if (sniffedMime || isImageMime(providedMime)) {
+      images.push({
+        type: "image",
+        data: b64,
+        mimeType: sniffedMime ?? providedMime ?? mime,
+      });
+      continue;
+    }
+    const fileMime = resolveFileMimeType(label, providedMime, sniffedMime);
+    if (!fileMime) {
+      log?.warn(`attachment ${label}: unable to classify attachment type, dropping`);
+      continue;
+    }
+    files.push({
+      type: "file",
       data: b64,
-      mimeType: sniffedMime ?? providedMime ?? mime,
+      mimeType: fileMime,
+      fileName: label,
     });
   }
 
-  return { message, images };
+  return { message, images, files };
 }
 
 /**

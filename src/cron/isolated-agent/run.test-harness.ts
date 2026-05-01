@@ -37,6 +37,7 @@ export const runWithModelFallbackMock = createMock();
 export const runEmbeddedPiAgentMock = createMock();
 export const runCliAgentMock = createMock();
 export const getCliSessionIdMock = createMock();
+export const resolveAgentTimeoutMsMock = createMock();
 export const updateSessionStoreMock = createMock();
 export const resolveCronSessionMock = createMock();
 export const logWarnMock = createMock();
@@ -144,7 +145,7 @@ vi.mock("../../agents/timeout.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../agents/timeout.js")>();
   return {
     ...actual,
-    resolveAgentTimeoutMs: vi.fn().mockReturnValue(60_000),
+    resolveAgentTimeoutMs: (...args: unknown[]) => resolveAgentTimeoutMsMock(...args),
   };
 });
 
@@ -376,6 +377,8 @@ export function resetRunCronIsolatedAgentTurnHarness(): void {
 
   runCliAgentMock.mockReset();
   getCliSessionIdMock.mockReturnValue(undefined);
+  resolveAgentTimeoutMsMock.mockReset();
+  resolveAgentTimeoutMsMock.mockReturnValue(60_000);
 
   updateSessionStoreMock.mockReset();
   updateSessionStoreMock.mockResolvedValue(undefined);

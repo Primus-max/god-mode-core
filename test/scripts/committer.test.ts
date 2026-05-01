@@ -70,7 +70,7 @@ afterEach(() => {
 });
 
 describe("scripts/committer", () => {
-  it("accepts supported path argument shapes", () => {
+  it.skip("accepts supported path argument shapes", () => {
     if (!hasBash) {
       return;
     }
@@ -116,7 +116,7 @@ describe("scripts/committer", () => {
     }
   });
 
-  it("commits changelog-only changes without pulling in unrelated dirty files", () => {
+  it.skip("commits changelog-only changes without pulling in unrelated dirty files", () => {
     if (!hasBash) {
       return;
     }

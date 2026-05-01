@@ -21,7 +21,12 @@ vi.mock("./openrouter-model-capabilities.js", () => ({
 }));
 
 import type { OpenClawConfig } from "../../config/config.js";
-import { buildInlineProviderModels, resolveModel, resolveModelAsync } from "./model.js";
+import {
+  buildInlineProviderModels,
+  isLikelyControlPlaneLocalProvider,
+  resolveModel,
+  resolveModelAsync,
+} from "./model.js";
 import {
   buildOpenAICodexForwardCompatExpectation,
   makeModel,
@@ -952,5 +957,19 @@ describe("resolveModel", () => {
       api: "openai-completions",
       baseUrl: "https://proxy.example.com/v1",
     });
+  });
+});
+
+describe("isLikelyControlPlaneLocalProvider", () => {
+  it("tags known local inference stacks", () => {
+    expect(isLikelyControlPlaneLocalProvider("ollama")).toBe(true);
+    expect(isLikelyControlPlaneLocalProvider("Ollama")).toBe(true);
+    expect(isLikelyControlPlaneLocalProvider("vllm")).toBe(true);
+    expect(isLikelyControlPlaneLocalProvider("lmstudio")).toBe(true);
+  });
+
+  it("does not tag primary cloud providers", () => {
+    expect(isLikelyControlPlaneLocalProvider("openai")).toBe(false);
+    expect(isLikelyControlPlaneLocalProvider("anthropic")).toBe(false);
   });
 });

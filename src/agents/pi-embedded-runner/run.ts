@@ -7,14 +7,21 @@ import {
 } from "../../context-engine/index.js";
 import { computeBackoff, sleepWithAbort, type BackoffPolicy } from "../../infra/backoff.js";
 import { generateSecureToken } from "../../infra/secure-random.js";
+import { isLikelyControlPlaneLocalProvider } from "../../platform/decision/control-plane-local.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
+import { intentLedger } from "../../platform/session/intent-ledger.js";
+import { computeIntentFingerprint } from "../../platform/session/intent-fingerprint.js";
 import {
+  buildExecutionIntentSeedFromRecipeRuntimePlan,
   getPlatformRuntimeCheckpointService,
   type PlatformRuntimeExecutionIntent,
   PlatformRuntimeRunOutcomeSchema,
   type PlatformRuntimeExecutionReceipt,
   type PlatformRuntimeExecutionSurface,
 } from "../../platform/runtime/index.js";
+import { buildAlreadyDoneReply } from "../../platform/runtime/prior-evidence/already-done-reply.js";
+import { buildLedgerPriorEvidence } from "../../platform/runtime/prior-evidence/ledger-probe.js";
+import { isCompletionEvidenceSufficient, type PriorEvidenceProbe } from "../../platform/runtime/evidence-sufficiency.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { prepareProviderRuntimeAuth } from "../../plugins/provider-runtime.js";
 import type { PluginHookBeforeAgentStartResult } from "../../plugins/types.js";
@@ -71,6 +78,7 @@ import {
   pickFallbackThinkingLevel,
   type FailoverReason,
 } from "../pi-embedded-helpers.js";
+import { extractAssistantText } from "../pi-embedded-utils.js";
 import { ensureRuntimePluginsLoaded } from "../runtime-plugins.js";
 import { derivePromptTokens, normalizeUsage, type UsageLike } from "../usage.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
@@ -113,9 +121,20 @@ const OVERLOAD_FAILOVER_BACKOFF_POLICY: BackoffPolicy = {
   jitter: 0.2,
 };
 
+/** Local control-plane stacks usually recover faster; keep failover responsive without hammering them. */
+const CONTROL_PLANE_LOCAL_OVERLOAD_FAILOVER_BACKOFF_POLICY: BackoffPolicy = {
+  initialMs: 120,
+  maxMs: 900,
+  factor: 2,
+  jitter: 0.2,
+};
+
 // Avoid Anthropic's refusal test token poisoning session transcripts.
 const ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL = "ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL";
 const ANTHROPIC_MAGIC_STRING_REPLACEMENT = "ANTHROPIC MAGIC STRING TRIGGER REFUSAL (redacted)";
+const STANDALONE_TOOL_NAME_FIELD_RE =
+  /"(?:name|function|function_name|tool|tool_name)"\s*:\s*"[^"\r\n]+"/;
+const STANDALONE_TOOL_ARGUMENTS_FIELD_RE = /"arguments"\s*:\s*\{/;
 
 function scrubAnthropicRefusalMagic(prompt: string): string {
   if (!prompt.includes(ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL)) {
@@ -125,6 +144,51 @@ function scrubAnthropicRefusalMagic(prompt: string): string {
     ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL,
     ANTHROPIC_MAGIC_STRING_REPLACEMENT,
   );
+}
+
+function unwrapStandaloneToolCallEnvelopeText(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenced?.[1]?.trim() || trimmed;
+}
+
+function looksLikeStandaloneToolCallEnvelopeText(text: string | undefined): boolean {
+  if (typeof text !== "string") {
+    return false;
+  }
+  const candidate = unwrapStandaloneToolCallEnvelopeText(text);
+  if (!candidate) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(candidate) as Record<string, unknown>;
+    const hasToolName =
+      typeof parsed.name === "string" ||
+      typeof parsed.function === "string" ||
+      typeof parsed.function_name === "string" ||
+      typeof parsed.tool === "string" ||
+      typeof parsed.tool_name === "string";
+    return (
+      hasToolName &&
+      "arguments" in parsed &&
+      Object.keys(parsed).every((key) =>
+        ["name", "function", "function_name", "tool", "tool_name", "arguments", "id"].includes(
+          key,
+        ),
+      )
+    );
+  } catch {
+    const trimmedCandidate = candidate.trim();
+    return (
+      trimmedCandidate.startsWith("{") &&
+      trimmedCandidate.endsWith("}") &&
+      STANDALONE_TOOL_NAME_FIELD_RE.test(trimmedCandidate) &&
+      STANDALONE_TOOL_ARGUMENTS_FIELD_RE.test(trimmedCandidate)
+    );
+  }
 }
 
 type UsageAccumulator = {
@@ -312,35 +376,9 @@ function buildExecutionIntentFromRuntimePlan(params: {
   if (!runtimePlan) {
     return runtimeService.buildExecutionIntent({ runId });
   }
-  const declaredRequiresOutput =
-    runtimePlan.intent !== "general" ||
-    (runtimePlan.publishTargets?.length ?? 0) > 0 ||
-    (runtimePlan.artifactKinds?.length ?? 0) > 0;
   return runtimeService.buildExecutionIntent({
     runId,
-    executionIntent: {
-      profileId: runtimePlan.selectedProfileId,
-      recipeId: runtimePlan.selectedRecipeId,
-      ...(runtimePlan.taskOverlayId ? { taskOverlayId: runtimePlan.taskOverlayId } : {}),
-      ...(runtimePlan.plannerReasoning ? { plannerReasoning: runtimePlan.plannerReasoning } : {}),
-      ...(runtimePlan.intent ? { intent: runtimePlan.intent } : {}),
-      ...(runtimePlan.publishTargets?.length ? { publishTargets: runtimePlan.publishTargets } : {}),
-      ...(runtimePlan.artifactKinds?.length ? { artifactKinds: runtimePlan.artifactKinds } : {}),
-      ...(runtimePlan.requestedToolNames?.length
-        ? { requestedToolNames: runtimePlan.requestedToolNames }
-        : {}),
-      ...(runtimePlan.requiredCapabilities?.length
-        ? { requiredCapabilities: runtimePlan.requiredCapabilities }
-        : {}),
-      ...(runtimePlan.bootstrapRequiredCapabilities?.length
-        ? { bootstrapRequiredCapabilities: runtimePlan.bootstrapRequiredCapabilities }
-        : {}),
-      ...(runtimePlan.requireExplicitApproval !== undefined
-        ? { requireExplicitApproval: runtimePlan.requireExplicitApproval }
-        : {}),
-      ...(runtimePlan.policyAutonomy ? { policyAutonomy: runtimePlan.policyAutonomy } : {}),
-      expectations: declaredRequiresOutput ? { requiresOutput: true } : {},
-    },
+    executionIntent: buildExecutionIntentSeedFromRecipeRuntimePlan(runtimePlan),
   });
 }
 
@@ -358,6 +396,7 @@ function buildCompletionArtifacts(params: {
   executionReceipts?: PlatformRuntimeExecutionReceipt[];
   executionSurface?: PlatformRuntimeExecutionSurface;
   executionIntent?: PlatformRuntimeExecutionIntent;
+  priorEvidence?: PriorEvidenceProbe[];
   modelFallback?: EmbeddedPiRunMeta["modelFallback"];
 }) {
   const normalizedRunId = params.runId?.trim();
@@ -435,6 +474,7 @@ function buildCompletionArtifacts(params: {
     evidence: baseEvidence,
     executionSurface: params.executionSurface,
     executionIntent: params.executionIntent,
+    priorEvidence: params.priorEvidence,
   });
   runtimeService.recordRunClosure(runClosure);
   return {
@@ -486,7 +526,8 @@ export async function runEmbeddedPiAgent(
           `[workspace-fallback] caller=runEmbeddedPiAgent reason=${workspaceResolution.fallbackReason} run=${params.runId} session=${redactedSessionId} sessionKey=${redactedSessionKey} agent=${workspaceResolution.agentId} workspace=${redactedWorkspace}`,
         );
       }
-      ensureRuntimePluginsLoaded({
+      const _ensureRuntimePluginsLoaded = params.ensureRuntimePluginsLoaded ?? ensureRuntimePluginsLoaded;
+      _ensureRuntimePluginsLoaded({
         config: params.config,
         workspaceDir: resolvedWorkspace,
         allowGatewaySubagentBinding: params.allowGatewaySubagentBinding,
@@ -507,15 +548,51 @@ export async function runEmbeddedPiAgent(
         runId: params.runId,
         platformExecutionContext: params.platformExecutionContext,
       });
-      await ensureOpenClawModelsJson(params.config, agentDir);
-
-      // Run before_model_resolve hooks early so plugins can override the
-      // provider/model before resolveModel().
-      //
-      // Legacy compatibility: before_agent_start is also checked for override
-      // fields if present. New hook takes precedence when both are set.
-      let modelResolveOverride: { providerOverride?: string; modelOverride?: string } | undefined;
-      let legacyBeforeAgentStartResult: PluginHookBeforeAgentStartResult | undefined;
+      const executionFingerprint = computeIntentFingerprint(
+        executionIntent?.deliverable,
+        executionIntent?.requiredCapabilities,
+      );
+      const priorEvidence =
+        executionIntent && executionFingerprint && params.sessionId && channelHint
+          ? [
+              buildLedgerPriorEvidence({
+                ledger: intentLedger,
+                sessionId: params.sessionId,
+                channelId: channelHint,
+                fingerprint: executionFingerprint,
+              }),
+            ]
+          : [];
+      const priorSufficiency =
+        executionIntent && priorEvidence.some((probe) => probe.receipts.length > 0)
+          ? isCompletionEvidenceSufficient({
+              executionIntent,
+              receipts: [],
+              priorEvidence,
+              evidence: { hasOutput: true },
+              outcome:
+                getPlatformRuntimeCheckpointService().buildRunOutcome(params.runId) ??
+                PlatformRuntimeRunOutcomeSchema.parse({
+                  runId: params.runId,
+                  status: "completed",
+                  checkpointIds: [],
+                  blockedCheckpointIds: [],
+                  completedCheckpointIds: [],
+                  deniedCheckpointIds: [],
+                  pendingApprovalIds: [],
+                  artifactIds: [],
+                  bootstrapRequestIds: [],
+                  actionIds: [],
+                  attemptedActionIds: [],
+                  confirmedActionIds: [],
+                  failedActionIds: [],
+                  boundaries: [],
+                }),
+            })
+          : undefined;
+      // Hoisted above the prior-evidence early return: finalizeRecipeResult is
+      // invoked inside that branch (see #2026-04 reorder fix), and TS2448 would
+      // crash at runtime as a TDZ ReferenceError otherwise.
       const hookRunner = getGlobalHookRunner();
       const hookCtx = {
         agentId: workspaceResolution.agentId,
@@ -546,6 +623,42 @@ export async function runEmbeddedPiAgent(
         }
         return result;
       };
+      if (
+        priorSufficiency?.sufficient &&
+        priorSufficiency.sufficiencyReason === "prior_evidence" &&
+        executionIntent?.routingOutcome?.kind !== "contract_unsatisfiable"
+      ) {
+        return finalizeRecipeResult({
+          payloads: [
+            buildAlreadyDoneReply({
+              receipts: priorEvidence.flatMap((probe) => probe.receipts),
+            }),
+          ],
+          meta: {
+            durationMs: Date.now() - started,
+            ...buildCompletionArtifacts({
+              runId: params.runId,
+              sessionKey: params.sessionKey,
+              requestRunId: params.requestRunId,
+              parentRunId: params.parentRunId,
+              hasOutput: true,
+              executionSurface,
+              executionIntent,
+              priorEvidence,
+            }),
+          },
+        });
+      }
+      const _mfn = params.ensureModelsJson ?? ensureOpenClawModelsJson;
+      const _modelsResult = await _mfn(params.config, agentDir);
+
+      // Run before_model_resolve hooks early so plugins can override the
+      // provider/model before resolveModel().
+      //
+      // Legacy compatibility: before_agent_start is also checked for override
+      // fields if present. New hook takes precedence when both are set.
+      let modelResolveOverride: { providerOverride?: string; modelOverride?: string } | undefined;
+      let legacyBeforeAgentStartResult: PluginHookBeforeAgentStartResult | undefined;
       if (hookRunner?.hasHooks("before_recipe_execute") && executionIntent) {
         try {
           const recipeGate = await hookRunner.runBeforeRecipeExecute(
@@ -618,7 +731,8 @@ export async function runEmbeddedPiAgent(
         log.info(`[hooks] model overridden to ${modelId}`);
       }
 
-      const { model, error, authStorage, modelRegistry } = await resolveModelAsync(
+      const _resolveModelAsync = params.resolveModelAsync ?? resolveModelAsync;
+      const { model, error, authStorage, modelRegistry } = await _resolveModelAsync(
         provider,
         modelId,
         agentDir,
@@ -733,7 +847,8 @@ export async function runEmbeddedPiAgent(
             throw new Error(`Runtime auth refresh requires a source credential.`);
           }
           log.debug(`Refreshing runtime auth for ${runtimeModel.provider} (${reason})...`);
-          const preparedAuth = await prepareProviderRuntimeAuth({
+          const _prepareRuntimeAuthRefresh = params.prepareRuntimeAuth ?? prepareProviderRuntimeAuth;
+          const preparedAuth = await _prepareRuntimeAuthRefresh({
             provider: runtimeModel.provider,
             config: params.config,
             workspaceDir: resolvedWorkspace,
@@ -911,7 +1026,8 @@ export async function runEmbeddedPiAgent(
           return;
         }
         let runtimeAuthHandled = false;
-        const preparedAuth = await prepareProviderRuntimeAuth({
+        const _prepareRuntimeAuth = params.prepareRuntimeAuth ?? prepareProviderRuntimeAuth;
+        const preparedAuth = await _prepareRuntimeAuth({
           provider: runtimeModel.provider,
           config: params.config,
           workspaceDir: resolvedWorkspace,
@@ -1099,17 +1215,22 @@ export async function runEmbeddedPiAgent(
         }
         return failoverReason;
       };
+      const _computeBackoff = params.computeBackoff ?? computeBackoff;
+      const _sleepWithAbort = params.sleepWithAbort ?? sleepWithAbort;
       const maybeBackoffBeforeOverloadFailover = async (reason: FailoverReason | null) => {
         if (reason !== "overloaded") {
           return;
         }
         overloadFailoverAttempts += 1;
-        const delayMs = computeBackoff(OVERLOAD_FAILOVER_BACKOFF_POLICY, overloadFailoverAttempts);
+        const overloadPolicy = isLikelyControlPlaneLocalProvider(provider)
+          ? CONTROL_PLANE_LOCAL_OVERLOAD_FAILOVER_BACKOFF_POLICY
+          : OVERLOAD_FAILOVER_BACKOFF_POLICY;
+        const delayMs = _computeBackoff(overloadPolicy, overloadFailoverAttempts);
         log.warn(
           `overload backoff before failover for ${provider}/${modelId}: attempt=${overloadFailoverAttempts} delayMs=${delayMs}`,
         );
         try {
-          await sleepWithAbort(delayMs, params.abortSignal);
+          await _sleepWithAbort(delayMs, params.abortSignal);
         } catch (err) {
           if (params.abortSignal?.aborted) {
             const abortErr = new Error("Operation aborted", { cause: err });
@@ -1178,7 +1299,8 @@ export async function runEmbeddedPiAgent(
           const prompt =
             provider === "anthropic" ? scrubAnthropicRefusalMagic(params.prompt) : params.prompt;
 
-          const attempt = await runEmbeddedAttempt({
+          const _runAttempt = params.runAttempt ?? runEmbeddedAttempt;
+          const attempt = await _runAttempt({
             sessionId: params.sessionId,
             sessionKey: params.sessionKey,
             trigger: params.trigger,
@@ -1239,6 +1361,7 @@ export async function runEmbeddedPiAgent(
             onAssistantMessageStart: params.onAssistantMessageStart,
             onBlockReply: params.onBlockReply,
             onBlockReplyFlush: params.onBlockReplyFlush,
+            onStructuralToolExecutionStarting: params.onStructuralToolExecutionStarting,
             blockReplyBreak: params.blockReplyBreak,
             blockReplyChunking: params.blockReplyChunking,
             onReasoningStream: params.onReasoningStream,
@@ -1250,9 +1373,12 @@ export async function runEmbeddedPiAgent(
             streamParams: params.streamParams,
             ownerNumbers: params.ownerNumbers,
             enforceFinalTag: params.enforceFinalTag,
+            bootstrapContextMode: params.bootstrapContextMode,
+            bootstrapContextRunKind: params.bootstrapContextRunKind,
             bootstrapPromptWarningSignaturesSeen,
             bootstrapPromptWarningSignature:
               bootstrapPromptWarningSignaturesSeen[bootstrapPromptWarningSignaturesSeen.length - 1],
+            platformExecutionContext: params.platformExecutionContext,
           });
 
           const {
@@ -1918,7 +2044,47 @@ export async function runEmbeddedPiAgent(
             inlineToolResultsAllowed: false,
             didSendViaMessagingTool: attempt.didSendViaMessagingTool,
             didSendDeterministicApprovalPrompt: attempt.didSendDeterministicApprovalPrompt,
+            toolResultMediaUrls: attempt.toolResultMediaUrls,
           });
+          const firstVisibleAssistantText = attempt.assistantTexts.find(
+            (text) => typeof text === "string" && text.trim().length > 0,
+          );
+          const finalAssistantText =
+            firstVisibleAssistantText ??
+            (lastAssistant ? extractAssistantText(lastAssistant) : undefined);
+          if (looksLikeStandaloneToolCallEnvelopeText(finalAssistantText)) {
+            return finalizeRecipeResult({
+              payloads: [],
+              meta: {
+                durationMs: Date.now() - started,
+                agentMeta,
+                aborted,
+                systemPromptReport: attempt.systemPromptReport,
+                stopReason: lastAssistant?.stopReason as string | undefined,
+                ...buildCompletionArtifacts({
+                  runId: params.runId,
+                  sessionKey: params.sessionKey,
+                  requestRunId: params.requestRunId,
+                  parentRunId: params.parentRunId,
+                  hadToolError: Boolean(attempt.lastToolError),
+                  deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
+                  hasOutput: false,
+                  didSendViaMessagingTool: attempt.didSendViaMessagingTool,
+                  successfulCronAdds: attempt.successfulCronAdds,
+                  executionReceipts: attempt.executionReceipts,
+                  fallbackStatus: aborted ? "failed" : "completed",
+                  executionSurface,
+                  executionIntent,
+                }),
+              },
+              didSendViaMessagingTool: attempt.didSendViaMessagingTool,
+              didSendDeterministicApprovalPrompt: attempt.didSendDeterministicApprovalPrompt,
+              messagingToolSentTexts: attempt.messagingToolSentTexts,
+              messagingToolSentMediaUrls: attempt.messagingToolSentMediaUrls,
+              messagingToolSentTargets: attempt.messagingToolSentTargets,
+              successfulCronAdds: attempt.successfulCronAdds,
+            });
+          }
 
           // Timeout aborts can leave the run without any assistant payloads.
           // Emit an explicit timeout error instead of silently completing, so
@@ -2010,7 +2176,12 @@ export async function runEmbeddedPiAgent(
                 parentRunId: params.parentRunId,
                 hadToolError: Boolean(attempt.lastToolError),
                 deterministicApprovalPromptSent: attempt.didSendDeterministicApprovalPrompt,
-                hasOutput: payloads.some((payload) => Boolean(payload.text?.trim())),
+                hasOutput: payloads.some(
+                  (payload) =>
+                    Boolean(payload.text?.trim()) ||
+                    Boolean(payload.mediaUrl?.trim()) ||
+                    (payload.mediaUrls?.length ?? 0) > 0,
+                ),
                 didSendViaMessagingTool: attempt.didSendViaMessagingTool,
                 successfulCronAdds: attempt.successfulCronAdds,
                 executionReceipts: attempt.executionReceipts,

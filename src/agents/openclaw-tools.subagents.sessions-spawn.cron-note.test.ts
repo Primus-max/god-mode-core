@@ -20,23 +20,29 @@ describe("sessions_spawn: cron isolated session note suppression", () => {
     resetSessionsSpawnConfigOverride();
   });
 
-  it("suppresses ACCEPTED_NOTE for cron isolated sessions (mode=run)", async () => {
+  it("suppresses ACCEPTED_NOTE for cron isolated sessions (continuation=one_shot)", async () => {
     setupSessionsSpawnGatewayMock({});
     const tool = await getSessionsSpawnTool({
       agentSessionKey: "agent:main:cron:dd871818:run:cf959c9f",
     });
-    const result = await tool.execute("call-cron-run", { task: "test task", mode: "run" });
+    const result = await tool.execute("call-cron-run", {
+      task: "test task",
+      continuation: "one_shot",
+    });
     const details = result.details as SpawnResult;
     expect(details.note).toBeUndefined();
     expect(details.status).toBe("accepted");
   });
 
-  it("preserves ACCEPTED_NOTE for regular sessions (mode=run)", async () => {
+  it("preserves ACCEPTED_NOTE for regular sessions (continuation=one_shot)", async () => {
     setupSessionsSpawnGatewayMock({});
     const tool = await getSessionsSpawnTool({
       agentSessionKey: "agent:main:telegram:63448508",
     });
-    const result = await tool.execute("call-regular-run", { task: "test task", mode: "run" });
+    const result = await tool.execute("call-regular-run", {
+      task: "test task",
+      continuation: "one_shot",
+    });
     const details = result.details as SpawnResult;
     expect(details.note).toBe(SUBAGENT_SPAWN_ACCEPTED_NOTE);
     expect(details.status).toBe("accepted");
@@ -49,7 +55,7 @@ describe("sessions_spawn: cron isolated session note suppression", () => {
     });
     const result = await tool.execute("call-cron-like-noncanonical", {
       task: "test task",
-      mode: "run",
+      continuation: "one_shot",
     });
     expect((result.details as SpawnResult).note).toBe(SUBAGENT_SPAWN_ACCEPTED_NOTE);
   });
@@ -59,7 +65,10 @@ describe("sessions_spawn: cron isolated session note suppression", () => {
     const tool = await getSessionsSpawnTool({
       agentSessionKey: undefined,
     });
-    const result = await tool.execute("call-no-key", { task: "test task", mode: "run" });
+    const result = await tool.execute("call-no-key", {
+      task: "test task",
+      continuation: "one_shot",
+    });
     expect((result.details as SpawnResult).note).toBe(SUBAGENT_SPAWN_ACCEPTED_NOTE);
   });
 });

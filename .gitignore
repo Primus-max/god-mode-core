@@ -86,6 +86,15 @@ apps/ios/*.mobileprovision
 .local/
 docs/.local/
 tmp/
+/.tmp/
+/.openclaw/
+Microsoft/
+HEARTBEAT.md
+SOUL.md
+TOOLS.md
+report_content.txt
+test_report.md
+stage86-live-matrix.latest.json
 IDENTITY.md
 USER.md
 .tgz
@@ -99,6 +108,7 @@ USER.md
 .agent/*.json
 !.agent/workflows/
 /local/
+auth-profiles.json
 package-lock.json
 .claude/
 .agent/
@@ -137,3 +147,16 @@ docs/superpowers
 
 # Deprecated changelog fragment workflow
 changelog/fragments/
+
+# MemPalace entity detect (optional local file)
+mempal.yaml
+entities.json
+
+# Local runtime logs and artifacts (never commit)
+.gateway-dev.log
+.gateway-dev.err.log
+.live-smoke*.out
+.ui-dev.log
+.ui-dev.err.log
+.artifacts/
+eval-results/

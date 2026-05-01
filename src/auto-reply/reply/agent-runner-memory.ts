@@ -508,7 +508,7 @@ export async function runMemoryFlushIfNeeded(params: {
     cfg: params.cfg,
     nowMs: memoryFlushNowMs,
   });
-  const platformExecutionContext = resolvePlatformExecutionContextForTemplateRun({
+  const platformExecutionContext = await resolvePlatformExecutionContextForTemplateRun({
     prompt: memoryFlushPrompt,
     run: params.followupRun.run,
     sessionCtx: params.sessionCtx,
@@ -536,7 +536,10 @@ export async function runMemoryFlushIfNeeded(params: {
     .join("\n\n");
   try {
     await runWithModelFallback({
-      ...resolveModelFallbackOptions(params.followupRun.run),
+      ...resolveModelFallbackOptions(params.followupRun.run, {
+        preflightPrompt: memoryFlushPrompt,
+        preflightMode: "force_stronger",
+      }),
       runId: flushRunId,
       run: async (provider, model, runOptions) => {
         if (contextHashBeforeFlush && fallbackFlushAttemptedForCurrentHash) {

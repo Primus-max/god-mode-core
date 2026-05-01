@@ -5,6 +5,12 @@ import { resolveStateDir } from "../../config/paths.js";
 import { emitRunClosureSummary, emitRuntimeRecoveryTelemetry } from "../../infra/agent-events.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import {
+  OutcomeContractSchema,
+  QualificationExecutionContractSchema,
+  RequestedEvidenceKindSchema,
+} from "../decision/qualification-contract.js";
+import type { DeliverableKind as PlatformRuntimeDeliverableKind } from "../produce/registry.js";
+import {
   PlatformRuntimeAcceptanceResultSchema,
   PlatformRuntimeActionSchema,
   PlatformRuntimeActionStoreSchema,
@@ -56,11 +62,42 @@ import {
   type PlatformRuntimeSupervisorVerdict,
   type PlatformRuntimeTarget,
 } from "./contracts.js";
+import {
+  hasStructuredArtifactToolOutputReceipt,
+  isCompletionEvidenceSufficient,
+  mapQualificationToEvidenceRequirements,
+  requiresStructuredEvidence,
+  type PriorEvidenceProbe,
+} from "./evidence-sufficiency.js";
 
 const PLATFORM_RUNTIME_SERVICE_KEY = Symbol.for("openclaw.platform.runtime.service");
 const PLATFORM_RUNTIME_CHECKPOINTS_FILENAME = "platform-runtime-checkpoints.json";
 const PLATFORM_RUNTIME_ACTIONS_FILENAME = "platform-runtime-actions.json";
 const PLATFORM_RUNTIME_CLOSURES_FILENAME = "platform-runtime-closures.json";
+const WINDOWS_PERSIST_RETRY_DELAYS_MS = [10, 25, 50] as const;
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function isRetryableRenameError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EPERM" || code === "EBUSY";
+}
+
+function renameWithRetry(tmpPath: string, targetPath: string): void {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.renameSync(tmpPath, targetPath);
+      return;
+    } catch (error) {
+      if (attempt >= WINDOWS_PERSIST_RETRY_DELAYS_MS.length || !isRetryableRenameError(error)) {
+        throw error;
+      }
+      sleepSync(WINDOWS_PERSIST_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+}
 
 export type PlatformRuntimeCheckpointService = {
   configure: (params: { stateDir?: string }) => void;
@@ -158,16 +195,21 @@ export type PlatformRuntimeCheckpointService = {
     evidence?: PlatformRuntimeAcceptanceEvidence;
     executionSurface?: PlatformRuntimeExecutionSurface;
     executionIntent?: PlatformRuntimeExecutionIntent;
+    priorEvidence?: PriorEvidenceProbe[];
   }) => PlatformRuntimeRunClosure;
   verifyExecutionContract: (params: {
     contract: PlatformRuntimeExecutionContract;
     outcome?: PlatformRuntimeRunOutcome;
     evidence?: PlatformRuntimeAcceptanceEvidence;
+    priorEvidence?: PriorEvidenceProbe[];
+    executionIntent?: PlatformRuntimeExecutionIntent;
   }) => PlatformRuntimeExecutionVerification;
   evaluateAcceptance: (params: {
     runId: string;
     outcome: PlatformRuntimeRunOutcome;
     evidence?: PlatformRuntimeAcceptanceEvidence;
+    receipts?: PlatformRuntimeExecutionReceipt[];
+    priorEvidence?: PriorEvidenceProbe[];
   }) => PlatformRuntimeAcceptanceResult;
   evaluateSupervisorVerdict: (params: {
     runId: string;
@@ -177,7 +219,10 @@ export type PlatformRuntimeCheckpointService = {
   }) => PlatformRuntimeSupervisorVerdict;
   recordRunClosure: (closure: PlatformRuntimeRunClosure) => PlatformRuntimeRunClosure;
   getRunClosure: (runId: string) => PlatformRuntimeRunClosure | undefined;
-  listRunClosures: (params?: { sessionKey?: string; requestRunId?: string }) => PlatformRuntimeRunClosure[];
+  listRunClosures: (params?: {
+    sessionKey?: string;
+    requestRunId?: string;
+  }) => PlatformRuntimeRunClosure[];
   registerContinuationHandler: (
     kind: PlatformRuntimeContinuationKind,
     handler: (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void,
@@ -243,6 +288,9 @@ function buildRunClosureSummary(
     reasonCode: closure.supervisorVerdict.reasonCode,
     reasons: closure.supervisorVerdict.reasons,
     ...(closure.executionIntent.intent ? { declaredIntent: closure.executionIntent.intent } : {}),
+    ...(closure.executionIntent.outcomeContract
+      ? { declaredOutcomeContract: closure.executionIntent.outcomeContract }
+      : {}),
     ...(closure.executionIntent.profileId
       ? { declaredProfileId: closure.executionIntent.profileId }
       : {}),
@@ -600,23 +648,130 @@ function normalizeOptionalStringArray(values: string[] | undefined): string[] | 
   return normalized.length > 0 ? Array.from(new Set(normalized)) : undefined;
 }
 
+/**
+ * Derive the set of receipt kinds that the execution contract should require
+ * for verification. The decision is driven primarily by `executionIntent`
+ * (deliverable kind + executionContract booleans), not by side-effects of the
+ * run such as `outcome.actionIds.length`.
+ *
+ * Principles:
+ *   - Artifact-producing deliverables (document, data, image, audio, video,
+ *     site, archive) are satisfied by a `tool` receipt that carries the
+ *     produced-artifact descriptor. They never demand a `platform_action`
+ *     receipt — there is no platform-level action to confirm.
+ *   - Messaging delivery: when the run actually delivered via a messaging
+ *     tool, require a `messaging_delivery` receipt (the natural proof).
+ *   - Capability bootstrap: if bootstrap requests were created, require a
+ *     `capability` receipt to confirm the bootstrap reached a terminal
+ *     state.
+ *   - `platform_action` is only required for genuine platform-level
+ *     operations: repo workspace mutations, external delivery routes,
+ *     capability installs, or — when no intent is available at all — when
+ *     the run staged confirmed actions outside the messaging path
+ *     (legacy fallback).
+ */
 function deriveRequiredReceiptKinds(params: {
   outcome: PlatformRuntimeRunOutcome;
   evidence: PlatformRuntimeAcceptanceEvidence;
+  executionIntent?: PlatformRuntimeExecutionIntent;
 }): PlatformRuntimeExecutionReceiptKind[] | undefined {
   const kinds = new Set<PlatformRuntimeExecutionReceiptKind>();
-  const requiresMessagingDelivery =
-    params.evidence.didSendViaMessagingTool === true || (params.evidence.stagedReplyCount ?? 0) > 0;
+  const intent = params.executionIntent;
+  const deliverable = intent?.deliverable;
+  const contract = intent?.executionContract;
+
+  const requiresMessagingDelivery = params.evidence.didSendViaMessagingTool === true;
   if (requiresMessagingDelivery) {
     kinds.add("messaging_delivery");
   }
   if (params.outcome.bootstrapRequestIds.length > 0) {
     kinds.add("capability");
   }
-  if (params.outcome.actionIds.length > 0 && !requiresMessagingDelivery) {
+
+  if (deliverable && isArtifactProducingDeliverable(deliverable.kind)) {
+    if (contract?.requiresTools !== false) {
+      kinds.add("tool");
+    }
+    return kinds.size > 0 ? Array.from(kinds) : undefined;
+  }
+
+  if (
+    deliverable &&
+    intentRequiresPlatformAction(deliverable.kind, contract, params.executionIntent)
+  ) {
+    kinds.add("platform_action");
+    return kinds.size > 0 ? Array.from(kinds) : undefined;
+  }
+
+  // Legacy fallback: no deliverable spec was provided. Preserve historical
+  // behaviour so platform-level effects still get verified, but stay aware of
+  // messaging-only flows (already handled above).
+  if (
+    !deliverable &&
+    params.outcome.actionIds.length > 0 &&
+    !requiresMessagingDelivery &&
+    !allowsExecOnlyContractClosure(params.executionIntent)
+  ) {
     kinds.add("platform_action");
   }
+
   return kinds.size > 0 ? Array.from(kinds) : undefined;
+}
+
+function isArtifactProducingDeliverable(kind: PlatformRuntimeDeliverableKind): boolean {
+  switch (kind) {
+    case "document":
+    case "data":
+    case "image":
+    case "audio":
+    case "video":
+    case "site":
+    case "archive":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function intentRequiresPlatformAction(
+  kind: PlatformRuntimeDeliverableKind,
+  contract: PlatformRuntimeExecutionIntent["executionContract"] | undefined,
+  intent: PlatformRuntimeExecutionIntent | undefined,
+): boolean {
+  if (kind === "repo_operation") {
+    if (allowsExecOnlyContractClosure(intent)) {
+      return false;
+    }
+    return contract?.requiresWorkspaceMutation === true;
+  }
+  if (kind === "code_change") {
+    return contract?.requiresWorkspaceMutation === true;
+  }
+  if (kind === "external_delivery" || kind === "capability_install" || kind === "session") {
+    return true;
+  }
+  return false;
+}
+
+function allowsExecOnlyContractClosure(
+  executionIntent: PlatformRuntimeExecutionIntent | undefined,
+): boolean {
+  if (!executionIntent) {
+    return false;
+  }
+  if (executionIntent.lowConfidenceStrategy === "clarify") {
+    return false;
+  }
+  if (executionIntent.deliverable?.kind !== "repo_operation") {
+    return false;
+  }
+  const acceptedFormats = executionIntent.deliverable.acceptedFormats.map((format) =>
+    format.trim().toLowerCase(),
+  );
+  if (!acceptedFormats.includes("exec")) {
+    return false;
+  }
+  return executionIntent.executionContract?.requiresWorkspaceMutation !== true;
 }
 
 function deriveExecutionContractExpectations(params: {
@@ -625,23 +780,35 @@ function deriveExecutionContractExpectations(params: {
   executionIntent?: PlatformRuntimeExecutionIntent;
 }): PlatformRuntimeExecutionContract["expectations"] {
   const declared = params.executionIntent?.expectations ?? {};
+  const qualificationRequirements = mapQualificationToEvidenceRequirements({
+    executionIntent: params.executionIntent,
+    expectations: declared,
+  });
+  const execOnlyContractClosure = allowsExecOnlyContractClosure(params.executionIntent);
   const requiresMessagingDelivery =
-    declared.requiresMessagingDelivery ??
-    (params.evidence.didSendViaMessagingTool === true ||
-      (params.evidence.stagedReplyCount ?? 0) > 0);
+    declared.requiresMessagingDelivery ?? params.evidence.didSendViaMessagingTool === true;
   const requiresStructuredReceipts =
     declared.requireStructuredReceipts ??
-    (params.outcome.actionIds.length > 0 ||
+    ((params.outcome.actionIds.length > 0 ||
       params.outcome.artifactIds.length > 0 ||
-      params.outcome.bootstrapRequestIds.length > 0);
-  const requiredReceiptKinds = declared.requiredReceiptKinds ?? deriveRequiredReceiptKinds(params);
+      params.outcome.bootstrapRequestIds.length > 0) &&
+      !execOnlyContractClosure);
+  const requiredReceiptKinds =
+    declared.requiredReceiptKinds ??
+    deriveRequiredReceiptKinds({
+      ...params,
+      executionIntent: params.executionIntent,
+    });
   return PlatformRuntimeExecutionContractSchema.shape.expectations.parse({
     requiresOutput:
       declared.requiresOutput ??
-      (params.evidence.hasOutput === true || params.evidence.hasStructuredReplyPayload === true),
+      (qualificationRequirements.requiresStructuredEvidence ||
+        params.evidence.hasOutput === true ||
+        params.evidence.hasStructuredReplyPayload === true),
     requiresMessagingDelivery,
     requiresConfirmedAction:
-      declared.requiresConfirmedAction ?? params.outcome.actionIds.length > 0,
+      declared.requiresConfirmedAction ??
+      (params.outcome.actionIds.length > 0 && !execOnlyContractClosure),
     requireStructuredReceipts: requiresStructuredReceipts,
     minimumVerifiedReceiptCount:
       declared.minimumVerifiedReceiptCount ?? (requiresStructuredReceipts ? 1 : 0),
@@ -674,6 +841,18 @@ function buildIntentAwareEvidence(params: {
     ...(params.executionIntent.artifactKinds?.length
       ? { declaredArtifactKinds: params.executionIntent.artifactKinds }
       : {}),
+    ...(params.executionIntent.outcomeContract
+      ? { declaredOutcomeContract: params.executionIntent.outcomeContract }
+      : {}),
+    ...(params.executionIntent.executionContract
+      ? { declaredExecutionContract: params.executionIntent.executionContract }
+      : {}),
+    ...(params.executionIntent.requestedEvidence?.length
+      ? { declaredRequestedEvidence: params.executionIntent.requestedEvidence }
+      : {}),
+    ...(params.executionIntent.lowConfidenceStrategy
+      ? { declaredLowConfidenceStrategy: params.executionIntent.lowConfidenceStrategy }
+      : {}),
     ...(expectations.requiresOutput !== undefined
       ? { declaredRequiresOutput: expectations.requiresOutput }
       : {}),
@@ -684,6 +863,59 @@ function buildIntentAwareEvidence(params: {
       ? { declaredRequiresConfirmedAction: expectations.requiresConfirmedAction }
       : {}),
   };
+}
+
+function buildExecutionIntentFromEvidence(params: {
+  runId: string;
+  evidence: PlatformRuntimeAcceptanceEvidence;
+  expectations?: PlatformRuntimeExecutionContract["expectations"];
+}): PlatformRuntimeExecutionIntent {
+  return PlatformRuntimeExecutionIntentSchema.parse({
+    runId: params.runId.trim(),
+    ...(params.evidence.declaredProfileId ? { profileId: params.evidence.declaredProfileId } : {}),
+    ...(params.evidence.declaredRecipeId ? { recipeId: params.evidence.declaredRecipeId } : {}),
+    ...(params.evidence.declaredIntent ? { intent: params.evidence.declaredIntent } : {}),
+    ...(params.evidence.declaredArtifactKinds?.length
+      ? { artifactKinds: params.evidence.declaredArtifactKinds }
+      : {}),
+    ...(params.evidence.declaredOutcomeContract
+      ? { outcomeContract: OutcomeContractSchema.parse(params.evidence.declaredOutcomeContract) }
+      : {}),
+    ...(params.evidence.declaredExecutionContract
+      ? {
+          executionContract: QualificationExecutionContractSchema.parse(
+            params.evidence.declaredExecutionContract,
+          ),
+        }
+      : {}),
+    ...(params.evidence.declaredRequestedEvidence?.length
+      ? {
+          requestedEvidence: params.evidence.declaredRequestedEvidence.map((kind) =>
+            RequestedEvidenceKindSchema.parse(kind),
+          ),
+        }
+      : {}),
+    ...(params.evidence.declaredLowConfidenceStrategy
+      ? { lowConfidenceStrategy: params.evidence.declaredLowConfidenceStrategy }
+      : {}),
+    expectations: PlatformRuntimeExecutionContractSchema.shape.expectations.parse(
+      params.expectations ?? {
+        ...(params.evidence.declaredRequiresOutput !== undefined
+          ? { requiresOutput: params.evidence.declaredRequiresOutput }
+          : {}),
+        ...(params.evidence.declaredRequiresMessagingDelivery !== undefined
+          ? {
+              requiresMessagingDelivery: params.evidence.declaredRequiresMessagingDelivery,
+            }
+          : {}),
+        ...(params.evidence.declaredRequiresConfirmedAction !== undefined
+          ? {
+              requiresConfirmedAction: params.evidence.declaredRequiresConfirmedAction,
+            }
+          : {}),
+      },
+    ),
+  });
 }
 
 function describeDeclaredIntent(evidence: PlatformRuntimeAcceptanceEvidence): string | undefined {
@@ -837,12 +1069,60 @@ function buildExecutionReceiptFromAction(
   });
 }
 
+function buildExecutionReceiptFromCheckpoint(
+  checkpoint: PlatformRuntimeCheckpoint,
+): PlatformRuntimeExecutionReceipt | undefined {
+  if (checkpoint.boundary !== "bootstrap" || !checkpoint.target?.bootstrapRequestId) {
+    return undefined;
+  }
+  const capabilityId =
+    checkpoint.executionContext?.bootstrapRequiredCapabilities?.length === 1
+      ? checkpoint.executionContext.bootstrapRequiredCapabilities[0]
+      : undefined;
+  let status: PlatformRuntimeExecutionReceipt["status"];
+  if (checkpoint.status === "completed") {
+    status = "success";
+  } else if (checkpoint.status === "denied" || checkpoint.status === "cancelled") {
+    status = "failed";
+  } else if (checkpoint.status === "approved" || checkpoint.status === "resumed") {
+    status = "partial";
+  } else {
+    status = "blocked";
+  }
+  return PlatformRuntimeExecutionReceiptSchema.parse({
+    kind: "capability",
+    name: checkpoint.target.operation ?? "bootstrap.run",
+    status,
+    proof: checkpoint.status === "completed" ? "verified" : "derived",
+    summary:
+      checkpoint.status === "completed"
+        ? "bootstrap checkpoint completed"
+        : checkpoint.status === "denied"
+          ? "bootstrap checkpoint denied"
+          : checkpoint.status === "cancelled"
+            ? "bootstrap checkpoint cancelled"
+            : checkpoint.status === "approved" || checkpoint.status === "resumed"
+              ? "bootstrap checkpoint awaiting completion"
+              : "bootstrap checkpoint blocked",
+    metadata: {
+      checkpointId: checkpoint.id,
+      bootstrapRequestId: checkpoint.target.bootstrapRequestId,
+      ...(capabilityId ? { capabilityId } : {}),
+      ...(checkpoint.boundary ? { boundary: checkpoint.boundary } : {}),
+    },
+  });
+}
+
 export function createPlatformRuntimeCheckpointService(params?: {
   stateDir?: string;
 }): PlatformRuntimeCheckpointService {
   const checkpoints = new Map<string, PlatformRuntimeCheckpoint>();
   const actions = new Map<string, PlatformRuntimeAction>();
   const closures = new Map<string, PlatformRuntimeRunClosure>();
+  // Tracks consecutive completed_without_evidence failures per requestRunId so the
+  // semantic_retry budget exhausts correctly even when callers (e.g. the embedded
+  // runner) do not thread recoveryAttemptCount across separate buildRunClosure calls.
+  const noEvidenceRetryCounters = new Map<string, number>();
   const continuationHandlers = new Map<
     PlatformRuntimeContinuationKind,
     (checkpoint: PlatformRuntimeCheckpoint) => Promise<void> | void
@@ -857,9 +1137,10 @@ export function createPlatformRuntimeCheckpointService(params?: {
     const actionPath = resolveRuntimeActionStorePath(stateDir);
     const closurePath = resolveRuntimeClosureStorePath(stateDir);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    const tmpPath = `${filePath}.${process.pid}.tmp`;
-    const actionTmpPath = `${actionPath}.${process.pid}.tmp`;
-    const closureTmpPath = `${closurePath}.${process.pid}.tmp`;
+    const persistId = randomUUID();
+    const tmpPath = `${filePath}.${process.pid}.${persistId}.tmp`;
+    const actionTmpPath = `${actionPath}.${process.pid}.${persistId}.tmp`;
+    const closureTmpPath = `${closurePath}.${process.pid}.${persistId}.tmp`;
     const payload = buildStorePayload(checkpoints);
     const actionPayload = buildActionStorePayload(actions);
     const closurePayload = buildClosureStorePayload(closures);
@@ -872,9 +1153,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
       encoding: "utf8",
       mode: 0o600,
     });
-    fs.renameSync(tmpPath, filePath);
-    fs.renameSync(actionTmpPath, actionPath);
-    fs.renameSync(closureTmpPath, closurePath);
+    renameWithRetry(tmpPath, filePath);
+    renameWithRetry(actionTmpPath, actionPath);
+    renameWithRetry(closureTmpPath, closurePath);
   };
 
   const saveAction = (action: PlatformRuntimeAction) => {
@@ -891,12 +1172,20 @@ export function createPlatformRuntimeCheckpointService(params?: {
     if (!existing) {
       return undefined;
     }
+    const mergedReceipt =
+      patch.receipt || existing.receipt
+        ? {
+            ...existing.receipt,
+            ...patch.receipt,
+          }
+        : undefined;
     const next = PlatformRuntimeActionSchema.parse({
       ...existing,
       ...patch,
       actionId: existing.actionId,
       createdAtMs: existing.createdAtMs,
       updatedAtMs: typeof patch.updatedAtMs === "number" ? patch.updatedAtMs : Date.now(),
+      ...(mergedReceipt ? { receipt: mergedReceipt } : {}),
     });
     return saveAction(next);
   };
@@ -948,6 +1237,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
         approvedAtMs: existing?.approvedAtMs,
         resumedAtMs: existing?.resumedAtMs,
         completedAtMs: existing?.completedAtMs,
+        lastOperatorDecision: existing?.lastOperatorDecision,
       });
       checkpoints.set(id, checkpoint);
       persist();
@@ -977,8 +1267,16 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const existing = actions.get(actionParams.actionId);
       const action = PlatformRuntimeActionSchema.parse({
         actionId: actionParams.actionId,
-        ...(actionParams.runId ? { runId: actionParams.runId } : {}),
-        ...(actionParams.sessionKey ? { sessionKey: actionParams.sessionKey } : {}),
+        ...(actionParams.runId
+          ? { runId: actionParams.runId }
+          : existing?.runId
+            ? { runId: existing.runId }
+            : {}),
+        ...(actionParams.sessionKey
+          ? { sessionKey: actionParams.sessionKey }
+          : existing?.sessionKey
+            ? { sessionKey: existing.sessionKey }
+            : {}),
         kind: actionParams.kind,
         state: existing?.state ?? "staged",
         ...(actionParams.boundary ? { boundary: actionParams.boundary } : {}),
@@ -1137,14 +1435,24 @@ export function createPlatformRuntimeCheckpointService(params?: {
                   },
                 }
               : {}),
+            ...(checkpoint.executionContext
+              ? {
+                  executionContext: checkpoint.executionContext,
+                }
+              : {}),
             createdAtMs: checkpoint.createdAtMs,
             updatedAtMs: checkpoint.updatedAtMs,
             ...(checkpoint.approvedAtMs !== undefined
               ? { approvedAtMs: checkpoint.approvedAtMs }
               : {}),
-            ...(checkpoint.resumedAtMs !== undefined ? { resumedAtMs: checkpoint.resumedAtMs } : {}),
+            ...(checkpoint.resumedAtMs !== undefined
+              ? { resumedAtMs: checkpoint.resumedAtMs }
+              : {}),
             ...(checkpoint.completedAtMs !== undefined
               ? { completedAtMs: checkpoint.completedAtMs }
+              : {}),
+            ...(checkpoint.lastOperatorDecision
+              ? { lastOperatorDecision: checkpoint.lastOperatorDecision }
               : {}),
           }),
         );
@@ -1263,6 +1571,16 @@ export function createPlatformRuntimeCheckpointService(params?: {
           merged.executionUnattendedBoundary = params.executionSurface.unattendedBoundary;
         }
       }
+      if (
+        params.executionVerification &&
+        hasStructuredArtifactToolOutputReceipt({
+          receipts: params.executionVerification.receipts,
+          artifactKinds: merged.declaredArtifactKinds,
+          requestedToolNames: params.executionIntent?.requestedToolNames,
+        })
+      ) {
+        merged.hasOutput = true;
+      }
       return merged;
     },
     buildExecutionIntent(params) {
@@ -1283,6 +1601,15 @@ export function createPlatformRuntimeCheckpointService(params?: {
         ...(normalizeOptionalStringArray(seed.requestedToolNames)
           ? { requestedToolNames: normalizeOptionalStringArray(seed.requestedToolNames) }
           : {}),
+        ...(seed.deliverable ? { deliverable: seed.deliverable } : {}),
+        ...(seed.outcomeContract ? { outcomeContract: seed.outcomeContract } : {}),
+        ...(seed.executionContract ? { executionContract: seed.executionContract } : {}),
+        ...(normalizeOptionalStringArray(seed.requestedEvidence)
+          ? { requestedEvidence: normalizeOptionalStringArray(seed.requestedEvidence) }
+          : {}),
+        ...(seed.lowConfidenceStrategy
+          ? { lowConfidenceStrategy: seed.lowConfidenceStrategy }
+          : {}),
         ...(normalizeOptionalStringArray(seed.requiredCapabilities)
           ? { requiredCapabilities: normalizeOptionalStringArray(seed.requiredCapabilities) }
           : {}),
@@ -1297,6 +1624,9 @@ export function createPlatformRuntimeCheckpointService(params?: {
           ? { requireExplicitApproval: seed.requireExplicitApproval }
           : {}),
         ...(seed.policyAutonomy ? { policyAutonomy: seed.policyAutonomy } : {}),
+        ...(seed.classifierTelemetry ? { classifierTelemetry: seed.classifierTelemetry } : {}),
+        ...(seed.routingOutcome ? { routingOutcome: seed.routingOutcome } : {}),
+        ...(seed.decisionTrace ? { decisionTrace: seed.decisionTrace } : {}),
         expectations: PlatformRuntimeExecutionContractSchema.shape.expectations.parse(
           seed.expectations ?? {},
         ),
@@ -1382,7 +1712,13 @@ export function createPlatformRuntimeCheckpointService(params?: {
         .filter((action) => actionIds.size === 0 || actionIds.has(action.actionId))
         .map((action) => buildExecutionReceiptFromAction(action))
         .filter((receipt): receipt is PlatformRuntimeExecutionReceipt => Boolean(receipt));
-      return [...explicitReceipts, ...actionReceipts]
+      const checkpointIds = new Set(params.outcome?.checkpointIds ?? []);
+      const checkpointReceipts = Array.from(checkpoints.values())
+        .filter((checkpoint) => checkpoint.runId === normalizedRunId)
+        .filter((checkpoint) => checkpointIds.size === 0 || checkpointIds.has(checkpoint.id))
+        .map((checkpoint) => buildExecutionReceiptFromCheckpoint(checkpoint))
+        .filter((receipt): receipt is PlatformRuntimeExecutionReceipt => Boolean(receipt));
+      return [...explicitReceipts, ...actionReceipts, ...checkpointReceipts]
         .toSorted((left, right) =>
           buildExecutionReceiptKey(left).localeCompare(buildExecutionReceiptKey(right)),
         )
@@ -1394,6 +1730,24 @@ export function createPlatformRuntimeCheckpointService(params?: {
         });
     },
     buildRunClosure(params) {
+      // Derive the request-scoped no-evidence retry counter.
+      // The embedded runner never threads recoveryAttemptCount across separate
+      // closure calls, so we maintain the count internally and inject it here.
+      // When a caller already supplies a higher count, we defer to the caller.
+      const requestKey = (params.requestRunId ?? params.runId).trim();
+      const trackedAttemptCount = noEvidenceRetryCounters.get(requestKey) ?? 0;
+      const resolvedEvidence: PlatformRuntimeAcceptanceEvidence | undefined =
+        params.evidence !== undefined
+          ? {
+              ...params.evidence,
+              ...(trackedAttemptCount > 0 &&
+              (params.evidence.recoveryAttemptCount === undefined ||
+                params.evidence.recoveryAttemptCount < trackedAttemptCount)
+                ? { recoveryAttemptCount: trackedAttemptCount }
+                : {}),
+            }
+          : params.evidence;
+
       const outcome =
         normalizeRunOutcome(params.outcome) ??
         this.buildRunOutcome(params.runId) ??
@@ -1417,21 +1771,27 @@ export function createPlatformRuntimeCheckpointService(params?: {
         runId: params.runId,
         executionIntent: params.executionIntent,
       });
+      const verificationEvidence = buildIntentAwareEvidence({
+        evidence: resolvedEvidence ?? {},
+        executionIntent,
+      });
       const contract = this.buildExecutionContract({
         runId: params.runId,
         outcome,
         receipts: params.receipts,
-        evidence: params.evidence,
+        evidence: resolvedEvidence,
         executionIntent,
       });
       const executionVerification = this.verifyExecutionContract({
         contract,
         outcome,
-        evidence: params.evidence,
+        evidence: verificationEvidence,
+        priorEvidence: params.priorEvidence,
+        executionIntent,
       });
       const evidence = this.buildAcceptanceEvidence({
         outcome,
-        evidence: params.evidence,
+        evidence: resolvedEvidence,
         executionVerification,
         executionSurface: params.executionSurface,
         executionIntent,
@@ -1440,6 +1800,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
         runId: params.runId,
         outcome,
         evidence,
+        receipts: contract.receipts,
+        priorEvidence: params.priorEvidence,
       });
       const supervisorVerdict = this.evaluateSupervisorVerdict({
         runId: params.runId,
@@ -1447,6 +1809,28 @@ export function createPlatformRuntimeCheckpointService(params?: {
         verification: executionVerification,
         surface: params.executionSurface,
       });
+
+      // Maintain the no-evidence retry counter for this request key.
+      // Track both completed_without_evidence (direct evidence gate) and
+      // contract_mismatch with semantic_retry (the full buildRunClosure path,
+      // where contract verification fires first). Both indicate the model
+      // replied with text but no tool evidence was observed.
+      // Increment when the gate fired but the budget is not yet exhausted.
+      // Clear when the run succeeds or reaches any terminal stop/escalate.
+      const isNoEvidenceOutcome =
+        acceptanceOutcome.reasonCode === "completed_without_evidence" ||
+        (acceptanceOutcome.reasonCode === "contract_mismatch" &&
+          acceptanceOutcome.remediation === "semantic_retry");
+      if (
+        isNoEvidenceOutcome &&
+        supervisorVerdict.action !== "stop" &&
+        supervisorVerdict.action !== "escalate"
+      ) {
+        noEvidenceRetryCounters.set(requestKey, trackedAttemptCount + 1);
+      } else {
+        noEvidenceRetryCounters.delete(requestKey);
+      }
+
       return PlatformRuntimeRunClosureSchema.parse({
         runId: params.runId.trim(),
         ...(params.requestRunId ? { requestRunId: params.requestRunId } : {}),
@@ -1471,6 +1855,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
             : {}),
         }),
       );
+      const routingUnsatisfiable =
+        params.executionIntent?.routingOutcome?.kind === "contract_unsatisfiable";
       const evidence = params.evidence ?? {};
       const counts = buildExecutionReceiptCounts(receipts);
       const proofCounts = buildExecutionReceiptProofCounts(receipts);
@@ -1478,6 +1864,17 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const expectations = contract.expectations;
       const hasBlockedNoProgress = receipts.some((receipt) => receipt.status === "blocked");
       const hasFailedReceipt = counts.failed > 0;
+      const hasTerminalFailedReceipt = receipts.some(
+        (receipt) =>
+          receipt.status === "failed" &&
+          !receipts.some(
+            (candidate) =>
+              candidate.status === "success" &&
+              candidate.kind === receipt.kind &&
+              candidate.name === receipt.name &&
+              (receipt.summary ? candidate.summary === receipt.summary : true),
+          ),
+      );
       const hasDegradedReceipt = counts.degraded > 0;
       const hasPartialReceipt = counts.partial > 0;
       const hasWarningReceipt = counts.warning > 0;
@@ -1498,7 +1895,28 @@ export function createPlatformRuntimeCheckpointService(params?: {
         evidence.deliveredReplyCount ?? 0,
         verifiedConfirmedDeliveryCount,
       );
-      const hasOutput = evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
+      const sufficiency = isCompletionEvidenceSufficient({
+        executionIntent: buildExecutionIntentFromEvidence({
+          runId: contract.runId,
+          evidence,
+          expectations,
+        }),
+        expectations,
+        receipts,
+        priorEvidence: params.priorEvidence,
+        evidence,
+        outcome: params.outcome,
+      });
+      const requiresStructuredOutput = requiresStructuredEvidence({
+        outcomeContract: sufficiency.requirements.outcomeContract,
+        artifactKinds: evidence.declaredArtifactKinds,
+        executionContract: sufficiency.requirements.executionContract,
+      });
+      const hasOutput = requiresStructuredOutput
+        ? sufficiency.observed.artifactDescriptor ||
+          sufficiency.observed.toolReceipt ||
+          sufficiency.observed.processReceipt
+        : evidence.hasOutput === true || evidence.hasStructuredReplyPayload === true;
       const declaredIntent = describeDeclaredIntent(evidence);
       const confirmedActionCount =
         evidence.confirmedActionCount ?? params.outcome?.confirmedActionIds.length ?? 0;
@@ -1513,8 +1931,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
       if (hasBlockedNoProgress) {
         reasons.push("Execution receipts show no_progress on one or more tool or runtime paths.");
       }
-      if (hasFailedReceipt) {
+      if (hasTerminalFailedReceipt) {
         reasons.push("Execution receipts contain a failed outcome.");
+      }
+      if (requiresStructuredOutput && !sufficiency.sufficient) {
+        reasons.push(...sufficiency.reasons);
       }
       if (expectations?.requiresMessagingDelivery && confirmedDeliveryCount === 0) {
         reasons.push(
@@ -1561,7 +1982,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
       let status: PlatformRuntimeExecutionVerification["status"] = "verified";
       if (hasBlockedNoProgress) {
         status = "no_progress";
-      } else if (hasFailedReceipt || reasons.length > 0) {
+      } else if (hasTerminalFailedReceipt || reasons.length > 0) {
         status = "mismatch";
       } else if (hasDegradedReceipt) {
         status = "degraded";
@@ -1608,6 +2029,11 @@ export function createPlatformRuntimeCheckpointService(params?: {
         }
       }
 
+      if (routingUnsatisfiable) {
+        reasons.push("execution_contract_unsatisfied");
+        status = "failed";
+      }
+
       return PlatformRuntimeExecutionVerificationSchema.parse({
         runId: contract.runId,
         status,
@@ -1626,6 +2052,16 @@ export function createPlatformRuntimeCheckpointService(params?: {
       const evidence = this.buildAcceptanceEvidence({
         outcome: params.outcome,
         evidence: params.evidence,
+      });
+      const sufficiency = isCompletionEvidenceSufficient({
+        executionIntent: buildExecutionIntentFromEvidence({
+          runId: params.runId,
+          evidence,
+        }),
+        receipts: params.receipts ?? [],
+        priorEvidence: params.priorEvidence,
+        evidence,
+        outcome: params.outcome,
       });
       const declaredIntent = describeDeclaredIntent(evidence);
       const reasons: string[] = [];
@@ -1694,7 +2130,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
           action: "retry",
           reasonCode:
             evidence.executionSurfaceStatus === "bootstrap_required" ||
-            evidence.executionUnattendedBoundary === "bootstrap"
+            evidence.executionUnattendedBoundary === "bootstrap" ||
+            (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
               ? "bootstrap_required"
               : classifyProviderEvidence(evidence) === "auth_refresh"
                 ? "provider_auth_required"
@@ -1717,7 +2154,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
           action: "retry",
           reasonCode:
             evidence.executionSurfaceStatus === "bootstrap_required" ||
-            evidence.executionUnattendedBoundary === "bootstrap"
+            evidence.executionUnattendedBoundary === "bootstrap" ||
+            (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
               ? "bootstrap_required"
               : classifyProviderEvidence(evidence) === "auth_refresh"
                 ? "provider_auth_required"
@@ -1725,6 +2163,32 @@ export function createPlatformRuntimeCheckpointService(params?: {
                   ? "provider_fallback_exhausted"
                   : "execution_degraded",
           reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      // Block completion when execution contracts require real evidence but none was observed.
+      // structured_artifact: requires matching tool receipt (pdf, image_generate, etc.)
+      // interactive_local_result: requires process / local-execution evidence
+      // workspace_change: requires at least one successful tool receipt (write/exec/apply_patch)
+      // text_response: no gate — hasOutput alone is sufficient
+      const requiresEvidencedCompletion =
+        sufficiency.requirements.requiresStructuredEvidence ||
+        sufficiency.requirements.executionContract.requiresLocalProcess === true ||
+        sufficiency.requirements.executionContract.requiresWorkspaceMutation === true;
+      if (requiresEvidencedCompletion && !sufficiency.sufficient) {
+        reasons.push(...sufficiency.reasons);
+        return parseAcceptanceResult({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode:
+            evidence.executionSurfaceStatus === "bootstrap_required" ||
+            evidence.executionUnattendedBoundary === "bootstrap" ||
+            (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
+              ? "bootstrap_required"
+              : "completed_without_evidence",
+          reasons: Array.from(new Set(reasons)),
           outcome: params.outcome,
           evidence,
         });
@@ -1779,20 +2243,36 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
+      const artifactReceiptCount =
+        evidence.artifactReceiptCount ?? params.outcome.artifactIds.length;
+      const bootstrapReceiptCount =
+        evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length;
+      const bootstrapStillRequired =
+        evidence.executionSurfaceStatus === "bootstrap_required" ||
+        evidence.executionUnattendedBoundary === "bootstrap" ||
+        params.outcome.blockedCheckpointIds.length > 0 ||
+        params.outcome.pendingApprovalIds.length > 0
+          ? bootstrapReceiptCount
+          : 0;
       const hasDeliverableEvidence =
-        (evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
-        (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0 ||
+        artifactReceiptCount > 0 ||
         evidence.didSendViaMessagingTool === true ||
         evidence.hasOutput === true ||
         evidence.hasStructuredReplyPayload === true ||
         confirmedDeliveryCount > 0 ||
         confirmedActionCount > 0 ||
         (evidence.successfulCronAdds ?? 0) > 0;
+      const hasExecBackedProcessClosureEvidence =
+        sufficiency.requirements.executionContract.requiresLocalProcess === true &&
+        sufficiency.requirements.executionContract.requiresWorkspaceMutation !== true &&
+        sufficiency.observed.toolReceipt &&
+        sufficiency.observed.processReceipt;
       const requiresVerifiedNonMessagingClosure =
         attemptedDeliveryCount === 0 &&
         confirmedDeliveryCount === 0 &&
-        ((evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
-          (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0 ||
+        !hasExecBackedProcessClosureEvidence &&
+        (artifactReceiptCount > 0 ||
+          bootstrapStillRequired > 0 ||
           attemptedActionCount > 0 ||
           confirmedActionCount > 0 ||
           failedActionCount > 0);
@@ -1831,13 +2311,26 @@ export function createPlatformRuntimeCheckpointService(params?: {
           action: "retry",
           reasonCode:
             evidence.executionSurfaceStatus === "bootstrap_required" ||
-            evidence.executionUnattendedBoundary === "bootstrap"
+            evidence.executionUnattendedBoundary === "bootstrap" ||
+            bootstrapStillRequired > 0
               ? "bootstrap_required"
               : classifyProviderEvidence(evidence) === "auth_refresh"
                 ? "provider_auth_required"
                 : classifyProviderEvidence(evidence) === "provider_fallback"
                   ? "provider_fallback_exhausted"
                   : "contract_mismatch",
+          reasons,
+          outcome: params.outcome,
+          evidence,
+        });
+      }
+      if (bootstrapStillRequired > 0) {
+        reasons.push("Run paused while capability bootstrap is still required before completion.");
+        return parseAcceptanceResult({
+          runId: params.runId,
+          status: "retryable",
+          action: "retry",
+          reasonCode: "bootstrap_required",
           reasons,
           outcome: params.outcome,
           evidence,
@@ -1857,13 +2350,8 @@ export function createPlatformRuntimeCheckpointService(params?: {
           evidence,
         });
       }
-      if (
-        (evidence.artifactReceiptCount ?? params.outcome.artifactIds.length) > 0 ||
-        (evidence.bootstrapReceiptCount ?? params.outcome.bootstrapRequestIds.length) > 0
-      ) {
-        reasons.push(
-          "Run completed and produced structured platform artifacts or bootstrap output.",
-        );
+      if (artifactReceiptCount > 0) {
+        reasons.push("Run completed and produced structured platform artifacts.");
         return parseAcceptanceResult({
           runId: params.runId,
           status: "satisfied",
@@ -2098,9 +2586,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
           milestone: "continuation_dispatch_start",
           checkpointId,
           continuationKind: kind,
-          ...(checkpoint.target?.approvalId
-            ? { approvalId: checkpoint.target.approvalId }
-            : {}),
+          ...(checkpoint.target?.approvalId ? { approvalId: checkpoint.target.approvalId } : {}),
         });
       }
       try {
@@ -2112,9 +2598,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
             milestone: "continuation_dispatch_handler_done",
             checkpointId,
             continuationKind: kind,
-            ...(checkpoint.target?.approvalId
-              ? { approvalId: checkpoint.target.approvalId }
-              : {}),
+            ...(checkpoint.target?.approvalId ? { approvalId: checkpoint.target.approvalId } : {}),
           });
         }
       } catch (error) {
@@ -2126,9 +2610,7 @@ export function createPlatformRuntimeCheckpointService(params?: {
             checkpointId,
             continuationKind: kind,
             error: error instanceof Error ? error.message : String(error),
-            ...(checkpoint.target?.approvalId
-              ? { approvalId: checkpoint.target.approvalId }
-              : {}),
+            ...(checkpoint.target?.approvalId ? { approvalId: checkpoint.target.approvalId } : {}),
           });
         }
         return this.updateCheckpoint(checkpointId, {

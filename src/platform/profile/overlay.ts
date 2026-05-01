@@ -1,5 +1,12 @@
 import type { ArtifactKind, Profile, TaskOverlay } from "../schemas/index.js";
+import type {
+  CandidateExecutionFamily,
+  OutcomeContract,
+  QualificationExecutionContract,
+} from "../decision/qualification-contract.js";
+import type { ResolutionContract } from "../decision/resolution-contract.js";
 import { getTaskOverlay } from "./defaults.js";
+import { normalizeProfileHintList } from "./hints.js";
 import type { ProfileSignalInput } from "./signals.js";
 
 export type EffectiveProfilePreference = {
@@ -12,29 +19,112 @@ export type EffectiveProfilePreference = {
   timeoutSeconds?: number;
 };
 
-function unique(values: string[]): string[] {
-  return Array.from(new Set(values));
-}
-
-function promptIncludes(prompt: string | undefined, values: string[]): boolean {
-  const normalized = (prompt ?? "").toLowerCase();
-  return values.some((value) => normalized.includes(value));
-}
+export type ProfileOverlayInput = ProfileSignalInput & {
+  outcomeContract?: OutcomeContract;
+  executionContract?: QualificationExecutionContract;
+  candidateFamilies?: CandidateExecutionFamily[];
+  resolutionContract?: Pick<
+    ResolutionContract,
+    "candidateFamilies" | "selectedFamily" | "toolBundles"
+  >;
+};
 
 function hasArtifactKinds(input: ProfileSignalInput, kinds: ArtifactKind[]): boolean {
   return (input.artifactKinds ?? []).some((kind) => kinds.includes(kind));
 }
 
+function getCandidateFamilies(input: ProfileOverlayInput): CandidateExecutionFamily[] {
+  const families =
+    input.resolutionContract?.candidateFamilies?.length
+      ? input.resolutionContract.candidateFamilies
+      : input.candidateFamilies ?? [];
+  return Array.from(new Set(families));
+}
+
 export function resolveTaskOverlay(
   profile: Profile,
-  input: ProfileSignalInput,
+  input: ProfileOverlayInput,
 ): TaskOverlay | undefined {
-  const normalizedTargets = (input.publishTargets ?? []).map((value) => value.toLowerCase());
-  const normalizedFiles = (input.fileNames ?? []).map((value) => value.toLowerCase());
-  const normalizedPrompt = (input.prompt ?? "").toLowerCase();
+  const bundles = new Set(input.resolutionContract?.toolBundles ?? []);
+  const candidateFamilies = getCandidateFamilies(input);
+  const selectedFamily = input.resolutionContract?.selectedFamily;
+  const outcomeContract = input.outcomeContract;
+  const executionContract = input.executionContract;
+  const hasDocumentArtifact = hasArtifactKinds(input, ["document", "estimate", "report", "data"]);
+  const hasMediaArtifact = hasArtifactKinds(input, ["image", "video", "audio"]);
+  const hasDocumentFamily =
+    selectedFamily === "document_render" || candidateFamilies.includes("document_render");
+  const hasAnalysisFamily =
+    selectedFamily === "analysis_transform" || candidateFamilies.includes("analysis_transform");
+  const hasMediaFamily =
+    selectedFamily === "media_generation" || candidateFamilies.includes("media_generation");
 
   if (
-    normalizedTargets.length > 0 &&
+    outcomeContract === "text_response" &&
+    bundles.has("respond_only") &&
+    getTaskOverlay(profile, "general_chat")
+  ) {
+    return getTaskOverlay(profile, "general_chat");
+  }
+
+  if (
+    (bundles.has("repo_mutation") ||
+      bundles.has("repo_run") ||
+      outcomeContract === "workspace_change") &&
+    getTaskOverlay(profile, "code_first")
+  ) {
+    return getTaskOverlay(profile, "code_first");
+  }
+
+  if (
+    (bundles.has("external_delivery") || outcomeContract === "external_operation") &&
+    getTaskOverlay(profile, "integration_first")
+  ) {
+    return getTaskOverlay(profile, "integration_first");
+  }
+
+  if (
+    executionContract?.mayNeedBootstrap &&
+    getTaskOverlay(profile, "bootstrap_capability")
+  ) {
+    return getTaskOverlay(profile, "bootstrap_capability");
+  }
+
+  if (
+    executionContract?.requiresLocalProcess &&
+    !executionContract.mayNeedBootstrap &&
+    getTaskOverlay(profile, "machine_control")
+  ) {
+    return getTaskOverlay(profile, "machine_control");
+  }
+
+  if (
+    executionContract?.requiresLocalProcess &&
+    getTaskOverlay(profile, "ops_first")
+  ) {
+    return getTaskOverlay(profile, "ops_first");
+  }
+
+  if (
+    ((bundles.has("artifact_authoring") && hasMediaArtifact && !hasDocumentArtifact) ||
+      hasMediaFamily) &&
+    getTaskOverlay(profile, "media_first")
+  ) {
+    return getTaskOverlay(profile, "media_first");
+  }
+
+  if (
+    (bundles.has("document_extraction") ||
+      hasDocumentFamily ||
+      hasAnalysisFamily ||
+      (bundles.has("artifact_authoring") && outcomeContract === "structured_artifact") ||
+      hasDocumentArtifact)
+  ) {
+    return getTaskOverlay(profile, "document_first");
+  }
+
+  if (
+    bundles.has("external_delivery") &&
     (getTaskOverlay(profile, "publish_release") ||
       getTaskOverlay(profile, "publish_brief") ||
       getTaskOverlay(profile, "media_publish"))
@@ -44,110 +134,6 @@ export function resolveTaskOverlay(
       getTaskOverlay(profile, "publish_brief") ??
       getTaskOverlay(profile, "media_publish")
     );
-  }
-
-  if (
-    promptIncludes(input.prompt, ["joke", "fun", "story", "hello", "brainstorm"]) &&
-    getTaskOverlay(profile, "general_chat")
-  ) {
-    return getTaskOverlay(profile, "general_chat");
-  }
-
-  if (
-    promptIncludes(input.prompt, ["code", "build", "deploy", "fix", "test", "refactor"]) ||
-    normalizedFiles.some((file) =>
-      [".ts", ".tsx", ".js", ".jsx", ".json", ".py"].some((ext) => file.endsWith(ext)),
-    )
-  ) {
-    return getTaskOverlay(profile, "code_first");
-  }
-
-  if (
-    (promptIncludes(input.prompt, [
-      "integration",
-      "webhook",
-      "connector",
-      "sync",
-      "oauth",
-      "pipeline",
-    ]) ||
-      (input.integrations?.length ?? 0) > 0) &&
-    getTaskOverlay(profile, "integration_first")
-  ) {
-    return getTaskOverlay(profile, "integration_first");
-  }
-
-  if (
-    promptIncludes(input.prompt, ["bootstrap", "install capability", "capability bootstrap"]) &&
-    getTaskOverlay(profile, "bootstrap_capability")
-  ) {
-    return getTaskOverlay(profile, "bootstrap_capability");
-  }
-
-  if (
-    promptIncludes(input.prompt, [
-      "machine control",
-      "linked machine",
-      "kill switch",
-      "run on node",
-    ]) &&
-    getTaskOverlay(profile, "machine_control")
-  ) {
-    return getTaskOverlay(profile, "machine_control");
-  }
-
-  if (
-    promptIncludes(input.prompt, [
-      "infra",
-      "infrastructure",
-      "server",
-      "ssh",
-      "machine",
-      "kubernetes",
-      "logs",
-      "restart",
-    ]) &&
-    getTaskOverlay(profile, "ops_first")
-  ) {
-    return getTaskOverlay(profile, "ops_first");
-  }
-
-  if (
-    promptIncludes(input.prompt, ["pdf", "document", "estimate", "extract", "ocr", "report"]) ||
-    normalizedFiles.some((file) =>
-      [".pdf", ".docx", ".xlsx", ".csv"].some((ext) => file.endsWith(ext)),
-    ) ||
-    hasArtifactKinds(input, ["document", "estimate", "report", "data"])
-  ) {
-    return getTaskOverlay(profile, "document_first");
-  }
-
-  if (
-    (promptIncludes(input.prompt, [
-      "image",
-      "video",
-      "audio",
-      "thumbnail",
-      "render",
-      "caption",
-      "transcribe",
-      "storyboard",
-      "figma",
-      "design",
-    ]) ||
-      normalizedFiles.some((file) =>
-        [".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mp3", ".wav"].some((ext) =>
-          file.endsWith(ext),
-        ),
-      ) ||
-      hasArtifactKinds(input, ["image", "video", "audio"])) &&
-    getTaskOverlay(profile, "media_first")
-  ) {
-    return getTaskOverlay(profile, "media_first");
-  }
-
-  if (normalizedPrompt.includes("publish") && getTaskOverlay(profile, "media_publish")) {
-    return getTaskOverlay(profile, "media_publish");
   }
 
   return undefined;
@@ -161,12 +147,15 @@ export function applyTaskOverlay(
     profile,
     activeProfileId: profile.id,
     taskOverlay,
-    preferredTools: unique([...(profile.preferredTools ?? []), ...(taskOverlay?.toolHints ?? [])]),
-    preferredPublishTargets: unique([
+    preferredTools: normalizeProfileHintList([
+      ...(profile.preferredTools ?? []),
+      ...(taskOverlay?.toolHints ?? []),
+    ]),
+    preferredPublishTargets: normalizeProfileHintList([
       ...(profile.preferredPublishTargets ?? []),
       ...(taskOverlay?.publishTargets ?? []),
     ]),
-    modelHints: unique(taskOverlay?.modelHints ?? []),
+    modelHints: normalizeProfileHintList(taskOverlay?.modelHints ?? []),
     timeoutSeconds: taskOverlay?.timeoutSeconds,
   };
 }

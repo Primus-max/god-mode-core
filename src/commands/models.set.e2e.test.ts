@@ -52,6 +52,10 @@ let modelsFallbacksAddCommand: typeof import("./models/fallbacks.js").modelsFall
 
 describe("models set + fallbacks", () => {
   beforeAll(async () => {
+    // Reset the module cache so vi.mock("../config/config.js") factory runs fresh for
+    // modules loaded here. Without this, config.js (pre-loaded by test/setup.ts via
+    // context.ts) is served from cache and shared.ts gets the un-mocked writeConfigFile.
+    vi.resetModules();
     ({ modelsSetCommand } = await import("./models/set.js"));
     ({ modelsFallbacksAddCommand } = await import("./models/fallbacks.js"));
   });

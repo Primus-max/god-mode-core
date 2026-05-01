@@ -48,6 +48,7 @@ Looking for chat channel docs (WhatsApp/Telegram/Discord/Slack/Mattermost (plugi
 - [Qianfan](/providers/qianfan)
 - [Qwen (OAuth)](/providers/qwen)
 - [SGLang (local models)](/providers/sglang)
+- [SD1 / HydraAI (OpenAI-compatible)](/providers/sd1-hydra)
 - [Together AI](/providers/together)
 - [Vercel AI Gateway](/providers/vercel-ai-gateway)
 - [Venice (Venice AI, privacy-focused)](/providers/venice)

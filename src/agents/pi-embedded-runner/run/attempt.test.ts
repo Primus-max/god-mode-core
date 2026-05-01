@@ -4,6 +4,7 @@ import { appendBootstrapPromptWarning } from "../../bootstrap-budget.js";
 import { resolveOllamaBaseUrlForRun } from "../../ollama-stream.js";
 import { buildAgentSystemPrompt } from "../../system-prompt.js";
 import {
+  buildAttemptHookContext,
   buildAfterTurnRuntimeContext,
   buildSessionsYieldContextMessage,
   composeSystemPromptWithHookContext,
@@ -95,12 +96,12 @@ describe("resolvePromptBuildHookResult", () => {
     });
 
     expect(hookRunner.runBeforeAgentStart).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      prependContext: "from-cache",
-      systemPrompt: "legacy-system",
-      prependSystemContext: undefined,
-      appendSystemContext: undefined,
-    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        prependContext: "from-cache",
+        systemPrompt: "legacy-system",
+      }),
+    );
   });
 
   it("calls legacy hook when precomputed result is absent", async () => {
@@ -143,6 +144,76 @@ describe("resolvePromptBuildHookResult", () => {
     expect(result.prependContext).toBe("prompt context\n\nlegacy context");
     expect(result.prependSystemContext).toBe("prompt prepend\n\nlegacy prepend");
     expect(result.appendSystemContext).toBe("prompt append\n\nlegacy append");
+  });
+
+  it("merges userPromptOverride and promptOptimization with before_prompt_build precedence", async () => {
+    const hookRunner = {
+      hasHooks: vi.fn(() => true),
+      runBeforePromptBuild: vi.fn(async () => ({
+        userPromptOverride: "from typed hook",
+        promptOptimization: { reasoning: ["typed"], applied: true },
+      })),
+      runBeforeAgentStart: vi.fn(async () => ({
+        userPromptOverride: "from legacy",
+        promptOptimization: { reasoning: ["legacy"], charsRemoved: 1 },
+      })),
+    };
+
+    const result = await resolvePromptBuildHookResult({
+      prompt: "hello",
+      messages: [],
+      hookCtx: {},
+      hookRunner,
+    });
+
+    expect(result.userPromptOverride).toBe("from typed hook");
+    expect(result.promptOptimization?.reasoning).toEqual(["typed", "legacy"]);
+    expect(result.promptOptimization?.charsRemoved).toBe(1);
+    expect(result.promptOptimization?.applied).toBe(true);
+  });
+});
+
+describe("buildAttemptHookContext", () => {
+  it("includes structured platform execution context for prompt and llm hooks", () => {
+    expect(
+      buildAttemptHookContext({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        sessionId: "session-1",
+        workspaceDir: "/tmp/workspace",
+        messageProvider: "webchat",
+        messageChannel: "webchat",
+        trigger: "user",
+        platformExecutionContext: {
+          selectedRecipeId: "doc_ingest",
+          selectedProfileId: "builder",
+          taskOverlayId: "document_first",
+          plannerReasoning: "doc_ingest matched the document-heavy prompt.",
+          timeoutSeconds: 180,
+          prependContext: "Profile: Builder.\nPlanner reasoning: doc_ingest.",
+          prependSystemContext: "Execution recipe: doc_ingest.",
+        },
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        sessionId: "session-1",
+        workspaceDir: "/tmp/workspace",
+        messageProvider: "webchat",
+        channelId: "webchat",
+        trigger: "user",
+        platformExecution: expect.objectContaining({
+          profileId: "builder",
+          recipeId: "doc_ingest",
+          taskOverlayId: "document_first",
+          plannerReasoning: "doc_ingest matched the document-heavy prompt.",
+          timeoutSeconds: 180,
+          prependContext: "Profile: Builder.\nPlanner reasoning: doc_ingest.",
+          prependSystemContext: "Execution recipe: doc_ingest.",
+        }),
+      }),
+    );
   });
 });
 

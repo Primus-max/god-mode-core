@@ -771,6 +771,59 @@ describe("gateway agent handler", () => {
     expect(capturedEntry?.claudeCliSessionId).toBeUndefined();
   });
 
+  it("detaches from an existing main session entry when a new explicit sessionId is requested", async () => {
+    mockMainSessionEntry({
+      sessionId: "existing-session-id",
+      thinkingLevel: "high",
+      verboseLevel: "full",
+      modelOverride: "hydra/gpt-4o",
+      providerOverride: "hydra",
+      spawnedBy: "agent:main:parent",
+    });
+    let capturedEntry: Record<string, unknown> | undefined;
+    mocks.updateSessionStore.mockImplementation(async (_path, updater) => {
+      const store: Record<string, unknown> = {
+        "agent:main:main": buildExistingMainStoreEntry({
+          sessionId: "existing-session-id",
+          thinkingLevel: "high",
+          verboseLevel: "full",
+          modelOverride: "hydra/gpt-4o",
+          providerOverride: "hydra",
+          spawnedBy: "agent:main:parent",
+        }),
+      };
+      const result = await updater(store);
+      capturedEntry = (result ?? store["agent:main:main"]) as Record<string, unknown>;
+      return capturedEntry;
+    });
+    mocks.agentCommand.mockResolvedValue({
+      payloads: [{ text: "ok" }],
+      meta: { durationMs: 100 },
+    });
+
+    await invokeAgent(
+      {
+        message: "Создай PDF с презентацией о жизни котика.",
+        sessionKey: "agent:main:main",
+        sessionId: "fresh-session-id",
+        idempotencyKey: "test-explicit-session-id-detach",
+      },
+      { reqId: "detach-1" },
+    );
+
+    await waitForAssertion(() => expect(mocks.agentCommand).toHaveBeenCalled());
+    const call = readLastAgentCommandCall();
+    expect(call?.sessionId).toBe("fresh-session-id");
+    expect(capturedEntry).toMatchObject({
+      sessionId: "fresh-session-id",
+    });
+    expect(capturedEntry?.thinkingLevel).toBeUndefined();
+    expect(capturedEntry?.verboseLevel).toBeUndefined();
+    expect(capturedEntry?.modelOverride).toBeUndefined();
+    expect(capturedEntry?.providerOverride).toBeUndefined();
+    expect(capturedEntry?.spawnedBy).toBeUndefined();
+  });
+
   it("prunes legacy main alias keys when writing a canonical session entry", async () => {
     mocks.loadSessionEntry.mockReturnValue({
       cfg: {

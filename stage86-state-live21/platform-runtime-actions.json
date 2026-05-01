@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "actionId": "bootstrap:874d8a55-098c-4c4f-9571-5de008dafcf7:run",
+      "runId": "874d8a55-098c-4c4f-9571-5de008dafcf7",
+      "kind": "bootstrap",
+      "state": "failed",
+      "boundary": "bootstrap",
+      "checkpointId": "874d8a55-098c-4c4f-9571-5de008dafcf7",
+      "target": {
+        "bootstrapRequestId": "874d8a55-098c-4c4f-9571-5de008dafcf7",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "874d8a55-098c-4c4f-9571-5de008dafcf7",
+        "capabilityId": "table-parser",
+        "operation": "bootstrap.run",
+        "resultStatus": "degraded"
+      },
+      "attemptCount": 1,
+      "retryable": true,
+      "lastError": "Package not found on npm: @openclaw/table-parser@1.0.0. See https://docs.openclaw.ai/tools/plugin for installable plugins.",
+      "createdAtMs": 1775839985793,
+      "updatedAtMs": 1775839987169,
+      "stagedAtMs": 1775839985793,
+      "attemptedAtMs": 1775839985825,
+      "failedAtMs": 1775839987169
+    },
+    {
+      "actionId": "bootstrap:a0201d0b-60d9-42b9-bf9a-edd81ebca5c0:run",
+      "runId": "a0201d0b-60d9-42b9-bf9a-edd81ebca5c0",
+      "kind": "bootstrap",
+      "state": "confirmed",
+      "boundary": "bootstrap",
+      "checkpointId": "a0201d0b-60d9-42b9-bf9a-edd81ebca5c0",
+      "target": {
+        "bootstrapRequestId": "a0201d0b-60d9-42b9-bf9a-edd81ebca5c0",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "a0201d0b-60d9-42b9-bf9a-edd81ebca5c0",
+        "capabilityId": "pdf-renderer",
+        "operation": "bootstrap.run",
+        "resultStatus": "bootstrapped",
+        "operatorDecision": {
+          "action": "run",
+          "atMs": 1775838658620,
+          "actor": {
+            "id": "cli",
+            "displayName": "stage86-live-matrix",
+            "deviceId": "d223b05b40abd7248291f1b998a1cdb9a2bb8e3a8d4413703d0db5dc2bc5b915",
+            "connId": "046491d1-420d-4070-b688-a0f9aa0a543e"
+          },
+          "source": "platform.bootstrap.run"
+        }
+      },
+      "attemptCount": 1,
+      "retryable": false,
+      "createdAtMs": 1775838658620,
+      "updatedAtMs": 1775838663052,
+      "stagedAtMs": 1775838658620,
+      "attemptedAtMs": 1775838658634,
+      "confirmedAtMs": 1775838663052
+    },
+    {
+      "actionId": "bootstrap:ff47a174-0d8c-4530-b8c0-e5d58ed61f40:run",
+      "runId": "ff47a174-0d8c-4530-b8c0-e5d58ed61f40",
+      "kind": "bootstrap",
+      "state": "failed",
+      "boundary": "bootstrap",
+      "checkpointId": "ff47a174-0d8c-4530-b8c0-e5d58ed61f40",
+      "target": {
+        "bootstrapRequestId": "ff47a174-0d8c-4530-b8c0-e5d58ed61f40",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "ff47a174-0d8c-4530-b8c0-e5d58ed61f40",
+        "capabilityId": "table-parser",
+        "operation": "bootstrap.run",
+        "resultStatus": "degraded"
+      },
+      "attemptCount": 1,
+      "retryable": true,
+      "lastError": "Package not found on npm: @openclaw/table-parser@1.0.0. See https://docs.openclaw.ai/tools/plugin for installable plugins.",
+      "createdAtMs": 1775838550635,
+      "updatedAtMs": 1775838552579,
+      "stagedAtMs": 1775838550635,
+      "attemptedAtMs": 1775838550648,
+      "failedAtMs": 1775838552579
+    }
+  ]
+}

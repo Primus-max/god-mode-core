@@ -1,0 +1,41 @@
+---
+description: Scope guard for commitment kernel work; applies when editing kernel files
+globs: src/platform/commitment/**, eslint-rules/**, src/platform/decision/trace.ts
+alwaysApply: false
+---
+
+# Commitment Kernel — Scope Guard
+
+You are editing files inside the new commitment kernel layer or its enforcement surface.
+
+## Before any change
+
+1. Read the **current PR sub-plan** in `.cursor/plans/commitment_kernel_pr*.plan.md` (whichever PR is in flight; user should specify in the first message).
+2. Confirm the change is **in scope** of that PR. PR scope is defined per-sub-plan §2 "Files To Create / Modify".
+3. If the change is **not** in scope — STOP and surface to user. Do not silently widen scope.
+
+## Hard rules in this layer
+
+- Do NOT add `donePredicate` field to `ExecutionCommitment` (invariant #10; predicate lives on `Affordance`).
+- Do NOT add `extensions: Record<string, unknown>` to `WorldStateSnapshot` or `ExpectedDelta` (master §5.4 NB; new domains land as named TS-extension slices, not generic dump).
+- Do NOT add `tool` / `recipe` / `route` field to `ExecutionCommitment` (invariant #1).
+- Do NOT import from `src/platform/decision/**` here (invariant #8). The only allowed direction is `decision/trace.ts` importing `ShadowBuildResult` from `commitment/`.
+- Do NOT import `UserPrompt` or `RawUserTurn` outside whitelist (`intent-contractor.ts` and `raw-user-turn.ts` only) (invariants #5, #6).
+- Do NOT return `EffectId` from `IntentContractor` (invariant #16; intent emits `EffectFamilyId`, never `EffectId`).
+
+## Cutover wiring rules (master §0.5 audit, applied for PR-4+)
+
+- Never call `runTurnDecision` from a production call-site without `monitoredRuntime` and `expectedDeltaResolver` in the input. Without them, `cutoverGate` evaluates to `gate_in_uncertain (monitored_runtime_unavailable)` and `productionDecision` collapses to `legacyDecision` regardless of cutover policy. This was the source of audit gap G2.
+- Never destructure `legacyDecision` alone from `runTurnDecision()` in a production call-site. Production code must read `productionDecision` (and optionally `kernelFallback` for observability). `legacyDecision` is reserved for telemetry / shadow comparison, never for routing. This was the source of audit gap G1.
+- Before adding a new chat-bound effect, check that its `EffectFamilyId` is registered in `effect-family-registry.ts`. New families count as new affordance graph topology — invariant #16 enforcement point. Trivially-1.0 branching factor (master §13.4) is acceptable on cutover-1 but not on cutover-2 onwards.
+- `allowAllPolicyGate` is a stub. Production call-sites must inject a real `PolicyGate` no later than cutover-2 (G6 closure). Stub usage outside tests is a planned architecture violation and must be tracked, not silently inherited.
+
+## Before commit
+
+- TypeScript build green (`tsc --noEmit`).
+- ESLint clean for the custom rules (`no-raw-user-text-import`, `no-decision-imports-from-commitment`).
+- For PR-1: bit-identical decision-eval snapshot test passes (sub-plan §7).
+- Sub-plan §8 exit-criteria checklist fully checked.
+- Human signoff (invariant #15) before merge.
+
+Master plan: `.cursor/plans/commitment_kernel_v1_master.plan.md`

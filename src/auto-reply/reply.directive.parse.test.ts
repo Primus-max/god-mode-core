@@ -8,6 +8,7 @@ import {
   extractThinkDirective,
   extractVerboseDirective,
 } from "./reply.js";
+import { parseInlineDirectives } from "./reply/directive-handling.js";
 import { extractFastDirective, extractStatusDirective } from "./reply/directives.js";
 
 describe("directive parsing", () => {
@@ -81,6 +82,25 @@ describe("directive parsing", () => {
     // e.g. someone typing "/think" + extra letter "hink"
     const res = extractThinkDirective("/thinkstuff");
     expect(res.hasDirective).toBe(false);
+  });
+
+  it("preserves raw whitespace when no inline directive candidates exist", () => {
+    const body = "\n\n\n   Привет!     Как работает   routing в OpenClaw?\n\n\n";
+    const res = parseInlineDirectives(body);
+    expect(res.cleaned).toBe(body);
+    expect(res.hasThinkDirective).toBe(false);
+    expect(res.hasVerboseDirective).toBe(false);
+    expect(res.hasStatusDirective).toBe(false);
+    expect(res.hasModelDirective).toBe(false);
+    expect(res.hasQueueDirective).toBe(false);
+  });
+
+  it("detects bare model: directives without a leading slash", () => {
+    const body = 'Используй model:hydra/gpt-4o. Переведи на английский: "Умный роутинг экономит токены"';
+    const res = parseInlineDirectives(body);
+    expect(res.hasModelDirective).toBe(true);
+    expect(res.rawModelDirective).toBe("hydra/gpt-4o");
+    expect(res.cleaned).toContain("Переведи на английский");
   });
 
   it("matches /think with no argument", () => {

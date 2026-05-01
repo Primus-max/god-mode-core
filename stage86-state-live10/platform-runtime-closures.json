@@ -1,0 +1,3330 @@
+{
+  "version": 1,
+  "closures": [
+    {
+      "runId": "7ec544af-314a-415f-a57b-75a4c80c1016",
+      "requestRunId": "7ec544af-314a-415f-a57b-75a4c80c1016",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775768256012,
+      "outcome": {
+        "runId": "7ec544af-314a-415f-a57b-75a4c80c1016",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "7ec544af-314a-415f-a57b-75a4c80c1016",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775768220924,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "7ec544af-314a-415f-a57b-75a4c80c1016",
+        "status": "verified",
+        "reasons": [],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_06c3f89a-752e-4013-9805-81f6311c2373"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "checkedAtMs": 1775768256011
+      },
+      "acceptanceOutcome": {
+        "runId": "7ec544af-314a-415f-a57b-75a4c80c1016",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "completed_with_output",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "outcome": {
+          "runId": "7ec544af-314a-415f-a57b-75a4c80c1016",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": true,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": false,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "7ec544af-314a-415f-a57b-75a4c80c1016",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "acceptance": {
+          "runId": "7ec544af-314a-415f-a57b-75a4c80c1016",
+          "status": "satisfied",
+          "action": "close",
+          "remediation": "bootstrap",
+          "reasonCode": "completed_with_output",
+          "reasons": [
+            "Run completed with evidence matching the declared recipe table_compare."
+          ],
+          "outcome": {
+            "runId": "7ec544af-314a-415f-a57b-75a4c80c1016",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": true,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": false,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 0,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "7ec544af-314a-415f-a57b-75a4c80c1016",
+          "status": "verified",
+          "reasons": [],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_06c3f89a-752e-4013-9805-81f6311c2373"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "checkedAtMs": 1775768256011
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775768220924,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "6eca9b8e-6932-49dd-8f62-8cc2ace49071",
+      "requestRunId": "6eca9b8e-6932-49dd-8f62-8cc2ace49071",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775766451176,
+      "outcome": {
+        "runId": "6eca9b8e-6932-49dd-8f62-8cc2ace49071",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "6eca9b8e-6932-49dd-8f62-8cc2ace49071",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775766420533,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "6eca9b8e-6932-49dd-8f62-8cc2ace49071",
+        "status": "verified",
+        "reasons": [],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_be99fcc7-80b6-4ae5-9683-2897d938a77a"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "checkedAtMs": 1775766451175
+      },
+      "acceptanceOutcome": {
+        "runId": "6eca9b8e-6932-49dd-8f62-8cc2ace49071",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "completed_with_output",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "outcome": {
+          "runId": "6eca9b8e-6932-49dd-8f62-8cc2ace49071",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": true,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": false,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "6eca9b8e-6932-49dd-8f62-8cc2ace49071",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "acceptance": {
+          "runId": "6eca9b8e-6932-49dd-8f62-8cc2ace49071",
+          "status": "satisfied",
+          "action": "close",
+          "remediation": "bootstrap",
+          "reasonCode": "completed_with_output",
+          "reasons": [
+            "Run completed with evidence matching the declared recipe table_compare."
+          ],
+          "outcome": {
+            "runId": "6eca9b8e-6932-49dd-8f62-8cc2ace49071",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": true,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": false,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 0,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "6eca9b8e-6932-49dd-8f62-8cc2ace49071",
+          "status": "verified",
+          "reasons": [],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_be99fcc7-80b6-4ae5-9683-2897d938a77a"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "checkedAtMs": 1775766451175
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775766420533,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "145817c2-a843-40aa-b4a9-daa75cb63e5b",
+      "requestRunId": "145817c2-a843-40aa-b4a9-daa75cb63e5b",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775764651277,
+      "outcome": {
+        "runId": "145817c2-a843-40aa-b4a9-daa75cb63e5b",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "145817c2-a843-40aa-b4a9-daa75cb63e5b",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775764620650,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "145817c2-a843-40aa-b4a9-daa75cb63e5b",
+        "status": "verified",
+        "reasons": [],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_bd31c2fe-3613-40cb-b8cc-857092d78539"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "checkedAtMs": 1775764651276
+      },
+      "acceptanceOutcome": {
+        "runId": "145817c2-a843-40aa-b4a9-daa75cb63e5b",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "completed_with_output",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "outcome": {
+          "runId": "145817c2-a843-40aa-b4a9-daa75cb63e5b",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": true,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": false,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "145817c2-a843-40aa-b4a9-daa75cb63e5b",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "acceptance": {
+          "runId": "145817c2-a843-40aa-b4a9-daa75cb63e5b",
+          "status": "satisfied",
+          "action": "close",
+          "remediation": "bootstrap",
+          "reasonCode": "completed_with_output",
+          "reasons": [
+            "Run completed with evidence matching the declared recipe table_compare."
+          ],
+          "outcome": {
+            "runId": "145817c2-a843-40aa-b4a9-daa75cb63e5b",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": true,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": false,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 0,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "145817c2-a843-40aa-b4a9-daa75cb63e5b",
+          "status": "verified",
+          "reasons": [],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_bd31c2fe-3613-40cb-b8cc-857092d78539"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "checkedAtMs": 1775764651276
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775764620650,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "41e019bd-9e62-49de-9798-9fbb2c317744",
+      "requestRunId": "41e019bd-9e62-49de-9798-9fbb2c317744",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775762851535,
+      "outcome": {
+        "runId": "41e019bd-9e62-49de-9798-9fbb2c317744",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "41e019bd-9e62-49de-9798-9fbb2c317744",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775762820765,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "41e019bd-9e62-49de-9798-9fbb2c317744",
+        "status": "verified",
+        "reasons": [],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_92827b33-1022-453a-b312-1a2526dd03a8"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "checkedAtMs": 1775762851534
+      },
+      "acceptanceOutcome": {
+        "runId": "41e019bd-9e62-49de-9798-9fbb2c317744",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "completed_with_output",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "outcome": {
+          "runId": "41e019bd-9e62-49de-9798-9fbb2c317744",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": true,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": false,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "41e019bd-9e62-49de-9798-9fbb2c317744",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "acceptance": {
+          "runId": "41e019bd-9e62-49de-9798-9fbb2c317744",
+          "status": "satisfied",
+          "action": "close",
+          "remediation": "bootstrap",
+          "reasonCode": "completed_with_output",
+          "reasons": [
+            "Run completed with evidence matching the declared recipe table_compare."
+          ],
+          "outcome": {
+            "runId": "41e019bd-9e62-49de-9798-9fbb2c317744",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": true,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": false,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 0,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "41e019bd-9e62-49de-9798-9fbb2c317744",
+          "status": "verified",
+          "reasons": [],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_92827b33-1022-453a-b312-1a2526dd03a8"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "checkedAtMs": 1775762851534
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775762820765,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "ac039966-fae6-4224-9f04-af0bebe8b3a2",
+      "requestRunId": "ac039966-fae6-4224-9f04-af0bebe8b3a2",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775761049011,
+      "outcome": {
+        "runId": "ac039966-fae6-4224-9f04-af0bebe8b3a2",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "ac039966-fae6-4224-9f04-af0bebe8b3a2",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775761020827,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "ac039966-fae6-4224-9f04-af0bebe8b3a2",
+        "status": "verified",
+        "reasons": [],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_d286155b-11a6-4c2f-8774-1e99a743cdc8"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "checkedAtMs": 1775761049010
+      },
+      "acceptanceOutcome": {
+        "runId": "ac039966-fae6-4224-9f04-af0bebe8b3a2",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "completed_with_output",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "outcome": {
+          "runId": "ac039966-fae6-4224-9f04-af0bebe8b3a2",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": true,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": false,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "ac039966-fae6-4224-9f04-af0bebe8b3a2",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "acceptance": {
+          "runId": "ac039966-fae6-4224-9f04-af0bebe8b3a2",
+          "status": "satisfied",
+          "action": "close",
+          "remediation": "bootstrap",
+          "reasonCode": "completed_with_output",
+          "reasons": [
+            "Run completed with evidence matching the declared recipe table_compare."
+          ],
+          "outcome": {
+            "runId": "ac039966-fae6-4224-9f04-af0bebe8b3a2",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": true,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": false,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 0,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "ac039966-fae6-4224-9f04-af0bebe8b3a2",
+          "status": "verified",
+          "reasons": [],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_d286155b-11a6-4c2f-8774-1e99a743cdc8"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "checkedAtMs": 1775761049010
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775761020827,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "7b0b24f2-20ca-4cc6-8637-173fba93152b",
+      "requestRunId": "7b0b24f2-20ca-4cc6-8637-173fba93152b",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775759231692,
+      "outcome": {
+        "runId": "7b0b24f2-20ca-4cc6-8637-173fba93152b",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "7b0b24f2-20ca-4cc6-8637-173fba93152b",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775759220623,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "7b0b24f2-20ca-4cc6-8637-173fba93152b",
+        "status": "verified",
+        "reasons": [],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_42da5ae5-b10a-4d45-a4cc-c1f0af45b8c8"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "checkedAtMs": 1775759231691
+      },
+      "acceptanceOutcome": {
+        "runId": "7b0b24f2-20ca-4cc6-8637-173fba93152b",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "completed_with_output",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "outcome": {
+          "runId": "7b0b24f2-20ca-4cc6-8637-173fba93152b",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": true,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": false,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "7b0b24f2-20ca-4cc6-8637-173fba93152b",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "acceptance": {
+          "runId": "7b0b24f2-20ca-4cc6-8637-173fba93152b",
+          "status": "satisfied",
+          "action": "close",
+          "remediation": "bootstrap",
+          "reasonCode": "completed_with_output",
+          "reasons": [
+            "Run completed with evidence matching the declared recipe table_compare."
+          ],
+          "outcome": {
+            "runId": "7b0b24f2-20ca-4cc6-8637-173fba93152b",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": true,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": false,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 0,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "7b0b24f2-20ca-4cc6-8637-173fba93152b",
+          "status": "verified",
+          "reasons": [],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_42da5ae5-b10a-4d45-a4cc-c1f0af45b8c8"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "checkedAtMs": 1775759231691
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775759220623,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "17da5d34-ff1e-4a5c-b061-313826b3e453",
+      "requestRunId": "17da5d34-ff1e-4a5c-b061-313826b3e453",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775757451749,
+      "outcome": {
+        "runId": "17da5d34-ff1e-4a5c-b061-313826b3e453",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "17da5d34-ff1e-4a5c-b061-313826b3e453",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775757421061,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "17da5d34-ff1e-4a5c-b061-313826b3e453",
+        "status": "verified",
+        "reasons": [],
+        "receipts": [
+          {
+            "kind": "tool",
+            "name": "read",
+            "status": "success",
+            "proof": "reported",
+            "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+            "metadata": {
+              "toolCallId": "ollama_call_0c8b4d6a-7fbd-4033-b276-58f0611db898"
+            }
+          }
+        ],
+        "receiptCounts": {
+          "success": 1,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 1,
+          "verified": 0
+        },
+        "checkedAtMs": 1775757451747
+      },
+      "acceptanceOutcome": {
+        "runId": "17da5d34-ff1e-4a5c-b061-313826b3e453",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "completed_with_output",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "outcome": {
+          "runId": "17da5d34-ff1e-4a5c-b061-313826b3e453",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 1,
+          "structuredExecutionReceiptCount": 1,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": true,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": false,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "17da5d34-ff1e-4a5c-b061-313826b3e453",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "acceptance": {
+          "runId": "17da5d34-ff1e-4a5c-b061-313826b3e453",
+          "status": "satisfied",
+          "action": "close",
+          "remediation": "bootstrap",
+          "reasonCode": "completed_with_output",
+          "reasons": [
+            "Run completed with evidence matching the declared recipe table_compare."
+          ],
+          "outcome": {
+            "runId": "17da5d34-ff1e-4a5c-b061-313826b3e453",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 1,
+            "structuredExecutionReceiptCount": 1,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": true,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": false,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 0,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "17da5d34-ff1e-4a5c-b061-313826b3e453",
+          "status": "verified",
+          "reasons": [],
+          "receipts": [
+            {
+              "kind": "tool",
+              "name": "read",
+              "status": "success",
+              "proof": "reported",
+              "summary": "from C:/Users/Tanya/.openclaw/workspace/HEARTBEAT.md",
+              "metadata": {
+                "toolCallId": "ollama_call_0c8b4d6a-7fbd-4033-b276-58f0611db898"
+              }
+            }
+          ],
+          "receiptCounts": {
+            "success": 1,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 1,
+            "verified": 0
+          },
+          "checkedAtMs": 1775757451747
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775757421061,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "1f7ab5b0-073c-4fb8-bf84-8505b46fcc3a",
+      "requestRunId": "1f7ab5b0-073c-4fb8-bf84-8505b46fcc3a",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775755662940,
+      "outcome": {
+        "runId": "1f7ab5b0-073c-4fb8-bf84-8505b46fcc3a",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "1f7ab5b0-073c-4fb8-bf84-8505b46fcc3a",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775755620899,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "1f7ab5b0-073c-4fb8-bf84-8505b46fcc3a",
+        "status": "verified",
+        "reasons": [
+          "Execution closed on standalone output or delivery evidence without explicit receipts."
+        ],
+        "receipts": [],
+        "receiptCounts": {
+          "success": 0,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 0,
+          "verified": 0
+        },
+        "usedStandaloneEvidence": true,
+        "checkedAtMs": 1775755662938
+      },
+      "acceptanceOutcome": {
+        "runId": "1f7ab5b0-073c-4fb8-bf84-8505b46fcc3a",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "completed_with_output",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "outcome": {
+          "runId": "1f7ab5b0-073c-4fb8-bf84-8505b46fcc3a",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 0,
+          "structuredExecutionReceiptCount": 0,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": true,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": false,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "1f7ab5b0-073c-4fb8-bf84-8505b46fcc3a",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "acceptance": {
+          "runId": "1f7ab5b0-073c-4fb8-bf84-8505b46fcc3a",
+          "status": "satisfied",
+          "action": "close",
+          "remediation": "bootstrap",
+          "reasonCode": "completed_with_output",
+          "reasons": [
+            "Run completed with evidence matching the declared recipe table_compare."
+          ],
+          "outcome": {
+            "runId": "1f7ab5b0-073c-4fb8-bf84-8505b46fcc3a",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 0,
+            "structuredExecutionReceiptCount": 0,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": true,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": false,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 0,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "1f7ab5b0-073c-4fb8-bf84-8505b46fcc3a",
+          "status": "verified",
+          "reasons": [
+            "Execution closed on standalone output or delivery evidence without explicit receipts."
+          ],
+          "receipts": [],
+          "receiptCounts": {
+            "success": 0,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 0,
+            "verified": 0
+          },
+          "usedStandaloneEvidence": true,
+          "checkedAtMs": 1775755662938
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775755620899,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "21037e94-b145-4495-9ba4-3ec21ccd6de9",
+      "requestRunId": "21037e94-b145-4495-9ba4-3ec21ccd6de9",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775753930502,
+      "outcome": {
+        "runId": "21037e94-b145-4495-9ba4-3ec21ccd6de9",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "21037e94-b145-4495-9ba4-3ec21ccd6de9",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775753917817,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "21037e94-b145-4495-9ba4-3ec21ccd6de9",
+        "status": "verified",
+        "reasons": [
+          "Execution closed on standalone output or delivery evidence without explicit receipts."
+        ],
+        "receipts": [],
+        "receiptCounts": {
+          "success": 0,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 0,
+          "verified": 0
+        },
+        "usedStandaloneEvidence": true,
+        "checkedAtMs": 1775753930491
+      },
+      "acceptanceOutcome": {
+        "runId": "21037e94-b145-4495-9ba4-3ec21ccd6de9",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "completed_with_output",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "outcome": {
+          "runId": "21037e94-b145-4495-9ba4-3ec21ccd6de9",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 0,
+          "structuredExecutionReceiptCount": 0,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": true,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": false,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "21037e94-b145-4495-9ba4-3ec21ccd6de9",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "acceptance": {
+          "runId": "21037e94-b145-4495-9ba4-3ec21ccd6de9",
+          "status": "satisfied",
+          "action": "close",
+          "remediation": "bootstrap",
+          "reasonCode": "completed_with_output",
+          "reasons": [
+            "Run completed with evidence matching the declared recipe table_compare."
+          ],
+          "outcome": {
+            "runId": "21037e94-b145-4495-9ba4-3ec21ccd6de9",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 0,
+            "structuredExecutionReceiptCount": 0,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": true,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": false,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 0,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "21037e94-b145-4495-9ba4-3ec21ccd6de9",
+          "status": "verified",
+          "reasons": [
+            "Execution closed on standalone output or delivery evidence without explicit receipts."
+          ],
+          "receipts": [],
+          "receiptCounts": {
+            "success": 0,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 0,
+            "verified": 0
+          },
+          "usedStandaloneEvidence": true,
+          "checkedAtMs": 1775753930491
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775753917817,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "ccf7421a-029e-43b7-be16-b8da036ccadc",
+      "requestRunId": "ccf7421a-029e-43b7-be16-b8da036ccadc",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775752053657,
+      "outcome": {
+        "runId": "ccf7421a-029e-43b7-be16-b8da036ccadc",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "ccf7421a-029e-43b7-be16-b8da036ccadc",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775752020670,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "ccf7421a-029e-43b7-be16-b8da036ccadc",
+        "status": "verified",
+        "reasons": [
+          "Execution closed on standalone output or delivery evidence without explicit receipts."
+        ],
+        "receipts": [],
+        "receiptCounts": {
+          "success": 0,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 0,
+          "verified": 0
+        },
+        "usedStandaloneEvidence": true,
+        "checkedAtMs": 1775752053655
+      },
+      "acceptanceOutcome": {
+        "runId": "ccf7421a-029e-43b7-be16-b8da036ccadc",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "completed_with_output",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "outcome": {
+          "runId": "ccf7421a-029e-43b7-be16-b8da036ccadc",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 0,
+          "structuredExecutionReceiptCount": 0,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": true,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": false,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "ccf7421a-029e-43b7-be16-b8da036ccadc",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe table_compare."
+        ],
+        "acceptance": {
+          "runId": "ccf7421a-029e-43b7-be16-b8da036ccadc",
+          "status": "satisfied",
+          "action": "close",
+          "remediation": "bootstrap",
+          "reasonCode": "completed_with_output",
+          "reasons": [
+            "Run completed with evidence matching the declared recipe table_compare."
+          ],
+          "outcome": {
+            "runId": "ccf7421a-029e-43b7-be16-b8da036ccadc",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 0,
+            "structuredExecutionReceiptCount": 0,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": true,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": false,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 0,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "ccf7421a-029e-43b7-be16-b8da036ccadc",
+          "status": "verified",
+          "reasons": [
+            "Execution closed on standalone output or delivery evidence without explicit receipts."
+          ],
+          "receipts": [],
+          "receiptCounts": {
+            "success": 0,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 0,
+            "verified": 0
+          },
+          "usedStandaloneEvidence": true,
+          "checkedAtMs": 1775752053655
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775752020670,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "c7692baa-c608-4757-85db-7b1669cc0836",
+      "requestRunId": "c7692baa-c608-4757-85db-7b1669cc0836",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775750284807,
+      "outcome": {
+        "runId": "c7692baa-c608-4757-85db-7b1669cc0836",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "c7692baa-c608-4757-85db-7b1669cc0836",
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "bootstrap_required",
+        "ready": false,
+        "checkedAtMs": 1775750265813,
+        "reasons": [
+          "Bootstrap required for capabilities: table-parser."
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "unresolvedCapabilities": [
+          "table-parser"
+        ],
+        "approvalRequired": false,
+        "unattendedBoundary": "bootstrap"
+      },
+      "executionVerification": {
+        "runId": "c7692baa-c608-4757-85db-7b1669cc0836",
+        "status": "mismatch",
+        "reasons": [
+          "Execution contract expected output, but no output evidence was observed."
+        ],
+        "receipts": [],
+        "receiptCounts": {
+          "success": 0,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 0,
+          "verified": 0
+        },
+        "checkedAtMs": 1775750284803
+      },
+      "acceptanceOutcome": {
+        "runId": "c7692baa-c608-4757-85db-7b1669cc0836",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_required",
+        "reasons": [
+          "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+        ],
+        "outcome": {
+          "runId": "c7692baa-c608-4757-85db-7b1669cc0836",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": false,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 0,
+          "structuredExecutionReceiptCount": 0,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": false,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": true,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "bootstrap_required",
+          "executionSurfaceDegraded": false,
+          "executionUnattendedBoundary": "bootstrap",
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "table_compare",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "c7692baa-c608-4757-85db-7b1669cc0836",
+        "status": "retryable",
+        "action": "retry",
+        "remediation": "bootstrap",
+        "reasonCode": "bootstrap_recovery",
+        "reasons": [
+          "Execution contract expected output, but no output evidence was observed."
+        ],
+        "acceptance": {
+          "runId": "c7692baa-c608-4757-85db-7b1669cc0836",
+          "status": "retryable",
+          "action": "retry",
+          "remediation": "bootstrap",
+          "reasonCode": "bootstrap_required",
+          "reasons": [
+            "Run completed, but the verified execution contract for recipe table_compare does not match the requested outcome."
+          ],
+          "outcome": {
+            "runId": "c7692baa-c608-4757-85db-7b1669cc0836",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": false,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 0,
+            "structuredExecutionReceiptCount": 0,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": false,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": true,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "bootstrap_required",
+            "executionSurfaceDegraded": false,
+            "executionUnattendedBoundary": "bootstrap",
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "table_compare",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "bootstrap",
+            "recoveryClass": "bootstrap",
+            "cadence": "manual",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 2,
+            "remainingAttempts": 2,
+            "exhausted": false,
+            "exhaustedAction": "escalate"
+          }
+        },
+        "verification": {
+          "runId": "c7692baa-c608-4757-85db-7b1669cc0836",
+          "status": "mismatch",
+          "reasons": [
+            "Execution contract expected output, but no output evidence was observed."
+          ],
+          "receipts": [],
+          "receiptCounts": {
+            "success": 0,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 0,
+            "verified": 0
+          },
+          "checkedAtMs": 1775750284803
+        },
+        "surface": {
+          "status": "bootstrap_required",
+          "ready": false,
+          "checkedAtMs": 1775750265813,
+          "reasons": [
+            "Bootstrap required for capabilities: table-parser."
+          ],
+          "bootstrapRequiredCapabilities": [
+            "table-parser"
+          ],
+          "unresolvedCapabilities": [
+            "table-parser"
+          ],
+          "approvalRequired": false,
+          "unattendedBoundary": "bootstrap"
+        },
+        "recoveryPolicy": {
+          "remediation": "bootstrap",
+          "recoveryClass": "bootstrap",
+          "cadence": "manual",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 2,
+          "remainingAttempts": 2,
+          "exhausted": false,
+          "exhaustedAction": "escalate"
+        }
+      }
+    },
+    {
+      "runId": "077766e0-97b4-4078-9cb9-238c27ea4428",
+      "requestRunId": "077766e0-97b4-4078-9cb9-238c27ea4428",
+      "sessionKey": "agent:main:main",
+      "updatedAtMs": 1775748485397,
+      "outcome": {
+        "runId": "077766e0-97b4-4078-9cb9-238c27ea4428",
+        "status": "completed",
+        "checkpointIds": [],
+        "blockedCheckpointIds": [],
+        "completedCheckpointIds": [],
+        "deniedCheckpointIds": [],
+        "pendingApprovalIds": [],
+        "artifactIds": [],
+        "bootstrapRequestIds": [],
+        "actionIds": [],
+        "attemptedActionIds": [],
+        "confirmedActionIds": [],
+        "failedActionIds": [],
+        "boundaries": []
+      },
+      "executionIntent": {
+        "runId": "077766e0-97b4-4078-9cb9-238c27ea4428",
+        "profileId": "builder",
+        "recipeId": "doc_ingest",
+        "taskOverlayId": "document_first",
+        "plannerReasoning": "Recipe doc_ingest selected for profile builder. Task overlay: document_first.",
+        "intent": "document",
+        "artifactKinds": [
+          "document"
+        ],
+        "requireExplicitApproval": false,
+        "policyAutonomy": "assist",
+        "expectations": {
+          "requiresOutput": true
+        }
+      },
+      "executionSurface": {
+        "status": "ready",
+        "ready": true,
+        "checkedAtMs": 1775748466371,
+        "reasons": [],
+        "approvalRequired": false
+      },
+      "executionVerification": {
+        "runId": "077766e0-97b4-4078-9cb9-238c27ea4428",
+        "status": "verified",
+        "reasons": [
+          "Execution closed on standalone output or delivery evidence without explicit receipts."
+        ],
+        "receipts": [],
+        "receiptCounts": {
+          "success": 0,
+          "warning": 0,
+          "partial": 0,
+          "degraded": 0,
+          "failed": 0,
+          "blocked": 0
+        },
+        "receiptProofCounts": {
+          "derived": 0,
+          "reported": 0,
+          "verified": 0
+        },
+        "usedStandaloneEvidence": true,
+        "checkedAtMs": 1775748485390
+      },
+      "acceptanceOutcome": {
+        "runId": "077766e0-97b4-4078-9cb9-238c27ea4428",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "none",
+        "reasonCode": "completed_with_output",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe doc_ingest."
+        ],
+        "outcome": {
+          "runId": "077766e0-97b4-4078-9cb9-238c27ea4428",
+          "status": "completed",
+          "checkpointIds": [],
+          "blockedCheckpointIds": [],
+          "completedCheckpointIds": [],
+          "deniedCheckpointIds": [],
+          "pendingApprovalIds": [],
+          "artifactIds": [],
+          "bootstrapRequestIds": [],
+          "actionIds": [],
+          "attemptedActionIds": [],
+          "confirmedActionIds": [],
+          "failedActionIds": [],
+          "boundaries": []
+        },
+        "evidence": {
+          "hadToolError": false,
+          "didSendViaMessagingTool": false,
+          "hasOutput": true,
+          "artifactReceiptCount": 0,
+          "bootstrapReceiptCount": 0,
+          "executionReceiptCount": 0,
+          "structuredExecutionReceiptCount": 0,
+          "verifiedExecutionReceiptCount": 0,
+          "verifiedExecution": true,
+          "executionWarningCount": 0,
+          "executionPartialCount": 0,
+          "degradedExecutionCount": 0,
+          "executionContractMismatch": false,
+          "noProgressSignals": 0,
+          "executionSurfaceStatus": "ready",
+          "executionSurfaceDegraded": false,
+          "successfulCronAdds": 0,
+          "declaredProfileId": "builder",
+          "declaredRecipeId": "doc_ingest",
+          "declaredIntent": "document",
+          "declaredArtifactKinds": [
+            "document"
+          ],
+          "declaredRequiresOutput": true
+        },
+        "recoveryPolicy": {
+          "remediation": "none",
+          "recoveryClass": "none",
+          "cadence": "none",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 0,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "stop"
+        }
+      },
+      "supervisorVerdict": {
+        "runId": "077766e0-97b4-4078-9cb9-238c27ea4428",
+        "status": "satisfied",
+        "action": "close",
+        "remediation": "none",
+        "reasonCode": "verified_execution",
+        "reasons": [
+          "Run completed with evidence matching the declared recipe doc_ingest."
+        ],
+        "acceptance": {
+          "runId": "077766e0-97b4-4078-9cb9-238c27ea4428",
+          "status": "satisfied",
+          "action": "close",
+          "remediation": "none",
+          "reasonCode": "completed_with_output",
+          "reasons": [
+            "Run completed with evidence matching the declared recipe doc_ingest."
+          ],
+          "outcome": {
+            "runId": "077766e0-97b4-4078-9cb9-238c27ea4428",
+            "status": "completed",
+            "checkpointIds": [],
+            "blockedCheckpointIds": [],
+            "completedCheckpointIds": [],
+            "deniedCheckpointIds": [],
+            "pendingApprovalIds": [],
+            "artifactIds": [],
+            "bootstrapRequestIds": [],
+            "actionIds": [],
+            "attemptedActionIds": [],
+            "confirmedActionIds": [],
+            "failedActionIds": [],
+            "boundaries": []
+          },
+          "evidence": {
+            "hadToolError": false,
+            "didSendViaMessagingTool": false,
+            "hasOutput": true,
+            "artifactReceiptCount": 0,
+            "bootstrapReceiptCount": 0,
+            "executionReceiptCount": 0,
+            "structuredExecutionReceiptCount": 0,
+            "verifiedExecutionReceiptCount": 0,
+            "verifiedExecution": true,
+            "executionWarningCount": 0,
+            "executionPartialCount": 0,
+            "degradedExecutionCount": 0,
+            "executionContractMismatch": false,
+            "noProgressSignals": 0,
+            "executionSurfaceStatus": "ready",
+            "executionSurfaceDegraded": false,
+            "successfulCronAdds": 0,
+            "declaredProfileId": "builder",
+            "declaredRecipeId": "doc_ingest",
+            "declaredIntent": "document",
+            "declaredArtifactKinds": [
+              "document"
+            ],
+            "declaredRequiresOutput": true
+          },
+          "recoveryPolicy": {
+            "remediation": "none",
+            "recoveryClass": "none",
+            "cadence": "none",
+            "continuous": false,
+            "attemptCount": 0,
+            "maxAttempts": 0,
+            "remainingAttempts": 0,
+            "exhausted": false,
+            "exhaustedAction": "stop"
+          }
+        },
+        "verification": {
+          "runId": "077766e0-97b4-4078-9cb9-238c27ea4428",
+          "status": "verified",
+          "reasons": [
+            "Execution closed on standalone output or delivery evidence without explicit receipts."
+          ],
+          "receipts": [],
+          "receiptCounts": {
+            "success": 0,
+            "warning": 0,
+            "partial": 0,
+            "degraded": 0,
+            "failed": 0,
+            "blocked": 0
+          },
+          "receiptProofCounts": {
+            "derived": 0,
+            "reported": 0,
+            "verified": 0
+          },
+          "usedStandaloneEvidence": true,
+          "checkedAtMs": 1775748485390
+        },
+        "surface": {
+          "status": "ready",
+          "ready": true,
+          "checkedAtMs": 1775748466371,
+          "reasons": [],
+          "approvalRequired": false
+        },
+        "recoveryPolicy": {
+          "remediation": "none",
+          "recoveryClass": "none",
+          "cadence": "none",
+          "continuous": false,
+          "attemptCount": 0,
+          "maxAttempts": 0,
+          "remainingAttempts": 0,
+          "exhausted": false,
+          "exhaustedAction": "stop"
+        }
+      }
+    }
+  ]
+}

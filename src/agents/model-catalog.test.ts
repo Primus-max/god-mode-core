@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { resetLogger, setLoggerOverride } from "../logging/logger.js";
 import { __setModelCatalogImportForTest, loadModelCatalog } from "./model-catalog.js";
@@ -26,6 +26,10 @@ function mockPiDiscoveryModels(models: unknown[]) {
 function mockSingleOpenAiCatalogModel() {
   mockPiDiscoveryModels([{ id: "gpt-4.1", provider: "openai", name: "GPT-4.1" }]);
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("loadModelCatalog", () => {
   installModelCatalogTestHooks();
@@ -241,7 +245,6 @@ describe("loadModelCatalog", () => {
       expect.objectContaining({
         provider: "openai-codex",
         id: "gpt-5.4",
-        name: "gpt-5.4",
       }),
     );
   });
@@ -352,5 +355,107 @@ describe("loadModelCatalog", () => {
     );
     expect(matches).toHaveLength(1);
     expect(matches[0]?.name).toBe("Kilo Auto");
+  });
+
+  it("enriches and appends Hydra models from the live provider catalog", async () => {
+    mockSingleOpenAiCatalogModel();
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith("/models")) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: "hydra-gpt-mini",
+                name: "Hydra GPT Mini",
+                context: 64_000,
+                type: "chat",
+                active: true,
+                input_modalities: ["text"],
+                output_modalities: ["text"],
+                endpoints: ["/chat/completions"],
+                pricing: {
+                  in_cost_per_million: 1.6,
+                  out_cost_per_million: 12.8,
+                  free_requests: true,
+                },
+                rpm_coefficient: 1,
+              },
+              {
+                id: "text-embedding-3-small",
+                name: "Text Embedding 3 Small",
+                context: 8_000,
+                type: "embedding",
+                active: true,
+                input_modalities: ["text"],
+                output_modalities: ["embed"],
+                endpoints: ["/embeddings"],
+                pricing: {
+                  cost_per_million: 0.75,
+                },
+                rpm_coefficient: 1,
+              },
+            ],
+          }),
+        } as Response;
+      }
+      if (url.endsWith("/models/status")) {
+        return {
+          ok: true,
+          json: async () => ({
+            "hydra-gpt-mini": {
+              message: "Good",
+              success_rate: 100,
+              tps: 42.5,
+              art: 1.4,
+            },
+          }),
+        } as Response;
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await loadModelCatalog({
+      config: {
+        models: {
+          providers: {
+            hydra: {
+              baseUrl: "https://api-ru.hydraai.ru/v1",
+              api: "openai-completions",
+              models: [],
+            },
+          },
+        },
+      } as OpenClawConfig,
+    });
+
+    expect(result).toContainEqual(
+      expect.objectContaining({
+        provider: "hydra",
+        id: "hydra-gpt-mini",
+        type: "chat",
+        supportsTools: true,
+        cost: expect.objectContaining({
+          input: 1.6,
+          output: 12.8,
+          freeRequests: true,
+        }),
+        status: expect.objectContaining({
+          successRate: 100,
+          tps: 42.5,
+        }),
+      }),
+    );
+    expect(result).toContainEqual(
+      expect.objectContaining({
+        provider: "hydra",
+        id: "text-embedding-3-small",
+        type: "embedding",
+        supportsTools: false,
+        output: ["embed"],
+      }),
+    );
   });
 });

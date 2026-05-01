@@ -202,7 +202,7 @@ function createProps(overrides: Partial<ChatProps> = {}): ChatProps {
 }
 
 function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewProps {
-  return {
+  const base: OverviewProps = {
     connected: false,
     hello: null,
     settings: {
@@ -242,6 +242,15 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     specialistSaving: false,
     specialistError: null,
     specialistSnapshot: null,
+    catalogLoading: false,
+    catalogError: null,
+    recipeCatalog: [],
+    capabilityCatalog: [],
+    runtimeLoading: false,
+    runtimeError: null,
+    runtimeSessionKey: null,
+    runtimeCheckpoints: [],
+    runtimeCheckpointDetail: null,
     showGatewayToken: false,
     showGatewayPassword: false,
     onSettingsChange: () => undefined,
@@ -251,11 +260,16 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     onToggleGatewayPasswordVisibility: () => undefined,
     onConnect: () => undefined,
     onRefresh: () => undefined,
+    buildCardHref: (tab, options) =>
+      options?.skillFilter ? `/ui/${tab}?skillFilter=${encodeURIComponent(options.skillFilter)}` : `/ui/${tab}`,
+    buildChatHref: (sessionKey) => `/ui/chat?session=${encodeURIComponent(sessionKey)}`,
     onNavigate: () => undefined,
+    onNavigateAttention: () => undefined,
+    onNavigateToChat: () => undefined,
     onRefreshLogs: () => undefined,
     onSpecialistOverrideChange: () => undefined,
-    ...overrides,
   };
+  return { ...base, ...overrides };
 }
 
 describe("chat view", () => {

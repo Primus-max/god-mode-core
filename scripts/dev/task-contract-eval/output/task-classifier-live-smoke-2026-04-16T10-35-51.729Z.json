@@ -1,0 +1,2876 @@
+{
+  "generatedAt": "2026-04-16T10:36:34.261Z",
+  "classifierConfig": {
+    "enabled": true,
+    "backend": "pi-simple",
+    "model": "hydra/gpt-5-mini",
+    "timeoutMs": 20000,
+    "maxTokens": 450
+  },
+  "agentDir": "C:\\Users\\Tanya\\.openclaw\\agents\\main\\agent",
+  "allPassed": true,
+  "summaries": [
+    {
+      "scenario": "general_answer",
+      "expected": {
+        "primaryOutcome": "answer",
+        "interactionMode": "respond_only",
+        "expectedCapabilities": [],
+        "prohibitedCapabilities": [
+          "needs_workspace_mutation",
+          "needs_repo_execution",
+          "needs_local_runtime",
+          "needs_interactive_browser",
+          "needs_web_research"
+        ],
+        "notes": "Invariant: lightweight chat should stay lightweight."
+      },
+      "invariantResults": {
+        "classifierAvailableForAllVariants": true,
+        "contractStableAcrossVariants": true,
+        "toolBundlesStableAcrossVariants": true,
+        "expectedPrimaryOutcomeMatched": true,
+        "expectedInteractionModeMatched": true,
+        "allExpectedCapabilitiesPresent": true,
+        "noProhibitedCapabilitiesPresent": true
+      },
+      "variants": [
+        {
+          "variant": "clean",
+          "primaryOutcome": "answer",
+          "interactionMode": "respond_only",
+          "requiredCapabilities": [],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "classifierSource": "llm"
+        },
+        {
+          "variant": "noisy",
+          "primaryOutcome": "answer",
+          "interactionMode": "respond_only",
+          "requiredCapabilities": [],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "classifierSource": "llm"
+        }
+      ]
+    },
+    {
+      "scenario": "document_authoring",
+      "expected": {
+        "primaryOutcome": "document_package",
+        "interactionMode": "artifact_iteration",
+        "expectedCapabilities": [
+          "needs_multimodal_authoring"
+        ],
+        "prohibitedCapabilities": [
+          "needs_workspace_mutation"
+        ],
+        "notes": "Invariant: document authoring from notes should NOT trigger repo mutation."
+      },
+      "invariantResults": {
+        "classifierAvailableForAllVariants": true,
+        "contractStableAcrossVariants": true,
+        "toolBundlesStableAcrossVariants": true,
+        "expectedPrimaryOutcomeMatched": true,
+        "expectedInteractionModeMatched": true,
+        "allExpectedCapabilitiesPresent": true,
+        "noProhibitedCapabilitiesPresent": true
+      },
+      "variants": [
+        {
+          "variant": "clean",
+          "primaryOutcome": "document_package",
+          "interactionMode": "artifact_iteration",
+          "requiredCapabilities": [
+            "needs_multimodal_authoring",
+            "needs_visual_composition"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "classifierSource": "llm"
+        },
+        {
+          "variant": "noisy",
+          "primaryOutcome": "document_package",
+          "interactionMode": "artifact_iteration",
+          "requiredCapabilities": [
+            "needs_multimodal_authoring",
+            "needs_visual_composition"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "classifierSource": "llm"
+        }
+      ]
+    },
+    {
+      "scenario": "document_extraction",
+      "expected": {
+        "primaryOutcome": "document_extraction",
+        "interactionMode": "tool_execution",
+        "expectedCapabilities": [
+          "needs_document_extraction"
+        ],
+        "prohibitedCapabilities": [
+          "needs_workspace_mutation",
+          "needs_multimodal_authoring"
+        ],
+        "notes": "Invariant: extraction from supplied docs should not drift into authoring or repo edits."
+      },
+      "invariantResults": {
+        "classifierAvailableForAllVariants": true,
+        "contractStableAcrossVariants": true,
+        "toolBundlesStableAcrossVariants": true,
+        "expectedPrimaryOutcomeMatched": true,
+        "expectedInteractionModeMatched": true,
+        "allExpectedCapabilitiesPresent": true,
+        "noProhibitedCapabilitiesPresent": true
+      },
+      "variants": [
+        {
+          "variant": "clean",
+          "primaryOutcome": "document_extraction",
+          "interactionMode": "tool_execution",
+          "requiredCapabilities": [
+            "needs_document_extraction"
+          ],
+          "toolBundles": [
+            "document_extraction"
+          ],
+          "classifierSource": "llm"
+        },
+        {
+          "variant": "noisy",
+          "primaryOutcome": "document_extraction",
+          "interactionMode": "tool_execution",
+          "requiredCapabilities": [
+            "needs_document_extraction"
+          ],
+          "toolBundles": [
+            "document_extraction"
+          ],
+          "classifierSource": "llm"
+        }
+      ]
+    },
+    {
+      "scenario": "visual_asset_generation",
+      "expected": {
+        "primaryOutcome": "document_package",
+        "interactionMode": "artifact_iteration",
+        "expectedCapabilities": [
+          "needs_visual_composition"
+        ],
+        "prohibitedCapabilities": [
+          "needs_workspace_mutation",
+          "needs_document_extraction"
+        ],
+        "notes": "Invariant: image/visual creation should stay artifact-first and avoid repo mutation."
+      },
+      "invariantResults": {
+        "classifierAvailableForAllVariants": true,
+        "contractStableAcrossVariants": true,
+        "toolBundlesStableAcrossVariants": true,
+        "expectedPrimaryOutcomeMatched": true,
+        "expectedInteractionModeMatched": true,
+        "allExpectedCapabilitiesPresent": true,
+        "noProhibitedCapabilitiesPresent": true
+      },
+      "variants": [
+        {
+          "variant": "clean",
+          "primaryOutcome": "document_package",
+          "interactionMode": "artifact_iteration",
+          "requiredCapabilities": [
+            "needs_visual_composition"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "classifierSource": "llm"
+        },
+        {
+          "variant": "noisy",
+          "primaryOutcome": "document_package",
+          "interactionMode": "artifact_iteration",
+          "requiredCapabilities": [
+            "needs_visual_composition"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "classifierSource": "llm"
+        }
+      ]
+    },
+    {
+      "scenario": "tabular_compare",
+      "expected": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "respond_only",
+        "expectedCapabilities": [
+          "needs_tabular_reasoning"
+        ],
+        "prohibitedCapabilities": [
+          "needs_workspace_mutation",
+          "needs_interactive_browser",
+          "needs_web_research"
+        ],
+        "notes": "Invariant: comparing structured local files should stay analytical, not browser/repo driven."
+      },
+      "invariantResults": {
+        "classifierAvailableForAllVariants": true,
+        "contractStableAcrossVariants": true,
+        "toolBundlesStableAcrossVariants": true,
+        "expectedPrimaryOutcomeMatched": true,
+        "expectedInteractionModeMatched": true,
+        "allExpectedCapabilitiesPresent": true,
+        "noProhibitedCapabilitiesPresent": true
+      },
+      "variants": [
+        {
+          "variant": "clean",
+          "primaryOutcome": "comparison_report",
+          "interactionMode": "respond_only",
+          "requiredCapabilities": [
+            "needs_tabular_reasoning"
+          ],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "classifierSource": "llm"
+        },
+        {
+          "variant": "noisy",
+          "primaryOutcome": "comparison_report",
+          "interactionMode": "respond_only",
+          "requiredCapabilities": [
+            "needs_tabular_reasoning"
+          ],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "classifierSource": "llm"
+        }
+      ]
+    },
+    {
+      "scenario": "calculation_result",
+      "expected": {
+        "primaryOutcome": "calculation_result",
+        "interactionMode": "respond_only",
+        "expectedCapabilities": [],
+        "prohibitedCapabilities": [
+          "needs_workspace_mutation",
+          "needs_repo_execution",
+          "needs_local_runtime",
+          "needs_interactive_browser",
+          "needs_web_research"
+        ],
+        "notes": "Invariant: pure calculation should not pull in tool-heavy execution by default."
+      },
+      "invariantResults": {
+        "classifierAvailableForAllVariants": true,
+        "contractStableAcrossVariants": true,
+        "toolBundlesStableAcrossVariants": true,
+        "expectedPrimaryOutcomeMatched": true,
+        "expectedInteractionModeMatched": true,
+        "allExpectedCapabilitiesPresent": true,
+        "noProhibitedCapabilitiesPresent": true
+      },
+      "variants": [
+        {
+          "variant": "clean",
+          "primaryOutcome": "calculation_result",
+          "interactionMode": "respond_only",
+          "requiredCapabilities": [],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "classifierSource": "llm"
+        },
+        {
+          "variant": "noisy",
+          "primaryOutcome": "calculation_result",
+          "interactionMode": "respond_only",
+          "requiredCapabilities": [],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "classifierSource": "llm"
+        }
+      ]
+    },
+    {
+      "scenario": "workspace_change",
+      "expected": {
+        "primaryOutcome": "workspace_change",
+        "interactionMode": "tool_execution",
+        "expectedCapabilities": [
+          "needs_workspace_mutation",
+          "needs_repo_execution",
+          "needs_local_runtime"
+        ],
+        "prohibitedCapabilities": [
+          "needs_interactive_browser",
+          "needs_web_research"
+        ],
+        "notes": "Invariant: repo fix plus validation should stay code-execution focused, not browser/research."
+      },
+      "invariantResults": {
+        "classifierAvailableForAllVariants": true,
+        "contractStableAcrossVariants": true,
+        "toolBundlesStableAcrossVariants": true,
+        "expectedPrimaryOutcomeMatched": true,
+        "expectedInteractionModeMatched": true,
+        "allExpectedCapabilitiesPresent": true,
+        "noProhibitedCapabilitiesPresent": true
+      },
+      "variants": [
+        {
+          "variant": "clean",
+          "primaryOutcome": "workspace_change",
+          "interactionMode": "tool_execution",
+          "requiredCapabilities": [
+            "needs_local_runtime",
+            "needs_repo_execution",
+            "needs_workspace_mutation"
+          ],
+          "toolBundles": [
+            "repo_mutation",
+            "repo_run"
+          ],
+          "classifierSource": "llm"
+        },
+        {
+          "variant": "noisy",
+          "primaryOutcome": "workspace_change",
+          "interactionMode": "tool_execution",
+          "requiredCapabilities": [
+            "needs_local_runtime",
+            "needs_repo_execution",
+            "needs_workspace_mutation"
+          ],
+          "toolBundles": [
+            "repo_mutation",
+            "repo_run"
+          ],
+          "classifierSource": "llm"
+        }
+      ]
+    },
+    {
+      "scenario": "browser_observation",
+      "expected": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "tool_execution",
+        "expectedCapabilities": [
+          "needs_interactive_browser"
+        ],
+        "prohibitedCapabilities": [
+          "needs_workspace_mutation",
+          "needs_web_research"
+        ],
+        "notes": "Invariant: live page inspection should use browser capability, not repo edits or public research."
+      },
+      "invariantResults": {
+        "classifierAvailableForAllVariants": true,
+        "contractStableAcrossVariants": true,
+        "toolBundlesStableAcrossVariants": true,
+        "expectedPrimaryOutcomeMatched": true,
+        "expectedInteractionModeMatched": true,
+        "allExpectedCapabilitiesPresent": true,
+        "noProhibitedCapabilitiesPresent": true
+      },
+      "variants": [
+        {
+          "variant": "clean",
+          "primaryOutcome": "comparison_report",
+          "interactionMode": "tool_execution",
+          "requiredCapabilities": [
+            "needs_interactive_browser"
+          ],
+          "toolBundles": [
+            "interactive_browser"
+          ],
+          "classifierSource": "llm"
+        },
+        {
+          "variant": "noisy",
+          "primaryOutcome": "comparison_report",
+          "interactionMode": "tool_execution",
+          "requiredCapabilities": [
+            "needs_interactive_browser"
+          ],
+          "toolBundles": [
+            "interactive_browser"
+          ],
+          "classifierSource": "llm"
+        }
+      ]
+    },
+    {
+      "scenario": "public_research",
+      "expected": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "tool_execution",
+        "expectedCapabilities": [
+          "needs_web_research"
+        ],
+        "prohibitedCapabilities": [
+          "needs_workspace_mutation",
+          "needs_interactive_browser"
+        ],
+        "notes": "Invariant: latest public research should stay web-research-first, not browser-driving or repo editing."
+      },
+      "invariantResults": {
+        "classifierAvailableForAllVariants": true,
+        "contractStableAcrossVariants": true,
+        "toolBundlesStableAcrossVariants": true,
+        "expectedPrimaryOutcomeMatched": true,
+        "expectedInteractionModeMatched": true,
+        "allExpectedCapabilitiesPresent": true,
+        "noProhibitedCapabilitiesPresent": true
+      },
+      "variants": [
+        {
+          "variant": "clean",
+          "primaryOutcome": "comparison_report",
+          "interactionMode": "tool_execution",
+          "requiredCapabilities": [
+            "needs_web_research"
+          ],
+          "toolBundles": [
+            "public_web_lookup"
+          ],
+          "classifierSource": "llm"
+        },
+        {
+          "variant": "noisy",
+          "primaryOutcome": "comparison_report",
+          "interactionMode": "tool_execution",
+          "requiredCapabilities": [
+            "needs_web_research"
+          ],
+          "toolBundles": [
+            "public_web_lookup"
+          ],
+          "classifierSource": "llm"
+        }
+      ]
+    },
+    {
+      "scenario": "external_delivery",
+      "expected": {
+        "primaryOutcome": "external_delivery",
+        "interactionMode": "tool_execution",
+        "expectedCapabilities": [
+          "needs_external_delivery",
+          "needs_repo_execution",
+          "needs_local_runtime",
+          "needs_high_reliability_provider"
+        ],
+        "prohibitedCapabilities": [
+          "needs_workspace_mutation",
+          "needs_interactive_browser",
+          "needs_web_research"
+        ],
+        "notes": "Invariant: explicit production delivery should stay delivery-first without silently turning into repo edits."
+      },
+      "invariantResults": {
+        "classifierAvailableForAllVariants": true,
+        "contractStableAcrossVariants": true,
+        "toolBundlesStableAcrossVariants": true,
+        "expectedPrimaryOutcomeMatched": true,
+        "expectedInteractionModeMatched": true,
+        "allExpectedCapabilitiesPresent": true,
+        "noProhibitedCapabilitiesPresent": true
+      },
+      "variants": [
+        {
+          "variant": "clean",
+          "primaryOutcome": "external_delivery",
+          "interactionMode": "tool_execution",
+          "requiredCapabilities": [
+            "needs_external_delivery",
+            "needs_high_reliability_provider",
+            "needs_local_runtime",
+            "needs_repo_execution"
+          ],
+          "toolBundles": [
+            "external_delivery",
+            "repo_run"
+          ],
+          "classifierSource": "llm"
+        },
+        {
+          "variant": "noisy",
+          "primaryOutcome": "external_delivery",
+          "interactionMode": "tool_execution",
+          "requiredCapabilities": [
+            "needs_external_delivery",
+            "needs_high_reliability_provider",
+            "needs_local_runtime",
+            "needs_repo_execution"
+          ],
+          "toolBundles": [
+            "external_delivery",
+            "repo_run"
+          ],
+          "classifierSource": "llm"
+        }
+      ]
+    }
+  ],
+  "records": [
+    {
+      "scenario": "general_answer",
+      "variant": "clean",
+      "rawPrompt": "Give me three short ideas for a cozy evening at home.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"answer\",\"requiredCapabilities\":[],\"interactionMode\":\"respond_only\",\"confidence\":0.98,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"answer\",\"requiredCapabilities\":[],\"interactionMode\":\"respond_only\",\"confidence\":0.98,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "answer",
+        "requiredCapabilities": [],
+        "interactionMode": "respond_only",
+        "confidence": 0.98,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Give me three short ideas for a cozy evening at home.",
+        "contractFirst": true,
+        "intent": "general",
+        "outcomeContract": "text_response",
+        "executionContract": {
+          "requiresTools": false,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "assistant_text"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "general_assistant"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "general_assistant",
+          "candidateFamilies": [
+            "general_assistant"
+          ],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "routing": {
+            "localEligible": true,
+            "remoteProfile": "cheap",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": true,
+          "remoteProfile": "cheap"
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "general_assistant",
+        "candidateFamilies": [
+          "general_assistant"
+        ],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "routing": {
+          "localEligible": true,
+          "remoteProfile": "cheap",
+          "preferRemoteFirst": false,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "general",
+      "selectedRecipe": "general_reasoning",
+      "runtimeRoutingHints": {
+        "localEligible": true,
+        "remoteProfile": "cheap"
+      },
+      "contractSignature": {
+        "primaryOutcome": "answer",
+        "interactionMode": "respond_only",
+        "requiredCapabilities": [],
+        "toolBundles": [
+          "respond_only"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "general_answer",
+      "variant": "noisy",
+      "rawPrompt": "Без лишних действий: просто предложи 3 короткие идеи для уютного вечера дома.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"answer\",\"requiredCapabilities\":[],\"interactionMode\":\"respond_only\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"answer\",\"requiredCapabilities\":[],\"interactionMode\":\"respond_only\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "answer",
+        "requiredCapabilities": [],
+        "interactionMode": "respond_only",
+        "confidence": 0.9,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Без лишних действий: просто предложи 3 короткие идеи для уютного вечера дома.",
+        "contractFirst": true,
+        "intent": "general",
+        "outcomeContract": "text_response",
+        "executionContract": {
+          "requiresTools": false,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "assistant_text"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "general_assistant"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "general_assistant",
+          "candidateFamilies": [
+            "general_assistant"
+          ],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "routing": {
+            "localEligible": true,
+            "remoteProfile": "cheap",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": true,
+          "remoteProfile": "cheap"
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "general_assistant",
+        "candidateFamilies": [
+          "general_assistant"
+        ],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "routing": {
+          "localEligible": true,
+          "remoteProfile": "cheap",
+          "preferRemoteFirst": false,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "general",
+      "selectedRecipe": "general_reasoning",
+      "runtimeRoutingHints": {
+        "localEligible": true,
+        "remoteProfile": "cheap"
+      },
+      "contractSignature": {
+        "primaryOutcome": "answer",
+        "interactionMode": "respond_only",
+        "requiredCapabilities": [],
+        "toolBundles": [
+          "respond_only"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "document_authoring",
+      "variant": "clean",
+      "rawPrompt": "Create a polished infographic PDF from these notes with a clear visual structure and supporting illustrations.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"document_package\",\"requiredCapabilities\":[\"needs_visual_composition\",\"needs_multimodal_authoring\"],\"interactionMode\":\"artifact_iteration\",\"confidence\":0.86,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"document_package\",\"requiredCapabilities\":[\"needs_visual_composition\",\"needs_multimodal_authoring\"],\"interactionMode\":\"artifact_iteration\",\"confidence\":0.86,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "document_package",
+        "requiredCapabilities": [
+          "needs_multimodal_authoring",
+          "needs_visual_composition"
+        ],
+        "interactionMode": "artifact_iteration",
+        "confidence": 0.86,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Create a polished infographic PDF from these notes with a clear visual structure and supporting illustrations.",
+        "contractFirst": true,
+        "intent": "document",
+        "artifactKinds": [
+          "document",
+          "image"
+        ],
+        "requestedTools": [
+          "image_generate",
+          "pdf"
+        ],
+        "outcomeContract": "structured_artifact",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": true,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "tool_receipt",
+          "artifact_descriptor"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "document_render",
+          "media_generation"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "document_render",
+          "candidateFamilies": [
+            "document_render",
+            "media_generation"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "presentation",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "presentation",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "document_render",
+        "candidateFamilies": [
+          "document_render",
+          "media_generation"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "presentation",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "selectedProfile": "builder",
+      "selectedRecipe": "doc_authoring",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "presentation",
+        "preferRemoteFirst": true,
+        "needsVision": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "document_package",
+        "interactionMode": "artifact_iteration",
+        "requiredCapabilities": [
+          "needs_multimodal_authoring",
+          "needs_visual_composition"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "document_authoring",
+      "variant": "noisy",
+      "rawPrompt": "Нужно не просто текстом ответить: собери нормальный визуальный документ из этих заметок, с инфографикой, парой картинок и итоговым PDF, без ухода в правку репозитория.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"document_package\",\"requiredCapabilities\":[\"needs_visual_composition\",\"needs_multimodal_authoring\"],\"interactionMode\":\"artifact_iteration\",\"confidence\":0.87,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"document_package\",\"requiredCapabilities\":[\"needs_visual_composition\",\"needs_multimodal_authoring\"],\"interactionMode\":\"artifact_iteration\",\"confidence\":0.87,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "document_package",
+        "requiredCapabilities": [
+          "needs_multimodal_authoring",
+          "needs_visual_composition"
+        ],
+        "interactionMode": "artifact_iteration",
+        "confidence": 0.87,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Нужно не просто текстом ответить: собери нормальный визуальный документ из этих заметок, с инфографикой, парой картинок и итоговым PDF, без ухода в правку репозитория.",
+        "contractFirst": true,
+        "intent": "document",
+        "artifactKinds": [
+          "document",
+          "image"
+        ],
+        "requestedTools": [
+          "image_generate",
+          "pdf"
+        ],
+        "outcomeContract": "structured_artifact",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": true,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "tool_receipt",
+          "artifact_descriptor"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "document_render",
+          "media_generation"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "document_render",
+          "candidateFamilies": [
+            "document_render",
+            "media_generation"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "presentation",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "presentation",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "document_render",
+        "candidateFamilies": [
+          "document_render",
+          "media_generation"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "presentation",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "selectedProfile": "builder",
+      "selectedRecipe": "doc_authoring",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "presentation",
+        "preferRemoteFirst": true,
+        "needsVision": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "document_package",
+        "interactionMode": "artifact_iteration",
+        "requiredCapabilities": [
+          "needs_multimodal_authoring",
+          "needs_visual_composition"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "document_extraction",
+      "variant": "clean",
+      "rawPrompt": "Extract vendor names, invoice dates, and totals from the attached PDF packet.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"document_extraction\",\"requiredCapabilities\":[\"needs_document_extraction\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"document_extraction\",\"requiredCapabilities\":[\"needs_document_extraction\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "document_extraction",
+        "requiredCapabilities": [
+          "needs_document_extraction"
+        ],
+        "interactionMode": "tool_execution",
+        "confidence": 0.9,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Extract vendor names, invoice dates, and totals from the attached PDF packet.",
+        "contractFirst": true,
+        "fileNames": [
+          "invoice-pack.pdf"
+        ],
+        "intent": "document",
+        "artifactKinds": [
+          "document",
+          "report"
+        ],
+        "outcomeContract": "structured_artifact",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": true,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": true
+        },
+        "requestedEvidence": [
+          "tool_receipt",
+          "artifact_descriptor",
+          "capability_receipt"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "analysis_transform",
+          "document_render"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "document_render",
+          "candidateFamilies": [
+            "analysis_transform",
+            "document_render"
+          ],
+          "toolBundles": [
+            "document_extraction"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "document_render",
+        "candidateFamilies": [
+          "analysis_transform",
+          "document_render"
+        ],
+        "toolBundles": [
+          "document_extraction"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "selectedProfile": "builder",
+      "selectedRecipe": "doc_ingest",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "strong",
+        "preferRemoteFirst": true,
+        "needsVision": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "document_extraction",
+        "interactionMode": "tool_execution",
+        "requiredCapabilities": [
+          "needs_document_extraction"
+        ],
+        "toolBundles": [
+          "document_extraction"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "document_extraction",
+      "variant": "noisy",
+      "rawPrompt": "Из приложенного PDF вытащи ключевые поля по счетам: поставщик, дата и итоговая сумма, без написания нового документа.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"document_extraction\",\"requiredCapabilities\":[\"needs_document_extraction\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"document_extraction\",\"requiredCapabilities\":[\"needs_document_extraction\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "document_extraction",
+        "requiredCapabilities": [
+          "needs_document_extraction"
+        ],
+        "interactionMode": "tool_execution",
+        "confidence": 0.9,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Из приложенного PDF вытащи ключевые поля по счетам: поставщик, дата и итоговая сумма, без написания нового документа.",
+        "contractFirst": true,
+        "fileNames": [
+          "invoice-pack.pdf"
+        ],
+        "intent": "document",
+        "artifactKinds": [
+          "document",
+          "report"
+        ],
+        "outcomeContract": "structured_artifact",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": true,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": true
+        },
+        "requestedEvidence": [
+          "tool_receipt",
+          "artifact_descriptor",
+          "capability_receipt"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "analysis_transform",
+          "document_render"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "document_render",
+          "candidateFamilies": [
+            "analysis_transform",
+            "document_render"
+          ],
+          "toolBundles": [
+            "document_extraction"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "document_render",
+        "candidateFamilies": [
+          "analysis_transform",
+          "document_render"
+        ],
+        "toolBundles": [
+          "document_extraction"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "selectedProfile": "builder",
+      "selectedRecipe": "doc_ingest",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "strong",
+        "preferRemoteFirst": true,
+        "needsVision": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "document_extraction",
+        "interactionMode": "tool_execution",
+        "requiredCapabilities": [
+          "needs_document_extraction"
+        ],
+        "toolBundles": [
+          "document_extraction"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "visual_asset_generation",
+      "variant": "clean",
+      "rawPrompt": "Create a cartoon poster image of a rasta cat with bright colors and clean composition.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"document_package\",\"requiredCapabilities\":[\"needs_visual_composition\"],\"interactionMode\":\"artifact_iteration\",\"confidence\":0.8,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"document_package\",\"requiredCapabilities\":[\"needs_visual_composition\"],\"interactionMode\":\"artifact_iteration\",\"confidence\":0.8,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "document_package",
+        "requiredCapabilities": [
+          "needs_visual_composition"
+        ],
+        "interactionMode": "artifact_iteration",
+        "confidence": 0.8,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Create a cartoon poster image of a rasta cat with bright colors and clean composition.",
+        "contractFirst": true,
+        "artifactKinds": [
+          "image"
+        ],
+        "requestedTools": [
+          "image_generate"
+        ],
+        "outcomeContract": "structured_artifact",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": true,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "tool_receipt",
+          "artifact_descriptor"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "document_render",
+          "media_generation"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "media_generation",
+          "candidateFamilies": [
+            "document_render",
+            "media_generation"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "media_generation",
+        "candidateFamilies": [
+          "document_render",
+          "media_generation"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "selectedProfile": "media_creator",
+      "selectedRecipe": "media_production",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "strong",
+        "preferRemoteFirst": true,
+        "needsVision": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "document_package",
+        "interactionMode": "artifact_iteration",
+        "requiredCapabilities": [
+          "needs_visual_composition"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "visual_asset_generation",
+      "variant": "noisy",
+      "rawPrompt": "Сделай именно готовую картинку: яркий мультяшный постер с котиком-раста, без разговоров про код или репозиторий.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"document_package\",\"requiredCapabilities\":[\"needs_visual_composition\"],\"interactionMode\":\"artifact_iteration\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"document_package\",\"requiredCapabilities\":[\"needs_visual_composition\"],\"interactionMode\":\"artifact_iteration\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "document_package",
+        "requiredCapabilities": [
+          "needs_visual_composition"
+        ],
+        "interactionMode": "artifact_iteration",
+        "confidence": 0.9,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Сделай именно готовую картинку: яркий мультяшный постер с котиком-раста, без разговоров про код или репозиторий.",
+        "contractFirst": true,
+        "artifactKinds": [
+          "image"
+        ],
+        "requestedTools": [
+          "image_generate"
+        ],
+        "outcomeContract": "structured_artifact",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": true,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "tool_receipt",
+          "artifact_descriptor"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "document_render",
+          "media_generation"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "media_generation",
+          "candidateFamilies": [
+            "document_render",
+            "media_generation"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "media_generation",
+        "candidateFamilies": [
+          "document_render",
+          "media_generation"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "selectedProfile": "media_creator",
+      "selectedRecipe": "media_production",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "strong",
+        "preferRemoteFirst": true,
+        "needsVision": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "document_package",
+        "interactionMode": "artifact_iteration",
+        "requiredCapabilities": [
+          "needs_visual_composition"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "tabular_compare",
+      "variant": "clean",
+      "rawPrompt": "Compare the attached pricing sheets and summarize SKU-level price differences.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_tabular_reasoning\"],\"interactionMode\":\"respond_only\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_tabular_reasoning\"],\"interactionMode\":\"respond_only\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "comparison_report",
+        "requiredCapabilities": [
+          "needs_tabular_reasoning"
+        ],
+        "interactionMode": "respond_only",
+        "confidence": 0.9,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Compare the attached pricing sheets and summarize SKU-level price differences.",
+        "contractFirst": true,
+        "fileNames": [
+          "vendor-a.xlsx",
+          "vendor-b.xlsx"
+        ],
+        "intent": "compare",
+        "artifactKinds": [
+          "data",
+          "report"
+        ],
+        "outcomeContract": "text_response",
+        "executionContract": {
+          "requiresTools": false,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "assistant_text"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "analysis_transform",
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "analysis_transform",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "general",
+      "selectedRecipe": "general_reasoning",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "strong",
+        "preferRemoteFirst": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "respond_only",
+        "requiredCapabilities": [
+          "needs_tabular_reasoning"
+        ],
+        "toolBundles": [
+          "respond_only"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "tabular_compare",
+      "variant": "noisy",
+      "rawPrompt": "Сравни две приложенные таблицы с прайсами и коротко покажи расхождения по SKU и цене, без веб-ресерча.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_tabular_reasoning\"],\"interactionMode\":\"respond_only\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_tabular_reasoning\"],\"interactionMode\":\"respond_only\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "comparison_report",
+        "requiredCapabilities": [
+          "needs_tabular_reasoning"
+        ],
+        "interactionMode": "respond_only",
+        "confidence": 0.9,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Сравни две приложенные таблицы с прайсами и коротко покажи расхождения по SKU и цене, без веб-ресерча.",
+        "contractFirst": true,
+        "fileNames": [
+          "vendor-a.xlsx",
+          "vendor-b.xlsx"
+        ],
+        "intent": "compare",
+        "artifactKinds": [
+          "data",
+          "report"
+        ],
+        "outcomeContract": "text_response",
+        "executionContract": {
+          "requiresTools": false,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "assistant_text"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "analysis_transform",
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "analysis_transform",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "general",
+      "selectedRecipe": "general_reasoning",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "strong",
+        "preferRemoteFirst": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "respond_only",
+        "requiredCapabilities": [
+          "needs_tabular_reasoning"
+        ],
+        "toolBundles": [
+          "respond_only"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "calculation_result",
+      "variant": "clean",
+      "rawPrompt": "Calculate the monthly payment for a 120000 loan over 24 months at 9% annual interest and show the result briefly.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"calculation_result\",\"requiredCapabilities\":[],\"interactionMode\":\"respond_only\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"calculation_result\",\"requiredCapabilities\":[],\"interactionMode\":\"respond_only\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "calculation_result",
+        "requiredCapabilities": [],
+        "interactionMode": "respond_only",
+        "confidence": 0.9,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Calculate the monthly payment for a 120000 loan over 24 months at 9% annual interest and show the result briefly.",
+        "contractFirst": true,
+        "intent": "calculation",
+        "artifactKinds": [
+          "data",
+          "report"
+        ],
+        "outcomeContract": "text_response",
+        "executionContract": {
+          "requiresTools": false,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "assistant_text"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "analysis_transform",
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "routing": {
+            "localEligible": true,
+            "remoteProfile": "cheap",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": true,
+          "remoteProfile": "cheap"
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "analysis_transform",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "routing": {
+          "localEligible": true,
+          "remoteProfile": "cheap",
+          "preferRemoteFirst": false,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "general",
+      "selectedRecipe": "general_reasoning",
+      "runtimeRoutingHints": {
+        "localEligible": true,
+        "remoteProfile": "cheap"
+      },
+      "contractSignature": {
+        "primaryOutcome": "calculation_result",
+        "interactionMode": "respond_only",
+        "requiredCapabilities": [],
+        "toolBundles": [
+          "respond_only"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "calculation_result",
+      "variant": "noisy",
+      "rawPrompt": "Просто посчитай ежемесячный платёж по кредиту 120000 на 24 месяца под 9% годовых и дай короткий ответ.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"calculation_result\",\"requiredCapabilities\":[],\"interactionMode\":\"respond_only\",\"confidence\":0.95,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"calculation_result\",\"requiredCapabilities\":[],\"interactionMode\":\"respond_only\",\"confidence\":0.95,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "calculation_result",
+        "requiredCapabilities": [],
+        "interactionMode": "respond_only",
+        "confidence": 0.95,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Просто посчитай ежемесячный платёж по кредиту 120000 на 24 месяца под 9% годовых и дай короткий ответ.",
+        "contractFirst": true,
+        "intent": "calculation",
+        "artifactKinds": [
+          "data",
+          "report"
+        ],
+        "outcomeContract": "text_response",
+        "executionContract": {
+          "requiresTools": false,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "assistant_text"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "analysis_transform",
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "routing": {
+            "localEligible": true,
+            "remoteProfile": "cheap",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": true,
+          "remoteProfile": "cheap"
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "analysis_transform",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "routing": {
+          "localEligible": true,
+          "remoteProfile": "cheap",
+          "preferRemoteFirst": false,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "general",
+      "selectedRecipe": "general_reasoning",
+      "runtimeRoutingHints": {
+        "localEligible": true,
+        "remoteProfile": "cheap"
+      },
+      "contractSignature": {
+        "primaryOutcome": "calculation_result",
+        "interactionMode": "respond_only",
+        "requiredCapabilities": [],
+        "toolBundles": [
+          "respond_only"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "workspace_change",
+      "variant": "clean",
+      "rawPrompt": "Fix the failing behavior in this repo, run the relevant checks, and leave the local validation passing.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"workspace_change\",\"requiredCapabilities\":[\"needs_workspace_mutation\",\"needs_repo_execution\",\"needs_local_runtime\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"workspace_change\",\"requiredCapabilities\":[\"needs_workspace_mutation\",\"needs_repo_execution\",\"needs_local_runtime\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "workspace_change",
+        "requiredCapabilities": [
+          "needs_local_runtime",
+          "needs_repo_execution",
+          "needs_workspace_mutation"
+        ],
+        "interactionMode": "tool_execution",
+        "confidence": 0.9,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Fix the failing behavior in this repo, run the relevant checks, and leave the local validation passing.",
+        "contractFirst": true,
+        "intent": "code",
+        "artifactKinds": [
+          "binary"
+        ],
+        "requestedTools": [
+          "apply_patch",
+          "exec",
+          "process"
+        ],
+        "outcomeContract": "workspace_change",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": true,
+          "requiresLocalProcess": true,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": true
+        },
+        "requestedEvidence": [
+          "tool_receipt",
+          "capability_receipt"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "code_build"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "code_build",
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "toolBundles": [
+            "repo_mutation",
+            "repo_run"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "code"
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "code_build",
+        "candidateFamilies": [
+          "code_build"
+        ],
+        "toolBundles": [
+          "repo_mutation",
+          "repo_run"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "code",
+          "preferRemoteFirst": false,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "developer",
+      "selectedRecipe": "code_build_publish",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "code"
+      },
+      "contractSignature": {
+        "primaryOutcome": "workspace_change",
+        "interactionMode": "tool_execution",
+        "requiredCapabilities": [
+          "needs_local_runtime",
+          "needs_repo_execution",
+          "needs_workspace_mutation"
+        ],
+        "toolBundles": [
+          "repo_mutation",
+          "repo_run"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "workspace_change",
+      "variant": "noisy",
+      "rawPrompt": "Не обсуждай абстрактно: поправь код прямо в репозитории, прогони нужные проверки и убедись, что локально всё живое перед завершением.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"workspace_change\",\"requiredCapabilities\":[\"needs_workspace_mutation\",\"needs_repo_execution\",\"needs_local_runtime\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.96,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"workspace_change\",\"requiredCapabilities\":[\"needs_workspace_mutation\",\"needs_repo_execution\",\"needs_local_runtime\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.96,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "workspace_change",
+        "requiredCapabilities": [
+          "needs_local_runtime",
+          "needs_repo_execution",
+          "needs_workspace_mutation"
+        ],
+        "interactionMode": "tool_execution",
+        "confidence": 0.96,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Не обсуждай абстрактно: поправь код прямо в репозитории, прогони нужные проверки и убедись, что локально всё живое перед завершением.",
+        "contractFirst": true,
+        "intent": "code",
+        "artifactKinds": [
+          "binary"
+        ],
+        "requestedTools": [
+          "apply_patch",
+          "exec",
+          "process"
+        ],
+        "outcomeContract": "workspace_change",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": true,
+          "requiresLocalProcess": true,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": true
+        },
+        "requestedEvidence": [
+          "tool_receipt",
+          "capability_receipt"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "code_build"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "code_build",
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "toolBundles": [
+            "repo_mutation",
+            "repo_run"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "code"
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "code_build",
+        "candidateFamilies": [
+          "code_build"
+        ],
+        "toolBundles": [
+          "repo_mutation",
+          "repo_run"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "code",
+          "preferRemoteFirst": false,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "developer",
+      "selectedRecipe": "code_build_publish",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "code"
+      },
+      "contractSignature": {
+        "primaryOutcome": "workspace_change",
+        "interactionMode": "tool_execution",
+        "requiredCapabilities": [
+          "needs_local_runtime",
+          "needs_repo_execution",
+          "needs_workspace_mutation"
+        ],
+        "toolBundles": [
+          "repo_mutation",
+          "repo_run"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "browser_observation",
+      "variant": "clean",
+      "rawPrompt": "Open the local app, click through the signup flow, and report any visible UI or console issues.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_interactive_browser\",\"needs_local_runtime\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_interactive_browser\",\"needs_local_runtime\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "comparison_report",
+        "requiredCapabilities": [
+          "needs_interactive_browser"
+        ],
+        "interactionMode": "tool_execution",
+        "confidence": 0.9,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Open the local app, click through the signup flow, and report any visible UI or console issues.",
+        "contractFirst": true,
+        "intent": "compare",
+        "artifactKinds": [
+          "data",
+          "report"
+        ],
+        "requestedTools": [
+          "browser"
+        ],
+        "outcomeContract": "text_response",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "assistant_text"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "analysis_transform",
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "toolBundles": [
+            "interactive_browser"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "analysis_transform",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "toolBundles": [
+          "interactive_browser"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "selectedProfile": "builder",
+      "selectedRecipe": "table_compare",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "strong",
+        "preferRemoteFirst": true,
+        "needsVision": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "tool_execution",
+        "requiredCapabilities": [
+          "needs_interactive_browser"
+        ],
+        "toolBundles": [
+          "interactive_browser"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "browser_observation",
+      "variant": "noisy",
+      "rawPrompt": "Пройди по локальному сайту через браузер, посмотри форму регистрации и просто отчитай, если увидишь баги в UI или консоли.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_interactive_browser\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.8,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_interactive_browser\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.8,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "comparison_report",
+        "requiredCapabilities": [
+          "needs_interactive_browser"
+        ],
+        "interactionMode": "tool_execution",
+        "confidence": 0.8,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Пройди по локальному сайту через браузер, посмотри форму регистрации и просто отчитай, если увидишь баги в UI или консоли.",
+        "contractFirst": true,
+        "intent": "compare",
+        "artifactKinds": [
+          "data",
+          "report"
+        ],
+        "requestedTools": [
+          "browser"
+        ],
+        "outcomeContract": "text_response",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "assistant_text"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "analysis_transform",
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "toolBundles": [
+            "interactive_browser"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "analysis_transform",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "toolBundles": [
+          "interactive_browser"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": true
+        }
+      },
+      "selectedProfile": "builder",
+      "selectedRecipe": "table_compare",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "strong",
+        "preferRemoteFirst": true,
+        "needsVision": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "tool_execution",
+        "requiredCapabilities": [
+          "needs_interactive_browser"
+        ],
+        "toolBundles": [
+          "interactive_browser"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "public_research",
+      "variant": "clean",
+      "rawPrompt": "Research current public pricing for three hosted vector databases and compare the tradeoffs.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_web_research\"],\"interactionMode\":\"respond_only\",\"confidence\":0.7,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_web_research\"],\"interactionMode\":\"respond_only\",\"confidence\":0.7,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "comparison_report",
+        "requiredCapabilities": [
+          "needs_web_research"
+        ],
+        "interactionMode": "tool_execution",
+        "confidence": 0.7,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Research current public pricing for three hosted vector databases and compare the tradeoffs.",
+        "contractFirst": true,
+        "intent": "compare",
+        "artifactKinds": [
+          "data",
+          "report"
+        ],
+        "requestedTools": [
+          "web_search"
+        ],
+        "outcomeContract": "text_response",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "assistant_text"
+        ],
+        "confidence": "medium",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "analysis_transform",
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "toolBundles": [
+            "public_web_lookup"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "analysis_transform",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "toolBundles": [
+          "public_web_lookup"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "builder",
+      "selectedRecipe": "table_compare",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "strong",
+        "preferRemoteFirst": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "tool_execution",
+        "requiredCapabilities": [
+          "needs_web_research"
+        ],
+        "toolBundles": [
+          "public_web_lookup"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "public_research",
+      "variant": "noisy",
+      "rawPrompt": "Сделай ресёрч по актуальным публичным ценам у трёх managed vector DB и сравни плюсы-минусы для выбора.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_web_research\"],\"interactionMode\":\"respond_only\",\"confidence\":0.78,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"comparison_report\",\"requiredCapabilities\":[\"needs_web_research\"],\"interactionMode\":\"respond_only\",\"confidence\":0.78,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "comparison_report",
+        "requiredCapabilities": [
+          "needs_web_research"
+        ],
+        "interactionMode": "tool_execution",
+        "confidence": 0.78,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Сделай ресёрч по актуальным публичным ценам у трёх managed vector DB и сравни плюсы-минусы для выбора.",
+        "contractFirst": true,
+        "intent": "compare",
+        "artifactKinds": [
+          "data",
+          "report"
+        ],
+        "requestedTools": [
+          "web_search"
+        ],
+        "outcomeContract": "text_response",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": false,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": false,
+          "mayNeedBootstrap": false
+        },
+        "requestedEvidence": [
+          "assistant_text"
+        ],
+        "confidence": "medium",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "analysis_transform",
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "toolBundles": [
+            "public_web_lookup"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "analysis_transform",
+        "candidateFamilies": [
+          "analysis_transform"
+        ],
+        "toolBundles": [
+          "public_web_lookup"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "strong",
+          "preferRemoteFirst": true,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "builder",
+      "selectedRecipe": "table_compare",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "strong",
+        "preferRemoteFirst": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "tool_execution",
+        "requiredCapabilities": [
+          "needs_web_research"
+        ],
+        "toolBundles": [
+          "public_web_lookup"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "external_delivery",
+      "variant": "clean",
+      "rawPrompt": "Run the release checks and publish the already-prepared build to production once validation passes.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"external_delivery\",\"requiredCapabilities\":[\"needs_external_delivery\",\"needs_repo_execution\",\"needs_local_runtime\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"external_delivery\",\"requiredCapabilities\":[\"needs_external_delivery\",\"needs_repo_execution\",\"needs_local_runtime\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "external_delivery",
+        "requiredCapabilities": [
+          "needs_external_delivery",
+          "needs_high_reliability_provider",
+          "needs_local_runtime",
+          "needs_repo_execution"
+        ],
+        "interactionMode": "tool_execution",
+        "confidence": 0.9,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Run the release checks and publish the already-prepared build to production once validation passes.",
+        "contractFirst": true,
+        "intent": "publish",
+        "artifactKinds": [
+          "release"
+        ],
+        "requestedTools": [
+          "exec",
+          "process"
+        ],
+        "publishTargets": [
+          "external"
+        ],
+        "outcomeContract": "external_operation",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": true,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": true,
+          "mayNeedBootstrap": true
+        },
+        "requestedEvidence": [
+          "tool_receipt",
+          "delivery_receipt",
+          "capability_receipt"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "ops_execution"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "ops_execution",
+          "candidateFamilies": [
+            "ops_execution"
+          ],
+          "toolBundles": [
+            "external_delivery",
+            "repo_run"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "code",
+          "preferRemoteFirst": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "ops_execution",
+        "candidateFamilies": [
+          "ops_execution"
+        ],
+        "toolBundles": [
+          "external_delivery",
+          "repo_run"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "code",
+          "preferRemoteFirst": true,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "operator",
+      "selectedRecipe": "ops_orchestration",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "code",
+        "preferRemoteFirst": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "external_delivery",
+        "interactionMode": "tool_execution",
+        "requiredCapabilities": [
+          "needs_external_delivery",
+          "needs_high_reliability_provider",
+          "needs_local_runtime",
+          "needs_repo_execution"
+        ],
+        "toolBundles": [
+          "external_delivery",
+          "repo_run"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    },
+    {
+      "scenario": "external_delivery",
+      "variant": "noisy",
+      "rawPrompt": "Нужно именно выпустить уже готовую сборку в прод: сначала прогони релизные проверки, потом публикуй, без правок исходников.",
+      "classifierSource": "llm",
+      "debugEvents": [
+        {
+          "stage": "raw_response",
+          "backend": "pi-simple",
+          "configuredModel": "hydra/gpt-5-mini",
+          "provider": "hydra",
+          "modelId": "gpt-5-mini",
+          "rawText": "{\"primaryOutcome\":\"external_delivery\",\"requiredCapabilities\":[\"needs_external_delivery\",\"needs_repo_execution\",\"needs_local_runtime\",\"needs_high_reliability_provider\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "normalizedCandidate": "{\"primaryOutcome\":\"external_delivery\",\"requiredCapabilities\":[\"needs_external_delivery\",\"needs_repo_execution\",\"needs_local_runtime\",\"needs_high_reliability_provider\"],\"interactionMode\":\"tool_execution\",\"confidence\":0.9,\"ambiguities\":[]}",
+          "parseResult": "ok"
+        }
+      ],
+      "taskContract": {
+        "primaryOutcome": "external_delivery",
+        "requiredCapabilities": [
+          "needs_external_delivery",
+          "needs_high_reliability_provider",
+          "needs_local_runtime",
+          "needs_repo_execution"
+        ],
+        "interactionMode": "tool_execution",
+        "confidence": 0.9,
+        "ambiguities": []
+      },
+      "plannerInput": {
+        "prompt": "Нужно именно выпустить уже готовую сборку в прод: сначала прогони релизные проверки, потом публикуй, без правок исходников.",
+        "contractFirst": true,
+        "intent": "publish",
+        "artifactKinds": [
+          "release"
+        ],
+        "requestedTools": [
+          "exec",
+          "process"
+        ],
+        "publishTargets": [
+          "external"
+        ],
+        "outcomeContract": "external_operation",
+        "executionContract": {
+          "requiresTools": true,
+          "requiresWorkspaceMutation": false,
+          "requiresLocalProcess": true,
+          "requiresArtifactEvidence": false,
+          "requiresDeliveryEvidence": true,
+          "mayNeedBootstrap": true
+        },
+        "requestedEvidence": [
+          "tool_receipt",
+          "delivery_receipt",
+          "capability_receipt"
+        ],
+        "confidence": "high",
+        "candidateFamilies": [
+          "ops_execution"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "ops_execution",
+          "candidateFamilies": [
+            "ops_execution"
+          ],
+          "toolBundles": [
+            "external_delivery",
+            "repo_run"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "code",
+          "preferRemoteFirst": true
+        }
+      },
+      "resolutionContract": {
+        "selectedFamily": "ops_execution",
+        "candidateFamilies": [
+          "ops_execution"
+        ],
+        "toolBundles": [
+          "external_delivery",
+          "repo_run"
+        ],
+        "routing": {
+          "localEligible": false,
+          "remoteProfile": "code",
+          "preferRemoteFirst": true,
+          "needsVision": false
+        }
+      },
+      "selectedProfile": "operator",
+      "selectedRecipe": "ops_orchestration",
+      "runtimeRoutingHints": {
+        "localEligible": false,
+        "remoteProfile": "code",
+        "preferRemoteFirst": true
+      },
+      "contractSignature": {
+        "primaryOutcome": "external_delivery",
+        "interactionMode": "tool_execution",
+        "requiredCapabilities": [
+          "needs_external_delivery",
+          "needs_high_reliability_provider",
+          "needs_local_runtime",
+          "needs_repo_execution"
+        ],
+        "toolBundles": [
+          "external_delivery",
+          "repo_run"
+        ]
+      },
+      "invariants": {
+        "sameContractAsClean": true,
+        "classifierAvailable": true,
+        "matchesExpectedPrimaryOutcome": true,
+        "matchesExpectedInteractionMode": true,
+        "expectedCapabilitiesMet": true,
+        "prohibitedCapabilitiesAbsent": true
+      }
+    }
+  ]
+}

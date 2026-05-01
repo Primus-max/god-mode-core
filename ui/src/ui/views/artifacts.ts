@@ -15,11 +15,23 @@ export type ArtifactsProps = {
   filterQuery: string;
   selectedId: string | null;
   detail: ArtifactRecordDetail | null;
+  buildArtifactHref: (artifactId: string) => string;
   onRefresh: () => void | Promise<void>;
   onSelect: (artifactId: string) => void | Promise<void>;
   onFilterChange: (value: string) => void;
   onTransition: (artifactId: string, operation: ArtifactOperation) => void | Promise<void>;
 };
+
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  );
+}
 
 function formatAvailability(available: boolean) {
   return available ? t("artifacts.availabilityYes") : t("artifacts.availabilityNo");
@@ -107,15 +119,22 @@ function matchesArtifactQuery(artifact: ArtifactRecordSummary, query: string) {
 function renderArtifactListItem(params: {
   artifact: ArtifactRecordSummary;
   selected: boolean;
+  buildArtifactHref: (artifactId: string) => string;
   onSelect: (artifactId: string) => void | Promise<void>;
 }) {
-  const { artifact, selected, onSelect } = params;
+  const { artifact, selected, buildArtifactHref, onSelect } = params;
   return html`
-    <button
-      class="btn"
-      type="button"
-      ?disabled=${selected}
-      @click=${() => onSelect(artifact.id)}
+    <a
+      class="btn ${selected ? "active" : ""}"
+      href=${buildArtifactHref(artifact.id)}
+      aria-current=${selected ? "page" : "false"}
+      @click=${(event: MouseEvent) => {
+        if (isModifiedNavigationClick(event)) {
+          return;
+        }
+        event.preventDefault();
+        onSelect(artifact.id);
+      }}
       style="display:flex; width:100%; text-align:left; justify-content:space-between; gap:12px;"
     >
       <span>
@@ -125,7 +144,7 @@ function renderArtifactListItem(params: {
         </span>
       </span>
       <span style="opacity:0.75;">${formatRelativeIsoTimestamp(artifact.updatedAt ?? artifact.createdAt)}</span>
-    </button>
+    </a>
   `;
 }
 
@@ -172,6 +191,7 @@ export function renderArtifacts(props: ArtifactsProps) {
                   renderArtifactListItem({
                     artifact,
                     selected: artifact.id === props.selectedId,
+                    buildArtifactHref: props.buildArtifactHref,
                     onSelect: props.onSelect,
                   }),
                 )

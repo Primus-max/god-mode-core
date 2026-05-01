@@ -1,4 +1,5 @@
 import { nothing } from "lit";
+import { buildCanonicalUsageHref, buildCanonicalUsageSessionHref, syncUrlWithTab } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import type { UsageState } from "./controllers/usage.ts";
 import { loadUsage, loadSessionTimeSeries, loadSessionLogs } from "./controllers/usage.ts";
@@ -17,8 +18,16 @@ export function renderUsageTab(state: AppViewState) {
   if (state.tab !== "usage") {
     return nothing;
   }
+  const syncUsageUrl = () => syncUrlWithTab(state, "usage", true);
 
   return renderUsage({
+    buildSessionHref: (sessionKey) => buildCanonicalUsageSessionHref(state, sessionKey),
+    buildChartModeHref: (chartMode) => buildCanonicalUsageHref(state, { chartMode }),
+    buildDailyChartModeHref: (dailyChartMode) =>
+      buildCanonicalUsageHref(state, { dailyChartMode }),
+    buildSessionsTabHref: (sessionsTab) => buildCanonicalUsageHref(state, { sessionsTab }),
+    buildSessionSortDirHref: (sessionSortDir) =>
+      buildCanonicalUsageHref(state, { sessionSortDir }),
     data: {
       loading: state.usageLoading,
       error: state.usageError,
@@ -73,6 +82,9 @@ export function renderUsageTab(state: AppViewState) {
           state.usageSelectedDays = [];
           state.usageSelectedHours = [];
           state.usageSelectedSessions = [];
+          state.usageTimeSeries = null;
+          state.usageSessionLogs = null;
+          syncUsageUrl();
           debouncedLoadUsage(state);
         },
         onEndDateChange: (date) => {
@@ -80,6 +92,9 @@ export function renderUsageTab(state: AppViewState) {
           state.usageSelectedDays = [];
           state.usageSelectedHours = [];
           state.usageSelectedSessions = [];
+          state.usageTimeSeries = null;
+          state.usageSessionLogs = null;
+          syncUsageUrl();
           debouncedLoadUsage(state);
         },
         onRefresh: () => loadUsage(state),
@@ -88,6 +103,9 @@ export function renderUsageTab(state: AppViewState) {
           state.usageSelectedDays = [];
           state.usageSelectedHours = [];
           state.usageSelectedSessions = [];
+          state.usageTimeSeries = null;
+          state.usageSessionLogs = null;
+          syncUsageUrl();
           void loadUsage(state);
         },
         onToggleHeaderPinned: () => {
@@ -109,6 +127,7 @@ export function renderUsageTab(state: AppViewState) {
           } else {
             state.usageSelectedHours = [...state.usageSelectedHours, hour];
           }
+          syncUsageUrl();
         },
         onQueryDraftChange: (query) => {
           state.usageQueryDraft = query;
@@ -118,6 +137,7 @@ export function renderUsageTab(state: AppViewState) {
           state.usageQueryDebounceTimer = window.setTimeout(() => {
             state.usageQuery = state.usageQueryDraft;
             state.usageQueryDebounceTimer = null;
+            syncUsageUrl();
           }, 250);
         },
         onApplyQuery: () => {
@@ -126,6 +146,7 @@ export function renderUsageTab(state: AppViewState) {
             state.usageQueryDebounceTimer = null;
           }
           state.usageQuery = state.usageQueryDraft;
+          syncUsageUrl();
         },
         onClearQuery: () => {
           if (state.usageQueryDebounceTimer) {
@@ -134,6 +155,7 @@ export function renderUsageTab(state: AppViewState) {
           }
           state.usageQueryDraft = "";
           state.usageQuery = "";
+          syncUsageUrl();
         },
         onSelectDay: (day, shiftKey) => {
           if (shiftKey && state.usageSelectedDays.length > 0) {
@@ -152,17 +174,21 @@ export function renderUsageTab(state: AppViewState) {
           } else {
             state.usageSelectedDays = [day];
           }
+          syncUsageUrl();
         },
         onClearDays: () => {
           state.usageSelectedDays = [];
+          syncUsageUrl();
         },
         onClearHours: () => {
           state.usageSelectedHours = [];
+          syncUsageUrl();
         },
         onClearSessions: () => {
           state.usageSelectedSessions = [];
           state.usageTimeSeries = null;
           state.usageSessionLogs = null;
+          syncUsageUrl();
         },
         onClearFilters: () => {
           state.usageSelectedDays = [];
@@ -170,23 +196,29 @@ export function renderUsageTab(state: AppViewState) {
           state.usageSelectedSessions = [];
           state.usageTimeSeries = null;
           state.usageSessionLogs = null;
+          syncUsageUrl();
         },
       },
       display: {
         onChartModeChange: (mode) => {
           state.usageChartMode = mode;
+          syncUsageUrl();
         },
         onDailyChartModeChange: (mode) => {
           state.usageDailyChartMode = mode;
+          syncUsageUrl();
         },
         onSessionSortChange: (sort) => {
           state.usageSessionSort = sort;
+          syncUsageUrl();
         },
         onSessionSortDirChange: (dir) => {
           state.usageSessionSortDir = dir;
+          syncUsageUrl();
         },
         onSessionsTabChange: (tab) => {
           state.usageSessionsTab = tab;
+          syncUsageUrl();
         },
         onToggleColumn: (column) => {
           if (state.usageVisibleColumns.includes(column)) {
@@ -268,6 +300,7 @@ export function renderUsageTab(state: AppViewState) {
             void loadSessionTimeSeries(state, state.usageSelectedSessions[0]);
             void loadSessionLogs(state, state.usageSelectedSessions[0]);
           }
+          syncUsageUrl();
         },
         onTimeSeriesModeChange: (mode) => {
           state.usageTimeSeriesMode = mode;

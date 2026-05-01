@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
+import type { FollowupRun } from "../../auto-reply/reply/queue.js";
 import { resolveStateDir } from "../../config/paths.js";
+import {
+  emitAgentEvent,
+  emitRuntimeRecoveryTelemetry,
+  registerAgentRunContext,
+} from "../../infra/agent-events.js";
 import { buildExecutionDecisionInput } from "../decision/input.js";
 import type { PolicyContext } from "../policy/types.js";
 import {
@@ -8,7 +14,10 @@ import {
 } from "../recipe/runtime-adapter.js";
 import { createCapabilityRegistry } from "../registry/capability-registry.js";
 import type { CapabilityRegistry } from "../registry/types.js";
-import { getPlatformRuntimeCheckpointService } from "../runtime/index.js";
+import {
+  getPlatformRuntimeCheckpointService,
+  type PlatformRuntimeOperatorDecision,
+} from "../runtime/index.js";
 import type { CapabilityInstallMethod } from "../schemas/capability.js";
 import { appendBootstrapAuditEvent, rehydrateBootstrapRequestRecords } from "./audit.js";
 import {
@@ -16,8 +25,10 @@ import {
   BootstrapRequestRecordDetailSchema,
   BootstrapRequestRecordSchema,
   BootstrapRequestRecordSummarySchema,
+  BootstrapRequestSchema,
   type BootstrapOrchestrationResult,
   type BootstrapAuditEventType,
+  type BootstrapBlockedRunResume,
   type BootstrapRequest,
   type BootstrapRequestDecision,
   type BootstrapRequestRecord,
@@ -33,14 +44,20 @@ export type BootstrapRequestService = {
   configure: (params: { stateDir?: string }) => void;
   getAuditPath: () => string | null;
   create: (request: BootstrapRequest) => BootstrapRequestRecord;
+  attachBlockedRunResume: (
+    id: string,
+    resume: BootstrapBlockedRunResume,
+  ) => BootstrapRequestRecordDetail | undefined;
   list: () => BootstrapRequestRecordSummary[];
   get: (id: string) => BootstrapRequestRecordDetail | undefined;
   resolve: (
     id: string,
     decision: BootstrapRequestDecision,
+    opts?: { operatorDecision?: PlatformRuntimeOperatorDecision },
   ) => BootstrapRequestRecordDetail | undefined;
   run: (params: {
     id: string;
+    operatorDecision?: PlatformRuntimeOperatorDecision;
     installers?: Partial<Record<CapabilityInstallMethod, BootstrapInstaller>>;
     availableBins?: string[];
     availableEnv?: string[];
@@ -86,6 +103,8 @@ function appendAuditRecord(
 }
 
 function buildRecordSignature(request: BootstrapRequest): string {
+  // Exclude blockedRunResume identity: the same pending bootstrap should dedupe whether or not a
+  // follow-up path attached resume metadata yet (e.g. materialization creates first, closure merges).
   return [
     request.capabilityId,
     request.installMethod,
@@ -95,8 +114,104 @@ function buildRecordSignature(request: BootstrapRequest): string {
   ].join("::");
 }
 
+function blockedRunResumeMatches(
+  left: BootstrapRequest["blockedRunResume"],
+  right: BootstrapRequest["blockedRunResume"],
+): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+async function dispatchBlockedRunResumeAfterBootstrap(params: {
+  bootstrapRequestId: string;
+  capabilityId: string;
+  resume: BootstrapBlockedRunResume;
+}): Promise<boolean> {
+  const { enqueueFollowupRun, scheduleFollowupDrain } =
+    await import("../../auto-reply/reply/queue.runtime.js");
+  const [{ createFollowupRunner }, { createTypingController }] = await Promise.all([
+    import("../../auto-reply/reply/followup-runner.js"),
+    import("../../auto-reply/reply/typing.js"),
+  ]);
+  const runFollowup = createFollowupRunner({
+    typing: createTypingController({}),
+    typingMode: "never",
+    queueKey: params.resume.queueKey,
+    resolvedQueue: params.resume.settings,
+    defaultModel: params.resume.sourceRun.run.model,
+  });
+  const resumeLead =
+    params.capabilityId === "pdf-renderer"
+      ? `Capability "${params.capabilityId}" was installed and verified. Continue the interrupted task from the approved bootstrap and use the pdf tool to create the requested PDF now that the renderer is available. Do not ask for another bootstrap for this capability, and do not fake or manually write PDF bytes with write/exec.\n\n`
+      : `Capability "${params.capabilityId}" was installed and verified. Continue the interrupted task from the approved bootstrap; do not ask for another bootstrap for this capability.\n\n`;
+  const sessionKey = params.resume.sourceRun.run.sessionKey ?? params.resume.sessionKey;
+  const followupRun: FollowupRun = {
+    ...(params.resume.sourceRun as FollowupRun),
+    prompt: `${resumeLead}${params.resume.sourceRun.prompt}`,
+    enqueuedAt: Date.now(),
+    requestRunId: params.resume.sourceRun.requestRunId ?? params.resume.blockedRunId,
+    parentRunId: params.resume.blockedRunId,
+    automation: {
+      source: "closure_recovery",
+      retryCount: params.resume.sourceRun.automation?.retryCount ?? 0,
+      persisted: true,
+      runtimeCheckpointId: params.bootstrapRequestId,
+      reasonCode: "bootstrap_install_verified",
+      reasonSummary: `Resumed after bootstrap ${params.bootstrapRequestId} (${params.capabilityId})`,
+    },
+  };
+  const enqueued = enqueueFollowupRun(
+    params.resume.queueKey,
+    followupRun,
+    params.resume.settings,
+    "prompt",
+  );
+  scheduleFollowupDrain(params.resume.queueKey, runFollowup);
+  registerAgentRunContext(params.resume.blockedRunId, {
+    ...(sessionKey ? { sessionKey } : {}),
+    runtimeState: "resumed",
+    runtimeCheckpointId: params.bootstrapRequestId,
+    runtimeBoundary: "bootstrap",
+  });
+  emitAgentEvent({
+    runId: params.resume.blockedRunId,
+    ...(sessionKey ? { sessionKey } : {}),
+    stream: "lifecycle",
+    data: {
+      phase: "resumed",
+      checkpointId: params.bootstrapRequestId,
+      boundary: "bootstrap",
+      detail: "blocked followup re-queued after bootstrap",
+    },
+  });
+  if (enqueued) {
+    emitRuntimeRecoveryTelemetry({
+      runId: params.resume.blockedRunId,
+      ...(sessionKey ? { sessionKey } : {}),
+      milestone: "followup_enqueued",
+      checkpointId: params.bootstrapRequestId,
+      continuationKind: "bootstrap_run",
+      queueKey: params.resume.queueKey,
+    });
+    return true;
+  }
+  emitRuntimeRecoveryTelemetry({
+    runId: params.resume.blockedRunId,
+    ...(sessionKey ? { sessionKey } : {}),
+    milestone: "continuation_dispatch_failed",
+    checkpointId: params.bootstrapRequestId,
+    continuationKind: "bootstrap_run",
+    error: "followup queue rejected duplicate or drop policy skipped resume",
+    queueKey: params.resume.queueKey,
+  });
+  return false;
+}
+
 function resolveBootstrapRunActionId(requestId: string): string {
   return `bootstrap:${requestId}:run`;
+}
+
+function isBootstrapRunReplaySafe(record: BootstrapRequestRecord): boolean {
+  return record.state === "available" && record.result?.status === "bootstrapped";
 }
 
 function resolveBootstrapDecisionPrompt(request: BootstrapRequest): string {
@@ -140,11 +255,14 @@ function buildBootstrapPolicyContext(
         : "general";
   const requestedTools = request.installMethod === "builtin" ? [] : ["exec", "process"];
   const resolved = resolvePlatformRuntimePlan(
-    buildExecutionDecisionInput({
-      prompt: resolveBootstrapDecisionPrompt(request),
-      intent,
-      requestedTools,
-    }),
+    {
+      ...buildExecutionDecisionInput({
+        prompt: resolveBootstrapDecisionPrompt(request),
+        intent,
+        requestedTools,
+      }),
+      callerTag: "bootstrap-policy",
+    },
     { explicitApproval },
   );
   return {
@@ -169,7 +287,56 @@ function shouldAutoContinueBootstrapRequest(request: BootstrapRequest): boolean 
   if (!request.catalogEntry.capability.trusted) {
     return false;
   }
-  return request.sourceDomain === "document" || request.sourceDomain === "developer";
+  // Universal: any sourceDomain may auto-continue as long as the capability is
+  // trusted in the approved catalog. The producer path (platform) needs this so
+  // docx/xlsx/site installs can complete without a hard-coded document/developer
+  // allowlist.
+  return true;
+}
+
+function maybePromoteAutoContinuedBootstrapRecord(params: {
+  record: BootstrapRequestRecord;
+  stateDir: string | undefined;
+  runtimeCheckpointService: ReturnType<typeof getPlatformRuntimeCheckpointService>;
+  records: Map<string, BootstrapRequestRecord>;
+}): BootstrapRequestRecord {
+  if (
+    params.record.state !== "pending" ||
+    !shouldAutoContinueBootstrapRequest(params.record.request)
+  ) {
+    return params.record;
+  }
+  const now = new Date().toISOString();
+  const approved = BootstrapRequestRecordSchema.parse({
+    ...params.record,
+    state: "approved",
+    updatedAt: now,
+    resolvedAt: now,
+  });
+  params.records.set(approved.id, approved);
+  params.runtimeCheckpointService.updateCheckpoint(approved.id, {
+    status: "approved",
+    approvedAtMs: Date.now(),
+    continuation: {
+      kind: "bootstrap_run",
+      autoDispatch: true,
+      state: "idle",
+      attempts: 0,
+      ...(approved.request.blockedRunResume
+        ? {
+            input: {
+              blockedRunResume: true,
+              blockedRunId: approved.request.blockedRunResume.blockedRunId,
+              queueKey: approved.request.blockedRunResume.queueKey,
+            },
+          }
+        : {}),
+    },
+    executionContext: approved.request.executionContext,
+  });
+  appendAuditRecord(params.stateDir, "request.approved", approved);
+  void params.runtimeCheckpointService.dispatchContinuation(approved.id);
+  return approved;
 }
 
 export function createBootstrapRequestService(params?: {
@@ -197,18 +364,55 @@ export function createBootstrapRequestService(params?: {
       const normalizedRequest = request;
       const signature = buildRecordSignature(normalizedRequest);
       const existing = Array.from(records.values()).find((record) => {
+        const blockedRunResumeConflict =
+          normalizedRequest.blockedRunResume &&
+          record.request.blockedRunResume &&
+          !blockedRunResumeMatches(
+            normalizedRequest.blockedRunResume,
+            record.request.blockedRunResume,
+          );
         return (
           buildRecordSignature(record.request) === signature &&
-          (record.state === "pending" || record.state === "approved" || record.state === "running")
+          (record.state === "pending" ||
+            record.state === "approved" ||
+            record.state === "running") &&
+          !blockedRunResumeConflict
         );
       });
       if (existing) {
+        const mergedRequest = BootstrapRequestSchema.parse({
+          ...existing.request,
+          ...normalizedRequest,
+          blockedRunResume: normalizedRequest.blockedRunResume ?? existing.request.blockedRunResume,
+        });
         const updated = BootstrapRequestRecordSchema.parse({
           ...existing,
+          request: mergedRequest,
           updatedAt: now,
         });
         records.set(updated.id, updated);
-        return updated;
+        const checkpoint = runtimeCheckpointService.get(updated.id);
+        if (mergedRequest.blockedRunResume && checkpoint?.continuation) {
+          runtimeCheckpointService.updateCheckpoint(updated.id, {
+            continuation: {
+              ...checkpoint.continuation,
+              ...(shouldAutoContinueBootstrapRequest(mergedRequest) ? { autoDispatch: true } : {}),
+              input: {
+                blockedRunResume: true,
+                blockedRunId: mergedRequest.blockedRunResume.blockedRunId,
+                queueKey: mergedRequest.blockedRunResume.queueKey,
+              },
+            },
+            executionContext: mergedRequest.executionContext,
+          });
+        }
+        appendAuditRecord(stateDir, "request.updated", updated);
+        return maybePromoteAutoContinuedBootstrapRecord({
+          record: updated,
+          stateDir,
+          runtimeCheckpointService,
+          records,
+        });
       }
       const record = BootstrapRequestRecordSchema.parse({
         id: randomUUID(),
@@ -222,16 +426,18 @@ export function createBootstrapRequestService(params?: {
         id: record.id,
         runId: record.id,
         boundary: "bootstrap",
-        blockedReason: "bootstrap approval required",
+        blockedReason:
+          "Bootstrap checkpoint: capability install is blocked until the operator approves (platform.bootstrap.resolve) and runs install/verify (platform.bootstrap.run).",
         nextActions: [
           {
             method: "platform.bootstrap.resolve",
-            label: "Approve or deny bootstrap request",
+            label: "Approve or deny capability bootstrap (install) request",
             phase: "approve",
           },
           {
             method: "platform.bootstrap.run",
-            label: "Run approved bootstrap request",
+            label:
+              "Execute approved install, health verification, and resume blocked work if configured",
             phase: "resume",
           },
         ],
@@ -244,27 +450,61 @@ export function createBootstrapRequestService(params?: {
           ...(shouldAutoContinueBootstrapRequest(record.request) ? { autoDispatch: true } : {}),
           state: "idle",
           attempts: 0,
+          ...(record.request.blockedRunResume
+            ? {
+                input: {
+                  blockedRunResume: true,
+                  blockedRunId: record.request.blockedRunResume.blockedRunId,
+                  queueKey: record.request.blockedRunResume.queueKey,
+                },
+              }
+            : {}),
         },
         executionContext: record.request.executionContext,
       });
       appendAuditRecord(stateDir, "request.created", record);
-      if (shouldAutoContinueBootstrapRequest(record.request)) {
-        const approved = BootstrapRequestRecordSchema.parse({
-          ...record,
-          state: "approved",
-          updatedAt: now,
-          resolvedAt: now,
-        });
-        records.set(record.id, approved);
-        runtimeCheckpointService.updateCheckpoint(record.id, {
-          status: "approved",
-          approvedAtMs: Date.now(),
-        });
-        appendAuditRecord(stateDir, "request.approved", approved);
-        void runtimeCheckpointService.dispatchContinuation(record.id);
-        return approved;
+      return maybePromoteAutoContinuedBootstrapRecord({
+        record,
+        stateDir,
+        runtimeCheckpointService,
+        records,
+      });
+    },
+    attachBlockedRunResume(id, resume) {
+      const existing = records.get(id);
+      if (!existing) {
+        return undefined;
       }
-      return record;
+      const sameResume =
+        existing.request.blockedRunResume &&
+        JSON.stringify(existing.request.blockedRunResume) === JSON.stringify(resume);
+      if (sameResume) {
+        return BootstrapRequestRecordDetailSchema.parse(existing);
+      }
+      const updated = BootstrapRequestRecordSchema.parse({
+        ...existing,
+        request: BootstrapRequestSchema.parse({
+          ...existing.request,
+          blockedRunResume: resume,
+        }),
+        updatedAt: new Date().toISOString(),
+      });
+      records.set(id, updated);
+      const checkpoint = runtimeCheckpointService.get(id);
+      if (checkpoint?.continuation) {
+        runtimeCheckpointService.updateCheckpoint(id, {
+          continuation: {
+            ...checkpoint.continuation,
+            input: {
+              blockedRunResume: true,
+              blockedRunId: resume.blockedRunId,
+              queueKey: resume.queueKey,
+            },
+          },
+        });
+      }
+      appendAuditRecord(stateDir, "request.updated", updated);
+      return BootstrapRequestRecordDetailSchema.parse(updated);
     },
     list() {
       return Array.from(records.values())
@@ -275,7 +515,7 @@ export function createBootstrapRequestService(params?: {
       const record = records.get(id);
       return record ? BootstrapRequestRecordDetailSchema.parse(record) : undefined;
     },
-    resolve(id, decision) {
+    resolve(id, decision, opts) {
       const existing = records.get(id);
       if (!existing) {
         return undefined;
@@ -295,15 +535,13 @@ export function createBootstrapRequestService(params?: {
         status: decision === "approve" ? "approved" : "denied",
         approvedAtMs: decision === "approve" ? Date.now() : undefined,
         completedAtMs: decision === "deny" ? Date.now() : undefined,
+        lastOperatorDecision: opts?.operatorDecision,
       });
       appendAuditRecord(
         stateDir,
         decision === "approve" ? "request.approved" : "request.denied",
         updated,
       );
-      if (decision === "approve") {
-        void runtimeCheckpointService.dispatchContinuation(id);
-      }
       return BootstrapRequestRecordDetailSchema.parse(updated);
     },
     async run(runParams) {
@@ -313,10 +551,11 @@ export function createBootstrapRequestService(params?: {
       }
       const actionId = resolveBootstrapRunActionId(runParams.id);
       const existingAction = runtimeCheckpointService.getAction(actionId);
-      if (existingAction?.state === "confirmed") {
+      if (existingAction?.state === "confirmed" && isBootstrapRunReplaySafe(existing)) {
         runtimeCheckpointService.updateCheckpoint(runParams.id, {
           status: "completed",
           completedAtMs: existingAction.confirmedAtMs ?? Date.now(),
+          lastOperatorDecision: runParams.operatorDecision,
         });
         return BootstrapRequestRecordDetailSchema.parse(existing);
       }
@@ -325,7 +564,7 @@ export function createBootstrapRequestService(params?: {
           ...existing,
           updatedAt: new Date().toISOString(),
           reasons: [
-            `bootstrap request must be approved before run (current state: ${existing.state})`,
+            `Bootstrap run is blocked: request state is "${existing.state}"; operator must approve via platform.bootstrap.resolve before platform.bootstrap.run.`,
           ],
         });
         records.set(blocked.id, blocked);
@@ -338,6 +577,13 @@ export function createBootstrapRequestService(params?: {
         kind: "bootstrap",
         boundary: "bootstrap",
         checkpointId: existing.id,
+        ...(runParams.operatorDecision
+          ? {
+              receipt: {
+                operatorDecision: runParams.operatorDecision,
+              },
+            }
+          : {}),
         target: {
           bootstrapRequestId: existing.id,
           operation: "bootstrap.run",
@@ -354,6 +600,7 @@ export function createBootstrapRequestService(params?: {
       runtimeCheckpointService.updateCheckpoint(running.id, {
         status: "resumed",
         resumedAtMs: Date.now(),
+        lastOperatorDecision: runParams.operatorDecision,
       });
       runtimeCheckpointService.markActionAttempted(actionId, { retryable: true });
       appendAuditRecord(stateDir, "request.started", running);
@@ -384,9 +631,17 @@ export function createBootstrapRequestService(params?: {
       }
       const completedAt = new Date().toISOString();
       const nextState = result.status === "bootstrapped" ? "available" : "degraded";
+      const latestExisting = records.get(running.id);
+      const mergedRequest = BootstrapRequestSchema.parse({
+        ...running.request,
+        ...(latestExisting?.request ?? {}),
+        blockedRunResume:
+          latestExisting?.request.blockedRunResume ?? running.request.blockedRunResume,
+      });
       const updated = BootstrapRequestRecordSchema.parse({
         ...running,
         state: nextState,
+        request: mergedRequest,
         updatedAt: completedAt,
         completedAt,
         result,
@@ -426,7 +681,45 @@ export function createBootstrapRequestService(params?: {
       if (result.lifecycle?.rollbackStatus && result.lifecycle.rollbackStatus !== "not_needed") {
         appendAuditRecord(stateDir, "request.rolled_back", updated);
       }
-      return BootstrapRequestRecordDetailSchema.parse(updated);
+      if (result.status === "bootstrapped" && mergedRequest.blockedRunResume) {
+        try {
+          const resumeOk = await dispatchBlockedRunResumeAfterBootstrap({
+            bootstrapRequestId: updated.id,
+            capabilityId: updated.request.capabilityId,
+            resume: mergedRequest.blockedRunResume,
+          });
+          const resumeAuditRecord = BootstrapRequestRecordSchema.parse({
+            ...updated,
+            ...(resumeOk
+              ? {}
+              : {
+                  reasons: [
+                    ...(updated.reasons ?? []),
+                    "Blocked task resume was not enqueued (duplicate prompt or queue drop policy).",
+                  ],
+                }),
+          });
+          if (!resumeOk) {
+            records.set(updated.id, resumeAuditRecord);
+          }
+          appendAuditRecord(
+            stateDir,
+            resumeOk ? "request.resume_enqueued" : "request.resume_enqueue_failed",
+            resumeAuditRecord,
+          );
+        } catch (error) {
+          const failedResume = BootstrapRequestRecordSchema.parse({
+            ...updated,
+            reasons: [
+              ...(updated.reasons ?? []),
+              `Blocked task resume dispatch failed: ${error instanceof Error ? error.message : String(error)}`,
+            ],
+          });
+          records.set(updated.id, failedResume);
+          appendAuditRecord(stateDir, "request.resume_enqueue_failed", failedResume);
+        }
+      }
+      return BootstrapRequestRecordDetailSchema.parse(records.get(updated.id) ?? updated);
     },
     rehydrate() {
       records.clear();
@@ -456,10 +749,12 @@ let sharedBootstrapRequestService: BootstrapRequestService | null = null;
 
 export function getPlatformBootstrapService(config?: {
   stateDir?: string;
+  registry?: CapabilityRegistry;
 }): BootstrapRequestService {
   if (!sharedBootstrapRequestService) {
     sharedBootstrapRequestService = createBootstrapRequestService({
       stateDir: config?.stateDir ?? resolveStateDir(process.env),
+      registry: config?.registry,
     });
   } else if (config) {
     sharedBootstrapRequestService.configure(config);

@@ -46,6 +46,7 @@ type ExecApprovalsState = {
   targetNodeId: string | null;
   targetNodes: ExecApprovalsTargetNode[];
   onSelectScope: (agentId: string) => void;
+  buildScopeHref: (agentId: string) => string;
   onSelectTarget: (kind: "gateway" | "node", nodeId: string | null) => void;
   onPatch: (path: Array<string | number>, value: unknown) => void;
   onRemove: (path: Array<string | number>) => void;
@@ -83,6 +84,17 @@ function normalizeAsk(value?: string): ExecAsk {
     return value;
   }
   return "on-miss";
+}
+
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  );
 }
 
 function resolveExecApprovalsDefaults(
@@ -186,6 +198,7 @@ export function resolveExecApprovalsState(props: NodesProps): ExecApprovalsState
     targetNodeId,
     targetNodes,
     onSelectScope: props.onExecApprovalsSelectAgent,
+    buildScopeHref: props.buildExecApprovalsScopeHref,
     onSelectTarget: props.onExecApprovalsTargetChange,
     onPatch: props.onExecApprovalsPatch,
     onRemove: props.onExecApprovalsRemove,
@@ -317,21 +330,37 @@ function renderExecApprovalsTabs(state: ExecApprovalsState) {
     <div class="row" style="margin-top: 12px; gap: 8px; flex-wrap: wrap;">
       <span class="label">${t("nodes.execApprovals.scope")}</span>
       <div class="row" style="gap: 8px; flex-wrap: wrap;">
-        <button
+        <a
           class="btn btn--sm ${state.selectedScope === EXEC_APPROVALS_DEFAULT_SCOPE ? "active" : ""}"
-          @click=${() => state.onSelectScope(EXEC_APPROVALS_DEFAULT_SCOPE)}
+          href=${state.buildScopeHref(EXEC_APPROVALS_DEFAULT_SCOPE)}
+          aria-current=${state.selectedScope === EXEC_APPROVALS_DEFAULT_SCOPE ? "page" : "false"}
+          @click=${(event: MouseEvent) => {
+            if (isModifiedNavigationClick(event)) {
+              return;
+            }
+            event.preventDefault();
+            state.onSelectScope(EXEC_APPROVALS_DEFAULT_SCOPE);
+          }}
         >
           ${t("nodes.execApprovals.defaults")}
-        </button>
+        </a>
         ${state.agents.map((agent) => {
           const label = agent.name?.trim() ? `${agent.name} (${agent.id})` : agent.id;
           return html`
-            <button
+            <a
               class="btn btn--sm ${state.selectedScope === agent.id ? "active" : ""}"
-              @click=${() => state.onSelectScope(agent.id)}
+              href=${state.buildScopeHref(agent.id)}
+              aria-current=${state.selectedScope === agent.id ? "page" : "false"}
+              @click=${(event: MouseEvent) => {
+                if (isModifiedNavigationClick(event)) {
+                  return;
+                }
+                event.preventDefault();
+                state.onSelectScope(agent.id);
+              }}
             >
               ${label}
-            </button>
+            </a>
           `;
         })}
       </div>

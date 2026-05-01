@@ -1,0 +1,39 @@
+---
+description: Frozen legacy decision contracts; labeled PR template required (master plan §6)
+globs: src/platform/decision/contracts.ts, src/platform/decision/resolution-contract.ts, src/platform/decision/task-classifier.ts, src/platform/decision/tool-registry.ts, src/platform/decision/input.ts
+alwaysApply: false
+---
+
+# Decision Layer — Frozen
+
+These files are the **frozen v1 decision contract surface** (master plan §6 + invariant #11). New orchestration semantics belong in the commitment kernel, not here.
+
+## What is frozen
+
+The five legacy contracts and their immediate classifier / registry surface:
+
+- `TaskContract`, `OutcomeContract`, `QualificationExecutionContract` (in `contracts.ts` and adjacent)
+- `ResolutionContract` (in `resolution-contract.ts`)
+- `RecipeRoutingHints`
+- Plus `task-classifier.ts`, `tool-registry.ts`, `input.ts` as the decision orchestration entry surface.
+
+`src/platform/decision/trace.ts` is **not** in this rule's globs — it has a sanctioned commitment/ extension point, see PR-1 sub-plan §4.
+
+## What is allowed without label
+
+- Pure bug-fix that clearly does not change routing semantics.
+- Telemetry / logging additions.
+- Refactor that preserves all observable behavior (must include bit-identical decision-eval snapshot proof).
+
+## What requires the labeled PR template
+
+Any new orchestration-semantics field, any new outcome enum value, any new phrase / keyword routing patch:
+
+- [ ] telemetry-only
+- [ ] bug-fix
+- [ ] compatibility (REQUIRES `source-of-truth: ExecutionCommitment.<...>` declared in PR description)
+- [ ] emergency-rollback (REQUIRES tracking ticket + retire deadline)
+
+If a request comes to add a new outcome, a new phrase guard, a new variant kind, a new "deliverable" field — **STOP**. New orchestration semantics belong in the commitment kernel. Surface to the user before any code change.
+
+Master plan: `.cursor/plans/commitment_kernel_v1_master.plan.md` §6 "Five-Layer Freeze"

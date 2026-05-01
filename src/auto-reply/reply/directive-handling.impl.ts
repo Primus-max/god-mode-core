@@ -377,7 +377,7 @@ export async function handleDirectiveOnly(
     delete sessionEntry.queueCap;
     delete sessionEntry.queueDrop;
   } else if (directives.hasQueueDirective) {
-    if (directives.queueMode) {
+    if (directives.queueMode && directives.queueMode !== "deferred_job") {
       sessionEntry.queueMode = directives.queueMode;
     }
     if (typeof directives.debounceMs === "number") {

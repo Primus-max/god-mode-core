@@ -47,6 +47,16 @@ const accountingState = vi.hoisted(() => ({
     | ((params: unknown) => Promise<number | undefined>),
 }));
 
+const executionState = vi.hoisted(() => ({
+  runAgentTurnWithFallbackMock: vi.fn(),
+  runAgentTurnWithFallbackActual: null as null | ((params: unknown) => Promise<unknown>),
+}));
+
+const helperState = vi.hoisted(() => ({
+  finalizeWithFollowupMock: vi.fn(),
+  finalizeWithFollowupActual: null as null | ((...args: unknown[]) => unknown),
+}));
+
 let modelFallbackModule: typeof import("../../agents/model-fallback.js");
 let onAgentEvent: typeof import("../../infra/agent-events.js").onAgentEvent;
 let enqueueFollowupRunMock: typeof import("./queue/enqueue.js").enqueueFollowupRun;
@@ -133,6 +143,26 @@ vi.mock("./session-run-accounting.js", async (importOriginal) => {
   };
 });
 
+vi.mock("./agent-runner-execution.runtime.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./agent-runner-execution.runtime.js")>();
+  executionState.runAgentTurnWithFallbackActual = actual.runAgentTurnWithFallback as (
+    params: unknown,
+  ) => Promise<unknown>;
+  return {
+    ...actual,
+    runAgentTurnWithFallback: (params: unknown) => executionState.runAgentTurnWithFallbackMock(params),
+  };
+});
+
+vi.mock("./agent-runner-helpers.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./agent-runner-helpers.js")>();
+  helperState.finalizeWithFollowupActual = actual.finalizeWithFollowup as (...args: unknown[]) => unknown;
+  return {
+    ...actual,
+    finalizeWithFollowup: (...args: unknown[]) => helperState.finalizeWithFollowupMock(...args),
+  };
+});
+
 beforeAll(async () => {
   modelFallbackModule = await import("../../agents/model-fallback.js");
   ({ onAgentEvent } = await import("../../infra/agent-events.js"));
@@ -150,12 +180,21 @@ beforeEach(async () => {
   vi.mocked(scheduleFollowupDrainMock).mockClear();
   accountingState.persistRunSessionUsageMock.mockReset();
   accountingState.incrementRunCompactionCountMock.mockReset();
+  executionState.runAgentTurnWithFallbackMock.mockReset();
+  helperState.finalizeWithFollowupMock.mockReset();
   accountingState.persistRunSessionUsageMock.mockImplementation(async (params: unknown) => {
     await accountingState.persistRunSessionUsageActual?.(params);
   });
   accountingState.incrementRunCompactionCountMock.mockImplementation(async (params: unknown) => {
     return await accountingState.incrementRunCompactionCountActual?.(params);
   });
+  executionState.runAgentTurnWithFallbackMock.mockImplementation(async (params: unknown) => {
+    return await executionState.runAgentTurnWithFallbackActual?.(params);
+  });
+  helperState.finalizeWithFollowupMock.mockImplementation((...args: unknown[]) => {
+    return helperState.finalizeWithFollowupActual?.(...args);
+  });
+  vi.stubEnv("OPENCLAW_DEBUG_REPLY_ROUTING", "0");
   vi.stubEnv("OPENCLAW_TEST_FAST", "1");
 });
 
@@ -390,7 +429,7 @@ describe("runReplyAgent heartbeat followup guard", () => {
 
     const { run } = createMinimalRun();
     await expect(run()).rejects.toThrow("persist exploded");
-    expect(vi.mocked(scheduleFollowupDrainMock)).toHaveBeenCalledTimes(1);
+    expect(helperState.finalizeWithFollowupMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1321,6 +1360,79 @@ describe("runReplyAgent typing (heartbeat)", () => {
     });
   });
 
+  it("automatically resets oversized direct sessions before running the next turn", async () => {
+    await withTempStateDir(async (stateDir) => {
+      const sessionId = "session-oversized-direct";
+      const sessionKey = "agent:main:telegram:direct:123";
+      const storePath = path.join(stateDir, "sessions", "sessions.json");
+      const transcriptPath = sessions.resolveSessionTranscriptPath(sessionId);
+      const sessionEntry: SessionEntry = {
+        sessionId,
+        updatedAt: Date.now(),
+        sessionFile: transcriptPath,
+        totalTokens: 62_000,
+        systemPromptReport: {
+          source: "run",
+          generatedAt: Date.now(),
+          sessionId,
+          sessionKey,
+          provider: "hydra",
+          model: "hydra-gpt-pro",
+          workspaceDir: stateDir,
+          bootstrapMaxChars: 1000,
+          bootstrapTotalMaxChars: 2000,
+          systemPrompt: {
+            chars: 35_000,
+            projectContextChars: 20_000,
+            nonProjectContextChars: 15_000,
+          },
+          injectedWorkspaceFiles: [],
+          skills: {
+            promptChars: 0,
+            entries: [],
+          },
+          tools: {
+            listChars: 0,
+            schemaChars: 0,
+            entries: [],
+          },
+        },
+      };
+      const sessionStore: Record<string, SessionEntry> = {
+        [sessionKey]: sessionEntry,
+      };
+
+      await fs.mkdir(path.dirname(storePath), { recursive: true });
+      await fs.writeFile(storePath, JSON.stringify(sessionStore), "utf-8");
+      await fs.mkdir(path.dirname(transcriptPath), { recursive: true });
+      await fs.writeFile(transcriptPath, "stale transcript", "utf-8");
+
+      state.runEmbeddedPiAgentMock.mockResolvedValueOnce({
+        payloads: [{ text: "fresh run" }],
+        meta: {},
+      });
+
+      const { run } = createMinimalRun({
+        sessionEntry,
+        sessionStore,
+        sessionKey,
+        storePath,
+      });
+      const res = await run();
+
+      expect(state.runEmbeddedPiAgentMock).toHaveBeenCalledTimes(1);
+      expect(res).toMatchObject({ text: "fresh run" });
+      expect(sessionStore[sessionKey]?.sessionId).not.toBe(sessionId);
+      expect(state.runEmbeddedPiAgentMock.mock.calls[0]?.[0]).toMatchObject({
+        sessionId: sessionStore[sessionKey]?.sessionId,
+      });
+      await expect(fs.access(transcriptPath)).rejects.toThrow();
+
+      const persisted = JSON.parse(await fs.readFile(storePath, "utf-8"));
+      expect(persisted[sessionKey].sessionId).toBe(sessionStore[sessionKey]?.sessionId);
+    });
+  });
+
   it("clears stale runtime model fields when resetSession retries after compaction failure", async () => {
     await withTempStateDir(async (stateDir) => {
       const sessionId = "session-stale-model";
@@ -1558,6 +1670,37 @@ describe("runReplyAgent typing (heartbeat)", () => {
 
       const persisted = JSON.parse(await fs.readFile(storePath, "utf-8"));
       expect(persisted.main).toBeDefined();
+    });
+  });
+
+  it("surfaces model-fallback exhaustion with generic user-facing text", async () => {
+    await withTempStateDir(async (stateDir) => {
+      const sessionId = "session-fallback-exhausted";
+      const storePath = path.join(stateDir, "sessions", "sessions.json");
+      const sessionEntry = { sessionId, updatedAt: Date.now() };
+      const sessionStore = { main: sessionEntry };
+
+      await fs.mkdir(path.dirname(storePath), { recursive: true });
+      await fs.writeFile(storePath, JSON.stringify(sessionStore), "utf-8");
+
+      state.runEmbeddedPiAgentMock.mockImplementationOnce(async () => {
+        throw new Error(
+          'All models failed (2): ollama/gpt-oss:20b: Ollama API error 500: {"error":"model requires more system memory (11.4 GiB) than is available (9.8 GiB)"} | ollama/gemma4:e4b: timeout',
+        );
+      });
+
+      const { run } = createMinimalRun({
+        sessionEntry,
+        sessionStore,
+        sessionKey: "main",
+        storePath,
+      });
+      const res = await run();
+
+      expect(res).toMatchObject({
+        text: "⚠️ No available model could complete this request right now. Please try again in a moment.",
+      });
+      expect(sessionStore.main).toBeDefined();
     });
   });
 
@@ -2260,23 +2403,12 @@ describe("runReplyAgent memory flush", () => {
 });
 
 describe("runReplyAgent error followup drain", () => {
-  it("drains followup queue when an unexpected exception escapes the run path", async () => {
-    vi.resetModules();
-    vi.doMock("./agent-runner-execution.runtime.js", () => ({
-      runAgentTurnWithFallback: vi.fn().mockRejectedValueOnce(new Error("persist exploded")),
-    }));
+  it("drains followup queue when the execution runtime rejects before delivery", async () => {
+    executionState.runAgentTurnWithFallbackMock.mockRejectedValueOnce(new Error("persist exploded"));
 
-    try {
-      ({ scheduleFollowupDrain: scheduleFollowupDrainMock } = await import("./queue.js"));
-      vi.mocked(scheduleFollowupDrainMock).mockClear();
-      runReplyAgentPromise = undefined;
-      const { run } = createMinimalRun();
-      await expect(run()).rejects.toThrow("persist exploded");
-      expect(vi.mocked(scheduleFollowupDrainMock)).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.doUnmock("./agent-runner-execution.runtime.js");
-      runReplyAgentPromise = undefined;
-    }
+    const { run } = createMinimalRun();
+    await expect(run()).rejects.toThrow("persist exploded");
+    expect(helperState.finalizeWithFollowupMock).toHaveBeenCalledTimes(1);
   });
 });
 import type { ReplyPayload } from "../types.js";

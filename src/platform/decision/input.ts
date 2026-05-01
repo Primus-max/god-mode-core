@@ -1,17 +1,145 @@
 import path from "node:path";
+import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
+import { normalizeAnyChannelId } from "../../channels/registry.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
+import { defaultRuntime } from "../../runtime.js";
+import type { InputProvenance } from "../../sessions/input-provenance.js";
+import { getCurrentTurnProgressEmitter } from "../progress/progress-bus.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
+import { projectIdentityForPrompt } from "../session/identity-facts.js";
+import { buildIntentLedgerContext, intentLedger } from "../session/intent-ledger.js";
+import { projectWorkspaceForPrompt } from "../session/workspace-probe.js";
 import {
+  buildRecipePlannerInputFromRuntimePlan,
   resolvePlatformRuntimePlan,
+  type RecipeRuntimePlan,
   type ResolvedPlatformRuntimePlan,
+  type ResolvePlatformExecutionDecisionOptions,
 } from "../recipe/runtime-adapter.js";
+import { inferExecutionContract, inferRequestedEvidence } from "./execution-contract.js";
+import { inferCandidateExecutionFamilies } from "./family-candidates.js";
+import { inferOutcomeContract, type QualificationBridgePlannerInput } from "./outcome-contract.js";
+import { computeQualificationConfidence } from "./qualification-confidence.js";
+import {
+  inferQualificationAmbiguityReasons,
+  resolveLowConfidenceStrategy,
+} from "./qualification-confidence.js";
+import type { QualificationResult } from "./qualification-contract.js";
+import { resolveResolutionContract, toRecipeRoutingHints } from "./resolution-contract.js";
+import {
+  createDefaultExpectedDeltaResolver,
+  createDefaultMonitoredRuntime,
+} from "../commitment/index.js";
+import { runTurnDecision } from "./run-turn-decision.js";
+import {
+  buildPlannerInputFromTaskContract,
+  type TaskClassifierAdapter,
+  type TaskContract,
+} from "./task-classifier.js";
+import {
+  normalizeExecutionTurn,
+  resolveKeywordInferencePrompt,
+  toUniqueLowercase,
+} from "./turn-normalizer.js";
 
-const DEVELOPER_PUBLISH_TARGET_HINTS = ["github", "npm", "docker", "vercel", "netlify"] as const;
-const DEVELOPER_EXECUTION_KEYWORDS =
-  /\b(build|test|fix|refactor|repo|repository|compile|ci|code)\b/iu;
-const DEVELOPER_PUBLISH_KEYWORDS = /\b(preview|publish|release|deploy|ship|rollout)\b/iu;
+const CLARIFY_BUDGET_WINDOW_MS_DEFAULT = 300_000;
+const CLARIFY_BUDGET_MAX_REPEAT_DEFAULT = 2;
+
+const WORKSPACE_TRIGGER_TOOL_NAMES = new Set(["exec", "apply_patch", "process", "bootstrap"]);
+const WORKSPACE_TRIGGER_DELIVERABLE_KINDS = new Set(["code_change", "repo_operation"]);
+const WORKSPACE_TRIGGER_CAPABILITIES = new Set([
+  "needs_workspace_mutation",
+  "needs_repo_execution",
+  "needs_local_runtime",
+]);
+
+export type ShouldInjectWorkspaceContextInput = {
+  taskContract: Pick<
+    TaskContract,
+    "primaryOutcome" | "interactionMode" | "requiredCapabilities" | "deliverable"
+  >;
+  requestedTools?: readonly string[];
+};
+
+/**
+ * Pure decision: does this turn need workspace facts in the classifier prompt?
+ * P1.5 rule — only on turns whose first-pass contract proves a workspace touch is required.
+ * Inputs are facts derived by the LLM (deliverable kind, capabilities, requested tools), never
+ * the user prompt — keeps `lint:routing:no-prompt-parsing` happy.
+ */
+export function shouldInjectWorkspaceContext(input: ShouldInjectWorkspaceContextInput): boolean {
+  const { taskContract } = input;
+  const deliverableKind = taskContract.deliverable?.kind;
+  if (deliverableKind && WORKSPACE_TRIGGER_DELIVERABLE_KINDS.has(deliverableKind)) {
+    return true;
+  }
+  if (
+    deliverableKind === "external_delivery" &&
+    taskContract.interactionMode === "tool_execution"
+  ) {
+    return true;
+  }
+  for (const tool of input.requestedTools ?? []) {
+    if (WORKSPACE_TRIGGER_TOOL_NAMES.has(tool.toLowerCase())) {
+      return true;
+    }
+  }
+  for (const capability of taskContract.requiredCapabilities) {
+    if (WORKSPACE_TRIGGER_CAPABILITIES.has(capability)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function shortIdForLog(id: string | undefined): string {
+  if (!id) {
+    return "-";
+  }
+  return id.slice(0, 8);
+}
+
+function approximateTokenCount(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function resolveEnvPositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function buildClarifyBudgetExceededBlock(maxRepeat: number): string {
+  return [
+    "<clarify_budget_exceeded>",
+    `You have already asked this same clarification ${String(maxRepeat)} times in the last 5 min.`,
+    "Do NOT ask again. Either:",
+    "  - choose a reasonable default assumption and proceed (outcome=action),",
+    "  - or answer directly with respond_only stating the default.",
+    "</clarify_budget_exceeded>",
+  ].join("\n");
+}
+
+/**
+ * Builds classifier policy context for a user reply to a previous clarification.
+ *
+ * @param topicKey - Stable clarify topic key from the intent ledger.
+ * @returns Prompt block that forbids repeating the same clarification.
+ */
+function buildClarifyAnsweredContextBlock(topicKey: string): string {
+  return [
+    `<clarify_answered_context topicKey="${topicKey}">`,
+    "The user is replying after your previous clarification on this topic.",
+    "Do NOT ask the same clarification again under different wording.",
+    "Use the current user message to resolve the topic; if any remaining gap is preference-level or optional, choose a reasonable default and proceed.",
+    "Ask only for a new blocking ambiguity that is unrelated to this topic.",
+    "</clarify_answered_context>",
+  ].join("\n");
+}
 
 type DecisionInputChannelHints = {
   messageChannel?: string;
@@ -21,6 +149,7 @@ type DecisionInputChannelHints = {
 
 export type BuildExecutionDecisionInputParams = {
   prompt: string;
+  inferencePrompt?: string;
   fileNames?: string[];
   artifactKinds?: RecipePlannerInput["artifactKinds"];
   intent?: RecipePlannerInput["intent"];
@@ -34,9 +163,25 @@ export type BuildExecutionDecisionInputParams = {
   > | null;
 };
 
+function resolveIntentLedgerChannelId(channelHints?: DecisionInputChannelHints): string | undefined {
+  const candidate = (
+    channelHints?.messageChannel ??
+    channelHints?.channel ??
+    channelHints?.replyChannel
+  )?.trim();
+  if (!candidate) {
+    return undefined;
+  }
+  const normalized = normalizeAnyChannelId(candidate)?.trim().toLowerCase();
+  if (normalized && normalized.length > 0) {
+    return normalized;
+  }
+  return candidate.toLowerCase();
+}
+
 export type BuildSessionBackedExecutionDecisionInputParams = Omit<
   BuildExecutionDecisionInputParams,
-  "prompt" | "fileNames"
+  "prompt" | "fileNames" | "inferencePrompt"
 > & {
   draftPrompt?: string;
   fileNames?: string[];
@@ -51,90 +196,83 @@ export type BuildSessionBackedExecutionDecisionInputParams = Omit<
   > | null;
 };
 
-function collectPromptHints(prompt: string, candidates: readonly string[]): string[] {
-  const normalized = prompt.toLowerCase();
-  return candidates.filter((candidate) => normalized.includes(candidate));
-}
-
-function toUniqueLowercase(values: Array<string | undefined> | undefined): string[] {
-  return Array.from(
-    new Set(
-      (values ?? [])
-        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        .map((value) => value.trim().toLowerCase()),
-    ),
-  );
-}
-
-function inferPromptIntent(prompt: string): RecipePlannerInput["intent"] {
-  if (DEVELOPER_PUBLISH_KEYWORDS.test(prompt)) {
-    return "publish";
+export function shouldUseLightweightBootstrapContext(
+  plannerInput: Pick<
+    RecipePlannerInput,
+    "intent" | "requestedTools" | "artifactKinds" | "fileNames" | "publishTargets"
+  >,
+): boolean {
+  if ((plannerInput.fileNames?.length ?? 0) > 0) {
+    return false;
   }
-  if (DEVELOPER_EXECUTION_KEYWORDS.test(prompt)) {
-    return "code";
+  if ((plannerInput.requestedTools?.length ?? 0) > 0) {
+    return false;
   }
-  return undefined;
-}
-
-function inferArtifactKinds(prompt: string): NonNullable<RecipePlannerInput["artifactKinds"]> {
-  const publishTargets = collectPromptHints(prompt, DEVELOPER_PUBLISH_TARGET_HINTS);
-  return toUniqueLowercase([
-    ...(publishTargets.length > 0 || /\bpreview\b/iu.test(prompt) ? ["site"] : []),
-    ...(publishTargets.length > 0 || /\brelease\b/iu.test(prompt) ? ["release"] : []),
-    ...(DEVELOPER_EXECUTION_KEYWORDS.test(prompt) ? ["binary"] : []),
-  ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
+  if ((plannerInput.artifactKinds?.length ?? 0) > 0) {
+    return false;
+  }
+  if ((plannerInput.publishTargets?.length ?? 0) > 0) {
+    return false;
+  }
+  return plannerInput.intent === "general" || plannerInput.intent === undefined;
 }
 
 export function buildExecutionDecisionInput(
   params: BuildExecutionDecisionInputParams,
 ): RecipePlannerInput {
-  const inferredPublishTargets = collectPromptHints(params.prompt, DEVELOPER_PUBLISH_TARGET_HINTS);
-  const inferredIntegrations = inferredPublishTargets.filter((target) => target !== "npm");
-  const inferredIntent = inferPromptIntent(params.prompt);
-  const effectiveIntent = params.intent ?? inferredIntent;
-  const inferredRequestedTools =
-    effectiveIntent === "code" || effectiveIntent === "publish"
-      ? ["exec", "apply_patch", "process"]
-      : [];
+  const normalizedTurn = normalizeExecutionTurn({
+    prompt: params.prompt,
+    inferencePrompt: params.inferencePrompt,
+    fileNames: params.fileNames,
+  });
+  const prompt = normalizedTurn.prompt;
+  const fileNames = normalizedTurn.fileNames;
+  const effectiveIntent = params.intent;
   const channelHints = toUniqueLowercase([
     params.channelHints?.messageChannel,
     params.channelHints?.channel,
     params.channelHints?.replyChannel,
   ]);
-  const fileNames = Array.from(
-    new Set(
-      (params.fileNames ?? [])
-        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        .map((value) => value.trim()),
-    ),
-  );
-  const publishTargets = toUniqueLowercase([
-    ...inferredPublishTargets,
-    ...(params.publishTargets ?? []),
-  ]);
-  const integrations = toUniqueLowercase([
-    ...inferredIntegrations,
-    ...(params.integrations ?? []),
-    ...channelHints,
-  ]);
-  const artifactKinds = toUniqueLowercase([
-    ...inferArtifactKinds(params.prompt),
-    ...((params.artifactKinds ?? []) as string[]),
-  ]) as NonNullable<RecipePlannerInput["artifactKinds"]>;
-  const requestedTools = toUniqueLowercase([
-    ...inferredRequestedTools,
-    ...(params.requestedTools ?? []),
-  ]);
-
+  const publishTargets = toUniqueLowercase(params.publishTargets);
+  const integrations = toUniqueLowercase([...(params.integrations ?? []), ...channelHints]);
+  const artifactKinds = toUniqueLowercase(
+    (params.artifactKinds ?? []) as Array<string | undefined>,
+  ) as NonNullable<RecipePlannerInput["artifactKinds"]>;
+  const requestedTools = toUniqueLowercase(params.requestedTools);
+  const qualification = buildQualificationResultFromPlannerInput({
+    ...(effectiveIntent ? { intent: effectiveIntent } : {}),
+    ...(artifactKinds.length > 0 ? { artifactKinds } : {}),
+    ...(requestedTools.length > 0 ? { requestedTools } : {}),
+    ...(publishTargets.length > 0 ? { publishTargets } : {}),
+  });
+  const resolutionContract = resolveResolutionContract({
+    ...(effectiveIntent ? { intent: effectiveIntent } : {}),
+    ...(fileNames.length > 0 ? { fileNames } : {}),
+    ...(artifactKinds.length > 0 ? { artifactKinds } : {}),
+    ...(requestedTools.length > 0 ? { requestedTools } : {}),
+    ...(publishTargets.length > 0 ? { publishTargets } : {}),
+    outcomeContract: qualification.outcomeContract,
+    executionContract: qualification.executionContract,
+    candidateFamilies: qualification.candidateFamilies,
+  });
   return applySessionSpecialistOverrideToPlannerInput(
     {
-      prompt: params.prompt,
+      prompt,
       ...(effectiveIntent ? { intent: effectiveIntent } : {}),
       ...(fileNames.length > 0 ? { fileNames } : {}),
       ...(publishTargets.length > 0 ? { publishTargets } : {}),
       ...(integrations.length > 0 ? { integrations } : {}),
       ...(requestedTools.length > 0 ? { requestedTools } : {}),
       ...(artifactKinds.length > 0 ? { artifactKinds } : {}),
+      outcomeContract: qualification.outcomeContract,
+      executionContract: qualification.executionContract,
+      requestedEvidence: [...qualification.requestedEvidence],
+      confidence: qualification.confidence,
+      ambiguityReasons: qualification.ambiguityReasons,
+      lowConfidenceStrategy: qualification.lowConfidenceStrategy,
+      candidateFamilies: [...resolutionContract.candidateFamilies],
+      resolutionContract,
+      routing: toRecipeRoutingHints(resolutionContract),
     },
     params.sessionEntry,
   );
@@ -143,7 +281,44 @@ export function buildExecutionDecisionInput(
 export function resolveExecutionRuntimePlan(
   params: BuildExecutionDecisionInputParams,
 ): ResolvedPlatformRuntimePlan {
-  return resolvePlatformRuntimePlan(buildExecutionDecisionInput(params));
+  return resolvePlatformRuntimePlan({
+    ...buildExecutionDecisionInput(params),
+    callerTag: "legacy-resolveExecutionRuntimePlan",
+  });
+}
+
+/**
+ * Builds planner input from a persisted `RecipeRuntimePlan` so intent, tools, artifacts,
+ * and publish targets stay aligned with the prior platform resolution instead of being re-inferred
+ * from raw prompt text.
+ */
+export function buildExecutionDecisionInputFromRuntimePlan(params: {
+  runtime: RecipeRuntimePlan;
+  prompt: string;
+  fileNames?: string[];
+  sessionEntry?: BuildExecutionDecisionInputParams["sessionEntry"];
+}): RecipePlannerInput {
+  const base = buildRecipePlannerInputFromRuntimePlan(params.runtime, params.prompt, {
+    fileNames: params.fileNames,
+  });
+  return applySessionSpecialistOverrideToPlannerInput(base, params.sessionEntry ?? null);
+}
+
+/** Re-runs platform resolution using structured fields carried by an existing runtime plan. */
+export function resolveExecutionRuntimePlanFromExistingRuntime(params: {
+  runtime: RecipeRuntimePlan;
+  prompt: string;
+  fileNames?: string[];
+  sessionEntry?: BuildExecutionDecisionInputParams["sessionEntry"];
+  options?: ResolvePlatformExecutionDecisionOptions;
+}): ResolvedPlatformRuntimePlan {
+  return resolvePlatformRuntimePlan(
+    {
+      ...buildExecutionDecisionInputFromRuntimePlan(params),
+      callerTag: "legacy-resolveExecutionRuntimePlanFromExistingRuntime",
+    },
+    params.options ?? {},
+  );
 }
 
 export function buildSessionBackedExecutionDecisionInput(
@@ -160,8 +335,13 @@ export function buildSessionBackedExecutionDecisionInput(
   const sessionContext = resolveSessionDecisionInputContext(messages);
   const prompt = [sessionContext.prompt, params.draftPrompt?.trim()].filter(Boolean).join("\n\n");
   const fileNames = Array.from(new Set([...sessionContext.fileNames, ...(params.fileNames ?? [])]));
+  const inferencePrompt =
+    typeof params.draftPrompt === "string" && params.draftPrompt.trim().length > 0
+      ? resolveKeywordInferencePrompt(params.draftPrompt)
+      : undefined;
   return {
     prompt,
+    ...(inferencePrompt ? { inferencePrompt } : {}),
     ...(fileNames.length > 0 ? { fileNames } : {}),
     ...(params.artifactKinds?.length ? { artifactKinds: params.artifactKinds } : {}),
     ...(params.intent ? { intent: params.intent } : {}),
@@ -177,6 +357,323 @@ export function resolveSessionBackedExecutionRuntimePlan(
   params: BuildSessionBackedExecutionDecisionInputParams,
 ): ResolvedPlatformRuntimePlan {
   return resolveExecutionRuntimePlan(buildSessionBackedExecutionDecisionInput(params));
+}
+
+/**
+ * Baseline `respond_only` TaskContract used by the non-user provenance gate.
+ *
+ * The contract describes a deterministic answer-only outcome with no
+ * capabilities, no ambiguities, and no requested tools. It deliberately matches
+ * the shape produced by `normalizeTaskContract` for an `answer` /
+ * `respond_only` turn so that downstream planner / runtime behaviour stays on
+ * the existing happy path.
+ */
+const NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT: TaskContract = {
+  primaryOutcome: "answer",
+  requiredCapabilities: [],
+  interactionMode: "respond_only",
+  confidence: 1,
+  ambiguities: [],
+  deliverable: { kind: "answer", acceptedFormats: ["text"] },
+};
+
+/**
+ * Short-circuit path used when the inbound prompt has a non-user provenance.
+ *
+ * The gate is structural (typed `InputProvenance.kind`), never a text rule, so
+ * invariant #5 from `.cursor/rules/commitment-kernel-invariants.mdc` is
+ * preserved. We intentionally avoid `runTurnDecision` here so the four frozen
+ * call-sites (`src/platform/decision/input.ts:444`, `:481` and the two in
+ * `src/platform/plugin.ts`) only ever fire on user-initiated prompts.
+ *
+ * @param params - Original `buildClassifiedExecutionDecisionInput` inputs that
+ *   are still needed to build a session-backed planner input (prompt,
+ *   fileNames, sessionEntry overrides, and the typed provenance).
+ * @returns A planner input that requests `respond_only` with no tools.
+ */
+function buildNonUserProvenanceShortCircuitPlannerInput(params: {
+  prompt: string;
+  fileNames?: string[];
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
+  > | null;
+  inputProvenance: InputProvenance;
+}): RecipePlannerInput {
+  const provenanceSource =
+    params.inputProvenance.sourceTool ??
+    params.inputProvenance.sourceChannel ??
+    params.inputProvenance.sourceSessionKey ??
+    "-";
+  defaultRuntime.log(
+    `[provenance-guard] kind=${params.inputProvenance.kind} source=${provenanceSource} session=${shortIdForLog(params.sessionEntry?.sessionId)} → respond_only`,
+  );
+  const plannerInput = buildPlannerInputFromTaskContract({
+    prompt: params.prompt,
+    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+    taskContract: NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT,
+    classifierTelemetry: {
+      source: "provenance_guard",
+      primaryOutcome: NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT.primaryOutcome,
+      interactionMode: NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT.interactionMode,
+      confidence: NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT.confidence,
+      deliverableKind: NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT.deliverable?.kind,
+      deliverableFormats: [
+        ...(NON_USER_PROVENANCE_BASELINE_TASK_CONTRACT.deliverable?.acceptedFormats ?? []),
+      ],
+    },
+  });
+  return applySessionSpecialistOverrideToPlannerInput(plannerInput, params.sessionEntry);
+}
+
+export async function buildClassifiedExecutionDecisionInput(params: {
+  prompt: string;
+  fileNames?: string[];
+  channelHints?: DecisionInputChannelHints;
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
+  > | null;
+  storePath?: string;
+  cfg: OpenClawConfig;
+  agentDir?: string;
+  adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
+  /**
+   * Typed origin of the prompt for this classification call. When the kind is
+   * anything other than `external_user` (i.e. the prompt is a subagent
+   * announce, sessions_send forward, descendant wake, post-compaction context,
+   * or any other non-user-initiated text), the classifier is short-circuited
+   * to a respond-only baseline so that the agent never reclassifies its own
+   * outbound text as a fresh user prompt. See
+   * `.cursor/plans/commitment_kernel_self_feedback_loop_fix.plan.md`.
+   *
+   * `undefined` preserves legacy behaviour (treat as user prompt) for callers
+   * that have not yet been threaded.
+   */
+  inputProvenance?: InputProvenance;
+}): Promise<RecipePlannerInput> {
+  if (params.inputProvenance && params.inputProvenance.kind !== "external_user") {
+    return buildNonUserProvenanceShortCircuitPlannerInput({
+      prompt: params.prompt,
+      fileNames: params.fileNames,
+      sessionEntry: params.sessionEntry,
+      inputProvenance: params.inputProvenance,
+    });
+  }
+  const classifierInput = buildSessionBackedExecutionDecisionInput({
+    draftPrompt: params.prompt,
+    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+    storePath: params.storePath,
+    ...(params.channelHints ? { channelHints: params.channelHints } : {}),
+    ...(params.sessionEntry ? { sessionEntry: params.sessionEntry } : {}),
+  });
+  const classifierPrompt = params.prompt.trim() || classifierInput.prompt;
+  const ledgerSessionId = params.sessionEntry?.sessionId?.trim();
+  const ledgerChannelId = resolveIntentLedgerChannelId(params.channelHints);
+  const pendingCommitments =
+    ledgerSessionId && ledgerChannelId
+      ? intentLedger.peekPending(ledgerSessionId, ledgerChannelId)
+      : [];
+  const ledgerContext = buildIntentLedgerContext(pendingCommitments);
+  defaultRuntime.log(
+    `[intent-ledger] peek=${String(pendingCommitments.length)} injected=${ledgerContext ? "1" : "0"} session=${ledgerSessionId ?? "-"} channel=${ledgerChannelId ?? "-"}`,
+  );
+  const clarifyWindowMs = resolveEnvPositiveInt(
+    process.env.OPENCLAW_CLARIFY_BUDGET_WINDOW_MS,
+    CLARIFY_BUDGET_WINDOW_MS_DEFAULT,
+  );
+  const clarifyMaxRepeat = resolveEnvPositiveInt(
+    process.env.OPENCLAW_CLARIFY_MAX_REPEAT,
+    CLARIFY_BUDGET_MAX_REPEAT_DEFAULT,
+  );
+  let clarifyBudgetNotice = "";
+  const pendingTopicKey = pendingCommitments
+    .toReversed()
+    .find((entry) => entry.clarifyTopicKey)
+    ?.clarifyTopicKey;
+  if (ledgerSessionId && ledgerChannelId && pendingTopicKey) {
+    clarifyBudgetNotice = buildClarifyAnsweredContextBlock(pendingTopicKey);
+    const ledgerCount = intentLedger.peekClarifyCount(
+      ledgerSessionId,
+      ledgerChannelId,
+      pendingTopicKey,
+    );
+    const withinWindowCount =
+      clarifyWindowMs === CLARIFY_BUDGET_WINDOW_MS_DEFAULT
+        ? ledgerCount.count
+        : pendingCommitments.filter(
+            (entry) =>
+              entry.kind === "clarifying" &&
+              entry.clarifyTopicKey === pendingTopicKey &&
+              entry.createdAt >= Date.now() - clarifyWindowMs,
+          ).length;
+    const injected = withinWindowCount >= clarifyMaxRepeat;
+    if (injected) {
+      clarifyBudgetNotice = [
+        clarifyBudgetNotice,
+        buildClarifyBudgetExceededBlock(clarifyMaxRepeat),
+      ].join("\n");
+    }
+    defaultRuntime.log(
+      `[clarify-budget] topic=${pendingTopicKey.slice(0, 8)} count=${String(withinWindowCount)} injected=${injected ? "1" : "0"}`,
+    );
+  }
+  let identityContext = "";
+  if (ledgerSessionId && ledgerChannelId) {
+    try {
+      const identity = intentLedger.getOrBuildIdentity(ledgerSessionId, ledgerChannelId);
+      identityContext = projectIdentityForPrompt(identity);
+    } catch (error) {
+      defaultRuntime.log(
+        `[identity-inject] error session=${shortIdForLog(ledgerSessionId)} channel=${shortIdForLog(ledgerChannelId)} reason=${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  getCurrentTurnProgressEmitter()?.emit("classifying");
+  const priorIntent =
+    ledgerSessionId && ledgerChannelId
+      ? intentLedger.getRecentIntent(ledgerSessionId, ledgerChannelId)
+      : undefined;
+  const { productionDecision: classified, intent: classifiedIntent } = await runTurnDecision({
+    prompt: classifierPrompt,
+    fileNames: classifierInput.fileNames,
+    cfg: params.cfg,
+    agentDir: params.agentDir,
+    classifierInput,
+    ledgerContext,
+    clarifyBudgetNotice,
+    ...(identityContext ? { identityContext } : {}),
+    ...(priorIntent ? { priorIntent } : {}),
+    classifierAdapterRegistry: params.adapterRegistry,
+    monitoredRuntime: createDefaultMonitoredRuntime(),
+    expectedDeltaResolver: createDefaultExpectedDeltaResolver(),
+  });
+
+  let finalClassified = classified;
+  let finalClassifiedIntent = classifiedIntent;
+  if (
+    ledgerSessionId &&
+    ledgerChannelId &&
+    shouldInjectWorkspaceContext({
+      taskContract: classified.taskContract,
+      requestedTools: classified.plannerInput.requestedTools,
+    })
+  ) {
+    let workspaceContext = "";
+    try {
+      const snapshot = await intentLedger.getOrProbeWorkspace(ledgerSessionId, ledgerChannelId);
+      workspaceContext = projectWorkspaceForPrompt(snapshot);
+    } catch (error) {
+      defaultRuntime.log(
+        `[workspace-inject] error session=${shortIdForLog(ledgerSessionId)} channel=${shortIdForLog(ledgerChannelId)} reason=${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (workspaceContext) {
+      const reason = workspaceInjectionReason(classified.taskContract, classified.plannerInput.requestedTools);
+      defaultRuntime.log(
+        `[workspace-inject] session=${shortIdForLog(ledgerSessionId)} channel=${shortIdForLog(ledgerChannelId)} reason=${reason} tokens=${String(approximateTokenCount(workspaceContext))}`,
+      );
+      const { productionDecision, intent: workspaceIntent } = await runTurnDecision({
+        prompt: classifierPrompt,
+        fileNames: classifierInput.fileNames,
+        cfg: params.cfg,
+        agentDir: params.agentDir,
+        classifierInput,
+        ledgerContext,
+        clarifyBudgetNotice,
+        workspaceContext,
+        ...(identityContext ? { identityContext } : {}),
+        ...(priorIntent ? { priorIntent } : {}),
+        classifierAdapterRegistry: params.adapterRegistry,
+        monitoredRuntime: createDefaultMonitoredRuntime(),
+        expectedDeltaResolver: createDefaultExpectedDeltaResolver(),
+      });
+      finalClassified = productionDecision;
+      finalClassifiedIntent = workspaceIntent ?? finalClassifiedIntent;
+    }
+  }
+  if (finalClassifiedIntent && ledgerSessionId && ledgerChannelId) {
+    intentLedger.recordRecentIntent({
+      sessionId: ledgerSessionId,
+      channelId: ledgerChannelId,
+      intent: finalClassifiedIntent,
+    });
+  }
+  return applySessionSpecialistOverrideToPlannerInput(
+    {
+      ...finalClassified.plannerInput,
+      ...(classifierInput.integrations?.length
+        ? { integrations: classifierInput.integrations }
+        : {}),
+    },
+    params.sessionEntry,
+  );
+}
+
+function workspaceInjectionReason(
+  taskContract: Pick<
+    TaskContract,
+    "primaryOutcome" | "interactionMode" | "requiredCapabilities" | "deliverable"
+  >,
+  requestedTools: readonly string[] | undefined,
+): "contract" | "tools" {
+  const deliverableKind = taskContract.deliverable?.kind;
+  if (deliverableKind && WORKSPACE_TRIGGER_DELIVERABLE_KINDS.has(deliverableKind)) {
+    return "contract";
+  }
+  if (
+    deliverableKind === "external_delivery" &&
+    taskContract.interactionMode === "tool_execution"
+  ) {
+    return "contract";
+  }
+  for (const tool of requestedTools ?? []) {
+    if (WORKSPACE_TRIGGER_TOOL_NAMES.has(tool.toLowerCase())) {
+      return "tools";
+    }
+  }
+  return "contract";
+}
+
+export async function resolveClassifiedSessionBackedExecutionRuntimePlan(params: {
+  draftPrompt?: string;
+  fileNames?: string[];
+  channelHints?: DecisionInputChannelHints;
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
+  > | null;
+  storePath?: string;
+  cfg: OpenClawConfig;
+  agentDir?: string;
+  adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
+}): Promise<ResolvedPlatformRuntimePlan> {
+  const plannerInput = await buildClassifiedExecutionDecisionInput({
+    prompt: params.draftPrompt ?? "",
+    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+    ...(params.channelHints ? { channelHints: params.channelHints } : {}),
+    ...(params.sessionEntry ? { sessionEntry: params.sessionEntry } : {}),
+    storePath: params.storePath,
+    cfg: params.cfg,
+    agentDir: params.agentDir,
+    adapterRegistry: params.adapterRegistry,
+  });
+  return resolvePlatformRuntimePlan({
+    ...plannerInput,
+    callerTag: "legacy-resolveClassifiedSessionBackedExecutionRuntimePlan",
+  });
 }
 
 function extractTranscriptUserText(content: unknown): string | undefined {
@@ -203,25 +700,35 @@ function pushMediaPath(value: unknown, into: Set<string>) {
   into.add(path.basename(value.trim()));
 }
 
+/**
+ * Builds a compact planner context from the latest user turns in a session transcript.
+ *
+ * The same recent user-message window is used for both prompt text and attachment-derived
+ * file names so older spreadsheet uploads do not leak into a new unrelated turn.
+ *
+ * @param {unknown[]} messages - Raw transcript messages for the current session.
+ * @returns {{ prompt: string; fileNames: string[] }} Prompt text and attachment file names.
+ */
 export function resolveSessionDecisionInputContext(messages: unknown[]): {
   prompt: string;
   fileNames: string[];
 } {
+  const recentUserMessages = messages
+    .slice(-24)
+    .filter(
+      (
+        raw,
+      ): raw is {
+        role?: unknown;
+        content?: unknown;
+        MediaPath?: unknown;
+        MediaPaths?: unknown;
+      } => Boolean(raw) && typeof raw === "object" && (raw as { role?: unknown }).role === "user",
+    )
+    .slice(-6);
   const recentTexts: string[] = [];
   const fileNames = new Set<string>();
-  for (const raw of messages.slice(-24)) {
-    if (!raw || typeof raw !== "object") {
-      continue;
-    }
-    const message = raw as {
-      role?: unknown;
-      content?: unknown;
-      MediaPath?: unknown;
-      MediaPaths?: unknown;
-    };
-    if (message.role !== "user") {
-      continue;
-    }
+  for (const message of recentUserMessages) {
     const text = extractTranscriptUserText(message.content)?.trim();
     if (text) {
       recentTexts.push(text);
@@ -234,7 +741,53 @@ export function resolveSessionDecisionInputContext(messages: unknown[]): {
     }
   }
   return {
-    prompt: recentTexts.slice(-6).join("\n\n"),
+    prompt: recentTexts.join("\n\n"),
     fileNames: Array.from(fileNames).slice(-8),
+  };
+}
+
+export function buildQualificationResultFromPlannerInput(
+  input: QualificationBridgePlannerInput,
+): QualificationResult {
+  const outcomeContract = inferOutcomeContract(input);
+  const executionContract = inferExecutionContract(outcomeContract, input);
+  const candidateFamilies = inferCandidateExecutionFamilies(outcomeContract, input);
+  const ambiguityReasons = inferQualificationAmbiguityReasons({
+    outcomeContract,
+    executionContract,
+    candidateFamilies,
+    intent: input.intent,
+    artifactKinds: input.artifactKinds,
+    requestedTools: input.requestedTools,
+    publishTargets: input.publishTargets,
+  });
+  const confidence = computeQualificationConfidence({
+    outcomeContract,
+    executionContract,
+    candidateFamilies,
+    ambiguityReasons,
+    intent: input.intent,
+    artifactKinds: input.artifactKinds,
+    requestedTools: input.requestedTools,
+    publishTargets: input.publishTargets,
+  });
+  return {
+    outcomeContract,
+    executionContract,
+    requestedEvidence: inferRequestedEvidence(outcomeContract, executionContract),
+    confidence,
+    ambiguityReasons,
+    lowConfidenceStrategy: resolveLowConfidenceStrategy({
+      outcomeContract,
+      executionContract,
+      candidateFamilies,
+      confidence,
+      ambiguityReasons,
+      intent: input.intent,
+      artifactKinds: input.artifactKinds,
+      requestedTools: input.requestedTools,
+      publishTargets: input.publishTargets,
+    }),
+    candidateFamilies,
   };
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 const loadSessionsMock = vi.fn();
+const applySessionsChangedEventMock = vi.fn(() => ({ applied: false, shouldReload: true }));
 const loadMachineControlMock = vi.fn();
 const refreshActiveTabMock = vi.fn();
 
@@ -45,6 +46,7 @@ vi.mock("./controllers/nodes.ts", () => ({
   loadNodes: vi.fn(),
 }));
 vi.mock("./controllers/sessions.ts", () => ({
+  applySessionsChangedEvent: applySessionsChangedEventMock,
   loadSessions: loadSessionsMock,
   subscribeSessions: vi.fn(),
 }));
@@ -110,7 +112,26 @@ function createHost() {
 }
 
 describe("handleGatewayEvent sessions.changed", () => {
-  it("reloads sessions when the gateway pushes a sessions.changed event", () => {
+  it("applies typed session patches without forcing a reload", () => {
+    applySessionsChangedEventMock.mockReset();
+    applySessionsChangedEventMock.mockReturnValue({ applied: true, shouldReload: false });
+    loadSessionsMock.mockReset();
+    const host = createHost();
+
+    handleGatewayEvent(host, {
+      type: "event",
+      event: "sessions.changed",
+      payload: { sessionKey: "agent:main:main", reason: "patch", kind: "direct", updatedAt: 1 },
+      seq: 1,
+    });
+
+    expect(applySessionsChangedEventMock).toHaveBeenCalledTimes(1);
+    expect(loadSessionsMock).not.toHaveBeenCalled();
+  });
+
+  it("reloads sessions when the patch helper requests fallback refresh", () => {
+    applySessionsChangedEventMock.mockReset();
+    applySessionsChangedEventMock.mockReturnValue({ applied: false, shouldReload: true });
     loadSessionsMock.mockReset();
     const host = createHost();
 
@@ -121,6 +142,7 @@ describe("handleGatewayEvent sessions.changed", () => {
       seq: 1,
     });
 
+    expect(applySessionsChangedEventMock).toHaveBeenCalledTimes(1);
     expect(loadSessionsMock).toHaveBeenCalledTimes(1);
     expect(loadSessionsMock).toHaveBeenCalledWith(host);
   });

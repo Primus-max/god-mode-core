@@ -10,9 +10,11 @@ import {
 const packNpmSpecToArchive = vi.spyOn(installSourceUtils, "packNpmSpecToArchive");
 const withTempDir = vi.spyOn(installSourceUtils, "withTempDir");
 
-withTempDir.mockImplementation(async (_prefix: string, fn: (tmpDir: string) => Promise<unknown>) => {
-  return await fn("/tmp/openclaw-npm-pack-install-test");
-});
+withTempDir.mockImplementation(
+  async (_prefix: string, fn: (tmpDir: string) => Promise<unknown>) => {
+    return await fn("/tmp/openclaw-npm-pack-install-test");
+  },
+);
 
 afterAll(() => {
   packNpmSpecToArchive.mockRestore();

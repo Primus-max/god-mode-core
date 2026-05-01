@@ -27,6 +27,24 @@ Describe the problem and fix in 2–5 bullets:
 - [ ] UI / DX
 - [ ] CI/CD / infra
 
+## Frozen layer touch (commitment kernel master plan §6.2)
+
+If this PR changes any file under `src/platform/decision/` (TaskContract,
+OutcomeContract, QualificationExecutionContract, ResolutionContract,
+RecipeRoutingHints, DecisionTrace), pick exactly one category:
+
+- [ ] telemetry-only — logs / trace / metric, no routing semantics change
+- [ ] bug-fix — fixes a specific bug, does not change routing semantics
+- [ ] compatibility — shim field; you MUST name the `ExecutionCommitment.<…>` source of truth below
+- [ ] emergency-rollback — revert; tracking ticket: #______, retire deadline: ______
+- [ ] none of the above — PR does not touch the frozen layer
+
+Source of truth (required iff `compatibility`): ______________________
+
+> CI label-check enforcement for this section is wired as a skeleton in PR-1
+> and activated in PR-2 (commitment kernel master plan §9). Until then this
+> block is reviewer-enforced.
+
 ## Linked Issue/PR
 
 - Closes #

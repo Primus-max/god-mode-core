@@ -83,6 +83,57 @@ describe("loadArtifacts", () => {
     expect(state.artifactsSelectedId).toBe("artifact-1");
     expect(state.artifactDetail?.descriptor.id).toBe("artifact-1");
   });
+
+  it("preserves a deep-linked selected artifact when the list reloads", async () => {
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "platform.artifacts.list") {
+        return {
+          artifacts: [
+            {
+              id: "artifact-1",
+              kind: "document",
+              label: "Invoice Report",
+              lifecycle: "draft",
+              previewAvailable: true,
+              contentAvailable: true,
+              hasMaterialization: true,
+            },
+            {
+              id: "artifact-2",
+              kind: "document",
+              label: "Release Notes",
+              lifecycle: "preview",
+              previewAvailable: true,
+              contentAvailable: true,
+              hasMaterialization: true,
+            },
+          ],
+        };
+      }
+      if (method === "platform.artifacts.get") {
+        expect(params).toEqual({ artifactId: "artifact-2" });
+        return {
+          detail: {
+            descriptor: {
+              id: "artifact-2",
+              kind: "document",
+              label: "Release Notes",
+              lifecycle: "preview",
+            },
+            previewAvailable: true,
+            contentAvailable: true,
+          },
+        };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const state = createState(request, { artifactsSelectedId: "artifact-2" });
+
+    await loadArtifacts(state);
+
+    expect(state.artifactsSelectedId).toBe("artifact-2");
+    expect(state.artifactDetail?.descriptor.id).toBe("artifact-2");
+  });
 });
 
 describe("loadArtifactDetail", () => {

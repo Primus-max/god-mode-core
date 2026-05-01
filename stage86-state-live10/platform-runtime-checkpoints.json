@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "checkpoints": [
+    {
+      "id": "6be2c6fc-ea36-4cac-af69-52174768237f",
+      "runId": "6be2c6fc-ea36-4cac-af69-52174768237f",
+      "boundary": "bootstrap",
+      "status": "completed",
+      "blockedReason": "Bootstrap checkpoint: capability install is blocked until the operator approves (platform.bootstrap.resolve) and runs install/verify (platform.bootstrap.run).",
+      "nextActions": [
+        {
+          "method": "platform.bootstrap.resolve",
+          "label": "Approve or deny capability bootstrap (install) request",
+          "phase": "approve"
+        },
+        {
+          "method": "platform.bootstrap.run",
+          "label": "Execute approved install, health verification, and resume blocked work if configured",
+          "phase": "resume"
+        }
+      ],
+      "target": {
+        "bootstrapRequestId": "6be2c6fc-ea36-4cac-af69-52174768237f",
+        "operation": "bootstrap.run"
+      },
+      "continuation": {
+        "kind": "bootstrap_run",
+        "state": "idle",
+        "attempts": 0
+      },
+      "createdAtMs": 1775746920823,
+      "updatedAtMs": 1775747078644,
+      "approvedAtMs": 1775747073997,
+      "resumedAtMs": 1775747074009,
+      "completedAtMs": 1775747078644,
+      "lastOperatorDecision": {
+        "action": "run",
+        "atMs": 1775747074004,
+        "actor": {
+          "id": "cli",
+          "displayName": "stage86-live-probe",
+          "deviceId": "bf4f0d0a5691ed6a5eca5b8ed067526161a54a53d18161ddaaee0615b7a6e48b",
+          "connId": "24beee0e-b995-403a-81f3-aa8325cb5386"
+        },
+        "source": "platform.bootstrap.run"
+      }
+    },
+    {
+      "id": "bootstrap-origin:6be2c6fc-ea36-4cac-af69-52174768237f:stage86-case4-3ce57cf9-b8fe-4b86-9571-e31317c1fc29",
+      "runId": "stage86-case4-3ce57cf9-b8fe-4b86-9571-e31317c1fc29",
+      "boundary": "bootstrap",
+      "status": "completed",
+      "blockedReason": "Bootstrap evidence: the task requested a capability install before it could complete.",
+      "target": {
+        "bootstrapRequestId": "6be2c6fc-ea36-4cac-af69-52174768237f",
+        "operation": "bootstrap.run"
+      },
+      "createdAtMs": 1775746920829,
+      "updatedAtMs": 1775746938836,
+      "completedAtMs": 1775746938836
+    }
+  ]
+}

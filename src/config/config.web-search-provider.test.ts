@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearPluginDiscoveryCache } from "../plugins/discovery.js";
+import { clearPluginManifestRegistryCache } from "../plugins/manifest-registry.js";
 import { buildWebSearchProviderConfig } from "./test-helpers.js";
 
 vi.mock("../runtime.js", () => ({
@@ -143,6 +146,25 @@ function pluginWebSearchApiKey(
 }
 
 describe("web search provider config", () => {
+  let previousBundledPluginsDir: string | undefined;
+
+  beforeAll(() => {
+    previousBundledPluginsDir = process.env.OPENCLAW_BUNDLED_PLUGINS_DIR;
+    process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = path.resolve(process.cwd(), "extensions");
+    clearPluginDiscoveryCache();
+    clearPluginManifestRegistryCache();
+  });
+
+  afterAll(() => {
+    if (previousBundledPluginsDir === undefined) {
+      delete process.env.OPENCLAW_BUNDLED_PLUGINS_DIR;
+    } else {
+      process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = previousBundledPluginsDir;
+    }
+    clearPluginDiscoveryCache();
+    clearPluginManifestRegistryCache();
+  });
+
   it("does not warn for legacy brave config when bundled web search allowlist compat applies", () => {
     const res = validateConfigObjectWithPlugins({
       plugins: {

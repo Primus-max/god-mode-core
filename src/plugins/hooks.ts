@@ -5,6 +5,7 @@
  * error handling, priority ordering, and async support.
  */
 
+import { mergePromptOptimizationReports } from "../context-engine/prompt-optimize.js";
 import { concatOptionalTextSegments } from "../shared/text/join-segments.js";
 import type { PluginRegistry } from "./registry.js";
 import type {
@@ -192,6 +193,11 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
       left: acc?.appendSystemContext,
       right: next.appendSystemContext,
     }),
+    userPromptOverride: next.userPromptOverride ?? acc?.userPromptOverride,
+    promptOptimization: mergePromptOptimizationReports(
+      acc?.promptOptimization,
+      next.promptOptimization,
+    ),
   });
 
   const mergeBeforeRecipeExecute = (

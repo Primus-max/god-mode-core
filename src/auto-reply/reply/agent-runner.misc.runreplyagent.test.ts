@@ -11,6 +11,10 @@ import type { TemplateContext } from "../templating.js";
 import type { FollowupRun, QueueSettings } from "./queue.js";
 import { enqueueFollowupRun } from "./queue.js";
 import { createMockTypingController } from "./test-helpers.js";
+import type { DeliverableSpec } from "../../platform/produce/registry.js";
+import { intentLedger } from "../../platform/session/intent-ledger.js";
+import { computeIntentFingerprint } from "../../platform/session/intent-fingerprint.js";
+import * as agentRunnerUtils from "./agent-runner-utils.js";
 
 const runEmbeddedPiAgentMock = vi.fn();
 const runCliAgentMock = vi.fn();
@@ -106,6 +110,7 @@ type RunWithModelFallbackParams = {
 beforeEach(() => {
   vi.useRealTimers();
   vi.clearAllTimers();
+  vi.stubEnv("OPENCLAW_DEBUG_REPLY_ROUTING", "0");
   vi.mocked(enqueueFollowupRun).mockReset();
   runEmbeddedPiAgentMock.mockClear();
   runCliAgentMock.mockClear();
@@ -152,6 +157,7 @@ beforeEach(() => {
       model,
     }),
   );
+  intentLedger.invalidate(() => true);
 });
 
 afterEach(() => {
@@ -240,7 +246,7 @@ describe("runReplyAgent onAgentRunStart", () => {
 
     expect(onAgentRunStart).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      text: expect.stringContaining('No API key found for provider "anthropic".'),
+      text: expect.stringContaining('No API key found for provider "anthropic"'),
     });
   });
 
@@ -414,6 +420,69 @@ describe("runReplyAgent semantic acceptance orchestration", () => {
     );
   });
 
+  it("suppresses deferred final text when closure already requires semantic retry", async () => {
+    const onDeliveryClosureCandidate = vi.fn();
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "Сейчас соберу PDF и пришлю его." }],
+      meta: {
+        completionOutcome: {
+          runId: "run-semantic-deferred",
+          status: "completed",
+          checkpointIds: [],
+          blockedCheckpointIds: [],
+          completedCheckpointIds: [],
+          deniedCheckpointIds: [],
+          pendingApprovalIds: [],
+          artifactIds: [],
+          bootstrapRequestIds: [],
+          actionIds: [],
+          attemptedActionIds: [],
+          confirmedActionIds: [],
+          failedActionIds: [],
+          boundaries: [],
+        },
+        executionIntent: {
+          runId: "run-semantic-deferred",
+          recipeId: "doc_ingest",
+          intent: "document",
+          artifactKinds: ["document"],
+          expectations: {},
+        },
+      },
+    });
+    const { typing, sessionCtx, resolvedQueue, followupRun } = buildParams();
+
+    const result = await runReplyAgent({
+      commandBody: "Сделай PDF про банан",
+      followupRun,
+      queueKey: "main",
+      resolvedQueue,
+      shouldSteer: false,
+      shouldFollowup: false,
+      isActive: false,
+      isStreaming: false,
+      typing,
+      sessionCtx,
+      opts: { onDeliveryClosureCandidate },
+      defaultModel: "anthropic/claude",
+      resolvedVerboseLevel: "off",
+      isNewSession: false,
+      blockStreamingEnabled: false,
+      resolvedBlockStreamingBreak: "message_end",
+      shouldInjectGroupIntro: false,
+      typingMode: "instant",
+    });
+
+    expect(result).toBeUndefined();
+    expect(enqueueFollowupRun).not.toHaveBeenCalled();
+    expect(onDeliveryClosureCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueKey: "main",
+        sourceRun: followupRun,
+      }),
+    );
+  });
+
   it("returns a human-required payload and does not enqueue retry loops", async () => {
     runEmbeddedPiAgentMock.mockResolvedValueOnce({
       payloads: [],
@@ -511,6 +580,137 @@ describe("runReplyAgent semantic acceptance orchestration", () => {
 
     expect(result).toMatchObject({ mediaUrl: "https://example.com/report.png" });
     expect(enqueueFollowupRun).not.toHaveBeenCalled();
+  });
+
+  it("does not short-circuit in the runner when a fresh ledger receipt exists", async () => {
+    const typing = createMockTypingController();
+    const sessionCtx = {
+      Provider: "telegram",
+      Surface: "telegram",
+      OriginatingTo: "chat:1",
+      AccountId: "primary",
+      MessageSid: "msg-1",
+    } as unknown as TemplateContext;
+    const resolvedQueue = { mode: "followup", debounceMs: 0, cap: 20 } as QueueSettings;
+    const followupRun = {
+      prompt:
+        "Запусти в проекте god-mode-core dev-сервер через exec: `pnpm dev`. Если процесс успешно стартовал, верни PID и localhost URL.",
+      summaryLine: "start dev server",
+      enqueuedAt: Date.now(),
+      run: {
+        agentId: "main",
+        agentDir: "/tmp/agent",
+        sessionId: "session-idempotent",
+        sessionKey: "main",
+        messageProvider: "telegram",
+        sessionFile: "/tmp/session-idempotent.jsonl",
+        workspaceDir: "/tmp",
+        config: {},
+        skillsSnapshot: {},
+        provider: "anthropic",
+        model: "claude",
+        thinkLevel: "low",
+        verboseLevel: "off",
+        elevatedLevel: "off",
+        bashElevated: { enabled: false, allowed: false, defaultLevel: "off" },
+        timeoutMs: 5_000,
+        blockReplyBreak: "message_end",
+      },
+    } as unknown as FollowupRun;
+    const deliverable: DeliverableSpec = {
+      kind: "repo_operation",
+      acceptedFormats: ["exec"],
+      preferredFormat: "exec",
+      constraints: {
+        target_repo: "/tmp",
+        command_signature: "pnpm dev",
+        operation: "run_command",
+      },
+    };
+    const requiredCapabilities = ["needs_repo_execution", "needs_local_runtime"];
+    const fingerprint = computeIntentFingerprint(deliverable, requiredCapabilities);
+    expect(fingerprint).toBeTruthy();
+    intentLedger.recordFromBotTurn({
+      turnId: "turn-existing-exec",
+      sessionId: "session-idempotent",
+      channelId: "telegram",
+      summary: "Уже сделано: dev server started",
+      planOutput: {
+        executionContract: { requiresTools: true },
+        fingerprint,
+      },
+      runtimeReceipts: [
+        {
+          kind: "tool",
+          name: "exec",
+          status: "success",
+          summary: "dev server started",
+          metadata: {
+            pid: 4242,
+            url: "http://127.0.0.1:5173",
+          },
+        },
+      ],
+    });
+    const routingSpy = vi
+      .spyOn(agentRunnerUtils, "resolveRoutingSnapshotForTemplateRun")
+      .mockResolvedValue({
+        plannerInput: {
+          prompt: followupRun.prompt,
+        } as any,
+        runtimePlan: {
+          selectedRecipeId: "ops_orchestration",
+          selectedProfileId: "developer",
+          intent: "code",
+          deliverable,
+          requiredCapabilities,
+          executionContract: {
+            requiresTools: true,
+            requiresWorkspaceMutation: false,
+            requiresLocalProcess: true,
+            requiresArtifactEvidence: false,
+            requiresDeliveryEvidence: false,
+            mayNeedBootstrap: false,
+          },
+          requestedToolNames: ["exec"],
+        },
+        channelHints: {
+          messageChannel: "telegram",
+          channel: "telegram",
+          replyChannel: "telegram",
+        },
+      } as any);
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "Уже сделано: http://127.0.0.1:5173 (PID 4242)" }],
+      meta: {},
+    });
+
+    const second = await runReplyAgent({
+      commandBody:
+        "Запусти в проекте god-mode-core dev-сервер через exec: `pnpm dev`. Если он уже поднят, не запускай второй раз и верни receipt предыдущего запуска.",
+      followupRun,
+      queueKey: "main",
+      resolvedQueue,
+      shouldSteer: false,
+      shouldFollowup: false,
+      isActive: false,
+      isStreaming: false,
+      typing: createMockTypingController(),
+      sessionCtx,
+      defaultModel: "anthropic/claude",
+      resolvedVerboseLevel: "off",
+      isNewSession: false,
+      blockStreamingEnabled: false,
+      resolvedBlockStreamingBreak: "message_end",
+      shouldInjectGroupIntro: false,
+      typingMode: "instant",
+    });
+    routingSpy.mockRestore();
+
+    expect(runEmbeddedPiAgentMock).toHaveBeenCalledTimes(1);
+    expect(second).toMatchObject({
+      text: "Уже сделано: http://127.0.0.1:5173 (PID 4242)",
+    });
   });
 });
 
@@ -1480,7 +1680,7 @@ describe("runReplyAgent messaging tool suppression", () => {
     });
   }
 
-  it("drops replies when a messaging tool sent via the same provider + target", async () => {
+  it("preserves novel replies when a messaging tool sent via the same provider + target", async () => {
     runEmbeddedPiAgentMock.mockResolvedValueOnce({
       payloads: [{ text: "hello world!" }],
       messagingToolSentTexts: ["different message"],
@@ -1490,7 +1690,7 @@ describe("runReplyAgent messaging tool suppression", () => {
 
     const result = await createRun("slack");
 
-    expect(result).toBeUndefined();
+    expect(result).toMatchObject({ text: "hello world!" });
   });
 
   it("delivers replies when tool provider does not match", async () => {
@@ -1539,7 +1739,7 @@ describe("runReplyAgent messaging tool suppression", () => {
     expect(result).toMatchObject({ text: "hello world!" });
   });
 
-  it("persists usage fields even when replies are suppressed", async () => {
+  it("persists usage fields when same-target delivery keeps a novel final reply", async () => {
     const storePath = path.join(
       await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-store-")),
       "sessions.json",
@@ -1563,7 +1763,7 @@ describe("runReplyAgent messaging tool suppression", () => {
 
     const result = await createRun("slack", { storePath, sessionKey });
 
-    expect(result).toBeUndefined();
+    expect(result).toMatchObject({ text: "hello world!" });
     const store = loadSessionStore(storePath, { skipCache: true });
     expect(store[sessionKey]?.inputTokens).toBe(10);
     expect(store[sessionKey]?.outputTokens).toBe(5);
@@ -1597,7 +1797,7 @@ describe("runReplyAgent messaging tool suppression", () => {
 
     const result = await createRun("slack", { storePath, sessionKey });
 
-    expect(result).toBeUndefined();
+    expect(result).toMatchObject({ text: "hello world!" });
     const store = loadSessionStore(storePath, { skipCache: true });
     expect(store[sessionKey]?.totalTokens).toBe(42_000);
     expect(store[sessionKey]?.totalTokensFresh).toBe(true);
@@ -1633,7 +1833,7 @@ describe("runReplyAgent messaging tool suppression", () => {
 
     const result = await createRun("slack", { storePath, sessionKey });
 
-    expect(result).toBeUndefined();
+    expect(result).toMatchObject({ text: "hello world!" });
     const store = loadSessionStore(storePath, { skipCache: true });
     expect(store[sessionKey]?.totalTokens).toBe(41_000);
     expect(store[sessionKey]?.totalTokensFresh).toBe(true);

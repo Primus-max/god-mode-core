@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { installFromValidatedNpmSpecArchive } from "./install-from-npm-spec.js";
 import * as npmPackInstall from "./npm-pack-install.js";
 import * as npmRegistrySpec from "./npm-registry-spec.js";
-import { installFromValidatedNpmSpecArchive } from "./install-from-npm-spec.js";
 
 const validateSpy = vi.spyOn(npmRegistrySpec, "validateRegistryNpmSpec");
 const installFromNpmSpecArchiveWithInstallerSpy = vi.spyOn(
@@ -46,7 +46,7 @@ describe("installFromValidatedNpmSpecArchive", () => {
     const warn = vi.fn();
     const onIntegrityDrift = vi.fn();
     const flowResult = {
-      ok: true,
+      ok: true as const,
       installResult: { ok: true },
       npmResolution: { version: "1.2.3" },
     };

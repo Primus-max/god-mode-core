@@ -1,6 +1,14 @@
+/* @vitest-environment jsdom */
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_CRON_FORM } from "../app-defaults.ts";
+import {
+  buildCanonicalChatHref,
+  buildCanonicalCronEditHref,
+  buildCanonicalCronJobHref,
+  buildCanonicalSessionsRuntimeHref,
+  buildTabHref,
+} from "../app-settings.ts";
 import type { CronJob } from "../types.ts";
 import { renderCron, type CronProps } from "./cron.ts";
 
@@ -18,9 +26,57 @@ function createJob(id: string): CronJob {
   };
 }
 
-function createProps(overrides: Partial<CronProps> = {}): CronProps {
+function createProps(overrides: Partial<CronProps> & { basePath?: string } = {}): CronProps {
+  const { basePath = "", ...propOverrides } = overrides;
   return {
-    basePath: "",
+    buildJobHref: (jobId) =>
+      buildTabHref({ basePath }, "cron", {
+        cronRunsScope: "job",
+        cronJob: jobId,
+      }),
+    buildEditHref: (jobId) =>
+      buildTabHref({ basePath }, "cron", {
+        cronEdit: jobId,
+      }),
+    buildCancelEditHref: () => buildTabHref({ basePath }, "cron"),
+    buildRunChatHref: (sessionKey) =>
+      buildCanonicalChatHref(
+        {
+          basePath,
+          sessionKey: "main",
+        } as never,
+        {
+          sessionKey,
+        },
+      ),
+    buildRunRuntimeHref: (sessionKey) =>
+      buildCanonicalSessionsRuntimeHref(
+        {
+          basePath,
+          sessionKey: "main",
+          runtimeSessionKey: null,
+          runtimeRunId: null,
+          runtimeSelectedCheckpointId: null,
+          runtimeSelectedActionId: null,
+          runtimeSelectedClosureRunId: null,
+          sessionsFilterActive: "",
+          sessionsFilterLimit: "120",
+          sessionsIncludeGlobal: true,
+          sessionsIncludeUnknown: false,
+          sessionsSearchQuery: "",
+          sessionsSortColumn: "updated",
+          sessionsSortDir: "desc",
+          sessionsPage: 0,
+          sessionsPageSize: 25,
+        } as never,
+        {
+          sessionKey,
+          runId: null,
+          checkpointId: null,
+          actionId: null,
+          closureRunId: null,
+        },
+      ),
     loading: false,
     jobsLoadingMore: false,
     status: null,
@@ -73,7 +129,7 @@ function createProps(overrides: Partial<CronProps> = {}): CronProps {
     onJobsFiltersReset: () => undefined,
     onLoadMoreRuns: () => undefined,
     onRunsFiltersChange: () => undefined,
-    ...overrides,
+    ...propOverrides,
   };
 }
 
@@ -129,11 +185,94 @@ describe("cron view", () => {
       container,
     );
 
-    const row = container.querySelector(".list-item-clickable");
-    expect(row).not.toBeNull();
-    row?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const rowLink = container.querySelector("a.cron-job-link-overlay");
+    expect(rowLink).not.toBeNull();
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    rowLink?.dispatchEvent(click);
 
     expect(onLoadRuns).toHaveBeenCalledWith("job-1");
+    expect(click.defaultPrevented).toBe(true);
+  });
+
+  it("renders canonical cron job hrefs for job rows", () => {
+    const container = document.createElement("div");
+    const job = createJob("job-1");
+    render(
+      renderCron(
+        createProps({
+          basePath: "/ui",
+          jobs: [job],
+          jobsQuery: "nightly",
+          jobsEnabledFilter: "enabled",
+          jobsScheduleKindFilter: "cron",
+          jobsLastStatusFilter: "error",
+          jobsSortBy: "updatedAtMs",
+          jobsSortDir: "desc",
+          runsJobId: "job-old",
+          runsScope: "job",
+          runsQuery: "timeout",
+          runsSortDir: "asc",
+          runsStatuses: ["error"],
+          runsDeliveryStatuses: ["not-delivered"],
+          buildJobHref: (jobId) =>
+            buildCanonicalCronJobHref(
+              {
+                basePath: "/ui",
+                sessionKey: "main",
+                cronJobsQuery: "nightly",
+                cronJobsEnabledFilter: "enabled",
+                cronJobsScheduleKindFilter: "cron",
+                cronJobsLastStatusFilter: "error",
+                cronJobsSortBy: "updatedAtMs",
+                cronJobsSortDir: "desc",
+                cronRunsScope: "job",
+                cronRunsJobId: "job-old",
+                cronRunsQuery: "timeout",
+                cronRunsSortDir: "asc",
+                cronRunsStatuses: ["error"],
+                cronRunsDeliveryStatuses: ["not-delivered"],
+              } as Parameters<typeof buildCanonicalCronJobHref>[0],
+              jobId,
+            ),
+        }),
+      ),
+      container,
+    );
+
+    const rowLink = container.querySelector("a.cron-job-link-overlay");
+    expect(rowLink).not.toBeNull();
+    expect(rowLink?.getAttribute("href")).toBe(
+      "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronRunsScope=job&cronJob=job-1&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered",
+    );
+  });
+
+  it("lets modified clicks fall through to the browser href for job rows", () => {
+    const container = document.createElement("div");
+    const onLoadRuns = vi.fn();
+    const job = createJob("job-1");
+    render(
+      renderCron(
+        createProps({
+          basePath: "/ui",
+          jobs: [job],
+          onLoadRuns,
+        }),
+      ),
+      container,
+    );
+
+    const rowLink = container.querySelector("a.cron-job-link-overlay");
+    expect(rowLink).not.toBeNull();
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true,
+    });
+    rowLink?.dispatchEvent(click);
+
+    expect(onLoadRuns).not.toHaveBeenCalled();
+    expect(click.defaultPrevented).toBe(false);
   });
 
   it("marks the selected job and keeps History button to a single call", () => {
@@ -188,9 +327,242 @@ describe("cron view", () => {
 
     const link = container.querySelector("a.session-link");
     expect(link).not.toBeNull();
-    expect(link?.getAttribute("href")).toContain(
-      "/ui/chat?session=agent%3Amain%3Acron%3Ajob-1%3Arun%3Aabc",
+    expect(link?.getAttribute("href")).toBe(
+      buildCanonicalChatHref(
+        {
+          basePath: "/ui",
+          sessionKey: "main",
+        } as never,
+        {
+          sessionKey: "agent:main:cron:job-1:run:abc",
+        },
+      ),
     );
+  });
+
+  it("renders runtime inspector links when session keys are present", () => {
+    const container = document.createElement("div");
+    render(
+      renderCron(
+        createProps({
+          basePath: "/ui",
+          runsJobId: "job-1",
+          runs: [
+            {
+              ts: Date.now(),
+              jobId: "job-1",
+              status: "ok",
+              summary: "done",
+              sessionKey: "agent:main:cron:job-1:run:abc",
+            },
+          ],
+        }),
+      ),
+      container,
+    );
+
+    const links = Array.from(container.querySelectorAll("a.session-link")).map((link) =>
+      link.getAttribute("href"),
+    );
+    expect(links).toContain(
+      buildCanonicalSessionsRuntimeHref(
+        {
+          basePath: "/ui",
+          sessionKey: "main",
+          runtimeSessionKey: null,
+          runtimeRunId: null,
+          runtimeSelectedCheckpointId: null,
+          runtimeSelectedActionId: null,
+          runtimeSelectedClosureRunId: null,
+          sessionsFilterActive: "",
+          sessionsFilterLimit: "120",
+          sessionsIncludeGlobal: true,
+          sessionsIncludeUnknown: false,
+          sessionsSearchQuery: "",
+          sessionsSortColumn: "updated",
+          sessionsSortDir: "desc",
+          sessionsPage: 0,
+          sessionsPageSize: 25,
+        } as never,
+        {
+          sessionKey: "agent:main:cron:job-1:run:abc",
+          runId: null,
+          checkpointId: null,
+          actionId: null,
+          closureRunId: null,
+        },
+      ),
+    );
+  });
+
+  it("delegates runtime navigation through callback when opening a cron run session", () => {
+    const container = document.createElement("div");
+    const onNavigateToRuntime = vi.fn();
+    render(
+      renderCron(
+        createProps({
+          runsJobId: "job-1",
+          runs: [
+            {
+              ts: Date.now(),
+              jobId: "job-1",
+              status: "ok",
+              summary: "done",
+              sessionKey: "agent:main:cron:job-1:run:abc",
+            },
+          ],
+          onNavigateToRuntime,
+          buildRunRuntimeHref: (sessionKey) =>
+            buildCanonicalSessionsRuntimeHref(
+              {
+                basePath: "/ui",
+                sessionKey: "main",
+                runtimeSessionKey: null,
+                runtimeRunId: null,
+                runtimeSelectedCheckpointId: null,
+                runtimeSelectedActionId: null,
+                runtimeSelectedClosureRunId: null,
+                sessionsFilterActive: "",
+                sessionsFilterLimit: "120",
+                sessionsIncludeGlobal: true,
+                sessionsIncludeUnknown: false,
+                sessionsSearchQuery: "",
+                sessionsSortColumn: "updated",
+                sessionsSortDir: "desc",
+                sessionsPage: 0,
+                sessionsPageSize: 25,
+              } as never,
+              {
+                sessionKey,
+                runId: null,
+                checkpointId: null,
+                actionId: null,
+                closureRunId: null,
+              },
+            ),
+        }),
+      ),
+      container,
+    );
+
+    const runtimeLink = Array.from(container.querySelectorAll("a.session-link")).find((link) =>
+      link.textContent?.includes("Open runtime"),
+    );
+    runtimeLink?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+
+    expect(onNavigateToRuntime).toHaveBeenCalledWith(
+      buildCanonicalSessionsRuntimeHref(
+        {
+          basePath: "/ui",
+          sessionKey: "main",
+          runtimeSessionKey: null,
+          runtimeRunId: null,
+          runtimeSelectedCheckpointId: null,
+          runtimeSelectedActionId: null,
+          runtimeSelectedClosureRunId: null,
+          sessionsFilterActive: "",
+          sessionsFilterLimit: "120",
+          sessionsIncludeGlobal: true,
+          sessionsIncludeUnknown: false,
+          sessionsSearchQuery: "",
+          sessionsSortColumn: "updated",
+          sessionsSortDir: "desc",
+          sessionsPage: 0,
+          sessionsPageSize: 25,
+        } as never,
+        {
+          sessionKey: "agent:main:cron:job-1:run:abc",
+          runId: null,
+          checkpointId: null,
+          actionId: null,
+          closureRunId: null,
+        },
+      ),
+    );
+  });
+
+  it("keeps primary clicks on cron run chat links in the in-app callback", () => {
+    const container = document.createElement("div");
+    const onNavigateToChat = vi.fn();
+    render(
+      renderCron(
+        createProps({
+          runsJobId: "job-1",
+          runs: [
+            {
+              ts: Date.now(),
+              jobId: "job-1",
+              status: "ok",
+              summary: "done",
+              sessionKey: "agent:main:cron:job-1:run:abc",
+            },
+          ],
+          onNavigateToChat,
+        }),
+      ),
+      container,
+    );
+
+    const chatLink = Array.from(container.querySelectorAll("a.session-link")).find((link) =>
+      link.textContent?.includes("Open run chat"),
+    );
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    const dispatchResult = chatLink?.dispatchEvent(click);
+
+    expect(dispatchResult).toBe(false);
+    expect(click.defaultPrevented).toBe(true);
+    expect(onNavigateToChat).toHaveBeenCalledWith("agent:main:cron:job-1:run:abc");
+  });
+
+  it("lets modified clicks fall through to the browser href for cron run links", () => {
+    const container = document.createElement("div");
+    const onNavigateToChat = vi.fn();
+    const onNavigateToRuntime = vi.fn();
+    render(
+      renderCron(
+        createProps({
+          runsJobId: "job-1",
+          runs: [
+            {
+              ts: Date.now(),
+              jobId: "job-1",
+              status: "ok",
+              summary: "done",
+              sessionKey: "agent:main:cron:job-1:run:abc",
+            },
+          ],
+          onNavigateToChat,
+          onNavigateToRuntime,
+        }),
+      ),
+      container,
+    );
+
+    const chatLink = Array.from(container.querySelectorAll("a.session-link")).find((link) =>
+      link.textContent?.includes("Open run chat"),
+    );
+    const runtimeLink = Array.from(container.querySelectorAll("a.session-link")).find((link) =>
+      link.textContent?.includes("Open runtime"),
+    );
+    const chatClick = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true,
+    });
+    const runtimeClick = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true,
+    });
+
+    expect(chatLink?.dispatchEvent(chatClick)).toBe(true);
+    expect(runtimeLink?.dispatchEvent(runtimeClick)).toBe(true);
+    expect(chatClick.defaultPrevented).toBe(false);
+    expect(runtimeClick.defaultPrevented).toBe(false);
+    expect(onNavigateToChat).not.toHaveBeenCalled();
+    expect(onNavigateToRuntime).not.toHaveBeenCalled();
   });
 
   it("shows selected job name and sorts run history newest first", () => {
@@ -386,23 +758,149 @@ describe("cron view", () => {
       container,
     );
 
-    const editButton = Array.from(container.querySelectorAll("button")).find(
-      (btn) => btn.textContent?.trim() === "Edit",
+    const editLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent?.trim() === "Edit",
     );
-    expect(editButton).not.toBeUndefined();
-    editButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(editLink).not.toBeUndefined();
+    const editClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    editLink?.dispatchEvent(editClick);
     expect(onEdit).toHaveBeenCalledWith(job);
     expect(onLoadRuns).toHaveBeenCalledWith("job-3");
+    expect(editClick.defaultPrevented).toBe(true);
 
     expect(container.textContent).toContain("Edit Job");
     expect(container.textContent).toContain("Save changes");
 
-    const cancelButton = Array.from(container.querySelectorAll("button")).find(
-      (btn) => btn.textContent?.trim() === "Cancel",
+    const cancelLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent?.trim() === "Cancel",
     );
-    expect(cancelButton).not.toBeUndefined();
-    cancelButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(cancelLink).not.toBeUndefined();
+    const cancelClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    cancelLink?.dispatchEvent(cancelClick);
     expect(onCancelEdit).toHaveBeenCalledTimes(1);
+    expect(cancelClick.defaultPrevented).toBe(true);
+  });
+
+  it("renders canonical cron edit hrefs for edit and cancel controls", () => {
+    const container = document.createElement("div");
+    const job = createJob("job-3");
+
+    render(
+      renderCron(
+        createProps({
+          basePath: "/ui",
+          jobs: [job],
+          editingJobId: "job-3",
+          jobsQuery: "nightly",
+          jobsEnabledFilter: "enabled",
+          jobsScheduleKindFilter: "cron",
+          jobsLastStatusFilter: "error",
+          jobsSortBy: "updatedAtMs",
+          jobsSortDir: "desc",
+          runsScope: "job",
+          runsJobId: "job-9",
+          runsQuery: "timeout",
+          runsSortDir: "asc",
+          runsStatuses: ["error"],
+          runsDeliveryStatuses: ["not-delivered"],
+          buildEditHref: (jobId) =>
+            buildCanonicalCronEditHref(
+              {
+                basePath: "/ui",
+                sessionKey: "main",
+                cronJobsQuery: "nightly",
+                cronJobsEnabledFilter: "enabled",
+                cronJobsScheduleKindFilter: "cron",
+                cronJobsLastStatusFilter: "error",
+                cronJobsSortBy: "updatedAtMs",
+                cronJobsSortDir: "desc",
+                cronEditingJobId: "job-3",
+                cronRunsScope: "job",
+                cronRunsJobId: "job-9",
+                cronRunsQuery: "timeout",
+                cronRunsSortDir: "asc",
+                cronRunsStatuses: ["error"],
+                cronRunsStatusFilter: "error",
+                cronRunsDeliveryStatuses: ["not-delivered"],
+              } as Parameters<typeof buildCanonicalCronEditHref>[0],
+              jobId,
+            ),
+          buildCancelEditHref: () =>
+            buildCanonicalCronEditHref(
+              {
+                basePath: "/ui",
+                sessionKey: "main",
+                cronJobsQuery: "nightly",
+                cronJobsEnabledFilter: "enabled",
+                cronJobsScheduleKindFilter: "cron",
+                cronJobsLastStatusFilter: "error",
+                cronJobsSortBy: "updatedAtMs",
+                cronJobsSortDir: "desc",
+                cronEditingJobId: "job-3",
+                cronRunsScope: "job",
+                cronRunsJobId: "job-9",
+                cronRunsQuery: "timeout",
+                cronRunsSortDir: "asc",
+                cronRunsStatuses: ["error"],
+                cronRunsStatusFilter: "error",
+                cronRunsDeliveryStatuses: ["not-delivered"],
+              } as Parameters<typeof buildCanonicalCronEditHref>[0],
+              null,
+            ),
+        }),
+      ),
+      container,
+    );
+
+    const editLink = Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).find(
+      (link) => link.textContent?.trim() === "Edit",
+    );
+    const cancelLink = Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).find(
+      (link) => link.textContent?.trim() === "Cancel",
+    );
+
+    expect(editLink?.getAttribute("href")).toBe(
+      "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronEdit=job-3&cronRunsScope=job&cronJob=job-9&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered",
+    );
+    expect(editLink?.getAttribute("aria-current")).toBe("page");
+    expect(cancelLink?.getAttribute("href")).toBe(
+      "/ui/cron?session=main&cronQ=nightly&cronEnabled=enabled&cronSchedule=cron&cronStatus=error&cronSort=updatedAtMs&cronDir=desc&cronRunsScope=job&cronJob=job-9&cronRunsQ=timeout&cronRunsSort=asc&cronRunsStatus=error&cronRunsDelivery=not-delivered",
+    );
+  });
+
+  it("lets modified clicks fall through to the browser href for cron edit links", () => {
+    const container = document.createElement("div");
+    const onEdit = vi.fn();
+    const onLoadRuns = vi.fn();
+    const job = createJob("job-3");
+
+    render(
+      renderCron(
+        createProps({
+          jobs: [job],
+          onEdit,
+          onLoadRuns,
+        }),
+      ),
+      container,
+    );
+
+    const editLink = Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).find(
+      (link) => link.textContent?.trim() === "Edit",
+    );
+    expect(editLink).not.toBeUndefined();
+
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true,
+    });
+    editLink?.dispatchEvent(click);
+
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(onLoadRuns).not.toHaveBeenCalled();
+    expect(click.defaultPrevented).toBe(false);
   });
 
   it("renders advanced controls for cron + agent payload + delivery", () => {

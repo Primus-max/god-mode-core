@@ -1,7 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearPluginDiscoveryCache } from "./discovery.js";
+import { clearPluginManifestRegistryCache } from "./manifest-registry.js";
 import { resolveBundledPluginWebSearchProviders } from "./web-search-providers.js";
 
 describe("resolveBundledPluginWebSearchProviders", () => {
+  beforeEach(() => {
+    vi.stubEnv("OPENCLAW_BUNDLED_PLUGINS_DIR", "");
+    clearPluginManifestRegistryCache();
+    clearPluginDiscoveryCache();
+  });
+
+  afterAll(() => {
+    vi.stubEnv("OPENCLAW_BUNDLED_PLUGINS_DIR", "__openclaw_test_no_bundled_plugins__");
+    clearPluginManifestRegistryCache();
+    clearPluginDiscoveryCache();
+  });
+
   it("returns bundled providers in alphabetical order", () => {
     const providers = resolveBundledPluginWebSearchProviders({});
 

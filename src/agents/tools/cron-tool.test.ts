@@ -15,6 +15,15 @@ vi.mock("../agent-scope.js", () => ({
 import { createCronTool } from "./cron-tool.js";
 
 describe("cron tool", () => {
+  function createTool(
+    opts?: Parameters<typeof createCronTool>[0],
+  ): ReturnType<typeof createCronTool> {
+    return createCronTool(opts, {
+      callGatewayTool: async (method, _opts, params, extra) =>
+        await callGatewayMock({ method, params, extra }),
+    });
+  }
+
   function readGatewayCall(index = 0): { method?: string; params?: Record<string, unknown> } {
     return (
       (callGatewayMock.mock.calls[index]?.[0] as
@@ -54,7 +63,7 @@ describe("cron tool", () => {
     agentSessionKey: string;
     delivery?: { mode?: string; channel?: string; to?: string } | null;
   }) {
-    const tool = createCronTool({ agentSessionKey: params.agentSessionKey });
+    const tool = createTool({ agentSessionKey: params.agentSessionKey });
     await tool.execute(params.callId, {
       action: "add",
       job: {
@@ -74,7 +83,7 @@ describe("cron tool", () => {
     agentSessionKey: string;
     jobSessionKey?: string;
   }): Promise<string | undefined> {
-    const tool = createCronTool({ agentSessionKey: params.agentSessionKey });
+    const tool = createTool({ agentSessionKey: params.agentSessionKey });
     await tool.execute(params.callId, {
       action: "add",
       job: {
@@ -90,7 +99,7 @@ describe("cron tool", () => {
   }
 
   async function executeAddWithContextMessages(callId: string, contextMessages: number) {
-    const tool = createCronTool({ agentSessionKey: "main" });
+    const tool = createTool({ agentSessionKey: "main" });
     await tool.execute(callId, {
       action: "add",
       contextMessages,
@@ -107,9 +116,95 @@ describe("cron tool", () => {
     callGatewayMock.mockResolvedValue({ ok: true });
   });
 
-  it("marks cron as owner-only", async () => {
-    const tool = createCronTool();
+  it("marks cron as owner-only by default", async () => {
+    const tool = createTool();
     expect(tool.ownerOnly).toBe(true);
+  });
+
+  it("exposes cron to non-owner runtimes for scoped reminders", async () => {
+    const tool = createTool({
+      agentSessionKey: "agent:main:telegram:direct:123",
+      senderIsOwner: false,
+    });
+    expect(tool.ownerOnly).not.toBe(true);
+  });
+
+  it("allows non-owner add when delivery stays scoped to the current chat", async () => {
+    const tool = createTool({
+      agentSessionKey: "agent:main:telegram:direct:123",
+      senderIsOwner: false,
+    });
+    await tool.execute("call-non-owner-add", {
+      action: "add",
+      job: {
+        name: "reminder",
+        schedule: { at: new Date(123).toISOString() },
+        payload: { kind: "agentTurn", message: "Remind me to eat." },
+      },
+    });
+
+    const params = expectSingleGatewayCallMethod("cron.add") as
+      | { delivery?: { mode?: string; channel?: string; to?: string } }
+      | undefined;
+    expect(params?.delivery).toEqual({
+      mode: "announce",
+      channel: "telegram",
+      to: "123",
+    });
+  });
+
+  it("blocks non-owner cron admin actions", async () => {
+    const tool = createTool({
+      agentSessionKey: "agent:main:telegram:direct:123",
+      senderIsOwner: false,
+    });
+    await expect(tool.execute("call-non-owner-list", { action: "list" })).rejects.toThrow(
+      /Only reminder scheduling is allowed from this chat\./,
+    );
+  });
+
+  it("blocks non-owner reminder scheduling to another chat", async () => {
+    const tool = createTool({
+      agentSessionKey: "agent:main:telegram:direct:123",
+      senderIsOwner: false,
+    });
+    await expect(
+      tool.execute("call-non-owner-redirect", {
+        action: "add",
+        job: {
+          name: "reminder",
+          schedule: { at: new Date(123).toISOString() },
+          payload: { kind: "agentTurn", message: "Remind me to eat." },
+          delivery: { mode: "announce", channel: "telegram", to: "999" },
+        },
+      }),
+    ).rejects.toThrow(/Reminder scheduling cannot target another chat\./);
+  });
+
+  it("allows non-owner current-session reminder after normalization to session:<current>", async () => {
+    const tool = createTool({
+      agentSessionKey: "agent:main:telegram:direct:123",
+      senderIsOwner: false,
+    });
+    await tool.execute("call-non-owner-current", {
+      action: "add",
+      job: {
+        name: "reminder",
+        schedule: { at: new Date(123).toISOString() },
+        sessionTarget: "current",
+        payload: { kind: "agentTurn", message: "Remind me to eat." },
+      },
+    });
+
+    const params = expectSingleGatewayCallMethod("cron.add") as
+      | { sessionTarget?: string; delivery?: { mode?: string; channel?: string; to?: string } }
+      | undefined;
+    expect(params?.sessionTarget).toBe("session:agent:main:telegram:direct:123");
+    expect(params?.delivery).toEqual({
+      mode: "announce",
+      channel: "telegram",
+      to: "123",
+    });
   });
 
   it.each([
@@ -130,7 +225,7 @@ describe("cron tool", () => {
     ["runs", { action: "runs", jobId: "job-1" }, { id: "job-1" }],
     ["runs", { action: "runs", id: "job-2" }, { id: "job-2" }],
   ])("%s sends id to gateway", async (action, args, expectedParams) => {
-    const tool = createCronTool();
+    const tool = createTool();
     await tool.execute("call1", args);
 
     const params = expectSingleGatewayCallMethod(`cron.${action}`);
@@ -138,7 +233,7 @@ describe("cron tool", () => {
   });
 
   it("prefers jobId over id when both are provided", async () => {
-    const tool = createCronTool();
+    const tool = createTool();
     await tool.execute("call1", {
       action: "run",
       jobId: "job-primary",
@@ -149,7 +244,7 @@ describe("cron tool", () => {
   });
 
   it("supports due-only run mode", async () => {
-    const tool = createCronTool();
+    const tool = createTool();
     await tool.execute("call-due", {
       action: "run",
       jobId: "job-due",
@@ -160,7 +255,7 @@ describe("cron tool", () => {
   });
 
   it("normalizes cron.add job payloads", async () => {
-    const tool = createCronTool();
+    const tool = createTool();
     await tool.execute("call2", {
       action: "add",
       job: {
@@ -185,7 +280,7 @@ describe("cron tool", () => {
   });
 
   it("does not default agentId when job.agentId is null", async () => {
-    const tool = createCronTool({ agentSessionKey: "main" });
+    const tool = createTool({ agentSessionKey: "main" });
     await tool.execute("call-null", {
       action: "add",
       job: {
@@ -277,7 +372,7 @@ describe("cron tool", () => {
   it("does not add context when contextMessages is 0 (default)", async () => {
     callGatewayMock.mockResolvedValueOnce({ ok: true });
 
-    const tool = createCronTool({ agentSessionKey: "main" });
+    const tool = createTool({ agentSessionKey: "main" });
     await tool.execute("call4", {
       action: "add",
       job: {
@@ -298,7 +393,7 @@ describe("cron tool", () => {
   it("preserves explicit agentId null on add", async () => {
     callGatewayMock.mockResolvedValueOnce({ ok: true });
 
-    const tool = createCronTool({ agentSessionKey: "main" });
+    const tool = createTool({ agentSessionKey: "main" });
     await tool.execute("call6", {
       action: "add",
       job: {
@@ -361,7 +456,7 @@ describe("cron tool", () => {
   it("recovers flat params when job is missing", async () => {
     callGatewayMock.mockResolvedValueOnce({ ok: true });
 
-    const tool = createCronTool();
+    const tool = createTool();
     await tool.execute("call-flat", {
       action: "add",
       name: "flat-job",
@@ -381,7 +476,7 @@ describe("cron tool", () => {
   it("recovers flat params when job is empty object", async () => {
     callGatewayMock.mockResolvedValueOnce({ ok: true });
 
-    const tool = createCronTool();
+    const tool = createTool();
     await tool.execute("call-empty-job", {
       action: "add",
       job: {},
@@ -402,7 +497,7 @@ describe("cron tool", () => {
   it("recovers flat message shorthand as agentTurn payload", async () => {
     callGatewayMock.mockResolvedValueOnce({ ok: true });
 
-    const tool = createCronTool();
+    const tool = createTool();
     await tool.execute("call-msg-shorthand", {
       action: "add",
       schedule: { kind: "at", at: new Date(456).toISOString() },
@@ -419,7 +514,7 @@ describe("cron tool", () => {
   });
 
   it("does not recover flat params when no meaningful job field is present", async () => {
-    const tool = createCronTool();
+    const tool = createTool();
     await expect(
       tool.execute("call-no-signal", {
         action: "add",
@@ -432,7 +527,7 @@ describe("cron tool", () => {
   it("prefers existing non-empty job over flat params", async () => {
     callGatewayMock.mockResolvedValueOnce({ ok: true });
 
-    const tool = createCronTool();
+    const tool = createTool();
     await tool.execute("call-nested-wins", {
       action: "add",
       job: {
@@ -474,7 +569,7 @@ describe("cron tool", () => {
   });
 
   it("fails fast when webhook mode is missing delivery.to", async () => {
-    const tool = createCronTool({ agentSessionKey: "agent:main:discord:dm:buddy" });
+    const tool = createTool({ agentSessionKey: "agent:main:discord:dm:buddy" });
 
     await expect(
       tool.execute("call-webhook-missing", {
@@ -489,7 +584,7 @@ describe("cron tool", () => {
   });
 
   it("fails fast when webhook mode uses a non-http URL", async () => {
-    const tool = createCronTool({ agentSessionKey: "agent:main:discord:dm:buddy" });
+    const tool = createTool({ agentSessionKey: "agent:main:discord:dm:buddy" });
 
     await expect(
       tool.execute("call-webhook-invalid", {
@@ -506,7 +601,7 @@ describe("cron tool", () => {
   it("recovers flat patch params for update action", async () => {
     callGatewayMock.mockResolvedValueOnce({ ok: true });
 
-    const tool = createCronTool();
+    const tool = createTool();
     await tool.execute("call-update-flat", {
       action: "update",
       jobId: "job-1",
@@ -525,7 +620,7 @@ describe("cron tool", () => {
   it("recovers additional flat patch params for update action", async () => {
     callGatewayMock.mockResolvedValueOnce({ ok: true });
 
-    const tool = createCronTool();
+    const tool = createTool();
     await tool.execute("call-update-flat-extra", {
       action: "update",
       id: "job-2",

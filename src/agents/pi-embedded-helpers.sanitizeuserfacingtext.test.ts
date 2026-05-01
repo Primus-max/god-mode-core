@@ -50,6 +50,14 @@ describe("sanitizeUserFacingText", () => {
     );
   });
 
+  it("sanitizes Ollama local OOM payloads through the overloaded path", () => {
+    const text =
+      'Ollama API error 500: {"error":"model requires more system memory (11.4 GiB) than is available (9.8 GiB)"}';
+    expect(sanitizeUserFacingText(text, { errorContext: true })).toBe(
+      "The AI service is temporarily overloaded. Please try again in a moment.",
+    );
+  });
+
   it.each([
     "Changelog note: we fixed false positives for `Context overflow: prompt too large for the model. Try /reset (or /new) to start a fresh session, or use a larger-context model.` in 2026.2.9",
     "nah it failed, hit a context overflow. the prompt was too large for the model. want me to retry it with a different approach?",
@@ -126,6 +134,16 @@ describe("sanitizeUserFacingText", () => {
 
   it.each(["\n\n", "  \n  "])("returns empty for whitespace-only input: %j", (input) => {
     expect(sanitizeUserFacingText(input)).toBe("");
+  });
+
+  it("strips standalone raw tool-call JSON leaked as assistant text", () => {
+    expect(sanitizeUserFacingText('{"name":"session_status","arguments":{}}')).toBe("");
+  });
+
+  it("keeps ordinary JSON content that is not a tool-call envelope", () => {
+    expect(sanitizeUserFacingText('{"status":"ok","message":"ready"}')).toBe(
+      '{"status":"ok","message":"ready"}',
+    );
   });
 });
 

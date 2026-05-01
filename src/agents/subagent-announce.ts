@@ -1,3 +1,9 @@
+import {
+  buildVerbatimIdempotencyKey,
+  formatAggregationLog,
+  formatVerbatimWorkerContent,
+  shouldVerbatimForwardCompletion,
+} from "../auto-reply/reply/aggregation-policy.js";
 import { resolveQueueSettings } from "../auto-reply/reply/queue.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH } from "../config/agent-limits.js";
@@ -1002,6 +1008,104 @@ function loadSessionEntryByKey(sessionKey: string) {
   return store[sessionKey];
 }
 
+/**
+ * Sub-plan §4 #4: verbatim worker-completion forward в external user-channel
+ * через gateway `send` method, БЕЗ повторного `callGateway({method:"agent"})`.
+ *
+ * Заменяет цепочку announce→agent→LLM-summarize→deliver на структурный
+ * один шаг: worker.content → channel send + session mirror. Provenance
+ * gate (PR self-feedback-loop) при этом НЕ срабатывает потому что
+ * `send` method не запускает classifier/planner/agent runtime — он
+ * только пишет в external channel и зеркалит в session-store.
+ *
+ * Возвращает true при успешной доставке. На любую failure возвращает
+ * false — caller продолжает legacy `deliverSubagentAnnouncement` path
+ * как fallback (provenance gate всё равно отрежет повторный classifier).
+ */
+export async function tryDeliverVerbatimToUserChannel(params: {
+  completionDirectOrigin: DeliveryContext | undefined;
+  reply: string | undefined;
+  targetRequesterSessionKey: string;
+  childSessionKey: string;
+  childRunId: string;
+  label?: string;
+}): Promise<boolean> {
+  const reply = typeof params.reply === "string" ? params.reply.trim() : "";
+  if (!reply) {
+    defaultRuntime.log(
+      formatAggregationLog({
+        event: "verbatim_skipped",
+        childSessionKey: params.childSessionKey,
+        childRunId: params.childRunId,
+        ...(params.label ? { label: params.label } : {}),
+        reason: "empty_reply",
+      }),
+    );
+    return false;
+  }
+  const origin = params.completionDirectOrigin;
+  const channel = typeof origin?.channel === "string" ? origin.channel.trim() : "";
+  const to = typeof origin?.to === "string" ? origin.to.trim() : "";
+  const accountId = typeof origin?.accountId === "string" ? origin.accountId.trim() : undefined;
+  const threadId =
+    origin?.threadId != null && origin.threadId !== "" ? String(origin.threadId).trim() : undefined;
+  if (!channel || !to) {
+    defaultRuntime.log(
+      formatAggregationLog({
+        event: "verbatim_skipped",
+        childSessionKey: params.childSessionKey,
+        childRunId: params.childRunId,
+        ...(params.label ? { label: params.label } : {}),
+        reason: "no_user_channel_target",
+      }),
+    );
+    return false;
+  }
+  const formatted = formatVerbatimWorkerContent({ reply });
+  const idempotencyKey = buildVerbatimIdempotencyKey({
+    childRunId: params.childRunId,
+    childSessionKey: params.childSessionKey,
+  });
+  try {
+    await callGateway({
+      method: "send",
+      params: {
+        to,
+        channel,
+        message: formatted,
+        sessionKey: params.targetRequesterSessionKey,
+        ...(accountId ? { accountId } : {}),
+        ...(threadId ? { threadId } : {}),
+        idempotencyKey,
+      },
+      timeoutMs: 30_000,
+    });
+    defaultRuntime.log(
+      formatAggregationLog({
+        event: "worker_terminal_complete_verbatim",
+        mode: "holding",
+        parentSessionKey: params.targetRequesterSessionKey,
+        childSessionKey: params.childSessionKey,
+        childRunId: params.childRunId,
+        ...(params.label ? { label: params.label } : {}),
+        contentBytes: Buffer.byteLength(formatted, "utf8"),
+      }),
+    );
+    return true;
+  } catch (err) {
+    defaultRuntime.log(
+      formatAggregationLog({
+        event: "verbatim_skipped",
+        childSessionKey: params.childSessionKey,
+        childRunId: params.childRunId,
+        ...(params.label ? { label: params.label } : {}),
+        reason: `gateway_send_failed:${summarizeDeliveryError(err)}`,
+      }),
+    );
+    return false;
+  }
+}
+
 export function buildSubagentSystemPrompt(params: {
   requesterSessionKey?: string;
   requesterOrigin?: DeliveryContext;
@@ -1014,6 +1118,8 @@ export function buildSubagentSystemPrompt(params: {
   childDepth?: number;
   /** Config value: max allowed spawn depth. */
   maxSpawnDepth?: number;
+  /** Max concurrent active child runs for the spawner session (agents.defaults.subagents.maxChildrenPerAgent). */
+  maxChildrenPerAgent?: number;
 }) {
   const taskText =
     typeof params.task === "string" && params.task.trim()
@@ -1024,6 +1130,10 @@ export function buildSubagentSystemPrompt(params: {
     typeof params.maxSpawnDepth === "number"
       ? params.maxSpawnDepth
       : DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH;
+  const maxChildrenPerAgent =
+    typeof params.maxChildrenPerAgent === "number" && Number.isFinite(params.maxChildrenPerAgent)
+      ? Math.max(1, Math.floor(params.maxChildrenPerAgent))
+      : 5;
   const acpEnabled = params.acpEnabled !== false;
   const canSpawn = childDepth < maxSpawnDepth;
   const parentLabel = childDepth >= 2 ? "parent orchestrator" : "main agent";
@@ -1064,6 +1174,13 @@ export function buildSubagentSystemPrompt(params: {
   if (canSpawn) {
     lines.push(
       "## Sub-Agent Spawning",
+      "### Shallow orchestration (required)",
+      "OpenClaw is intentionally **shallow**: bounded depth and fan-out—not a deep manager-of-managers or nested planner tree as the default architecture.",
+      `- You may spawn while your depth stays **below** maxSpawnDepth (this gateway: **${maxSpawnDepth}**).`,
+      `- Each spawner session is capped at **${maxChildrenPerAgent}** concurrent active child runs (operators configure this).`,
+      '- Prefer **one coordinator + parallel workers**; do **not** delegate "only spawn more coordinators" chains.',
+      "- Assign **leaf-destined** sessions concrete work; when a child cannot spawn further, it must execute—not re-delegate sideways.",
+      "",
       "You CAN spawn your own sub-agents for parallel or complex work using `sessions_spawn`.",
       "Use the `subagents` tool to steer, kill, or do an on-demand status check for your spawned sub-agents.",
       "Your sub-agents will announce their results back to you automatically (not to the main agent).",
@@ -1081,7 +1198,7 @@ export function buildSubagentSystemPrompt(params: {
             "Do not ask users to run slash commands or CLI when `sessions_spawn` can do it directly.",
             "Do not use `exec` (`openclaw ...`, `acpx ...`) to spawn ACP sessions.",
             'Use `subagents` only for OpenClaw subagents (`runtime: "subagent"`).',
-            "Subagent results auto-announce back to you; ACP sessions continue in their bound thread.",
+            "Subagent results auto-announce back to you; ACP follow-up sessions continue in the same conversation.",
             "Avoid polling loops; spawn, orchestrate, and synthesize results.",
           ]
         : []),
@@ -1152,7 +1269,7 @@ function buildDescendantWakeMessage(params: { findings: string; taskLabel: strin
   return [
     "[Subagent Context] Your prior run ended while waiting for descendant subagent completions.",
     "[Subagent Context] All pending descendants for that run have now settled.",
-    "[Subagent Context] Continue your workflow using these results. Spawn more subagents if needed, otherwise send your final answer.",
+    "[Subagent Context] Continue using these results. Spawn additional **direct** workers only if parallel work is still missing; avoid orchestrator-only chains, then send your final answer.",
     "",
     `Task: ${params.taskLabel}`,
     "",
@@ -1520,6 +1637,36 @@ export async function runSubagentAnnounceFlow(params: {
           })
         : targetRequesterOrigin;
     const directIdempotencyKey = buildAnnounceIdempotencyKey(announceId);
+
+    // Subagent result aggregation gate (sub-plan §4 #4):
+    // если announce-target — original user channel и worker завершил
+    // first_pass с status=ok, доставляем reply verbatim'ом через
+    // delivery layer БЕЗ повторного callGateway({method:"agent"}). Это
+    // снимает второй LLM-pass с announce-content'а: provenance gate
+    // (PR self-feedback-loop) остаётся safety-net для fallback path-а.
+    if (
+      shouldVerbatimForwardCompletion({
+        expectsCompletionMessage,
+        requesterIsSubagent,
+        outcomeStatus: outcome.status,
+        completionDirectOrigin,
+        reply,
+      })
+    ) {
+      const verbatimDelivered = await tryDeliverVerbatimToUserChannel({
+        completionDirectOrigin,
+        reply,
+        targetRequesterSessionKey,
+        childSessionKey: params.childSessionKey,
+        childRunId: params.childRunId,
+        label: params.label,
+      });
+      if (verbatimDelivered) {
+        didAnnounce = true;
+        return didAnnounce;
+      }
+    }
+
     const delivery = await deliverSubagentAnnouncement({
       requesterSessionKey: targetRequesterSessionKey,
       announceId,

@@ -1,7 +1,8 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { withBundledPluginAllowlistCompat } from "../bundled-compat.js";
 import { resolveBundledWebSearchPluginIds } from "../bundled-web-search.js";
-import { loadPluginManifestRegistry } from "../manifest-registry.js";
+import { clearPluginDiscoveryCache } from "../discovery.js";
+import { clearPluginManifestRegistryCache, loadPluginManifestRegistry } from "../manifest-registry.js";
 import { __testing as providerTesting } from "../providers.js";
 import { providerContractCompatPluginIds, webSearchProviderContractRegistry } from "./registry.js";
 import { uniqueSortedStrings } from "./testkit.js";
@@ -25,6 +26,12 @@ describe("plugin loader contract", () => {
   let webSearchAllowlistCompatConfig: ReturnType<typeof withBundledPluginAllowlistCompat>;
 
   beforeAll(() => {
+    // test/setup.ts points bundled discovery at a non-existent dir for speed; this suite
+    // asserts parity with real workspace extensions/ manifests.
+    vi.stubEnv("OPENCLAW_BUNDLED_PLUGINS_DIR", "");
+    clearPluginManifestRegistryCache();
+    clearPluginDiscoveryCache();
+
     providerPluginIds = uniqueSortedStrings(providerContractCompatPluginIds);
     manifestProviderPluginIds = resolveBundledManifestProviderPluginIds();
     compatPluginIds = providerTesting.resolveBundledProviderCompatPluginIds({
@@ -59,6 +66,12 @@ describe("plugin loader contract", () => {
       },
       pluginIds: webSearchPluginIds,
     });
+  });
+
+  afterAll(() => {
+    vi.stubEnv("OPENCLAW_BUNDLED_PLUGINS_DIR", "__openclaw_test_no_bundled_plugins__");
+    clearPluginManifestRegistryCache();
+    clearPluginDiscoveryCache();
   });
 
   beforeEach(() => {

@@ -22,7 +22,7 @@ export const INITIAL_PROFILES: Profile[] = [
     id: "builder",
     label: "Builder",
     description:
-      "Document-first specialist for estimates, extraction, reporting, and structured outputs.",
+      "Project-designer and document-first specialist: calculations and spreadsheet modeling, supplier comparison, ventilation and air-balance reasoning, plus estimates, extraction, reporting, and structured outputs.",
     preferredTools: ["read", "write", "edit"],
     preferredPublishTargets: ["pdf", "email"],
     riskCeiling: "medium",
@@ -35,6 +35,14 @@ export const INITIAL_PROFILES: Profile[] = [
         toolHints: ["read", "edit"],
         modelHints: ["structured-output"],
         timeoutSeconds: 180,
+      },
+      {
+        id: "project_designer",
+        label: "Project Designer",
+        parentProfile: "builder",
+        toolHints: ["read", "edit"],
+        modelHints: ["structured-output"],
+        timeoutSeconds: 240,
       },
       {
         id: "publish_brief",
@@ -57,6 +65,7 @@ export const INITIAL_PROFILES: Profile[] = [
     label: "Developer",
     description:
       "Code-first specialist for repositories, testing, build, deploy, and release workflows.",
+    defaultModel: "hydra/gpt-5.4",
     preferredTools: ["read", "write", "edit", "exec", "process"],
     preferredPublishTargets: ["github", "npm"],
     riskCeiling: "high",
@@ -91,6 +100,7 @@ export const INITIAL_PROFILES: Profile[] = [
     label: "Integrator",
     description:
       "API, webhook, rollout, and cross-system integration specialist for connected workflows.",
+    defaultModel: "hydra/gpt-5.4",
     preferredTools: ["read", "write", "edit", "exec"],
     preferredPublishTargets: ["github", "docker", "vercel", "netlify", "webhook"],
     riskCeiling: "high",
@@ -164,6 +174,8 @@ export const INITIAL_PROFILES: Profile[] = [
     id: "media_creator",
     label: "Media Creator",
     description: "Image, video, audio, and multimodal content production specialist.",
+    defaultModel: "hydra/gpt-5.4",
+    defaultImageGenerationModel: "hydra/hydra-banana-pro",
     preferredTools: ["read", "write", "browser", "canvas"],
     preferredPublishTargets: ["site"],
     riskCeiling: "medium",

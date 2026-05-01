@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getSharedExecApprovalManager } from "../../gateway/exec-approval-manager.js";
 import {
   emitAgentEvent,
   emitRuntimeRecoveryTelemetry,
@@ -6,6 +7,7 @@ import {
 } from "../../infra/agent-events.js";
 import { DEFAULT_EXEC_APPROVAL_TIMEOUT_MS } from "../../infra/exec-approvals.js";
 import {
+  BootstrapBlockedRunResumeSchema,
   TRUSTED_CAPABILITY_CATALOG,
   getPlatformBootstrapService,
   resolveBootstrapRequests,
@@ -13,7 +15,11 @@ import {
   type BootstrapRequest,
   type BootstrapSourceDomain,
 } from "../../platform/bootstrap/index.js";
-import type { PlatformExecutionContextSnapshot } from "../../platform/decision/contracts.js";
+import type {
+  PlatformExecutionContextModelRouteTier,
+  PlatformExecutionContextSnapshot,
+} from "../../platform/decision/contracts.js";
+import { inferLocalRoutingEligibleFromPlannerInput } from "../../platform/decision/route-preflight.js";
 import { createCapabilityRegistry } from "../../platform/registry/capability-registry.js";
 import {
   getPlatformRuntimeCheckpointService,
@@ -22,7 +28,6 @@ import {
   type PlatformRuntimeRunOutcome,
   type PlatformRuntimeSupervisorVerdict,
 } from "../../platform/runtime/index.js";
-import { getSharedExecApprovalManager } from "../../gateway/exec-approval-manager.js";
 import {
   enqueueFollowupRun,
   scheduleFollowupDrain,
@@ -30,9 +35,7 @@ import {
   type QueueSettings,
 } from "./queue.js";
 
-type MessagingClosureDecision =
-  | PlatformRuntimeAcceptanceResult
-  | PlatformRuntimeSupervisorVerdict;
+type MessagingClosureDecision = PlatformRuntimeAcceptanceResult | PlatformRuntimeSupervisorVerdict;
 
 const QueueSettingsSchema = z
   .object({
@@ -119,6 +122,7 @@ const FollowupRunSnapshotSchema = z
         inputProvenance: z.unknown().optional(),
         extraSystemPrompt: z.string().min(1).optional(),
         enforceFinalTag: z.boolean().optional(),
+        modelRoutePreflightDisabled: z.boolean().optional(),
       })
       .strict(),
   })
@@ -142,6 +146,7 @@ export type MessagingClosureOutcomeDispatchResult = {
   queuedSemanticRetry: boolean;
   approvalId?: string;
   bootstrapRequestIds?: string[];
+  bootstrapNoOp?: boolean;
 };
 
 export type ClosureRecoveryStartupReconcileResult = {
@@ -150,10 +155,7 @@ export type ClosureRecoveryStartupReconcileResult = {
   staleCheckpointCount: number;
 };
 
-const CLOSURE_APPROVAL_TIMEOUT_MS = Math.max(
-  DEFAULT_EXEC_APPROVAL_TIMEOUT_MS,
-  24 * 60 * 60 * 1000,
-);
+const CLOSURE_APPROVAL_TIMEOUT_MS = Math.max(DEFAULT_EXEC_APPROVAL_TIMEOUT_MS, 24 * 60 * 60 * 1000);
 
 function isClosureRecoveryCheckpoint(checkpoint: {
   target?: { operation?: string };
@@ -207,6 +209,90 @@ function buildClosureRecoveryContinuationPayload(params: {
     settings: params.settings,
     sourceRun: params.sourceRun,
   }) as ClosureRecoveryContinuationPayload;
+}
+
+function buildBootstrapBlockedRunResume(params: {
+  blockedRunId: string;
+  queueKey?: string;
+  settings?: QueueSettings;
+  sourceRun?: FollowupRun;
+}) {
+  const queueKey = params.queueKey?.trim();
+  if (!queueKey || !params.settings || !params.sourceRun) {
+    return undefined;
+  }
+  const sourceRun = params.sourceRun;
+  return BootstrapBlockedRunResumeSchema.parse({
+    blockedRunId: params.blockedRunId,
+    sessionKey: sourceRun.run.sessionKey,
+    queueKey,
+    settings: params.settings,
+    sourceRun: {
+      prompt: sourceRun.prompt,
+      ...(sourceRun.messageId ? { messageId: sourceRun.messageId } : {}),
+      ...(sourceRun.summaryLine ? { summaryLine: sourceRun.summaryLine } : {}),
+      enqueuedAt: sourceRun.enqueuedAt,
+      ...(sourceRun.requestRunId ? { requestRunId: sourceRun.requestRunId } : {}),
+      ...(sourceRun.parentRunId ? { parentRunId: sourceRun.parentRunId } : {}),
+      ...(sourceRun.automation ? { automation: sourceRun.automation } : {}),
+      ...(sourceRun.originatingChannel ? { originatingChannel: sourceRun.originatingChannel } : {}),
+      ...(sourceRun.originatingTo ? { originatingTo: sourceRun.originatingTo } : {}),
+      ...(sourceRun.originatingAccountId
+        ? { originatingAccountId: sourceRun.originatingAccountId }
+        : {}),
+      ...(sourceRun.originatingThreadId !== undefined
+        ? { originatingThreadId: sourceRun.originatingThreadId }
+        : {}),
+      ...(sourceRun.originatingChatType ? { originatingChatType: sourceRun.originatingChatType } : {}),
+      run: {
+        agentId: sourceRun.run.agentId,
+        agentDir: sourceRun.run.agentDir,
+        sessionId: sourceRun.run.sessionId,
+        ...(sourceRun.run.sessionKey ? { sessionKey: sourceRun.run.sessionKey } : {}),
+        ...(sourceRun.run.messageProvider ? { messageProvider: sourceRun.run.messageProvider } : {}),
+        ...(sourceRun.run.agentAccountId ? { agentAccountId: sourceRun.run.agentAccountId } : {}),
+        ...(sourceRun.run.groupId ? { groupId: sourceRun.run.groupId } : {}),
+        ...(sourceRun.run.groupChannel ? { groupChannel: sourceRun.run.groupChannel } : {}),
+        ...(sourceRun.run.groupSpace ? { groupSpace: sourceRun.run.groupSpace } : {}),
+        ...(sourceRun.run.senderId ? { senderId: sourceRun.run.senderId } : {}),
+        ...(sourceRun.run.senderName ? { senderName: sourceRun.run.senderName } : {}),
+        ...(sourceRun.run.senderUsername ? { senderUsername: sourceRun.run.senderUsername } : {}),
+        ...(sourceRun.run.senderE164 ? { senderE164: sourceRun.run.senderE164 } : {}),
+        ...(sourceRun.run.senderIsOwner !== undefined
+          ? { senderIsOwner: sourceRun.run.senderIsOwner }
+          : {}),
+        sessionFile: sourceRun.run.sessionFile,
+        workspaceDir: sourceRun.run.workspaceDir,
+        config: sourceRun.run.config,
+        ...(sourceRun.run.skillsSnapshot ? { skillsSnapshot: sourceRun.run.skillsSnapshot } : {}),
+        provider: sourceRun.run.provider,
+        model: sourceRun.run.model,
+        ...(sourceRun.run.authProfileId ? { authProfileId: sourceRun.run.authProfileId } : {}),
+        ...(sourceRun.run.authProfileIdSource
+          ? { authProfileIdSource: sourceRun.run.authProfileIdSource }
+          : {}),
+        ...(sourceRun.run.thinkLevel ? { thinkLevel: sourceRun.run.thinkLevel } : {}),
+        ...(sourceRun.run.verboseLevel ? { verboseLevel: sourceRun.run.verboseLevel } : {}),
+        ...(sourceRun.run.reasoningLevel ? { reasoningLevel: sourceRun.run.reasoningLevel } : {}),
+        ...(sourceRun.run.elevatedLevel ? { elevatedLevel: sourceRun.run.elevatedLevel } : {}),
+        ...(sourceRun.run.execOverrides ? { execOverrides: sourceRun.run.execOverrides } : {}),
+        ...(sourceRun.run.bashElevated ? { bashElevated: sourceRun.run.bashElevated } : {}),
+        timeoutMs: sourceRun.run.timeoutMs,
+        blockReplyBreak: sourceRun.run.blockReplyBreak,
+        ...(sourceRun.run.ownerNumbers ? { ownerNumbers: sourceRun.run.ownerNumbers } : {}),
+        ...(sourceRun.run.inputProvenance ? { inputProvenance: sourceRun.run.inputProvenance } : {}),
+        ...(sourceRun.run.extraSystemPrompt
+          ? { extraSystemPrompt: sourceRun.run.extraSystemPrompt }
+          : {}),
+        ...(sourceRun.run.enforceFinalTag !== undefined
+          ? { enforceFinalTag: sourceRun.run.enforceFinalTag }
+          : {}),
+        ...(sourceRun.run.modelRoutePreflightDisabled !== undefined
+          ? { modelRoutePreflightDisabled: sourceRun.run.modelRoutePreflightDisabled }
+          : {}),
+      },
+    },
+  });
 }
 
 function parseClosureRecoveryContinuationPayload(
@@ -292,7 +378,9 @@ export function markClosureRecoveryCheckpointFailed(params: {
   checkpointId?: string;
   error: string;
 }): void {
-  const checkpointId = params.checkpointId ?? (params.sourceRun ? resolveClosureRecoveryCheckpointId(params.sourceRun) : undefined);
+  const checkpointId =
+    params.checkpointId ??
+    (params.sourceRun ? resolveClosureRecoveryCheckpointId(params.sourceRun) : undefined);
   if (!checkpointId) {
     return;
   }
@@ -436,13 +524,34 @@ function resolveBootstrapReason(intent?: PlatformRuntimeExecutionIntent): Bootst
 function resolveBootstrapSourceDomain(
   intent?: PlatformRuntimeExecutionIntent,
 ): BootstrapSourceDomain {
-  if (intent?.intent === "document") {
+  if (
+    intent?.intent === "document" ||
+    intent?.intent === "compare" ||
+    intent?.intent === "calculation"
+  ) {
     return "document";
   }
   if (intent?.intent === "code") {
     return "developer";
   }
   return "platform";
+}
+
+/**
+ * Maps runtime execution intent to a bootstrap UI / telemetry tier aligned with route-preflight heuristics.
+ * @param intent - Active platform runtime execution intent (profile/recipe must be present for snapshots).
+ * @returns Whether the turn is treated as local-first eligible vs requiring a stronger remote route.
+ */
+function resolveModelRouteTierFromIntent(
+  intent: PlatformRuntimeExecutionIntent,
+): PlatformExecutionContextModelRouteTier {
+  const localEligible = inferLocalRoutingEligibleFromPlannerInput({
+    intent: intent.intent,
+    requestedTools: intent.requestedToolNames,
+    fileNames: [],
+    artifactKinds: intent.artifactKinds,
+  });
+  return localEligible ? "local_eligible" : "remote_required";
 }
 
 function buildBootstrapExecutionContext(params: {
@@ -456,6 +565,7 @@ function buildBootstrapExecutionContext(params: {
   return {
     profileId: intent.profileId,
     recipeId: intent.recipeId,
+    modelRouteTier: resolveModelRouteTierFromIntent(intent),
     ...(intent.taskOverlayId ? { taskOverlayId: intent.taskOverlayId } : {}),
     ...(intent.plannerReasoning ? { plannerReasoning: intent.plannerReasoning } : {}),
     ...(intent.intent ? { intent: intent.intent } : {}),
@@ -472,7 +582,9 @@ function buildBootstrapExecutionContext(params: {
       : {}),
     ...(intent.policyAutonomy ? { policyAutonomy: intent.policyAutonomy } : {}),
     readinessStatus: "bootstrap_required",
-    readinessReasons: Array.from(new Set(params.decision.reasons)),
+    readinessReasons: Array.from(
+      new Set([...params.decision.reasons, `blockedRunId=${params.decision.runId}`]),
+    ),
     unattendedBoundary: "bootstrap",
   };
 }
@@ -592,14 +704,38 @@ function ensureClosureApprovalRequest(params: {
 function ensureBootstrapRequests(params: {
   decision: MessagingClosureDecision;
   executionIntent?: PlatformRuntimeExecutionIntent;
+  queueKey?: string;
+  sourceRun?: FollowupRun;
+  settings?: QueueSettings;
 }): string[] {
   const outcome = resolveDecisionOutcome(params.decision);
-  if ((outcome?.bootstrapRequestIds.length ?? 0) > 0) {
-    return outcome?.bootstrapRequestIds ?? [];
-  }
+  const existingRequestIds = outcome?.bootstrapRequestIds ?? [];
   const capabilityIds = Array.from(
     new Set(params.executionIntent?.bootstrapRequiredCapabilities ?? []),
   );
+  const queueKey = params.queueKey?.trim();
+  const blockedRunResume =
+    (capabilityIds.length === 1 || existingRequestIds.length === 1) && queueKey
+      ? buildBootstrapBlockedRunResume({
+          blockedRunId: params.decision.runId,
+          queueKey,
+          settings: params.settings,
+          sourceRun: params.sourceRun,
+        })
+      : undefined;
+  if (existingRequestIds.length > 0) {
+    if (blockedRunResume) {
+      const service = getPlatformBootstrapService();
+      for (const requestId of existingRequestIds) {
+        const existing = service.get(requestId);
+        if (!existing || existing.request.blockedRunResume) {
+          continue;
+        }
+        service.attachBlockedRunResume(requestId, blockedRunResume);
+      }
+    }
+    return existingRequestIds;
+  }
   if (capabilityIds.length === 0) {
     return [];
   }
@@ -615,6 +751,7 @@ function ensureBootstrapRequests(params: {
       intent: params.executionIntent,
       decision: params.decision,
     }),
+    ...(blockedRunResume ? { blockedRunResume } : {}),
   });
   const service = getPlatformBootstrapService();
   return resolutions
@@ -640,14 +777,21 @@ export function enqueueSemanticRetryFollowup(params: {
     return false;
   }
   const retryCount = params.sourceRun.automation?.retryCount ?? 0;
-  const prompt = [
+  const correctivePrompt = [
     "The previous run did not satisfy the task well enough.",
     decision.reasons.length > 0 ? `Observed issues: ${decision.reasons.join(" ")}` : undefined,
     "Continue the same task and return only the final completed result.",
     "Do not send an acknowledgement-only update.",
+    "If the task requires a real artifact, continue from any successful intermediate tool outputs already produced in this session and finish the remaining required tool calls before replying.",
   ]
     .filter(Boolean)
     .join(" ");
+  const originalPrompt = params.sourceRun.prompt.trim();
+  const prompt = [
+    correctivePrompt,
+    "[Original task - preserve exact task intent below]",
+    originalPrompt,
+  ].join("\n\n");
   return enqueueFollowupRun(
     params.queueKey,
     {
@@ -689,15 +833,44 @@ export function dispatchMessagingClosureOutcome(params: {
     return { queuedSemanticRetry: true };
   }
 
-  const bootstrapRequestIds =
-    decision.remediation === "bootstrap"
-      ? ensureBootstrapRequests({
-          decision,
-          executionIntent: params.executionIntent,
-        })
-      : [];
+  const isBootstrapRemediation = decision.remediation === "bootstrap";
+  const bootstrapRequestIds = isBootstrapRemediation
+    ? ensureBootstrapRequests({
+        decision,
+        executionIntent: params.executionIntent,
+        queueKey: params.queueKey,
+        sourceRun: params.sourceRun,
+        settings: params.settings,
+      })
+    : [];
+
+  // Fail-closed safety net: the verifier asked for a bootstrap but the
+  // intent did not actually advertise any capabilities to install (e.g.
+  // the missing receipt was never a real bootstrap problem — usually a
+  // contract-derivation false positive). Mark the closure recovery
+  // checkpoint as cancelled so the run does not silently loop.
+  // `markClosureRecoveryCheckpointFailed` already emits the
+  // `recovery_checkpoint_terminal` telemetry, so callers see the no-op via
+  // checkpoint state + the explicit `bootstrapNoOp: true` flag returned
+  // below.
+  const bootstrapNoOp =
+    isBootstrapRemediation &&
+    bootstrapRequestIds.length === 0 &&
+    !shouldCreateHumanApproval(decision);
+  if (bootstrapNoOp) {
+    const reason =
+      decision.reasons[0] ??
+      "bootstrap remediation requested but no capabilities are pending bootstrap";
+    markClosureRecoveryCheckpointFailed({
+      sourceRun: params.sourceRun,
+      error: `bootstrap_noop: ${reason}`,
+    });
+  }
+
   const approvalId =
-    bootstrapRequestIds.length === 0 && shouldCreateHumanApproval(decision)
+    !bootstrapNoOp &&
+    bootstrapRequestIds.length === 0 &&
+    shouldCreateHumanApproval(decision)
       ? ensureClosureApprovalRequest({
           decision,
           sourceRun: params.sourceRun,
@@ -710,6 +883,7 @@ export function dispatchMessagingClosureOutcome(params: {
     queuedSemanticRetry: false,
     ...(approvalId ? { approvalId } : {}),
     ...(bootstrapRequestIds.length > 0 ? { bootstrapRequestIds } : {}),
+    ...(bootstrapNoOp ? { bootstrapNoOp: true } : {}),
   };
 }
 

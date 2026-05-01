@@ -80,6 +80,7 @@ The Control UI can localize itself on first load based on your browser locale, a
 - Channels: WhatsApp/Telegram/Discord/Slack + plugin channels (Mattermost, etc.) status + QR login + per-channel config (`channels.status`, `web.login.*`, `config.patch`)
 - Instances: presence list + refresh (`system-presence`)
 - Sessions: list + per-session thinking/fast/verbose/reasoning overrides (`sessions.list`, `sessions.patch`)
+- Sessions runtime inspector: inspect recovery checkpoints, linked actions/closures, and operator recovery controls for the current session or a global runtime scope (`platform.runtime.checkpoints.*`, `platform.runtime.actions.*`, `platform.runtime.closures.*`)
 - Cron jobs: list/add/edit/run/enable/disable + run history (`cron.*`)
 - Skills: status, enable/disable, install, API key updates (`skills.*`)
 - Nodes: list + caps (`node.list`)
@@ -92,6 +93,49 @@ The Control UI can localize itself on first load based on your browser locale, a
 - Logs: live tail of gateway file logs with filter/export (`logs.tail`)
 - Update: run a package/git update + restart (`update.run`) with a restart report
 
+Logs panel notes:
+
+- Overview attention links now reuse the same canonical destination helpers as the target surfaces themselves, so a copied attention URL, a refresh, and a direct in-app click all land on the same operator context.
+- Overview attention can now route gateway-level errors into the Logs surface, so operators can jump from a generic failure signal into the canonical investigation view instead of manually switching tabs.
+- The Logs filter can now persist through a shareable `logQ` query, so refresh/popstate no longer drops the current text-based log search context.
+
+Usage panel notes:
+
+- The Usage surface now restores a canonical investigation context from URL state: `usageFrom`, `usageTo`, `usageTz`, `usageSession`, `usageQ`, and the overview display subset (`usageChart`, `usageDaily`, `usageSessions`, `usageSort`, `usageSortDir`) can survive refresh/popstate without serializing every local analytics toggle.
+- Usage day/hour drill-down now rides that same canonical contract too: selected `usageDays` and `usageHours` survive refresh/popstate, and clearing the restored chips removes the same query state instead of leaving stale local-only filters behind.
+- When a single `usageSession` is present in the link, the usage summary reload path reopens the same time-series and session-log detail flow after refresh, so operators can share one session investigation path instead of reselecting it manually.
+
+Shell navigation notes:
+
+- The topbar `OpenClaw` breadcrumb now targets the same canonical `overview` destination as the rest of the shell, so primary clicks stay inside the SPA while modified clicks and copied links still use the browser-visible `href`.
+- The command palette navigation list now tracks the same shared tab model as the sidebar, keeping keyboard-first navigation aligned with the same operator surfaces and URL sync behavior.
+- Command palette navigation rows now expose those destinations as real canonical anchors too, so copied links, browser open-in-new-tab, and primary-click SPA handoff all converge on the same shell-to-surface URL contract.
+
+Channels panel notes:
+
+- Overview attention can now route channel-specific failures into the Channels surface with a persisted `channel` query, so operators can refresh or share the link without losing which channel needs attention.
+- The Channels grid restores and highlights the selected channel card from URL state, keeping the same drill-down context across refresh/popstate.
+
+Instances panel notes:
+
+- The Instances surface now persists its privacy toggle too: `instancesReveal` survives refresh/popstate, so operators can reopen the same masked-vs-revealed host/IP mode without relying on module-local UI state.
+- The shareable instances link intentionally restores only that visibility intent; presence rows, counters, and other transient beacon payloads still reload normally instead of being serialized into the URL.
+
+Settings panel notes:
+
+- The settings-family surfaces (`config`, `communications`, `appearance`, `automation`, `infrastructure`, `aiAgents`) now persist their navigation context too: each tab restores its own `*Mode`, `*Q`, `*Section`, and `*Subsection` query state after refresh/popstate instead of reopening a generic top-level config view.
+- The shareable settings links intentionally restore only that navigation context; raw JSON payloads, dirty editor state, validation issues, and other transient form details are still reloaded from the gateway rather than serialized into the URL.
+
+Debug panel notes:
+
+- The Debug surface now persists the manual RPC draft too: `debugMethod` and `debugParams` survive refresh/popstate, so operators can reopen the same prepared gateway call without retyping the method name or JSON payload.
+- The shareable debug link intentionally restores only the manual RPC intent; snapshot payloads and prior call results/errors are reloaded or cleared normally instead of being serialized into the URL.
+
+Bootstrap and artifacts panel notes:
+
+- The Bootstrap surface now persists a minimal list-level query too: `bootstrapQ` survives refresh/popstate alongside `bootstrapRequest`, so operators can share the same filtered install queue instead of retyping the request search.
+- The Artifacts surface now does the same with `artifactQ` alongside `artifact`, keeping the same filtered artifact list and selected record after refresh or when a link is opened elsewhere.
+
 Cron jobs panel notes:
 
 - For isolated jobs, delivery defaults to announce summary. You can switch to none if you want internal-only runs.
@@ -103,6 +147,48 @@ Cron jobs panel notes:
 - Form validation is inline with field-level errors; invalid values disable the save button until fixed.
 - Set `cron.webhookToken` to send a dedicated bearer token, if omitted the webhook is sent without an auth header.
 - Deprecated fallback: stored legacy jobs with `notify: true` can still use `cron.webhook` until migrated.
+- Overview attention now routes failed and overdue cron jobs back into the Cron surface with the relevant job preselected instead of leaving the operator to search manually.
+- The Cron surface now persists its list-level investigation state too: `cronQ`, `cronEnabled`, `cronSchedule`, `cronStatus`, `cronSort`, and `cronDir` survive refresh/popstate alongside the existing `cronJob` drill-down.
+- Cron run history (runs explorer) also persists a minimal shareable contract: `cronRunsScope`, `cronRunsQ`, `cronRunsSort`, `cronRunsStatus`, and `cronRunsDelivery` (comma-separated multi-selects where applicable) alongside `cronJob` when the scope is job-scoped. Invalid or stale `cronJob` values with `cronRunsScope=job` fall back to `all` after refresh without dropping the jobs list filters.
+- Cron edit mode now persists its own canonical subset too: `cronEdit` survives refresh/popstate alongside the existing jobs and runs filters, so operators can share the same edit target without serializing the mutable form draft or validation state.
+- Cron run history can jump into the linked session context directly: operators can still open the run chat, and can also open the Sessions runtime inspector when a `sessionKey` is available.
+- Those cron run pivots now reuse the same canonical `chat` and `sessions` destination helpers as the target surfaces, so copy-link, refresh, direct open, and primary-click SPA handoff all land on the same session or runtime scope.
+
+Skills panel notes:
+
+- Overview attention now routes skill dependency and allowlist problems into the Skills surface with a persisted `skillFilter`, so operators can refresh or share the link without losing the same blocked/missing context.
+- Overview skills cards now reuse that same canonical `skills` destination helper, so copied URLs, refresh, direct open, and in-app primary clicks all converge on the same filtered Skills investigation path.
+- The Skills search box now matches derived state as well as metadata, so filters such as `missing` and `blocked by allowlist` surface the same problem set that overview attention points at.
+
+Agents panel notes:
+
+- The Agents surface now restores the selected `agent`, active `agentsPanel`, and `agentFile` drill-down from URL state, so refresh/popstate can return operators to the same per-agent context instead of reopening a generic shell.
+- When the Skills panel is active inside Agents, the existing `skillFilter` query is reused there too, keeping the per-agent skills investigation flow shareable without inventing a second filter contract.
+
+Nodes / exec approvals panel notes:
+
+- Overview attention can now route pending exec approvals into the Nodes surface with persisted `execTarget`, `execNode`, and `execAgent` query state, so operators can refresh or share the link without losing the same approvals scope.
+- The Nodes exec approvals panel restores the selected gateway-vs-node target and agent scope from URL state, keeping approvals review aligned with the same operator drill-down flow used by cron, skills, and channels.
+
+Sessions list notes:
+
+- The Sessions surface now persists its list-level investigation state as well as runtime scope: filters, search, sort, and pagination can survive refresh/popstate together with `runtimeSession` / `runtimeRun` / `checkpoint`.
+- The Sessions runtime inspector now persists its selected detail drill-down too: `runtimeAction` and `runtimeClosure` can survive refresh/popstate alongside the existing runtime scope, so operators can reopen the same action/closure detail instead of only the parent checkpoint.
+- If a shared sessions link points at a page that no longer exists after the latest list reload, the UI clamps only the pagination state instead of dropping the rest of the sessions investigation context.
+
+Runtime / recovery notes:
+
+- The Sessions tab now doubles as the operator runtime inspector: blocked checkpoints, related actions, and closure outcomes all come from the canonical runtime ledgers rather than a separate UI cache.
+- Shareable runtime-inspector links still restore only routing intent; action receipts, closure payloads, loading state, and recovery errors are reloaded from the gateway rather than serialized into the URL.
+- Linked bootstrap/artifact pivots inside the runtime inspector now reuse the same canonical destination helpers as the Bootstrap and Artifacts surfaces, so copied links, refresh, and in-app primary clicks all reopen the same selected record while modified clicks keep native browser new-tab behavior.
+- High-risk recovery actions such as deny or manual continuation dispatch require an explicit confirmation in the UI before the RPC is sent.
+- When a recovery decision is sent through the Control UI, the inspector shows the latest operator decision context (`what`, `who`, `when`) so operators can verify who approved, denied, dispatched, or retried the flow.
+- Session rows also surface the current handoff truth used for runtime inspection: `handoffTruthSource` tells the operator whether the active target follows durable closure history or an in-flight recovery branch.
+- When handoff truth is `recovery`, the runtime inspect action follows `handoffRunId` / `handoffRequestRunId` instead of stale closure history, so operators land on the current recovery target rather than an older completed run.
+- Overview recovery attention now reuses that same handoff-aware runtime target, including `runtimeRun` in deep links when available, so overview and sessions open the same recovery branch instead of diverging by session-only scope.
+- Chat agent switches and Overview session switches now reuse the same canonical routing helpers as the destination surfaces, so the visible session/runtime target and the browser URL stop drifting apart during cross-surface handoff.
+- Session-row and overview recent-session links now reuse that same canonical `chat` helper too, which keeps copied URLs and modified-click new-tab behavior aligned with the in-app handoff path.
+- Sidebar tab links now reuse the shared routing contract too, so middle-click or opening a tab in a new window preserves the same `session` and tab-specific query context instead of falling back to path-only navigation.
 
 ## Chat behavior
 

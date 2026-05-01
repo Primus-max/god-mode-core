@@ -208,6 +208,8 @@ export const en: TranslationMap = {
       kind: "Kind",
       updated: "Updated",
       tokens: "Tokens",
+      model: "Model",
+      runtime: "Runtime",
       thinking: "Thinking",
       fast: "Fast",
       verbose: "Verbose",
@@ -236,6 +238,99 @@ export const en: TranslationMap = {
     fastLevels: {
       on: "on",
       off: "off",
+    },
+    runtime: {
+      title: "Runtime Inspector",
+      usageStats: {
+        title: "Usage stats",
+        inputTokens: "Input tokens",
+        outputTokens: "Output tokens",
+        costEstimate: "Estimated cost",
+      },
+      scopeGlobal: "Latest runtime checkpoints across operator-visible surfaces.",
+      scopeSession: "Scoped to session {sessionKey}.",
+      clearScope: "Clear scope",
+      loading: "Loading runtime checkpoints…",
+      loadingDetail: "Loading runtime details...",
+      empty: "No runtime checkpoints for the current scope.",
+      selectHint: "Select a checkpoint to inspect closures, actions, and recovery state.",
+      inspect: "Inspect runtime",
+      noHint: "No operator hint available.",
+      nextActions: "Next actions",
+      continuation: "Continuation",
+      attempts: "Attempts",
+      actionsTitle: "Actions",
+      closuresTitle: "Closures",
+      noActions: "No related actions.",
+      noClosures: "No related closures.",
+      controls: {
+        approveRecovery: "Approve recovery",
+        denyRecovery: "Deny recovery",
+        approveBootstrap: "Approve bootstrap",
+        denyBootstrap: "Deny bootstrap",
+        runBootstrap: "Run bootstrap",
+        retryArtifact: "Retry transition",
+        dispatchContinuation: "Dispatch continuation",
+        retryDispatch: "Retry continuation",
+      },
+      confirmations: {
+        contextHint: "Current operator hint: {hint}",
+        denyRecovery:
+          "Deny this recovery?\n\nThe run will stay blocked or move into a failed recovery state.",
+        denyBootstrap:
+          "Deny this bootstrap request?\n\nThe capability will remain unavailable until a later approval.",
+        dispatchContinuation:
+          "Dispatch continuation now?\n\nThis retries the pending recovery path immediately.",
+        artifactApprove:
+          "Approve this artifact transition?\n\nThis applies the pending artifact approval immediately.",
+        artifactPublish:
+          "Publish this artifact now?\n\nThis changes artifact state and may expose it to downstream consumers.",
+        artifactDelete:
+          "Delete this artifact from the recovery flow?\n\nThis marks the artifact as deleted while keeping history.",
+      },
+      links: {
+        openBootstrap: "Open bootstrap request",
+        openArtifact: "Open artifact",
+      },
+      bootstrapGuide: {
+        title: "Bootstrap checkpoint (operator guide)",
+        pending_approval:
+          "The inbound task is paused here. Approve (or deny) the capability in the Bootstrap tab before install can start.",
+        pending_run:
+          "The request is approved — run bootstrap to perform the install. The paused task stays queued until install finishes.",
+        install_running:
+          "Install is in progress. When it completes, use the next actions below to resume or dispatch the paused task if prompted.",
+        resume_dispatch:
+          "Install finished — dispatch continuation when you are ready so the paused message or task can run again.",
+        resume_failed:
+          "Continuation failed after install. Use retry/dispatch controls or inspect errors, then try again.",
+        resume_complete:
+          "Continuation completed; the paused task path should be finished or handed off to the next run.",
+        completed: "This bootstrap checkpoint is complete.",
+        denied: "Bootstrap was denied; the paused task will not resume until requirements or policy change.",
+        generic: "Review status, next actions, and the linked bootstrap record for details.",
+      },
+      handoff: {
+        currentTarget: "Current target {runId}",
+        requestAnchor: "Request anchor {runId}",
+        closureHistory: "Closure history {runId}",
+        truthSource: {
+          closure: "Handoff truth: closure",
+          recovery: "Handoff truth: recovery",
+        },
+      },
+      fields: {
+        checkpointId: "Checkpoint",
+        runId: "Run",
+        sessionKey: "Session",
+        updated: "Updated",
+        lastDecision: "Last operator decision",
+        decidedBy: "Decided by",
+        decidedAt: "Decided at",
+        blockedReason: "Blocked reason",
+        resultStatus: "Result status",
+        recipe: "Recipe",
+      },
     },
   },
   channels: {
@@ -803,6 +898,28 @@ export const en: TranslationMap = {
         session: "Session profile",
       },
     },
+    catalog: {
+      title: "Platform catalog",
+      subtitle:
+        "Read-only recipe routes and capability inventory for the current operator context.",
+      loading: "Loading platform catalog…",
+      recipeRoutes: "Recipe routes",
+      capabilities: "Capabilities",
+      activeRecipe: "Active recipe",
+      bootstrapRequired: "Bootstrap required",
+      requiredCapabilities: "Requires",
+      usedBy: "Used by",
+      risk: "Risk",
+      status: "Status",
+      source: "Source",
+      installMethod: "Install",
+    },
+    runtime: {
+      title: "Runtime queue",
+      loading: "Loading runtime operator queue…",
+      scopeGlobal: "Latest runtime checkpoints visible to the operator.",
+      scopeSession: "Runtime scope: {sessionKey}",
+    },
   },
   artifacts: {
     subtitle: "Browse persisted previews, exports, and publishable outputs.",
@@ -850,6 +967,10 @@ export const en: TranslationMap = {
       deny: "Deny",
       run: "Run bootstrap",
     },
+    runtime: {
+      title: "Runtime checkpoint",
+      loading: "Loading runtime checkpoint…",
+    },
     fields: {
       id: "ID",
       source: "Source",
@@ -858,6 +979,41 @@ export const en: TranslationMap = {
       created: "Created",
       updated: "Updated",
       lifecycle: "Lifecycle",
+    },
+    recordStateHint: "request {state}",
+    planning: {
+      title: "Routing & planning context",
+      subtitle:
+        "Snapshot from the planner when this bootstrap was requested (readiness, profile, model hints).",
+      profileRecipe: "Profile · recipe",
+      readiness: "Readiness",
+      intent: "Intent",
+      autonomy: "Policy autonomy",
+      boundary: "Unattended boundary",
+      bootstrapCaps: "Bootstrap-required capabilities",
+      requiredCaps: "Required capabilities",
+      modelRoute: "Model route hints",
+      modelRouteTier: "Model route tier",
+      modelRouteTierValues: {
+        local_eligible: "Local eligible (local_eligible)",
+        remote_required: "Remote required (remote_required)",
+      },
+      fallbackModels: "Fallback models",
+      tools: "Requested tools",
+      plannerReasoning: "Planner reasoning",
+    },
+    blockedResume: {
+      title: "Paused task (resumes after install)",
+      subtitle:
+        "When install and verification succeed, this queued task is scheduled to run again automatically.",
+      runId: "Blocked run",
+      sessionKey: "Session",
+      queueKey: "Queue",
+      taskPreview: "Task preview",
+    },
+    lifecyclePath: {
+      title: "Lifecycle path",
+      verification: "Verification",
     },
   },
   machine: {
@@ -1220,6 +1376,7 @@ export const en: TranslationMap = {
       noSummary: "No summary.",
       runAt: "Run at",
       openRunChat: "Open run chat",
+      openRunRuntime: "Open runtime",
       next: "Next {rel}",
       due: "Due {rel}",
     },

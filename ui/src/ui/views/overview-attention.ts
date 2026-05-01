@@ -6,6 +6,7 @@ import type { AttentionItem } from "../types.ts";
 
 export type OverviewAttentionProps = {
   items: AttentionItem[];
+  onNavigate?: (href: string) => void;
 };
 
 function severityClass(severity: string) {
@@ -23,6 +24,17 @@ function attentionIcon(name: string) {
     return icons[name as IconName];
   }
   return icons.radio;
+}
+
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  );
 }
 
 export function renderOverviewAttention(props: OverviewAttentionProps) {
@@ -49,6 +61,13 @@ export function renderOverviewAttention(props: OverviewAttentionProps) {
                     href=${item.href}
                     target=${item.external ? EXTERNAL_LINK_TARGET : nothing}
                     rel=${item.external ? buildExternalLinkRel() : nothing}
+                    @click=${(event: MouseEvent) => {
+                      if (item.external || !props.onNavigate || isModifiedNavigationClick(event)) {
+                        return;
+                      }
+                      event.preventDefault();
+                      props.onNavigate?.(item.href!);
+                    }}
                   >${item.actionLabel ?? t("common.docs")}</a>`
                   : nothing
               }

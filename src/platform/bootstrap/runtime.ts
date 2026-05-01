@@ -111,6 +111,10 @@ export async function runBootstrapLifecycle(params: {
     (privilegedToolsNeeded && !decision.allowPrivilegedTools)
   ) {
     transitions.push("denied");
+    const deniedReasons =
+      decision.deniedReasons.length > 0
+        ? decision.deniedReasons
+        : ["Policy denied capability bootstrap; install and verification were not started."];
     return BootstrapLifecycleResultSchema.parse({
       capabilityId: params.request.capabilityId,
       installMethod: params.request.installMethod,
@@ -119,7 +123,7 @@ export async function runBootstrapLifecycle(params: {
       rollbackStatus: "not_needed",
       status: "denied",
       transitions,
-      reasons: decision.deniedReasons,
+      reasons: deniedReasons,
     });
   }
 

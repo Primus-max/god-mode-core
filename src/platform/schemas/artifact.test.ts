@@ -23,6 +23,7 @@ describe("ArtifactDescriptorSchema", () => {
       mimeType: "application/zip",
       sizeBytes: 1024000,
       path: "/dist/release-42.zip",
+      bootstrapRequestId: "bootstrap-req-7",
       url: "https://example.com/releases/42",
       createdAt: "2026-03-23T12:00:00.000Z",
       updatedAt: "2026-03-23T14:00:00.000Z",

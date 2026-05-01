@@ -58,6 +58,32 @@ function stubImageGenerationProviders() {
         throw new Error("not used");
       }),
     },
+    {
+      id: "hydra",
+      defaultModel: "hydra-banana",
+      models: ["hydra-banana", "hydra-banana-pro"],
+      capabilities: {
+        generate: {
+          maxCount: 4,
+          supportsSize: true,
+          supportsAspectRatio: true,
+          supportsResolution: false,
+        },
+        edit: {
+          enabled: false,
+          maxInputImages: 0,
+          supportsSize: false,
+          supportsAspectRatio: false,
+          supportsResolution: false,
+        },
+        geometry: {
+          aspectRatios: ["1:1", "3:2", "16:9"],
+        },
+      },
+      generateImage: vi.fn(async () => {
+        throw new Error("not used");
+      }),
+    },
   ]);
 }
 
@@ -67,6 +93,7 @@ describe("createImageGenerateTool", () => {
     vi.stubEnv("OPENAI_API_KEYS", "");
     vi.stubEnv("GEMINI_API_KEY", "");
     vi.stubEnv("GEMINI_API_KEYS", "");
+    vi.stubEnv("HYDRA_API_KEY", "");
   });
 
   afterEach(() => {
@@ -74,9 +101,69 @@ describe("createImageGenerateTool", () => {
     vi.unstubAllEnvs();
   });
 
-  it("returns null when no image-generation model can be inferred", () => {
+  it("keeps image_generate available with a local fallback when no provider is inferred", async () => {
+    vi.stubEnv("OPENCLAW_ALLOW_LOCAL_IMAGE_FALLBACK", "1");
     stubImageGenerationProviders();
-    expect(createImageGenerateTool({ config: {} })).toBeNull();
+    const tool = createImageGenerateTool({ config: {} });
+    expect(tool).not.toBeNull();
+    if (!tool) {
+      throw new Error("expected image_generate tool");
+    }
+    vi.spyOn(mediaStore, "saveMediaBuffer").mockResolvedValue({
+      path: "/tmp/local-image.png",
+      id: "local-image.png",
+      size: 10,
+      contentType: "image/png",
+    });
+    const result = await tool.execute("call-local", {
+      prompt: 'Generate an image with the text "STAGE 86 OK".',
+      filename: "stage-86-local.png",
+    });
+    expect(result).toMatchObject({
+      content: [{ type: "text", text: "Generated 1 image with local/simple-svg." }],
+      details: {
+        provider: "local",
+        model: "simple-svg",
+        media: { mediaUrls: ["/tmp/local-image.png"] },
+      },
+    });
+  });
+
+  it("fails closed without local fallback env when no image provider is configured", async () => {
+    stubImageGenerationProviders();
+    const tool = createImageGenerateTool({ config: {} });
+    expect(tool).not.toBeNull();
+    if (!tool) {
+      throw new Error("expected image_generate tool");
+    }
+    await expect(
+      tool.execute("call-no-fallback", { prompt: "A banana" }),
+    ).rejects.toThrow(/Set agents\.defaults\.imageGenerationModel\.primary/);
+  });
+
+  it("does not mask remote image generation errors without local fallback env", async () => {
+    stubImageGenerationProviders();
+    vi.spyOn(imageGenerationRuntime, "generateImage").mockRejectedValue(
+      new Error("Hydra image generation returned no markdown images."),
+    );
+    const tool = createImageGenerateTool({
+      config: {
+        agents: {
+          defaults: {
+            imageGenerationModel: {
+              primary: "openai/gpt-image-1",
+            },
+          },
+        },
+      },
+    });
+    expect(tool).not.toBeNull();
+    if (!tool) {
+      throw new Error("expected image_generate tool");
+    }
+    await expect(tool.execute("call-remote-fail", { prompt: "A banana" })).rejects.toThrow(
+      "Hydra image generation returned no markdown images.",
+    );
   });
 
   it("infers an OpenAI image-generation model from env-backed auth", () => {
@@ -101,6 +188,27 @@ describe("createImageGenerateTool", () => {
             defaults: {
               model: {
                 primary: "google/gemini-3.1-pro-preview",
+              },
+            },
+          },
+        },
+      }),
+    ).toEqual({
+      primary: "google/gemini-3.1-flash-image-preview",
+      fallbacks: ["openai/gpt-image-1"],
+    });
+  });
+
+  it("reuses agents.defaults.imageModel when imageGenerationModel is not configured", () => {
+    stubImageGenerationProviders();
+    expect(
+      resolveImageGenerationModelConfigForTool({
+        cfg: {
+          agents: {
+            defaults: {
+              imageModel: {
+                primary: "google/gemini-3.1-flash-image-preview",
+                fallbacks: ["openai/gpt-image-1"],
               },
             },
           },
@@ -227,6 +335,75 @@ describe("createImageGenerateTool", () => {
     });
     const text = (result.content?.[0] as { text: string } | undefined)?.text ?? "";
     expect(text).not.toContain("MEDIA:");
+  });
+
+  it("drops unsupported resolution overrides for providers that do not support them", async () => {
+    stubImageGenerationProviders();
+    const generateImage = vi.spyOn(imageGenerationRuntime, "generateImage").mockResolvedValue({
+      provider: "hydra",
+      model: "hydra-banana",
+      attempts: [],
+      images: [
+        {
+          buffer: Buffer.from("png-1"),
+          mimeType: "image/png",
+          fileName: "cat-one.png",
+        },
+      ],
+    });
+    vi.spyOn(mediaStore, "saveMediaBuffer").mockResolvedValue({
+      path: "/tmp/generated-hydra-1.png",
+      id: "generated-hydra-1.png",
+      size: 5,
+      contentType: "image/png",
+    });
+
+    const tool = createImageGenerateTool({
+      config: {
+        agents: {
+          defaults: {
+            imageGenerationModel: {
+              primary: "hydra/hydra-banana",
+            },
+          },
+        },
+      },
+      agentDir: "/tmp/agent",
+    });
+
+    expect(tool).not.toBeNull();
+    if (!tool) {
+      throw new Error("expected image_generate tool");
+    }
+
+    const result = await tool.execute("call-hydra-generate", {
+      prompt: "A stylish city cat infographic",
+      model: "hydra/hydra-banana",
+      resolution: "2K",
+      aspectRatio: "3:2",
+      filename: "cats/hydra.png",
+    });
+
+    expect(generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelOverride: "hydra/hydra-banana",
+        aspectRatio: "3:2",
+        resolution: undefined,
+      }),
+    );
+    expect(result).toMatchObject({
+      details: {
+        provider: "hydra",
+        model: "hydra-banana",
+        aspectRatio: "3:2",
+        paths: ["/tmp/generated-hydra-1.png"],
+      },
+    });
+    expect(result).not.toMatchObject({
+      details: {
+        resolution: "2K",
+      },
+    });
   });
 
   it("rejects counts outside the supported range", async () => {
@@ -505,7 +682,9 @@ describe("createImageGenerateTool", () => {
     expect(text).not.toContain("auth: set");
     expect(result).toMatchObject({
       details: {
-        providers: [expect.objectContaining({ id: "__proto__", authEnvVars: [] })],
+        providers: expect.arrayContaining([
+          expect.objectContaining({ id: "__proto__", authEnvVars: [] }),
+        ]),
       },
     });
   });

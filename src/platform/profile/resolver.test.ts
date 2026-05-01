@@ -1,5 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { resolveProfile, scoreProfiles } from "./resolver.js";
+import { type ProfileResolverInput, resolveProfile, scoreProfiles } from "./resolver.js";
+
+const DEFAULT_ROUTING = {
+  localEligible: false,
+  remoteProfile: "cheap" as const,
+  preferRemoteFirst: true,
+  needsVision: false,
+};
+
+function makeContractInput(overrides: Partial<ProfileResolverInput> = {}): ProfileResolverInput {
+  return {
+    contractFirst: true,
+    outcomeContract: "text_response",
+    executionContract: {
+      requiresTools: false,
+      requiresWorkspaceMutation: false,
+      requiresLocalProcess: false,
+      requiresArtifactEvidence: false,
+      requiresDeliveryEvidence: false,
+      mayNeedBootstrap: false,
+    },
+    resolutionContract: {
+      selectedFamily: "general_assistant",
+      candidateFamilies: ["general_assistant"],
+      toolBundles: ["respond_only"],
+      routing: DEFAULT_ROUTING,
+    },
+    ...overrides,
+  };
+}
 
 describe("scoreProfiles", () => {
   it("adds soft bias for base and session profile without locking the result", () => {
@@ -17,50 +46,134 @@ describe("scoreProfiles", () => {
 });
 
 describe("resolveProfile", () => {
-  it("resolves builder for document-first tasks", () => {
-    const resolved = resolveProfile({
-      prompt: "Extract data from this estimate PDF",
-      fileNames: ["estimate.pdf"],
-    });
+  it("resolves builder for document-first contracts", () => {
+    const resolved = resolveProfile(
+      makeContractInput({
+        outcomeContract: "structured_artifact",
+        artifactKinds: ["document", "report"],
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: true,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "document_render",
+          candidateFamilies: ["document_render"],
+          toolBundles: ["document_extraction"],
+          routing: DEFAULT_ROUTING,
+        },
+      }),
+    );
     expect(resolved.selectedProfile.id).toBe("builder");
     expect(resolved.activeProfile.taskOverlay).toBe("document_first");
   });
 
-  it("resolves developer for code-first tasks", () => {
-    const resolved = resolveProfile({
-      prompt: "Fix the failing test in repo.ts and deploy the service",
-      fileNames: ["repo.ts"],
-      publishTargets: ["github"],
-    });
+  it("resolves developer for workspace-change contracts", () => {
+    const resolved = resolveProfile(
+      makeContractInput({
+        outcomeContract: "workspace_change",
+        artifactKinds: ["site", "release"],
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: true,
+          requiresLocalProcess: true,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "code_build",
+          candidateFamilies: ["code_build"],
+          toolBundles: ["repo_mutation", "repo_run"],
+          routing: {
+            ...DEFAULT_ROUTING,
+            remoteProfile: "code",
+          },
+        },
+      }),
+    );
     expect(resolved.selectedProfile.id).toBe("developer");
-    expect(["code_first", "publish_release"]).toContain(resolved.activeProfile.taskOverlay);
+    expect(resolved.activeProfile.taskOverlay).toBe("code_first");
   });
 
-  it("resolves integrator for integration-first tasks", () => {
-    const resolved = resolveProfile({
-      prompt: "Validate the webhook integration and sync the connector rollout",
-      integrations: ["slack", "webhook"],
-    });
+  it("resolves integrator for delivery contracts", () => {
+    const resolved = resolveProfile(
+      makeContractInput({
+        outcomeContract: "external_operation",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: true,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "ops_execution",
+          candidateFamilies: ["ops_execution"],
+          toolBundles: ["external_delivery"],
+          routing: {
+            ...DEFAULT_ROUTING,
+            remoteProfile: "strong",
+          },
+        },
+      }),
+    );
     expect(resolved.selectedProfile.id).toBe("integrator");
     expect(resolved.activeProfile.taskOverlay).toBe("integration_first");
   });
 
-  it("resolves operator for machine/bootstrap tasks", () => {
-    const resolved = resolveProfile({
-      prompt: "Check the linked machine, inspect logs, and bootstrap the missing capability",
-      requestedTools: ["exec", "process"],
-    });
-    expect(resolved.selectedProfile.id).toBe("operator");
-    expect(["machine_control", "bootstrap_capability", "ops_first"]).toContain(
-      resolved.activeProfile.taskOverlay,
+  it("resolves operator for local-process contracts", () => {
+    const resolved = resolveProfile(
+      makeContractInput({
+        outcomeContract: "interactive_local_result",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: true,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "ops_execution",
+          candidateFamilies: ["ops_execution"],
+          toolBundles: ["repo_run"],
+          routing: {
+            ...DEFAULT_ROUTING,
+            localEligible: true,
+          },
+        },
+      }),
     );
+    expect(resolved.selectedProfile.id).toBe("operator");
+    expect(resolved.activeProfile.taskOverlay).toBe("machine_control");
   });
 
-  it("resolves media_creator for media tasks", () => {
-    const resolved = resolveProfile({
-      prompt: "Generate a thumbnail image and caption the audio clip",
-      artifactKinds: ["image", "audio"],
-    });
+  it("resolves media_creator for media-generation contracts", () => {
+    const resolved = resolveProfile(
+      makeContractInput({
+        outcomeContract: "structured_artifact",
+        artifactKinds: ["image", "audio"],
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: true,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "media_generation",
+          candidateFamilies: ["media_generation"],
+          toolBundles: ["artifact_authoring"],
+          routing: DEFAULT_ROUTING,
+        },
+      }),
+    );
     expect(resolved.selectedProfile.id).toBe("media_creator");
     expect(resolved.activeProfile.taskOverlay).toBe("media_first");
   });
@@ -68,14 +181,88 @@ describe("resolveProfile", () => {
   it("pins the selected profile when an explicit session override is present", () => {
     const resolved = resolveProfile({
       sessionProfile: "developer",
-      prompt: "Tell me a joke about robots",
     });
     expect(resolved.selectedProfile.id).toBe("developer");
     expect(resolved.activeProfile.sessionProfile).toBe("developer");
   });
 
+  it("keeps an explicit base profile pinned over automatic contract routing", () => {
+    const resolved = resolveProfile({
+      ...makeContractInput({
+        outcomeContract: "structured_artifact",
+        artifactKinds: ["image"],
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: true,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "media_generation",
+          candidateFamilies: ["media_generation"],
+          toolBundles: ["artifact_authoring"],
+          routing: DEFAULT_ROUTING,
+        },
+      }),
+      baseProfile: "builder",
+    });
+    expect(resolved.selectedProfile.id).toBe("builder");
+  });
+
+  it("keeps an explicit session profile pinned over automatic contract routing", () => {
+    const resolved = resolveProfile({
+      ...makeContractInput({
+        outcomeContract: "structured_artifact",
+        artifactKinds: ["document", "report"],
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: true,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "document_render",
+          candidateFamilies: ["document_render"],
+          toolBundles: ["document_extraction"],
+          routing: DEFAULT_ROUTING,
+        },
+      }),
+      sessionProfile: "media_creator",
+    });
+    expect(resolved.selectedProfile.id).toBe("media_creator");
+  });
+
+  it("keeps mixed document-plus-media authoring contracts on builder", () => {
+    const resolved = resolveProfile(
+      makeContractInput({
+        outcomeContract: "structured_artifact",
+        artifactKinds: ["document", "image"],
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: true,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "document_render",
+          candidateFamilies: ["document_render", "media_generation"],
+          toolBundles: ["artifact_authoring"],
+          routing: DEFAULT_ROUTING,
+        },
+      }),
+    );
+    expect(resolved.selectedProfile.id).toBe("builder");
+    expect(resolved.activeProfile.taskOverlay).toBe("document_first");
+  });
+
   it("falls back to general when no strong signals are present", () => {
-    const resolved = resolveProfile({ prompt: "" });
+    const resolved = resolveProfile({});
     expect(resolved.selectedProfile.id).toBe("general");
   });
 });

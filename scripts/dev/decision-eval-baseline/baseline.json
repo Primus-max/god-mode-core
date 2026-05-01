@@ -1,0 +1,4253 @@
+{
+  "summary": {
+    "total": 21,
+    "passed": 21,
+    "failed": 0,
+    "errorTagCounts": {}
+  },
+  "results": [
+    {
+      "id": "persistent-subagent-daily-report",
+      "description": "Persistent worker must route to session orchestration, not publish/cron/repo.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "persistent_worker",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "sessions_spawn"
+        ],
+        "toolBundles": [
+          "session_orchestration"
+        ],
+        "selectedRecipeId": "ops_orchestration",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "session",
+        "deliverableFormats": [
+          "receipt"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "persistent_worker",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "sessions_spawn"
+        ],
+        "toolBundles": [
+          "session_orchestration"
+        ],
+        "selectedRecipeId": "ops_orchestration",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "session",
+        "deliverableFormats": [
+          "receipt"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "ops_execution",
+          "candidateFamilies": [
+            "ops_execution"
+          ],
+          "toolBundles": [
+            "session_orchestration"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Создай сабагента Валера, чтобы он каждый день присылал мне короткий отчёт по проекту.",
+          "contractFirst": true,
+          "intent": "general",
+          "requestedTools": [
+            "sessions_spawn"
+          ],
+          "deliverable": {
+            "kind": "session",
+            "acceptedFormats": [
+              "receipt"
+            ],
+            "preferredFormat": "receipt",
+            "constraints": {
+              "continuation": "followup"
+            }
+          },
+          "outcomeContract": "text_response",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "assistant_text"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_session_orchestration"
+          ],
+          "candidateFamilies": [
+            "ops_execution"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "ops_execution",
+            "candidateFamilies": [
+              "ops_execution"
+            ],
+            "toolBundles": [
+              "session_orchestration"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "strong",
+              "preferRemoteFirst": true,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "persistent_worker",
+            "interactionMode": "tool_execution",
+            "confidence": 0.96,
+            "deliverableKind": "session",
+            "deliverableFormats": [
+              "receipt"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "persistent_worker",
+              "interactionMode": "tool_execution",
+              "confidence": 0.96,
+              "deliverableKind": "session",
+              "deliverableFormats": [
+                "receipt"
+              ],
+              "rawContract": {
+                "primaryOutcome": "persistent_worker",
+                "requiredCapabilities": [
+                  "needs_session_orchestration"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.96,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "session",
+                  "acceptedFormats": [
+                    "receipt"
+                  ],
+                  "preferredFormat": "receipt",
+                  "constraints": {
+                    "continuation": "followup"
+                  }
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "persistent_worker",
+                "requiredCapabilities": [
+                  "needs_session_orchestration"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.96,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "session",
+                  "acceptedFormats": [
+                    "receipt"
+                  ],
+                  "preferredFormat": "receipt",
+                  "constraints": {
+                    "continuation": "followup"
+                  }
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "persistent_worker",
+                "requiredCapabilities": [
+                  "needs_session_orchestration"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.96,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "session",
+                  "acceptedFormats": [
+                    "receipt"
+                  ],
+                  "preferredFormat": "receipt",
+                  "constraints": {
+                    "continuation": "followup"
+                  }
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "reminder-cron-same-chat",
+      "description": "Reminder is a deferred answer via cron, not external delivery.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "answer",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "cron"
+        ],
+        "toolBundles": [],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "answer",
+        "deliverableFormats": [
+          "text"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "answer",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "cron"
+        ],
+        "toolBundles": [],
+        "selectedRecipeId": "general_reasoning",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "answer",
+        "deliverableFormats": [
+          "text"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "general_assistant",
+          "candidateFamilies": [
+            "general_assistant"
+          ],
+          "toolBundles": [],
+          "routing": {
+            "localEligible": true,
+            "remoteProfile": "cheap",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Напомни мне через 30 секунд тестовое сообщение в этот же чат.",
+          "contractFirst": true,
+          "intent": "general",
+          "requestedTools": [
+            "cron"
+          ],
+          "deliverable": {
+            "kind": "answer",
+            "acceptedFormats": [
+              "text"
+            ],
+            "preferredFormat": "text",
+            "constraints": {
+              "tool": "cron"
+            }
+          },
+          "outcomeContract": "text_response",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "assistant_text"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [],
+          "candidateFamilies": [
+            "general_assistant"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "general_assistant",
+            "candidateFamilies": [
+              "general_assistant"
+            ],
+            "toolBundles": [],
+            "routing": {
+              "localEligible": true,
+              "remoteProfile": "cheap",
+              "preferRemoteFirst": false,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": true,
+            "remoteProfile": "cheap"
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "answer",
+            "interactionMode": "tool_execution",
+            "confidence": 0.94,
+            "deliverableKind": "answer",
+            "deliverableFormats": [
+              "text"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "answer",
+              "interactionMode": "tool_execution",
+              "confidence": 0.94,
+              "deliverableKind": "answer",
+              "deliverableFormats": [
+                "text"
+              ],
+              "rawContract": {
+                "primaryOutcome": "answer",
+                "requiredCapabilities": [],
+                "interactionMode": "tool_execution",
+                "confidence": 0.94,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text",
+                  "constraints": {
+                    "tool": "cron"
+                  }
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "answer",
+                "requiredCapabilities": [],
+                "interactionMode": "tool_execution",
+                "confidence": 0.94,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text",
+                  "constraints": {
+                    "tool": "cron"
+                  }
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "answer",
+                "requiredCapabilities": [],
+                "interactionMode": "tool_execution",
+                "confidence": 0.94,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text",
+                  "constraints": {
+                    "tool": "cron"
+                  }
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "pdf-authoring-from-prompt",
+      "description": "Prompt-only PDF authoring must request artifact tools and avoid clarification.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "document_package",
+        "executionMode": "artifact_iteration",
+        "requestedTools": [
+          "image_generate",
+          "pdf"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "document",
+        "deliverableFormats": [
+          "pdf"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "document_package",
+        "interactionMode": "artifact_iteration",
+        "executionMode": "artifact_iteration",
+        "requestedTools": [
+          "image_generate",
+          "pdf"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "selectedRecipeId": "doc_authoring",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "document",
+        "deliverableFormats": [
+          "pdf"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "document_render",
+          "candidateFamilies": [
+            "document_render",
+            "media_generation"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "presentation",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "plannerInput": {
+          "prompt": "Сгенерировать красивый PDF про жизнь банана на две страницы.",
+          "contractFirst": true,
+          "intent": "document",
+          "artifactKinds": [
+            "document",
+            "image"
+          ],
+          "requestedTools": [
+            "image_generate",
+            "pdf"
+          ],
+          "deliverable": {
+            "kind": "document",
+            "acceptedFormats": [
+              "pdf"
+            ],
+            "preferredFormat": "pdf",
+            "constraints": {
+              "pageCount": 2,
+              "style": "rich"
+            }
+          },
+          "outcomeContract": "structured_artifact",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": true,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "artifact_descriptor"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_multimodal_authoring"
+          ],
+          "candidateFamilies": [
+            "document_render",
+            "media_generation"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "document_render",
+            "candidateFamilies": [
+              "document_render",
+              "media_generation"
+            ],
+            "toolBundles": [
+              "artifact_authoring"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "presentation",
+              "preferRemoteFirst": true,
+              "needsVision": true
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "presentation",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "document_package",
+            "interactionMode": "artifact_iteration",
+            "confidence": 0.95,
+            "deliverableKind": "document",
+            "deliverableFormats": [
+              "pdf"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "document_package",
+              "interactionMode": "artifact_iteration",
+              "confidence": 0.95,
+              "deliverableKind": "document",
+              "deliverableFormats": [
+                "pdf"
+              ],
+              "rawContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_multimodal_authoring"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "document",
+                  "acceptedFormats": [
+                    "pdf"
+                  ],
+                  "preferredFormat": "pdf",
+                  "constraints": {
+                    "pageCount": 2,
+                    "style": "rich"
+                  }
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_multimodal_authoring"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "document",
+                  "acceptedFormats": [
+                    "pdf"
+                  ],
+                  "preferredFormat": "pdf",
+                  "constraints": {
+                    "pageCount": 2,
+                    "style": "rich"
+                  }
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_multimodal_authoring"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "document",
+                  "acceptedFormats": [
+                    "pdf"
+                  ],
+                  "preferredFormat": "pdf",
+                  "constraints": {
+                    "pageCount": 2,
+                    "style": "rich"
+                  }
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "docx-format-switch",
+      "description": "Same task in Word should not clarify about prior intent.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "document_package",
+        "executionMode": "artifact_iteration",
+        "requestedTools": [
+          "docx_write",
+          "image_generate"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "document",
+        "deliverableFormats": [
+          "docx"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "document_package",
+        "interactionMode": "artifact_iteration",
+        "executionMode": "artifact_iteration",
+        "requestedTools": [
+          "docx_write",
+          "image_generate"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "selectedRecipeId": "doc_authoring",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "document",
+        "deliverableFormats": [
+          "docx"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "document_render",
+          "candidateFamilies": [
+            "document_render",
+            "media_generation"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "plannerInput": {
+          "prompt": "То же самое в word.",
+          "contractFirst": true,
+          "intent": "document",
+          "artifactKinds": [
+            "document",
+            "image"
+          ],
+          "requestedTools": [
+            "docx_write",
+            "image_generate"
+          ],
+          "deliverable": {
+            "kind": "document",
+            "acceptedFormats": [
+              "docx"
+            ],
+            "preferredFormat": "docx"
+          },
+          "outcomeContract": "structured_artifact",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": true,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "artifact_descriptor"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_multimodal_authoring"
+          ],
+          "candidateFamilies": [
+            "document_render",
+            "media_generation"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "document_render",
+            "candidateFamilies": [
+              "document_render",
+              "media_generation"
+            ],
+            "toolBundles": [
+              "artifact_authoring"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "strong",
+              "preferRemoteFirst": true,
+              "needsVision": true
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "document_package",
+            "interactionMode": "artifact_iteration",
+            "confidence": 0.93,
+            "deliverableKind": "document",
+            "deliverableFormats": [
+              "docx"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "document_package",
+              "interactionMode": "artifact_iteration",
+              "confidence": 0.93,
+              "deliverableKind": "document",
+              "deliverableFormats": [
+                "docx"
+              ],
+              "rawContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_multimodal_authoring"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.93,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "document",
+                  "acceptedFormats": [
+                    "docx"
+                  ],
+                  "preferredFormat": "docx"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_multimodal_authoring"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.93,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "document",
+                  "acceptedFormats": [
+                    "docx"
+                  ],
+                  "preferredFormat": "docx"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_multimodal_authoring"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.93,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "document",
+                  "acceptedFormats": [
+                    "docx"
+                  ],
+                  "preferredFormat": "docx"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "xlsx-loose-report",
+      "description": "Loose Excel report request should pick a data artifact and not ask columns first.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "document_package",
+        "executionMode": "artifact_iteration",
+        "requestedTools": [
+          "csv_write",
+          "xlsx_write"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "data",
+        "deliverableFormats": [
+          "csv",
+          "xlsx"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "document_package",
+        "interactionMode": "artifact_iteration",
+        "executionMode": "artifact_iteration",
+        "requestedTools": [
+          "csv_write",
+          "xlsx_write"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "selectedRecipeId": "doc_authoring",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "data",
+        "deliverableFormats": [
+          "csv",
+          "xlsx"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "document_render",
+          "candidateFamilies": [
+            "analysis_transform",
+            "document_render"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Какой-то отчёт сделать в эксель.",
+          "contractFirst": true,
+          "intent": "document",
+          "artifactKinds": [
+            "data",
+            "document"
+          ],
+          "requestedTools": [
+            "csv_write",
+            "xlsx_write"
+          ],
+          "deliverable": {
+            "kind": "data",
+            "acceptedFormats": [
+              "xlsx",
+              "csv"
+            ],
+            "preferredFormat": "xlsx"
+          },
+          "outcomeContract": "structured_artifact",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": true,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "artifact_descriptor"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_tabular_reasoning"
+          ],
+          "candidateFamilies": [
+            "analysis_transform",
+            "document_render"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "document_render",
+            "candidateFamilies": [
+              "analysis_transform",
+              "document_render"
+            ],
+            "toolBundles": [
+              "artifact_authoring"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "strong",
+              "preferRemoteFirst": true,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "document_package",
+            "interactionMode": "artifact_iteration",
+            "confidence": 0.9,
+            "deliverableKind": "data",
+            "deliverableFormats": [
+              "xlsx",
+              "csv"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "document_package",
+              "interactionMode": "artifact_iteration",
+              "confidence": 0.9,
+              "deliverableKind": "data",
+              "deliverableFormats": [
+                "xlsx",
+                "csv"
+              ],
+              "rawContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_tabular_reasoning"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.9,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "xlsx",
+                    "csv"
+                  ],
+                  "preferredFormat": "xlsx"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_tabular_reasoning"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.9,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "xlsx",
+                    "csv"
+                  ],
+                  "preferredFormat": "xlsx"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_tabular_reasoning"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.9,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "xlsx",
+                    "csv"
+                  ],
+                  "preferredFormat": "xlsx"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "csv-loose-report",
+      "description": "Loose CSV report should route to CSV writer without clarification.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "document_package",
+        "executionMode": "artifact_iteration",
+        "requestedTools": [
+          "csv_write"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "data",
+        "deliverableFormats": [
+          "csv"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "document_package",
+        "interactionMode": "artifact_iteration",
+        "executionMode": "artifact_iteration",
+        "requestedTools": [
+          "csv_write"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "selectedRecipeId": "doc_authoring",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "data",
+        "deliverableFormats": [
+          "csv"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "document_render",
+          "candidateFamilies": [
+            "analysis_transform",
+            "document_render"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Какой-то отчёт сделать в csv.",
+          "contractFirst": true,
+          "intent": "document",
+          "artifactKinds": [
+            "data",
+            "document"
+          ],
+          "requestedTools": [
+            "csv_write"
+          ],
+          "deliverable": {
+            "kind": "data",
+            "acceptedFormats": [
+              "csv"
+            ],
+            "preferredFormat": "csv"
+          },
+          "outcomeContract": "structured_artifact",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": true,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "artifact_descriptor"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_tabular_reasoning"
+          ],
+          "candidateFamilies": [
+            "analysis_transform",
+            "document_render"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "document_render",
+            "candidateFamilies": [
+              "analysis_transform",
+              "document_render"
+            ],
+            "toolBundles": [
+              "artifact_authoring"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "strong",
+              "preferRemoteFirst": true,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "document_package",
+            "interactionMode": "artifact_iteration",
+            "confidence": 0.9,
+            "deliverableKind": "data",
+            "deliverableFormats": [
+              "csv"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "document_package",
+              "interactionMode": "artifact_iteration",
+              "confidence": 0.9,
+              "deliverableKind": "data",
+              "deliverableFormats": [
+                "csv"
+              ],
+              "rawContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_tabular_reasoning"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.9,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "csv"
+                  ],
+                  "preferredFormat": "csv"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_tabular_reasoning"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.9,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "csv"
+                  ],
+                  "preferredFormat": "csv"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_tabular_reasoning"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.9,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "csv"
+                  ],
+                  "preferredFormat": "csv"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "pdf-field-extraction",
+      "description": "PDF extraction should be tool execution, not authored document creation.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "document_extraction",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "write"
+        ],
+        "toolBundles": [
+          "document_extraction"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "data",
+        "deliverableFormats": [
+          "json"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "document_extraction",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "write"
+        ],
+        "toolBundles": [
+          "document_extraction"
+        ],
+        "selectedRecipeId": "doc_ingest",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "data",
+        "deliverableFormats": [
+          "json"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "document_render",
+          "candidateFamilies": [
+            "analysis_transform",
+            "document_render"
+          ],
+          "toolBundles": [
+            "document_extraction"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "plannerInput": {
+          "prompt": "Extract invoice number, vendor, date, and total from the attached PDF.",
+          "contractFirst": true,
+          "fileNames": [
+            "invoice.pdf"
+          ],
+          "intent": "document",
+          "artifactKinds": [
+            "data",
+            "document",
+            "report"
+          ],
+          "requestedTools": [
+            "write"
+          ],
+          "deliverable": {
+            "kind": "data",
+            "acceptedFormats": [
+              "json"
+            ],
+            "preferredFormat": "json"
+          },
+          "outcomeContract": "structured_artifact",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": true,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": true
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "artifact_descriptor",
+            "capability_receipt"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_document_extraction"
+          ],
+          "candidateFamilies": [
+            "analysis_transform",
+            "document_render"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "document_render",
+            "candidateFamilies": [
+              "analysis_transform",
+              "document_render"
+            ],
+            "toolBundles": [
+              "document_extraction"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "strong",
+              "preferRemoteFirst": true,
+              "needsVision": true
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "document_extraction",
+            "interactionMode": "tool_execution",
+            "confidence": 0.97,
+            "deliverableKind": "data",
+            "deliverableFormats": [
+              "json"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "document_extraction",
+              "interactionMode": "tool_execution",
+              "confidence": 0.97,
+              "deliverableKind": "data",
+              "deliverableFormats": [
+                "json"
+              ],
+              "rawContract": {
+                "primaryOutcome": "document_extraction",
+                "requiredCapabilities": [
+                  "needs_document_extraction"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.97,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "json"
+                  ],
+                  "preferredFormat": "json"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "document_extraction",
+                "requiredCapabilities": [
+                  "needs_document_extraction"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.97,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "json"
+                  ],
+                  "preferredFormat": "json"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "document_extraction",
+                "requiredCapabilities": [
+                  "needs_document_extraction"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.97,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "json"
+                  ],
+                  "preferredFormat": "json"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "docx-field-extraction",
+      "description": "DOCX extraction should stay extraction-focused.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "document_extraction",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "write"
+        ],
+        "toolBundles": [
+          "document_extraction"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "data",
+        "deliverableFormats": [
+          "json"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "document_extraction",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "write"
+        ],
+        "toolBundles": [
+          "document_extraction"
+        ],
+        "selectedRecipeId": "doc_ingest",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "data",
+        "deliverableFormats": [
+          "json"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "document_render",
+          "candidateFamilies": [
+            "analysis_transform",
+            "document_render"
+          ],
+          "toolBundles": [
+            "document_extraction"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Вытащи из приложенного договора стороны, сроки и суммы в JSON.",
+          "contractFirst": true,
+          "fileNames": [
+            "contract.docx"
+          ],
+          "intent": "document",
+          "artifactKinds": [
+            "data",
+            "document",
+            "report"
+          ],
+          "requestedTools": [
+            "write"
+          ],
+          "deliverable": {
+            "kind": "data",
+            "acceptedFormats": [
+              "json"
+            ],
+            "preferredFormat": "json"
+          },
+          "outcomeContract": "structured_artifact",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": true,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": true
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "artifact_descriptor",
+            "capability_receipt"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_document_extraction"
+          ],
+          "candidateFamilies": [
+            "analysis_transform",
+            "document_render"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "document_render",
+            "candidateFamilies": [
+              "analysis_transform",
+              "document_render"
+            ],
+            "toolBundles": [
+              "document_extraction"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "strong",
+              "preferRemoteFirst": true,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "document_extraction",
+            "interactionMode": "tool_execution",
+            "confidence": 0.96,
+            "deliverableKind": "data",
+            "deliverableFormats": [
+              "json"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "document_extraction",
+              "interactionMode": "tool_execution",
+              "confidence": 0.96,
+              "deliverableKind": "data",
+              "deliverableFormats": [
+                "json"
+              ],
+              "rawContract": {
+                "primaryOutcome": "document_extraction",
+                "requiredCapabilities": [
+                  "needs_document_extraction"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.96,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "json"
+                  ],
+                  "preferredFormat": "json"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "document_extraction",
+                "requiredCapabilities": [
+                  "needs_document_extraction"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.96,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "json"
+                  ],
+                  "preferredFormat": "json"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "document_extraction",
+                "requiredCapabilities": [
+                  "needs_document_extraction"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.96,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "data",
+                  "acceptedFormats": [
+                    "json"
+                  ],
+                  "preferredFormat": "json"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "repo-run-tests-only",
+      "description": "Running tests is a repo operation, not a source mutation.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "workspace_change",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "exec",
+          "process"
+        ],
+        "toolBundles": [
+          "repo_run"
+        ],
+        "selectedRecipeId": "code_build_publish",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "repo_operation",
+        "deliverableFormats": [
+          "exec",
+          "test-report"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "workspace_change",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "exec",
+          "process"
+        ],
+        "toolBundles": [
+          "repo_run"
+        ],
+        "selectedRecipeId": "code_build_publish",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "repo_operation",
+        "deliverableFormats": [
+          "exec",
+          "test-report"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "code_build",
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "toolBundles": [
+            "repo_run"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Прогнать тесты в проекте и показать результат.",
+          "contractFirst": true,
+          "intent": "code",
+          "artifactKinds": [
+            "binary"
+          ],
+          "requestedTools": [
+            "exec",
+            "process"
+          ],
+          "deliverable": {
+            "kind": "repo_operation",
+            "acceptedFormats": [
+              "test-report",
+              "exec"
+            ],
+            "preferredFormat": "test-report",
+            "constraints": {
+              "operation": "run_tests"
+            }
+          },
+          "outcomeContract": "workspace_change",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": true,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": true
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "capability_receipt"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_local_runtime",
+            "needs_repo_execution"
+          ],
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "code_build",
+            "candidateFamilies": [
+              "code_build"
+            ],
+            "toolBundles": [
+              "repo_run"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "code",
+              "preferRemoteFirst": false,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code"
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "workspace_change",
+            "interactionMode": "tool_execution",
+            "confidence": 0.95,
+            "deliverableKind": "repo_operation",
+            "deliverableFormats": [
+              "test-report",
+              "exec"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "workspace_change",
+              "interactionMode": "tool_execution",
+              "confidence": 0.95,
+              "deliverableKind": "repo_operation",
+              "deliverableFormats": [
+                "test-report",
+                "exec"
+              ],
+              "rawContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_repo_execution",
+                  "needs_local_runtime"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "repo_operation",
+                  "acceptedFormats": [
+                    "test-report",
+                    "exec"
+                  ],
+                  "preferredFormat": "test-report",
+                  "constraints": {
+                    "operation": "run_tests"
+                  }
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_local_runtime",
+                  "needs_repo_execution"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "repo_operation",
+                  "acceptedFormats": [
+                    "test-report",
+                    "exec"
+                  ],
+                  "preferredFormat": "test-report",
+                  "constraints": {
+                    "operation": "run_tests"
+                  }
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_local_runtime",
+                  "needs_repo_execution"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "repo_operation",
+                  "acceptedFormats": [
+                    "test-report",
+                    "exec"
+                  ],
+                  "preferredFormat": "test-report",
+                  "constraints": {
+                    "operation": "run_tests"
+                  }
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "repo-fix-with-validation",
+      "description": "Code fix with validation needs patch plus repo execution.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "workspace_change",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "apply_patch",
+          "exec",
+          "process"
+        ],
+        "toolBundles": [
+          "repo_mutation",
+          "repo_run"
+        ],
+        "selectedRecipeId": "code_build_publish",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "code_change",
+        "deliverableFormats": [
+          "edit",
+          "patch"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "workspace_change",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "apply_patch",
+          "exec",
+          "process"
+        ],
+        "toolBundles": [
+          "repo_mutation",
+          "repo_run"
+        ],
+        "selectedRecipeId": "code_build_publish",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "code_change",
+        "deliverableFormats": [
+          "edit",
+          "patch"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "code_build",
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "toolBundles": [
+            "repo_mutation",
+            "repo_run"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Найди и пофикси багу в тестовой линии, затем прогони релевантные тесты.",
+          "contractFirst": true,
+          "intent": "code",
+          "artifactKinds": [
+            "binary"
+          ],
+          "requestedTools": [
+            "apply_patch",
+            "exec",
+            "process"
+          ],
+          "deliverable": {
+            "kind": "code_change",
+            "acceptedFormats": [
+              "patch",
+              "edit"
+            ],
+            "preferredFormat": "patch",
+            "constraints": {
+              "operation": "bug_fix"
+            }
+          },
+          "outcomeContract": "workspace_change",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": true,
+            "requiresLocalProcess": true,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": true
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "capability_receipt"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_local_runtime",
+            "needs_repo_execution",
+            "needs_workspace_mutation"
+          ],
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "code_build",
+            "candidateFamilies": [
+              "code_build"
+            ],
+            "toolBundles": [
+              "repo_mutation",
+              "repo_run"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "code",
+              "preferRemoteFirst": false,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code"
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "workspace_change",
+            "interactionMode": "tool_execution",
+            "confidence": 0.94,
+            "deliverableKind": "code_change",
+            "deliverableFormats": [
+              "patch",
+              "edit"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "workspace_change",
+              "interactionMode": "tool_execution",
+              "confidence": 0.94,
+              "deliverableKind": "code_change",
+              "deliverableFormats": [
+                "patch",
+                "edit"
+              ],
+              "rawContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_workspace_mutation",
+                  "needs_repo_execution",
+                  "needs_local_runtime"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.94,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "code_change",
+                  "acceptedFormats": [
+                    "patch",
+                    "edit"
+                  ],
+                  "preferredFormat": "patch",
+                  "constraints": {
+                    "operation": "bug_fix"
+                  }
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_local_runtime",
+                  "needs_repo_execution",
+                  "needs_workspace_mutation"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.94,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "code_change",
+                  "acceptedFormats": [
+                    "patch",
+                    "edit"
+                  ],
+                  "preferredFormat": "patch",
+                  "constraints": {
+                    "operation": "bug_fix"
+                  }
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_local_runtime",
+                  "needs_repo_execution",
+                  "needs_workspace_mutation"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.94,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "code_change",
+                  "acceptedFormats": [
+                    "patch",
+                    "edit"
+                  ],
+                  "preferredFormat": "patch",
+                  "constraints": {
+                    "operation": "bug_fix"
+                  }
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-audit-local-app",
+      "description": "Browser observation should not imply repo mutation or web research.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "comparison_report",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "browser"
+        ],
+        "toolBundles": [
+          "interactive_browser"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "answer",
+        "deliverableFormats": [
+          "text"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "browser"
+        ],
+        "toolBundles": [
+          "interactive_browser"
+        ],
+        "selectedRecipeId": "table_compare",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "answer",
+        "deliverableFormats": [
+          "text"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "analysis_transform",
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "toolBundles": [
+            "interactive_browser"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "plannerInput": {
+          "prompt": "Open the local app in browser and report visible UI or console issues in signup.",
+          "contractFirst": true,
+          "intent": "compare",
+          "artifactKinds": [
+            "data",
+            "report"
+          ],
+          "requestedTools": [
+            "browser"
+          ],
+          "deliverable": {
+            "kind": "answer",
+            "acceptedFormats": [
+              "text"
+            ],
+            "preferredFormat": "text"
+          },
+          "outcomeContract": "text_response",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "assistant_text"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_interactive_browser"
+          ],
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "analysis_transform",
+            "candidateFamilies": [
+              "analysis_transform"
+            ],
+            "toolBundles": [
+              "interactive_browser"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "strong",
+              "preferRemoteFirst": true,
+              "needsVision": true
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "comparison_report",
+            "interactionMode": "tool_execution",
+            "confidence": 0.95,
+            "deliverableKind": "answer",
+            "deliverableFormats": [
+              "text"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "comparison_report",
+              "interactionMode": "tool_execution",
+              "confidence": 0.95,
+              "deliverableKind": "answer",
+              "deliverableFormats": [
+                "text"
+              ],
+              "rawContract": {
+                "primaryOutcome": "comparison_report",
+                "requiredCapabilities": [
+                  "needs_interactive_browser"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "comparison_report",
+                "requiredCapabilities": [
+                  "needs_interactive_browser"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "comparison_report",
+                "requiredCapabilities": [
+                  "needs_interactive_browser"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "public-web-research",
+      "description": "Fresh public facts need web_search, not browser driving.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "comparison_report",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "web_search"
+        ],
+        "toolBundles": [
+          "public_web_lookup"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "answer",
+        "deliverableFormats": [
+          "text"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "web_search"
+        ],
+        "toolBundles": [
+          "public_web_lookup"
+        ],
+        "selectedRecipeId": "table_compare",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "answer",
+        "deliverableFormats": [
+          "text"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "analysis_transform",
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "toolBundles": [
+            "public_web_lookup"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Research current public pricing for three managed vector databases and compare tradeoffs.",
+          "contractFirst": true,
+          "intent": "compare",
+          "artifactKinds": [
+            "data",
+            "report"
+          ],
+          "requestedTools": [
+            "web_search"
+          ],
+          "deliverable": {
+            "kind": "answer",
+            "acceptedFormats": [
+              "text"
+            ],
+            "preferredFormat": "text"
+          },
+          "outcomeContract": "text_response",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "assistant_text"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_web_research"
+          ],
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "analysis_transform",
+            "candidateFamilies": [
+              "analysis_transform"
+            ],
+            "toolBundles": [
+              "public_web_lookup"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "strong",
+              "preferRemoteFirst": true,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "comparison_report",
+            "interactionMode": "tool_execution",
+            "confidence": 0.92,
+            "deliverableKind": "answer",
+            "deliverableFormats": [
+              "text"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "comparison_report",
+              "interactionMode": "tool_execution",
+              "confidence": 0.92,
+              "deliverableKind": "answer",
+              "deliverableFormats": [
+                "text"
+              ],
+              "rawContract": {
+                "primaryOutcome": "comparison_report",
+                "requiredCapabilities": [
+                  "needs_web_research"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.92,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "comparison_report",
+                "requiredCapabilities": [
+                  "needs_web_research"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.92,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "comparison_report",
+                "requiredCapabilities": [
+                  "needs_web_research"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.92,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "external-publish-production",
+      "description": "Prepared live publish is external delivery with validation, not workspace mutation.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "external_delivery",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "exec",
+          "process"
+        ],
+        "toolBundles": [
+          "external_delivery",
+          "repo_run"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "external_delivery",
+        "deliverableFormats": [
+          "receipt"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "external_delivery",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "exec",
+          "process"
+        ],
+        "toolBundles": [
+          "external_delivery",
+          "repo_run"
+        ],
+        "selectedRecipeId": "ops_orchestration",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "external_delivery",
+        "deliverableFormats": [
+          "receipt"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "ops_execution",
+          "candidateFamilies": [
+            "ops_execution"
+          ],
+          "toolBundles": [
+            "external_delivery",
+            "repo_run"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Run release checks and publish the already-prepared build to production.",
+          "contractFirst": true,
+          "intent": "publish",
+          "artifactKinds": [
+            "release"
+          ],
+          "requestedTools": [
+            "exec",
+            "process"
+          ],
+          "publishTargets": [
+            "external"
+          ],
+          "deliverable": {
+            "kind": "external_delivery",
+            "acceptedFormats": [
+              "receipt"
+            ],
+            "preferredFormat": "receipt"
+          },
+          "outcomeContract": "external_operation",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": true,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": true,
+            "mayNeedBootstrap": true
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "delivery_receipt",
+            "capability_receipt"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_external_delivery",
+            "needs_high_reliability_provider",
+            "needs_local_runtime",
+            "needs_repo_execution"
+          ],
+          "candidateFamilies": [
+            "ops_execution"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "ops_execution",
+            "candidateFamilies": [
+              "ops_execution"
+            ],
+            "toolBundles": [
+              "external_delivery",
+              "repo_run"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "code",
+              "preferRemoteFirst": true,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code",
+            "preferRemoteFirst": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "external_delivery",
+            "interactionMode": "tool_execution",
+            "confidence": 0.93,
+            "deliverableKind": "external_delivery",
+            "deliverableFormats": [
+              "receipt"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "external_delivery",
+              "interactionMode": "tool_execution",
+              "confidence": 0.93,
+              "deliverableKind": "external_delivery",
+              "deliverableFormats": [
+                "receipt"
+              ],
+              "rawContract": {
+                "primaryOutcome": "external_delivery",
+                "requiredCapabilities": [
+                  "needs_external_delivery",
+                  "needs_repo_execution",
+                  "needs_local_runtime",
+                  "needs_high_reliability_provider"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.93,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "external_delivery",
+                  "acceptedFormats": [
+                    "receipt"
+                  ],
+                  "preferredFormat": "receipt"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "external_delivery",
+                "requiredCapabilities": [
+                  "needs_external_delivery",
+                  "needs_high_reliability_provider",
+                  "needs_local_runtime",
+                  "needs_repo_execution"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.93,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "external_delivery",
+                  "acceptedFormats": [
+                    "receipt"
+                  ],
+                  "preferredFormat": "receipt"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "external_delivery",
+                "requiredCapabilities": [
+                  "needs_external_delivery",
+                  "needs_high_reliability_provider",
+                  "needs_local_runtime",
+                  "needs_repo_execution"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.93,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "external_delivery",
+                  "acceptedFormats": [
+                    "receipt"
+                  ],
+                  "preferredFormat": "receipt"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "ambiguous-document-format",
+      "description": "Authored document without format should clarify and leak no tools.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "clarification_needed",
+        "executionMode": "clarify_first",
+        "requestedTools": [],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "selectedRecipeId": "general_reasoning",
+        "routingOutcomeKind": "low_confidence_clarify",
+        "shouldClarify": true,
+        "deliverableKind": null,
+        "deliverableFormats": []
+      },
+      "actual": {
+        "primaryOutcome": "clarification_needed",
+        "interactionMode": "clarify_first",
+        "executionMode": "clarify_first",
+        "requestedTools": [],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "selectedRecipeId": "general_reasoning",
+        "routingOutcomeKind": "low_confidence_clarify",
+        "shouldClarify": true,
+        "deliverableKind": null,
+        "deliverableFormats": [],
+        "resolutionContract": {
+          "selectedFamily": "general_assistant",
+          "candidateFamilies": [
+            "general_assistant"
+          ],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "routing": {
+            "localEligible": true,
+            "remoteProfile": "cheap",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Сделай красивый документ по этим заметкам.",
+          "contractFirst": true,
+          "intent": "general",
+          "outcomeContract": "text_response",
+          "executionContract": {
+            "requiresTools": false,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "assistant_text"
+          ],
+          "confidence": "medium",
+          "taskRequiredCapabilities": [],
+          "ambiguityReasons": [
+            "document format not specified"
+          ],
+          "lowConfidenceStrategy": "clarify",
+          "candidateFamilies": [
+            "general_assistant"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "general_assistant",
+            "candidateFamilies": [
+              "general_assistant"
+            ],
+            "toolBundles": [
+              "respond_only"
+            ],
+            "routing": {
+              "localEligible": true,
+              "remoteProfile": "cheap",
+              "preferRemoteFirst": false,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": true,
+            "remoteProfile": "cheap"
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "clarification_needed",
+            "interactionMode": "clarify_first",
+            "confidence": 0.62,
+            "deliverableKind": "answer",
+            "deliverableFormats": [
+              "text"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "clarification_needed",
+              "interactionMode": "clarify_first",
+              "confidence": 0.62,
+              "deliverableKind": "answer",
+              "deliverableFormats": [
+                "text"
+              ],
+              "rawContract": {
+                "primaryOutcome": "clarification_needed",
+                "requiredCapabilities": [],
+                "interactionMode": "clarify_first",
+                "confidence": 0.62,
+                "ambiguities": [
+                  "document format not specified"
+                ],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "clarification_needed",
+                "requiredCapabilities": [],
+                "interactionMode": "clarify_first",
+                "confidence": 0.62,
+                "ambiguities": [
+                  "document format not specified"
+                ],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "clarification_needed",
+                "requiredCapabilities": [],
+                "interactionMode": "clarify_first",
+                "confidence": 0.62,
+                "ambiguities": [
+                  "document format not specified"
+                ],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": [
+                {
+                  "reason": "document format not specified",
+                  "kind": "blocking",
+                  "blocksClarification": true
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "repeated-clarify-budget-proceed",
+      "description": "Clarify budget exhausted should let a clear default proceed instead of repeating clarify.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "document_package",
+        "executionMode": "artifact_iteration",
+        "requestedTools": [
+          "image_generate",
+          "pdf"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "document",
+        "deliverableFormats": [
+          "pdf"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "document_package",
+        "interactionMode": "artifact_iteration",
+        "executionMode": "artifact_iteration",
+        "requestedTools": [
+          "image_generate",
+          "pdf"
+        ],
+        "toolBundles": [
+          "artifact_authoring"
+        ],
+        "selectedRecipeId": "doc_authoring",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "document",
+        "deliverableFormats": [
+          "pdf"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "document_render",
+          "candidateFamilies": [
+            "document_render",
+            "media_generation"
+          ],
+          "toolBundles": [
+            "artifact_authoring"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "presentation",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          }
+        },
+        "plannerInput": {
+          "prompt": "делай уже",
+          "contractFirst": true,
+          "intent": "document",
+          "artifactKinds": [
+            "document",
+            "image"
+          ],
+          "requestedTools": [
+            "image_generate",
+            "pdf"
+          ],
+          "deliverable": {
+            "kind": "document",
+            "acceptedFormats": [
+              "pdf"
+            ],
+            "preferredFormat": "pdf"
+          },
+          "outcomeContract": "structured_artifact",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": true,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "artifact_descriptor"
+          ],
+          "confidence": "medium",
+          "taskRequiredCapabilities": [
+            "needs_multimodal_authoring"
+          ],
+          "candidateFamilies": [
+            "document_render",
+            "media_generation"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "document_render",
+            "candidateFamilies": [
+              "document_render",
+              "media_generation"
+            ],
+            "toolBundles": [
+              "artifact_authoring"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "presentation",
+              "preferRemoteFirst": true,
+              "needsVision": true
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "presentation",
+            "preferRemoteFirst": true,
+            "needsVision": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "document_package",
+            "interactionMode": "artifact_iteration",
+            "confidence": 0.78,
+            "deliverableKind": "document",
+            "deliverableFormats": [
+              "pdf"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "document_package",
+              "interactionMode": "artifact_iteration",
+              "confidence": 0.78,
+              "deliverableKind": "document",
+              "deliverableFormats": [
+                "pdf"
+              ],
+              "rawContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_multimodal_authoring"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.78,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "document",
+                  "acceptedFormats": [
+                    "pdf"
+                  ],
+                  "preferredFormat": "pdf"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_multimodal_authoring"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.78,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "document",
+                  "acceptedFormats": [
+                    "pdf"
+                  ],
+                  "preferredFormat": "pdf"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "document_package",
+                "requiredCapabilities": [
+                  "needs_multimodal_authoring"
+                ],
+                "interactionMode": "artifact_iteration",
+                "confidence": 0.78,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "document",
+                  "acceptedFormats": [
+                    "pdf"
+                  ],
+                  "preferredFormat": "pdf"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "attached-spreadsheets-compare",
+      "description": "Spreadsheet comparison should be analytical and respond-only unless extraction is needed.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "comparison_report",
+        "executionMode": "respond_only",
+        "requestedTools": [],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "answer",
+        "deliverableFormats": [
+          "text"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "comparison_report",
+        "interactionMode": "respond_only",
+        "executionMode": "respond_only",
+        "requestedTools": [],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "selectedRecipeId": "general_reasoning",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "answer",
+        "deliverableFormats": [
+          "text"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "analysis_transform",
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Compare attached pricing spreadsheets and summarize SKU-level differences.",
+          "contractFirst": true,
+          "fileNames": [
+            "a.xlsx",
+            "b.xlsx"
+          ],
+          "intent": "compare",
+          "artifactKinds": [
+            "data",
+            "report"
+          ],
+          "deliverable": {
+            "kind": "answer",
+            "acceptedFormats": [
+              "text"
+            ],
+            "preferredFormat": "text"
+          },
+          "outcomeContract": "text_response",
+          "executionContract": {
+            "requiresTools": false,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "assistant_text"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_tabular_reasoning"
+          ],
+          "candidateFamilies": [
+            "analysis_transform"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "analysis_transform",
+            "candidateFamilies": [
+              "analysis_transform"
+            ],
+            "toolBundles": [
+              "respond_only"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "strong",
+              "preferRemoteFirst": true,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "comparison_report",
+            "interactionMode": "respond_only",
+            "confidence": 0.94,
+            "deliverableKind": "answer",
+            "deliverableFormats": [
+              "text"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "comparison_report",
+              "interactionMode": "respond_only",
+              "confidence": 0.94,
+              "deliverableKind": "answer",
+              "deliverableFormats": [
+                "text"
+              ],
+              "rawContract": {
+                "primaryOutcome": "comparison_report",
+                "requiredCapabilities": [
+                  "needs_tabular_reasoning"
+                ],
+                "interactionMode": "respond_only",
+                "confidence": 0.94,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "comparison_report",
+                "requiredCapabilities": [
+                  "needs_tabular_reasoning"
+                ],
+                "interactionMode": "respond_only",
+                "confidence": 0.94,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "comparison_report",
+                "requiredCapabilities": [
+                  "needs_tabular_reasoning"
+                ],
+                "interactionMode": "respond_only",
+                "confidence": 0.94,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "capability-install-package",
+      "description": "Capability install request must use installer, not ordinary answer.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "external_delivery",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "capability_install"
+        ],
+        "toolBundles": [
+          "external_delivery"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "capability_install",
+        "deliverableFormats": [
+          "npm-package"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "external_delivery",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "capability_install"
+        ],
+        "toolBundles": [
+          "external_delivery"
+        ],
+        "selectedRecipeId": "integration_delivery",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "capability_install",
+        "deliverableFormats": [
+          "npm-package"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "ops_execution",
+          "candidateFamilies": [
+            "ops_execution"
+          ],
+          "toolBundles": [
+            "external_delivery"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Установи стороннюю библиотеку pdfkit.",
+          "contractFirst": true,
+          "intent": "publish",
+          "artifactKinds": [
+            "release"
+          ],
+          "requestedTools": [
+            "capability_install"
+          ],
+          "publishTargets": [
+            "external"
+          ],
+          "deliverable": {
+            "kind": "capability_install",
+            "acceptedFormats": [
+              "npm-package"
+            ],
+            "preferredFormat": "npm-package",
+            "constraints": {
+              "manager": "npm",
+              "name": "pdfkit"
+            }
+          },
+          "outcomeContract": "external_operation",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": true,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "delivery_receipt"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_external_delivery"
+          ],
+          "candidateFamilies": [
+            "ops_execution"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "ops_execution",
+            "candidateFamilies": [
+              "ops_execution"
+            ],
+            "toolBundles": [
+              "external_delivery"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "strong",
+              "preferRemoteFirst": true,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "external_delivery",
+            "interactionMode": "tool_execution",
+            "confidence": 0.92,
+            "deliverableKind": "capability_install",
+            "deliverableFormats": [
+              "npm-package"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "external_delivery",
+              "interactionMode": "tool_execution",
+              "confidence": 0.92,
+              "deliverableKind": "capability_install",
+              "deliverableFormats": [
+                "npm-package"
+              ],
+              "rawContract": {
+                "primaryOutcome": "external_delivery",
+                "requiredCapabilities": [
+                  "needs_external_delivery"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.92,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "capability_install",
+                  "acceptedFormats": [
+                    "npm-package"
+                  ],
+                  "preferredFormat": "npm-package",
+                  "constraints": {
+                    "manager": "npm",
+                    "name": "pdfkit"
+                  }
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "external_delivery",
+                "requiredCapabilities": [
+                  "needs_external_delivery"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.92,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "capability_install",
+                  "acceptedFormats": [
+                    "npm-package"
+                  ],
+                  "preferredFormat": "npm-package",
+                  "constraints": {
+                    "manager": "npm",
+                    "name": "pdfkit"
+                  }
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "external_delivery",
+                "requiredCapabilities": [
+                  "needs_external_delivery"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.92,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "capability_install",
+                  "acceptedFormats": [
+                    "npm-package"
+                  ],
+                  "preferredFormat": "npm-package",
+                  "constraints": {
+                    "manager": "npm",
+                    "name": "pdfkit"
+                  }
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "create-file-exact-content",
+      "description": "Explicit file creation should request workspace mutation tools.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "workspace_change",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "apply_patch",
+          "write"
+        ],
+        "toolBundles": [
+          "repo_mutation"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "code_change",
+        "deliverableFormats": [
+          "patch",
+          "workspace"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "workspace_change",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "apply_patch",
+          "write"
+        ],
+        "toolBundles": [
+          "repo_mutation"
+        ],
+        "selectedRecipeId": "code_build_publish",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "code_change",
+        "deliverableFormats": [
+          "patch",
+          "workspace"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "code_build",
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "toolBundles": [
+            "repo_mutation"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Создай файл notes/hello.txt с одной строкой hello.",
+          "contractFirst": true,
+          "intent": "code",
+          "artifactKinds": [
+            "binary"
+          ],
+          "requestedTools": [
+            "apply_patch",
+            "write"
+          ],
+          "deliverable": {
+            "kind": "code_change",
+            "acceptedFormats": [
+              "workspace",
+              "patch"
+            ],
+            "preferredFormat": "workspace",
+            "constraints": {
+              "operation": "add_file"
+            }
+          },
+          "outcomeContract": "workspace_change",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": true,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "tool_receipt"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_workspace_mutation"
+          ],
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "code_build",
+            "candidateFamilies": [
+              "code_build"
+            ],
+            "toolBundles": [
+              "repo_mutation"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "code",
+              "preferRemoteFirst": false,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code"
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "workspace_change",
+            "interactionMode": "tool_execution",
+            "confidence": 0.95,
+            "deliverableKind": "code_change",
+            "deliverableFormats": [
+              "workspace",
+              "patch"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "workspace_change",
+              "interactionMode": "tool_execution",
+              "confidence": 0.95,
+              "deliverableKind": "code_change",
+              "deliverableFormats": [
+                "workspace",
+                "patch"
+              ],
+              "rawContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_workspace_mutation"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "code_change",
+                  "acceptedFormats": [
+                    "workspace",
+                    "patch"
+                  ],
+                  "preferredFormat": "workspace",
+                  "constraints": {
+                    "operation": "add_file"
+                  }
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_workspace_mutation"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "code_change",
+                  "acceptedFormats": [
+                    "workspace",
+                    "patch"
+                  ],
+                  "preferredFormat": "workspace",
+                  "constraints": {
+                    "operation": "add_file"
+                  }
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_workspace_mutation"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "code_change",
+                  "acceptedFormats": [
+                    "workspace",
+                    "patch"
+                  ],
+                  "preferredFormat": "workspace",
+                  "constraints": {
+                    "operation": "add_file"
+                  }
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "run-node-version",
+      "description": "One-shot command is repo operation via exec/process, no patch.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "workspace_change",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "exec",
+          "process"
+        ],
+        "toolBundles": [
+          "repo_run"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "repo_operation",
+        "deliverableFormats": [
+          "exec"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "workspace_change",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "exec",
+          "process"
+        ],
+        "toolBundles": [
+          "repo_run"
+        ],
+        "selectedRecipeId": "code_build_publish",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "repo_operation",
+        "deliverableFormats": [
+          "exec"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "code_build",
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "toolBundles": [
+            "repo_run"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Запусти команду node --version и покажи вывод.",
+          "contractFirst": true,
+          "intent": "code",
+          "artifactKinds": [
+            "binary"
+          ],
+          "requestedTools": [
+            "exec",
+            "process"
+          ],
+          "deliverable": {
+            "kind": "repo_operation",
+            "acceptedFormats": [
+              "exec"
+            ],
+            "preferredFormat": "exec",
+            "constraints": {
+              "operation": "run_command"
+            }
+          },
+          "outcomeContract": "workspace_change",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": true,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": true
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "capability_receipt"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_local_runtime",
+            "needs_repo_execution"
+          ],
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "code_build",
+            "candidateFamilies": [
+              "code_build"
+            ],
+            "toolBundles": [
+              "repo_run"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "code",
+              "preferRemoteFirst": false,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code"
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "workspace_change",
+            "interactionMode": "tool_execution",
+            "confidence": 0.95,
+            "deliverableKind": "repo_operation",
+            "deliverableFormats": [
+              "exec"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "workspace_change",
+              "interactionMode": "tool_execution",
+              "confidence": 0.95,
+              "deliverableKind": "repo_operation",
+              "deliverableFormats": [
+                "exec"
+              ],
+              "rawContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_repo_execution",
+                  "needs_local_runtime"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "repo_operation",
+                  "acceptedFormats": [
+                    "exec"
+                  ],
+                  "preferredFormat": "exec",
+                  "constraints": {
+                    "operation": "run_command"
+                  }
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_local_runtime",
+                  "needs_repo_execution"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "repo_operation",
+                  "acceptedFormats": [
+                    "exec"
+                  ],
+                  "preferredFormat": "exec",
+                  "constraints": {
+                    "operation": "run_command"
+                  }
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_local_runtime",
+                  "needs_repo_execution"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.95,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "repo_operation",
+                  "acceptedFormats": [
+                    "exec"
+                  ],
+                  "preferredFormat": "exec",
+                  "constraints": {
+                    "operation": "run_command"
+                  }
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "start-dev-server",
+      "description": "Long-lived local runtime should request process plus exec without source mutation.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "workspace_change",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "exec",
+          "process"
+        ],
+        "toolBundles": [
+          "repo_run"
+        ],
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "repo_operation",
+        "deliverableFormats": [
+          "exec"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "workspace_change",
+        "interactionMode": "tool_execution",
+        "executionMode": "tool_execution",
+        "requestedTools": [
+          "exec",
+          "process"
+        ],
+        "toolBundles": [
+          "repo_run"
+        ],
+        "selectedRecipeId": "code_build_publish",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "repo_operation",
+        "deliverableFormats": [
+          "exec"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "code_build",
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "toolBundles": [
+            "repo_run"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code",
+            "preferRemoteFirst": false,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Запусти dev-сервер через pnpm dev и верни PID/URL.",
+          "contractFirst": true,
+          "intent": "code",
+          "artifactKinds": [
+            "binary"
+          ],
+          "requestedTools": [
+            "exec",
+            "process"
+          ],
+          "deliverable": {
+            "kind": "repo_operation",
+            "acceptedFormats": [
+              "exec"
+            ],
+            "preferredFormat": "exec",
+            "constraints": {
+              "operation": "run_command"
+            }
+          },
+          "outcomeContract": "workspace_change",
+          "executionContract": {
+            "requiresTools": true,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": true,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": true
+          },
+          "requestedEvidence": [
+            "tool_receipt",
+            "capability_receipt"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [
+            "needs_local_runtime",
+            "needs_repo_execution"
+          ],
+          "candidateFamilies": [
+            "code_build"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "code_build",
+            "candidateFamilies": [
+              "code_build"
+            ],
+            "toolBundles": [
+              "repo_run"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "code",
+              "preferRemoteFirst": false,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "code"
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "workspace_change",
+            "interactionMode": "tool_execution",
+            "confidence": 0.93,
+            "deliverableKind": "repo_operation",
+            "deliverableFormats": [
+              "exec"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "workspace_change",
+              "interactionMode": "tool_execution",
+              "confidence": 0.93,
+              "deliverableKind": "repo_operation",
+              "deliverableFormats": [
+                "exec"
+              ],
+              "rawContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_repo_execution",
+                  "needs_local_runtime"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.93,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "repo_operation",
+                  "acceptedFormats": [
+                    "exec"
+                  ],
+                  "preferredFormat": "exec",
+                  "constraints": {
+                    "operation": "run_command"
+                  }
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_local_runtime",
+                  "needs_repo_execution"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.93,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "repo_operation",
+                  "acceptedFormats": [
+                    "exec"
+                  ],
+                  "preferredFormat": "exec",
+                  "constraints": {
+                    "operation": "run_command"
+                  }
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "workspace_change",
+                "requiredCapabilities": [
+                  "needs_local_runtime",
+                  "needs_repo_execution"
+                ],
+                "interactionMode": "tool_execution",
+                "confidence": 0.93,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "repo_operation",
+                  "acceptedFormats": [
+                    "exec"
+                  ],
+                  "preferredFormat": "exec",
+                  "constraints": {
+                    "operation": "run_command"
+                  }
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "attached-file-summarize-only",
+      "description": "Attached text file alone should not imply extraction or tools.",
+      "pass": true,
+      "errorTags": [],
+      "diffs": [],
+      "expected": {
+        "primaryOutcome": "answer",
+        "executionMode": "respond_only",
+        "requestedTools": [],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "selectedRecipeId": "general_reasoning",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "answer",
+        "deliverableFormats": [
+          "text"
+        ]
+      },
+      "actual": {
+        "primaryOutcome": "answer",
+        "interactionMode": "respond_only",
+        "executionMode": "respond_only",
+        "requestedTools": [],
+        "toolBundles": [
+          "respond_only"
+        ],
+        "selectedRecipeId": "general_reasoning",
+        "routingOutcomeKind": "matched",
+        "shouldClarify": false,
+        "deliverableKind": "answer",
+        "deliverableFormats": [
+          "text"
+        ],
+        "resolutionContract": {
+          "selectedFamily": "general_assistant",
+          "candidateFamilies": [
+            "general_assistant"
+          ],
+          "toolBundles": [
+            "respond_only"
+          ],
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true,
+            "needsVision": false
+          }
+        },
+        "plannerInput": {
+          "prompt": "Summarize the attached notes into five bullets.",
+          "contractFirst": true,
+          "fileNames": [
+            "notes.md"
+          ],
+          "intent": "general",
+          "deliverable": {
+            "kind": "answer",
+            "acceptedFormats": [
+              "text"
+            ],
+            "preferredFormat": "text"
+          },
+          "outcomeContract": "text_response",
+          "executionContract": {
+            "requiresTools": false,
+            "requiresWorkspaceMutation": false,
+            "requiresLocalProcess": false,
+            "requiresArtifactEvidence": false,
+            "requiresDeliveryEvidence": false,
+            "mayNeedBootstrap": false
+          },
+          "requestedEvidence": [
+            "assistant_text"
+          ],
+          "confidence": "high",
+          "taskRequiredCapabilities": [],
+          "candidateFamilies": [
+            "general_assistant"
+          ],
+          "resolutionContract": {
+            "selectedFamily": "general_assistant",
+            "candidateFamilies": [
+              "general_assistant"
+            ],
+            "toolBundles": [
+              "respond_only"
+            ],
+            "routing": {
+              "localEligible": false,
+              "remoteProfile": "strong",
+              "preferRemoteFirst": true,
+              "needsVision": false
+            }
+          },
+          "routing": {
+            "localEligible": false,
+            "remoteProfile": "strong",
+            "preferRemoteFirst": true
+          },
+          "classifierTelemetry": {
+            "source": "llm",
+            "backend": "decision-eval",
+            "model": "hydra/gpt-5-mini",
+            "primaryOutcome": "answer",
+            "interactionMode": "respond_only",
+            "confidence": 0.96,
+            "deliverableKind": "answer",
+            "deliverableFormats": [
+              "text"
+            ]
+          },
+          "decisionTrace": {
+            "version": 1,
+            "classifier": {
+              "source": "llm",
+              "backend": "decision-eval",
+              "model": "hydra/gpt-5-mini",
+              "primaryOutcome": "answer",
+              "interactionMode": "respond_only",
+              "confidence": 0.96,
+              "deliverableKind": "answer",
+              "deliverableFormats": [
+                "text"
+              ],
+              "rawContract": {
+                "primaryOutcome": "answer",
+                "requiredCapabilities": [],
+                "interactionMode": "respond_only",
+                "confidence": 0.96,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              },
+              "normalizedContract": {
+                "primaryOutcome": "answer",
+                "requiredCapabilities": [],
+                "interactionMode": "respond_only",
+                "confidence": 0.96,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              },
+              "finalContract": {
+                "primaryOutcome": "answer",
+                "requiredCapabilities": [],
+                "interactionMode": "respond_only",
+                "confidence": 0.96,
+                "ambiguities": [],
+                "deliverable": {
+                  "kind": "answer",
+                  "acceptedFormats": [
+                    "text"
+                  ],
+                  "preferredFormat": "text"
+                }
+              }
+            },
+            "contracts": {
+              "ambiguityProfile": []
+            }
+          }
+        }
+      }
+    }
+  ]
+}

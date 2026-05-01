@@ -1,29 +1,19 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addSubagentRunForTests, resetSubagentRegistryForTests } from "./subagent-registry.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  getCallGatewayMock,
+  getSessionsSpawnTool,
+  resetSessionsSpawnConfigOverride,
+  setSessionsSpawnConfigOverride,
+} from "./openclaw-tools.subagents.sessions-spawn.test-harness.js";
+import { resetSubagentRegistryForTests } from "./subagent-registry.js";
 import { createPerSenderSessionConfig } from "./test-helpers/session-config.js";
-import { createSessionsSpawnTool } from "./tools/sessions-spawn-tool.js";
-
-const callGatewayMock = vi.fn();
-
-vi.mock("../gateway/call.js", () => ({
-  callGateway: (opts: unknown) => callGatewayMock(opts),
-}));
 
 let storeTemplatePath = "";
-let configOverride: Record<string, unknown> = {
-  session: createPerSenderSessionConfig(),
-};
 
-vi.mock("../config/config.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../config/config.js")>();
-  return {
-    ...actual,
-    loadConfig: () => configOverride,
-  };
-});
+const callGatewayMock = getCallGatewayMock();
 
 function writeStore(agentId: string, store: Record<string, unknown>) {
   const storePath = storeTemplatePath.replaceAll("{agentId}", agentId);
@@ -32,14 +22,14 @@ function writeStore(agentId: string, store: Record<string, unknown>) {
 }
 
 function setSubagentLimits(subagents: Record<string, unknown>) {
-  configOverride = {
+  setSessionsSpawnConfigOverride({
     session: createPerSenderSessionConfig({ store: storeTemplatePath }),
     agents: {
       defaults: {
         subagents,
       },
     },
-  };
+  });
 }
 
 function seedDepthTwoAncestryStore(params?: { sessionIds?: boolean }) {
@@ -63,14 +53,15 @@ function seedDepthTwoAncestryStore(params?: { sessionIds?: boolean }) {
 describe("sessions_spawn depth + child limits", () => {
   beforeEach(() => {
     resetSubagentRegistryForTests();
+    resetSessionsSpawnConfigOverride();
     callGatewayMock.mockClear();
     storeTemplatePath = path.join(
       os.tmpdir(),
       `openclaw-subagent-depth-${Date.now()}-${Math.random().toString(16).slice(2)}-{agentId}.json`,
     );
-    configOverride = {
+    setSessionsSpawnConfigOverride({
       session: createPerSenderSessionConfig({ store: storeTemplatePath }),
-    };
+    });
 
     callGatewayMock.mockImplementation(async (opts: unknown) => {
       const req = opts as { method?: string };
@@ -85,7 +76,7 @@ describe("sessions_spawn depth + child limits", () => {
   });
 
   it("rejects spawning when caller depth reaches maxSpawnDepth", async () => {
-    const tool = createSessionsSpawnTool({
+    const tool = await getSessionsSpawnTool({
       agentSessionKey: "agent:main:subagent:parent",
       workspaceDir: "/parent/workspace",
     });
@@ -93,14 +84,15 @@ describe("sessions_spawn depth + child limits", () => {
 
     expect(result.details).toMatchObject({
       status: "forbidden",
-      error: "sessions_spawn is not allowed at this depth (current depth: 1, max: 1)",
+      error:
+        "sessions_spawn is not allowed at this depth (current depth: 1, max: 1). Subagent nesting stays intentionally bounded—raise maxSpawnDepth only for a controlled extra hop, not deep planner stacks.",
     });
   });
 
   it("allows depth-1 callers when maxSpawnDepth is 2", async () => {
     setSubagentLimits({ maxSpawnDepth: 2 });
 
-    const tool = createSessionsSpawnTool({ agentSessionKey: "agent:main:subagent:parent" });
+    const tool = await getSessionsSpawnTool({ agentSessionKey: "agent:main:subagent:parent" });
     const result = await tool.execute("call-depth-allow", { task: "hello" });
 
     expect(result.details).toMatchObject({
@@ -140,12 +132,13 @@ describe("sessions_spawn depth + child limits", () => {
       },
     });
 
-    const tool = createSessionsSpawnTool({ agentSessionKey: callerKey });
+    const tool = await getSessionsSpawnTool({ agentSessionKey: callerKey });
     const result = await tool.execute("call-depth-2-reject", { task: "hello" });
 
     expect(result.details).toMatchObject({
       status: "forbidden",
-      error: "sessions_spawn is not allowed at this depth (current depth: 2, max: 2)",
+      error:
+        "sessions_spawn is not allowed at this depth (current depth: 2, max: 2). Subagent nesting stays intentionally bounded—raise maxSpawnDepth only for a controlled extra hop, not deep planner stacks.",
     });
   });
 
@@ -153,12 +146,13 @@ describe("sessions_spawn depth + child limits", () => {
     setSubagentLimits({ maxSpawnDepth: 2 });
     const { callerKey } = seedDepthTwoAncestryStore();
 
-    const tool = createSessionsSpawnTool({ agentSessionKey: callerKey });
+    const tool = await getSessionsSpawnTool({ agentSessionKey: callerKey });
     const result = await tool.execute("call-depth-ancestry-reject", { task: "hello" });
 
     expect(result.details).toMatchObject({
       status: "forbidden",
-      error: "sessions_spawn is not allowed at this depth (current depth: 2, max: 2)",
+      error:
+        "sessions_spawn is not allowed at this depth (current depth: 2, max: 2). Subagent nesting stays intentionally bounded—raise maxSpawnDepth only for a controlled extra hop, not deep planner stacks.",
     });
   });
 
@@ -166,17 +160,18 @@ describe("sessions_spawn depth + child limits", () => {
     setSubagentLimits({ maxSpawnDepth: 2 });
     seedDepthTwoAncestryStore({ sessionIds: true });
 
-    const tool = createSessionsSpawnTool({ agentSessionKey: "depth-2-session" });
+    const tool = await getSessionsSpawnTool({ agentSessionKey: "depth-2-session" });
     const result = await tool.execute("call-depth-sessionid-reject", { task: "hello" });
 
     expect(result.details).toMatchObject({
       status: "forbidden",
-      error: "sessions_spawn is not allowed at this depth (current depth: 2, max: 2)",
+      error:
+        "sessions_spawn is not allowed at this depth (current depth: 2, max: 2). Subagent nesting stays intentionally bounded—raise maxSpawnDepth only for a controlled extra hop, not deep planner stacks.",
     });
   });
 
   it("rejects when active children for requester session reached maxChildrenPerAgent", async () => {
-    configOverride = {
+    setSessionsSpawnConfigOverride({
       session: createPerSenderSessionConfig({ store: storeTemplatePath }),
       agents: {
         defaults: {
@@ -186,9 +181,12 @@ describe("sessions_spawn depth + child limits", () => {
           },
         },
       },
-    };
+    });
 
-    addSubagentRunForTests({
+    const tool = await getSessionsSpawnTool({ agentSessionKey: "agent:main:subagent:parent" });
+    // getSessionsSpawnTool resets modules; use the same registry instance spawn reads.
+    const { addSubagentRunForTests: addRun } = await import("./subagent-registry.js");
+    addRun({
       runId: "existing-run",
       childSessionKey: "agent:main:subagent:existing",
       requesterSessionKey: "agent:main:subagent:parent",
@@ -199,17 +197,17 @@ describe("sessions_spawn depth + child limits", () => {
       startedAt: Date.now(),
     });
 
-    const tool = createSessionsSpawnTool({ agentSessionKey: "agent:main:subagent:parent" });
     const result = await tool.execute("call-max-children", { task: "hello" });
 
     expect(result.details).toMatchObject({
       status: "forbidden",
-      error: "sessions_spawn has reached max active children for this session (1/1)",
+      error:
+        "sessions_spawn has reached max active children for this session (1/1). This caps fan-out per session; finish or kill in-flight children before spawning more.",
     });
   });
 
   it("does not use subagent maxConcurrent as a per-parent spawn gate", async () => {
-    configOverride = {
+    setSessionsSpawnConfigOverride({
       session: createPerSenderSessionConfig({ store: storeTemplatePath }),
       agents: {
         defaults: {
@@ -220,9 +218,9 @@ describe("sessions_spawn depth + child limits", () => {
           },
         },
       },
-    };
+    });
 
-    const tool = createSessionsSpawnTool({ agentSessionKey: "agent:main:subagent:parent" });
+    const tool = await getSessionsSpawnTool({ agentSessionKey: "agent:main:subagent:parent" });
     const result = await tool.execute("call-max-concurrent-independent", { task: "hello" });
 
     expect(result.details).toMatchObject({
@@ -247,7 +245,7 @@ describe("sessions_spawn depth + child limits", () => {
       return {};
     });
 
-    const tool = createSessionsSpawnTool({ agentSessionKey: "main" });
+    const tool = await getSessionsSpawnTool({ agentSessionKey: "main" });
     const result = await tool.execute("call-model-reject", {
       task: "hello",
       model: "bad-model",

@@ -67,6 +67,14 @@ All query commands use WebSocket RPC.
 
 The gateway also pushes events (for example `sessions.changed`). For session rows, the **flat** fields on those events match the same closure, recovery, and handoff surface as `sessions.list` / session row RPCs (`handoffRequestRunId`, `handoffRunId`, `handoffTruthSource`, `handoffHint`, plus recovery and `runClosureSummary` when present). Some payloads also include a nested `session` object for backward compatibility; prefer treating the flat keys as the stable contract for UI consumers.
 
+Optional session fields that are currently unset are omitted from the JSON payload rather than sent as explicit `null`/`undefined`. Consumer code should treat a missing optional handoff/recovery/closure key on `sessions.changed` as "currently unset", not as a transport bug.
+
+Producer-side extension rules:
+
+- Add new row-level session/runtime fields in `src/gateway/session-broadcast-snapshot.ts`. That lower-level builder is the single flat field list for gateway session event surfaces.
+- Route `sessions.changed` and `session.message` payload construction through `src/gateway/session-event-hub.ts`. Callers should not hand-roll spread payloads or decide `includeFullSession` on their own.
+- Nested `session` compatibility is currently kept for transcript-driven `sessions.changed` payloads (`phase: "message"`) and `session.message`. Mutation/lifecycle `sessions.changed` events should stay flat-first unless compatibility requirements are deliberately widened in the hub.
+
 Output modes:
 
 - Default: human-readable (colored in TTY).

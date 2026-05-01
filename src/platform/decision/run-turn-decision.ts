@@ -1,0 +1,602 @@
+import { randomUUID } from "node:crypto";
+import type { OpenClawConfig } from "../../config/config.js";
+import {
+  createClarificationPolicy,
+  createIntentContractor,
+  createPolicyGate,
+  createShadowBuilder,
+  defaultCutoverPolicy,
+  defaultAffordanceRegistry,
+  resolveIntentContractorConfig,
+  type AffordanceRegistry,
+  type ClarificationPolicyReader,
+  type CutoverPolicy,
+  type ExpectedDelta,
+  type IntentContractorAdapter,
+  type MonitoredRuntime,
+  type PolicyGateReader,
+  type RuntimeAttestation,
+  type SemanticIntent,
+} from "../commitment/index.js";
+import type { ExecutionCommitment } from "../commitment/execution-commitment.js";
+import type { EffectId } from "../commitment/ids.js";
+import type {
+  ShadowBuildResult,
+  ShadowUnsupportedReason,
+} from "../commitment/shadow-builder.js";
+import type { BuildExecutionDecisionInputParams } from "./input.js";
+import {
+  classifyTaskForDecision,
+  type ClassifiedTaskResolution,
+  type TaskClassifierAdapter,
+} from "./task-classifier.js";
+import type {
+  ClarificationPolicyDowngradeMarker,
+  DecisionTrace,
+  KernelDerivedDecisionMarker,
+  KernelFallbackReason,
+} from "./trace.js";
+
+declare const TraceIdBrand: unique symbol;
+export type TraceId = string & { readonly [TraceIdBrand]: true };
+
+export type RunTurnDecisionInput = {
+  readonly prompt: string;
+  readonly cfg: OpenClawConfig;
+  readonly ledgerContext?: string;
+  readonly fileNames?: readonly string[];
+  readonly clarifyBudgetNotice?: string;
+  readonly workspaceContext?: string;
+  readonly identityContext?: string;
+  readonly agentDir?: string;
+  readonly classifierInput?: BuildExecutionDecisionInputParams;
+  readonly classifierAdapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
+  readonly intentContractorAdapterRegistry?: Readonly<Record<string, IntentContractorAdapter>>;
+  readonly affordanceRegistry?: AffordanceRegistry;
+  readonly cutoverPolicy?: CutoverPolicy;
+  readonly monitoredRuntime?: MonitoredRuntime;
+  readonly expectedDeltaResolver?: (commitment: ExecutionCommitment) => ExpectedDelta | undefined;
+  /**
+   * Wave B injection point for the real `PolicyGate` (master §8.5.1, sub-plan
+   * §4.10). When omitted, `runShadowBranch` constructs a default real gate
+   * from `input.cfg`, replacing the Wave A `allowAllPolicyGate` stub.
+   */
+  readonly policyGate?: PolicyGateReader;
+  /**
+   * Stage 1 injection point for the orthogonal Clarification PolicyGate
+   * (`commitment_kernel_policy_gate_full.plan.md`). When omitted,
+   * `runTurnDecision` constructs a default policy from `input.cfg` to
+   * downgrade legacy classifier `clarification_needed` outcomes whose
+   * deployment-target ambiguity is already resolved by the kernel-side
+   * `SemanticIntent` (target=workspace, or constraints with explicit local
+   * marker). Active only on the legacy fallback path; never overrides a
+   * kernel-derived production decision (invariant #3).
+   */
+  readonly clarificationPolicy?: ClarificationPolicyReader;
+  /**
+   * Stage 1.5 injection point (`commitment_kernel_smart_orchestrator_roadmap.plan.md`
+   * §3 row 3 — PR-H session-history-aware clarify). Last successful
+   * kernel-derived `SemanticIntent` for the same session within a recent
+   * window (default N=5 turns). Caller is responsible for providing this
+   * value from a per-session intent cache; the policy never reads raw user
+   * text (invariant #6) and never reaches into a module-level cache
+   * (forward-compat constraint, roadmap §4 #1).
+   *
+   * When omitted (cold start, no session history, or caller does not yet
+   * maintain a per-session intent cache), Stage 1.5 is bypassed silently —
+   * Stage 1 still runs.
+   */
+  readonly priorIntent?: SemanticIntent;
+};
+
+export type RunTurnDecisionResult = {
+  /**
+   * Raw classifier output without shadow trace or cutover-gate decoration.
+   * Reserved for telemetry, eval snapshots, and shadow comparison only —
+   * production call-sites must read `productionDecision`.
+   */
+  readonly legacyDecision: ClassifiedTaskResolution;
+  /**
+   * Decision routed to downstream production code. Equal to a kernel-derived
+   * `ClassifiedTaskResolution` when the cutover gate fires `gate_in_success`
+   * (and the commitment is satisfied), otherwise a copy of `legacyDecision`
+   * decorated with `kernelFallback=true` plus the matching `fallbackReason`.
+   */
+  readonly productionDecision: ClassifiedTaskResolution;
+  readonly shadowCommitment: ShadowBuildResult;
+  readonly cutoverGate: CutoverGateTrace;
+  readonly runtimeAttestation?: RuntimeAttestation;
+  readonly kernelFallback: boolean;
+  readonly fallbackReason?: KernelFallbackReason;
+  readonly traceId: TraceId;
+  /**
+   * Kernel-derived `SemanticIntent` from `IntentContractor` (when shadow
+   * branch produced one). Exposed so caller-layer per-session intent caches
+   * (PR-H Phase 2 — `commitment_kernel_clarification_history_aware.plan.md`)
+   * can record this turn's intent for future Stage 1.5 lookups. Absent when
+   * shadow branch failed or timed out.
+   */
+  readonly intent?: SemanticIntent;
+};
+
+export type CutoverGateTrace =
+  | {
+      readonly kind: "gate_out";
+      readonly reason: "cutover_disabled" | "shadow_unsupported" | "effect_not_eligible";
+      readonly effect?: EffectId;
+    }
+  | {
+      readonly kind: "gate_in_success";
+      readonly effect: EffectId;
+      readonly terminalState: RuntimeAttestation["terminalState"];
+      readonly acceptanceReason: RuntimeAttestation["acceptanceReason"];
+    }
+  | {
+      readonly kind: "gate_in_fail";
+      readonly effect: EffectId;
+      readonly terminalState: RuntimeAttestation["terminalState"];
+      readonly acceptanceReason: RuntimeAttestation["acceptanceReason"];
+    }
+  | {
+      readonly kind: "gate_in_uncertain";
+      readonly reason:
+        | "affordance_unavailable"
+        | "expected_delta_unavailable"
+        | "monitored_runtime_unavailable"
+        | "monitored_runtime_error";
+      readonly effect: EffectId;
+    };
+
+type DecisionTraceWithCutoverGate = DecisionTrace & {
+  readonly cutoverGate: CutoverGateTrace;
+};
+
+type ShadowBranchOutcome = {
+  readonly result: ShadowBuildResult;
+  readonly intent?: SemanticIntent;
+};
+
+/**
+ * Runs legacy decision and commitment shadow branches side by side, then
+ * derives a production decision through the cutover gate (kernel-source on
+ * `gate_in_success`+`commitmentSatisfied`, legacy-with-fallback otherwise).
+ *
+ * @param input - Prompt plus legacy classifier and shadow adapter context.
+ * @returns Both raw legacy decision and routed production decision, plus
+ *   shadow commitment, cutover gate, and (when available) runtime attestation.
+ */
+export async function runTurnDecision(
+  input: RunTurnDecisionInput,
+): Promise<RunTurnDecisionResult> {
+  const traceId = newTraceId();
+  const legacy = classifyTaskForDecision({
+    prompt: input.prompt,
+    fileNames: [...(input.fileNames ?? [])],
+    ...(input.ledgerContext ? { ledgerContext: input.ledgerContext } : {}),
+    ...(input.clarifyBudgetNotice ? { clarifyBudgetNotice: input.clarifyBudgetNotice } : {}),
+    ...(input.workspaceContext ? { workspaceContext: input.workspaceContext } : {}),
+    ...(input.identityContext ? { identityContext: input.identityContext } : {}),
+    cfg: input.cfg,
+    ...(input.agentDir ? { agentDir: input.agentDir } : {}),
+    ...(input.classifierInput ? { input: input.classifierInput } : {}),
+    ...(input.classifierAdapterRegistry ? { adapterRegistry: input.classifierAdapterRegistry } : {}),
+  });
+  const shadow = runShadowBranch(input);
+
+  const [legacySettled, shadowSettled] = await Promise.allSettled([legacy, shadow]);
+  if (legacySettled.status === "rejected") {
+    throw legacySettled.reason;
+  }
+  const legacyDecision = legacySettled.value;
+  const shadowOutcome: ShadowBranchOutcome =
+    shadowSettled.status === "fulfilled"
+      ? shadowSettled.value
+      : { result: unsupported("shadow_runtime_error") };
+  const shadowCommitment = shadowOutcome.result;
+  const cutover = await evaluateCutoverGate(input, shadowCommitment);
+
+  const isKernelDerived =
+    cutover.gate.kind === "gate_in_success" && cutover.attestation?.commitmentSatisfied === true;
+
+  const baseProductionDecision = isKernelDerived
+    ? deriveDecisionFromCommitment({
+        legacyDecision,
+        shadowCommitment,
+        cutoverGate: cutover.gate,
+        attestation: cutover.attestation!,
+      })
+    : attachLegacyFallbackTrace({
+        legacyDecision,
+        shadowCommitment,
+        cutoverGate: cutover.gate,
+        fallbackReason: resolveFallbackReason(shadowCommitment, cutover.gate),
+      });
+
+  const productionDecision = isKernelDerived
+    ? baseProductionDecision
+    : await maybeDowngradeClarification({
+        input,
+        productionDecision: baseProductionDecision,
+        intent: shadowOutcome.intent,
+      });
+
+  const fallbackReason = isKernelDerived
+    ? undefined
+    : resolveFallbackReason(shadowCommitment, cutover.gate);
+
+  return {
+    legacyDecision,
+    productionDecision,
+    shadowCommitment,
+    cutoverGate: cutover.gate,
+    ...(cutover.attestation ? { runtimeAttestation: cutover.attestation } : {}),
+    kernelFallback: !isKernelDerived,
+    ...(fallbackReason ? { fallbackReason } : {}),
+    ...(shadowOutcome.intent ? { intent: shadowOutcome.intent } : {}),
+    traceId,
+  };
+}
+
+async function runShadowBranch(input: RunTurnDecisionInput): Promise<ShadowBranchOutcome> {
+  const config = resolveIntentContractorConfig({ cfg: input.cfg });
+  try {
+    return await withTimeout(
+      (async () => {
+        const intentContractor = createIntentContractor({
+          cfg: input.cfg,
+          fileNames: input.fileNames,
+          ledgerContext: input.ledgerContext,
+          agentDir: input.agentDir,
+          adapterRegistry: input.intentContractorAdapterRegistry,
+        });
+        const shadowBuilder = createShadowBuilder({
+          affordances: input.affordanceRegistry ?? defaultAffordanceRegistry,
+          policy: input.policyGate ?? createPolicyGate({ cfg: input.cfg }),
+          logger: {},
+          confidenceThreshold: config.confidenceThreshold,
+        });
+        const intent = await intentContractor.classify(input.prompt);
+        const result = await shadowBuilder.build(intent);
+        return { result, intent };
+      })(),
+      config.timeoutMs,
+    );
+  } catch (error) {
+    return {
+      result: unsupported(isTimeoutError(error) ? "shadow_timeout" : "shadow_runtime_error"),
+    };
+  }
+}
+
+async function evaluateCutoverGate(
+  input: RunTurnDecisionInput,
+  shadowCommitment: ShadowBuildResult,
+): Promise<{ gate: CutoverGateTrace; attestation?: RuntimeAttestation }> {
+  if (!isCutoverEnabled(input.cfg)) {
+    return { gate: { kind: "gate_out", reason: "cutover_disabled" } };
+  }
+  if (shadowCommitment.kind !== "commitment") {
+    return { gate: { kind: "gate_out", reason: "shadow_unsupported" } };
+  }
+
+  const commitment = shadowCommitment.value;
+  const cutoverPolicy = input.cutoverPolicy ?? defaultCutoverPolicy;
+  if (!cutoverPolicy.isEligible(commitment.effect)) {
+    return {
+      gate: {
+        kind: "gate_out",
+        reason: "effect_not_eligible",
+        effect: commitment.effect,
+      },
+    };
+  }
+
+  const affordance = (input.affordanceRegistry ?? defaultAffordanceRegistry)
+    .all()
+    .find((entry) => entry.effect === commitment.effect);
+  if (!affordance) {
+    return {
+      gate: {
+        kind: "gate_in_uncertain",
+        reason: "affordance_unavailable",
+        effect: commitment.effect,
+      },
+    };
+  }
+
+  const monitoredRuntime = input.monitoredRuntime;
+  if (!monitoredRuntime) {
+    return {
+      gate: {
+        kind: "gate_in_uncertain",
+        reason: "monitored_runtime_unavailable",
+        effect: commitment.effect,
+      },
+    };
+  }
+
+  const expectedDelta = input.expectedDeltaResolver?.(commitment);
+  if (!expectedDelta) {
+    return {
+      gate: {
+        kind: "gate_in_uncertain",
+        reason: "expected_delta_unavailable",
+        effect: commitment.effect,
+      },
+    };
+  }
+
+  try {
+    const attestation = await monitoredRuntime.run({
+      commitment,
+      affordance,
+      expectedDelta,
+    });
+    return {
+      gate: {
+        kind: attestation.commitmentSatisfied ? "gate_in_success" : "gate_in_fail",
+        effect: commitment.effect,
+        terminalState: attestation.terminalState,
+        acceptanceReason: attestation.acceptanceReason,
+      },
+      attestation,
+    };
+  } catch {
+    return {
+      gate: {
+        kind: "gate_in_uncertain",
+        reason: "monitored_runtime_error",
+        effect: commitment.effect,
+      },
+    };
+  }
+}
+
+/**
+ * Builds the kernel-source-of-truth `productionDecision` for a turn whose
+ * commitment was both eligible for cutover and satisfied by the runtime.
+ * The underlying `taskContract` and `plannerInput` shape stay legacy-derived
+ * for PR-4a (`persistent_session.created` only); the kernel contributes the
+ * `kernelDerived` trace marker (effect, terminal state, acceptance reason).
+ *
+ * @param params - Legacy decision plus shadow + cutover gate + attestation.
+ * @returns A `ClassifiedTaskResolution` distinct from `legacyDecision` whose
+ *   `decisionTrace.kernelDerived.sourceOfTruth === "kernel"`.
+ */
+function deriveDecisionFromCommitment(params: {
+  legacyDecision: ClassifiedTaskResolution;
+  shadowCommitment: ShadowBuildResult;
+  cutoverGate: CutoverGateTrace;
+  attestation: RuntimeAttestation;
+}): ClassifiedTaskResolution {
+  const commitment = extractCommitment(params.shadowCommitment);
+  const kernelDerived: KernelDerivedDecisionMarker = {
+    sourceOfTruth: "kernel",
+    effect: commitment.effect,
+    terminalState: params.attestation.terminalState,
+    acceptanceReason: params.attestation.acceptanceReason,
+  };
+  const previousTrace = params.legacyDecision.plannerInput.decisionTrace;
+  const decisionTrace: DecisionTraceWithCutoverGate = {
+    version: 1,
+    ...previousTrace,
+    shadowCommitment: params.shadowCommitment,
+    cutoverGate: params.cutoverGate,
+    kernelDerived,
+    kernelFallback: false,
+  };
+  return {
+    ...params.legacyDecision,
+    plannerInput: {
+      ...params.legacyDecision.plannerInput,
+      decisionTrace,
+    },
+  };
+}
+
+/**
+ * Builds the legacy-fallback `productionDecision` for a turn whose commitment
+ * could not be promoted to kernel source-of-truth (cutover disabled, effect
+ * out of policy, runtime/expected-delta unavailable, runtime error, or
+ * `commitmentSatisfied=false`). The decision is structurally legacy plus a
+ * `kernelFallback=true` trace flag and the matching `fallbackReason`.
+ *
+ * @param params - Legacy decision plus shadow + cutover gate + reason.
+ * @returns A `ClassifiedTaskResolution` distinct from `legacyDecision` whose
+ *   `decisionTrace.kernelFallback === true`.
+ */
+function attachLegacyFallbackTrace(params: {
+  legacyDecision: ClassifiedTaskResolution;
+  shadowCommitment: ShadowBuildResult;
+  cutoverGate: CutoverGateTrace;
+  fallbackReason: KernelFallbackReason;
+}): ClassifiedTaskResolution {
+  const previousTrace = params.legacyDecision.plannerInput.decisionTrace;
+  const decisionTrace: DecisionTraceWithCutoverGate = {
+    version: 1,
+    ...previousTrace,
+    shadowCommitment: params.shadowCommitment,
+    cutoverGate: params.cutoverGate,
+    kernelFallback: true,
+    fallbackReason: params.fallbackReason,
+  };
+  return {
+    ...params.legacyDecision,
+    plannerInput: {
+      ...params.legacyDecision.plannerInput,
+      decisionTrace,
+    },
+  };
+}
+
+/**
+ * Maps the cutover-gate outcome to the matching `KernelFallbackReason` so
+ * observers can distinguish "shadow gave up" from "runtime unavailable" from
+ * "commitment refused" without re-reading the gate trace.
+ *
+ * @param shadowCommitment - Shadow build result for this turn.
+ * @param gate - Cutover gate trace produced by `evaluateCutoverGate`.
+ * @returns The reason emitted as `RunTurnDecisionResult.fallbackReason`.
+ */
+function resolveFallbackReason(
+  shadowCommitment: ShadowBuildResult,
+  gate: CutoverGateTrace,
+): KernelFallbackReason {
+  if (shadowCommitment.kind === "unsupported") {
+    return shadowCommitment.reason;
+  }
+  switch (gate.kind) {
+    case "gate_out":
+      return gate.reason === "shadow_unsupported"
+        ? "shadow_runtime_error"
+        : gate.reason;
+    case "gate_in_uncertain":
+      return gate.reason;
+    case "gate_in_fail":
+      return "commitment_unsatisfied";
+    case "gate_in_success":
+      return "commitment_unsatisfied";
+  }
+}
+
+/**
+ * Applies the Stage 1 ClarificationPolicy gate to the legacy fallback decision.
+ * Active only when the production decision still carries `lowConfidenceStrategy
+ * === "clarify"` (so kernel-derived success paths and non-clarify legacy paths
+ * are bypassed). When the gate downgrades, returns a copy of the decision with
+ * `taskContract.primaryOutcome="answer"`, `interactionMode="respond_only"`,
+ * cleared `lowConfidenceStrategy`, and an observability marker in
+ * `decisionTrace.clarificationPolicy`. Otherwise the decision is returned
+ * unchanged.
+ *
+ * @param params - Original production decision plus optional kernel-side intent.
+ * @returns Possibly-downgraded production decision.
+ */
+async function maybeDowngradeClarification(params: {
+  readonly input: RunTurnDecisionInput;
+  readonly productionDecision: ClassifiedTaskResolution;
+  readonly intent?: SemanticIntent;
+}): Promise<ClassifiedTaskResolution> {
+  const { input, productionDecision, intent } = params;
+  if (!intent) {
+    return productionDecision;
+  }
+  if (productionDecision.plannerInput.lowConfidenceStrategy !== "clarify") {
+    return productionDecision;
+  }
+  const blockingReasons = collectBlockingClarificationReasons(productionDecision);
+  if (blockingReasons.length === 0) {
+    return productionDecision;
+  }
+  const gate = input.clarificationPolicy ?? createClarificationPolicy({ cfg: input.cfg });
+  const decision = await gate.evaluate({
+    intent,
+    blockingReasons,
+    ...(input.priorIntent ? { priorIntent: input.priorIntent } : {}),
+  });
+  if (decision.shouldClarify) {
+    return productionDecision;
+  }
+  const marker: ClarificationPolicyDowngradeMarker = {
+    downgradeReason: decision.downgradeReason,
+    ...(decision.inheritedFields && decision.inheritedFields.length > 0
+      ? { inheritedFields: decision.inheritedFields }
+      : {}),
+  };
+  return downgradeClarifyToAnswer(productionDecision, marker);
+}
+
+/**
+ * Reads classifier-emitted blocking ambiguity reasons from the production
+ * decision's trace. Returns the empty list when no ambiguity profile is
+ * attached or no entry has `blocksClarification === true`.
+ *
+ * @param decision - Production classified task resolution.
+ * @returns Blocking ambiguity reason strings (classifier output, not user text).
+ */
+function collectBlockingClarificationReasons(decision: ClassifiedTaskResolution): string[] {
+  const profile = decision.plannerInput.decisionTrace?.contracts?.ambiguityProfile;
+  if (!profile || profile.length === 0) {
+    return [];
+  }
+  return profile
+    .filter((entry) => entry.blocksClarification)
+    .map((entry) => entry.reason);
+}
+
+/**
+ * Builds a downgraded `ClassifiedTaskResolution` from a clarify-needed legacy
+ * decision. The downgrade flips `primaryOutcome` to `answer`, drops the
+ * clarify-first interaction mode, clears `lowConfidenceStrategy`, and writes a
+ * `clarificationPolicy.downgradeReason` marker into the decision trace. The
+ * marker is observability-only — it does not extend any of the five frozen
+ * legacy contracts (invariant #11).
+ *
+ * @param legacy - Production decision still carrying legacy clarify shape.
+ * @param marker - Closed-string downgrade reason from the gate.
+ * @returns Downgraded decision with answer/respond_only shape.
+ */
+function downgradeClarifyToAnswer(
+  legacy: ClassifiedTaskResolution,
+  marker: ClarificationPolicyDowngradeMarker,
+): ClassifiedTaskResolution {
+  const previousTrace = legacy.plannerInput.decisionTrace;
+  const decisionTrace: DecisionTrace = {
+    version: 1,
+    ...previousTrace,
+    clarificationPolicy: marker,
+  };
+  const taskContract = {
+    ...legacy.taskContract,
+    primaryOutcome: "answer" as const,
+    interactionMode: "respond_only" as const,
+  };
+  const { lowConfidenceStrategy: _droppedStrategy, ...plannerInputRest } = legacy.plannerInput;
+  return {
+    ...legacy,
+    taskContract,
+    plannerInput: {
+      ...plannerInputRest,
+      decisionTrace,
+    },
+  };
+}
+
+function extractCommitment(shadowCommitment: ShadowBuildResult): ExecutionCommitment {
+  if (shadowCommitment.kind !== "commitment") {
+    throw new Error(
+      "extractCommitment requires shadowCommitment.kind === 'commitment' (cutover gate invariant)",
+    );
+  }
+  return shadowCommitment.value;
+}
+
+function isCutoverEnabled(cfg: OpenClawConfig): boolean {
+  return cfg.agents?.defaults?.embeddedPi?.commitment?.cutoverEnabled !== false;
+}
+
+function unsupported(reason: ShadowUnsupportedReason): ShadowBuildResult {
+  return { kind: "unsupported", reason };
+}
+
+function newTraceId(): TraceId {
+  return `decision_trace_${randomUUID()}` as TraceId;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error("shadow_timeout")), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.message === "shadow_timeout";
+}

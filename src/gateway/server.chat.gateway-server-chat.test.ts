@@ -319,12 +319,22 @@ describe("gateway server chat", () => {
         },
       });
 
+      const webchatFinal = onceMessage(
+        webchatWs,
+        (o) =>
+          o.type === "event" &&
+          o.event === "chat" &&
+          o.payload?.state === "final" &&
+          o.payload?.runId === "idem-webchat-1",
+        8000,
+      );
       const webchatRes = await rpcReq(webchatWs, "chat.send", {
         sessionKey: "main",
         message: "hello",
         idempotencyKey: "idem-webchat-1",
       });
       expect(webchatRes.ok).toBe(true);
+      await webchatFinal;
 
       webchatWs.close();
       webchatWs = undefined;
@@ -372,6 +382,17 @@ describe("gateway server chat", () => {
           },
         },
       });
+      testState.sessionConfig = {
+        sendPolicy: {
+          default: "allow",
+          rules: [
+            {
+              action: "deny",
+              match: { channel: "discord", chatType: "group" },
+            },
+          ],
+        },
+      };
 
       const blockedRes = await rpcReq(ws, "chat.send", {
         sessionKey: "discord:group:dev",
@@ -404,6 +425,12 @@ describe("gateway server chat", () => {
           },
         },
       });
+      testState.sessionConfig = {
+        sendPolicy: {
+          default: "allow",
+          rules: [{ action: "deny", match: { keyPrefix: "cron:" } }],
+        },
+      };
 
       const agentBlockedRes = await rpcReq(ws, "agent", {
         sessionKey: "cron:job-1",
@@ -615,6 +642,214 @@ describe("gateway server chat", () => {
     });
   });
 
+  test("webchat chat.send does not append a duplicate assistant transcript entry", async () => {
+    await withMainSessionStore(async () => {
+      mockGetReplyFromConfigOnce(async () => ({
+        text: "Доброе утро, Владимир.",
+      }));
+      const webchatWs = new WebSocket(`ws://127.0.0.1:${port}`, {
+        headers: { origin: `http://127.0.0.1:${port}` },
+      });
+      try {
+        trackConnectChallengeNonce(webchatWs);
+        await new Promise<void>((resolve) => webchatWs.once("open", resolve));
+        await connectOk(webchatWs, {
+          client: {
+            id: GATEWAY_CLIENT_NAMES.CONTROL_UI,
+            version: "dev",
+            platform: "web",
+            mode: GATEWAY_CLIENT_MODES.WEBCHAT,
+          },
+        });
+        const finalEvents: Array<Record<string, unknown>> = [];
+        const onMessage = (raw: Buffer) => {
+          const parsed = JSON.parse(String(raw)) as {
+            type?: string;
+            event?: string;
+            payload?: { state?: string; runId?: string };
+          };
+          if (
+            parsed.type === "event" &&
+            parsed.event === "chat" &&
+            parsed.payload?.state === "final" &&
+            parsed.payload?.runId === "idem-webchat-no-dup-1"
+          ) {
+            finalEvents.push(parsed as Record<string, unknown>);
+          }
+        };
+        webchatWs.on("message", onMessage);
+        const finalPromise = onceMessage(
+          webchatWs,
+          (o) =>
+            o.type === "event" &&
+            o.event === "chat" &&
+            o.payload?.state === "final" &&
+            o.payload?.runId === "idem-webchat-no-dup-1",
+          8000,
+        );
+        const sendRes = await rpcReq(webchatWs, "chat.send", {
+          sessionKey: "main",
+          message: "hello",
+          idempotencyKey: "idem-webchat-no-dup-1",
+        });
+        expect(sendRes.ok).toBe(true);
+        await finalPromise;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(finalEvents).toHaveLength(1);
+
+        const historyRes = await rpcReq<{ messages?: unknown[] }>(webchatWs, "chat.history", {
+          sessionKey: "main",
+        });
+        expect(historyRes.ok).toBe(true);
+        const textValues = collectHistoryTextValues(historyRes.payload?.messages ?? []);
+        expect(textValues.filter((text) => text === "Доброе утро, Владимир.")).toHaveLength(1);
+        webchatWs.off("message", onMessage);
+      } finally {
+        webchatWs.close();
+      }
+    });
+  });
+
+  test("webchat chat.send includes final media urls in chat event and transcript", async () => {
+    await withMainSessionStore(async () => {
+      mockGetReplyFromConfigOnce(async () => ({
+        text: "Here is your banana image.",
+        mediaUrls: ["https://example.com/banana.png", "https://example.com/banana.pdf"],
+      }));
+      const webchatWs = new WebSocket(`ws://127.0.0.1:${port}`, {
+        headers: { origin: `http://127.0.0.1:${port}` },
+      });
+      try {
+        trackConnectChallengeNonce(webchatWs);
+        await new Promise<void>((resolve) => webchatWs.once("open", resolve));
+        await connectOk(webchatWs, {
+          client: {
+            id: GATEWAY_CLIENT_NAMES.CONTROL_UI,
+            version: "dev",
+            platform: "web",
+            mode: GATEWAY_CLIENT_MODES.WEBCHAT,
+          },
+        });
+        const finalPromise = onceMessage(
+          webchatWs,
+          (o) =>
+            o.type === "event" &&
+            o.event === "chat" &&
+            o.payload?.state === "final" &&
+            o.payload?.runId === "idem-webchat-media-1",
+          8000,
+        );
+        const sendRes = await rpcReq(webchatWs, "chat.send", {
+          sessionKey: "main",
+          message: "make banana artifact",
+          idempotencyKey: "idem-webchat-media-1",
+        });
+        expect(sendRes.ok).toBe(true);
+        const finalEvent = await finalPromise;
+        expect((finalEvent.payload?.message as { content?: unknown } | undefined)?.content).toEqual([
+          { type: "text", text: "Here is your banana image." },
+          { type: "image", url: "https://example.com/banana.png" },
+          { type: "file", url: "https://example.com/banana.pdf" },
+        ]);
+
+        const historyRes = await rpcReq<{ messages?: Array<{ content?: Array<Record<string, unknown>> }> }>(
+          webchatWs,
+          "chat.history",
+          {
+            sessionKey: "main",
+          },
+        );
+        expect(historyRes.ok).toBe(true);
+        const assistantWithMedia = (historyRes.payload?.messages ?? []).find((message) =>
+          Array.isArray(message.content) &&
+          message.content.some(
+            (part) =>
+              part?.type === "image" &&
+              part?.url === "https://example.com/banana.png",
+          ),
+        );
+        expect(assistantWithMedia?.content).toEqual([
+          { type: "text", text: "Here is your banana image." },
+          { type: "image", url: "https://example.com/banana.png" },
+          { type: "file", url: "https://example.com/banana.pdf" },
+        ]);
+      } finally {
+        webchatWs.close();
+      }
+    });
+  });
+
+  test("webchat chat.send preserves block-delivered media urls in final chat event and transcript", async () => {
+    await withMainSessionStore(async () => {
+      mockGetReplyFromConfigOnce(async (_ctx, opts) => {
+        await opts?.onBlockReply?.({
+          mediaUrls: ["https://example.com/banana-block.png"],
+        });
+        return {
+          text: "Generated image: media/banana-block.png",
+        };
+      });
+      const webchatWs = new WebSocket(`ws://127.0.0.1:${port}`, {
+        headers: { origin: `http://127.0.0.1:${port}` },
+      });
+      try {
+        trackConnectChallengeNonce(webchatWs);
+        await new Promise<void>((resolve) => webchatWs.once("open", resolve));
+        await connectOk(webchatWs, {
+          client: {
+            id: GATEWAY_CLIENT_NAMES.CONTROL_UI,
+            version: "dev",
+            platform: "web",
+            mode: GATEWAY_CLIENT_MODES.WEBCHAT,
+          },
+        });
+        const finalPromise = onceMessage(
+          webchatWs,
+          (o) =>
+            o.type === "event" &&
+            o.event === "chat" &&
+            o.payload?.state === "final" &&
+            o.payload?.runId === "idem-webchat-block-media-1",
+          8000,
+        );
+        const sendRes = await rpcReq(webchatWs, "chat.send", {
+          sessionKey: "main",
+          message: "make banana artifact",
+          idempotencyKey: "idem-webchat-block-media-1",
+        });
+        expect(sendRes.ok).toBe(true);
+        const finalEvent = await finalPromise;
+        expect((finalEvent.payload?.message as { content?: unknown } | undefined)?.content).toEqual([
+          { type: "text", text: "Generated image: media/banana-block.png" },
+          { type: "image", url: "https://example.com/banana-block.png" },
+        ]);
+
+        const historyRes = await rpcReq<{ messages?: Array<{ content?: Array<Record<string, unknown>> }> }>(
+          webchatWs,
+          "chat.history",
+          {
+            sessionKey: "main",
+          },
+        );
+        expect(historyRes.ok).toBe(true);
+        const assistantWithMedia = (historyRes.payload?.messages ?? []).find((message) =>
+          Array.isArray(message.content) &&
+          message.content.some(
+            (part) =>
+              part?.type === "image" &&
+              part?.url === "https://example.com/banana-block.png",
+          ),
+        );
+        expect(assistantWithMedia?.content).toEqual([
+          { type: "text", text: "Generated image: media/banana-block.png" },
+          { type: "image", url: "https://example.com/banana-block.png" },
+        ]);
+      } finally {
+        webchatWs.close();
+      }
+    });
+  });
+
   test("routes block-streamed /btw replies through side-result events", async () => {
     await withMainSessionStore(async () => {
       mockGetReplyFromConfigOnce(async (_ctx, opts) => {
@@ -682,6 +917,35 @@ describe("gateway server chat", () => {
       "user:NO_REPLY",
       "assistant:NO_REPLY",
     ]);
+  });
+
+  test("chat.history hides gateway-injected text duplicates when a canonical assistant reply exists", async () => {
+    const historyMessages = await loadChatHistoryWithMessages([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "[[reply_to_current]] Привет! Чем помочь?" }],
+        provider: "hydra",
+        model: "gpt-5.4",
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text:
+              "Привет! Чем помочь?\n> [debug] · used `hydra/gpt-5.4` · 10,176 tok\n\n> intent: `general`",
+          },
+        ],
+        provider: "openclaw",
+        model: "gateway-injected",
+      },
+    ]);
+
+    const texts = historyMessages
+      .map((message) => (extractFirstTextBlock(message) ?? "").trim())
+      .filter(Boolean);
+
+    expect(texts).toEqual(["Привет! Чем помочь?"]);
   });
 
   test("agent.wait resolves chat.send runs that finish without lifecycle events", async () => {

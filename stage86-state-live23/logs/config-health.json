@@ -1,0 +1,22 @@
+{
+  "entries": {
+    "C:\\Users\\Tanya\\source\\repos\\god-mode-core\\stage86-state-live23\\openclaw.json": {
+      "lastKnownGood": {
+        "hash": "3acb95ad4415abd684c32ad8ea8d57653928552fc4d8bdf34f3b6754889e625c",
+        "bytes": 2004,
+        "mtimeMs": 1775906451816.5906,
+        "ctimeMs": 1775906451816.5906,
+        "dev": "3632082024",
+        "ino": "281474978543558",
+        "mode": 438,
+        "nlink": 1,
+        "uid": 0,
+        "gid": 0,
+        "hasMeta": true,
+        "gatewayMode": "local",
+        "observedAt": "2026-04-11T11:28:36.505Z"
+      },
+      "lastObservedSuspiciousSignature": null
+    }
+  }
+}

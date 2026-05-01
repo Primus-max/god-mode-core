@@ -12,6 +12,12 @@ export const MaterializationRenderKindSchema = z.enum([
 ]);
 export type MaterializationRenderKind = z.infer<typeof MaterializationRenderKindSchema>;
 
+export const MaterializationDocumentInputKindSchema = z.enum(["html", "spec", "markdown", "text"]);
+export type MaterializationDocumentInputKind = z.infer<typeof MaterializationDocumentInputKindSchema>;
+
+export const MaterializationRendererTargetSchema = z.enum(["html", "markdown", "pdf", "preview"]);
+export type MaterializationRendererTarget = z.infer<typeof MaterializationRendererTargetSchema>;
+
 export const MaterializationSourceDomainSchema = z.enum(["document", "developer"]);
 export type MaterializationSourceDomain = z.infer<typeof MaterializationSourceDomainSchema>;
 
@@ -22,6 +28,7 @@ export const MaterializationPayloadSchema = z
   .object({
     title: z.string().min(1).optional(),
     html: z.string().min(1).optional(),
+    spec: z.unknown().optional(),
     markdown: z.string().min(1).optional(),
     text: z.string().min(1).optional(),
     jsonData: z.unknown().optional(),
@@ -36,6 +43,8 @@ export const MaterializationRequestSchema = z
     label: z.string().min(1),
     sourceDomain: MaterializationSourceDomainSchema,
     renderKind: MaterializationRenderKindSchema,
+    documentInputKind: MaterializationDocumentInputKindSchema.optional(),
+    rendererTarget: MaterializationRendererTargetSchema.optional(),
     outputTarget: MaterializationOutputTargetSchema,
     outputDir: z.string().min(1).optional(),
     baseFileName: z.string().min(1).optional(),
@@ -49,6 +58,9 @@ export type MaterializationRequest = z.infer<typeof MaterializationRequestSchema
 export const MaterializedArtifactOutputSchema = z
   .object({
     renderKind: MaterializationRenderKindSchema,
+    documentInputKind: MaterializationDocumentInputKindSchema.optional(),
+    rendererTarget: MaterializationRendererTargetSchema.optional(),
+    rendererId: z.string().min(1).optional(),
     outputTarget: MaterializationOutputTargetSchema,
     path: z.string().min(1),
     url: z.string().url().optional(),

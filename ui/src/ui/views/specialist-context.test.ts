@@ -3,7 +3,11 @@
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
-import type { SpecialistRuntimeSnapshot } from "../types.ts";
+import type {
+  CapabilityCatalogSummary,
+  RecipeCatalogSummary,
+  SpecialistRuntimeSnapshot,
+} from "../types.ts";
 import { renderChat, type ChatProps } from "./chat.ts";
 import { renderOverview, type OverviewProps } from "./overview.ts";
 
@@ -133,7 +137,7 @@ function createChatProps(overrides: Partial<ChatProps> = {}): ChatProps {
 }
 
 function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewProps {
-  return {
+  const base: OverviewProps = {
     connected: true,
     hello: null,
     settings: {
@@ -173,6 +177,15 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     specialistSaving: false,
     specialistError: null,
     specialistSnapshot: null,
+    catalogLoading: false,
+    catalogError: null,
+    recipeCatalog: [],
+    capabilityCatalog: [],
+    runtimeLoading: false,
+    runtimeError: null,
+    runtimeSessionKey: null,
+    runtimeCheckpoints: [],
+    runtimeCheckpointDetail: null,
     showGatewayToken: false,
     showGatewayPassword: false,
     onSettingsChange: () => undefined,
@@ -182,11 +195,73 @@ function createOverviewProps(overrides: Partial<OverviewProps> = {}): OverviewPr
     onToggleGatewayPasswordVisibility: () => undefined,
     onConnect: () => undefined,
     onRefresh: () => undefined,
+    buildCardHref: (tab, options) =>
+      options?.skillFilter ? `/ui/${tab}?skillFilter=${encodeURIComponent(options.skillFilter)}` : `/ui/${tab}`,
+    buildChatHref: (sessionKey) => `/ui/chat?session=${encodeURIComponent(sessionKey)}`,
     onNavigate: () => undefined,
+    onNavigateAttention: () => undefined,
+    onNavigateToChat: () => undefined,
     onRefreshLogs: () => undefined,
     onSpecialistOverrideChange: () => undefined,
-    ...overrides,
   };
+  return { ...base, ...overrides };
+}
+
+function createRecipeCatalog(): RecipeCatalogSummary[] {
+  return [
+    {
+      id: "doc_ingest",
+      purpose: "Extract, summarize, and audit document payloads",
+      summary: "Bootstrap trusted document tooling when necessary.",
+      riskLevel: "low",
+      allowedProfiles: [{ id: "builder", label: "Builder" }],
+      requiredCapabilities: ["pdf-renderer"],
+      publishTargets: [],
+      producedArtifacts: [{ type: "report", description: "Document summary" }],
+      timeoutSeconds: 180,
+    },
+  ];
+}
+
+function createCapabilityCatalog(): CapabilityCatalogSummary[] {
+  return [
+    {
+      id: "pdf-renderer",
+      label: "PDF Renderer",
+      description: "Trusted renderer for PDF workflows",
+      status: "missing",
+      source: "catalog",
+      trusted: true,
+      installMethod: "download",
+      sandboxed: true,
+      requiredBins: ["playwright"],
+      requiredEnv: [],
+      healthCheckCommand: "playwright --version",
+      tags: ["pdf"],
+      requiredByRecipes: [
+        {
+          id: "doc_ingest",
+          purpose: "Extract, summarize, and audit document payloads",
+        },
+      ],
+      requiredByRecipeCount: 1,
+    },
+  ];
+}
+
+function createRuntimeCheckpoints() {
+  return [
+    {
+      id: "cp-1",
+      runId: "run-1",
+      sessionKey: "main",
+      boundary: "bootstrap" as const,
+      status: "blocked" as const,
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      operatorHint: "Awaiting operator approval to resume messaging recovery.",
+    },
+  ];
 }
 
 describe("specialist context views", () => {
@@ -199,7 +274,9 @@ describe("specialist context views", () => {
     expect(container.textContent).toContain("Current specialist context");
     expect(container.textContent).toContain("Developer");
     expect(container.textContent).toContain("code_build_publish");
-    expect(container.textContent).toContain("Operational posture");
+    const details = container.querySelector("details.callout") as HTMLDetailsElement | null;
+    expect(details).not.toBeNull();
+    expect(details?.open).toBe(false);
   });
 
   it("renders the overview specialist panel in Russian", async () => {
@@ -317,5 +394,33 @@ describe("specialist context views", () => {
     expect(optionLabels).toContain("Integrator");
     expect(optionLabels).toContain("Operator");
     expect(optionLabels).toContain("Media Creator");
+  });
+
+  it("renders platform catalog context inside the overview panel", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderOverview(
+        createOverviewProps({
+          specialistSnapshot: {
+            ...createSnapshot(),
+            recipeId: "doc_ingest",
+            recipePurpose: "Extract, summarize, and audit document payloads",
+            bootstrapRequiredCapabilities: ["pdf-renderer"],
+          },
+          recipeCatalog: createRecipeCatalog(),
+          capabilityCatalog: createCapabilityCatalog(),
+          runtimeCheckpoints: createRuntimeCheckpoints(),
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Platform catalog");
+    expect(container.textContent).toContain("doc_ingest");
+    expect(container.textContent).toContain("PDF Renderer");
+    expect(container.textContent).toContain("Bootstrap required");
+    expect(container.textContent).toContain("Runtime queue");
   });
 });

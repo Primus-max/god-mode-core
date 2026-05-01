@@ -24,6 +24,7 @@ export interface CapabilityRegistry {
   update(id: string, patch: Partial<CapabilityDescriptor>): CapabilityDescriptor | undefined;
   available(): CapabilityDescriptor[];
   missing(): CapabilityDescriptor[];
+  /** Only entries that match the approved in-repo capability catalog snapshot may be registered. */
   registerCatalogEntry(entry: CapabilityCatalogEntry): void;
   listCatalogEntries(): CapabilityCatalogEntry[];
   resolveCatalogEntry(capabilityId: string): CapabilityCatalogEntry | undefined;

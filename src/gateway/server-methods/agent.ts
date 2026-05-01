@@ -46,12 +46,11 @@ import {
   validateAgentParams,
   validateAgentWaitParams,
 } from "../protocol/index.js";
+import { broadcastSessionsChangedMutationEvent } from "../session-event-hub.js";
 import { performGatewaySessionReset } from "../session-reset-service.js";
 import { reactivateCompletedSubagentSession } from "../session-subagent-reactivation.js";
-import { buildGatewaySessionBroadcastSnapshot } from "../session-broadcast-snapshot.js";
 import {
   canonicalizeSpawnedByForAgent,
-  loadGatewaySessionRow,
   loadSessionEntry,
   migrateAndPruneGatewaySessionStoreKey,
 } from "../session-utils.js";
@@ -100,30 +99,6 @@ async function runSessionResetFromAgent(params: {
     key: result.key,
     sessionId: result.entry.sessionId,
   };
-}
-
-function emitSessionsChanged(
-  context: Pick<
-    GatewayRequestHandlerOptions["context"],
-    "broadcastToConnIds" | "getSessionEventSubscriberConnIds"
-  >,
-  payload: { sessionKey?: string; reason: string },
-) {
-  const connIds = context.getSessionEventSubscriberConnIds();
-  if (connIds.size === 0) {
-    return;
-  }
-  const sessionRow = payload.sessionKey ? loadGatewaySessionRow(payload.sessionKey) : null;
-  context.broadcastToConnIds(
-    "sessions.changed",
-    {
-      ...payload,
-      ts: Date.now(),
-      ...buildGatewaySessionBroadcastSnapshot(sessionRow, { includeFullSession: false }),
-    },
-    connIds,
-    { dropIfSlow: true },
-  );
 }
 
 function dispatchAgentRunFromGateway(params: {
@@ -267,6 +242,7 @@ export const agentHandlers: GatewayRequestHandlers = {
 
     let message = (request.message ?? "").trim();
     let images: Array<{ type: "image"; data: string; mimeType: string }> = [];
+    let documents: Array<{ type: "file"; data: string; mimeType: string; fileName: string }> = [];
     if (normalizedAttachments.length > 0) {
       try {
         const parsed = await parseMessageWithAttachments(message, normalizedAttachments, {
@@ -275,6 +251,7 @@ export const agentHandlers: GatewayRequestHandlers = {
         });
         message = parsed.message.trim();
         images = parsed.images;
+        documents = parsed.files;
       } catch (err) {
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(err)));
         return;
@@ -400,13 +377,16 @@ export const agentHandlers: GatewayRequestHandlers = {
 
     if (requestedSessionKey) {
       const { cfg, storePath, entry, canonicalKey } = loadSessionEntry(requestedSessionKey);
+      const shouldDetachFromExistingSession =
+        !!resolvedSessionId && !!entry?.sessionId && entry.sessionId !== resolvedSessionId;
+      const effectiveEntry = shouldDetachFromExistingSession ? undefined : entry;
       cfgForAgent = cfg;
-      isNewSession = !entry;
+      isNewSession = !effectiveEntry || shouldDetachFromExistingSession;
       const now = Date.now();
-      const sessionId = entry?.sessionId ?? randomUUID();
-      const labelValue = request.label?.trim() || entry?.label;
+      const sessionId = resolvedSessionId ?? effectiveEntry?.sessionId ?? randomUUID();
+      const labelValue = request.label?.trim() || effectiveEntry?.label;
       const sessionAgent = resolveAgentIdFromSessionKey(canonicalKey);
-      spawnedByValue = canonicalizeSpawnedByForAgent(cfg, sessionAgent, entry?.spawnedBy);
+      spawnedByValue = canonicalizeSpawnedByForAgent(cfg, sessionAgent, effectiveEntry?.spawnedBy);
       let inheritedGroup:
         | { groupId?: string; groupChannel?: string; groupSpace?: string }
         | undefined;
@@ -425,41 +405,41 @@ export const agentHandlers: GatewayRequestHandlers = {
       resolvedGroupId = resolvedGroupId || inheritedGroup?.groupId;
       resolvedGroupChannel = resolvedGroupChannel || inheritedGroup?.groupChannel;
       resolvedGroupSpace = resolvedGroupSpace || inheritedGroup?.groupSpace;
-      const deliveryFields = normalizeSessionDeliveryFields(entry);
+      const deliveryFields = normalizeSessionDeliveryFields(effectiveEntry);
       const nextEntryPatch: SessionEntry = {
         sessionId,
         updatedAt: now,
-        thinkingLevel: entry?.thinkingLevel,
-        fastMode: entry?.fastMode,
-        verboseLevel: entry?.verboseLevel,
-        reasoningLevel: entry?.reasoningLevel,
-        systemSent: entry?.systemSent,
-        sendPolicy: entry?.sendPolicy,
-        skillsSnapshot: entry?.skillsSnapshot,
+        thinkingLevel: effectiveEntry?.thinkingLevel,
+        fastMode: effectiveEntry?.fastMode,
+        verboseLevel: effectiveEntry?.verboseLevel,
+        reasoningLevel: effectiveEntry?.reasoningLevel,
+        systemSent: effectiveEntry?.systemSent,
+        sendPolicy: effectiveEntry?.sendPolicy,
+        skillsSnapshot: effectiveEntry?.skillsSnapshot,
         deliveryContext: deliveryFields.deliveryContext,
-        lastChannel: deliveryFields.lastChannel ?? entry?.lastChannel,
-        lastTo: deliveryFields.lastTo ?? entry?.lastTo,
-        lastAccountId: deliveryFields.lastAccountId ?? entry?.lastAccountId,
-        modelOverride: entry?.modelOverride,
-        providerOverride: entry?.providerOverride,
+        lastChannel: deliveryFields.lastChannel ?? effectiveEntry?.lastChannel,
+        lastTo: deliveryFields.lastTo ?? effectiveEntry?.lastTo,
+        lastAccountId: deliveryFields.lastAccountId ?? effectiveEntry?.lastAccountId,
+        modelOverride: effectiveEntry?.modelOverride,
+        providerOverride: effectiveEntry?.providerOverride,
         label: labelValue,
         spawnedBy: spawnedByValue,
-        spawnedWorkspaceDir: entry?.spawnedWorkspaceDir,
-        spawnDepth: entry?.spawnDepth,
-        channel: entry?.channel ?? request.channel?.trim(),
-        groupId: resolvedGroupId ?? entry?.groupId,
-        groupChannel: resolvedGroupChannel ?? entry?.groupChannel,
-        space: resolvedGroupSpace ?? entry?.space,
-        cliSessionIds: entry?.cliSessionIds,
-        claudeCliSessionId: entry?.claudeCliSessionId,
+        spawnedWorkspaceDir: effectiveEntry?.spawnedWorkspaceDir,
+        spawnDepth: effectiveEntry?.spawnDepth,
+        channel: effectiveEntry?.channel ?? request.channel?.trim(),
+        groupId: resolvedGroupId ?? effectiveEntry?.groupId,
+        groupChannel: resolvedGroupChannel ?? effectiveEntry?.groupChannel,
+        space: resolvedGroupSpace ?? effectiveEntry?.space,
+        cliSessionIds: effectiveEntry?.cliSessionIds,
+        claudeCliSessionId: effectiveEntry?.claudeCliSessionId,
       };
-      sessionEntry = mergeSessionEntry(entry, nextEntryPatch);
+      sessionEntry = mergeSessionEntry(effectiveEntry, nextEntryPatch);
       const sendPolicy = resolveSendPolicy({
         cfg,
-        entry,
+        entry: effectiveEntry,
         sessionKey: canonicalKey,
-        channel: entry?.channel,
-        chatType: entry?.chatType,
+        channel: effectiveEntry?.channel,
+        chatType: effectiveEntry?.chatType,
       });
       if (sendPolicy === "deny") {
         respond(
@@ -481,7 +461,10 @@ export const agentHandlers: GatewayRequestHandlers = {
             key: requestedSessionKey,
             store,
           });
-          const merged = mergeSessionEntry(store[primaryKey], nextEntryPatch);
+          const merged = mergeSessionEntry(
+            shouldDetachFromExistingSession ? undefined : store[primaryKey],
+            nextEntryPatch,
+          );
           store[primaryKey] = merged;
           return merged;
         });
@@ -638,13 +621,15 @@ export const agentHandlers: GatewayRequestHandlers = {
     }
 
     if (requestedSessionKey && resolvedSessionKey && isNewSession) {
-      emitSessionsChanged(context, {
+      broadcastSessionsChangedMutationEvent({
+        context,
         sessionKey: resolvedSessionKey,
         reason: "create",
       });
     }
     if (resolvedSessionKey) {
-      emitSessionsChanged(context, {
+      broadcastSessionsChangedMutationEvent({
+        context,
         sessionKey: resolvedSessionKey,
         reason: "send",
       });
@@ -656,6 +641,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       ingressOpts: {
         message,
         images,
+        documents,
         provider: providerOverride,
         model: modelOverride,
         to: resolvedTo,

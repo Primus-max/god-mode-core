@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw.dev/experiments/resolution-contract.schema.json",
+  "title": "ResolutionContract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "selectedFamily",
+    "candidateFamilies",
+    "toolBundles",
+    "routing"
+  ],
+  "properties": {
+    "selectedFamily": {
+      "type": "string",
+      "enum": [
+        "general_assistant",
+        "document_render",
+        "media_generation",
+        "code_build",
+        "analysis_transform",
+        "ops_execution"
+      ]
+    },
+    "candidateFamilies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "general_assistant",
+          "document_render",
+          "media_generation",
+          "code_build",
+          "analysis_transform",
+          "ops_execution"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "toolBundles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "respond_only",
+          "repo_run",
+          "repo_mutation",
+          "interactive_browser",
+          "public_web_lookup",
+          "document_extraction",
+          "artifact_authoring",
+          "external_delivery"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "remoteProfile",
+        "preferRemoteFirst",
+        "needsVision",
+        "localEligible"
+      ],
+      "properties": {
+        "remoteProfile": {
+          "type": "string",
+          "enum": [
+            "cheap",
+            "code",
+            "strong",
+            "presentation"
+          ]
+        },
+        "preferRemoteFirst": {
+          "type": "boolean"
+        },
+        "needsVision": {
+          "type": "boolean"
+        },
+        "localEligible": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

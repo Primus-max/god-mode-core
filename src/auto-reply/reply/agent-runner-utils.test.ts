@@ -7,7 +7,8 @@ import type { FollowupRun } from "./queue.js";
 
 const hoisted = vi.hoisted(() => {
   const resolveRunModelFallbacksOverrideMock = vi.fn();
-  return { resolveRunModelFallbacksOverrideMock };
+  const buildClassifiedExecutionDecisionInputMock = vi.fn();
+  return { resolveRunModelFallbacksOverrideMock, buildClassifiedExecutionDecisionInputMock };
 });
 
 vi.mock("../../agents/agent-scope.js", () => ({
@@ -15,10 +16,22 @@ vi.mock("../../agents/agent-scope.js", () => ({
     hoisted.resolveRunModelFallbacksOverrideMock(...args),
 }));
 
+vi.mock("../../platform/decision/input.js", async () => {
+  const actual = await vi.importActual<typeof import("../../platform/decision/input.js")>(
+    "../../platform/decision/input.js",
+  );
+  return {
+    ...actual,
+    buildClassifiedExecutionDecisionInput: (...args: unknown[]) =>
+      hoisted.buildClassifiedExecutionDecisionInputMock(...args),
+  };
+});
+
 const {
   buildThreadingToolContext,
   buildEmbeddedRunBaseParams,
   buildEmbeddedRunContexts,
+  resolveRoutingSnapshotForTemplateRun,
   resolvePlatformExecutionContextForTemplateRun,
   resolveModelFallbackOptions,
   resolveProviderScopedAuthProfile,
@@ -51,6 +64,101 @@ function makeRun(overrides: Partial<FollowupRun["run"]> = {}): FollowupRun["run"
 describe("agent-runner-utils", () => {
   beforeEach(() => {
     hoisted.resolveRunModelFallbacksOverrideMock.mockClear();
+    hoisted.buildClassifiedExecutionDecisionInputMock.mockReset();
+    hoisted.buildClassifiedExecutionDecisionInputMock.mockImplementation(async (params?: unknown) => {
+      const prompt =
+        params && typeof params === "object" && "prompt" in params
+          ? String((params as { prompt?: unknown }).prompt ?? "")
+          : "";
+      const channelHints =
+        params && typeof params === "object" && "channelHints" in params
+          ? ((params as { channelHints?: { messageChannel?: string; channel?: string } }).channelHints ??
+            {})
+          : {};
+      const wantsCodeFlow = /build|publish|release|ship|patch|ci failure|repo/i.test(prompt);
+      return {
+        ...(wantsCodeFlow
+          ? {
+              prompt,
+              contractFirst: true,
+              intent: "publish",
+              requestedTools: ["apply_patch", "exec", "process"],
+              artifactKinds: ["binary", "release"],
+              publishTargets: ["external"],
+              integrations: [channelHints.messageChannel, channelHints.channel].filter(
+                (value): value is string => Boolean(value),
+              ),
+              outcomeContract: "external_operation",
+              executionContract: {
+                requiresTools: true,
+                requiresWorkspaceMutation: true,
+                requiresLocalProcess: true,
+                requiresArtifactEvidence: false,
+                requiresDeliveryEvidence: true,
+                mayNeedBootstrap: true,
+              },
+              requestedEvidence: ["tool_receipt", "delivery_receipt"],
+              confidence: "high",
+              ambiguityReasons: [],
+              candidateFamilies: ["ops_execution"],
+              resolutionContract: {
+                selectedFamily: "code_build",
+                candidateFamilies: ["code_build", "ops_execution"],
+                toolBundles: ["repo_mutation", "repo_run", "external_delivery"],
+                routing: {
+                  localEligible: false,
+                  remoteProfile: "code",
+                  preferRemoteFirst: true,
+                  needsVision: false,
+                },
+              },
+              routing: {
+                localEligible: false,
+                remoteProfile: "code",
+                preferRemoteFirst: true,
+                needsVision: false,
+              },
+            }
+          : {
+              prompt,
+              contractFirst: true,
+              intent: "general",
+              integrations: [channelHints.messageChannel, channelHints.channel].filter(
+                (value): value is string => Boolean(value),
+              ),
+              outcomeContract: "text_response",
+              executionContract: {
+                requiresTools: false,
+                requiresWorkspaceMutation: false,
+                requiresLocalProcess: false,
+                requiresArtifactEvidence: false,
+                requiresDeliveryEvidence: false,
+                mayNeedBootstrap: false,
+              },
+              requestedEvidence: ["assistant_text"],
+              confidence: "high",
+              ambiguityReasons: [],
+              candidateFamilies: ["general_assistant"],
+              resolutionContract: {
+                selectedFamily: "general_assistant",
+                candidateFamilies: ["general_assistant"],
+                toolBundles: ["respond_only"],
+                routing: {
+                  localEligible: true,
+                  remoteProfile: "cheap",
+                  preferRemoteFirst: false,
+                  needsVision: false,
+                },
+              },
+              routing: {
+                localEligible: true,
+                remoteProfile: "cheap",
+                preferRemoteFirst: false,
+                needsVision: false,
+              },
+            }),
+      };
+    });
   });
 
   it("resolves model fallback options from run context", () => {
@@ -71,6 +179,29 @@ describe("agent-runner-utils", () => {
       agentDir: run.agentDir,
       fallbacksOverride: ["fallback-model"],
     });
+  });
+
+  it("includes preflight fields when a prompt is provided", () => {
+    hoisted.resolveRunModelFallbacksOverrideMock.mockReturnValue(["fallback-model"]);
+    const run = makeRun();
+
+    const resolved = resolveModelFallbackOptions(run, {
+      preflightPrompt: "  hello  ",
+      preflightMode: "force_stronger",
+    });
+
+    expect(resolved.preflightPrompt).toBe("hello");
+    expect(resolved.preflightMode).toBe("force_stronger");
+  });
+
+  it("sets skipRoutePreflight when run.modelRoutePreflightDisabled is true", () => {
+    hoisted.resolveRunModelFallbacksOverrideMock.mockReturnValue(undefined);
+    const run = makeRun({ modelRoutePreflightDisabled: true });
+
+    const resolved = resolveModelFallbackOptions(run, { preflightPrompt: "hi" });
+
+    expect(resolved.skipRoutePreflight).toBe(true);
+    expect(resolved.preflightPrompt).toBe("hi");
   });
 
   it("passes through missing agentId for helper-based fallback resolution", () => {
@@ -220,10 +351,10 @@ describe("agent-runner-utils", () => {
     });
   });
 
-  it("resolves a frozen platform execution context for template runs", () => {
+  it("resolves a frozen platform execution context for template runs", async () => {
     const run = makeRun({ messageProvider: "telegram" });
 
-    const resolved = resolvePlatformExecutionContextForTemplateRun({
+    const resolved = await resolvePlatformExecutionContextForTemplateRun({
       prompt: "Build the repo and publish the release to GitHub",
       run,
       sessionCtx: {
@@ -241,6 +372,103 @@ describe("agent-runner-utils", () => {
     expect(resolved.selectedProfileId).toBe("developer");
     expect(resolved.readinessStatus).toBe("approval_required");
     expect(resolved.requestedToolNames).toEqual(expect.arrayContaining(["exec", "process"]));
+  });
+
+  it("builds a unified routing snapshot for template runs", async () => {
+    const run = makeRun({ messageProvider: "telegram" });
+
+    const resolved = await resolveRoutingSnapshotForTemplateRun({
+      prompt: "Build the repo and publish the release to GitHub",
+      run,
+      sessionCtx: {
+        Provider: "discord",
+        OriginatingChannel: "telegram",
+        Surface: "slack",
+      },
+      sessionEntry: {
+        sessionId: "session-override",
+        specialistOverrideMode: "session",
+        specialistSessionProfileId: "developer",
+      },
+    });
+
+    expect(resolved.channelHints).toEqual({
+      messageChannel: "telegram",
+      channel: "slack",
+      replyChannel: "telegram",
+    });
+    expect(resolved.plannerInput.integrations).toEqual(
+      expect.arrayContaining(["telegram", "slack"]),
+    );
+    expect(resolved.runtimePlan.selectedProfileId).toBe("developer");
+    expect(resolved.runtimePlan.requestedToolNames).toEqual(
+      expect.arrayContaining(["exec", "process"]),
+    );
+  });
+
+  it("forwards inter_session inputProvenance to buildClassifiedExecutionDecisionInput so the gate can short-circuit announce-flow text", async () => {
+    // Plumbing-level regression test for the self-feedback loop fix.
+    // The announce flow ships the spawn receipt back through `callGateway`
+    // with `inputProvenance: { kind: "inter_session", ... }`. The router /
+    // queue then surfaces it on `FollowupRun.run.inputProvenance`. This test
+    // verifies that `resolveRoutingSnapshotForTemplateRun` actually threads
+    // that provenance into `buildClassifiedExecutionDecisionInput`. The
+    // `kind !== "external_user"` short-circuit itself is covered by
+    // `src/platform/decision/input.provenance-gate.test.ts`.
+    const run = makeRun({
+      messageProvider: "telegram",
+      inputProvenance: {
+        kind: "inter_session",
+        sourceTool: "subagent_announce",
+        sourceSessionKey: "agent:main:subagent:fedot",
+        sourceChannel: "internal",
+      },
+    });
+
+    await resolveRoutingSnapshotForTemplateRun({
+      prompt: "Квитанция: follow-up сессия Федот активна, на связи.",
+      run,
+      sessionCtx: {
+        Provider: "telegram",
+        OriginatingChannel: "telegram",
+        Surface: "telegram",
+      },
+      sessionEntry: {
+        sessionId: "session-feedback-loop",
+      },
+    });
+
+    expect(hoisted.buildClassifiedExecutionDecisionInputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputProvenance: expect.objectContaining({
+          kind: "inter_session",
+          sourceTool: "subagent_announce",
+        }),
+      }),
+    );
+  });
+
+  it("omits inputProvenance from the planner call when the run has no provenance (back-compat)", async () => {
+    const run = makeRun({ messageProvider: "telegram" });
+
+    await resolveRoutingSnapshotForTemplateRun({
+      prompt: "Привет",
+      run,
+      sessionCtx: {
+        Provider: "telegram",
+        OriginatingChannel: "telegram",
+        Surface: "telegram",
+      },
+      sessionEntry: {
+        sessionId: "session-legacy-undefined",
+      },
+    });
+
+    const lastCall = hoisted.buildClassifiedExecutionDecisionInputMock.mock.calls.at(-1);
+    expect(lastCall).toBeDefined();
+    const callArg = lastCall?.[0] as { inputProvenance?: unknown } | undefined;
+    expect(callArg).toBeDefined();
+    expect("inputProvenance" in (callArg ?? {})).toBe(false);
   });
 
   it("uses transcript-derived prompt and file names when store context exists", async () => {
@@ -261,7 +489,7 @@ describe("agent-runner-utils", () => {
     );
     const run = makeRun({ messageProvider: "telegram" });
 
-    const resolved = resolvePlatformExecutionContextForTemplateRun({
+    const resolved = await resolvePlatformExecutionContextForTemplateRun({
       prompt: "Then ship the patch.",
       run,
       sessionCtx: {

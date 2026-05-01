@@ -26,6 +26,7 @@ type LastToolError = {
   toolName: string;
   meta?: string;
   error?: string;
+  rawError?: string;
   mutatingAction?: boolean;
   actionFingerprint?: string;
 };
@@ -44,8 +45,8 @@ const RECOVERABLE_TOOL_ERROR_KEYWORDS = [
   "requires",
 ] as const;
 
-function isRecoverableToolError(error: string | undefined): boolean {
-  const errorLower = (error ?? "").toLowerCase();
+function isRecoverableToolError(params: { error?: string; rawError?: string }): boolean {
+  const errorLower = (params.rawError ?? params.error ?? "").toLowerCase();
   return RECOVERABLE_TOOL_ERROR_KEYWORDS.some((keyword) => errorLower.includes(keyword));
 }
 
@@ -83,7 +84,12 @@ function resolveToolErrorWarningPolicy(params: {
     return { showWarning: false, includeDetails };
   }
   return {
-    showWarning: !params.hasUserFacingReply && !isRecoverableToolError(params.lastToolError.error),
+    showWarning:
+      !params.hasUserFacingReply &&
+      !isRecoverableToolError({
+        error: params.lastToolError.error,
+        rawError: params.lastToolError.rawError,
+      }),
     includeDetails,
   };
 }
@@ -104,6 +110,7 @@ export function buildEmbeddedRunPayloads(params: {
   inlineToolResultsAllowed: boolean;
   didSendViaMessagingTool?: boolean;
   didSendDeterministicApprovalPrompt?: boolean;
+  toolResultMediaUrls?: string[];
 }): Array<{
   text?: string;
   mediaUrl?: string;
@@ -321,6 +328,28 @@ export function buildEmbeddedRunPayloads(params: {
           isError: true,
         });
       }
+    }
+  }
+
+  const trustedToolMediaUrls = Array.from(
+    new Set((params.toolResultMediaUrls ?? []).map((value) => value.trim()).filter(Boolean)),
+  );
+  if (trustedToolMediaUrls.length > 0) {
+    const targetIndex = [...replyItems]
+      .map((item, index) => ({ item, index }))
+      .reverse()
+      .find(({ item }) => !item.isReasoning && !item.isError)?.index;
+    if (targetIndex !== undefined) {
+      const existing = replyItems[targetIndex]?.media ?? [];
+      replyItems[targetIndex] = {
+        ...replyItems[targetIndex],
+        media: Array.from(new Set([...existing, ...trustedToolMediaUrls])),
+      };
+    } else {
+      replyItems.push({
+        text: "",
+        media: trustedToolMediaUrls,
+      });
     }
   }
 

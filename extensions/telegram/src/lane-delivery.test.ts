@@ -567,7 +567,7 @@ describe("createLaneTextDeliverer", () => {
     });
   });
 
-  it("deletes consumed boundary previews after fallback final send", async () => {
+  it("keeps boundary-finalized previews when a later media final cannot reuse them", async () => {
     const harness = createHarness();
     harness.archivedAnswerPreviews.push({
       messageId: 4444,
@@ -586,6 +586,6 @@ describe("createLaneTextDeliverer", () => {
     expect(harness.sendPayload).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Final with media", mediaUrl: "file:///tmp/example.png" }),
     );
-    expect(harness.deletePreviewMessage).toHaveBeenCalledWith(4444);
+    expect(harness.deletePreviewMessage).not.toHaveBeenCalled();
   });
 });

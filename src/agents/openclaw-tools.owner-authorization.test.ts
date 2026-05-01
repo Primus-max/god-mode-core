@@ -19,4 +19,16 @@ describe("createOpenClawTools owner authorization", () => {
     expect(tools.get("canvas")).toBeDefined();
     expect(tools.get("canvas")?.ownerOnly).not.toBe(true);
   });
+
+  it("keeps cron visible for non-owner scoped reminder runtimes", () => {
+    const tools = new Map(
+      createOpenClawTools({
+        agentSessionKey: "agent:main:telegram:direct:123",
+        senderIsOwner: false,
+      }).map((tool) => [tool.name, tool]),
+    );
+    expect(tools.get("cron")).toBeDefined();
+    expect(tools.get("cron")?.ownerOnly).not.toBe(true);
+    expect(tools.get("gateway")?.ownerOnly).toBe(true);
+  });
 });

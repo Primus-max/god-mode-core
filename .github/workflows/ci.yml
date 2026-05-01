@@ -241,6 +241,9 @@ jobs:
             shard_count: 2
             command: pnpm canvas:a2ui:bundle && pnpm test
           - runtime: node
+            task: e2e-smoke
+            command: OPENCLAW_E2E_WORKERS=1 pnpm test:e2e:smoke
+          - runtime: node
             task: extensions
             command: pnpm test:extensions
           - runtime: node
@@ -302,14 +305,14 @@ jobs:
           fi
 
       - name: Download dist artifact
-        if: github.event_name == 'push' && matrix.task == 'test'
+        if: github.event_name == 'push' && (matrix.task == 'test' || matrix.task == 'e2e-smoke')
         uses: actions/download-artifact@v8
         with:
           name: dist-build
           path: dist/
 
       - name: Build dist
-        if: github.event_name != 'push' && matrix.task == 'test' && matrix.runtime == 'node'
+        if: github.event_name != 'push' && (matrix.task == 'test' || matrix.task == 'e2e-smoke') && matrix.runtime == 'node'
         run: pnpm build
 
       - name: Run ${{ matrix.task }} (${{ matrix.runtime }})

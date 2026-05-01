@@ -1,15 +1,29 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { bundledWebSearchPluginRegistrations } from "../bundled-web-search-registry.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { BUNDLED_WEB_SEARCH_PLUGIN_IDS } from "./bundled-web-search-ids.js";
 import { resolveBundledWebSearchPluginId } from "./bundled-web-search-provider-ids.js";
+import { clearPluginDiscoveryCache } from "./discovery.js";
 import {
   listBundledWebSearchProviders,
   resolveBundledWebSearchPluginIds,
 } from "./bundled-web-search.js";
 import { webSearchProviderContractRegistry } from "./contracts/registry.js";
+import { clearPluginManifestRegistryCache } from "./manifest-registry.js";
 
 describe("bundled web search metadata", () => {
+  beforeEach(() => {
+    vi.stubEnv("OPENCLAW_BUNDLED_PLUGINS_DIR", "");
+    clearPluginManifestRegistryCache();
+    clearPluginDiscoveryCache();
+  });
+
+  afterAll(() => {
+    vi.stubEnv("OPENCLAW_BUNDLED_PLUGINS_DIR", "__openclaw_test_no_bundled_plugins__");
+    clearPluginManifestRegistryCache();
+    clearPluginDiscoveryCache();
+  });
+
   function toComparableEntry(params: {
     pluginId: string;
     provider: {

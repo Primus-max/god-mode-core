@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_PROFILE_IDS, INITIAL_PROFILES, getInitialProfile } from "./defaults.js";
+import { extractProfileSignals } from "./signals.js";
 
 describe("platform initial profiles", () => {
   it("contains the intended specialist catalog", () => {
@@ -36,5 +37,36 @@ describe("platform initial profiles", () => {
 
   it("keeps schema ids and live defaults aligned", () => {
     expect(INITIAL_PROFILES.map((profile) => profile.id)).toEqual(INITIAL_PROFILE_IDS);
+  });
+
+  it("documents builder as project-designer coverage for calculations, spreadsheets, suppliers, ventilation", () => {
+    const builder = getInitialProfile("builder");
+    expect(builder?.description?.toLowerCase()).toMatch(/calculation/);
+    expect(builder?.description?.toLowerCase()).toMatch(/spreadsheet/);
+    expect(builder?.description?.toLowerCase()).toMatch(/supplier/);
+    expect(builder?.description?.toLowerCase()).toMatch(/ventilation/);
+    expect(builder?.taskOverlays?.map((o) => o.id)).toContain("project_designer");
+  });
+});
+
+describe("extractProfileSignals builder-oriented prompts", () => {
+  it("scores builder for spreadsheet calculations, supplier comparison, and ventilation language", () => {
+    const calc = extractProfileSignals({ prompt: "spreadsheet calculation for concrete volumes" });
+    const suppliers = extractProfileSignals({ prompt: "supplier comparison for rebar delivery" });
+    const vent = extractProfileSignals({ prompt: "office ventilation air changes per hour" });
+    expect(calc.some((s) => s.profileId === "builder")).toBe(true);
+    expect(suppliers.some((s) => s.profileId === "builder")).toBe(true);
+    expect(vent.some((s) => s.profileId === "builder")).toBe(true);
+  });
+
+  it("prefers builder over media when ventilation overlaps design wording", () => {
+    const signals = extractProfileSignals({ prompt: "ventilation design air balance for atrium" });
+    const builderWeight = signals
+      .filter((s) => s.profileId === "builder")
+      .reduce((acc, s) => acc + s.weight, 0);
+    const mediaWeight = signals
+      .filter((s) => s.profileId === "media_creator")
+      .reduce((acc, s) => acc + s.weight, 0);
+    expect(builderWeight).toBeGreaterThan(mediaWeight);
   });
 });

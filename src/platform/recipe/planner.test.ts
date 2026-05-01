@@ -1,13 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { planExecutionRecipe } from "./planner.js";
+import { getInitialRecipe } from "./defaults.js";
+import { planExecutionRecipe, type RecipePlannerInput } from "./planner.js";
+import type { CapabilityCatalogEntry } from "../schemas/capability.js";
+import type { ExecutionRecipe } from "../schemas/recipe.js";
 
 describe("planExecutionRecipe", () => {
-  it("selects doc_ingest for document-first work", () => {
+  it("selects doc_ingest from document extraction contract fields", () => {
     const plan = planExecutionRecipe({
       prompt: "Extract tables from this PDF estimate and summarize it",
-      fileNames: ["estimate.pdf"],
+      contractFirst: true,
       artifactKinds: ["document", "report"],
-      intent: "document",
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["document_extraction"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("builder");
@@ -15,41 +37,98 @@ describe("planExecutionRecipe", () => {
     expect(plan.plannerOutput.selectedRecipeId).toBe("doc_ingest");
   });
 
-  it("selects code_build_publish for repository publish work", () => {
+  it("selects code_build_publish for repository publish contracts", () => {
     const plan = planExecutionRecipe({
       prompt: "Fix the failing TypeScript build and publish to GitHub",
-      fileNames: ["app.ts"],
-      publishTargets: ["github"],
-      requestedTools: ["exec"],
-      intent: "publish",
+      contractFirst: true,
+      artifactKinds: ["site", "release"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: true,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run", "external_delivery"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("developer");
     expect(plan.recipe.id).toBe("code_build_publish");
+    expect(plan.plannerOutput.overrides?.model).toBe("hydra/gpt-5.4");
   });
 
-  it("selects ocr_extract for scan-heavy document work", () => {
+  it("does not infer ocr_extract without classifier-derived extraction subtype", () => {
     const plan = planExecutionRecipe({
       prompt: "Run OCR on this scanned invoice image and extract the totals",
-      fileNames: ["invoice-scan.png"],
+      contractFirst: true,
       artifactKinds: ["document"],
-      intent: "document",
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["document_extraction"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: true,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("builder");
-    expect(plan.recipe.id).toBe("ocr_extract");
+    expect(plan.recipe.id).toBe("doc_ingest");
   });
 
-  it("selects table_extract for spreadsheet-heavy document work", () => {
+  it("does not infer table_extract from spreadsheet wording alone", () => {
     const plan = planExecutionRecipe({
       prompt: "Extract the table rows from this spreadsheet and export them",
-      fileNames: ["estimate.xlsx"],
+      contractFirst: true,
       artifactKinds: ["document", "data"],
-      intent: "document",
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["document_extraction"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("builder");
-    expect(plan.recipe.id).toBe("table_extract");
+    expect(plan.recipe.id).toBe("doc_ingest");
   });
 
   it("keeps explicit specialist overrides active for lightweight chat", () => {
@@ -63,36 +142,1172 @@ describe("planExecutionRecipe", () => {
     expect(plan.profile.activeProfile.sessionProfile).toBe("developer");
   });
 
-  it("selects integration_delivery for integration-heavy work", () => {
+  it("keeps builder-profile greetings on general_reasoning with respond-only contract", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Привет! Как дела? Просто поздоровайся.",
+      contractFirst: true,
+      sessionProfile: "builder",
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: false,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "general_assistant",
+        candidateFamilies: ["general_assistant"],
+        toolBundles: ["respond_only"],
+        routing: {
+          localEligible: true,
+          remoteProfile: "cheap",
+          preferRemoteFirst: false,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).toBe("general_reasoning");
+  });
+
+  it("selects integration_delivery for integration-heavy contracts", () => {
     const plan = planExecutionRecipe({
       prompt: "Validate the webhook integration, sync OAuth config, and roll out the connector",
-      integrations: ["slack", "webhook"],
-      requestedTools: ["exec"],
-      intent: "publish",
+      contractFirst: true,
+      outcomeContract: "external_operation",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: true,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "ops_execution",
+        candidateFamilies: ["ops_execution"],
+        toolBundles: ["external_delivery"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("integrator");
     expect(plan.recipe.id).toBe("integration_delivery");
   });
 
-  it("selects ops_orchestration for guarded operator work", () => {
+  it("selects ops_orchestration for guarded operator contracts", () => {
     const plan = planExecutionRecipe({
       prompt: "Check the linked machine, inspect logs, and bootstrap the missing capability",
-      requestedTools: ["exec", "process"],
+      contractFirst: true,
+      outcomeContract: "interactive_local_result",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "ops_execution",
+        candidateFamilies: ["ops_execution"],
+        toolBundles: ["repo_run"],
+        routing: {
+          localEligible: true,
+          remoteProfile: "strong",
+          preferRemoteFirst: false,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("operator");
     expect(plan.recipe.id).toBe("ops_orchestration");
   });
 
-  it("selects media_production for multimodal media work", () => {
+  it("selects ops_orchestration for session orchestration contracts", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Создай постоянного сабагента Валера для ежедневных отчётов",
+      contractFirst: true,
+      requestedTools: ["sessions_spawn"],
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "ops_execution",
+        candidateFamilies: ["ops_execution"],
+        toolBundles: ["session_orchestration"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("operator");
+    expect(plan.recipe.id).toBe("ops_orchestration");
+    expect(plan.routingOutcome).toEqual({ kind: "matched", source: "ranked" });
+  });
+
+  it("keeps browser-observation contracts out of general_reasoning", () => {
+    const plan = planExecutionRecipe({
+      prompt:
+        "Open the local app in a browser, inspect the signup flow, and report visible issues.",
+      contractFirst: true,
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "general_assistant",
+        candidateFamilies: ["general_assistant"],
+        toolBundles: ["interactive_browser"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: true,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).not.toBe("general_reasoning");
+  });
+
+  it("keeps public-web research contracts analytical instead of artifact-authoring", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Research current public GPU pricing and summarize the best options.",
+      contractFirst: true,
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["public_web_lookup"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(["table_compare", "calculation_report", "general_reasoning"]).toContain(plan.recipe.id);
+    expect(plan.recipe.id).not.toBe("doc_authoring");
+    expect(plan.recipe.id).not.toBe("media_production");
+  });
+
+  it("selects media_production for multimodal media contracts", () => {
     const plan = planExecutionRecipe({
       prompt: "Generate a thumbnail image, caption the audio track, and package the media output",
+      contractFirst: true,
       artifactKinds: ["image", "audio"],
-      publishTargets: ["site"],
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "media_generation",
+        candidateFamilies: ["media_generation"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
     });
 
     expect(plan.profile.selectedProfile.id).toBe("media_creator");
     expect(plan.recipe.id).toBe("media_production");
+    expect(plan.plannerOutput.overrides?.model).toBe("hydra/gpt-5.4");
+  });
+
+  it("selects code_build_publish for website work even when the specialist profile is media_creator", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Сделай сайт на Vue и Vite, запущу на localhost",
+      sessionProfile: "media_creator",
+      intent: "code",
+      artifactKinds: ["site"],
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("media_creator");
+    expect(plan.recipe.id).toBe("code_build_publish");
+  });
+
+  it("avoids code_build_publish for PDF-only artifact requests", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Create a one-page PDF report with Stage 86 test results.",
+      artifactKinds: ["document"],
+      intent: "document",
+    });
+
+    expect(plan.recipe.id).not.toBe("code_build_publish");
+  });
+
+  it("does not route mixed pdf plus images requests into media_production", () => {
+    const plan = planExecutionRecipe({
+      prompt:
+        "Надо сделать pdf файл, с инфографикой о жизни городского котика, это просто прикол, но надо пару страниц, красивый формат, можно добавить пару картинок.",
+      contractFirst: true,
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render", "media_generation"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).not.toBe("media_production");
+    expect(plan.recipe.id).toBe("doc_authoring");
+  });
+
+  it("selects doc_authoring for document-authoring contracts", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Сделай красивый PDF-отчет на 2 страницы с диаграммами и краткими выводами.",
+      contractFirst: true,
+      artifactKinds: ["document"],
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).toBe("doc_authoring");
+  });
+
+  it("selects table_compare for analytical comparison contracts", () => {
+    const plan = planExecutionRecipe({
+      prompt:
+        "Compare these two Excel exports for SKU and price differences, then summarize mismatches.",
+      contractFirst: true,
+      artifactKinds: ["data", "report"],
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["public_web_lookup"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.profile.selectedProfile.id).toBe("builder");
+    expect(plan.recipe.id).toBe("table_compare");
+    expect(plan.plannerOutput.selectedRecipeId).toBe("table_compare");
+  });
+
+  it("selects table_compare from analytical comparison contract fields", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Сравни два CSV с ценами и покажи расхождения по артикулам.",
+      contractFirst: true,
+      sessionProfile: "builder",
+      artifactKinds: ["data", "report"],
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["public_web_lookup"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).toBe("table_compare");
+  });
+
+  it("selects calculation_report from calculation-style contract fields", () => {
+    const plan = planExecutionRecipe({
+      prompt:
+        "Compute required ventilation CFM for a 420 sq ft room with 8 ft ceilings and give a short written report with assumptions.",
+      contractFirst: true,
+      sessionProfile: "general",
+      artifactKinds: [],
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["public_web_lookup"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).toBe("calculation_report");
+  });
+
+  it("selects calculation_report for Russian unit and sizing language", () => {
+    const plan = planExecutionRecipe({
+      prompt:
+        "Рассчитай кубатуру помещения 4x5 м при высоте 2.7 м и переведи в кубические футы в отчёте.",
+      intent: "calculation",
+    });
+
+    expect(plan.recipe.id).toBe("calculation_report");
+  });
+
+  it("uses candidateFamilies as the primary family-selection input", () => {
+    // Bug C (commitment_kernel_recipe_routing_publish.plan.md): intent=publish
+    // без интеграционного сигнала (нет webhook target / нет integrations поля /
+    // профиль не integrator) теперь дефолтится в ops_orchestration внутри
+    // ops_execution-семьи, а не в integration_delivery. Family-narrowing
+    // продолжает работать — recipe всё ещё в семье ops_execution.
+    const plan = planExecutionRecipe({
+      prompt: "Fix the failing build and publish to GitHub",
+      fileNames: ["app.ts"],
+      publishTargets: ["github"],
+      requestedTools: ["exec"],
+      intent: "publish",
+      candidateFamilies: ["general_assistant", "ops_execution"],
+      outcomeContract: "external_operation",
+    });
+
+    expect(plan.recipe.id).toBe("ops_orchestration");
+    expect(plan.plannerOutput.reasoning).toContain("Family: ops_execution.");
+  });
+
+  it("Bug C: intent=publish без integration-сигнала не выбирает integration_delivery", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Опубликуй сборку",
+      publishTargets: ["github"],
+      requestedTools: ["exec"],
+      intent: "publish",
+      candidateFamilies: ["ops_execution"],
+      outcomeContract: "external_operation",
+    });
+
+    expect(plan.recipe.id).not.toBe("integration_delivery");
+    expect(plan.recipe.id).toBe("ops_orchestration");
+  });
+
+  it("Bug C: integration_delivery остаётся выбором при явном integration-target", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Roll out the connector",
+      publishTargets: ["webhook"],
+      requestedTools: ["exec"],
+      intent: "publish",
+      candidateFamilies: ["ops_execution"],
+      outcomeContract: "external_operation",
+    });
+
+    expect(plan.recipe.id).toBe("integration_delivery");
+  });
+
+  it("prefers resolution-contract family selection over legacy cross-family scoring", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Create a PDF infographic with generated images.",
+      contractFirst: true,
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+      intent: "document",
+      candidateFamilies: ["document_render", "media_generation"],
+      outcomeContract: "structured_artifact",
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render", "media_generation"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).toBe("doc_authoring");
+    expect(plan.plannerOutput.reasoning).toContain("Family: document_render.");
+  });
+
+  it("does not let prompt-level heuristics override classifier-selected document routing", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Run OCR on this scanned invoice image and extract the totals.",
+      contractFirst: true,
+      fileNames: ["invoice-scan.png"],
+      artifactKinds: ["document"],
+      requestedTools: ["pdf"],
+      intent: "document",
+      outcomeContract: "structured_artifact",
+      candidateFamilies: ["document_render"],
+      resolutionContract: {
+        selectedFamily: "document_render",
+        candidateFamilies: ["document_render"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).toBe("doc_authoring");
+    expect(plan.recipe.id).not.toBe("ocr_extract");
+  });
+
+  it("does not fall back to family labels in contract-first mode when tool bundles already select authoring", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Create a polished PDF brief with generated supporting visuals.",
+      contractFirst: true,
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+      intent: "document",
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      candidateFamilies: ["analysis_transform"],
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).toBe("doc_authoring");
+  });
+
+  it("keeps contract-first document-authoring routing stable across paraphrases", () => {
+    const baseInput: RecipePlannerInput = {
+      contractFirst: true,
+      artifactKinds: ["document", "image"],
+      requestedTools: ["pdf", "image_generate"],
+      intent: "document",
+      outcomeContract: "structured_artifact",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: true,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform"],
+        toolBundles: ["artifact_authoring"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "presentation",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    };
+
+    const clean = planExecutionRecipe({
+      ...baseInput,
+      prompt: "Create a polished infographic PDF from these notes with supporting visuals.",
+    });
+    const noisy = planExecutionRecipe({
+      ...baseInput,
+      prompt:
+        "Собери визуальный PDF из заметок с инфографикой и иллюстрациями, без правок репозитория.",
+    });
+
+    expect(clean.recipe.id).toBe("doc_authoring");
+    expect(noisy.recipe.id).toBe("doc_authoring");
+    expect(clean.recipe.id).toBe(noisy.recipe.id);
+  });
+
+  it("keeps contract-first workspace-change routing stable across paraphrases", () => {
+    const baseInput: RecipePlannerInput = {
+      contractFirst: true,
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      intent: "code",
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "general_assistant",
+        candidateFamilies: ["general_assistant"],
+        toolBundles: ["repo_mutation", "repo_run"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: false,
+          needsVision: false,
+        },
+      },
+    };
+
+    const clean = planExecutionRecipe({
+      ...baseInput,
+      prompt: "Fix failing behavior in this repository and run local validation checks.",
+    });
+    const noisy = planExecutionRecipe({
+      ...baseInput,
+      prompt: "Поправь код в репозитории и прогони нужные проверки локально перед завершением.",
+    });
+
+    expect(clean.recipe.id).toBe("code_build_publish");
+    expect(noisy.recipe.id).toBe("code_build_publish");
+    expect(clean.recipe.id).toBe(noisy.recipe.id);
+  });
+
+  it("prefers analysis-scoped contract routing over broader document scoring", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Compare these two CSV exports and summarize row-level differences.",
+      contractFirst: true,
+      sessionProfile: "builder",
+      artifactKinds: ["data", "report"],
+      outcomeContract: "text_response",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: false,
+      },
+      candidateFamilies: ["document_render", "analysis_transform"],
+      resolutionContract: {
+        selectedFamily: "analysis_transform",
+        candidateFamilies: ["analysis_transform", "document_render"],
+        toolBundles: ["public_web_lookup"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "strong",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).toBe("table_compare");
+    expect(plan.plannerOutput.reasoning).toContain("Family: analysis_transform.");
+  });
+
+  it("falls back to legacy scoring only when candidateFamilies are absent and a specialist is pinned", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Generate a thumbnail image and caption the audio track",
+      sessionProfile: "media_creator",
+      artifactKinds: ["image", "audio"],
+      publishTargets: ["site"],
+    });
+
+    expect(plan.recipe.id).toBe("media_production");
+  });
+
+  it("uses clarify strategy to avoid forced execution on ambiguous publish prompts", () => {
+    const plan = planExecutionRecipe({
+      prompt: "Ship it.",
+      contractFirst: true,
+      outcomeContract: "external_operation",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: false,
+        requiresLocalProcess: false,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: true,
+        mayNeedBootstrap: false,
+      },
+      confidence: "medium",
+      lowConfidenceStrategy: "clarify",
+      ambiguityReasons: ["external operation is inferred without an explicit publish target"],
+      resolutionContract: {
+        selectedFamily: "ops_execution",
+        candidateFamilies: ["ops_execution"],
+        toolBundles: ["external_delivery"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+    });
+
+    expect(plan.recipe.id).toBe("general_reasoning");
+    expect(plan.plannerOutput.reasoning).toContain("Low-confidence strategy: clarify.");
+    expect(plan.plannerOutput.reasoning).toContain(
+      "external operation is inferred without an explicit publish target",
+    );
+  });
+
+  it("fails closed to clarification when scaffold capability credentials are missing", () => {
+    const scaffoldRecipe: ExecutionRecipe = {
+      id: "code_build_publish",
+      purpose: "Scaffold project structure",
+      summary: "Scaffold repository files from template.",
+      acceptedInputs: [{ type: "text", required: true }],
+      requiredCapabilities: ["needs_repo_execution"],
+      riskLevel: "medium",
+      allowedProfiles: ["developer"],
+    };
+    const credentialCatalog: CapabilityCatalogEntry[] = [
+      {
+        capability: {
+          id: "needs_repo_execution",
+          label: "Repo Execution Credentials Gate",
+          status: "available",
+          trusted: true,
+          requiredEnv: ["TELEGRAM_API_HASH"],
+        },
+        source: "catalog",
+        install: { method: "builtin" },
+      },
+    ];
+    const plan = planExecutionRecipe({
+      prompt: "Сделай scaffold для telegram-бота в этом репозитории.",
+      contractFirst: true,
+      recipes: [scaffoldRecipe, getInitialRecipe("general_reasoning")!],
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo" },
+      },
+      taskRequiredCapabilities: ["needs_repo_execution"],
+      capabilityCatalog: credentialCatalog,
+      preflightEnvSnapshot: {},
+    });
+
+    expect(plan.recipe.id).toBe("general_reasoning");
+    expect(plan.routingOutcome).toEqual({ kind: "low_confidence_clarify" });
+    expect(plan.plannerOutput.reasoning).toContain("TELEGRAM_API_HASH");
+  });
+
+  it("keeps scaffold execution when required credential env is present", () => {
+    const scaffoldRecipe: ExecutionRecipe = {
+      id: "code_build_publish",
+      purpose: "Scaffold project structure",
+      summary: "Scaffold repository files from template.",
+      acceptedInputs: [{ type: "text", required: true }],
+      requiredCapabilities: ["needs_repo_execution"],
+      riskLevel: "medium",
+      allowedProfiles: ["developer"],
+    };
+    const credentialCatalog: CapabilityCatalogEntry[] = [
+      {
+        capability: {
+          id: "needs_repo_execution",
+          label: "Repo Execution Credentials Gate",
+          status: "available",
+          trusted: true,
+          requiredEnv: ["TELEGRAM_API_HASH"],
+        },
+        source: "catalog",
+        install: { method: "builtin" },
+      },
+    ];
+    const plan = planExecutionRecipe({
+      prompt: "Сделай scaffold для telegram-бота в этом репозитории.",
+      contractFirst: true,
+      recipes: [scaffoldRecipe, getInitialRecipe("general_reasoning")!],
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo" },
+      },
+      taskRequiredCapabilities: ["needs_repo_execution"],
+      capabilityCatalog: credentialCatalog,
+      preflightEnvSnapshot: { TELEGRAM_API_HASH: "set" },
+    });
+
+    expect(plan.recipe.id).toBe("code_build_publish");
+    expect(plan.routingOutcome).toEqual({ kind: "matched", source: "ranked" });
+  });
+
+  // P1.6.1: deliverable-driven credentials preflight.
+  // The default capability catalog no longer pins requiredEnv on
+  // needs_repo_execution; env requirements travel with the deliverable's
+  // `provider`/`integration` constraint.
+  it("does NOT clarify on plain exec/scaffold without a provider in deliverable.constraints", () => {
+    const scaffoldRecipe: ExecutionRecipe = {
+      id: "code_build_publish",
+      purpose: "Scaffold project structure",
+      summary: "Scaffold repository files from template.",
+      acceptedInputs: [{ type: "text", required: true }],
+      requiredCapabilities: ["needs_repo_execution"],
+      riskLevel: "medium",
+      allowedProfiles: ["developer"],
+    };
+    const credentialCatalog: CapabilityCatalogEntry[] = [
+      {
+        capability: {
+          id: "needs_repo_execution",
+          label: "Repo Execution Credentials Gate",
+          status: "available",
+          trusted: true,
+          // Intentionally NO requiredEnv — matches the bundled catalog after P1.6.1.
+        },
+        source: "catalog",
+        install: { method: "builtin" },
+      },
+    ];
+    const plan = planExecutionRecipe({
+      prompt: "Scaffold a fresh repo with README and CI",
+      contractFirst: true,
+      recipes: [scaffoldRecipe, getInitialRecipe("general_reasoning")!],
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo" },
+      },
+      taskRequiredCapabilities: ["needs_repo_execution"],
+      capabilityCatalog: credentialCatalog,
+      preflightEnvSnapshot: {},
+    });
+
+    expect(plan.recipe.id).toBe("code_build_publish");
+    expect(plan.routingOutcome).toEqual({ kind: "matched", source: "ranked" });
+    expect(plan.plannerOutput.reasoning).not.toContain("BYBIT_API_KEY");
+    expect(plan.plannerOutput.reasoning).not.toContain("TELEGRAM_API_HASH");
+    expect(plan.plannerOutput.reasoning).not.toContain("OPENAI_API_KEY");
+  });
+
+  it("clarifies when scaffold deliverable declares provider:bybit but BYBIT_API_KEY is missing", () => {
+    const scaffoldRecipe: ExecutionRecipe = {
+      id: "code_build_publish",
+      purpose: "Scaffold project structure",
+      summary: "Scaffold repository files from template.",
+      acceptedInputs: [{ type: "text", required: true }],
+      requiredCapabilities: ["needs_repo_execution"],
+      riskLevel: "medium",
+      allowedProfiles: ["developer"],
+    };
+    const credentialCatalog: CapabilityCatalogEntry[] = [
+      {
+        capability: {
+          id: "needs_repo_execution",
+          label: "Repo Execution Credentials Gate",
+          status: "available",
+          trusted: true,
+        },
+        source: "catalog",
+        install: { method: "builtin" },
+      },
+    ];
+    const plan = planExecutionRecipe({
+      prompt: "Scaffold a Bybit trading bot in this repo",
+      contractFirst: true,
+      recipes: [scaffoldRecipe, getInitialRecipe("general_reasoning")!],
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo", provider: "bybit" },
+      },
+      taskRequiredCapabilities: ["needs_repo_execution"],
+      capabilityCatalog: credentialCatalog,
+      preflightEnvSnapshot: {},
+    });
+
+    expect(plan.recipe.id).toBe("general_reasoning");
+    expect(plan.routingOutcome).toEqual({ kind: "low_confidence_clarify" });
+    expect(plan.plannerOutput.reasoning).toContain("BYBIT_API_KEY");
+  });
+
+  it("keeps scaffold execution when provider env is present (provider:openai with OPENAI_API_KEY set)", () => {
+    const scaffoldRecipe: ExecutionRecipe = {
+      id: "code_build_publish",
+      purpose: "Scaffold project structure",
+      summary: "Scaffold repository files from template.",
+      acceptedInputs: [{ type: "text", required: true }],
+      requiredCapabilities: ["needs_repo_execution"],
+      riskLevel: "medium",
+      allowedProfiles: ["developer"],
+    };
+    const credentialCatalog: CapabilityCatalogEntry[] = [
+      {
+        capability: {
+          id: "needs_repo_execution",
+          label: "Repo Execution Credentials Gate",
+          status: "available",
+          trusted: true,
+        },
+        source: "catalog",
+        install: { method: "builtin" },
+      },
+    ];
+    const plan = planExecutionRecipe({
+      prompt: "Scaffold an OpenAI-powered chatbot in this repo",
+      contractFirst: true,
+      recipes: [scaffoldRecipe, getInitialRecipe("general_reasoning")!],
+      artifactKinds: ["binary"],
+      requestedTools: ["apply_patch", "exec", "process"],
+      outcomeContract: "workspace_change",
+      executionContract: {
+        requiresTools: true,
+        requiresWorkspaceMutation: true,
+        requiresLocalProcess: true,
+        requiresArtifactEvidence: false,
+        requiresDeliveryEvidence: false,
+        mayNeedBootstrap: true,
+      },
+      resolutionContract: {
+        selectedFamily: "code_build",
+        candidateFamilies: ["code_build"],
+        toolBundles: ["repo_mutation", "repo_run"],
+        routing: {
+          localEligible: false,
+          remoteProfile: "code",
+          preferRemoteFirst: true,
+          needsVision: false,
+        },
+      },
+      deliverable: {
+        kind: "code_change",
+        acceptedFormats: ["patch"],
+        preferredFormat: "patch",
+        constraints: { operation: "scaffold_repo", provider: "openai" },
+      },
+      taskRequiredCapabilities: ["needs_repo_execution"],
+      capabilityCatalog: credentialCatalog,
+      preflightEnvSnapshot: { OPENAI_API_KEY: "sk-set" },
+    });
+
+    expect(plan.recipe.id).toBe("code_build_publish");
+    expect(plan.routingOutcome).toEqual({ kind: "matched", source: "ranked" });
+  });
+
+  describe("routingOutcome", () => {
+    it("emits `matched:ranked` for a simple respond_only contract", () => {
+      const plan = planExecutionRecipe({
+        prompt: "Привет",
+        contractFirst: true,
+        outcomeContract: "text_response",
+        executionContract: {
+          requiresTools: false,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "general_assistant",
+          candidateFamilies: ["general_assistant"],
+          toolBundles: ["respond_only"],
+          routing: {
+            localEligible: true,
+            remoteProfile: "cheap",
+            preferRemoteFirst: false,
+            needsVision: false,
+          },
+        },
+      });
+
+      expect(plan.recipe.id).toBe("general_reasoning");
+      expect(plan.routingOutcome).toEqual({ kind: "matched", source: "ranked" });
+    });
+
+    it("emits `low_confidence_clarify` when strategy is clarify", () => {
+      const plan = planExecutionRecipe({
+        prompt: "что-то неопределённое",
+        contractFirst: true,
+        outcomeContract: "external_operation",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: true,
+          mayNeedBootstrap: false,
+        },
+        confidence: "low",
+        lowConfidenceStrategy: "clarify",
+        ambiguityReasons: ["no explicit target"],
+        resolutionContract: {
+          selectedFamily: "ops_execution",
+          candidateFamilies: ["ops_execution"],
+          toolBundles: ["external_delivery"],
+          routing: {
+            localEligible: false,
+            remoteProfile: "code",
+            preferRemoteFirst: true,
+            needsVision: false,
+          },
+        },
+      });
+
+      expect(plan.recipe.id).toBe("general_reasoning");
+      expect(plan.routingOutcome).toEqual({ kind: "low_confidence_clarify" });
+    });
+
+    it("emits `contract_unsatisfiable` via post-rank guard when ranker would downgrade to general_reasoning for a tool contract", () => {
+      // Defensive invariant: if ANY path (legacy or otherwise) lets
+      // `general_reasoning` win the ranked pool while the contract demands
+      // tools/evidence/mutation/local-process, the planner must not silently
+      // route there — it must emit `contract_unsatisfiable` so downstream
+      // layers can fail-closed. We force the scenario by restricting the
+      // candidate pool to just `general_reasoning`.
+      const generalReasoning = getInitialRecipe("general_reasoning");
+      if (!generalReasoning) {
+        throw new Error("expected general_reasoning recipe to be registered");
+      }
+      const plan = planExecutionRecipe({
+        prompt: "do something that might need tools",
+        contractFirst: false,
+        recipes: [generalReasoning],
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: false,
+          mayNeedBootstrap: false,
+        },
+      });
+
+      expect(plan.recipe.id).toBe("general_reasoning");
+      expect(plan.routingOutcome.kind).toBe("contract_unsatisfiable");
+      if (plan.routingOutcome.kind === "contract_unsatisfiable") {
+        expect(plan.routingOutcome.reasons).toContain(
+          "ranker_downgraded_to_general_reasoning_despite_tool_contract",
+        );
+        expect(plan.routingOutcome.reasons).toContain("contract_requires_tools");
+      }
+    });
+
+    it("emits `matched:contract_first_fallback` when narrow is empty but requirements map to a recipe", () => {
+      const plan = planExecutionRecipe({
+        prompt: "задеплой результат",
+        contractFirst: true,
+        outcomeContract: "external_operation",
+        executionContract: {
+          requiresTools: true,
+          requiresWorkspaceMutation: false,
+          requiresLocalProcess: false,
+          requiresArtifactEvidence: false,
+          requiresDeliveryEvidence: true,
+          mayNeedBootstrap: false,
+        },
+        resolutionContract: {
+          selectedFamily: "ops_execution",
+          candidateFamilies: ["ops_execution"],
+          toolBundles: [],
+          routing: {
+            localEligible: false,
+            remoteProfile: "code",
+            preferRemoteFirst: true,
+            needsVision: false,
+          },
+        },
+      });
+
+      // With empty toolBundles, narrowing returns empty. `selectContractFallbackRecipe`
+      // sees `requiresDeliveryEvidence` and picks `integration_delivery` from the pool.
+      expect(plan.recipe.id).toBe("integration_delivery");
+      expect(plan.routingOutcome).toEqual({
+        kind: "matched",
+        source: "contract_first_fallback",
+      });
+    });
   });
 });

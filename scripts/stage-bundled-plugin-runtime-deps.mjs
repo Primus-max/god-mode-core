@@ -39,6 +39,16 @@ function shouldStageRuntimeDeps(packageJson) {
   return packageJson.openclaw?.bundle?.stageRuntimeDependencies === true;
 }
 
+function shouldSkipRuntimeDepsForCurrentEnv(packageJson) {
+  const channelId = packageJson.openclaw?.channel?.id;
+  if (!channelId) {
+    return false;
+  }
+  return (
+    process.env.OPENCLAW_SKIP_CHANNELS === "1" || process.env.OPENCLAW_SKIP_PROVIDERS === "1"
+  );
+}
+
 function sanitizeBundledManifestForRuntimeInstall(pluginDir) {
   const manifestPath = path.join(pluginDir, "package.json");
   const packageJson = readJson(manifestPath);
@@ -117,7 +127,11 @@ export function stageBundledPluginRuntimeDeps(params = {}) {
     const packageJson = readJson(path.join(pluginDir, "package.json"));
     const nodeModulesDir = path.join(pluginDir, "node_modules");
     removePathIfExists(nodeModulesDir);
-    if (!hasRuntimeDeps(packageJson) || !shouldStageRuntimeDeps(packageJson)) {
+    if (
+      !hasRuntimeDeps(packageJson) ||
+      !shouldStageRuntimeDeps(packageJson) ||
+      shouldSkipRuntimeDepsForCurrentEnv(packageJson)
+    ) {
       continue;
     }
     installPluginRuntimeDeps(pluginDir, pluginId);

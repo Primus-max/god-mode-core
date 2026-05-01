@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "checkpoints": [
+    {
+      "id": "a06b64ca-b161-491d-9244-910e009b5ac2",
+      "runId": "a06b64ca-b161-491d-9244-910e009b5ac2",
+      "boundary": "bootstrap",
+      "status": "denied",
+      "blockedReason": "Bootstrap checkpoint: capability install is blocked until the operator approves (platform.bootstrap.resolve) and runs install/verify (platform.bootstrap.run).",
+      "nextActions": [
+        {
+          "method": "platform.bootstrap.resolve",
+          "label": "Approve or deny capability bootstrap (install) request",
+          "phase": "approve"
+        },
+        {
+          "method": "platform.bootstrap.run",
+          "label": "Execute approved install, health verification, and resume blocked work if configured",
+          "phase": "resume"
+        }
+      ],
+      "target": {
+        "bootstrapRequestId": "a06b64ca-b161-491d-9244-910e009b5ac2",
+        "operation": "bootstrap.run"
+      },
+      "continuation": {
+        "kind": "bootstrap_run",
+        "autoDispatch": true,
+        "input": {
+          "blockedRunResume": true,
+          "blockedRunId": "021f42cb-3b85-4e93-b81e-85edfaeeea68",
+          "queueKey": "agent:main:main"
+        },
+        "state": "completed",
+        "attempts": 1,
+        "lastDispatchedAtMs": 1775749549738,
+        "lastCompletedAtMs": 1775749551585
+      },
+      "executionContext": {
+        "profileId": "builder",
+        "recipeId": "table_compare",
+        "plannerReasoning": "Recipe table_compare selected for profile builder.",
+        "intent": "compare",
+        "modelRouteTier": "local_eligible",
+        "requiredCapabilities": [
+          "table-parser"
+        ],
+        "bootstrapRequiredCapabilities": [
+          "table-parser"
+        ],
+        "requireExplicitApproval": true,
+        "policyAutonomy": "assist",
+        "readinessStatus": "bootstrap_required",
+        "readinessReasons": [
+          "Execution contract expected confirmed delivery, but no delivery receipt was verified.",
+          "Execution contract is missing verified receipt kind(s): messaging_delivery.",
+          "blockedRunId=021f42cb-3b85-4e93-b81e-85edfaeeea68"
+        ],
+        "unattendedBoundary": "bootstrap"
+      },
+      "createdAtMs": 1775749549686,
+      "updatedAtMs": 1775749551585,
+      "approvedAtMs": 1775749549732,
+      "resumedAtMs": 1775749549749,
+      "completedAtMs": 1775749551566
+    },
+    {
+      "id": "475c2572-2152-4be6-9ca4-d4c37478e465",
+      "runId": "475c2572-2152-4be6-9ca4-d4c37478e465",
+      "boundary": "bootstrap",
+      "status": "completed",
+      "blockedReason": "Bootstrap checkpoint: capability install is blocked until the operator approves (platform.bootstrap.resolve) and runs install/verify (platform.bootstrap.run).",
+      "nextActions": [
+        {
+          "method": "platform.bootstrap.resolve",
+          "label": "Approve or deny capability bootstrap (install) request",
+          "phase": "approve"
+        },
+        {
+          "method": "platform.bootstrap.run",
+          "label": "Execute approved install, health verification, and resume blocked work if configured",
+          "phase": "resume"
+        }
+      ],
+      "target": {
+        "bootstrapRequestId": "475c2572-2152-4be6-9ca4-d4c37478e465",
+        "operation": "bootstrap.run"
+      },
+      "continuation": {
+        "kind": "bootstrap_run",
+        "input": {
+          "blockedRunResume": true,
+          "blockedRunId": "stage86-case4-ecc7baf1-3958-417a-be13-1acb96c35190",
+          "queueKey": "agent:main:thread:stage86-case4-rerun-1775747654429"
+        },
+        "state": "idle",
+        "attempts": 0
+      },
+      "createdAtMs": 1775747665896,
+      "updatedAtMs": 1775747839604,
+      "approvedAtMs": 1775747833545,
+      "resumedAtMs": 1775747833560,
+      "completedAtMs": 1775747839604,
+      "lastOperatorDecision": {
+        "action": "run",
+        "atMs": 1775747833554,
+        "actor": {
+          "id": "cli",
+          "displayName": "stage86-live-probe",
+          "deviceId": "bf4f0d0a5691ed6a5eca5b8ed067526161a54a53d18161ddaaee0615b7a6e48b",
+          "connId": "9e4ae2e3-1c2c-4238-ac58-b59c998485db"
+        },
+        "source": "platform.bootstrap.run"
+      }
+    },
+    {
+      "id": "bootstrap-origin:475c2572-2152-4be6-9ca4-d4c37478e465:stage86-case4-ecc7baf1-3958-417a-be13-1acb96c35190",
+      "runId": "stage86-case4-ecc7baf1-3958-417a-be13-1acb96c35190",
+      "boundary": "bootstrap",
+      "status": "completed",
+      "blockedReason": "Bootstrap evidence: the task requested a capability install before it could complete.",
+      "target": {
+        "bootstrapRequestId": "475c2572-2152-4be6-9ca4-d4c37478e465",
+        "operation": "bootstrap.run"
+      },
+      "createdAtMs": 1775747665902,
+      "updatedAtMs": 1775747665904,
+      "completedAtMs": 1775747665904
+    }
+  ]
+}

@@ -8,13 +8,13 @@ export type InstancesProps = {
   entries: PresenceEntry[];
   lastError: string | null;
   statusMessage: string | null;
+  revealed: boolean;
+  onToggleReveal: () => void;
   onRefresh: () => void;
 };
 
-let hostsRevealed = false;
-
 export function renderInstances(props: InstancesProps) {
-  const masked = !hostsRevealed;
+  const masked = !props.revealed;
 
   return html`
     <section class="card">
@@ -26,10 +26,7 @@ export function renderInstances(props: InstancesProps) {
         <div class="row" style="gap: 8px;">
           <button
             class="btn btn--icon ${masked ? "" : "active"}"
-            @click=${() => {
-              hostsRevealed = !hostsRevealed;
-              props.onRefresh();
-            }}
+            @click=${props.onToggleReveal}
             title=${masked ? "Show hosts and IPs" : "Hide hosts and IPs"}
             aria-label="Toggle host visibility"
             aria-pressed=${!masked}

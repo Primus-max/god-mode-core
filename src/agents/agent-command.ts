@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
 import { getAcpSessionManager } from "../acp/control-plane/manager.js";
 import { resolveAcpAgentPolicyError, resolveAcpDispatchPolicyError } from "../acp/policy.js";
@@ -45,7 +46,14 @@ import {
 } from "../infra/agent-events.js";
 import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
-import { buildExecutionDecisionInput } from "../platform/decision/input.js";
+import {
+  buildExecutionDecisionInput,
+  buildClassifiedExecutionDecisionInput,
+  buildSessionBackedExecutionDecisionInput,
+  shouldUseLightweightBootstrapContext,
+} from "../platform/decision/input.js";
+import type { TaskClassifierAdapter } from "../platform/decision/task-classifier.js";
+import { applySessionSpecialistOverrideToPlannerInput } from "../platform/profile/session-overrides.js";
 import {
   resolvePlatformRuntimePlan,
   type ResolvedPlatformRuntimePlan,
@@ -55,6 +63,7 @@ import { normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { applyVerboseOverride } from "../sessions/level-overrides.js";
 import { applyModelOverrideToSessionEntry } from "../sessions/model-overrides.js";
+import type { InputProvenance } from "../sessions/input-provenance.js";
 import { resolveSendPolicy } from "../sessions/send-policy.js";
 import { emitSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { sanitizeForLog } from "../terminal/ansi.js";
@@ -96,6 +105,7 @@ import {
 } from "./model-selection.js";
 import { prepareSessionManagerForRun } from "./pi-embedded-runner/session-manager-init.js";
 import { runEmbeddedPiAgent } from "./pi-embedded.js";
+import { resolveRuntimePlanFallbackOverride } from "./runtime-plan-policy.js";
 import { buildWorkspaceSkillSnapshot } from "./skills.js";
 import { getSkillsSnapshotVersion } from "./skills/refresh.js";
 import { normalizeSpawnedRunMetadata } from "./spawned-context.js";
@@ -181,7 +191,12 @@ function resolveFallbackRetryPrompt(params: { body: string; isFallbackRetry: boo
   if (!params.isFallbackRetry) {
     return params.body;
   }
-  return "Continue where you left off. The previous model attempt failed or timed out.";
+  return [
+    "Continue where you left off.",
+    "The previous model attempt failed, timed out, or returned an invalid non-final reply.",
+    "Do not restart from scratch, do not ask another clarifying question, and do not answer with a status-only acknowledgement.",
+    "If this turn requires a direct artifact, use sensible defaults and call the required tool now.",
+  ].join(" ");
 }
 
 function prependInternalEventContext(
@@ -383,6 +398,7 @@ type RunAgentAttemptParams = {
   storePath?: string;
   allowTransientCooldownProbe?: boolean;
   platformRuntimePlan: ResolvedPlatformRuntimePlan;
+  bootstrapContextMode?: "full" | "lightweight";
 };
 
 type BuildEmbeddedAgentRunParams = Pick<
@@ -409,6 +425,7 @@ type BuildEmbeddedAgentRunParams = Pick<
   | "allowTransientCooldownProbe"
   | "onAgentEvent"
   | "platformRuntimePlan"
+  | "bootstrapContextMode"
 > & {
   effectivePrompt: string;
   images?: AgentCommandOpts["images"];
@@ -417,16 +434,151 @@ type BuildEmbeddedAgentRunParams = Pick<
   bootstrapPromptWarningSignature?: string;
 };
 
+/**
+ * Sanitizes an inbound attachment file name for workspace staging.
+ *
+ * @param {string} fileName - Original attachment file name from the caller.
+ * @param {number} index - Stable attachment index for fallback naming.
+ * @returns {string} Safe file name for `media/inbound`.
+ */
+function sanitizeInboundAttachmentFileName(fileName: string, index: number): string {
+  const baseName = path.basename(fileName.trim());
+  const cleaned = baseName.replace(/[^\w.-]+/g, "_");
+  return cleaned || `attachment-${String(index + 1)}.bin`;
+}
+
+/**
+ * Appends a compact note so the agent can discover staged inbound files via tools.
+ *
+ * @param {string} message - Original user-visible prompt text.
+ * @param {string[]} relativePaths - Workspace-relative staged file paths.
+ * @param {string[]} inlinePreviews - Optional inline text previews for small inbound files.
+ * @returns {string} Prompt text with a short attached-files note.
+ */
+export function appendInboundFilesContext(
+  message: string,
+  relativePaths: string[],
+  inlinePreviews: string[] = [],
+): string {
+  if (relativePaths.length === 0) {
+    return message;
+  }
+  const attachmentBlock = [
+    "Attached files available in workspace:",
+    ...relativePaths.map((relativePath) => `- ${relativePath}`),
+  ].join("\n");
+  const previewBlock =
+    inlinePreviews.length > 0
+      ? `\n\nInline file previews for immediate reasoning:\n\n${inlinePreviews.join("\n\n")}`
+      : "";
+  const previewInstruction =
+    inlinePreviews.length > 0
+      ? "\n\nUse the inline file previews below as the primary source for this turn. Return the final answer directly and do not emit raw tool-call JSON, placeholder tool payloads, or memory search requests."
+      : "";
+  return `${message}\n\n${attachmentBlock}${previewInstruction}${previewBlock}`;
+}
+
+/**
+ * Builds a compact CSV preview so smaller tabular attachments can be reasoned
+ * about directly even when the selected model does not reliably trigger tools.
+ *
+ * @param {string} fileName - Sanitized staged file name.
+ * @param {string} relativePath - Workspace-relative file path.
+ * @param {Buffer} bytes - Raw decoded attachment bytes.
+ * @returns {string | undefined} Markdown preview block when the file is eligible.
+ */
+export function buildInlineCsvPreview(
+  fileName: string,
+  relativePath: string,
+  bytes: Buffer,
+): string | undefined {
+  if (!fileName.toLowerCase().endsWith(".csv") || bytes.byteLength > 16_000) {
+    return undefined;
+  }
+  const rawText = bytes.toString("utf8").replace(/\r\n/g, "\n").trim();
+  if (!rawText) {
+    return undefined;
+  }
+  const lines = rawText.split("\n");
+  const previewLines = lines.slice(0, 40);
+  const previewText = previewLines.join("\n").slice(0, 3_500);
+  const truncated = previewLines.length < lines.length || previewText.length < rawText.length;
+  return [
+    `File preview: ${fileName} (${relativePath})`,
+    "```csv",
+    previewText,
+    "```",
+    truncated ? "Preview truncated; open the staged file if more rows are needed." : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Stages caller-provided document attachments into the agent workspace so the
+ * planner/runtime can reason about file names and the model can inspect files.
+ *
+ * @param {{ workspaceDir: string; documents: NonNullable<AgentCommandOpts["documents"]> }} params - Workspace and raw document attachments.
+ * @returns {Promise<{ fileNames: string[]; relativePaths: string[]; inlinePreviews: string[] }>} Staged file names, workspace-relative paths, and inline prompt previews.
+ */
+async function stageInboundDocuments(params: {
+  workspaceDir: string;
+  documents: NonNullable<AgentCommandOpts["documents"]>;
+}): Promise<{
+  fileNames: string[];
+  relativePaths: string[];
+  inlinePreviews: string[];
+}> {
+  if (params.documents.length === 0) {
+    return { fileNames: [], relativePaths: [], inlinePreviews: [] };
+  }
+  const inboundDir = path.join(params.workspaceDir, "media", "inbound");
+  await fs.mkdir(inboundDir, { recursive: true });
+  const fileNames: string[] = [];
+  const relativePaths: string[] = [];
+  const inlinePreviews: string[] = [];
+  for (const [index, document] of params.documents.entries()) {
+    const safeFileName = sanitizeInboundAttachmentFileName(document.fileName, index);
+    const uniqueFileName = `${path.parse(safeFileName).name}---${Date.now()}-${String(index)}${path.extname(safeFileName)}`;
+    const absolutePath = path.join(inboundDir, uniqueFileName);
+    const bytes = Buffer.from(document.data, "base64");
+    await fs.writeFile(absolutePath, bytes);
+    fileNames.push(safeFileName);
+    const relativePath = path.posix.join("media", "inbound", uniqueFileName);
+    relativePaths.push(relativePath);
+    const inlinePreview = buildInlineCsvPreview(safeFileName, relativePath, bytes);
+    if (inlinePreview) {
+      inlinePreviews.push(inlinePreview);
+    }
+  }
+  return { fileNames, relativePaths, inlinePreviews };
+}
+
 export function resolveAgentCommandFallbackOverride(params: {
   platformRuntimePlan: ResolvedPlatformRuntimePlan;
   configuredFallbacks?: string[];
 }): string[] | undefined {
-  return params.platformRuntimePlan.runtime.fallbackModels ?? params.configuredFallbacks;
+  return resolveRuntimePlanFallbackOverride({
+    runtimePlan: params.platformRuntimePlan.runtime,
+    configuredFallbacks: params.configuredFallbacks,
+  });
 }
 
 export function buildEmbeddedAgentRunParams(
   params: BuildEmbeddedAgentRunParams,
 ): Parameters<typeof runEmbeddedPiAgent>[0] {
+  const deliveryManagedArtifactHint =
+    params.opts.deliver === true
+      ? [
+          "Final reply delivery is handled by the command pipeline for this run.",
+          "Do not call the message tool to send the final answer or attachment yourself.",
+          "Do not read or verify a generated artifact by guessing a file path or filename alone.",
+          "Generate the artifact with the appropriate tool and then return a normal assistant reply describing the completed result.",
+        ].join(" ")
+      : undefined;
+  const extraSystemPrompt = [params.opts.extraSystemPrompt, deliveryManagedArtifactHint]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n\n");
   return {
     sessionId: params.sessionId,
     sessionKey: params.sessionKey,
@@ -445,6 +597,7 @@ export function buildEmbeddedAgentRunParams(
     replyToMode: params.runContext.replyToMode,
     hasRepliedRef: params.runContext.hasRepliedRef,
     senderIsOwner: params.opts.senderIsOwner,
+    disableMessageTool: params.opts.deliver === true,
     sessionFile: params.sessionFile,
     workspaceDir: params.workspaceDir,
     config: params.cfg,
@@ -464,12 +617,13 @@ export function buildEmbeddedAgentRunParams(
     runId: params.runId,
     lane: params.opts.lane,
     abortSignal: params.opts.abortSignal,
-    extraSystemPrompt: params.opts.extraSystemPrompt,
+    extraSystemPrompt: extraSystemPrompt || undefined,
     inputProvenance: params.opts.inputProvenance,
     streamParams: params.opts.streamParams,
     agentDir: params.agentDir,
     platformExecutionContext: params.platformRuntimePlan.runtime,
     allowTransientCooldownProbe: params.allowTransientCooldownProbe,
+    bootstrapContextMode: params.bootstrapContextMode,
     onAgentEvent: params.onAgentEvent,
     bootstrapPromptWarningSignaturesSeen: params.bootstrapPromptWarningSignaturesSeen,
     bootstrapPromptWarningSignature: params.bootstrapPromptWarningSignature,
@@ -478,17 +632,412 @@ export function buildEmbeddedAgentRunParams(
 
 export function buildPlatformPlannerInput(params: {
   prompt: string;
+  fileNames?: string[];
   opts: Pick<AgentCommandOpts, "messageChannel" | "channel" | "replyChannel">;
   sessionEntry?: Pick<
     SessionEntry,
-    "specialistOverrideMode" | "specialistBaseProfileId" | "specialistSessionProfileId"
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
   > | null;
+  storePath?: string;
 }): Parameters<typeof resolvePlatformRuntimePlan>[0] {
+  if (params.storePath && params.sessionEntry?.sessionId) {
+    return buildExecutionDecisionInput(
+      buildSessionBackedExecutionDecisionInput({
+        draftPrompt: params.prompt,
+        ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+        storePath: params.storePath,
+        channelHints: params.opts,
+        sessionEntry: params.sessionEntry,
+      }),
+    );
+  }
   return buildExecutionDecisionInput({
     prompt: params.prompt,
+    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
     channelHints: params.opts,
     sessionEntry: params.sessionEntry,
   });
+}
+
+export async function buildClassifiedPlatformPlannerInput(params: {
+  prompt: string;
+  fileNames?: string[];
+  opts: Pick<AgentCommandOpts, "messageChannel" | "channel" | "replyChannel">;
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
+  > | null;
+  storePath?: string;
+  cfg: ReturnType<typeof loadConfig>;
+  agentDir?: string;
+  adapterRegistry?: Readonly<Record<string, TaskClassifierAdapter>>;
+  /**
+   * Forwarded to `buildClassifiedExecutionDecisionInput` so non-`external_user`
+   * prompts (subagent announces, sessions_send forwards, descendant wakes,
+   * post-compaction context, etc.) short-circuit to a respond-only baseline
+   * instead of being reclassified as fresh user prompts.
+   */
+  inputProvenance?: InputProvenance;
+}): Promise<Parameters<typeof resolvePlatformRuntimePlan>[0]> {
+  return buildClassifiedExecutionDecisionInput({
+    prompt: params.prompt,
+    ...(params.fileNames?.length ? { fileNames: params.fileNames } : {}),
+    channelHints: params.opts,
+    sessionEntry: params.sessionEntry,
+    storePath: params.storePath,
+    cfg: params.cfg,
+    agentDir: params.agentDir,
+    adapterRegistry: params.adapterRegistry,
+    ...(params.inputProvenance ? { inputProvenance: params.inputProvenance } : {}),
+  });
+}
+
+export function shouldFailoverEmptySemanticRetryResult(
+  result: Awaited<ReturnType<typeof runEmbeddedPiAgent>>,
+): boolean {
+  const payloads = result.payloads ?? [];
+  const verdict = result.meta.supervisorVerdict;
+  const executionIntent = result.meta.executionIntent;
+  const CONTINUATION_REFUSAL_RE =
+    /\b(?:can(?:not|'t)\s+continue|unable\s+to\s+continue|can(?:not|'t)\s+proceed|unable\s+to\s+proceed)\b/i;
+  const ACK_ONLY_TEXTS = new Set([
+    "got it",
+    "sure",
+    "will do",
+    "sounds good",
+    "understood",
+    "i ll do it",
+    "i will do it",
+    "i ll handle it",
+    "i will handle it",
+    "i ll make it",
+    "i will make it",
+    "понял",
+    "хорошо",
+    "сделаю",
+    "сейчас сделаю",
+    "отлично",
+    "отлично сделаю",
+    "ага",
+  ]);
+  const TOOL_NAME_FIELD_RE = /"(?:name|function|function_name|tool|tool_name)"\s*:\s*"[^"\r\n]+"/;
+  const ARGUMENTS_FIELD_RE = /"arguments"\s*:\s*\{/;
+  const extractLeadText = (text: string): string => {
+    return (
+      text
+        .split(/\n\s*\n>\s*📊\s*\[DEBUG ROUTING\]/u, 1)[0]
+        ?.split(/\n\s*\n---\s*$/u, 1)[0]
+        ?.trim() ?? ""
+    );
+  };
+  const normalizeAckText = (text: string): string =>
+    extractLeadText(text)
+      .replace(/\p{Extended_Pictographic}/gu, " ")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+  const hasVisibleProviderErrorShape = (text: string): boolean => {
+    const lead = extractLeadText(text);
+    if (!lead) {
+      return false;
+    }
+    return (
+      /^(?:http\s*\d{3}\b|(?:[a-z][\w-]*\s+)?(?:api\s+)?error\b|request failed\b|llm request failed\b)/iu.test(
+        lead,
+      ) ||
+      /\b(?:cannot be processed|unsupported data|invalid request|request is invalid|bad request)\b/iu.test(
+        lead,
+      )
+    );
+  };
+  const unwrapStandaloneToolCallEnvelope = (text: string): string | null => {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    return fenced?.[1]?.trim() || trimmed;
+  };
+  const isStandaloneToolCallEnvelope = (text: string | undefined): boolean => {
+    if (typeof text !== "string") {
+      return false;
+    }
+    const candidate = unwrapStandaloneToolCallEnvelope(text);
+    if (!candidate) {
+      return false;
+    }
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      const parsedObject = parsed as Record<string, unknown>;
+      const hasToolName =
+        typeof (parsed as { name?: unknown }).name === "string" ||
+        typeof (parsed as { function?: unknown }).function === "string" ||
+        typeof (parsed as { function_name?: unknown }).function_name === "string" ||
+        typeof (parsed as { tool?: unknown }).tool === "string" ||
+        typeof (parsed as { tool_name?: unknown }).tool_name === "string";
+      return Boolean(
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        hasToolName &&
+        "arguments" in parsedObject &&
+        Object.keys(parsedObject).every(
+          (key) =>
+            key === "name" ||
+            key === "function" ||
+            key === "function_name" ||
+            key === "tool" ||
+            key === "tool_name" ||
+            key === "arguments" ||
+            key === "id",
+        ),
+      );
+    } catch {
+      // Some weaker fallback models emit tool-call envelopes that look correct
+      // to users but are not strict JSON (for example raw Windows paths with
+      // unescaped backslashes). Keep the failover heuristic tolerant so these
+      // still trigger a semantic retry instead of leaking pseudo-tool text.
+      const trimmedCandidate = candidate.trim();
+      return (
+        trimmedCandidate.startsWith("{") &&
+        trimmedCandidate.endsWith("}") &&
+        TOOL_NAME_FIELD_RE.test(trimmedCandidate) &&
+        ARGUMENTS_FIELD_RE.test(trimmedCandidate)
+      );
+    }
+  };
+  const isSemanticRetryAcknowledgementOnly = (): boolean => {
+    if (
+      verdict?.action !== "retry" ||
+      verdict.remediation !== "semantic_retry" ||
+      payloads.length === 0
+    ) {
+      return false;
+    }
+    return payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      if (hasMedia || typeof payload.text !== "string") {
+        return false;
+      }
+      const normalized = normalizeAckText(payload.text);
+      return normalized.length > 0 && normalized.length <= 80 && ACK_ONLY_TEXTS.has(normalized);
+    });
+  };
+  const isArtifactTurnAcknowledgementOnly = (): boolean => {
+    if (payloads.length === 0) {
+      return false;
+    }
+    const artifactKinds = executionIntent?.artifactKinds ?? [];
+    const requestedToolNames = executionIntent?.requestedToolNames ?? [];
+    const expectsArtifactOutput =
+      executionIntent?.outcomeContract === "structured_artifact" ||
+      artifactKinds.length > 0 ||
+      requestedToolNames.some((tool) => {
+        const normalizedTool = tool.trim().toLowerCase();
+        return (
+          normalizedTool === "pdf" ||
+          normalizedTool === "image_generate" ||
+          normalizedTool === "video_generate" ||
+          normalizedTool === "audio_generate"
+        );
+      });
+    if (!expectsArtifactOutput) {
+      return false;
+    }
+    return payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      if (hasMedia || typeof payload.text !== "string") {
+        return false;
+      }
+      const normalized = normalizeAckText(payload.text);
+      if (normalized.length === 0 || normalized.length > 160) {
+        return false;
+      }
+      if (ACK_ONLY_TEXTS.has(normalized)) {
+        return true;
+      }
+      const startsLikePromise =
+        normalized.startsWith("сделаю ") ||
+        normalized.startsWith("сейчас сделаю ") ||
+        normalized.startsWith("i will ") ||
+        normalized.startsWith("i ll ") ||
+        normalized.startsWith("will do ");
+      const soundsCompleted =
+        normalized.includes("готово") ||
+        normalized.includes("done") ||
+        normalized.includes("saved") ||
+        normalized.includes("создал") ||
+        normalized.includes("сохранил") ||
+        normalized.includes("file ") ||
+        normalized.includes("файл ");
+      return startsLikePromise && !soundsCompleted;
+    });
+  };
+  const isArtifactTurnProviderErrorOnly = (): boolean => {
+    const artifactKinds = executionIntent?.artifactKinds ?? [];
+    const requestedToolNames = executionIntent?.requestedToolNames ?? [];
+    const expectsArtifactOutput =
+      executionIntent?.outcomeContract === "structured_artifact" ||
+      artifactKinds.length > 0 ||
+      requestedToolNames.some((tool) => {
+        const normalizedTool = tool.trim().toLowerCase();
+        return (
+          normalizedTool === "pdf" ||
+          normalizedTool === "image_generate" ||
+          normalizedTool === "video_generate" ||
+          normalizedTool === "audio_generate"
+        );
+      });
+    if (!expectsArtifactOutput || payloads.length === 0) {
+      return false;
+    }
+    const metaError = result.meta.error;
+    return payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      if (hasMedia || typeof payload.text !== "string") {
+        return false;
+      }
+      return hasVisibleProviderErrorShape(payload.text) || Boolean(metaError);
+    });
+  };
+  const isArtifactTurnClarificationOnly = (): boolean => {
+    const artifactKinds = executionIntent?.artifactKinds ?? [];
+    const requestedToolNames = executionIntent?.requestedToolNames ?? [];
+    const expectsArtifactOutput =
+      executionIntent?.outcomeContract === "structured_artifact" ||
+      artifactKinds.length > 0 ||
+      requestedToolNames.some((tool) => {
+        const normalizedTool = tool.trim().toLowerCase();
+        return (
+          normalizedTool === "pdf" ||
+          normalizedTool === "image_generate" ||
+          normalizedTool === "video_generate" ||
+          normalizedTool === "audio_generate"
+        );
+      });
+    if (!expectsArtifactOutput || payloads.length === 0) {
+      return false;
+    }
+    const ARTIFACT_CLARIFICATION_HINTS = [
+      "уточняющ",
+      "вопрос",
+      "каком стиле",
+      "какой стиль",
+      "какой формат",
+      "какой шаблон",
+      "какой размер",
+      "какое соотношение сторон",
+      "сколько страниц",
+      "прозрачный фон",
+      "avoid incorrect expectations",
+      "clarifying question",
+      "question",
+      "what style",
+      "which style",
+      "what format",
+      "which format",
+      "what size",
+      "which size",
+      "aspect ratio",
+      "transparent background",
+      "how many pages",
+    ];
+    return payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      if (hasMedia || typeof payload.text !== "string") {
+        return false;
+      }
+      const lead = extractLeadText(payload.text).trim();
+      if (!lead || lead.length > 500 || !lead.includes("?")) {
+        return false;
+      }
+      const normalizedLead = lead.toLowerCase();
+      const questionCount = (lead.match(/\?/g) ?? []).length;
+      const completionHints = [
+        "готово",
+        "done",
+        "created",
+        "saved",
+        "создал",
+        "сгенерировал",
+        "прикрепил",
+        "attached",
+        "вот",
+        "here is",
+      ];
+      if (completionHints.some((hint) => normalizedLead.includes(hint))) {
+        return false;
+      }
+      if (ARTIFACT_CLARIFICATION_HINTS.some((hint) => normalizedLead.includes(hint))) {
+        return true;
+      }
+      return questionCount > 0;
+    });
+  };
+  if (payloads.length > 0) {
+    if (
+      isSemanticRetryAcknowledgementOnly() ||
+      isArtifactTurnAcknowledgementOnly() ||
+      isArtifactTurnProviderErrorOnly() ||
+      isArtifactTurnClarificationOnly()
+    ) {
+      return true;
+    }
+    const firstVisibleTextPayload = payloads.find((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      return !hasMedia && typeof payload.text === "string" && payload.text.trim().length > 0;
+    });
+    if (isStandaloneToolCallEnvelope(firstVisibleTextPayload?.text)) {
+      return true;
+    }
+    const onlyContinuationRefusals = payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      return (
+        !hasMedia && typeof payload.text === "string" && CONTINUATION_REFUSAL_RE.test(payload.text)
+      );
+    });
+    if (onlyContinuationRefusals) {
+      return true;
+    }
+    const onlyPseudoToolPayloads = payloads.every((payload) => {
+      const hasMedia =
+        typeof payload.mediaUrl === "string" ||
+        (Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0);
+      return !hasMedia && isStandaloneToolCallEnvelope(payload.text);
+    });
+    if (onlyPseudoToolPayloads) {
+      return true;
+    }
+    return false;
+  }
+  return verdict?.action === "retry" && verdict.remediation === "semantic_retry";
+}
+
+export function shouldGrantPlatformExplicitApprovalForAgentTurn(params: {
+  senderIsOwner: boolean;
+}): boolean {
+  return params.senderIsOwner === true;
 }
 
 function runAgentAttempt(params: RunAgentAttemptParams) {
@@ -518,6 +1067,7 @@ function runAgentAttempt(params: RunAgentAttemptParams) {
         timeoutMs: params.timeoutMs,
         runId: params.runId,
         extraSystemPrompt: params.opts.extraSystemPrompt,
+        platformExecutionContext: params.platformRuntimePlan.runtime,
         cliSessionId: nextCliSessionId,
         bootstrapPromptWarningSignaturesSeen,
         bootstrapPromptWarningSignature,
@@ -622,7 +1172,7 @@ async function prepareAgentCommandExecution(
   if (!message.trim()) {
     throw new Error("Message (--message) is required");
   }
-  const body = prependInternalEventContext(message, opts.internalEvents);
+  let body = prependInternalEventContext(message, opts.internalEvents);
   if (!opts.to && !opts.sessionId && !opts.sessionKey && !opts.agentId) {
     throw new Error("Pass --to <E.164>, --session-id, or --agent to choose a session");
   }
@@ -713,12 +1263,22 @@ async function prepareAgentCommandExecution(
     persistedThinking,
     persistedVerbose,
   } = sessionResolution;
+  const platformPlannerInput = await buildClassifiedPlatformPlannerInput({
+    prompt: body,
+    fileNames: opts.documents?.map((document) => document.fileName),
+    opts,
+    sessionEntry: sessionEntryRaw,
+    storePath,
+    cfg,
+    ...(opts.inputProvenance ? { inputProvenance: opts.inputProvenance } : {}),
+  });
   const platformRuntimePlan = resolvePlatformRuntimePlan(
-    buildPlatformPlannerInput({
-      prompt: body,
-      opts,
-      sessionEntry: sessionEntryRaw,
-    }),
+    { ...platformPlannerInput, callerTag: "agent-command-main" },
+    {
+      explicitApproval: shouldGrantPlatformExplicitApprovalForAgentTurn({
+        senderIsOwner: opts.senderIsOwner,
+      }),
+    },
   );
   const laneRaw = typeof opts.lane === "string" ? opts.lane.trim() : "";
   const isSubagentLane = laneRaw === String(AGENT_LANE_SUBAGENT);
@@ -758,6 +1318,15 @@ async function prepareAgentCommandExecution(
     ensureBootstrapFiles: !agentCfg?.skipBootstrap,
   });
   const workspaceDir = workspace.dir;
+  const stagedDocuments = await stageInboundDocuments({
+    workspaceDir,
+    documents: opts.documents ?? [],
+  });
+  body = appendInboundFilesContext(
+    body,
+    stagedDocuments.relativePaths,
+    stagedDocuments.inlinePreviews,
+  );
   const runId = opts.runId?.trim() || sessionId;
   const acpManager = getAcpSessionManager();
   const acpResolution = sessionKey
@@ -769,6 +1338,7 @@ async function prepareAgentCommandExecution(
 
   return {
     body,
+    platformPlannerInput,
     platformRuntimePlan,
     cfg,
     normalizedSpawned,
@@ -803,6 +1373,7 @@ async function agentCommandInternal(
   const prepared = await prepareAgentCommandExecution(opts, runtime);
   const {
     body,
+    platformPlannerInput,
     platformRuntimePlan,
     cfg,
     normalizedSpawned,
@@ -1260,6 +1831,9 @@ async function agentCommandInternal(
         platformRuntimePlan,
         configuredFallbacks: effectiveFallbacksOverride,
       });
+      const bootstrapContextMode = shouldUseLightweightBootstrapContext(platformPlannerInput)
+        ? "lightweight"
+        : undefined;
 
       // Track model fallback attempts so retries on an existing session don't
       // re-inject the original prompt as a duplicate user message.
@@ -1271,6 +1845,13 @@ async function agentCommandInternal(
         runId,
         agentDir,
         fallbacksOverride: fallbackOverride,
+        preflightPrompt: body,
+        preflightPlannerInput: platformPlannerInput,
+        ...(Boolean(sessionEntry?.providerOverride?.trim()) ||
+        Boolean(sessionEntry?.modelOverride?.trim()) ||
+        process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1"
+          ? { skipRoutePreflight: true as const }
+          : {}),
         run: (providerOverride, modelOverride, runOptions) => {
           const isFallbackRetry = fallbackAttemptIndex > 0;
           fallbackAttemptIndex += 1;
@@ -1287,7 +1868,7 @@ async function agentCommandInternal(
             body,
             isFallbackRetry,
             resolvedThinkLevel,
-            timeoutMs,
+            timeoutMs: runOptions?.timeoutMsOverride ?? timeoutMs,
             runId,
             opts,
             runContext,
@@ -1301,6 +1882,7 @@ async function agentCommandInternal(
             storePath,
             allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
             platformRuntimePlan,
+            bootstrapContextMode,
             onAgentEvent: (evt) => {
               // Track lifecycle end for fallback emission below.
               if (
@@ -1311,6 +1893,18 @@ async function agentCommandInternal(
                 lifecycleEnded = true;
               }
             },
+          }).then((attemptResult) => {
+            if (shouldFailoverEmptySemanticRetryResult(attemptResult)) {
+              throw new FailoverError(
+                "Model returned no user-visible output and requested a semantic retry.",
+                {
+                  reason: "format",
+                  provider: providerOverride,
+                  model: modelOverride,
+                },
+              );
+            }
+            return attemptResult;
           });
         },
       });

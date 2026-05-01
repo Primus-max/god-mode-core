@@ -9,11 +9,24 @@ import type {
   BootstrapRequestRecordSummary as PlatformBootstrapRequestRecordSummary,
 } from "../../../src/platform/bootstrap/contracts.js";
 import type {
+  CapabilityCatalogSummary as PlatformCapabilityCatalogSummary,
+  RecipeCatalogSummary as PlatformRecipeCatalogSummary,
+} from "../../../src/platform/catalog/contracts.js";
+import type {
   MachineControlAccessResult as PlatformMachineControlAccessResult,
   MachineControlKillSwitch as PlatformMachineControlKillSwitch,
   MachineControlLinkRecord as PlatformMachineControlLinkRecord,
 } from "../../../src/platform/machine/contracts.js";
 import type { SpecialistRuntimeSnapshot as PlatformSpecialistRuntimeSnapshot } from "../../../src/platform/profile/contracts.js";
+import type {
+  PlatformRuntimeAction,
+  PlatformRuntimeActionSummary,
+  PlatformRuntimeCheckpointSummary,
+  PlatformRuntimeRunClosure,
+  PlatformRuntimeCheckpointStatus,
+  PlatformRuntimeContinuationState,
+  PlatformRuntimeRunClosureSummary,
+} from "../../../src/platform/runtime/index.js";
 import type { ConfigUiHints } from "../../../src/shared/config-ui-hints-types.js";
 import type {
   GatewayAgentRow as SharedGatewayAgentRow,
@@ -381,7 +394,8 @@ export type AgentsFilesSetResult = {
   file: AgentFileEntry;
 };
 
-export type SessionRunStatus = "running" | "done" | "failed" | "killed" | "timeout";
+export type SessionRunStatus = "running" | "blocked" | "done" | "failed" | "killed" | "timeout";
+export type SessionHandoffTruthSource = "closure" | "recovery";
 
 export type GatewaySessionRow = {
   key: string;
@@ -406,17 +420,43 @@ export type GatewaySessionRow = {
   outputTokens?: number;
   totalTokens?: number;
   totalTokensFresh?: boolean;
+  estimatedCostUsd?: number;
   status?: SessionRunStatus;
   startedAt?: number;
   endedAt?: number;
   runtimeMs?: number;
+  parentSessionKey?: string;
   childSessions?: string[];
   model?: string;
   modelProvider?: string;
   contextTokens?: number;
+  runClosureSummary?: PlatformRuntimeRunClosureSummary;
+  handoffRequestRunId?: string;
+  handoffRunId?: string;
+  handoffTruthSource?: SessionHandoffTruthSource;
+  handoffHint?: string;
+  recoveryCheckpointId?: string;
+  recoveryStatus?: PlatformRuntimeCheckpointStatus;
+  recoveryContinuationState?: PlatformRuntimeContinuationState;
+  recoveryOperation?: string;
+  recoveryBlockedReason?: string;
+  recoveryUpdatedAt?: number;
+  recoveryAttempts?: number;
+  recoveryOperatorHint?: string;
 };
 
 export type SessionsListResult = SessionsListResultBase<GatewaySessionsDefaults, GatewaySessionRow>;
+
+export type GatewaySessionChangedPayload = Partial<Omit<GatewaySessionRow, "key">> & {
+  sessionKey?: string;
+  reason?: string;
+  phase?: string;
+  ts?: number;
+  messageId?: string;
+  messageSeq?: number;
+  compacted?: boolean;
+  session?: Partial<GatewaySessionRow> & { key?: string };
+};
 
 export type ArtifactRecordSummary = PlatformArtifactRecordSummary;
 export type ArtifactRecordDetail = PlatformArtifactRecordDetail;
@@ -435,6 +475,15 @@ export type MachineControlStatus = {
   currentDevice?: MachineControlCurrentDevice;
 };
 export type SpecialistRuntimeSnapshot = PlatformSpecialistRuntimeSnapshot;
+export type RecipeCatalogSummary = PlatformRecipeCatalogSummary;
+export type CapabilityCatalogSummary = PlatformCapabilityCatalogSummary;
+export type RuntimeCheckpointSummary = PlatformRuntimeCheckpointSummary & {
+  operatorHint?: string;
+};
+export type RuntimeActionSummary = PlatformRuntimeActionSummary;
+export type RuntimeActionDetail = PlatformRuntimeAction;
+export type RuntimeClosureSummary = PlatformRuntimeRunClosureSummary;
+export type RuntimeClosureDetail = PlatformRuntimeRunClosure;
 
 export type SessionsPatchResult = SessionsPatchResultBase<{
   sessionId: string;

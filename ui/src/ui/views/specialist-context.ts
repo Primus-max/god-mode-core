@@ -1,12 +1,26 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
-import type { SpecialistRuntimeSnapshot } from "../types.ts";
+import type {
+  CapabilityCatalogSummary,
+  RecipeCatalogSummary,
+  RuntimeCheckpointSummary,
+  SpecialistRuntimeSnapshot,
+} from "../types.ts";
 
 type SpecialistContextProps = {
   loading: boolean;
   saving?: boolean;
   error: string | null;
   snapshot: SpecialistRuntimeSnapshot | null;
+  catalogLoading?: boolean;
+  catalogError?: string | null;
+  recipeCatalog?: RecipeCatalogSummary[];
+  capabilityCatalog?: CapabilityCatalogSummary[];
+  runtimeLoading?: boolean;
+  runtimeError?: string | null;
+  runtimeSessionKey?: string | null;
+  runtimeCheckpoints?: RuntimeCheckpointSummary[];
+  runtimeCheckpointDetail?: RuntimeCheckpointSummary | null;
   onOverrideChange?: (
     next:
       | { mode: "auto" }
@@ -109,6 +123,167 @@ function renderOperationalPosture(snapshot: SpecialistRuntimeSnapshot) {
   `;
 }
 
+function renderCatalogRecipeItem(recipe: RecipeCatalogSummary, isActive: boolean) {
+  return html`
+    <div class="callout" style="margin-top: 8px;">
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+        <div>
+          <strong>${recipe.id}</strong>
+          <div class="muted" style="margin-top: 2px;">${recipe.purpose}</div>
+        </div>
+        ${isActive ? html`<span class="chip">${t("specialist.catalog.activeRecipe")}</span>` : nothing}
+      </div>
+      <div class="chip-row" style="margin-top: 8px;">
+        <span class="chip">${t("specialist.catalog.risk")}: ${recipe.riskLevel}</span>
+        ${
+          recipe.timeoutSeconds
+            ? html`<span class="chip">${t("specialist.timeout")}: ${recipe.timeoutSeconds}s</span>`
+            : nothing
+        }
+        ${
+          recipe.requiredCapabilities.length > 0
+            ? html`<span class="chip"
+                >${t("specialist.catalog.requiredCapabilities")}: ${recipe.requiredCapabilities.join(", ")}</span
+              >`
+            : nothing
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderCatalogCapabilityItem(
+  capability: CapabilityCatalogSummary,
+  bootstrapRequired: boolean,
+) {
+  return html`
+    <div class="callout" style="margin-top: 8px;">
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+        <div>
+          <strong>${capability.label}</strong>
+          <div class="muted" style="margin-top: 2px;">${capability.id}</div>
+        </div>
+        ${
+          bootstrapRequired
+            ? html`<span class="chip">${t("specialist.catalog.bootstrapRequired")}</span>`
+            : nothing
+        }
+      </div>
+      <div class="chip-row" style="margin-top: 8px;">
+        <span class="chip">${t("specialist.catalog.status")}: ${capability.status}</span>
+        <span class="chip">${t("specialist.catalog.source")}: ${capability.source}</span>
+        ${
+          capability.installMethod
+            ? html`<span class="chip"
+                >${t("specialist.catalog.installMethod")}: ${capability.installMethod}</span
+              >`
+            : nothing
+        }
+      </div>
+      ${
+        capability.requiredByRecipes.length > 0
+          ? html`
+              <div class="muted" style="margin-top: 8px;">
+                ${t("specialist.catalog.usedBy")}: ${capability.requiredByRecipes
+                  .map((recipe) => recipe.id)
+                  .join(", ")}
+              </div>
+            `
+          : nothing
+      }
+    </div>
+  `;
+}
+
+function renderCatalogPanel(props: SpecialistContextProps) {
+  const recipes = props.recipeCatalog ?? [];
+  const capabilities = props.capabilityCatalog ?? [];
+  if (props.catalogLoading && recipes.length === 0 && capabilities.length === 0) {
+    return html`<div class="muted" style="margin-top: 12px;">${t("specialist.catalog.loading")}</div>`;
+  }
+  if (props.catalogError) {
+    return html`<div class="callout danger" style="margin-top: 12px;">${props.catalogError}</div>`;
+  }
+  if (recipes.length === 0 && capabilities.length === 0) {
+    return nothing;
+  }
+  const activeRecipeId = props.snapshot?.recipeId;
+  const bootstrapRequired = new Set(props.snapshot?.bootstrapRequiredCapabilities ?? []);
+  return html`
+    <div style="margin-top: 16px;">
+      <div class="card-sub">${t("specialist.catalog.title")}</div>
+      <div class="muted" style="margin-top: 4px;">${t("specialist.catalog.subtitle")}</div>
+      ${
+        recipes.length > 0
+          ? html`
+              <div style="margin-top: 12px;">
+                <div class="muted">${t("specialist.catalog.recipeRoutes")}</div>
+                ${recipes.map((recipe) => renderCatalogRecipeItem(recipe, recipe.id === activeRecipeId))}
+              </div>
+            `
+          : nothing
+      }
+      ${
+        capabilities.length > 0
+          ? html`
+              <div style="margin-top: 12px;">
+                <div class="muted">${t("specialist.catalog.capabilities")}</div>
+                ${capabilities.map((capability) =>
+                  renderCatalogCapabilityItem(capability, bootstrapRequired.has(capability.id)),
+                )}
+              </div>
+            `
+          : nothing
+      }
+    </div>
+  `;
+}
+
+function renderRuntimeQueuePanel(props: SpecialistContextProps) {
+  const checkpoints = (props.runtimeCheckpoints ?? []).slice(0, 3);
+  if (props.runtimeLoading && checkpoints.length === 0) {
+    return html`<div class="muted" style="margin-top: 12px;">${t("specialist.runtime.loading")}</div>`;
+  }
+  if (props.runtimeError) {
+    return html`<div class="callout danger" style="margin-top: 12px;">${props.runtimeError}</div>`;
+  }
+  if (checkpoints.length === 0) {
+    return nothing;
+  }
+  return html`
+    <div style="margin-top: 16px;">
+      <div class="card-sub">${t("specialist.runtime.title")}</div>
+      <div class="muted" style="margin-top: 4px;">
+        ${
+          props.runtimeSessionKey
+            ? t("specialist.runtime.scopeSession", { sessionKey: props.runtimeSessionKey })
+            : t("specialist.runtime.scopeGlobal")
+        }
+      </div>
+      ${checkpoints.map(
+        (checkpoint) => html`
+          <div class="callout" style="margin-top: 8px;">
+            <strong>${checkpoint.boundary}</strong>
+            <div class="chip-row" style="margin-top: 8px;">
+              <span class="chip">${checkpoint.status}</span>
+              ${
+                checkpoint.continuation?.state
+                  ? html`<span class="chip">${checkpoint.continuation.state}</span>`
+                  : nothing
+              }
+            </div>
+            ${
+              checkpoint.operatorHint
+                ? html`<div class="muted" style="margin-top: 8px;">${checkpoint.operatorHint}</div>`
+                : nothing
+            }
+          </div>
+        `,
+      )}
+    </div>
+  `;
+}
+
 function renderSignalList(snapshot: SpecialistRuntimeSnapshot) {
   const signals = [...snapshot.signals]
     .toSorted((left, right) => right.weight - left.weight)
@@ -182,17 +357,24 @@ export function renderSpecialistChatStrip(props: SpecialistContextProps) {
   }
   const snapshot = props.snapshot;
   return html`
-    <div class="callout" style="margin-bottom: 12px;">
-      <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
+    <details class="callout" style="margin-bottom: 12px;">
+      <summary
+        style="display:flex; justify-content:space-between; gap:12px; align-items:center; cursor:pointer;"
+      >
         <div>
           <strong>${t("specialist.chatTitle")}</strong>
-          <div class="muted" style="margin-top: 2px;">${snapshot.reasoningSummary}</div>
+          <div class="muted" style="margin-top: 2px;">
+            ${snapshot.activeProfileLabel} · ${snapshot.recipeId}
+          </div>
         </div>
         <span class="chip">${t("specialist.confidence")}: ${formatConfidence(snapshot.confidence)}</span>
+      </summary>
+      <div style="margin-top: 12px;">
+        <div class="muted">${snapshot.reasoningSummary}</div>
+        ${renderRuntimeChips(snapshot)}
+        ${renderOperationalPosture(snapshot)}
       </div>
-      ${renderRuntimeChips(snapshot)}
-      ${renderOperationalPosture(snapshot)}
-    </div>
+    </details>
   `;
 }
 
@@ -244,6 +426,8 @@ export function renderSpecialistOverviewPanel(props: SpecialistContextProps) {
 
               ${renderRuntimeChips(props.snapshot)}
               ${renderOperationalPosture(props.snapshot)}
+              ${renderCatalogPanel(props)}
+              ${renderRuntimeQueuePanel(props)}
 
               <div style="margin-top: 14px;">
                 <div class="muted">${t("specialist.signals")}</div>

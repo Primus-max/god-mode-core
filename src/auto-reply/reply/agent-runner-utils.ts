@@ -4,8 +4,16 @@ import type { ChannelId, ChannelThreadingToolContext } from "../../channels/plug
 import { normalizeAnyChannelId, normalizeChannelId } from "../../channels/registry.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
-import { resolveSessionBackedExecutionRuntimePlan } from "../../platform/decision/input.js";
-import type { RecipeRuntimePlan } from "../../platform/recipe/runtime-adapter.js";
+import {
+  buildClassifiedExecutionDecisionInput,
+  shouldUseLightweightBootstrapContext,
+} from "../../platform/decision/input.js";
+import type { RoutePreflightMode } from "../../platform/decision/route-preflight.js";
+import type { RecipePlannerInput } from "../../platform/recipe/planner.js";
+import {
+  resolvePlatformRuntimePlan,
+  type RecipeRuntimePlan,
+} from "../../platform/recipe/runtime-adapter.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import type { TemplateContext } from "../templating.js";
 import {
@@ -103,7 +111,14 @@ export const formatBunFetchSocketError = (message: string) => {
 export const resolveEnforceFinalTag = (run: FollowupRun["run"], provider: string) =>
   Boolean(run.enforceFinalTag || isReasoningTagProvider(provider));
 
-export function resolveModelFallbackOptions(run: FollowupRun["run"]) {
+export function resolveModelFallbackOptions(
+  run: FollowupRun["run"],
+  opts?: { preflightPrompt?: string; preflightMode?: RoutePreflightMode },
+) {
+  const trimmedPreflight = opts?.preflightPrompt?.trim();
+  const skipRoutePreflight =
+    run.modelRoutePreflightDisabled === true ||
+    process.env.OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT === "1";
   return {
     cfg: run.config,
     provider: run.provider,
@@ -114,6 +129,13 @@ export function resolveModelFallbackOptions(run: FollowupRun["run"]) {
       agentId: run.agentId,
       sessionKey: run.sessionKey,
     }),
+    ...(skipRoutePreflight ? { skipRoutePreflight: true as const } : {}),
+    ...(trimmedPreflight
+      ? {
+          preflightPrompt: trimmedPreflight,
+          ...(opts?.preflightMode ? { preflightMode: opts.preflightMode } : {}),
+        }
+      : {}),
   };
 }
 
@@ -228,7 +250,32 @@ export function buildEmbeddedRunExecutionParams(params: {
   };
 }
 
-export function resolvePlatformExecutionContextForTemplateRun(params: {
+export type TemplateRunRoutingSnapshot = {
+  plannerInput: RecipePlannerInput;
+  runtimePlan: RecipeRuntimePlan;
+  channelHints: {
+    messageChannel?: string;
+    channel?: string;
+    replyChannel?: string;
+  };
+  bootstrapContextMode?: "lightweight";
+};
+
+export function resolveRoutingChannelHintsForTemplateRun(params: {
+  run: FollowupRun["run"];
+  sessionCtx: Pick<TemplateContext, "OriginatingChannel" | "Provider" | "Surface">;
+}) {
+  return {
+    messageChannel: resolveOriginMessageProvider({
+      originatingChannel: params.sessionCtx.OriginatingChannel,
+      provider: params.sessionCtx.Provider,
+    }),
+    channel: params.sessionCtx.Surface,
+    replyChannel: params.run.messageProvider,
+  };
+}
+
+export async function resolveRoutingSnapshotForTemplateRun(params: {
   prompt: string;
   run: FollowupRun["run"];
   sessionCtx: Pick<TemplateContext, "OriginatingChannel" | "Provider" | "Surface">;
@@ -241,18 +288,46 @@ export function resolvePlatformExecutionContextForTemplateRun(params: {
     | "specialistBaseProfileId"
     | "specialistSessionProfileId"
   > | null;
-}): RecipeRuntimePlan {
-  return resolveSessionBackedExecutionRuntimePlan({
-    draftPrompt: params.prompt,
+}): Promise<TemplateRunRoutingSnapshot> {
+  const channelHints = resolveRoutingChannelHintsForTemplateRun({
+    run: params.run,
+    sessionCtx: params.sessionCtx,
+  });
+  const plannerInput = await buildClassifiedExecutionDecisionInput({
+    prompt: params.prompt,
     storePath: params.storePath,
     sessionEntry: params.sessionEntry,
-    channelHints: {
-      messageChannel: resolveOriginMessageProvider({
-        originatingChannel: params.sessionCtx.OriginatingChannel,
-        provider: params.sessionCtx.Provider,
-      }),
-      channel: params.sessionCtx.Surface,
-      replyChannel: params.run.messageProvider,
-    },
-  }).runtime;
+    channelHints,
+    cfg: params.run.config,
+    agentDir: params.run.agentDir,
+    ...(params.run.inputProvenance ? { inputProvenance: params.run.inputProvenance } : {}),
+  });
+  return {
+    plannerInput,
+    runtimePlan: resolvePlatformRuntimePlan({
+      ...plannerInput,
+      callerTag: "auto-reply-runtime-plan",
+    }).runtime,
+    channelHints,
+    ...(shouldUseLightweightBootstrapContext(plannerInput)
+      ? { bootstrapContextMode: "lightweight" as const }
+      : {}),
+  };
+}
+
+export async function resolvePlatformExecutionContextForTemplateRun(params: {
+  prompt: string;
+  run: FollowupRun["run"];
+  sessionCtx: Pick<TemplateContext, "OriginatingChannel" | "Provider" | "Surface">;
+  storePath?: string;
+  sessionEntry?: Pick<
+    SessionEntry,
+    | "sessionId"
+    | "sessionFile"
+    | "specialistOverrideMode"
+    | "specialistBaseProfileId"
+    | "specialistSessionProfileId"
+  > | null;
+}): Promise<RecipeRuntimePlan> {
+  return (await resolveRoutingSnapshotForTemplateRun(params)).runtimePlan;
 }

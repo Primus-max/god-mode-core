@@ -1,26 +1,54 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
-import { formatRelativeTimestamp } from "../format.ts";
+import {
+  checkpointHasNextAction,
+  getRuntimeRecoveryGuardrail,
+  resolveBootstrapCheckpointUiPhase,
+  type RuntimeRecoveryAction,
+} from "../controllers/runtime-inspector.ts";
+import { formatCost, formatRelativeTimestamp } from "../format.ts";
 import { icons } from "../icons.ts";
-import { pathForTab } from "../navigation.ts";
 import { formatSessionTokens } from "../presenter.ts";
-import type { GatewaySessionRow, SessionsListResult } from "../types.ts";
+import { resolveSessionRuntimeInspectRunId } from "../session-runtime.ts";
+import type {
+  GatewaySessionRow,
+  RuntimeActionDetail,
+  RuntimeActionSummary,
+  RuntimeCheckpointSummary,
+  RuntimeClosureDetail,
+  RuntimeClosureSummary,
+  SessionsListResult,
+} from "../types.ts";
 
 export type SessionsProps = {
   loading: boolean;
+  runtimeLoading: boolean;
+  runtimeDetailLoading: boolean;
+  runtimeActionBusy: boolean;
   result: SessionsListResult | null;
   error: string | null;
+  runtimeError: string | null;
   activeMinutes: string;
   limit: string;
   includeGlobal: boolean;
   includeUnknown: boolean;
-  basePath: string;
   searchQuery: string;
   sortColumn: "key" | "kind" | "updated" | "tokens";
   sortDir: "asc" | "desc";
   page: number;
   pageSize: number;
   selectedKeys: Set<string>;
+  runtimeSessionKey: string | null;
+  runtimeRunId: string | null;
+  runtimeCheckpoints: RuntimeCheckpointSummary[];
+  runtimeSelectedCheckpointId: string | null;
+  runtimeCheckpointDetail: RuntimeCheckpointSummary | null;
+  runtimeActions: RuntimeActionSummary[];
+  runtimeSelectedActionId: string | null;
+  runtimeActionDetail: RuntimeActionDetail | null;
+  runtimeClosures: RuntimeClosureSummary[];
+  runtimeSelectedClosureRunId: string | null;
+  runtimeClosureDetail: RuntimeClosureDetail | null;
   onFiltersChange: (next: {
     activeMinutes: string;
     limit: string;
@@ -31,7 +59,21 @@ export type SessionsProps = {
   onSortChange: (column: "key" | "kind" | "updated" | "tokens", dir: "asc" | "desc") => void;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
+  buildSortHref: (column: "key" | "kind" | "updated" | "tokens", dir: "asc" | "desc") => string;
+  buildPageHref: (page: number) => string;
   onRefresh: () => void;
+  onInspectRuntimeSession: (sessionKey: string, runId?: string) => void;
+  buildRuntimeInspectHref: (sessionKey: string, runId?: string | null) => string;
+  buildRuntimeCheckpointHref: (checkpoint: RuntimeCheckpointSummary) => string;
+  buildRuntimeBootstrapHref: (sessionKey: string | null, requestId: string) => string;
+  buildRuntimeArtifactHref: (sessionKey: string | null, artifactId: string) => string;
+  onSelectRuntimeCheckpoint: (checkpointId: string) => void;
+  buildRuntimeActionHref: (actionId: string) => string;
+  onSelectRuntimeAction: (actionId: string) => void;
+  buildRuntimeClosureHref: (runId: string) => string;
+  onSelectRuntimeClosure: (runId: string) => void;
+  onClearRuntimeScope: () => void;
+  onExecuteRuntimeRecoveryAction: (action: RuntimeRecoveryAction) => void;
   onPatch: (
     key: string,
     patch: {
@@ -47,13 +89,794 @@ export type SessionsProps = {
   onDeselectPage: (keys: string[]) => void;
   onDeselectAll: () => void;
   onDeleteSelected: () => void;
+  buildChatHref: (sessionKey: string) => string;
   onNavigateToChat?: (sessionKey: string) => void;
+  onNavigateRuntimeLinkedRecord?: (href: string) => void;
 };
 
 const THINK_LEVELS = ["", "off", "minimal", "low", "medium", "high", "xhigh"] as const;
 const BINARY_THINK_LEVELS = ["", "off", "on"] as const;
 const REASONING_LEVELS = ["", "off", "on", "stream"] as const;
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+
+function formatMsTimestamp(timestamp?: number | null): string {
+  return typeof timestamp === "number" ? formatRelativeTimestamp(timestamp) : t("common.na");
+}
+
+/**
+ * Resolved model id for the sessions table (`provider/model` when both are present).
+ * @param row - Gateway session row from the gateway list payload.
+ * @returns Combined provider/model, a single side if only one is set, or the localized n/a label.
+ */
+function formatResolvedSessionModel(row: GatewaySessionRow): string {
+  const provider = row.modelProvider?.trim();
+  const model = row.model?.trim();
+  if (provider && model) {
+    return `${provider}/${model}`;
+  }
+  if (provider) {
+    return provider;
+  }
+  if (model) {
+    return model;
+  }
+  return t("common.na");
+}
+
+function sessionModelFilterText(row: GatewaySessionRow): string {
+  const provider = row.modelProvider?.trim();
+  const model = row.model?.trim();
+  if (provider && model) {
+    return `${provider}/${model}`;
+  }
+  return (provider ?? model ?? "").trim();
+}
+
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  );
+}
+
+function renderRuntimeStatusChip(label: string) {
+  return html`<span class="chip">${label}</span>`;
+}
+
+function renderSessionHandoffContext(row: GatewaySessionRow) {
+  const truthSource = row.handoffTruthSource;
+  const hasHandoffContext = Boolean(
+    truthSource || row.handoffRunId || row.handoffRequestRunId || row.runClosureSummary?.runId,
+  );
+  if (!hasHandoffContext) {
+    return nothing;
+  }
+  const currentTargetRunId =
+    truthSource === "recovery"
+      ? (row.handoffRunId ?? row.handoffRequestRunId)
+      : (row.handoffRunId ?? row.runClosureSummary?.runId ?? row.handoffRequestRunId);
+  const closureHistoryRunId = row.runClosureSummary?.runId;
+  const showClosureHistory =
+    truthSource === "recovery" &&
+    typeof closureHistoryRunId === "string" &&
+    closureHistoryRunId !== currentTargetRunId;
+  return html`
+    ${
+      truthSource
+        ? html`<div class="muted" style="font-size:12px;">
+            ${t(`sessions.runtime.handoff.truthSource.${truthSource}`)}
+          </div>`
+        : nothing
+    }
+    ${
+      currentTargetRunId
+        ? html`<div class="muted" style="font-size:12px;">
+            ${t("sessions.runtime.handoff.currentTarget", { runId: currentTargetRunId })}
+          </div>`
+        : nothing
+    }
+    ${
+      row.handoffRequestRunId
+        ? html`<div class="muted" style="font-size:12px;">
+            ${t("sessions.runtime.handoff.requestAnchor", { runId: row.handoffRequestRunId })}
+          </div>`
+        : nothing
+    }
+    ${
+      showClosureHistory
+        ? html`<div class="muted" style="font-size:12px;">
+            ${t("sessions.runtime.handoff.closureHistory", { runId: closureHistoryRunId })}
+          </div>`
+        : nothing
+    }
+  `;
+}
+
+function formatRuntimeDecisionActor(
+  decision: RuntimeCheckpointSummary["lastOperatorDecision"],
+): string {
+  return (
+    decision?.actor?.displayName ??
+    decision?.actor?.id ??
+    decision?.actor?.deviceId ??
+    decision?.actor?.connId ??
+    t("common.na")
+  );
+}
+
+function buildRuntimeRecoveryConfirmationMessage(
+  action: RuntimeRecoveryAction,
+  checkpoint: RuntimeCheckpointSummary,
+): string | null {
+  const guardrail = getRuntimeRecoveryGuardrail(action);
+  if (!guardrail.requiresConfirmation || !guardrail.confirmationKind) {
+    return null;
+  }
+  let message: string;
+  switch (guardrail.confirmationKind) {
+    case "deny-recovery":
+      message = t("sessions.runtime.confirmations.denyRecovery");
+      break;
+    case "deny-bootstrap":
+      message = t("sessions.runtime.confirmations.denyBootstrap");
+      break;
+    case "dispatch-continuation":
+      message = t("sessions.runtime.confirmations.dispatchContinuation");
+      break;
+    case "artifact-approve":
+      message = t("sessions.runtime.confirmations.artifactApprove");
+      break;
+    case "artifact-publish":
+      message = t("sessions.runtime.confirmations.artifactPublish");
+      break;
+    case "artifact-delete":
+      message = t("sessions.runtime.confirmations.artifactDelete");
+      break;
+  }
+  if (checkpoint.operatorHint) {
+    return `${message}\n\n${t("sessions.runtime.confirmations.contextHint", {
+      hint: checkpoint.operatorHint,
+    })}`;
+  }
+  return message;
+}
+
+function confirmRuntimeRecoveryAction(
+  action: RuntimeRecoveryAction,
+  checkpoint: RuntimeCheckpointSummary,
+): boolean {
+  const message = buildRuntimeRecoveryConfirmationMessage(action, checkpoint);
+  return message ? window.confirm(message) : true;
+}
+
+function renderRuntimeRecoveryControls(checkpoint: RuntimeCheckpointSummary, props: SessionsProps) {
+  const controls: Array<{
+    label: string;
+    action: RuntimeRecoveryAction;
+    tone?: "primary" | "danger";
+  }> = [];
+  if (
+    checkpointHasNextAction(checkpoint, "exec.approval.resolve", "approve") &&
+    checkpoint.target?.approvalId
+  ) {
+    controls.push({
+      label: t("sessions.runtime.controls.approveRecovery"),
+      action: {
+        kind: "exec-approval-resolve",
+        checkpointId: checkpoint.id,
+        approvalId: checkpoint.target.approvalId,
+        decision: "allow-once",
+      },
+      tone: "primary",
+    });
+    controls.push({
+      label: t("sessions.runtime.controls.denyRecovery"),
+      action: {
+        kind: "exec-approval-resolve",
+        checkpointId: checkpoint.id,
+        approvalId: checkpoint.target.approvalId,
+        decision: "deny",
+      },
+      tone: "danger",
+    });
+  }
+  if (
+    checkpointHasNextAction(checkpoint, "platform.bootstrap.resolve", "approve") &&
+    checkpoint.target?.bootstrapRequestId
+  ) {
+    controls.push({
+      label: t("sessions.runtime.controls.approveBootstrap"),
+      action: {
+        kind: "bootstrap-resolve",
+        checkpointId: checkpoint.id,
+        requestId: checkpoint.target.bootstrapRequestId,
+        decision: "approve",
+      },
+      tone: "primary",
+    });
+    controls.push({
+      label: t("sessions.runtime.controls.denyBootstrap"),
+      action: {
+        kind: "bootstrap-resolve",
+        checkpointId: checkpoint.id,
+        requestId: checkpoint.target.bootstrapRequestId,
+        decision: "deny",
+      },
+      tone: "danger",
+    });
+  }
+  if (
+    checkpointHasNextAction(checkpoint, "platform.bootstrap.run", "resume") &&
+    checkpoint.target?.bootstrapRequestId
+  ) {
+    controls.push({
+      label: t("sessions.runtime.controls.runBootstrap"),
+      action: {
+        kind: "bootstrap-run",
+        checkpointId: checkpoint.id,
+        requestId: checkpoint.target.bootstrapRequestId,
+      },
+      tone: "primary",
+    });
+  }
+  if (
+    checkpointHasNextAction(checkpoint, "platform.artifacts.transition", "retry") &&
+    checkpoint.target?.artifactId &&
+    checkpoint.target.operation
+  ) {
+    controls.push({
+      label: t("sessions.runtime.controls.retryArtifact"),
+      action: {
+        kind: "artifact-transition",
+        checkpointId: checkpoint.id,
+        artifactId: checkpoint.target.artifactId,
+        operation: checkpoint.target.operation as
+          | "approve"
+          | "publish"
+          | "preview"
+          | "retain"
+          | "delete",
+      },
+      tone: "primary",
+    });
+  }
+  if (
+    checkpoint.continuation?.kind === "closure_recovery" &&
+    (checkpoint.continuation.state === "failed" ||
+      checkpoint.status === "approved" ||
+      checkpoint.status === "resumed")
+  ) {
+    controls.push({
+      label:
+        checkpoint.continuation.state === "failed"
+          ? t("sessions.runtime.controls.retryDispatch")
+          : t("sessions.runtime.controls.dispatchContinuation"),
+      action: {
+        kind: "dispatch-continuation",
+        checkpointId: checkpoint.id,
+      },
+      tone: "primary",
+    });
+  }
+  if (controls.length === 0) {
+    return nothing;
+  }
+  return html`
+    <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:12px;">
+      ${controls.map(
+        (control) => html`
+          <button
+            class="btn ${control.tone === "primary" ? "primary" : control.tone === "danger" ? "danger" : ""}"
+            type="button"
+            ?disabled=${props.runtimeActionBusy}
+            @click=${() => {
+              if (!confirmRuntimeRecoveryAction(control.action, checkpoint)) {
+                return;
+              }
+              props.onExecuteRuntimeRecoveryAction(control.action);
+            }}
+          >
+            ${control.label}
+          </button>
+        `,
+      )}
+    </div>
+  `;
+}
+
+function renderRuntimeLinkedRecords(checkpoint: RuntimeCheckpointSummary, props: SessionsProps) {
+  if (!checkpoint.target?.bootstrapRequestId && !checkpoint.target?.artifactId) {
+    return nothing;
+  }
+  const sessionKey = checkpoint.sessionKey ?? props.runtimeSessionKey ?? null;
+  const bootstrapHref = checkpoint.target?.bootstrapRequestId
+    ? props.buildRuntimeBootstrapHref(sessionKey, checkpoint.target.bootstrapRequestId)
+    : null;
+  const artifactHref = checkpoint.target?.artifactId
+    ? props.buildRuntimeArtifactHref(sessionKey, checkpoint.target.artifactId)
+    : null;
+  return html`
+    <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:12px;">
+      ${
+        bootstrapHref
+          ? html`
+              <a
+                class="btn"
+                href=${bootstrapHref}
+                @click=${(event: MouseEvent) => {
+                  if (!props.onNavigateRuntimeLinkedRecord || isModifiedNavigationClick(event)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  props.onNavigateRuntimeLinkedRecord(bootstrapHref);
+                }}
+              >
+                ${t("sessions.runtime.links.openBootstrap")}
+              </a>
+            `
+          : nothing
+      }
+      ${
+        artifactHref
+          ? html`
+              <a
+                class="btn"
+                href=${artifactHref}
+                @click=${(event: MouseEvent) => {
+                  if (!props.onNavigateRuntimeLinkedRecord || isModifiedNavigationClick(event)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  props.onNavigateRuntimeLinkedRecord(artifactHref);
+                }}
+              >
+                ${t("sessions.runtime.links.openArtifact")}
+              </a>
+            `
+          : nothing
+      }
+    </div>
+  `;
+}
+
+function renderRuntimeOperatorDecision(decision: RuntimeCheckpointSummary["lastOperatorDecision"]) {
+  if (!decision) {
+    return nothing;
+  }
+  return html`
+    <dt>${t("sessions.runtime.fields.lastDecision")}</dt>
+    <dd>${decision.action}</dd>
+    <dt>${t("sessions.runtime.fields.decidedBy")}</dt>
+    <dd>${formatRuntimeDecisionActor(decision)}</dd>
+    <dt>${t("sessions.runtime.fields.decidedAt")}</dt>
+    <dd>${formatMsTimestamp(decision.atMs)}</dd>
+  `;
+}
+
+function renderBootstrapCheckpointGuide(checkpoint: RuntimeCheckpointSummary) {
+  const phase = resolveBootstrapCheckpointUiPhase(checkpoint);
+  if (!phase) {
+    return nothing;
+  }
+  const bodyKey = `sessions.runtime.bootstrapGuide.${phase}` as const;
+  return html`
+    <div class="callout" style="margin-top:12px;">
+      <strong>${t("sessions.runtime.bootstrapGuide.title")}</strong>
+      <div class="muted" style="margin-top:8px;">${t(bodyKey)}</div>
+    </div>
+  `;
+}
+
+function formatRuntimeModelRouteTierLabel(
+  tier: NonNullable<NonNullable<RuntimeCheckpointSummary["executionContext"]>["modelRouteTier"]>,
+): string {
+  switch (tier) {
+    case "local_eligible":
+      return t("bootstrap.planning.modelRouteTierValues.local_eligible");
+    case "remote_required":
+      return t("bootstrap.planning.modelRouteTierValues.remote_required");
+  }
+}
+
+function renderRuntimePlanningContext(checkpoint: RuntimeCheckpointSummary) {
+  const ctx = checkpoint.executionContext;
+  if (!ctx) {
+    return nothing;
+  }
+  const modelLine = [ctx.providerOverride, ctx.modelOverride].filter(Boolean).join("/");
+  const fallbackLine = ctx.fallbackModels?.length ? ctx.fallbackModels.join(", ") : null;
+  const bootstrapCaps = ctx.bootstrapRequiredCapabilities?.length
+    ? ctx.bootstrapRequiredCapabilities.join(", ")
+    : null;
+  const requiredCaps = ctx.requiredCapabilities?.length
+    ? ctx.requiredCapabilities.join(", ")
+    : null;
+  const toolsLine = ctx.requestedToolNames?.length ? ctx.requestedToolNames.join(", ") : null;
+  return html`
+    <div class="callout" style="margin-top:12px;">
+      <strong>${t("bootstrap.planning.title")}</strong>
+      <div class="muted" style="margin-top:6px;">${t("bootstrap.planning.subtitle")}</div>
+      <dl style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:12px 0 0;">
+        <dt>${t("bootstrap.planning.profileRecipe")}</dt>
+        <dd>${ctx.profileId} · ${ctx.recipeId}</dd>
+        ${
+          ctx.modelRouteTier
+            ? html`<dt>${t("bootstrap.planning.modelRouteTier")}</dt><dd>${formatRuntimeModelRouteTierLabel(
+                ctx.modelRouteTier,
+              )}</dd>`
+            : nothing
+        }
+        ${modelLine ? html`<dt>${t("bootstrap.planning.modelRoute")}</dt><dd>${modelLine}</dd>` : nothing}
+        ${
+          fallbackLine
+            ? html`<dt>${t("bootstrap.planning.fallbackModels")}</dt><dd>${fallbackLine}</dd>`
+            : nothing
+        }
+        ${bootstrapCaps ? html`<dt>${t("bootstrap.planning.bootstrapCaps")}</dt><dd>${bootstrapCaps}</dd>` : nothing}
+        ${requiredCaps ? html`<dt>${t("bootstrap.planning.requiredCaps")}</dt><dd>${requiredCaps}</dd>` : nothing}
+        ${toolsLine ? html`<dt>${t("bootstrap.planning.tools")}</dt><dd>${toolsLine}</dd>` : nothing}
+        ${
+          ctx.plannerReasoning
+            ? html`<dt>${t("bootstrap.planning.plannerReasoning")}</dt><dd>${ctx.plannerReasoning}</dd>`
+            : nothing
+        }
+      </dl>
+    </div>
+  `;
+}
+
+function formatRuntimeUsageTokenCount(value: number | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return "—";
+  }
+  return String(Math.round(value));
+}
+
+function renderRuntimeSessionUsageStats(props: SessionsProps) {
+  const sessionKey = props.runtimeSessionKey?.trim();
+  if (!sessionKey || !props.result?.sessions?.length) {
+    return nothing;
+  }
+  const row = props.result.sessions.find((entry) => entry.key === sessionKey);
+  if (!row) {
+    return nothing;
+  }
+  const hasUsage =
+    (row.inputTokens != null && Number.isFinite(row.inputTokens)) ||
+    (row.outputTokens != null && Number.isFinite(row.outputTokens)) ||
+    (row.estimatedCostUsd != null && Number.isFinite(row.estimatedCostUsd));
+  if (!hasUsage) {
+    return nothing;
+  }
+  const costText =
+    row.estimatedCostUsd != null && Number.isFinite(row.estimatedCostUsd)
+      ? formatCost(row.estimatedCostUsd)
+      : "—";
+  return html`
+    <div class="callout" data-runtime-usage-stats style="margin-top:12px;">
+      <strong>${t("sessions.runtime.usageStats.title")}</strong>
+      <dl
+        style="margin:8px 0 0; display:grid; grid-template-columns:max-content 1fr; gap:4px 16px; align-items:baseline;"
+      >
+        <dt class="muted">${t("sessions.runtime.usageStats.inputTokens")}</dt>
+        <dd style="margin:0;">${formatRuntimeUsageTokenCount(row.inputTokens)}</dd>
+        <dt class="muted">${t("sessions.runtime.usageStats.outputTokens")}</dt>
+        <dd style="margin:0;">${formatRuntimeUsageTokenCount(row.outputTokens)}</dd>
+        <dt class="muted">${t("sessions.runtime.usageStats.costEstimate")}</dt>
+        <dd style="margin:0;">${costText}</dd>
+      </dl>
+    </div>
+  `;
+}
+
+function renderRuntimeInspector(props: SessionsProps) {
+  const checkpoints = props.runtimeCheckpoints;
+  const selectedCheckpoint = props.runtimeCheckpointDetail;
+  const selectedAction = props.runtimeActionDetail;
+  const selectedClosure = props.runtimeClosureDetail;
+  return html`
+    <section class="card" style="margin-top: 16px;">
+      <div class="row" style="justify-content: space-between; gap: 12px; align-items: center;">
+        <div>
+          <div class="card-title">${t("sessions.runtime.title")}</div>
+          <div class="card-sub">
+            ${
+              props.runtimeSessionKey
+                ? t("sessions.runtime.scopeSession", { sessionKey: props.runtimeSessionKey })
+                : t("sessions.runtime.scopeGlobal")
+            }
+          </div>
+        </div>
+        <div class="row" style="gap: 8px; flex-wrap: wrap;">
+          <button class="btn" type="button" ?disabled=${props.runtimeLoading} @click=${props.onRefresh}>
+            ${t("common.refresh")}
+          </button>
+          ${
+            props.runtimeSessionKey || props.runtimeRunId
+              ? html`
+                  <button class="btn" type="button" @click=${props.onClearRuntimeScope}>
+                    ${t("sessions.runtime.clearScope")}
+                  </button>
+                `
+              : nothing
+          }
+        </div>
+      </div>
+      ${renderRuntimeSessionUsageStats(props)}
+      ${
+        props.runtimeError
+          ? html`<div class="callout danger" style="margin-top: 12px;">${props.runtimeError}</div>`
+          : nothing
+      }
+      ${
+        props.runtimeLoading && checkpoints.length === 0
+          ? html`<div class="muted" style="margin-top: 12px;">${t("sessions.runtime.loading")}</div>`
+          : nothing
+      }
+      ${
+        !props.runtimeLoading && checkpoints.length === 0
+          ? html`<div class="muted" style="margin-top: 12px;">${t("sessions.runtime.empty")}</div>`
+          : nothing
+      }
+      ${
+        checkpoints.length > 0
+          ? html`
+              <div
+                style="display:grid; grid-template-columns:minmax(260px, 320px) minmax(0, 1fr); gap:16px; margin-top:16px;"
+              >
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                  ${checkpoints.map(
+                    (checkpoint) => html`
+                      <a
+                        class="btn ${checkpoint.id === props.runtimeSelectedCheckpointId ? "active" : ""}"
+                        href=${props.buildRuntimeCheckpointHref(checkpoint)}
+                        aria-current=${checkpoint.id === props.runtimeSelectedCheckpointId ? "page" : "false"}
+                        @click=${(event: MouseEvent) => {
+                          if (isModifiedNavigationClick(event)) {
+                            return;
+                          }
+                          event.preventDefault();
+                          props.onSelectRuntimeCheckpoint(checkpoint.id);
+                        }}
+                        style="display:flex; width:100%; text-align:left; justify-content:space-between; gap:12px;"
+                      >
+                        <span>
+                          <strong>${checkpoint.boundary}</strong>
+                          <span style="display:block; opacity:0.75;">
+                            ${checkpoint.status}
+                            ${checkpoint.operatorHint ? html`· ${checkpoint.operatorHint}` : nothing}
+                          </span>
+                        </span>
+                        <span style="opacity:0.75;">${formatMsTimestamp(checkpoint.updatedAtMs)}</span>
+                      </a>
+                    `,
+                  )}
+                </div>
+                <div class="card" style="padding:16px;">
+                  ${
+                    props.runtimeDetailLoading && !selectedCheckpoint
+                      ? html`<div>${t("sessions.runtime.loadingDetail")}</div>`
+                      : selectedCheckpoint
+                        ? html`
+                            <div class="row" style="justify-content:space-between; gap:12px; align-items:flex-start;">
+                              <div>
+                                <h3 style="margin:0;">${selectedCheckpoint.boundary}</h3>
+                                <div class="muted" style="margin-top: 2px;">
+                                  ${selectedCheckpoint.operatorHint ?? t("sessions.runtime.noHint")}
+                                </div>
+                              </div>
+                              ${renderRuntimeStatusChip(selectedCheckpoint.status)}
+                            </div>
+                            <dl
+                              style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:16px 0;"
+                            >
+                              <dt>${t("sessions.runtime.fields.checkpointId")}</dt>
+                              <dd>${selectedCheckpoint.id}</dd>
+                              <dt>${t("sessions.runtime.fields.runId")}</dt>
+                              <dd>${selectedCheckpoint.runId}</dd>
+                              <dt>${t("sessions.runtime.fields.sessionKey")}</dt>
+                              <dd>${selectedCheckpoint.sessionKey ?? t("common.na")}</dd>
+                              <dt>${t("sessions.runtime.fields.updated")}</dt>
+                              <dd>${formatMsTimestamp(selectedCheckpoint.updatedAtMs)}</dd>
+                              ${renderRuntimeOperatorDecision(selectedCheckpoint.lastOperatorDecision)}
+                              <dt>${t("sessions.runtime.fields.blockedReason")}</dt>
+                              <dd>${selectedCheckpoint.blockedReason ?? t("common.na")}</dd>
+                            </dl>
+                            ${renderBootstrapCheckpointGuide(selectedCheckpoint)}
+                            ${renderRuntimePlanningContext(selectedCheckpoint)}
+                            ${
+                              selectedCheckpoint.nextActions?.length
+                                ? html`
+                                    <div style="margin-top: 12px;">
+                                      <strong>${t("sessions.runtime.nextActions")}</strong>
+                                      <ul style="margin:8px 0 0 18px;">
+                                        ${selectedCheckpoint.nextActions.map(
+                                          (action) =>
+                                            html`<li>${action.label} (${action.method})</li>`,
+                                        )}
+                                      </ul>
+                                    </div>
+                                  `
+                                : nothing
+                            }
+                            ${renderRuntimeRecoveryControls(selectedCheckpoint, props)}
+                            ${renderRuntimeLinkedRecords(selectedCheckpoint, props)}
+                            ${
+                              selectedCheckpoint.continuation
+                                ? html`
+                                    <div style="margin-top: 12px;">
+                                      <strong>${t("sessions.runtime.continuation")}</strong>
+                                      <div class="chip-row" style="margin-top: 8px;">
+                                        <span class="chip">${selectedCheckpoint.continuation.kind}</span>
+                                        ${
+                                          selectedCheckpoint.continuation.state
+                                            ? html`<span class="chip"
+                                                >${selectedCheckpoint.continuation.state}</span
+                                              >`
+                                            : nothing
+                                        }
+                                        ${
+                                          selectedCheckpoint.continuation.attempts !== undefined
+                                            ? html`<span class="chip"
+                                                >${t("sessions.runtime.attempts")}: ${
+                                                  selectedCheckpoint.continuation.attempts
+                                                }</span
+                                              >`
+                                            : nothing
+                                        }
+                                      </div>
+                                    </div>
+                                  `
+                                : nothing
+                            }
+                            <div
+                              style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-top:16px;"
+                            >
+                              <div>
+                                <strong>${t("sessions.runtime.actionsTitle")}</strong>
+                                <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+                                  ${
+                                    props.runtimeActions.length === 0
+                                      ? html`<div class="muted">${t("sessions.runtime.noActions")}</div>`
+                                      : props.runtimeActions.map(
+                                          (action) => html`
+                                            <a
+                                              class="btn ${action.actionId === props.runtimeSelectedActionId ? "active" : ""}"
+                                              href=${props.buildRuntimeActionHref(action.actionId)}
+                                              aria-current=${
+                                                action.actionId === props.runtimeSelectedActionId
+                                                  ? "page"
+                                                  : "false"
+                                              }
+                                              @click=${(event: MouseEvent) => {
+                                                if (isModifiedNavigationClick(event)) {
+                                                  return;
+                                                }
+                                                event.preventDefault();
+                                                props.onSelectRuntimeAction(action.actionId);
+                                              }}
+                                              style="justify-content:space-between;"
+                                            >
+                                              <span>${action.kind}</span>
+                                              <span style="opacity:0.75;">${action.state}</span>
+                                            </a>
+                                          `,
+                                        )
+                                  }
+                                </div>
+                                ${
+                                  selectedAction
+                                    ? html`
+                                        <div class="callout" style="margin-top:12px;">
+                                          <strong>${selectedAction.actionId}</strong>
+                                          <div class="muted" style="margin-top:4px;">
+                                            ${selectedAction.kind} · ${selectedAction.state}
+                                          </div>
+                                          ${
+                                            selectedAction.receipt?.operatorDecision
+                                              ? html`
+                                                  <div style="margin-top:8px;">
+                                                    ${t("sessions.runtime.fields.lastDecision")}: ${
+                                                      selectedAction.receipt.operatorDecision.action
+                                                    }
+                                                  </div>
+                                                  <div style="margin-top:8px;">
+                                                    ${t("sessions.runtime.fields.decidedBy")}: ${formatRuntimeDecisionActor(
+                                                      selectedAction.receipt.operatorDecision,
+                                                    )}
+                                                  </div>
+                                                `
+                                              : nothing
+                                          }
+                                          ${
+                                            selectedAction.receipt?.resultStatus
+                                              ? html`<div style="margin-top:8px;">
+                                                  ${t("sessions.runtime.fields.resultStatus")}: ${
+                                                    selectedAction.receipt.resultStatus
+                                                  }
+                                                </div>`
+                                              : nothing
+                                          }
+                                          ${
+                                            selectedAction.lastError
+                                              ? html`<div style="margin-top:8px;">
+                                                  ${selectedAction.lastError}
+                                                </div>`
+                                              : nothing
+                                          }
+                                        </div>
+                                      `
+                                    : nothing
+                                }
+                              </div>
+                              <div>
+                                <strong>${t("sessions.runtime.closuresTitle")}</strong>
+                                <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+                                  ${
+                                    props.runtimeClosures.length === 0
+                                      ? html`<div class="muted">${t("sessions.runtime.noClosures")}</div>`
+                                      : props.runtimeClosures.map(
+                                          (closure) => html`
+                                            <a
+                                              class="btn ${closure.runId === props.runtimeSelectedClosureRunId ? "active" : ""}"
+                                              href=${props.buildRuntimeClosureHref(closure.runId)}
+                                              aria-current=${
+                                                closure.runId === props.runtimeSelectedClosureRunId
+                                                  ? "page"
+                                                  : "false"
+                                              }
+                                              @click=${(event: MouseEvent) => {
+                                                if (isModifiedNavigationClick(event)) {
+                                                  return;
+                                                }
+                                                event.preventDefault();
+                                                props.onSelectRuntimeClosure(closure.runId);
+                                              }}
+                                              style="justify-content:space-between;"
+                                            >
+                                              <span>${closure.runId}</span>
+                                              <span style="opacity:0.75;">${closure.outcomeStatus}</span>
+                                            </a>
+                                          `,
+                                        )
+                                  }
+                                </div>
+                                ${
+                                  selectedClosure
+                                    ? html`
+                                        <div class="callout" style="margin-top:12px;">
+                                          <strong>${selectedClosure.runId}</strong>
+                                          <div class="muted" style="margin-top:4px;">
+                                            ${selectedClosure.acceptanceOutcome.status} · ${
+                                              selectedClosure.supervisorVerdict.action
+                                            }
+                                          </div>
+                                          <div style="margin-top:8px;">
+                                            ${t("sessions.runtime.fields.updated")}: ${formatMsTimestamp(
+                                              selectedClosure.updatedAtMs,
+                                            )}
+                                          </div>
+                                        </div>
+                                      `
+                                    : nothing
+                                }
+                              </div>
+                            </div>
+                          `
+                        : html`<div class="muted">${t("sessions.runtime.selectHint")}</div>`
+                  }
+                </div>
+              </div>
+            `
+          : nothing
+      }
+    </section>
+  `;
+}
 
 function buildVerboseLevels(): Array<{ value: string; label: string }> {
   return [
@@ -162,7 +985,14 @@ function filterRows(rows: GatewaySessionRow[], query: string): GatewaySessionRow
     const label = (row.label ?? "").toLowerCase();
     const kind = (row.kind ?? "").toLowerCase();
     const displayName = (row.displayName ?? "").toLowerCase();
-    return key.includes(q) || label.includes(q) || kind.includes(q) || displayName.includes(q);
+    const model = sessionModelFilterText(row).toLowerCase();
+    return (
+      key.includes(q) ||
+      label.includes(q) ||
+      kind.includes(q) ||
+      displayName.includes(q) ||
+      model.includes(q)
+    );
   });
 }
 
@@ -219,15 +1049,24 @@ export function renderSessions(props: SessionsProps) {
   ) => {
     const isActive = props.sortColumn === col;
     const nextDir = isActive && props.sortDir === "asc" ? ("desc" as const) : ("asc" as const);
+    const targetDir = isActive ? nextDir : "desc";
+    const href = props.buildSortHref(col, targetDir);
     return html`
-      <th
-        class=${extraClass}
-        data-sortable
-        data-sort-dir=${isActive ? props.sortDir : ""}
-        @click=${() => props.onSortChange(col, isActive ? nextDir : "desc")}
-      >
-        ${label}
-        <span class="data-table-sort-icon">${icons.arrowUpDown}</span>
+      <th class=${extraClass} data-sortable data-sort-dir=${isActive ? props.sortDir : ""}>
+        <a
+          class="data-table-sort-link"
+          href=${href}
+          @click=${(event: MouseEvent) => {
+            if (isModifiedNavigationClick(event)) {
+              return;
+            }
+            event.preventDefault();
+            props.onSortChange(col, targetDir);
+          }}
+        >
+          ${label}
+          <span class="data-table-sort-icon">${icons.arrowUpDown}</span>
+        </a>
       </th>
     `;
   };
@@ -376,6 +1215,8 @@ export function renderSessions(props: SessionsProps) {
                 ${sortHeader("kind", t("sessions.table.kind"))}
                 ${sortHeader("updated", t("sessions.table.updated"))}
                 ${sortHeader("tokens", t("sessions.table.tokens"))}
+                <th>${t("sessions.table.model")}</th>
+                <th>${t("sessions.table.runtime")}</th>
                 <th>${t("sessions.table.thinking")}</th>
                 <th>${t("sessions.table.fast")}</th>
                 <th>${t("sessions.table.verbose")}</th>
@@ -387,7 +1228,7 @@ export function renderSessions(props: SessionsProps) {
                 paginated.length === 0
                   ? html`
                       <tr>
-                        <td colspan="10" style="text-align: center; padding: 48px 16px; color: var(--muted)">
+                        <td colspan="12" style="text-align: center; padding: 48px 16px; color: var(--muted)">
                           ${t("sessions.table.empty")}
                         </td>
                       </tr>
@@ -395,11 +1236,13 @@ export function renderSessions(props: SessionsProps) {
                   : paginated.map((row) =>
                       renderRow(
                         row,
-                        props.basePath,
                         props.onPatch,
                         props.selectedKeys.has(row.key),
                         props.onToggleSelect,
                         props.loading,
+                        props.onInspectRuntimeSession,
+                        props.buildRuntimeInspectHref,
+                        props.buildChatHref,
                         props.onNavigateToChat,
                       ),
                     )
@@ -435,35 +1278,64 @@ export function renderSessions(props: SessionsProps) {
                           html`<option value=${s}>${t("sessions.pagination.perPage", { size: String(s) })}</option>`,
                       )}
                     </select>
-                    <button
-                      ?disabled=${page <= 0}
-                      @click=${() => props.onPageChange(page - 1)}
-                    >
-                      ${t("sessions.pagination.previous")}
-                    </button>
-                    <button
-                      ?disabled=${page >= totalPages - 1}
-                      @click=${() => props.onPageChange(page + 1)}
-                    >
-                      ${t("sessions.pagination.next")}
-                    </button>
+                    ${
+                      page <= 0
+                        ? html`<span class="data-table-pagination__link is-disabled">
+                            ${t("sessions.pagination.previous")}
+                          </span>`
+                        : html`<a
+                            class="data-table-pagination__link"
+                            href=${props.buildPageHref(page - 1)}
+                            @click=${(event: MouseEvent) => {
+                              if (isModifiedNavigationClick(event)) {
+                                return;
+                              }
+                              event.preventDefault();
+                              props.onPageChange(page - 1);
+                            }}
+                          >
+                            ${t("sessions.pagination.previous")}
+                          </a>`
+                    }
+                    ${
+                      page >= totalPages - 1
+                        ? html`<span class="data-table-pagination__link is-disabled">
+                            ${t("sessions.pagination.next")}
+                          </span>`
+                        : html`<a
+                            class="data-table-pagination__link"
+                            href=${props.buildPageHref(page + 1)}
+                            @click=${(event: MouseEvent) => {
+                              if (isModifiedNavigationClick(event)) {
+                                return;
+                              }
+                              event.preventDefault();
+                              props.onPageChange(page + 1);
+                            }}
+                          >
+                            ${t("sessions.pagination.next")}
+                          </a>`
+                    }
                   </div>
                 </div>
               `
             : nothing
         }
       </div>
+      ${renderRuntimeInspector(props)}
     </section>
   `;
 }
 
 function renderRow(
   row: GatewaySessionRow,
-  basePath: string,
   onPatch: SessionsProps["onPatch"],
   selected: boolean,
   onToggleSelect: SessionsProps["onToggleSelect"],
   disabled: boolean,
+  onInspectRuntimeSession: SessionsProps["onInspectRuntimeSession"],
+  buildRuntimeInspectHref: SessionsProps["buildRuntimeInspectHref"],
+  buildChatHref: SessionsProps["buildChatHref"],
   onNavigateToChat?: (sessionKey: string) => void,
 ) {
   const updated = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : t("common.na");
@@ -487,9 +1359,7 @@ function renderRow(
     displayName !== (typeof row.label === "string" ? row.label.trim() : ""),
   );
   const canLink = row.kind !== "global";
-  const chatUrl = canLink
-    ? `${pathForTab("chat", basePath)}?session=${encodeURIComponent(row.key)}`
-    : null;
+  const chatUrl = canLink ? buildChatHref(row.key) : null;
   const badgeClass =
     row.kind === "direct"
       ? "data-table-badge--direct"
@@ -517,14 +1387,7 @@ function renderRow(
                   href=${chatUrl}
                   class="session-link"
                   @click=${(e: MouseEvent) => {
-                    if (
-                      e.defaultPrevented ||
-                      e.button !== 0 ||
-                      e.metaKey ||
-                      e.ctrlKey ||
-                      e.shiftKey ||
-                      e.altKey
-                    ) {
+                    if (isModifiedNavigationClick(e)) {
                       return;
                     }
                     if (onNavigateToChat) {
@@ -559,6 +1422,37 @@ function renderRow(
       </td>
       <td>${updated}</td>
       <td>${formatSessionTokens(row)}</td>
+      <td><span class="mono">${formatResolvedSessionModel(row)}</span></td>
+      <td>
+        <div style="display:flex; flex-direction:column; gap:6px; min-width: 180px;">
+          ${
+            row.recoveryStatus
+              ? renderRuntimeStatusChip(row.recoveryStatus)
+              : row.runClosureSummary?.outcomeStatus
+                ? renderRuntimeStatusChip(row.runClosureSummary.outcomeStatus)
+                : html`<span class="muted">${t("common.na")}</span>`
+          }
+          ${
+            row.recoveryOperatorHint
+              ? html`<div class="muted" style="font-size:12px;">${row.recoveryOperatorHint}</div>`
+              : nothing
+          }
+          ${renderSessionHandoffContext(row)}
+          <a
+            class="btn btn--sm"
+            href=${buildRuntimeInspectHref(row.key, resolveSessionRuntimeInspectRunId(row))}
+            @click=${(event: MouseEvent) => {
+              if (isModifiedNavigationClick(event)) {
+                return;
+              }
+              event.preventDefault();
+              onInspectRuntimeSession(row.key, resolveSessionRuntimeInspectRunId(row));
+            }}
+          >
+            ${t("sessions.runtime.inspect")}
+          </a>
+        </div>
+      </td>
       <td>
         <select
           ?disabled=${disabled}

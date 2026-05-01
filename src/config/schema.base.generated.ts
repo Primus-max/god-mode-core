@@ -2479,6 +2479,31 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                       },
                     ],
                   },
+                  taskClassifier: {
+                    type: "object",
+                    properties: {
+                      enabled: {
+                        type: "boolean",
+                      },
+                      backend: {
+                        type: "string",
+                      },
+                      model: {
+                        type: "string",
+                      },
+                      timeoutMs: {
+                        type: "integer",
+                        exclusiveMinimum: 0,
+                        maximum: 9007199254740991,
+                      },
+                      maxTokens: {
+                        type: "integer",
+                        exclusiveMinimum: 0,
+                        maximum: 9007199254740991,
+                      },
+                    },
+                    additionalProperties: false,
+                  },
                 },
                 additionalProperties: false,
               },

@@ -100,6 +100,7 @@ const BASE_METHODS = [
   "cron.run",
   "cron.runs",
   "gateway.identity.get",
+  "platform.profile.resolve",
   "system-presence",
   "system-event",
   "send",
@@ -141,5 +142,6 @@ export const GATEWAY_EVENTS = [
   "voicewake.changed",
   "exec.approval.requested",
   "exec.approval.resolved",
+  "progress.frame",
   GATEWAY_EVENT_UPDATE_AVAILABLE,
 ];

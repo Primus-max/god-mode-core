@@ -1,0 +1,4 @@
+wing: god_mode_core
+rooms:
+  - name: general
+    description: OpenClaw / god-mode-core tree (project mode ingest)

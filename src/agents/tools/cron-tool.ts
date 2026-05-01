@@ -51,6 +51,7 @@ const CronToolSchema = Type.Object(
 
 type CronToolOptions = {
   agentSessionKey?: string;
+  senderIsOwner?: boolean;
 };
 
 type GatewayToolCaller = typeof callGatewayTool;
@@ -207,12 +208,81 @@ function inferDeliveryFromSessionKey(agentSessionKey?: string): CronDelivery | n
   return delivery;
 }
 
+function resolveReminderScopedSessionKey(agentSessionKey?: string): string | null {
+  const rawSessionKey = agentSessionKey?.trim();
+  if (!rawSessionKey) {
+    return null;
+  }
+  const cfg = loadConfig();
+  const { mainKey, alias } = resolveMainSessionAlias(cfg);
+  return resolveInternalSessionKey({ key: rawSessionKey, alias, mainKey });
+}
+
+function assertNonOwnerCronAddPolicy(params: {
+  action: string;
+  rawParams: Record<string, unknown>;
+  job: Record<string, unknown>;
+  agentSessionKey?: string;
+}) {
+  if (params.action !== "add") {
+    throw new Error("Only reminder scheduling is allowed from this chat.");
+  }
+  if (
+    typeof params.rawParams.gatewayUrl === "string" ||
+    typeof params.rawParams.gatewayToken === "string"
+  ) {
+    throw new Error("Reminder scheduling cannot override gateway connection details.");
+  }
+  const payload = isRecord(params.job.payload) ? params.job.payload : undefined;
+  const payloadKind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
+  if (payloadKind !== "agentTurn" && payloadKind !== "systemEvent") {
+    throw new Error("Reminder scheduling only supports agentTurn or systemEvent payloads.");
+  }
+  const resolvedSessionKey = resolveReminderScopedSessionKey(params.agentSessionKey);
+  if (!resolvedSessionKey) {
+    throw new Error("Reminder scheduling requires an active chat session.");
+  }
+  const sessionTarget =
+    typeof params.job.sessionTarget === "string" ? params.job.sessionTarget.trim() : "";
+  const allowedResolvedSessionTarget = `session:${resolvedSessionKey}`;
+  if (
+    sessionTarget &&
+    sessionTarget !== "current" &&
+    sessionTarget !== "isolated" &&
+    sessionTarget !== "main" &&
+    sessionTarget !== allowedResolvedSessionTarget
+  ) {
+    throw new Error("Reminder scheduling cannot target another session.");
+  }
+  if ("agentId" in params.job) {
+    throw new Error("Reminder scheduling cannot override agentId.");
+  }
+  if (
+    "sessionKey" in params.job &&
+    typeof params.job.sessionKey === "string" &&
+    params.job.sessionKey.trim() !== resolvedSessionKey
+  ) {
+    throw new Error("Reminder scheduling cannot override sessionKey.");
+  }
+  const delivery = isRecord(params.job.delivery) ? params.job.delivery : undefined;
+  const deliveryMode = typeof delivery?.mode === "string" ? delivery.mode.trim().toLowerCase() : "";
+  if (deliveryMode && deliveryMode !== "announce") {
+    throw new Error("Reminder scheduling only supports announce delivery to this chat.");
+  }
+  if (
+    (typeof delivery?.channel === "string" && delivery.channel.trim()) ||
+    (typeof delivery?.to === "string" && delivery.to.trim())
+  ) {
+    throw new Error("Reminder scheduling cannot target another chat.");
+  }
+}
+
 export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): AnyAgentTool {
   const callGateway = deps?.callGatewayTool ?? callGatewayTool;
   return {
     label: "Cron",
     name: "cron",
-    ownerOnly: true,
+    ownerOnly: opts?.senderIsOwner === false ? false : true,
     description: `Manage Gateway cron jobs (status/list/add/update/remove/run/runs) and send wake events.
 
 ACTIONS:
@@ -291,6 +361,9 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             ? params.timeoutMs
             : 60_000,
       };
+      if (opts?.senderIsOwner === false && action !== "add") {
+        throw new Error("Only reminder scheduling is allowed from this chat.");
+      }
 
       switch (action) {
         case "status":
@@ -361,6 +434,14 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             normalizeCronJobCreate(params.job, {
               sessionContext: { sessionKey: opts?.agentSessionKey },
             }) ?? params.job;
+          if (opts?.senderIsOwner === false && isRecord(job)) {
+            assertNonOwnerCronAddPolicy({
+              action,
+              rawParams: params,
+              job,
+              agentSessionKey: opts.agentSessionKey,
+            });
+          }
           if (job && typeof job === "object") {
             const cfg = loadConfig();
             const { mainKey, alias } = resolveMainSessionAlias(cfg);
@@ -385,7 +466,9 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             job &&
             typeof job === "object" &&
             "payload" in job &&
-            (job as { payload?: { kind?: string } }).payload?.kind === "agentTurn"
+            ((job as { payload?: { kind?: string } }).payload?.kind === "agentTurn" ||
+              (opts?.senderIsOwner === false &&
+                (job as { payload?: { kind?: string } }).payload?.kind === "systemEvent"))
           ) {
             const deliveryValue = (job as { delivery?: unknown }).delivery;
             const delivery = isRecord(deliveryValue) ? deliveryValue : undefined;

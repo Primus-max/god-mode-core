@@ -1,14 +1,19 @@
 import { getChannelPlugin, normalizeChannelId } from "../channels/plugins/index.js";
 import { normalizeTargetForProvider } from "../infra/outbound/target-normalization.js";
 import { splitMediaFromOutput } from "../media/parse.js";
+import {
+  DeliverableKindSchema,
+  findProducer,
+  type ProducedArtifact,
+} from "../platform/produce/registry.js";
 import type { PlatformRuntimeExecutionReceipt } from "../platform/runtime/index.js";
 import { truncateUtf16Safe } from "../utils.js";
 import { collectTextContentBlocks } from "./content-blocks.js";
 import { type MessagingToolSend } from "./pi-embedded-messaging.js";
+import { sanitizeToolErrorForUser, sanitizeToolErrorReasonForReceipt } from "./tool-error-sanitizer.js";
 import { normalizeToolName } from "./tool-policy.js";
 
 const TOOL_RESULT_MAX_CHARS = 8000;
-const TOOL_ERROR_MAX_CHARS = 400;
 
 function truncateToolText(text: string): string {
   if (text.length <= TOOL_RESULT_MAX_CHARS) {
@@ -18,17 +23,7 @@ function truncateToolText(text: string): string {
 }
 
 function normalizeToolErrorText(text: string): string | undefined {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  const firstLine = trimmed.split(/\r?\n/)[0]?.trim() ?? "";
-  if (!firstLine) {
-    return undefined;
-  }
-  return firstLine.length > TOOL_ERROR_MAX_CHARS
-    ? `${truncateUtf16Safe(firstLine, TOOL_ERROR_MAX_CHARS)}…`
-    : firstLine;
+  return sanitizeToolErrorForUser(text);
 }
 
 function isErrorLikeStatus(status: string): boolean {
@@ -48,32 +43,36 @@ function isErrorLikeStatus(status: string): boolean {
   return /error|fail|timeout|timed[_\s-]?out|denied|cancel|invalid|forbidden/.test(normalized);
 }
 
-function readErrorCandidate(value: unknown): string | undefined {
+function readErrorCandidate(value: unknown, sanitize: boolean): string | undefined {
   if (typeof value === "string") {
-    return normalizeToolErrorText(value);
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    return sanitize ? normalizeToolErrorText(trimmed) : trimmed.split(/\r?\n/)[0]?.trim() ?? trimmed;
   }
   if (!value || typeof value !== "object") {
     return undefined;
   }
   const record = value as Record<string, unknown>;
   if (typeof record.message === "string") {
-    return normalizeToolErrorText(record.message);
+    return readErrorCandidate(record.message, sanitize);
   }
   if (typeof record.error === "string") {
-    return normalizeToolErrorText(record.error);
+    return readErrorCandidate(record.error, sanitize);
   }
   return undefined;
 }
 
-function extractErrorField(value: unknown): string | undefined {
+function extractErrorField(value: unknown, sanitize: boolean): string | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
   }
   const record = value as Record<string, unknown>;
   const direct =
-    readErrorCandidate(record.error) ??
-    readErrorCandidate(record.message) ??
-    readErrorCandidate(record.reason);
+    readErrorCandidate(record.error, sanitize) ??
+    readErrorCandidate(record.message, sanitize) ??
+    readErrorCandidate(record.reason, sanitize);
   if (direct) {
     return direct;
   }
@@ -81,7 +80,7 @@ function extractErrorField(value: unknown): string | undefined {
   if (!status || !isErrorLikeStatus(status)) {
     return undefined;
   }
-  return normalizeToolErrorText(status);
+  return sanitize ? normalizeToolErrorText(status) : status;
 }
 
 export function sanitizeToolResult(result: unknown): unknown {
@@ -131,8 +130,12 @@ export function extractToolResultText(result: unknown): string | undefined {
   return texts.join("\n");
 }
 
-// Core tool names that are allowed to emit local MEDIA: paths.
-// Plugin/MCP tools are intentionally excluded to prevent untrusted file reads.
+// Legacy fallback allowlist of core tools that emit local MEDIA paths
+// without a structured `details.artifact` contract. The preferred path is
+// capability-based trust via the producer registry — see
+// `isToolResultMediaTrusted` below. Do NOT add new entries here; instead
+// have the tool emit `details.artifact: { kind, format, mimeType, path }`
+// matching a producer registry entry.
 const TRUSTED_TOOL_RESULT_MEDIA = new Set([
   "agents_list",
   "apply_patch",
@@ -148,6 +151,7 @@ const TRUSTED_TOOL_RESULT_MEDIA = new Set([
   "memory_search",
   "message",
   "nodes",
+  "pdf",
   "process",
   "read",
   "session_status",
@@ -181,8 +185,31 @@ function isExternalToolResult(result: unknown): boolean {
   return typeof details.mcpServer === "string" || typeof details.mcpTool === "string";
 }
 
+/**
+ * Trust check for local media paths emitted by tool results.
+ *
+ * Two-layer policy:
+ *  1. Capability-based trust (preferred): a tool result is trusted when it
+ *     declares `details.artifact: { kind, format, mimeType, ... }` that maps
+ *     to a registered producer in `src/platform/produce/registry.ts`. This
+ *     keeps the path open for any artifact-producing tool (pdf, docx, xlsx,
+ *     csv, site, ...) without hardcoding tool names elsewhere.
+ *  2. Legacy fallback: a small static allowlist of core tools that haven't
+ *     migrated to the structured artifact contract yet (kept until every
+ *     such tool emits `details.artifact`).
+ *
+ * MCP / external-provenance results are always rejected — the trust is
+ * about *who produced the file*, not about how it was transported.
+ */
 export function isToolResultMediaTrusted(toolName?: string, result?: unknown): boolean {
-  if (!toolName || isExternalToolResult(result)) {
+  if (isExternalToolResult(result)) {
+    return false;
+  }
+  const artifact = extractProducedArtifactFromToolResult(result);
+  if (artifact && findProducer(artifact.kind, artifact.format)) {
+    return true;
+  }
+  if (!toolName) {
     return false;
   }
   const normalized = normalizeToolName(toolName);
@@ -265,6 +292,18 @@ export function extractToolResultMediaArtifact(
     }
   }
 
+  const artifactDescriptor = extractProducedArtifactFromToolResult(record);
+  if (artifactDescriptor) {
+    const url = artifactDescriptor.url?.trim();
+    const path = artifactDescriptor.path?.trim();
+    const mediaUrls = [url, path].filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    );
+    if (mediaUrls.length > 0) {
+      return { mediaUrls: Array.from(new Set(mediaUrls)) };
+    }
+  }
+
   const content = Array.isArray(record.content) ? record.content : null;
   if (!content) {
     return undefined;
@@ -330,16 +369,17 @@ export function isToolResultError(result: unknown): boolean {
   return normalized === "error" || normalized === "timeout";
 }
 
-export function extractToolErrorMessage(result: unknown): string | undefined {
+/** Raw tool error text for logging and receipt classification — may contain internal policy strings. */
+export function extractToolErrorRawMessage(result: unknown): string | undefined {
   if (!result || typeof result !== "object") {
     return undefined;
   }
   const record = result as Record<string, unknown>;
-  const fromDetails = extractErrorField(record.details);
+  const fromDetails = extractErrorField(record.details, false);
   if (fromDetails) {
     return fromDetails;
   }
-  const fromRoot = extractErrorField(record);
+  const fromRoot = extractErrorField(record, false);
   if (fromRoot) {
     return fromRoot;
   }
@@ -349,7 +389,38 @@ export function extractToolErrorMessage(result: unknown): string | undefined {
   }
   try {
     const parsed = JSON.parse(text) as unknown;
-    const fromJson = extractErrorField(parsed);
+    const fromJson = extractErrorField(parsed, false);
+    if (fromJson) {
+      return fromJson;
+    }
+  } catch {
+    // Fall through to first-line text fallback.
+  }
+  const first = text.trim().split(/\r?\n/)[0]?.trim();
+  return first || undefined;
+}
+
+/** User-facing sanitized tool error (never internal policy phrasing). */
+export function extractToolErrorMessage(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") {
+    return undefined;
+  }
+  const record = result as Record<string, unknown>;
+  const fromDetails = extractErrorField(record.details, true);
+  if (fromDetails) {
+    return fromDetails;
+  }
+  const fromRoot = extractErrorField(record, true);
+  if (fromRoot) {
+    return fromRoot;
+  }
+  const text = extractToolResultText(result);
+  if (!text) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    const fromJson = extractErrorField(parsed, true);
     if (fromJson) {
       return fromJson;
     }
@@ -394,6 +465,64 @@ export function isToolResultNoProgress(toolName: string, result: unknown): boole
   );
 }
 
+/**
+ * Extract a ProducedArtifact descriptor from a tool result's `details.artifact` payload.
+ * Producer tools (pdf/docx/xlsx/csv/site/image) emit `{ details: { artifact: {...} } }`;
+ * this helper converts that into the canonical ProducedArtifact shape the runtime uses
+ * for deliverable acceptance — no tool-name heuristics here.
+ */
+export function extractProducedArtifactFromToolResult(
+  result: unknown,
+): ProducedArtifact | undefined {
+  if (!result || typeof result !== "object") {
+    return undefined;
+  }
+  const record = result as Record<string, unknown>;
+  const details =
+    record.details && typeof record.details === "object" && !Array.isArray(record.details)
+      ? (record.details as Record<string, unknown>)
+      : undefined;
+  const rawArtifact = details?.artifact;
+  if (!rawArtifact || typeof rawArtifact !== "object" || Array.isArray(rawArtifact)) {
+    return undefined;
+  }
+  const artifact = rawArtifact as Record<string, unknown>;
+  const parsedKind = DeliverableKindSchema.safeParse(artifact.kind);
+  if (!parsedKind.success) {
+    return undefined;
+  }
+  const format = typeof artifact.format === "string" ? artifact.format.trim() : "";
+  const mimeType = typeof artifact.mimeType === "string" ? artifact.mimeType.trim() : "";
+  if (!format || !mimeType) {
+    return undefined;
+  }
+  const normalized: ProducedArtifact = {
+    kind: parsedKind.data,
+    format,
+    mimeType,
+  };
+  if (typeof artifact.path === "string" && artifact.path.trim()) {
+    normalized.path = artifact.path.trim();
+  }
+  if (typeof artifact.url === "string" && artifact.url.trim()) {
+    normalized.url = artifact.url.trim();
+  }
+  if (typeof artifact.sizeBytes === "number" && Number.isFinite(artifact.sizeBytes) && artifact.sizeBytes >= 0) {
+    normalized.sizeBytes = Math.floor(artifact.sizeBytes);
+  }
+  if (typeof artifact.bootstrapRequestId === "string" && artifact.bootstrapRequestId.trim()) {
+    normalized.bootstrapRequestId = artifact.bootstrapRequestId.trim();
+  }
+  if (
+    artifact.metadata &&
+    typeof artifact.metadata === "object" &&
+    !Array.isArray(artifact.metadata)
+  ) {
+    normalized.metadata = { ...(artifact.metadata as Record<string, unknown>) };
+  }
+  return normalized;
+}
+
 export function buildToolExecutionReceipt(params: {
   toolName: string;
   toolCallId: string;
@@ -402,14 +531,15 @@ export function buildToolExecutionReceipt(params: {
   result?: unknown;
 }): PlatformRuntimeExecutionReceipt {
   const reasons: string[] = [];
-  const normalizedToolName = normalizeToolName(params.toolName);
+  const normalizedToolName = normalizeToolName(params.toolName) || "unknown_tool";
   const statusText = readToolResultStatus(params.result);
-  const errorMessage = params.isToolError ? extractToolErrorMessage(params.result) : undefined;
+  const rawToolError = params.isToolError ? extractToolErrorRawMessage(params.result) : undefined;
+  const receiptReason = rawToolError ? sanitizeToolErrorReasonForReceipt(rawToolError) : undefined;
   let status: PlatformRuntimeExecutionReceipt["status"] = "success";
   if (params.isToolError) {
     status = "failed";
-    if (errorMessage) {
-      reasons.push(errorMessage);
+    if (receiptReason) {
+      reasons.push(receiptReason);
     }
   } else if (isToolResultNoProgress(normalizedToolName, params.result)) {
     status = "blocked";
@@ -427,6 +557,9 @@ export function buildToolExecutionReceipt(params: {
     status = "partial";
     reasons.push("tool completed with a partial result");
   }
+  const producedArtifact = !params.isToolError
+    ? extractProducedArtifactFromToolResult(params.result)
+    : undefined;
   return {
     kind: "tool",
     name: normalizedToolName,
@@ -441,6 +574,7 @@ export function buildToolExecutionReceipt(params: {
         : {}),
       ...(statusText ? { toolStatus: statusText } : {}),
     },
+    ...(producedArtifact ? { producedArtifacts: [producedArtifact] } : {}),
   };
 }
 

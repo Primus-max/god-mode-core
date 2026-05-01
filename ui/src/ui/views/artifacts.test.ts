@@ -42,6 +42,7 @@ function createProps(overrides: Partial<ArtifactsProps> = {}): ArtifactsProps {
       previewUrl: "http://example.test/preview",
       contentUrl: "http://example.test/content",
     },
+    buildArtifactHref: (artifactId) => `/ui/artifacts?artifact=${encodeURIComponent(artifactId)}`,
     onRefresh: () => undefined,
     onSelect: () => undefined,
     onFilterChange: () => undefined,
@@ -99,5 +100,91 @@ describe("artifacts view", () => {
     expect(container.textContent).toContain("Одобрить");
 
     await i18n.setLocale("en");
+  });
+
+  it("forwards filter input changes", async () => {
+    const onFilterChange = vi.fn();
+    const container = document.createElement("div");
+
+    render(renderArtifacts(createProps({ onFilterChange })), container);
+    await Promise.resolve();
+
+    const filterInput = container.querySelector('input[type="search"]');
+    expect(filterInput).toBeTruthy();
+    Object.defineProperty(filterInput, "value", { value: "invoice", configurable: true });
+    filterInput?.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(onFilterChange).toHaveBeenLastCalledWith("invoice");
+  });
+
+  it("renders canonical hrefs for artifact list rows", async () => {
+    const container = document.createElement("div");
+
+    render(
+      renderArtifacts(
+        createProps({
+          filterQuery: "invoice",
+          buildArtifactHref: (artifactId) =>
+            `/ui/artifacts?artifactQ=invoice&artifact=${encodeURIComponent(artifactId)}`,
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const rowLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Invoice Report"),
+    ) as HTMLAnchorElement | undefined;
+    expect(rowLink?.getAttribute("href")).toBe("/ui/artifacts?artifactQ=invoice&artifact=artifact-1");
+  });
+
+  it("uses JS handoff for primary clicks on artifact list rows", async () => {
+    const onSelect = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderArtifacts(
+        createProps({
+          onSelect,
+          buildArtifactHref: () => "/ui/artifacts?artifact=artifact-1",
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const rowLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Invoice Report"),
+    ) as HTMLAnchorElement | undefined;
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    rowLink?.dispatchEvent(event);
+
+    expect(onSelect).toHaveBeenCalledWith("artifact-1");
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("lets modified clicks fall through to the browser href for artifact list rows", async () => {
+    const onSelect = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderArtifacts(
+        createProps({
+          onSelect,
+          buildArtifactHref: () => "/ui/artifacts?artifact=artifact-1",
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const rowLink = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Invoice Report"),
+    ) as HTMLAnchorElement | undefined;
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
+    rowLink?.dispatchEvent(event);
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
   });
 });

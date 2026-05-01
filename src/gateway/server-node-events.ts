@@ -354,6 +354,7 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
         link?.attachments ?? undefined,
       );
       let images: Array<{ type: "image"; data: string; mimeType: string }> = [];
+      let documents: Array<{ type: "file"; data: string; mimeType: string; fileName: string }> = [];
       if (normalizedAttachments.length > 0) {
         try {
           const parsed = await parseMessageWithAttachments(message, normalizedAttachments, {
@@ -362,6 +363,7 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
           });
           message = parsed.message.trim();
           images = parsed.images;
+          documents = parsed.files;
         } catch {
           return;
         }
@@ -434,6 +436,7 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
           runId: sessionId,
           message,
           images,
+          documents,
           sessionId,
           sessionKey: canonicalKey,
           thinking: link?.thinking ?? undefined,

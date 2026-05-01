@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TRUSTED_CAPABILITY_CATALOG } from "../bootstrap/defaults.js";
 import type { ArtifactDescriptor } from "../schemas/artifact.js";
 import type { CapabilityCatalogEntry, CapabilityDescriptor } from "../schemas/capability.js";
 import type { Profile } from "../schemas/profile.js";
@@ -58,25 +59,9 @@ const missingCapability: CapabilityDescriptor = {
   trusted: true,
 };
 
-const pdfRendererCatalogEntry: CapabilityCatalogEntry = {
-  capability: {
-    id: "pdf-renderer",
-    label: "PDF Renderer",
-    status: "missing",
-    trusted: true,
-    requiredBins: ["playwright"],
-  },
-  source: "catalog",
-  install: {
-    method: "download",
-    packageRef: "playwright-pdf-renderer@1.0.0",
-    integrity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-    downloadUrl: "https://openclaw.ai/bootstrap/playwright-pdf-renderer-1.0.0.tgz",
-    archiveKind: "tar",
-    rollbackStrategy: "restore_previous",
-    sandboxed: true,
-  },
-};
+const pdfRendererCatalogEntry: CapabilityCatalogEntry = TRUSTED_CAPABILITY_CATALOG.find(
+  (e) => e.capability.id === "pdf-renderer",
+)!;
 
 const draftDoc: ArtifactDescriptor = {
   id: "doc-1",
@@ -175,6 +160,40 @@ describe("CapabilityRegistry contract", () => {
     const reg = createCapabilityRegistry([], [pdfRendererCatalogEntry]);
     expect(reg.listCatalogEntries()).toHaveLength(1);
     expect(reg.resolveCatalogEntry("pdf-renderer")).toEqual(pdfRendererCatalogEntry);
+  });
+
+  it("rejects catalog seeds that are not approved snapshots", () => {
+    const tampered: CapabilityCatalogEntry = {
+      ...pdfRendererCatalogEntry,
+      install: {
+        ...pdfRendererCatalogEntry.install!,
+        packageRef: "evil@1.0.0",
+      },
+    };
+    expect(() => createCapabilityRegistry([], [tampered])).toThrow(/does not match the approved catalog snapshot/);
+  });
+
+  it("rejects registerCatalogEntry for unknown ids", () => {
+    const reg = createCapabilityRegistry();
+    const alien: CapabilityCatalogEntry = {
+      capability: {
+        id: "alien-tool",
+        label: "Alien",
+        status: "missing",
+        trusted: true,
+        requiredBins: ["alien"],
+      },
+      source: "catalog",
+      install: {
+        method: "download",
+        packageRef: "alien-tool@1.0.0",
+        integrity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        downloadUrl: "https://openclaw.ai/bootstrap/alien-tool-1.0.0.tgz",
+        archiveKind: "tar",
+        rollbackStrategy: "restore_previous",
+      },
+    };
+    expect(() => reg.registerCatalogEntry(alien)).toThrow(/not in the approved capability catalog/);
   });
 });
 

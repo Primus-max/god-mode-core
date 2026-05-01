@@ -1,0 +1,46 @@
+# Calculation Report
+
+## Introduction
+This report provides a detailed analysis and calculations for the project Atlas. The primary objective is to assess the requirements and provide comprehensive calculations to ensure project feasibility and cost-effectiveness.
+
+## Assumptions
+- All loads are assumed to be constant and uniform across the project.
+- Losses are estimated based on standard industry practices and adjusted for project-specific conditions.
+- Price basis is set on current market rates as of April 2026.
+
+## Units and Conversions
+- The report uses SI units predominantly. 
+- Conversions: 1 inch = 2.54 cm, 1 pound = 0.453592 kg.
+
+## Calculation Steps
+### Example Calculation
+1. **Formula Used**: 
+   \[ Q = mc\Delta T \]
+   Where:
+   - \( Q \) is the heat energy (Joules)
+   - \( m \) is the mass (kg)
+   - \( c \) is the specific heat capacity (J/kg°C)
+   - \( \Delta T \) is the temperature change (°C)
+
+2. **Calculation**:
+   Given, \( m = 10 \) kg, \( c = 4.186 \) J/kg°C, \( \Delta T = 5 \)°C
+   \[ Q = 10 \times 4.186 \times 5 = 209.3 \text{ J} \]
+
+### Additional Calculations
+- Detailed calculations for each section are provided in the respective annex.
+
+## Ventilation/Air Exchange
+For ventilation norms, refer to the applicable SNiP/SP/GOST-class standards.
+
+## Supplier Comparison
+| Supplier | Scope | Units | Incoterms | Lead Time | Warranty |
+|----------|-------|-------|-----------|-----------|----------|
+| Supplier A | Full | Metric | FOB | 4 weeks | 1 year |
+| Supplier B | Partial | Imperial | CIF | 6 weeks | 2 years |
+
+## Conclusion
+The calculations indicate that the project is feasible with a balanced cost structure based on current assumptions and market conditions.
+
+## References
+- GOST 123-456
+- SNiP 789-1011

@@ -192,7 +192,7 @@ const BASELINE_CAPABILITIES: CapabilityDescriptor[] = [
     label: "PDF Renderer",
     status: "missing",
     trusted: true,
-    installMethod: "download",
+    installMethod: "node",
   },
 ];
 

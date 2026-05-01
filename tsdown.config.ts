@@ -173,6 +173,9 @@ function buildCoreDistEntries(): Record<string, string> {
     // it by a deterministic path instead of a content-hashed chunk name.
     // See https://github.com/openclaw/openclaw/issues/51676
     "cli/memory-cli": "src/cli/memory-cli.ts",
+    // run-main dynamically imports this module for lazy subcommand registration,
+    // so it must exist as a stable dist entry after clean builds.
+    "cli/program/register.subclis": "src/cli/program/register.subclis.ts",
     extensionAPI: "src/extensionAPI.ts",
     "infra/warning-filter": "src/infra/warning-filter.ts",
     "telegram/audit": "extensions/telegram/src/audit.ts",

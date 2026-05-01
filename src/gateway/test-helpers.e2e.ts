@@ -20,7 +20,7 @@ import {
 } from "../utils/message-channel.js";
 import { GatewayClient } from "./client.js";
 import { buildDeviceAuthPayloadV3 } from "./device-auth.js";
-import { PROTOCOL_VERSION } from "./protocol/index.js";
+import { type HelloOk, PROTOCOL_VERSION } from "./protocol/index.js";
 import { startGatewayServer } from "./server.js";
 
 export async function getFreeGatewayPort(): Promise<number> {
@@ -43,6 +43,7 @@ export async function connectGatewayClient(params: {
   instanceId?: string;
   deviceIdentity?: DeviceIdentity;
   onEvent?: (evt: { event?: string; payload?: unknown }) => void;
+  onHelloOk?: (hello: HelloOk) => void;
   connectDelayMs?: number;
   timeoutMs?: number;
   timeoutMessage?: string;
@@ -92,7 +93,10 @@ export async function connectGatewayClient(params: {
       instanceId: params.instanceId,
       deviceIdentity,
       onEvent: params.onEvent,
-      onHelloOk: () => stop(undefined, client),
+      onHelloOk: (hello) => {
+        params.onHelloOk?.(hello);
+        stop(undefined, client);
+      },
       onConnectError: (err) => stop(err),
       onClose: (code, reason) =>
         stop(new Error(`gateway closed during connect (${code}): ${reason}`)),

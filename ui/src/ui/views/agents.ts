@@ -73,6 +73,8 @@ export type AgentsProps = {
   agentsList: AgentsListResult | null;
   selectedAgentId: string | null;
   activePanel: AgentsPanel;
+  buildPanelHref: (panel: AgentsPanel) => string;
+  buildFileHref: (file: string) => string;
   config: ConfigState;
   channels: ChannelsState;
   cron: CronState;
@@ -220,7 +222,12 @@ export function renderAgents(props: AgentsProps) {
                 </div>
               `
             : html`
-                ${renderAgentTabs(props.activePanel, (panel) => props.onSelectPanel(panel), tabCounts)}
+                ${renderAgentTabs(
+                  props.activePanel,
+                  (panel) => props.onSelectPanel(panel),
+                  tabCounts,
+                  props.buildPanelHref,
+                )}
                 ${
                   props.activePanel === "overview"
                     ? renderAgentOverview({
@@ -254,6 +261,7 @@ export function renderAgents(props: AgentsProps) {
                         agentFileContents: props.agentFiles.contents,
                         agentFileDrafts: props.agentFiles.drafts,
                         agentFileSaving: props.agentFiles.saving,
+                        buildFileHref: props.buildFileHref,
                         onLoadFiles: props.onLoadFiles,
                         onSelectFile: props.onSelectFile,
                         onFileDraftChange: props.onFileDraftChange,
@@ -351,10 +359,15 @@ export function renderAgents(props: AgentsProps) {
 
 let actionsMenuOpen = false;
 
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+}
+
 function renderAgentTabs(
   active: AgentsPanel,
   onSelect: (panel: AgentsPanel) => void,
   counts: Record<string, number | null>,
+  buildHref: (panel: AgentsPanel) => string,
 ) {
   const tabs: Array<{ id: AgentsPanel; label: string }> = [
     { id: "overview", label: t("agents.tabs.overview") },
@@ -368,13 +381,19 @@ function renderAgentTabs(
     <div class="agent-tabs">
       ${tabs.map(
         (tab) => html`
-          <button
+          <a
             class="agent-tab ${active === tab.id ? "active" : ""}"
-            type="button"
-            @click=${() => onSelect(tab.id)}
+            href=${buildHref(tab.id)}
+            @click=${(event: MouseEvent) => {
+              if (isModifiedNavigationClick(event)) {
+                return;
+              }
+              event.preventDefault();
+              onSelect(tab.id);
+            }}
           >
             ${tab.label}${counts[tab.id] != null ? html`<span class="agent-tab-count">${counts[tab.id]}</span>` : nothing}
-          </button>
+          </a>
         `,
       )}
     </div>

@@ -1,0 +1,80 @@
+{
+  "c484bbe2a5267c5b3d51e00a172e8216e68e421270057bab49e36e883d167dd6": {
+    "deviceId": "c484bbe2a5267c5b3d51e00a172e8216e68e421270057bab49e36e883d167dd6",
+    "publicKey": "D-yvsW7DE-CMI6YhImhA1A2NovOGbZD0-7kVdtStu5I",
+    "displayName": "stage86-live-matrix",
+    "platform": "win32",
+    "clientId": "cli",
+    "clientMode": "cli",
+    "role": "operator",
+    "roles": [
+      "operator"
+    ],
+    "scopes": [
+      "operator.admin",
+      "operator.read",
+      "operator.write",
+      "operator.approvals"
+    ],
+    "approvedScopes": [
+      "operator.admin",
+      "operator.read",
+      "operator.write",
+      "operator.approvals"
+    ],
+    "tokens": {
+      "operator": {
+        "token": "lTUeyq-nArGuH3YerXFjR0v9jKxJN6znS2iuhnxr5B0",
+        "role": "operator",
+        "scopes": [
+          "operator.admin",
+          "operator.approvals",
+          "operator.read",
+          "operator.write"
+        ],
+        "createdAtMs": 1775847845377
+      }
+    },
+    "createdAtMs": 1775847845377,
+    "approvedAtMs": 1775847845377
+  },
+  "b5e731cbaca1171c3a2ba92026e08448d6c4986f31c5781f84bf91238742fa07": {
+    "deviceId": "b5e731cbaca1171c3a2ba92026e08448d6c4986f31c5781f84bf91238742fa07",
+    "publicKey": "hvzKmynhr0FWowAB-6n4Pu6rHYAP7tCcJqlEqh9_tlc",
+    "displayName": "stage86-live-matrix",
+    "platform": "win32",
+    "clientId": "cli",
+    "clientMode": "cli",
+    "role": "operator",
+    "roles": [
+      "operator"
+    ],
+    "scopes": [
+      "operator.admin",
+      "operator.read",
+      "operator.write",
+      "operator.approvals"
+    ],
+    "approvedScopes": [
+      "operator.admin",
+      "operator.read",
+      "operator.write",
+      "operator.approvals"
+    ],
+    "tokens": {
+      "operator": {
+        "token": "V9XlmEtAkHk9pQhZjnayGxoohF4e7cM-j3l0K-2SnSk",
+        "role": "operator",
+        "scopes": [
+          "operator.admin",
+          "operator.approvals",
+          "operator.read",
+          "operator.write"
+        ],
+        "createdAtMs": 1775891615283
+      }
+    },
+    "createdAtMs": 1775891615283,
+    "approvedAtMs": 1775891615283
+  }
+}

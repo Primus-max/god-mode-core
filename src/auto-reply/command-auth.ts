@@ -423,10 +423,11 @@ export function resolveCommandAuthorization(params: {
     const matchedCommandsAllowFrom = commandsAllowFromList.length
       ? senderCandidates.find((candidate) => commandsAllowFromList.includes(candidate))
       : undefined;
-    isAuthorizedSender = commandsAllowAll || Boolean(matchedCommandsAllowFrom);
+    isAuthorizedSender =
+      senderIsOwnerByScope || commandsAllowAll || Boolean(matchedCommandsAllowFrom);
   } else {
     // Fall back to existing behavior
-    isAuthorizedSender = commandAuthorized && isOwnerForCommands;
+    isAuthorizedSender = senderIsOwnerByScope || (commandAuthorized && isOwnerForCommands);
   }
 
   return {

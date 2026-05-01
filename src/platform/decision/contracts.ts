@@ -1,8 +1,16 @@
 import { z } from "zod";
 
+/**
+ * Snapshot fields such as `requestedToolNames`, `modelOverride`, and `fallbackModels` are execution hints
+ * for routing and planning. Effective tooling and autonomy remain governed by policy, not by profile
+ * scoring or recipe selection alone. See `PLATFORM_PROFILE_HINTS_ARE_NON_AUTHORITATIVE` in `schemas/profile.ts`.
+ */
+
 export const PlatformExecutionContextIntentSchema = z.enum([
   "general",
   "document",
+  "compare",
+  "calculation",
   "code",
   "publish",
 ]);
@@ -30,6 +38,14 @@ export type PlatformExecutionContextUnattendedBoundary = z.infer<
   typeof PlatformExecutionContextUnattendedBoundarySchema
 >;
 
+export const PlatformExecutionContextModelRouteTierSchema = z.enum([
+  "local_eligible",
+  "remote_required",
+]);
+export type PlatformExecutionContextModelRouteTier = z.infer<
+  typeof PlatformExecutionContextModelRouteTierSchema
+>;
+
 export const PlatformExecutionContextSnapshotSchema = z
   .object({
     profileId: z.string().min(1),
@@ -37,6 +53,7 @@ export const PlatformExecutionContextSnapshotSchema = z
     taskOverlayId: z.string().min(1).optional(),
     plannerReasoning: z.string().min(1).optional(),
     intent: PlatformExecutionContextIntentSchema.optional(),
+    modelRouteTier: PlatformExecutionContextModelRouteTierSchema.optional(),
     providerOverride: z.string().min(1).optional(),
     modelOverride: z.string().min(1).optional(),
     timeoutSeconds: z.number().positive().optional(),
@@ -55,3 +72,31 @@ export const PlatformExecutionContextSnapshotSchema = z
 export type PlatformExecutionContextSnapshot = z.infer<
   typeof PlatformExecutionContextSnapshotSchema
 >;
+
+/** Relative cost / capability tier for the first model route attempt after preflight. */
+export type ModelRouteCostTier = "control_plane_local" | "standard";
+
+/**
+ * Typed outcome of proactive model-route preflight (ordering only; failover remains the safety net).
+ */
+export type ModelRoutePreflightDecision = {
+  chosenProvider: string;
+  chosenModel: string;
+  /** Machine-oriented reason code for logs and telemetry */
+  reasonCode:
+    | "preflight_stronger_route"
+    | "preflight_primary_control_plane_local"
+    | "preflight_no_local_candidate"
+    | "preflight_reordered_remote_first"
+    | "preflight_reordered_local_strong_first"
+    | "preflight_reordered_local_first";
+  /** Human-readable explanation */
+  reason: string;
+  costTier: ModelRouteCostTier;
+  /** True when the first attempt uses a cheap local control-plane style provider */
+  controlPlaneUsed: boolean;
+  /** True when heuristics allow promoting a local control-plane candidate ahead of the configured primary */
+  localRoutingEligible: boolean;
+  /** True when candidate order changed vs configured primary-first resolution */
+  reordered: boolean;
+};

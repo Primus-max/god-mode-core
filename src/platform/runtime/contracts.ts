@@ -1,5 +1,14 @@
 import { z } from "zod";
 import { PlatformExecutionContextSnapshotSchema } from "../decision/contracts.js";
+import {
+  OutcomeContractSchema,
+  QualificationExecutionContractSchema,
+  QualificationLowConfidenceStrategySchema,
+  RequestedEvidenceKindSchema,
+} from "../decision/qualification-contract.js";
+import type { DecisionTrace } from "../decision/trace.js";
+import { DeliverableSpecSchema, ProducedArtifactSchema } from "../produce/registry.js";
+import { ArtifactKindSchema } from "../schemas/artifact.js";
 
 export const PlatformRuntimeBoundarySchema = z.enum([
   "exec_approval",
@@ -79,6 +88,26 @@ export const PlatformRuntimeTargetSchema = z
   .strict();
 export type PlatformRuntimeTarget = z.infer<typeof PlatformRuntimeTargetSchema>;
 
+export const PlatformRuntimeOperatorActorSchema = z
+  .object({
+    id: z.string().min(1).optional(),
+    displayName: z.string().min(1).optional(),
+    deviceId: z.string().min(1).optional(),
+    connId: z.string().min(1).optional(),
+  })
+  .strict();
+export type PlatformRuntimeOperatorActor = z.infer<typeof PlatformRuntimeOperatorActorSchema>;
+
+export const PlatformRuntimeOperatorDecisionSchema = z
+  .object({
+    action: z.string().min(1),
+    atMs: z.number().int().nonnegative(),
+    actor: PlatformRuntimeOperatorActorSchema.optional(),
+    source: z.string().min(1).optional(),
+  })
+  .strict();
+export type PlatformRuntimeOperatorDecision = z.infer<typeof PlatformRuntimeOperatorDecisionSchema>;
+
 export const PlatformRuntimeCheckpointSchema = z
   .object({
     id: z.string().min(1),
@@ -98,6 +127,7 @@ export const PlatformRuntimeCheckpointSchema = z
     approvedAtMs: z.number().int().nonnegative().optional(),
     resumedAtMs: z.number().int().nonnegative().optional(),
     completedAtMs: z.number().int().nonnegative().optional(),
+    lastOperatorDecision: PlatformRuntimeOperatorDecisionSchema.optional(),
   })
   .strict();
 export type PlatformRuntimeCheckpoint = z.infer<typeof PlatformRuntimeCheckpointSchema>;
@@ -113,11 +143,13 @@ export const PlatformRuntimeCheckpointSummarySchema = z
     nextActions: z.array(PlatformRuntimeNextActionSchema).optional(),
     target: PlatformRuntimeTargetSchema.optional(),
     continuation: PlatformRuntimeContinuationSummarySchema.optional(),
+    executionContext: PlatformExecutionContextSnapshotSchema.optional(),
     createdAtMs: z.number().int().nonnegative(),
     updatedAtMs: z.number().int().nonnegative(),
     approvedAtMs: z.number().int().nonnegative().optional(),
     resumedAtMs: z.number().int().nonnegative().optional(),
     completedAtMs: z.number().int().nonnegative().optional(),
+    lastOperatorDecision: PlatformRuntimeOperatorDecisionSchema.optional(),
   })
   .strict();
 export type PlatformRuntimeCheckpointSummary = z.infer<
@@ -199,6 +231,7 @@ export const PlatformRuntimeActionReceiptSchema = z
     operation: z.string().min(1).optional(),
     resultStatus: z.string().min(1).optional(),
     nodeInvokeResult: PlatformRuntimeNodeInvokeReceiptSchema.optional(),
+    operatorDecision: PlatformRuntimeOperatorDecisionSchema.optional(),
   })
   .strict();
 export type PlatformRuntimeActionReceipt = z.infer<typeof PlatformRuntimeActionReceiptSchema>;
@@ -300,6 +333,7 @@ export const PlatformRuntimeExecutionReceiptSchema = z
     summary: z.string().min(1).optional(),
     reasons: z.array(z.string().min(1)).optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
+    producedArtifacts: z.array(ProducedArtifactSchema).optional(),
   })
   .strict();
 export type PlatformRuntimeExecutionReceipt = z.infer<typeof PlatformRuntimeExecutionReceiptSchema>;
@@ -509,6 +543,65 @@ export const PlatformRuntimeRecoveryPolicySchema = z
   .strict();
 export type PlatformRuntimeRecoveryPolicy = z.infer<typeof PlatformRuntimeRecoveryPolicySchema>;
 
+export const ClassifierTelemetrySchema = z
+  .object({
+    /**
+     * `provenance_guard` is emitted by the typed-provenance short-circuit in
+     * `src/platform/decision/input.ts::buildClassifiedExecutionDecisionInput`
+     * and propagates through `buildPlannerInputFromTaskContract` into the
+     * runtime intent. Diagnostic-only — `runtime` consumers should not branch
+     * on this value.
+     */
+    source: z.enum(["llm", "fail_closed", "provenance_guard"]),
+    backend: z.string().min(1).optional(),
+    model: z.string().min(1).optional(),
+    primaryOutcome: z.string().min(1).optional(),
+    interactionMode: z.string().min(1).optional(),
+    confidence: z.number().optional(),
+    deliverableKind: z.string().min(1).optional(),
+    deliverableFormats: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
+export type ClassifierTelemetry = z.infer<typeof ClassifierTelemetrySchema>;
+
+/**
+ * Structured routing status produced by the recipe planner. Threaded through
+ * the runtime so downstream layers (reply, evidence, observability) can see
+ * exactly whether the planner actually matched a recipe to the contract.
+ *
+ * `matched` — recipe satisfies the contract; safe to execute.
+ * `low_confidence_clarify` — classifier said confidence is low and clarify
+ *     is the preferred strategy; recipe is a safe default.
+ * `contract_unsatisfiable` — planner could not find a recipe capable of
+ *     satisfying the declared contract; a safe fallback is still set on the
+ *     plan, but callers must NOT claim successful execution.
+ */
+export const RoutingOutcomeSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("matched"),
+      source: z.enum(["ranked", "contract_first_fallback"]),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("low_confidence_clarify"),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("contract_unsatisfiable"),
+      reasons: z.array(z.string().min(1)).min(1),
+    })
+    .strict(),
+]);
+export type RoutingOutcome = z.infer<typeof RoutingOutcomeSchema>;
+
+const DecisionTraceSchema = z.custom<DecisionTrace>(
+  (value) =>
+    typeof value === "object" && value !== null && (value as { version?: unknown }).version === 1,
+);
+
 export const PlatformRuntimeExecutionIntentSchema = z
   .object({
     runId: z.string().min(1),
@@ -516,14 +609,22 @@ export const PlatformRuntimeExecutionIntentSchema = z
     recipeId: z.string().min(1).optional(),
     taskOverlayId: z.string().min(1).optional(),
     plannerReasoning: z.string().min(1).optional(),
-    intent: z.enum(["general", "document", "code", "publish"]).optional(),
+    intent: z.enum(["general", "document", "compare", "calculation", "code", "publish"]).optional(),
     publishTargets: z.array(z.string().min(1)).optional(),
-    artifactKinds: z.array(z.string().min(1)).optional(),
+    artifactKinds: z.array(ArtifactKindSchema).optional(),
     requestedToolNames: z.array(z.string().min(1)).optional(),
+    deliverable: DeliverableSpecSchema.optional(),
+    outcomeContract: OutcomeContractSchema.optional(),
+    executionContract: QualificationExecutionContractSchema.optional(),
+    requestedEvidence: z.array(RequestedEvidenceKindSchema).optional(),
+    lowConfidenceStrategy: QualificationLowConfidenceStrategySchema.optional(),
     requiredCapabilities: z.array(z.string().min(1)).optional(),
     bootstrapRequiredCapabilities: z.array(z.string().min(1)).optional(),
     requireExplicitApproval: z.boolean().optional(),
     policyAutonomy: z.enum(["chat", "assist", "guarded"]).optional(),
+    classifierTelemetry: ClassifierTelemetrySchema.optional(),
+    routingOutcome: RoutingOutcomeSchema.optional(),
+    decisionTrace: DecisionTraceSchema.optional(),
     expectations: PlatformRuntimeExecutionContractExpectationSchema,
   })
   .strict();
@@ -593,8 +694,12 @@ export const PlatformRuntimeAcceptanceEvidenceSchema = z
     successfulCronAdds: z.number().int().nonnegative().optional(),
     declaredProfileId: z.string().min(1).optional(),
     declaredRecipeId: z.string().min(1).optional(),
-    declaredIntent: z.enum(["general", "document", "code", "publish"]).optional(),
-    declaredArtifactKinds: z.array(z.string().min(1)).optional(),
+    declaredIntent: PlatformRuntimeExecutionIntentSchema.shape.intent.optional(),
+    declaredArtifactKinds: z.array(ArtifactKindSchema).optional(),
+    declaredOutcomeContract: OutcomeContractSchema.optional(),
+    declaredExecutionContract: QualificationExecutionContractSchema.optional(),
+    declaredRequestedEvidence: z.array(RequestedEvidenceKindSchema).optional(),
+    declaredLowConfidenceStrategy: QualificationLowConfidenceStrategySchema.optional(),
     declaredRequiresOutput: z.boolean().optional(),
     declaredRequiresMessagingDelivery: z.boolean().optional(),
     declaredRequiresConfirmedAction: z.boolean().optional(),
@@ -691,6 +796,7 @@ export const PlatformRuntimeRunClosureSummarySchema = z
     reasonCode: PlatformRuntimeSupervisorVerdictReasonCodeSchema,
     reasons: z.array(z.string().min(1)),
     declaredIntent: PlatformRuntimeExecutionIntentSchema.shape.intent.optional(),
+    declaredOutcomeContract: OutcomeContractSchema.optional(),
     declaredProfileId: z.string().min(1).optional(),
     declaredRecipeId: z.string().min(1).optional(),
     requiresOutput: z.boolean().optional(),

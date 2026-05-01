@@ -8,8 +8,11 @@ import { icons } from "../icons.ts";
 import type { UiSettings } from "../storage.ts";
 import type {
   AttentionItem,
+  CapabilityCatalogSummary,
   CronJob,
   CronStatus,
+  RecipeCatalogSummary,
+  RuntimeCheckpointSummary,
   SessionsListResult,
   SpecialistRuntimeSnapshot,
   SessionsUsageResult,
@@ -25,6 +28,10 @@ import {
 } from "./overview-hints.ts";
 import { renderOverviewLogTail } from "./overview-log-tail.ts";
 import { renderSpecialistOverviewPanel } from "./specialist-context.ts";
+
+type OverviewCardNavigateOptions = {
+  skillFilter?: string;
+};
 
 export type OverviewProps = {
   connected: boolean;
@@ -51,6 +58,15 @@ export type OverviewProps = {
   specialistSaving: boolean;
   specialistError: string | null;
   specialistSnapshot: SpecialistRuntimeSnapshot | null;
+  catalogLoading: boolean;
+  catalogError: string | null;
+  recipeCatalog: RecipeCatalogSummary[];
+  capabilityCatalog: CapabilityCatalogSummary[];
+  runtimeLoading: boolean;
+  runtimeError: string | null;
+  runtimeSessionKey: string | null;
+  runtimeCheckpoints: RuntimeCheckpointSummary[];
+  runtimeCheckpointDetail: RuntimeCheckpointSummary | null;
   showGatewayToken: boolean;
   showGatewayPassword: boolean;
   onSettingsChange: (next: UiSettings) => void;
@@ -60,7 +76,14 @@ export type OverviewProps = {
   onToggleGatewayPasswordVisibility: () => void;
   onConnect: () => void;
   onRefresh: () => void;
-  onNavigate: (tab: string) => void;
+  buildCardHref: (tab: "usage" | "sessions" | "skills" | "cron", options?: OverviewCardNavigateOptions) => string;
+  buildChatHref: (sessionKey: string) => string;
+  onNavigate: (
+    tab: "usage" | "sessions" | "skills" | "cron",
+    options?: OverviewCardNavigateOptions,
+  ) => void;
+  onNavigateAttention: (href: string) => void;
+  onNavigateToChat: (sessionKey: string) => void;
   onRefreshLogs: () => void;
   onSpecialistOverrideChange: (
     next:
@@ -398,6 +421,15 @@ export function renderOverview(props: OverviewProps) {
       saving: props.specialistSaving,
       error: props.specialistError,
       snapshot: props.specialistSnapshot,
+      catalogLoading: props.catalogLoading,
+      catalogError: props.catalogError,
+      recipeCatalog: props.recipeCatalog,
+      capabilityCatalog: props.capabilityCatalog,
+      runtimeLoading: props.runtimeLoading,
+      runtimeError: props.runtimeError,
+      runtimeSessionKey: props.runtimeSessionKey,
+      runtimeCheckpoints: props.runtimeCheckpoints,
+      runtimeCheckpointDetail: props.runtimeCheckpointDetail,
       onOverrideChange: props.onSpecialistOverrideChange,
     })}
 
@@ -410,10 +442,16 @@ export function renderOverview(props: OverviewProps) {
       cronJobs: props.cronJobs,
       cronStatus: props.cronStatus,
       presenceCount: props.presenceCount,
+      buildHref: props.buildCardHref,
+      buildChatHref: props.buildChatHref,
       onNavigate: props.onNavigate,
+      onNavigateToChat: props.onNavigateToChat,
     })}
 
-    ${renderOverviewAttention({ items: props.attentionItems })}
+    ${renderOverviewAttention({
+      items: props.attentionItems,
+      onNavigate: props.onNavigateAttention,
+    })}
 
     <div class="ov-section-divider"></div>
 

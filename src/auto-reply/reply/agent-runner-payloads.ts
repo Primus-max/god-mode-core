@@ -19,10 +19,58 @@ import { applyReplyThreading, isRenderablePayload } from "./reply-payloads-base.
 let replyPayloadsDedupeRuntimePromise: Promise<
   typeof import("./reply-payloads-dedupe.runtime.js")
 > | null = null;
+const STANDALONE_TOOL_NAME_FIELD_RE =
+  /"(?:name|function|function_name|tool|tool_name)"\s*:\s*"[^"\r\n]+"/;
+const STANDALONE_TOOL_ARGUMENTS_FIELD_RE = /"arguments"\s*:\s*\{/;
 
 function loadReplyPayloadsDedupeRuntime() {
   replyPayloadsDedupeRuntimePromise ??= import("./reply-payloads-dedupe.runtime.js");
   return replyPayloadsDedupeRuntimePromise;
+}
+
+function unwrapStandaloneToolCallEnvelopeText(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenced?.[1]?.trim() || trimmed;
+}
+
+function looksLikeStandaloneToolCallEnvelopeText(text: string | undefined): boolean {
+  if (typeof text !== "string") {
+    return false;
+  }
+  const candidate = unwrapStandaloneToolCallEnvelopeText(text);
+  if (!candidate) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(candidate) as Record<string, unknown>;
+    const hasToolName =
+      typeof parsed.name === "string" ||
+      typeof parsed.function === "string" ||
+      typeof parsed.function_name === "string" ||
+      typeof parsed.tool === "string" ||
+      typeof parsed.tool_name === "string";
+    return (
+      hasToolName &&
+      "arguments" in parsed &&
+      Object.keys(parsed).every((key) =>
+        ["name", "function", "function_name", "tool", "tool_name", "arguments", "id"].includes(
+          key,
+        ),
+      )
+    );
+  } catch {
+    const trimmedCandidate = candidate.trim();
+    return (
+      trimmedCandidate.startsWith("{") &&
+      trimmedCandidate.endsWith("}") &&
+      STANDALONE_TOOL_NAME_FIELD_RE.test(trimmedCandidate) &&
+      STANDALONE_TOOL_ARGUMENTS_FIELD_RE.test(trimmedCandidate)
+    );
+  }
 }
 
 async function normalizeReplyPayloadMedia(params: {
@@ -106,7 +154,11 @@ export async function buildReplyPayloads(params: {
   originatingTo?: string;
   accountId?: string;
   normalizeMediaPaths?: (payload: ReplyPayload) => Promise<ReplyPayload>;
-}): Promise<{ replyPayloads: ReplyPayload[]; didLogHeartbeatStrip: boolean }> {
+}): Promise<{
+  replyPayloads: ReplyPayload[];
+  didLogHeartbeatStrip: boolean;
+  allReplyPayloadsAlreadyDelivered: boolean;
+}> {
   let didLogHeartbeatStrip = params.didLogHeartbeatStrip;
   const sanitizedPayloads = params.isHeartbeat
     ? params.payloads
@@ -152,7 +204,17 @@ export async function buildReplyPayloads(params: {
         });
       }),
     )
-  ).filter(isRenderablePayload);
+  ).filter((payload) => {
+    if (!isRenderablePayload(payload)) {
+      return false;
+    }
+    const hasMedia = resolveSendableOutboundReplyParts(payload).hasMedia;
+    if (hasMedia) {
+      return true;
+    }
+    // Standalone tool-call envelopes are recovery candidates, not user-facing replies.
+    return !looksLikeStandaloneToolCallEnvelopeText(payload.text);
+  });
 
   // Drop final payloads only when block streaming succeeded end-to-end.
   // If streaming aborted (e.g., timeout), fall back to final payloads.
@@ -221,10 +283,16 @@ export async function buildReplyPayloads(params: {
             (payload) => !params.directlySentBlockKeys!.has(createBlockReplyContentKey(payload)),
           )
         : mediaFilteredPayloads;
-  const replyPayloads = suppressMessagingToolReplies ? [] : filteredPayloads;
+  // Same-target messaging tool sends should suppress only duplicated content.
+  // After text/media dedupe, any remaining payload is still user-visible and
+  // must flow through normal delivery/closure handling.
+  const replyPayloads = filteredPayloads;
+  const allReplyPayloadsAlreadyDelivered =
+    replyTaggedPayloads.length > 0 && filteredPayloads.length === 0;
 
   return {
     replyPayloads,
     didLogHeartbeatStrip,
+    allReplyPayloadsAlreadyDelivered,
   };
 }

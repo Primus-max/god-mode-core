@@ -254,6 +254,31 @@ describe("handleChatEvent", () => {
     expect(state.chatStreamStartedAt).toBe(null);
   });
 
+  it("does not append a duplicate assistant final when the same message already ended the chat", () => {
+    const existingAssistant = {
+      role: "assistant",
+      content: [{ type: "text", text: "OK" }],
+      timestamp: 100,
+    };
+    const state = createState({
+      sessionKey: "main",
+      chatMessages: [existingAssistant],
+    });
+    const payload: ChatEventPayload = {
+      runId: "run-1",
+      sessionKey: "main",
+      state: "final",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "OK" }],
+        timestamp: 101,
+      },
+    };
+
+    expect(handleChatEvent(state, payload)).toBe("final");
+    expect(state.chatMessages).toEqual([existingAssistant]);
+  });
+
   it("processes aborted from own run and keeps partial assistant message", () => {
     const existingMessage = {
       role: "user",
@@ -541,6 +566,25 @@ describe("loadChatHistory", () => {
 
     // text takes precedence — "real reply" is NOT silent, so message is kept.
     expect(state.chatMessages).toHaveLength(1);
+  });
+
+  it("dedupes consecutive identical assistant replies from history", async () => {
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "Say OK" }] },
+      { role: "assistant", content: [{ type: "text", text: "OK" }], timestamp: 1 },
+      { role: "assistant", content: [{ type: "text", text: "OK" }], timestamp: 2 },
+    ];
+    const mockClient = {
+      request: vi.fn().mockResolvedValue({ messages }),
+    };
+    const state = createState({
+      client: mockClient as unknown as ChatState["client"],
+      connected: true,
+    });
+
+    await loadChatHistory(state);
+
+    expect(state.chatMessages).toEqual([messages[0], messages[1]]);
   });
 });
 

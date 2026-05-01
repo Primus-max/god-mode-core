@@ -114,50 +114,58 @@ function resolveChannelOrder(snapshot: ChannelsStatusSnapshot | null): ChannelKe
 
 function renderChannel(key: ChannelKey, props: ChannelsProps, data: ChannelsChannelData) {
   const accountCountLabel = renderChannelAccountCount(key, data.channelAccounts);
+  let content;
   switch (key) {
     case "whatsapp":
-      return renderWhatsAppCard({
+      content = renderWhatsAppCard({
         props,
         whatsapp: data.whatsapp,
         accountCountLabel,
       });
+      break;
     case "telegram":
-      return renderTelegramCard({
+      content = renderTelegramCard({
         props,
         telegram: data.telegram,
         telegramAccounts: data.channelAccounts?.telegram ?? [],
         accountCountLabel,
       });
+      break;
     case "discord":
-      return renderDiscordCard({
+      content = renderDiscordCard({
         props,
         discord: data.discord,
         accountCountLabel,
       });
+      break;
     case "googlechat":
-      return renderGoogleChatCard({
+      content = renderGoogleChatCard({
         props,
         googleChat: data.googlechat,
         accountCountLabel,
       });
+      break;
     case "slack":
-      return renderSlackCard({
+      content = renderSlackCard({
         props,
         slack: data.slack,
         accountCountLabel,
       });
+      break;
     case "signal":
-      return renderSignalCard({
+      content = renderSignalCard({
         props,
         signal: data.signal,
         accountCountLabel,
       });
+      break;
     case "imessage":
-      return renderIMessageCard({
+      content = renderIMessageCard({
         props,
         imessage: data.imessage,
         accountCountLabel,
       });
+      break;
     case "nostr": {
       const nostrAccounts = data.channelAccounts?.nostr ?? [];
       const primaryAccount = nostrAccounts[0];
@@ -175,7 +183,7 @@ function renderChannel(key: ChannelKey, props: ChannelsProps, data: ChannelsChan
             onToggleAdvanced: props.onNostrProfileToggleAdvanced,
           }
         : null;
-      return renderNostrCard({
+      content = renderNostrCard({
         props,
         nostr: data.nostr,
         nostrAccounts,
@@ -184,10 +192,59 @@ function renderChannel(key: ChannelKey, props: ChannelsProps, data: ChannelsChan
         profileFormCallbacks,
         onEditProfile: () => props.onNostrProfileEdit(accountId, profile),
       });
+      break;
     }
     default:
-      return renderGenericChannelCard(key, props, data.channelAccounts ?? {});
+      content = renderGenericChannelCard(key, props, data.channelAccounts ?? {});
+      break;
   }
+  const selected = props.selectedChannelKey === key;
+  return html`
+    <div
+      data-channel-key=${key}
+      class=${selected ? "channel-card-shell is-selected" : "channel-card-shell"}
+      style=${
+        selected
+          ? "border-radius:16px; outline:2px solid var(--accent-color, #6d5efc); outline-offset:2px;"
+          : ""
+      }
+      @click=${(event: MouseEvent) => {
+        if (!isChannelCardControlTarget(event.target)) {
+          return;
+        }
+        props.onSelectChannel(key);
+      }}
+    >
+      <a
+        href=${props.buildChannelHref(key)}
+        class="channel-card-link-overlay"
+        aria-label=${resolveChannelLabel(props.snapshot, key)}
+        @click=${(event: MouseEvent) => {
+          if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.altKey
+          ) {
+            event.stopPropagation();
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          props.onSelectChannel(key);
+        }}
+      ></a>
+      <div class="channel-card-link-content">${content}</div>
+    </div>
+  `;
+}
+
+function isChannelCardControlTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return Boolean(target.closest("button, input, select, textarea, label, summary, details"));
 }
 
 function renderGenericChannelCard(

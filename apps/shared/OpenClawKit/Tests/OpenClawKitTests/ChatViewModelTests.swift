@@ -23,6 +23,29 @@ private func historyPayload(
         thinkingLevel: "off")
 }
 
+@Test("decodes sessions.changed payload with omitted optional handoff fields")
+func decodeSessionChangedPayloadWithOmittedOptionals() throws {
+    let json = """
+    {
+      "sessionKey": "agent:main:main",
+      "reason": "patch",
+      "kind": "direct",
+      "updatedAt": 42,
+      "status": "done"
+    }
+    """
+    let payload = try JSONDecoder().decode(
+        OpenClawChatSessionChangedPayload.self,
+        from: Data(json.utf8))
+
+    #expect(payload.sessionKey == "agent:main:main")
+    #expect(payload.kind == "direct")
+    #expect(payload.status == "done")
+    #expect(payload.handoffTruthSource == nil)
+    #expect(payload.recoveryStatus == nil)
+    #expect(payload.runClosureSummary == nil)
+}
+
 private func sessionEntry(key: String, updatedAt: Double) -> OpenClawChatSessionEntry {
     OpenClawChatSessionEntry(
         key: key,

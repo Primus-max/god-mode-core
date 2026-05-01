@@ -1,5 +1,6 @@
 import { roleScopesAllow } from "../../../src/shared/operator-scope-compat.js";
 import { refreshChat } from "./app-chat.ts";
+import { DEFAULT_LOG_LEVEL_FILTERS } from "./app-defaults.ts";
 import {
   startBootstrapPolling,
   startArtifactsPolling,
@@ -13,12 +14,16 @@ import {
   stopDebugPolling,
 } from "./app-polling.ts";
 import { scheduleChatScroll, scheduleLogsScroll } from "./app-scroll.ts";
+import type { AppViewState } from "./app-view-state.ts";
 import type { OpenClawApp } from "./app.ts";
+import { collectChannelAttentionTargets } from "./channels-correlation.ts";
+import { loadAgentFileContent, loadAgentFiles } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
-import { loadAgents } from "./controllers/agents.ts";
+import { loadAgents, loadToolsCatalog } from "./controllers/agents.ts";
 import { loadArtifacts } from "./controllers/artifacts.ts";
 import { loadBootstrapRequests } from "./controllers/bootstrap.ts";
+import { loadPlatformCatalog } from "./controllers/catalog.ts";
 import { loadChannels } from "./controllers/channels.ts";
 import { loadConfig, loadConfigSchema } from "./controllers/config.ts";
 import { loadCronJobs, loadCronRuns, loadCronStatus } from "./controllers/cron.ts";
@@ -29,10 +34,11 @@ import { loadLogs } from "./controllers/logs.ts";
 import { loadMachineControl } from "./controllers/machine.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
+import { loadRuntimeInspector } from "./controllers/runtime-inspector.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSkills } from "./controllers/skills.ts";
 import { loadSpecialistContext } from "./controllers/specialist.ts";
-import { loadUsage } from "./controllers/usage.ts";
+import { loadSessionLogs, loadSessionTimeSeries, loadUsage } from "./controllers/usage.ts";
 import {
   inferBasePathFromPathname,
   normalizeBasePath,
@@ -41,10 +47,19 @@ import {
   tabFromPath,
   type Tab,
 } from "./navigation.ts";
+import { resolveSessionRuntimeInspectRunId } from "./session-runtime.ts";
+import { SKILL_FILTER_BLOCKED, SKILL_FILTER_MISSING } from "./skills-correlation.ts";
 import { saveSettings, type UiSettings } from "./storage.ts";
 import { startThemeTransition, type ThemeTransitionContext } from "./theme-transition.ts";
 import { resolveTheme, type ResolvedTheme, type ThemeMode, type ThemeName } from "./theme.ts";
-import type { AgentsListResult, AttentionItem } from "./types.ts";
+import type {
+  AgentsListResult,
+  AttentionItem,
+  CronDeliveryStatus,
+  CronRunScope,
+  CronRunsStatusValue,
+  LogLevel,
+} from "./types.ts";
 import { resetChatViewState } from "./views/chat.ts";
 
 type SettingsHost = {
@@ -69,10 +84,1362 @@ type SettingsHost = {
   agentsList?: AgentsListResult | null;
   agentsSelectedId?: string | null;
   agentsPanel?: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
+  agentFileActive?: string | null;
   pendingGatewayUrl?: string | null;
   systemThemeCleanup?: (() => void) | null;
   pendingGatewayToken?: string | null;
+  bootstrapFilterQuery?: string;
+  artifactsFilterQuery?: string;
+  artifactsSelectedId?: string | null;
+  bootstrapSelectedId?: string | null;
+  channelsSelectedKey?: string | null;
+  runtimeSessionKey?: string | null;
+  runtimeRunId?: string | null;
+  runtimeSelectedCheckpointId?: string | null;
+  runtimeSelectedActionId?: string | null;
+  runtimeSelectedClosureRunId?: string | null;
+  sessionsFilterActive?: string;
+  sessionsFilterLimit?: string;
+  sessionsIncludeGlobal?: boolean;
+  sessionsIncludeUnknown?: boolean;
+  sessionsSearchQuery?: string;
+  sessionsSortColumn?: "key" | "kind" | "updated" | "tokens";
+  sessionsSortDir?: "asc" | "desc";
+  sessionsPage?: number;
+  sessionsPageSize?: number;
+  sessionsResult?: { count?: number | null; sessions?: Array<{ key: string }> } | null;
+  cronJobsQuery?: string;
+  cronJobsEnabledFilter?: "all" | "enabled" | "disabled";
+  cronJobsScheduleKindFilter?: "all" | "at" | "every" | "cron";
+  cronJobsLastStatusFilter?: "all" | "ok" | "error" | "skipped";
+  cronJobsSortBy?: "nextRunAtMs" | "updatedAtMs" | "name";
+  cronJobsSortDir?: "asc" | "desc";
+  cronEditingJobId?: string | null;
+  cronRunsJobId?: string | null;
+  cronRunsScope?: CronRunScope;
+  cronRunsQuery?: string;
+  cronRunsSortDir?: "asc" | "desc";
+  cronRunsStatuses?: CronRunsStatusValue[];
+  cronRunsDeliveryStatuses?: CronDeliveryStatus[];
+  cronRunsStatusFilter?: "all" | CronRunsStatusValue;
+  usageStartDate?: string;
+  usageEndDate?: string;
+  usageSelectedSessions?: string[];
+  usageSelectedDays?: string[];
+  usageSelectedHours?: number[];
+  usageTimeZone?: "local" | "utc";
+  usageQuery?: string;
+  usageQueryDraft?: string;
+  usageChartMode?: "tokens" | "cost";
+  usageDailyChartMode?: "total" | "by-type";
+  usageSessionSort?: "tokens" | "cost" | "recent" | "messages" | "errors";
+  usageSessionSortDir?: "asc" | "desc";
+  usageSessionsTab?: "all" | "recent";
+  usageResult?: { sessions?: Array<{ key: string }> } | null;
+  usageTimeSeries?: OpenClawApp["usageTimeSeries"];
+  usageSessionLogs?: OpenClawApp["usageSessionLogs"];
+  skillsFilter?: string;
+  instancesReveal?: boolean;
+  configFormMode?: "form" | "raw";
+  configSearchQuery?: string;
+  configActiveSection?: string | null;
+  configActiveSubsection?: string | null;
+  communicationsFormMode?: "form" | "raw";
+  communicationsSearchQuery?: string;
+  communicationsActiveSection?: string | null;
+  communicationsActiveSubsection?: string | null;
+  appearanceFormMode?: "form" | "raw";
+  appearanceSearchQuery?: string;
+  appearanceActiveSection?: string | null;
+  appearanceActiveSubsection?: string | null;
+  automationFormMode?: "form" | "raw";
+  automationSearchQuery?: string;
+  automationActiveSection?: string | null;
+  automationActiveSubsection?: string | null;
+  infrastructureFormMode?: "form" | "raw";
+  infrastructureSearchQuery?: string;
+  infrastructureActiveSection?: string | null;
+  infrastructureActiveSubsection?: string | null;
+  aiAgentsFormMode?: "form" | "raw";
+  aiAgentsSearchQuery?: string;
+  aiAgentsActiveSection?: string | null;
+  aiAgentsActiveSubsection?: string | null;
+  debugCallMethod?: string;
+  debugCallParams?: string;
+  logsFilterText?: string;
+  logsLevelFilters?: Record<LogLevel, boolean>;
+  execApprovalsTarget?: "gateway" | "node";
+  execApprovalsTargetNodeId?: string | null;
+  execApprovalsSelectedAgent?: string | null;
 };
+
+type AttentionHost = Pick<
+  OpenClawApp,
+  | "lastError"
+  | "hello"
+  | "skillsReport"
+  | "bootstrapPendingCount"
+  | "bootstrapList"
+  | "machineStatus"
+  | "channelsSnapshot"
+  | "cronJobs"
+  | "attentionItems"
+  | "basePath"
+  | "sessionKey"
+  | "execApprovalQueue"
+  | "sessionsResult"
+  | "runtimeCheckpoints"
+  | "runtimeCheckpointDetail"
+>;
+
+function trimQueryValue(value: string | null | undefined): string | null {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed ? trimmed : null;
+}
+
+function normalizeDebugCallParams(value: string | null | undefined, fallback: string): string {
+  const trimmed = trimQueryValue(value);
+  if (!trimmed) {
+    return fallback;
+  }
+  try {
+    JSON.parse(trimmed);
+    return trimmed;
+  } catch {
+    return fallback;
+  }
+}
+
+const LOG_LEVEL_ORDER: readonly LogLevel[] = ["trace", "debug", "info", "warn", "error", "fatal"];
+const LOG_LEVEL_SET = new Set<LogLevel>(LOG_LEVEL_ORDER);
+
+function normalizeLogsLevelFilters(
+  filters?: Partial<Record<LogLevel, boolean>> | null,
+): Record<LogLevel, boolean> {
+  return {
+    trace: filters?.trace ?? DEFAULT_LOG_LEVEL_FILTERS.trace,
+    debug: filters?.debug ?? DEFAULT_LOG_LEVEL_FILTERS.debug,
+    info: filters?.info ?? DEFAULT_LOG_LEVEL_FILTERS.info,
+    warn: filters?.warn ?? DEFAULT_LOG_LEVEL_FILTERS.warn,
+    error: filters?.error ?? DEFAULT_LOG_LEVEL_FILTERS.error,
+    fatal: filters?.fatal ?? DEFAULT_LOG_LEVEL_FILTERS.fatal,
+  };
+}
+
+function parseLogsLevelFilters(raw: string | null | undefined): Record<LogLevel, boolean> {
+  const trimmed = trimQueryValue(raw);
+  if (!trimmed) {
+    return { ...DEFAULT_LOG_LEVEL_FILTERS };
+  }
+  const enabled = new Set<LogLevel>();
+  let sawNone = false;
+  for (const part of trimmed.split(",")) {
+    const token = part.trim().toLowerCase();
+    if (!token) {
+      continue;
+    }
+    if (token === "none") {
+      sawNone = true;
+      continue;
+    }
+    if (LOG_LEVEL_SET.has(token as LogLevel)) {
+      enabled.add(token as LogLevel);
+    }
+  }
+  if (enabled.size > 0) {
+    return {
+      trace: enabled.has("trace"),
+      debug: enabled.has("debug"),
+      info: enabled.has("info"),
+      warn: enabled.has("warn"),
+      error: enabled.has("error"),
+      fatal: enabled.has("fatal"),
+    };
+  }
+  if (sawNone) {
+    return {
+      trace: false,
+      debug: false,
+      info: false,
+      warn: false,
+      error: false,
+      fatal: false,
+    };
+  }
+  return { ...DEFAULT_LOG_LEVEL_FILTERS };
+}
+
+function serializeLogsLevelFilters(filters?: Partial<Record<LogLevel, boolean>> | null): string | null {
+  const normalized = normalizeLogsLevelFilters(filters);
+  const enabled = LOG_LEVEL_ORDER.filter((level) => normalized[level]);
+  if (enabled.length === LOG_LEVEL_ORDER.length) {
+    return null;
+  }
+  if (enabled.length === 0) {
+    return "none";
+  }
+  return enabled.join(",");
+}
+
+function normalizeExecApprovalsTarget(value: string | null | undefined): "gateway" | "node" {
+  return value === "node" ? "node" : "gateway";
+}
+
+function resolveExecApprovalsTarget(
+  host: Pick<SettingsHost, "execApprovalsTarget" | "execApprovalsTargetNodeId">,
+): { kind: "gateway" } | { kind: "node"; nodeId: string } {
+  if (host.execApprovalsTarget === "node" && trimQueryValue(host.execApprovalsTargetNodeId)) {
+    return { kind: "node", nodeId: host.execApprovalsTargetNodeId!.trim() };
+  }
+  return { kind: "gateway" };
+}
+
+function normalizeAgentsPanel(
+  value: string | null | undefined,
+): "overview" | "files" | "tools" | "skills" | "channels" | "cron" {
+  switch (value) {
+    case "files":
+    case "tools":
+    case "skills":
+    case "channels":
+    case "cron":
+      return value;
+    default:
+      return "overview";
+  }
+}
+
+function todayUsageDate(): string {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function normalizeUsageTimeZone(value: string | null | undefined): "local" | "utc" {
+  return value === "utc" ? "utc" : "local";
+}
+
+function normalizeUsageChartMode(
+  value: string | null | undefined,
+  fallback: "tokens" | "cost",
+): "tokens" | "cost" {
+  return value === "cost" ? "cost" : value === "tokens" ? "tokens" : fallback;
+}
+
+function normalizeUsageDailyChartMode(
+  value: string | null | undefined,
+  fallback: "total" | "by-type",
+): "total" | "by-type" {
+  return value === "total" ? "total" : value === "by-type" ? "by-type" : fallback;
+}
+
+function normalizeUsageSessionSort(
+  value: string | null | undefined,
+  fallback: "tokens" | "cost" | "recent" | "messages" | "errors",
+): "tokens" | "cost" | "recent" | "messages" | "errors" {
+  switch (value) {
+    case "tokens":
+    case "cost":
+    case "recent":
+    case "messages":
+    case "errors":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeUsageSessionSortDir(
+  value: string | null | undefined,
+  fallback: "asc" | "desc",
+): "asc" | "desc" {
+  return value === "asc" ? "asc" : value === "desc" ? "desc" : fallback;
+}
+
+function normalizeUsageSessionsTab(
+  value: string | null | undefined,
+  fallback: "all" | "recent",
+): "all" | "recent" {
+  return value === "recent" ? "recent" : value === "all" ? "all" : fallback;
+}
+
+const USAGE_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function normalizeUsageSelectedDays(values?: readonly string[] | null): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values ?? []) {
+    const day = trimQueryValue(value);
+    if (!day || !USAGE_DAY_RE.test(day) || seen.has(day)) {
+      continue;
+    }
+    seen.add(day);
+    normalized.push(day);
+  }
+  return normalized;
+}
+
+function parseUsageSelectedDaysParam(raw: string | null | undefined): string[] {
+  const trimmed = trimQueryValue(raw);
+  if (!trimmed) {
+    return [];
+  }
+  return normalizeUsageSelectedDays(trimmed.split(","));
+}
+
+function serializeUsageSelectedDays(values?: readonly string[] | null): string | null {
+  const normalized = normalizeUsageSelectedDays(values);
+  return normalized.length > 0 ? normalized.join(",") : null;
+}
+
+function normalizeUsageSelectedHours(values?: readonly number[] | null): number[] {
+  const normalized: number[] = [];
+  const seen = new Set<number>();
+  for (const value of values ?? []) {
+    if (!Number.isInteger(value) || value < 0 || value > 23 || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+function parseUsageSelectedHoursParam(raw: string | null | undefined): number[] {
+  const trimmed = trimQueryValue(raw);
+  if (!trimmed) {
+    return [];
+  }
+  const parsed: number[] = [];
+  for (const part of trimmed.split(",")) {
+    const value = Number(part.trim());
+    if (Number.isInteger(value)) {
+      parsed.push(value);
+    }
+  }
+  return normalizeUsageSelectedHours(parsed);
+}
+
+function serializeUsageSelectedHours(values?: readonly number[] | null): string | null {
+  const normalized = normalizeUsageSelectedHours(values);
+  return normalized.length > 0 ? normalized.join(",") : null;
+}
+
+function resolveUsageSelectedSessionKey(
+  host: Pick<SettingsHost, "usageSelectedSessions">,
+): string | null {
+  const selected = host.usageSelectedSessions ?? [];
+  return selected.length === 1 ? trimQueryValue(selected[0]) : null;
+}
+
+function normalizeBooleanQuery(value: string | null | undefined, fallback: boolean): boolean {
+  if (value == null) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true") {
+    return true;
+  }
+  if (normalized === "0" || normalized === "false") {
+    return false;
+  }
+  return fallback;
+}
+
+export type SettingsNavigationTab =
+  | "config"
+  | "communications"
+  | "appearance"
+  | "automation"
+  | "infrastructure"
+  | "aiAgents";
+
+export type SettingsFormMode = "form" | "raw";
+
+type SettingsNavigationBinding = {
+  tab: SettingsNavigationTab;
+  modeParam: string;
+  queryParam: string;
+  sectionParam: string;
+  subsectionParam: string;
+  modeProp: string;
+  queryProp: string;
+  sectionProp: string;
+  subsectionProp: string;
+};
+
+const SETTINGS_NAVIGATION_BINDINGS: readonly SettingsNavigationBinding[] = [
+  {
+    tab: "config",
+    modeParam: "configMode",
+    queryParam: "configQ",
+    sectionParam: "configSection",
+    subsectionParam: "configSubsection",
+    modeProp: "configFormMode",
+    queryProp: "configSearchQuery",
+    sectionProp: "configActiveSection",
+    subsectionProp: "configActiveSubsection",
+  },
+  {
+    tab: "communications",
+    modeParam: "communicationsMode",
+    queryParam: "communicationsQ",
+    sectionParam: "communicationsSection",
+    subsectionParam: "communicationsSubsection",
+    modeProp: "communicationsFormMode",
+    queryProp: "communicationsSearchQuery",
+    sectionProp: "communicationsActiveSection",
+    subsectionProp: "communicationsActiveSubsection",
+  },
+  {
+    tab: "appearance",
+    modeParam: "appearanceMode",
+    queryParam: "appearanceQ",
+    sectionParam: "appearanceSection",
+    subsectionParam: "appearanceSubsection",
+    modeProp: "appearanceFormMode",
+    queryProp: "appearanceSearchQuery",
+    sectionProp: "appearanceActiveSection",
+    subsectionProp: "appearanceActiveSubsection",
+  },
+  {
+    tab: "automation",
+    modeParam: "automationMode",
+    queryParam: "automationQ",
+    sectionParam: "automationSection",
+    subsectionParam: "automationSubsection",
+    modeProp: "automationFormMode",
+    queryProp: "automationSearchQuery",
+    sectionProp: "automationActiveSection",
+    subsectionProp: "automationActiveSubsection",
+  },
+  {
+    tab: "infrastructure",
+    modeParam: "infrastructureMode",
+    queryParam: "infrastructureQ",
+    sectionParam: "infrastructureSection",
+    subsectionParam: "infrastructureSubsection",
+    modeProp: "infrastructureFormMode",
+    queryProp: "infrastructureSearchQuery",
+    sectionProp: "infrastructureActiveSection",
+    subsectionProp: "infrastructureActiveSubsection",
+  },
+  {
+    tab: "aiAgents",
+    modeParam: "aiAgentsMode",
+    queryParam: "aiAgentsQ",
+    sectionParam: "aiAgentsSection",
+    subsectionParam: "aiAgentsSubsection",
+    modeProp: "aiAgentsFormMode",
+    queryProp: "aiAgentsSearchQuery",
+    sectionProp: "aiAgentsActiveSection",
+    subsectionProp: "aiAgentsActiveSubsection",
+  },
+];
+
+function normalizeSettingsFormMode(
+  value: string | null | undefined,
+  fallback: SettingsFormMode,
+): SettingsFormMode {
+  return value === "raw" || value === "form" ? value : fallback;
+}
+
+function getSettingsNavigationBinding(tab: Tab): SettingsNavigationBinding | null {
+  return SETTINGS_NAVIGATION_BINDINGS.find((binding) => binding.tab === tab) ?? null;
+}
+
+function applySettingsNavigationStateFromUrl(
+  host: SettingsHost,
+  pick: (key: string) => string | null,
+) {
+  const dynamicHost = host as unknown as Record<string, string | null | undefined>;
+  for (const binding of SETTINGS_NAVIGATION_BINDINGS) {
+    dynamicHost[binding.modeProp] = normalizeSettingsFormMode(pick(binding.modeParam), "form");
+    dynamicHost[binding.queryProp] = pick(binding.queryParam) ?? "";
+    dynamicHost[binding.sectionProp] = pick(binding.sectionParam);
+    dynamicHost[binding.subsectionProp] = dynamicHost[binding.sectionProp]
+      ? pick(binding.subsectionParam)
+      : null;
+  }
+}
+
+function clearSettingsNavigationQueryState(url: URL) {
+  for (const binding of SETTINGS_NAVIGATION_BINDINGS) {
+    setQueryValue(url, binding.modeParam, null);
+    setQueryValue(url, binding.queryParam, null);
+    setQueryValue(url, binding.sectionParam, null);
+    setQueryValue(url, binding.subsectionParam, null);
+  }
+}
+
+function applySettingsNavigationStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
+  clearSettingsNavigationQueryState(url);
+  const binding = getSettingsNavigationBinding(tab);
+  if (!binding) {
+    return;
+  }
+  const dynamicHost = host as unknown as Record<string, string | null | undefined>;
+  const activeSection = dynamicHost[binding.sectionProp];
+  setQueryValue(url, binding.modeParam, dynamicHost[binding.modeProp] ?? "form");
+  setQueryValue(url, binding.queryParam, dynamicHost[binding.queryProp]);
+  setQueryValue(url, binding.sectionParam, activeSection);
+  setQueryValue(
+    url,
+    binding.subsectionParam,
+    activeSection ? dynamicHost[binding.subsectionProp] : null,
+  );
+}
+
+function normalizeSessionsSortColumn(
+  value: string | null | undefined,
+  fallback: "key" | "kind" | "updated" | "tokens",
+): "key" | "kind" | "updated" | "tokens" {
+  switch (value) {
+    case "key":
+    case "kind":
+    case "updated":
+    case "tokens":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeSessionsSortDir(
+  value: string | null | undefined,
+  fallback: "asc" | "desc",
+): "asc" | "desc" {
+  return value === "asc" || value === "desc" ? value : fallback;
+}
+
+function normalizeNonNegativeInteger(value: string | null | undefined, fallback: number): number {
+  if (value == null) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function normalizeSessionsPageSize(value: string | null | undefined, fallback: number): number {
+  const parsed = normalizeNonNegativeInteger(value, fallback);
+  return parsed === 10 || parsed === 25 || parsed === 50 || parsed === 100 ? parsed : fallback;
+}
+
+function normalizeCronJobsEnabledFilter(
+  value: string | null | undefined,
+  fallback: "all" | "enabled" | "disabled",
+): "all" | "enabled" | "disabled" {
+  switch (value) {
+    case "all":
+    case "enabled":
+    case "disabled":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeCronJobsScheduleKindFilter(
+  value: string | null | undefined,
+  fallback: "all" | "at" | "every" | "cron",
+): "all" | "at" | "every" | "cron" {
+  switch (value) {
+    case "all":
+    case "at":
+    case "every":
+    case "cron":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeCronJobsLastStatusFilter(
+  value: string | null | undefined,
+  fallback: "all" | "ok" | "error" | "skipped",
+): "all" | "ok" | "error" | "skipped" {
+  switch (value) {
+    case "all":
+    case "ok":
+    case "error":
+    case "skipped":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeCronJobsSortBy(
+  value: string | null | undefined,
+  fallback: "nextRunAtMs" | "updatedAtMs" | "name",
+): "nextRunAtMs" | "updatedAtMs" | "name" {
+  switch (value) {
+    case "nextRunAtMs":
+    case "updatedAtMs":
+    case "name":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeCronSortDir(
+  value: string | null | undefined,
+  fallback: "asc" | "desc",
+): "asc" | "desc" {
+  return value === "asc" || value === "desc" ? value : fallback;
+}
+
+const CRON_RUNS_STATUS_URL = new Set<CronRunsStatusValue>(["ok", "error", "skipped"]);
+const CRON_RUNS_DELIVERY_URL = new Set<CronDeliveryStatus>([
+  "delivered",
+  "not-delivered",
+  "unknown",
+  "not-requested",
+]);
+
+function normalizeCronRunsScopeParam(value: string | null | undefined): CronRunScope | null {
+  if (value === "job" || value === "all") {
+    return value;
+  }
+  return null;
+}
+
+function parseCronRunsStatusesParam(raw: string | null | undefined): CronRunsStatusValue[] {
+  const trimmed = trimQueryValue(raw);
+  if (!trimmed) {
+    return [];
+  }
+  const out: CronRunsStatusValue[] = [];
+  for (const part of trimmed.split(",")) {
+    const token = part.trim();
+    if (token && CRON_RUNS_STATUS_URL.has(token as CronRunsStatusValue)) {
+      out.push(token as CronRunsStatusValue);
+    }
+  }
+  return out;
+}
+
+function parseCronRunsDeliveryParam(raw: string | null | undefined): CronDeliveryStatus[] {
+  const trimmed = trimQueryValue(raw);
+  if (!trimmed) {
+    return [];
+  }
+  const out: CronDeliveryStatus[] = [];
+  for (const part of trimmed.split(",")) {
+    const token = part.trim();
+    if (token && CRON_RUNS_DELIVERY_URL.has(token as CronDeliveryStatus)) {
+      out.push(token as CronDeliveryStatus);
+    }
+  }
+  return out;
+}
+
+function applyCronRunsStatusesToHost(
+  host: Pick<SettingsHost, "cronRunsStatuses" | "cronRunsStatusFilter">,
+  statuses: CronRunsStatusValue[],
+) {
+  host.cronRunsStatuses = statuses;
+  host.cronRunsStatusFilter = statuses.length === 1 ? statuses[0] : "all";
+}
+
+function serializeCronRunsStatuses(host: SettingsHost): string | null {
+  const list = host.cronRunsStatuses ?? [];
+  if (list.length === 0) {
+    return null;
+  }
+  return list.join(",");
+}
+
+function serializeCronRunsDelivery(host: SettingsHost): string | null {
+  const list = host.cronRunsDeliveryStatuses ?? [];
+  if (list.length === 0) {
+    return null;
+  }
+  return list.join(",");
+}
+
+function setQueryValue(url: URL, key: string, value: string | null | undefined) {
+  const trimmed = trimQueryValue(value);
+  if (trimmed) {
+    url.searchParams.set(key, trimmed);
+    return;
+  }
+  url.searchParams.delete(key);
+}
+
+export function buildTabHref(
+  host: Pick<SettingsHost, "basePath">,
+  tab: Tab,
+  params: Record<string, string | null | undefined> = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab(tab, host.basePath)}`);
+  for (const [key, value] of Object.entries(params)) {
+    setQueryValue(url, key, value);
+  }
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalTabHref(host: SettingsHost | AppViewState, tab: Tab): string {
+  const url = new URL(`https://openclaw.local${pathForTab(tab, host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, tab, url);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalChatHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    sessionKey?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("chat", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "chat", url);
+  const sessionKey =
+    "sessionKey" in overrides
+      ? trimQueryValue(overrides.sessionKey ?? null)
+      : trimQueryValue(host.sessionKey ?? null);
+  setQueryValue(url, "session", sessionKey);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalSkillsHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    skillFilter?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("skills", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "skills", url);
+  const skillFilter =
+    "skillFilter" in overrides
+      ? trimQueryValue(overrides.skillFilter ?? null)
+      : trimQueryValue(host.skillsFilter ?? null);
+  setQueryValue(url, "skillFilter", skillFilter);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalUsageHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    sessionKey?: string | null;
+    selectedDays?: string[] | null;
+    selectedHours?: number[] | null;
+    chartMode?: "tokens" | "cost";
+    dailyChartMode?: "total" | "by-type";
+    sessionsTab?: "all" | "recent";
+    sessionSort?: "tokens" | "cost" | "recent" | "messages" | "errors";
+    sessionSortDir?: "asc" | "desc";
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("usage", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "usage", url);
+  const sessionKey =
+    "sessionKey" in overrides
+      ? trimQueryValue(overrides.sessionKey ?? null)
+      : resolveUsageSelectedSessionKey(host as SettingsHost);
+  const selectedDays =
+    "selectedDays" in overrides
+      ? normalizeUsageSelectedDays(overrides.selectedDays ?? undefined)
+      : normalizeUsageSelectedDays(host.usageSelectedDays);
+  const selectedHours =
+    "selectedHours" in overrides
+      ? normalizeUsageSelectedHours(overrides.selectedHours ?? undefined)
+      : normalizeUsageSelectedHours(host.usageSelectedHours);
+  const chartMode = normalizeUsageChartMode(overrides.chartMode, host.usageChartMode ?? "tokens");
+  const dailyChartMode = normalizeUsageDailyChartMode(
+    overrides.dailyChartMode,
+    host.usageDailyChartMode ?? "by-type",
+  );
+  const sessionsTab = normalizeUsageSessionsTab(
+    overrides.sessionsTab,
+    host.usageSessionsTab ?? "all",
+  );
+  const sessionSort = normalizeUsageSessionSort(
+    overrides.sessionSort,
+    host.usageSessionSort ?? "recent",
+  );
+  const sessionSortDir = normalizeUsageSessionSortDir(
+    overrides.sessionSortDir,
+    host.usageSessionSortDir ?? "desc",
+  );
+  setQueryValue(url, "usageSession", sessionKey);
+  setQueryValue(url, "usageDays", serializeUsageSelectedDays(selectedDays));
+  setQueryValue(url, "usageHours", serializeUsageSelectedHours(selectedHours));
+  setQueryValue(url, "usageChart", chartMode !== "tokens" ? chartMode : null);
+  setQueryValue(url, "usageDaily", dailyChartMode !== "by-type" ? dailyChartMode : null);
+  setQueryValue(url, "usageSessions", sessionsTab !== "all" ? sessionsTab : null);
+  setQueryValue(url, "usageSort", sessionSort !== "recent" ? sessionSort : null);
+  setQueryValue(url, "usageSortDir", sessionSortDir !== "desc" ? sessionSortDir : null);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalUsageSessionHref(
+  host: SettingsHost | AppViewState,
+  sessionKey: string,
+): string {
+  return buildCanonicalUsageHref(host, { sessionKey });
+}
+
+export function buildCanonicalCronJobHref(
+  host: SettingsHost | AppViewState,
+  jobId: string,
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("cron", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "cron", url);
+  setQueryValue(url, "cronRunsScope", "job");
+  setQueryValue(url, "cronJob", jobId);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalCronEditHref(
+  host: SettingsHost | AppViewState,
+  jobId: string | null,
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("cron", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "cron", url);
+  setQueryValue(url, "cronEdit", trimQueryValue(jobId));
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalChannelHref(
+  host: SettingsHost | AppViewState,
+  channelKey: string,
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("channels", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "channels", url);
+  setQueryValue(url, "channel", channelKey);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalBootstrapHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    sessionKey?: string | null;
+    query?: string | null;
+    requestId?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("bootstrap", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "bootstrap", url);
+  const sessionKey =
+    "sessionKey" in overrides
+      ? trimQueryValue(overrides.sessionKey ?? null)
+      : trimQueryValue(host.sessionKey ?? null);
+  const query =
+    "query" in overrides
+      ? trimQueryValue(overrides.query ?? null)
+      : trimQueryValue(host.bootstrapFilterQuery ?? null);
+  const requestId =
+    "requestId" in overrides
+      ? trimQueryValue(overrides.requestId ?? null)
+      : trimQueryValue(host.bootstrapSelectedId ?? null);
+  setQueryValue(url, "session", sessionKey);
+  setQueryValue(url, "bootstrapQ", query);
+  setQueryValue(url, "bootstrapRequest", requestId);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalArtifactsHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    sessionKey?: string | null;
+    query?: string | null;
+    artifactId?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("artifacts", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "artifacts", url);
+  const sessionKey =
+    "sessionKey" in overrides
+      ? trimQueryValue(overrides.sessionKey ?? null)
+      : trimQueryValue(host.sessionKey ?? null);
+  const query =
+    "query" in overrides
+      ? trimQueryValue(overrides.query ?? null)
+      : trimQueryValue(host.artifactsFilterQuery ?? null);
+  const artifactId =
+    "artifactId" in overrides
+      ? trimQueryValue(overrides.artifactId ?? null)
+      : trimQueryValue(host.artifactsSelectedId ?? null);
+  setQueryValue(url, "session", sessionKey);
+  setQueryValue(url, "artifactQ", query);
+  setQueryValue(url, "artifact", artifactId);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalAgentsHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    agentId?: string | null;
+    panel?: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
+    file?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("agents", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "agents", url);
+  const panel = overrides.panel ?? host.agentsPanel ?? "overview";
+  const agentId =
+    "agentId" in overrides ? (overrides.agentId ?? null) : (host.agentsSelectedId ?? null);
+  const file =
+    "file" in overrides
+      ? overrides.file
+      : panel === "files"
+        ? (host.agentFileActive ?? null)
+        : null;
+  setQueryValue(url, "agent", agentId);
+  setQueryValue(url, "agentsPanel", panel);
+  setQueryValue(url, "agentFile", panel === "files" ? file : null);
+  setQueryValue(url, "skillFilter", panel === "skills" ? host.skillsFilter : null);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalSessionsListHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    activeMinutes?: string | null;
+    limit?: string | null;
+    includeGlobal?: boolean;
+    includeUnknown?: boolean;
+    searchQuery?: string | null;
+    sortColumn?: "key" | "kind" | "updated" | "tokens";
+    sortDir?: "asc" | "desc";
+    page?: number;
+    pageSize?: number;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("sessions", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "sessions", url);
+  const activeMinutes =
+    "activeMinutes" in overrides
+      ? trimQueryValue(overrides.activeMinutes ?? null)
+      : trimQueryValue(host.sessionsFilterActive ?? null);
+  const limit =
+    "limit" in overrides
+      ? trimQueryValue(overrides.limit ?? null)
+      : trimQueryValue(host.sessionsFilterLimit ?? null);
+  const includeGlobal = overrides.includeGlobal ?? (host.sessionsIncludeGlobal ?? true);
+  const includeUnknown = overrides.includeUnknown ?? (host.sessionsIncludeUnknown ?? false);
+  const searchQuery =
+    "searchQuery" in overrides
+      ? trimQueryValue(overrides.searchQuery ?? null)
+      : trimQueryValue(host.sessionsSearchQuery ?? null);
+  const sortColumn = normalizeSessionsSortColumn(
+    overrides.sortColumn,
+    host.sessionsSortColumn ?? "updated",
+  );
+  const sortDir = normalizeSessionsSortDir(overrides.sortDir, host.sessionsSortDir ?? "desc");
+  const page = normalizeNonNegativeInteger(
+    overrides.page == null ? null : String(overrides.page),
+    host.sessionsPage ?? 0,
+  );
+  const pageSize = normalizeSessionsPageSize(
+    overrides.pageSize == null ? null : String(overrides.pageSize),
+    host.sessionsPageSize ?? 25,
+  );
+  setQueryValue(url, "sessionsActive", activeMinutes);
+  setQueryValue(url, "sessionsLimit", limit);
+  setQueryValue(url, "sessionsGlobal", String(includeGlobal));
+  setQueryValue(url, "sessionsUnknown", String(includeUnknown));
+  setQueryValue(url, "sessionsQ", searchQuery);
+  setQueryValue(url, "sessionsSort", sortColumn);
+  setQueryValue(url, "sessionsDir", sortDir);
+  setQueryValue(url, "sessionsPage", String(page));
+  setQueryValue(url, "sessionsPageSize", String(pageSize));
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalLogsHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    filterText?: string | null;
+    levelFilters?: Record<LogLevel, boolean> | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("logs", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "logs", url);
+  const filterText =
+    "filterText" in overrides
+      ? trimQueryValue(overrides.filterText ?? null)
+      : trimQueryValue(host.logsFilterText ?? null);
+  const levelFilters =
+    "levelFilters" in overrides
+      ? normalizeLogsLevelFilters(overrides.levelFilters ?? undefined)
+      : normalizeLogsLevelFilters(host.logsLevelFilters);
+  setQueryValue(url, "logQ", filterText);
+  setQueryValue(url, "logLevels", serializeLogsLevelFilters(levelFilters));
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalSessionsRuntimeHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    sessionKey?: string | null;
+    runId?: string | null;
+    checkpointId?: string | null;
+    actionId?: string | null;
+    closureRunId?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("sessions", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "sessions", url);
+  const sessionKey =
+    "sessionKey" in overrides ? (overrides.sessionKey ?? null) : (host.runtimeSessionKey ?? null);
+  const runId = "runId" in overrides ? (overrides.runId ?? null) : (host.runtimeRunId ?? null);
+  const checkpointId =
+    "checkpointId" in overrides
+      ? (overrides.checkpointId ?? null)
+      : (host.runtimeSelectedCheckpointId ?? null);
+  const actionId =
+    "actionId" in overrides ? (overrides.actionId ?? null) : (host.runtimeSelectedActionId ?? null);
+  const closureRunId =
+    "closureRunId" in overrides
+      ? (overrides.closureRunId ?? null)
+      : (host.runtimeSelectedClosureRunId ?? null);
+  setQueryValue(url, "runtimeSession", sessionKey);
+  setQueryValue(url, "runtimeRun", runId);
+  setQueryValue(url, "checkpoint", checkpointId);
+  setQueryValue(url, "runtimeAction", actionId);
+  setQueryValue(url, "runtimeClosure", closureRunId);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalNodesExecApprovalsHref(
+  host: SettingsHost | AppViewState,
+  overrides: {
+    target?: "gateway" | "node";
+    nodeId?: string | null;
+    agentId?: string | null;
+  } = {},
+): string {
+  const url = new URL(`https://openclaw.local${pathForTab("nodes", host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, "nodes", url);
+  const currentTarget = resolveExecApprovalsTarget(host as SettingsHost);
+  const target = overrides.target ?? currentTarget.kind;
+  const nodeId =
+    "nodeId" in overrides
+      ? trimQueryValue(overrides.nodeId ?? null)
+      : currentTarget.kind === "node"
+        ? currentTarget.nodeId
+        : null;
+  const agentId =
+    "agentId" in overrides
+      ? trimQueryValue(overrides.agentId ?? null)
+      : trimQueryValue(host.execApprovalsSelectedAgent ?? null);
+  setQueryValue(url, "execTarget", target);
+  setQueryValue(url, "execNode", target === "node" ? nodeId : null);
+  setQueryValue(url, "execAgent", agentId);
+  return `${url.pathname}${url.search}`;
+}
+
+export function buildCanonicalSettingsShellHref(
+  host: SettingsHost | AppViewState,
+  tab: SettingsNavigationTab,
+  overrides: {
+    mode?: SettingsFormMode;
+    section?: string | null;
+    subsection?: string | null;
+  } = {},
+): string {
+  const binding = getSettingsNavigationBinding(tab);
+  const url = new URL(`https://openclaw.local${pathForTab(tab, host.basePath)}`);
+  applyTabQueryStateToUrl(host as SettingsHost, tab, url);
+  if (!binding) {
+    return `${url.pathname}${url.search}`;
+  }
+  if ("mode" in overrides && overrides.mode) {
+    setQueryValue(url, binding.modeParam, overrides.mode);
+  }
+  if ("section" in overrides) {
+    setQueryValue(url, binding.sectionParam, overrides.section);
+    setQueryValue(url, binding.subsectionParam, overrides.section ? overrides.subsection : null);
+  } else if ("subsection" in overrides) {
+    const activeSection = url.searchParams.get(binding.sectionParam);
+    setQueryValue(url, binding.subsectionParam, activeSection ? overrides.subsection : null);
+  }
+  return `${url.pathname}${url.search}`;
+}
+
+function applyDeepLinkStateFromUrl(
+  host: SettingsHost,
+  sources: { params: URLSearchParams; hashParams: URLSearchParams },
+) {
+  const pick = (key: string) =>
+    trimQueryValue(sources.params.get(key) ?? sources.hashParams.get(key));
+  host.agentsSelectedId = pick("agent");
+  host.agentsPanel = normalizeAgentsPanel(pick("agentsPanel"));
+  host.agentFileActive = host.agentsPanel === "files" ? pick("agentFile") : null;
+  host.bootstrapFilterQuery = pick("bootstrapQ") ?? host.bootstrapFilterQuery ?? "";
+  host.bootstrapSelectedId = pick("bootstrapRequest");
+  host.artifactsFilterQuery = pick("artifactQ") ?? host.artifactsFilterQuery ?? "";
+  host.artifactsSelectedId = pick("artifact");
+  host.channelsSelectedKey = pick("channel");
+  host.instancesReveal = normalizeBooleanQuery(
+    pick("instancesReveal"),
+    host.instancesReveal ?? false,
+  );
+  host.runtimeSessionKey = pick("runtimeSession");
+  host.runtimeRunId = pick("runtimeRun");
+  host.runtimeSelectedCheckpointId = pick("checkpoint");
+  host.runtimeSelectedActionId = pick("runtimeAction");
+  host.runtimeSelectedClosureRunId = pick("runtimeClosure");
+  host.sessionsFilterActive = pick("sessionsActive") ?? host.sessionsFilterActive ?? "";
+  host.sessionsFilterLimit = pick("sessionsLimit") ?? host.sessionsFilterLimit ?? "120";
+  host.sessionsIncludeGlobal = normalizeBooleanQuery(
+    pick("sessionsGlobal"),
+    host.sessionsIncludeGlobal ?? true,
+  );
+  host.sessionsIncludeUnknown = normalizeBooleanQuery(
+    pick("sessionsUnknown"),
+    host.sessionsIncludeUnknown ?? false,
+  );
+  host.sessionsSearchQuery = pick("sessionsQ") ?? host.sessionsSearchQuery ?? "";
+  host.sessionsSortColumn = normalizeSessionsSortColumn(
+    pick("sessionsSort"),
+    host.sessionsSortColumn ?? "updated",
+  );
+  host.sessionsSortDir = normalizeSessionsSortDir(
+    pick("sessionsDir"),
+    host.sessionsSortDir ?? "desc",
+  );
+  host.sessionsPage = normalizeNonNegativeInteger(pick("sessionsPage"), host.sessionsPage ?? 0);
+  host.sessionsPageSize = normalizeSessionsPageSize(
+    pick("sessionsPageSize"),
+    host.sessionsPageSize ?? 25,
+  );
+  host.cronJobsQuery = pick("cronQ") ?? host.cronJobsQuery ?? "";
+  host.cronJobsEnabledFilter = normalizeCronJobsEnabledFilter(
+    pick("cronEnabled"),
+    host.cronJobsEnabledFilter ?? "all",
+  );
+  host.cronJobsScheduleKindFilter = normalizeCronJobsScheduleKindFilter(
+    pick("cronSchedule"),
+    host.cronJobsScheduleKindFilter ?? "all",
+  );
+  host.cronJobsLastStatusFilter = normalizeCronJobsLastStatusFilter(
+    pick("cronStatus"),
+    host.cronJobsLastStatusFilter ?? "all",
+  );
+  host.cronJobsSortBy = normalizeCronJobsSortBy(
+    pick("cronSort"),
+    host.cronJobsSortBy ?? "nextRunAtMs",
+  );
+  host.cronJobsSortDir = normalizeCronSortDir(pick("cronDir"), host.cronJobsSortDir ?? "asc");
+  host.cronEditingJobId = trimQueryValue(pick("cronEdit"));
+  const cronJobPick = pick("cronJob");
+  const scopeParam = normalizeCronRunsScopeParam(pick("cronRunsScope"));
+  let resolvedScope: CronRunScope = scopeParam ?? (cronJobPick ? "job" : "all");
+  if (resolvedScope === "job" && !cronJobPick) {
+    resolvedScope = "all";
+  }
+  host.cronRunsScope = resolvedScope;
+  host.cronRunsJobId = resolvedScope === "job" ? cronJobPick : null;
+  host.cronRunsQuery = pick("cronRunsQ") ?? "";
+  host.cronRunsSortDir = normalizeCronSortDir(pick("cronRunsSort"), host.cronRunsSortDir ?? "desc");
+  const parsedStatuses = parseCronRunsStatusesParam(pick("cronRunsStatus"));
+  const parsedDelivery = parseCronRunsDeliveryParam(pick("cronRunsDelivery"));
+  applyCronRunsStatusesToHost(host, parsedStatuses);
+  host.cronRunsDeliveryStatuses = parsedDelivery;
+  host.usageStartDate = pick("usageFrom") ?? todayUsageDate();
+  host.usageEndDate = pick("usageTo") ?? todayUsageDate();
+  host.usageTimeZone = normalizeUsageTimeZone(pick("usageTz"));
+  const usageSelectedSession = pick("usageSession");
+  host.usageSelectedSessions = usageSelectedSession ? [usageSelectedSession] : [];
+  host.usageSelectedDays = parseUsageSelectedDaysParam(pick("usageDays"));
+  host.usageSelectedHours = parseUsageSelectedHoursParam(pick("usageHours"));
+  host.usageQuery = pick("usageQ") ?? "";
+  host.usageQueryDraft = host.usageQuery;
+  host.usageChartMode = normalizeUsageChartMode(pick("usageChart"), host.usageChartMode ?? "tokens");
+  host.usageDailyChartMode = normalizeUsageDailyChartMode(
+    pick("usageDaily"),
+    host.usageDailyChartMode ?? "by-type",
+  );
+  host.usageSessionsTab = normalizeUsageSessionsTab(
+    pick("usageSessions"),
+    host.usageSessionsTab ?? "all",
+  );
+  host.usageSessionSort = normalizeUsageSessionSort(
+    pick("usageSort"),
+    host.usageSessionSort ?? "recent",
+  );
+  host.usageSessionSortDir = normalizeUsageSessionSortDir(
+    pick("usageSortDir"),
+    host.usageSessionSortDir ?? "desc",
+  );
+  host.skillsFilter = pick("skillFilter") ?? "";
+  applySettingsNavigationStateFromUrl(host, pick);
+  host.debugCallMethod = pick("debugMethod") ?? host.debugCallMethod ?? "";
+  host.debugCallParams = normalizeDebugCallParams(
+    pick("debugParams"),
+    host.debugCallParams ?? "{}",
+  );
+  host.logsFilterText = pick("logQ") ?? "";
+  host.logsLevelFilters = parseLogsLevelFilters(pick("logLevels"));
+  host.execApprovalsTarget = normalizeExecApprovalsTarget(pick("execTarget"));
+  host.execApprovalsTargetNodeId = host.execApprovalsTarget === "node" ? pick("execNode") : null;
+  host.execApprovalsSelectedAgent = pick("execAgent");
+}
+
+function applyTabQueryStateToUrl(host: SettingsHost, tab: Tab, url: URL) {
+  setQueryValue(url, "session", host.sessionKey);
+  setQueryValue(url, "agent", null);
+  setQueryValue(url, "agentsPanel", null);
+  setQueryValue(url, "agentFile", null);
+  setQueryValue(url, "bootstrapQ", null);
+  setQueryValue(url, "bootstrapRequest", null);
+  setQueryValue(url, "artifactQ", null);
+  setQueryValue(url, "artifact", null);
+  setQueryValue(url, "channel", null);
+  setQueryValue(url, "instancesReveal", null);
+  setQueryValue(url, "runtimeSession", null);
+  setQueryValue(url, "runtimeRun", null);
+  setQueryValue(url, "checkpoint", null);
+  setQueryValue(url, "runtimeAction", null);
+  setQueryValue(url, "runtimeClosure", null);
+  setQueryValue(url, "sessionsActive", null);
+  setQueryValue(url, "sessionsLimit", null);
+  setQueryValue(url, "sessionsGlobal", null);
+  setQueryValue(url, "sessionsUnknown", null);
+  setQueryValue(url, "sessionsQ", null);
+  setQueryValue(url, "sessionsSort", null);
+  setQueryValue(url, "sessionsDir", null);
+  setQueryValue(url, "sessionsPage", null);
+  setQueryValue(url, "sessionsPageSize", null);
+  setQueryValue(url, "cronQ", null);
+  setQueryValue(url, "cronEnabled", null);
+  setQueryValue(url, "cronSchedule", null);
+  setQueryValue(url, "cronStatus", null);
+  setQueryValue(url, "cronSort", null);
+  setQueryValue(url, "cronDir", null);
+  setQueryValue(url, "cronEdit", null);
+  setQueryValue(url, "cronJob", null);
+  setQueryValue(url, "cronRunsScope", null);
+  setQueryValue(url, "cronRunsQ", null);
+  setQueryValue(url, "cronRunsSort", null);
+  setQueryValue(url, "cronRunsStatus", null);
+  setQueryValue(url, "cronRunsDelivery", null);
+  setQueryValue(url, "usageFrom", null);
+  setQueryValue(url, "usageTo", null);
+  setQueryValue(url, "usageTz", null);
+  setQueryValue(url, "usageSession", null);
+  setQueryValue(url, "usageDays", null);
+  setQueryValue(url, "usageHours", null);
+  setQueryValue(url, "usageQ", null);
+  setQueryValue(url, "usageChart", null);
+  setQueryValue(url, "usageDaily", null);
+  setQueryValue(url, "usageSessions", null);
+  setQueryValue(url, "usageSort", null);
+  setQueryValue(url, "usageSortDir", null);
+  setQueryValue(url, "skillFilter", null);
+  clearSettingsNavigationQueryState(url);
+  setQueryValue(url, "debugMethod", null);
+  setQueryValue(url, "debugParams", null);
+  setQueryValue(url, "logQ", null);
+  setQueryValue(url, "logLevels", null);
+  setQueryValue(url, "execTarget", null);
+  setQueryValue(url, "execNode", null);
+  setQueryValue(url, "execAgent", null);
+  if (tab === "agents") {
+    setQueryValue(url, "agent", host.agentsSelectedId);
+    setQueryValue(url, "agentsPanel", host.agentsPanel ?? "overview");
+    if (host.agentsPanel === "files") {
+      setQueryValue(url, "agentFile", host.agentFileActive);
+    }
+    if (host.agentsPanel === "skills") {
+      setQueryValue(url, "skillFilter", host.skillsFilter);
+    }
+  }
+  if (tab === "bootstrap") {
+    setQueryValue(url, "bootstrapQ", host.bootstrapFilterQuery);
+    setQueryValue(url, "bootstrapRequest", host.bootstrapSelectedId);
+  }
+  if (tab === "artifacts") {
+    setQueryValue(url, "artifactQ", host.artifactsFilterQuery);
+    setQueryValue(url, "artifact", host.artifactsSelectedId);
+  }
+  if (tab === "channels") {
+    setQueryValue(url, "channel", host.channelsSelectedKey);
+  }
+  if (tab === "instances") {
+    setQueryValue(url, "instancesReveal", host.instancesReveal ? "true" : null);
+  }
+  if (tab === "sessions") {
+    setQueryValue(url, "sessionsActive", host.sessionsFilterActive);
+    setQueryValue(url, "sessionsLimit", host.sessionsFilterLimit);
+    setQueryValue(url, "sessionsGlobal", String(host.sessionsIncludeGlobal ?? true));
+    setQueryValue(url, "sessionsUnknown", String(host.sessionsIncludeUnknown ?? false));
+    setQueryValue(url, "sessionsQ", host.sessionsSearchQuery);
+    setQueryValue(url, "sessionsSort", host.sessionsSortColumn);
+    setQueryValue(url, "sessionsDir", host.sessionsSortDir);
+    setQueryValue(url, "sessionsPage", String(host.sessionsPage ?? 0));
+    setQueryValue(url, "sessionsPageSize", String(host.sessionsPageSize ?? 25));
+    setQueryValue(url, "runtimeSession", host.runtimeSessionKey);
+    setQueryValue(url, "runtimeRun", host.runtimeRunId);
+    setQueryValue(url, "checkpoint", host.runtimeSelectedCheckpointId);
+    setQueryValue(url, "runtimeAction", host.runtimeSelectedActionId);
+    setQueryValue(url, "runtimeClosure", host.runtimeSelectedClosureRunId);
+  }
+  if (tab === "cron") {
+    setQueryValue(url, "cronQ", host.cronJobsQuery);
+    setQueryValue(url, "cronEnabled", host.cronJobsEnabledFilter);
+    setQueryValue(url, "cronSchedule", host.cronJobsScheduleKindFilter);
+    setQueryValue(url, "cronStatus", host.cronJobsLastStatusFilter);
+    setQueryValue(url, "cronSort", host.cronJobsSortBy);
+    setQueryValue(url, "cronDir", host.cronJobsSortDir);
+    setQueryValue(url, "cronEdit", host.cronEditingJobId);
+    if (host.cronRunsScope === "job") {
+      setQueryValue(url, "cronRunsScope", "job");
+      setQueryValue(url, "cronJob", host.cronRunsJobId);
+    } else {
+      setQueryValue(url, "cronRunsScope", "all");
+    }
+    setQueryValue(url, "cronRunsQ", host.cronRunsQuery?.trim() ? host.cronRunsQuery : null);
+    if (host.cronRunsSortDir && host.cronRunsSortDir !== "desc") {
+      setQueryValue(url, "cronRunsSort", host.cronRunsSortDir);
+    }
+    setQueryValue(url, "cronRunsStatus", serializeCronRunsStatuses(host));
+    setQueryValue(url, "cronRunsDelivery", serializeCronRunsDelivery(host));
+  }
+  if (tab === "usage") {
+    setQueryValue(url, "usageFrom", host.usageStartDate);
+    setQueryValue(url, "usageTo", host.usageEndDate);
+    setQueryValue(url, "usageTz", host.usageTimeZone);
+    setQueryValue(url, "usageSession", resolveUsageSelectedSessionKey(host));
+    setQueryValue(url, "usageDays", serializeUsageSelectedDays(host.usageSelectedDays));
+    setQueryValue(url, "usageHours", serializeUsageSelectedHours(host.usageSelectedHours));
+    setQueryValue(url, "usageQ", host.usageQuery);
+    setQueryValue(url, "usageChart", host.usageChartMode !== "tokens" ? host.usageChartMode : null);
+    setQueryValue(
+      url,
+      "usageDaily",
+      host.usageDailyChartMode !== "by-type" ? host.usageDailyChartMode : null,
+    );
+    setQueryValue(url, "usageSessions", host.usageSessionsTab !== "all" ? host.usageSessionsTab : null);
+    setQueryValue(url, "usageSort", host.usageSessionSort !== "recent" ? host.usageSessionSort : null);
+    setQueryValue(
+      url,
+      "usageSortDir",
+      host.usageSessionSortDir !== "desc" ? host.usageSessionSortDir : null,
+    );
+  }
+  if (tab === "skills") {
+    setQueryValue(url, "skillFilter", host.skillsFilter);
+  }
+  applySettingsNavigationStateToUrl(host, tab, url);
+  if (tab === "debug") {
+    setQueryValue(url, "debugMethod", trimQueryValue(host.debugCallMethod));
+    const debugParams = trimQueryValue(host.debugCallParams);
+    setQueryValue(url, "debugParams", debugParams && debugParams !== "{}" ? debugParams : null);
+  }
+  if (tab === "logs") {
+    setQueryValue(url, "logQ", host.logsFilterText);
+    setQueryValue(url, "logLevels", serializeLogsLevelFilters(host.logsLevelFilters));
+  }
+  if (tab === "nodes") {
+    const execTarget = resolveExecApprovalsTarget(host);
+    setQueryValue(url, "execTarget", execTarget.kind);
+    setQueryValue(url, "execNode", execTarget.kind === "node" ? execTarget.nodeId : null);
+    setQueryValue(url, "execAgent", host.execApprovalsSelectedAgent);
+  }
+}
 
 export function applySettings(host: SettingsHost, next: UiSettings) {
   const normalized = {
@@ -167,6 +1534,8 @@ export function applySettingsFromUrl(host: SettingsHost) {
     }
   }
 
+  applyDeepLinkStateFromUrl(host, { params, hashParams });
+
   if (gatewayUrlRaw != null) {
     if (gatewayUrlChanged) {
       host.pendingGatewayUrl = nextGatewayUrl;
@@ -239,18 +1608,91 @@ export async function refreshActiveTab(host: SettingsHost) {
   }
   if (host.tab === "usage") {
     await loadUsage(host as unknown as OpenClawApp);
+    const usageSessionKey = resolveUsageSelectedSessionKey(host);
+    if (!usageSessionKey) {
+      host.usageTimeSeries = null;
+      host.usageSessionLogs = null;
+    } else if (host.usageResult?.sessions?.some((entry) => entry.key === usageSessionKey)) {
+      await Promise.allSettled([
+        loadSessionTimeSeries(host as unknown as OpenClawApp, usageSessionKey),
+        loadSessionLogs(host as unknown as OpenClawApp, usageSessionKey),
+      ]);
+    } else {
+      host.usageSelectedSessions = [];
+      host.usageTimeSeries = null;
+      host.usageSessionLogs = null;
+      syncUrlWithTab(host, "usage", true);
+    }
   }
   if (host.tab === "sessions") {
-    await loadSessions(host as unknown as OpenClawApp);
+    const urlRuntimeAction =
+      typeof window !== "undefined"
+        ? trimQueryValue(new URL(window.location.href).searchParams.get("runtimeAction"))
+        : null;
+    const urlRuntimeClosure =
+      typeof window !== "undefined"
+        ? trimQueryValue(new URL(window.location.href).searchParams.get("runtimeClosure"))
+        : null;
+    await Promise.allSettled([
+      loadSessions(host as unknown as OpenClawApp),
+      loadRuntimeInspector(host as unknown as OpenClawApp),
+    ]);
+    const totalRows =
+      typeof host.sessionsResult?.count === "number"
+        ? host.sessionsResult.count
+        : (host.sessionsResult?.sessions?.length ?? 0);
+    const pageSize = host.sessionsPageSize ?? 25;
+    const maxPage = Math.max(0, Math.ceil(totalRows / pageSize) - 1);
+    if ((host.sessionsPage ?? 0) > maxPage) {
+      host.sessionsPage = maxPage;
+      syncUrlWithTab(host, "sessions", true);
+      return;
+    }
+    if (
+      (urlRuntimeAction != null &&
+        urlRuntimeAction !== (trimQueryValue(host.runtimeSelectedActionId) ?? null)) ||
+      (urlRuntimeClosure != null &&
+        urlRuntimeClosure !== (trimQueryValue(host.runtimeSelectedClosureRunId) ?? null))
+    ) {
+      syncUrlWithTab(host, "sessions", true);
+    }
   }
   if (host.tab === "cron") {
     await loadCron(host);
+    const app = host as unknown as OpenClawApp;
+    let changed = false;
+    if (
+      app.cronRunsScope === "job" &&
+      app.cronRunsJobId &&
+      !app.cronJobs.some((j) => j.id === app.cronRunsJobId)
+    ) {
+      app.cronRunsScope = "all";
+      app.cronRunsJobId = null;
+      await loadCronRuns(app, null);
+      changed = true;
+    }
+    if (
+      app.cronEditingJobId &&
+      !app.cronJobs.some((job) => job.id === app.cronEditingJobId)
+    ) {
+      app.cronEditingJobId = null;
+      changed = true;
+    }
+    if (changed) {
+      syncUrlWithTab(host, "cron", true);
+    }
   }
   if (host.tab === "artifacts") {
     await loadArtifacts(host as unknown as OpenClawApp);
   }
   if (host.tab === "bootstrap") {
-    await loadBootstrapRequests(host as unknown as OpenClawApp);
+    await Promise.allSettled([
+      loadBootstrapRequests(host as unknown as OpenClawApp),
+      loadRuntimeInspector(host as unknown as OpenClawApp, {
+        sessionKey: null,
+        runId: null,
+      }),
+    ]);
   }
   if (host.tab === "machine") {
     await loadMachineControl(host as unknown as OpenClawApp);
@@ -269,6 +1711,19 @@ export async function refreshActiveTab(host: SettingsHost) {
       host.agentsSelectedId ?? host.agentsList?.defaultId ?? host.agentsList?.agents?.[0]?.id;
     if (agentId) {
       void loadAgentIdentity(host as unknown as OpenClawApp, agentId);
+      if (host.agentsPanel === "files") {
+        const previousFile = host.agentFileActive ?? null;
+        await loadAgentFiles(host as unknown as OpenClawApp, agentId);
+        if (host.agentFileActive) {
+          void loadAgentFileContent(host as unknown as OpenClawApp, agentId, host.agentFileActive);
+        }
+        if (previousFile !== host.agentFileActive) {
+          syncUrlWithTab(host, "agents", true);
+        }
+      }
+      if (host.agentsPanel === "tools") {
+        void loadToolsCatalog(host as unknown as OpenClawApp, agentId);
+      }
       if (host.agentsPanel === "skills") {
         void loadAgentSkills(host as unknown as OpenClawApp, agentId);
       }
@@ -284,7 +1739,7 @@ export async function refreshActiveTab(host: SettingsHost) {
     await loadNodes(host as unknown as OpenClawApp);
     await loadDevices(host as unknown as OpenClawApp);
     await loadConfig(host as unknown as OpenClawApp);
-    await loadExecApprovals(host as unknown as OpenClawApp);
+    await loadExecApprovals(host as unknown as OpenClawApp, resolveExecApprovalsTarget(host));
   }
   if (host.tab === "chat") {
     await refreshChat(host as unknown as Parameters<typeof refreshChat>[0]);
@@ -433,6 +1888,10 @@ export function onPopState(host: SettingsHost) {
       lastActiveSessionKey: session,
     });
   }
+  applyDeepLinkStateFromUrl(host, {
+    params: url.searchParams,
+    hashParams: new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash),
+  });
 
   setTabFromRoute(host, resolved);
 }
@@ -494,19 +1953,19 @@ function applyTabSelection(
   }
 }
 
-export function syncUrlWithTab(host: SettingsHost, tab: Tab, replace: boolean) {
+export function syncUrlWithTab(host: SettingsHost | AppViewState, tab: Tab, replace: boolean) {
   if (typeof window === "undefined") {
     return;
   }
-  const targetPath = normalizePath(pathForTab(tab, host.basePath));
+  const settingsHost = host as SettingsHost;
+  const targetPath = normalizePath(pathForTab(tab, settingsHost.basePath));
   const currentPath = normalizePath(window.location.pathname);
   const url = new URL(window.location.href);
 
-  if (tab === "chat" && host.sessionKey) {
-    url.searchParams.set("session", host.sessionKey);
-  } else {
-    url.searchParams.delete("session");
+  if (tab === "chat" && settingsHost.sessionKey) {
+    url.searchParams.set("session", settingsHost.sessionKey);
   }
+  applyTabQueryStateToUrl(settingsHost, tab, url);
 
   if (currentPath !== targetPath) {
     url.pathname = targetPath;
@@ -519,7 +1978,11 @@ export function syncUrlWithTab(host: SettingsHost, tab: Tab, replace: boolean) {
   }
 }
 
-export function syncUrlWithSessionKey(host: SettingsHost, sessionKey: string, replace: boolean) {
+export function syncUrlWithSessionKey(
+  host: SettingsHost | AppViewState,
+  sessionKey: string,
+  replace: boolean,
+) {
   if (typeof window === "undefined") {
     return;
   }
@@ -534,6 +1997,10 @@ export function syncUrlWithSessionKey(host: SettingsHost, sessionKey: string, re
 
 export async function loadOverview(host: SettingsHost) {
   const app = host as unknown as OpenClawApp;
+  const activeSession = app.sessionsResult?.sessions.find(
+    (session) => session.key === app.sessionKey,
+  );
+  const runtimeRunId = resolveSessionRuntimeInspectRunId(activeSession) ?? null;
   await Promise.allSettled([
     loadChannels(app, false),
     loadPresence(app),
@@ -544,6 +2011,8 @@ export async function loadOverview(host: SettingsHost) {
     loadSkills(app),
     loadUsage(app),
     loadBootstrapRequests(app),
+    loadRuntimeInspector(app, { sessionKey: app.sessionKey || null, runId: runtimeRunId }),
+    loadPlatformCatalog(app),
     loadMachineControl(app),
     loadSpecialistContext(app, { draft: app.chatMessage }),
     loadOverviewLogs(app),
@@ -599,8 +2068,37 @@ async function loadOverviewLogs(host: OpenClawApp) {
   }
 }
 
-function buildAttentionItems(host: OpenClawApp) {
+function resolveRecoveryAttentionSeverity(status?: string | null): AttentionItem["severity"] {
+  if (status === "denied" || status === "cancelled" || status === "failed") {
+    return "error";
+  }
+  if (status === "approved" || status === "resumed") {
+    return "info";
+  }
+  return "warning";
+}
+
+function matchesRuntimeScope(
+  checkpoint: { sessionKey?: string; runId?: string },
+  sessionKey: string,
+  runId?: string | null,
+): boolean {
+  if (checkpoint.sessionKey !== sessionKey) {
+    return false;
+  }
+  if (!runId) {
+    return true;
+  }
+  return checkpoint.runId === runId;
+}
+
+export function buildAttentionItems(host: AttentionHost) {
   const items: AttentionItem[] = [];
+  const settingsHost = host as unknown as SettingsHost;
+  const buildSkillsHref = (skillFilter: string) =>
+    buildCanonicalSkillsHref(settingsHost, {
+      skillFilter,
+    });
 
   if (host.lastError) {
     items.push({
@@ -608,6 +2106,8 @@ function buildAttentionItems(host: OpenClawApp) {
       icon: "x",
       title: "Gateway Error",
       description: host.lastError,
+      href: buildCanonicalLogsHref(settingsHost),
+      actionLabel: "Open",
     });
   }
 
@@ -625,6 +2125,67 @@ function buildAttentionItems(host: OpenClawApp) {
     });
   }
 
+  const activeSession = host.sessionsResult?.sessions.find(
+    (session) => session.key === host.sessionKey,
+  );
+  const activeRunId = resolveSessionRuntimeInspectRunId(activeSession);
+  const fallbackCheckpoint =
+    host.runtimeCheckpoints.find((checkpoint) => checkpoint.sessionKey === host.sessionKey) ?? null;
+  const scopedCheckpoint =
+    host.runtimeCheckpointDetail &&
+    matchesRuntimeScope(host.runtimeCheckpointDetail, host.sessionKey, activeRunId)
+      ? host.runtimeCheckpointDetail
+      : (host.runtimeCheckpoints.find((checkpoint) =>
+          matchesRuntimeScope(checkpoint, host.sessionKey, activeRunId),
+        ) ?? fallbackCheckpoint);
+  const recoveryDescription =
+    activeSession?.recoveryOperatorHint ??
+    scopedCheckpoint?.operatorHint ??
+    activeSession?.recoveryBlockedReason ??
+    scopedCheckpoint?.blockedReason ??
+    null;
+  if (recoveryDescription && (activeSession?.recoveryStatus || scopedCheckpoint?.status)) {
+    items.push({
+      severity: resolveRecoveryAttentionSeverity(
+        activeSession?.recoveryStatus ?? scopedCheckpoint?.status,
+      ),
+      icon: "shield",
+      title: `Recovery needs review for ${activeSession?.label ?? activeSession?.displayName ?? host.sessionKey}`,
+      description: recoveryDescription,
+      href: buildCanonicalSessionsRuntimeHref(settingsHost, {
+        sessionKey: host.sessionKey,
+        runId: activeRunId ?? scopedCheckpoint?.runId ?? null,
+        checkpointId: activeSession?.recoveryCheckpointId ?? scopedCheckpoint?.id ?? null,
+      }),
+      actionLabel: "Review",
+    });
+  }
+
+  if (scopedCheckpoint?.target?.bootstrapRequestId) {
+    items.push({
+      severity: resolveRecoveryAttentionSeverity(scopedCheckpoint.status),
+      icon: "shield",
+      title: "Bootstrap request linked to current recovery",
+      description: scopedCheckpoint.operatorHint ?? "Open the linked bootstrap request.",
+      href: buildCanonicalBootstrapHref(settingsHost, {
+        requestId: scopedCheckpoint.target.bootstrapRequestId,
+      }),
+      actionLabel: "Open request",
+    });
+  } else if (scopedCheckpoint?.target?.artifactId) {
+    items.push({
+      severity: resolveRecoveryAttentionSeverity(scopedCheckpoint.status),
+      icon: "folder",
+      title: "Artifact transition needs review",
+      description:
+        scopedCheckpoint.operatorHint ?? "Open the linked artifact and review the transition.",
+      href: buildCanonicalArtifactsHref(settingsHost, {
+        artifactId: scopedCheckpoint.target.artifactId,
+      }),
+      actionLabel: "Open artifact",
+    });
+  }
+
   const skills = host.skillsReport?.skills ?? [];
   const missingDeps = skills.filter((s) => !s.disabled && hasMissingSkillDependencies(s.missing));
   if (missingDeps.length > 0) {
@@ -635,6 +2196,8 @@ function buildAttentionItems(host: OpenClawApp) {
       icon: "zap",
       title: "Skills with missing dependencies",
       description: `${names.join(", ")}${more}`,
+      href: buildSkillsHref(SKILL_FILTER_MISSING),
+      actionLabel: "Open",
     });
   }
 
@@ -645,16 +2208,74 @@ function buildAttentionItems(host: OpenClawApp) {
       icon: "shield",
       title: `${blocked.length} skill${blocked.length > 1 ? "s" : ""} blocked`,
       description: blocked.map((s) => s.name).join(", "),
+      href: buildSkillsHref(SKILL_FILTER_BLOCKED),
+      actionLabel: "Open",
+    });
+  }
+
+  const channelIssues = collectChannelAttentionTargets(host.channelsSnapshot);
+  if (channelIssues.length > 0) {
+    const primaryIssue = channelIssues[0];
+    const names = channelIssues.slice(0, 3).map((entry) => entry.label);
+    const more = channelIssues.length > 3 ? ` +${channelIssues.length - 3} more` : "";
+    items.push({
+      severity: "warning",
+      icon: "radio",
+      title: `${channelIssues.length} channel issue${channelIssues.length > 1 ? "s" : ""} detected`,
+      description: `${names.join(", ")}${more}`,
+      href: buildCanonicalChannelHref(settingsHost, primaryIssue.key),
+      actionLabel: "Open",
+    });
+  }
+
+  const execApprovalQueue = host.execApprovalQueue ?? [];
+  if (execApprovalQueue.length > 0) {
+    const primaryApproval = execApprovalQueue[0];
+    const target: {
+      execTarget: "gateway" | "node";
+      execNode: string | null;
+      execAgent: string | null | undefined;
+    } = primaryApproval?.request.nodeId?.trim()
+      ? {
+          execTarget: "node",
+          execNode: primaryApproval.request.nodeId,
+          execAgent: primaryApproval.request.agentId,
+        }
+      : {
+          execTarget: "gateway",
+          execNode: null,
+          execAgent: primaryApproval?.request.agentId ?? null,
+        };
+    items.push({
+      severity: "warning",
+      icon: "shield",
+      title: `${execApprovalQueue.length} exec approval${execApprovalQueue.length > 1 ? "s" : ""} pending`,
+      description:
+        primaryApproval?.request.blockedReason ??
+        primaryApproval?.request.command ??
+        "Operator review is required before execution can continue.",
+      href: buildCanonicalNodesExecApprovalsHref(settingsHost, {
+        target: target.execTarget,
+        nodeId: target.execNode,
+        agentId: target.execAgent ?? null,
+      }),
+      actionLabel: "Open",
     });
   }
 
   if (host.bootstrapPendingCount > 0) {
+    const pendingRequestId =
+      host.bootstrapList.find((entry) => entry.state === "pending")?.id ??
+      host.bootstrapList[0]?.id ??
+      null;
     items.push({
       severity: "warning",
       icon: "shield",
       title: `${host.bootstrapPendingCount} bootstrap request${host.bootstrapPendingCount > 1 ? "s" : ""} pending`,
       description: "Capability installs are waiting for operator approval.",
-      href: "/bootstrap",
+      href: buildCanonicalBootstrapHref(settingsHost, {
+        requestId: pendingRequestId,
+      }),
       actionLabel: "Open",
     });
   }
@@ -666,7 +2287,7 @@ function buildAttentionItems(host: OpenClawApp) {
       icon: "monitor",
       title: "Machine control kill switch enabled",
       description: "All machine-scoped execution is currently blocked.",
-      href: "/machine",
+      href: buildCanonicalTabHref(settingsHost, "machine"),
       actionLabel: "Open",
     });
   } else if (machineStatus?.currentDevice?.access.code === "device_not_linked") {
@@ -675,7 +2296,7 @@ function buildAttentionItems(host: OpenClawApp) {
       icon: "monitor",
       title: "Current device is not linked for machine control",
       description: "Link this operator device before approving machine-scoped execution.",
-      href: "/machine",
+      href: buildCanonicalTabHref(settingsHost, "machine"),
       actionLabel: "Open",
     });
   }
@@ -683,11 +2304,14 @@ function buildAttentionItems(host: OpenClawApp) {
   const cronJobs = host.cronJobs ?? [];
   const failedCron = cronJobs.filter((j) => j.state?.lastStatus === "error");
   if (failedCron.length > 0) {
+    const failedCronJobId = (failedCron[0] as { id?: string | null } | undefined)?.id ?? null;
     items.push({
       severity: "error",
       icon: "clock",
       title: `${failedCron.length} cron job${failedCron.length > 1 ? "s" : ""} failed`,
       description: failedCron.map((j) => j.name).join(", "),
+      href: failedCronJobId ? buildCanonicalCronJobHref(settingsHost, failedCronJobId) : undefined,
+      actionLabel: failedCronJobId ? "Open" : undefined,
     });
   }
 
@@ -696,11 +2320,14 @@ function buildAttentionItems(host: OpenClawApp) {
     (j) => j.enabled && j.state?.nextRunAtMs != null && now - j.state.nextRunAtMs > 300_000,
   );
   if (overdue.length > 0) {
+    const overdueCronJobId = (overdue[0] as { id?: string | null } | undefined)?.id ?? null;
     items.push({
       severity: "warning",
       icon: "clock",
       title: `${overdue.length} overdue job${overdue.length > 1 ? "s" : ""}`,
       description: overdue.map((j) => j.name).join(", "),
+      href: overdueCronJobId ? buildCanonicalCronJobHref(settingsHost, overdueCronJobId) : undefined,
+      actionLabel: overdueCronJobId ? "Open" : undefined,
     });
   }
 

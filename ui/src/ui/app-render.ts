@@ -1,8 +1,5 @@
 import { html, nothing } from "lit";
-import {
-  buildAgentMainSessionKey,
-  parseAgentSessionKey,
-} from "../../../src/routing/session-key.js";
+import { parseAgentSessionKey } from "../../../src/routing/session-key.js";
 import { t } from "../i18n/index.ts";
 import { getSafeLocalStorage } from "../local-storage.ts";
 import { refreshChatAvatar } from "./app-chat.ts";
@@ -13,9 +10,29 @@ import {
   renderChatSessionSelect,
   renderTab,
   renderSidebarConnectionStatus,
+  switchChatAgent,
   renderTopbarThemeModeToggle,
   switchChatSession,
+  switchOverviewSession,
 } from "./app-render.helpers.ts";
+import {
+  buildCanonicalAgentsHref,
+  buildCanonicalArtifactsHref,
+  buildCanonicalBootstrapHref,
+  buildCanonicalChatHref,
+  buildCanonicalLogsHref,
+  buildCanonicalNodesExecApprovalsHref,
+  buildCanonicalSessionsListHref,
+  buildCanonicalSessionsRuntimeHref,
+  buildCanonicalSettingsShellHref,
+  buildCanonicalChannelHref,
+  buildCanonicalCronEditHref,
+  buildCanonicalCronJobHref,
+  buildCanonicalSkillsHref,
+  buildCanonicalTabHref,
+  onPopState,
+  syncUrlWithTab,
+} from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
@@ -83,6 +100,14 @@ import {
 } from "./controllers/machine.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
+import {
+  clearRuntimeInspectorScope,
+  executeRuntimeRecoveryAction,
+  loadRuntimeActionDetail,
+  loadRuntimeCheckpointDetail,
+  loadRuntimeClosureDetail,
+  loadRuntimeInspector,
+} from "./controllers/runtime-inspector.ts";
 import { deleteSessionsAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
 import {
   installSkill,
@@ -169,6 +194,15 @@ const CRON_TIMEZONE_SUGGESTIONS = [
   "Europe/Berlin",
   "Asia/Tokyo",
 ];
+
+function resolveExecApprovalsTarget(state: {
+  execApprovalsTarget: "gateway" | "node";
+  execApprovalsTargetNodeId: string | null;
+}) {
+  return state.execApprovalsTarget === "node" && state.execApprovalsTargetNodeId
+    ? { kind: "node" as const, nodeId: state.execApprovalsTargetNodeId }
+    : { kind: "gateway" as const };
+}
 
 function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
@@ -312,6 +346,14 @@ export function renderApp(state: AppViewState) {
       ? () => updatableState.requestUpdate?.()
       : undefined;
   _pendingUpdate = requestHostUpdate;
+  const navigateByHref = (href: string) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const target = new URL(href, window.location.origin);
+    window.history.pushState({}, "", `${target.pathname}${target.search}${target.hash}`);
+    onPopState(state as unknown as Parameters<typeof onPopState>[0]);
+  };
 
   // Gate: require successful gateway connection before showing the dashboard.
   // The gateway URL confirmation overlay is always rendered so URL-param flows still work.
@@ -342,6 +384,17 @@ export function renderApp(state: AppViewState) {
     state.agentsList?.defaultId ??
     state.agentsList?.agents?.[0]?.id ??
     null;
+  const chatAgentId = parseAgentSessionKey(state.sessionKey)?.agentId ?? resolvedAgentId ?? "main";
+  const refreshAgentFiles = async (agentId: string, syncUrl = false) => {
+    const previousFile = state.agentFileActive;
+    await loadAgentFiles(state, agentId);
+    if (state.agentFileActive) {
+      await loadAgentFileContent(state, agentId, state.agentFileActive);
+    }
+    if (syncUrl && previousFile !== state.agentFileActive) {
+      syncUrlWithTab(state, "agents", true);
+    }
+  };
   const getCurrentConfigValue = () =>
     state.configForm ?? (state.configSnapshot?.config as Record<string, unknown> | null);
   const findAgentIndex = (agentId: string) =>
@@ -415,8 +468,9 @@ export function renderApp(state: AppViewState) {
       onActiveIndexChange: (i) => {
         state.paletteActiveIndex = i;
       },
+      buildNavigationHref: (tab) => buildCanonicalTabHref(state, tab),
       onNavigate: (tab) => {
-        state.setTab(tab as import("./navigation.ts").Tab);
+        state.setTab(tab);
       },
       onSlashCommand: (cmd) => {
         state.setTab("chat" as import("./navigation.ts").Tab);
@@ -449,7 +503,13 @@ export function renderApp(state: AppViewState) {
             <span class="nav-collapse-toggle__icon" aria-hidden="true">${icons.menu}</span>
           </button>
           <div class="topnav-shell__content">
-            <dashboard-header .tab=${state.tab}></dashboard-header>
+            <dashboard-header
+              .tab=${state.tab}
+              .homeHref=${buildCanonicalTabHref(state, "overview")}
+              @navigate=${() => {
+                state.setTab("overview");
+              }}
+            ></dashboard-header>
           </div>
           <div class="topnav-shell__actions">
             <button
@@ -661,21 +721,21 @@ export function renderApp(state: AppViewState) {
                 specialistSaving: state.specialistSaving,
                 specialistError: state.specialistError,
                 specialistSnapshot: state.specialistSnapshot,
+                catalogLoading: state.catalogLoading,
+                catalogError: state.catalogError,
+                recipeCatalog: state.recipeCatalog,
+                capabilityCatalog: state.capabilityCatalog,
+                runtimeLoading: state.runtimeLoading,
+                runtimeError: state.runtimeError,
+                runtimeSessionKey: state.runtimeSessionKey,
+                runtimeCheckpoints: state.runtimeCheckpoints,
+                runtimeCheckpointDetail: state.runtimeCheckpointDetail,
                 showGatewayToken: state.overviewShowGatewayToken,
                 showGatewayPassword: state.overviewShowGatewayPassword,
                 onSettingsChange: (next) => state.applySettings(next),
                 onPasswordChange: (next) => (state.password = next),
                 onSessionKeyChange: (next) => {
-                  state.sessionKey = next;
-                  state.chatMessage = "";
-                  state.resetToolStream();
-                  state.applySettings({
-                    ...state.settings,
-                    sessionKey: next,
-                    lastActiveSessionKey: next,
-                  });
-                  void state.loadAssistantIdentity();
-                  void loadSpecialistContext(state, { draft: "" });
+                  switchOverviewSession(state, next);
                 },
                 onSpecialistOverrideChange: (next) => void saveSpecialistOverride(state, next),
                 onToggleGatewayTokenVisibility: () => {
@@ -686,7 +746,29 @@ export function renderApp(state: AppViewState) {
                 },
                 onConnect: () => state.connect(),
                 onRefresh: () => state.loadOverview(),
-                onNavigate: (tab) => state.setTab(tab as import("./navigation.ts").Tab),
+                buildCardHref: (tab, options) => {
+                  if (tab === "skills") {
+                    return buildCanonicalSkillsHref(state, {
+                      skillFilter: options?.skillFilter ?? "",
+                    });
+                  }
+                  return buildCanonicalTabHref(state, tab);
+                },
+                buildChatHref: (sessionKey) =>
+                  buildCanonicalChatHref(state, {
+                    sessionKey,
+                  }),
+                onNavigate: (tab, options) => {
+                  if (tab === "skills") {
+                    state.skillsFilter = options?.skillFilter ?? "";
+                  }
+                  state.setTab(tab as import("./navigation.ts").Tab);
+                },
+                onNavigateAttention: navigateByHref,
+                onNavigateToChat: (sessionKey) => {
+                  switchChatSession(state, sessionKey);
+                  state.setTab("chat" as import("./navigation.ts").Tab);
+                },
                 onRefreshLogs: () => state.loadOverview(),
               })
             : nothing
@@ -698,7 +780,9 @@ export function renderApp(state: AppViewState) {
                 m.renderChannels({
                   connected: state.connected,
                   loading: state.channelsLoading,
+                  buildChannelHref: (channelKey) => buildCanonicalChannelHref(state, channelKey),
                   snapshot: state.channelsSnapshot,
+                  selectedChannelKey: state.channelsSelectedKey,
                   lastError: state.channelsError,
                   lastSuccessAt: state.channelsLastSuccess,
                   whatsappMessage: state.whatsappLoginMessage,
@@ -714,6 +798,10 @@ export function renderApp(state: AppViewState) {
                   nostrProfileFormState: state.nostrProfileFormState,
                   nostrProfileAccountId: state.nostrProfileAccountId,
                   onRefresh: (probe) => loadChannels(state, probe),
+                  onSelectChannel: (channelKey) => {
+                    state.channelsSelectedKey = channelKey;
+                    syncUrlWithTab(state, "channels", true);
+                  },
                   onWhatsAppStart: (force) => state.handleWhatsAppStart(force),
                   onWhatsAppWait: () => state.handleWhatsAppWait(),
                   onWhatsAppLogout: () => state.handleWhatsAppLogout(),
@@ -741,6 +829,11 @@ export function renderApp(state: AppViewState) {
                   entries: state.presenceEntries,
                   lastError: state.presenceError,
                   statusMessage: state.presenceStatus,
+                  revealed: state.instancesReveal,
+                  onToggleReveal: () => {
+                    state.instancesReveal = !state.instancesReveal;
+                    syncUrlWithTab(state, "instances", true);
+                  },
                   onRefresh: () => loadPresence(state),
                 }),
               )
@@ -752,43 +845,134 @@ export function renderApp(state: AppViewState) {
             ? lazyRender(lazySessions, (m) =>
                 m.renderSessions({
                   loading: state.sessionsLoading,
+                  runtimeLoading: state.runtimeLoading,
+                  runtimeDetailLoading: state.runtimeDetailLoading,
+                  runtimeActionBusy: state.runtimeActionBusy,
                   result: state.sessionsResult,
                   error: state.sessionsError,
+                  runtimeError: state.runtimeError,
                   activeMinutes: state.sessionsFilterActive,
                   limit: state.sessionsFilterLimit,
                   includeGlobal: state.sessionsIncludeGlobal,
                   includeUnknown: state.sessionsIncludeUnknown,
-                  basePath: state.basePath,
                   searchQuery: state.sessionsSearchQuery,
                   sortColumn: state.sessionsSortColumn,
                   sortDir: state.sessionsSortDir,
                   page: state.sessionsPage,
                   pageSize: state.sessionsPageSize,
                   selectedKeys: state.sessionsSelectedKeys,
+                  runtimeSessionKey: state.runtimeSessionKey,
+                  runtimeRunId: state.runtimeRunId,
+                  runtimeCheckpoints: state.runtimeCheckpoints,
+                  runtimeSelectedCheckpointId: state.runtimeSelectedCheckpointId,
+                  runtimeCheckpointDetail: state.runtimeCheckpointDetail,
+                  runtimeActions: state.runtimeActions,
+                  runtimeSelectedActionId: state.runtimeSelectedActionId,
+                  runtimeActionDetail: state.runtimeActionDetail,
+                  runtimeClosures: state.runtimeClosures,
+                  runtimeSelectedClosureRunId: state.runtimeSelectedClosureRunId,
+                  runtimeClosureDetail: state.runtimeClosureDetail,
                   onFiltersChange: (next) => {
                     state.sessionsFilterActive = next.activeMinutes;
                     state.sessionsFilterLimit = next.limit;
                     state.sessionsIncludeGlobal = next.includeGlobal;
                     state.sessionsIncludeUnknown = next.includeUnknown;
+                    state.sessionsPage = 0;
+                    syncUrlWithTab(state, "sessions", true);
                   },
                   onSearchChange: (q) => {
                     state.sessionsSearchQuery = q;
                     state.sessionsPage = 0;
+                    syncUrlWithTab(state, "sessions", true);
                   },
                   onSortChange: (col, dir) => {
                     state.sessionsSortColumn = col;
                     state.sessionsSortDir = dir;
                     state.sessionsPage = 0;
+                    syncUrlWithTab(state, "sessions", true);
                   },
                   onPageChange: (p) => {
                     state.sessionsPage = p;
+                    syncUrlWithTab(state, "sessions", true);
                   },
                   onPageSizeChange: (s) => {
                     state.sessionsPageSize = s;
                     state.sessionsPage = 0;
+                    syncUrlWithTab(state, "sessions", true);
                   },
-                  onRefresh: () => loadSessions(state),
+                  buildSortHref: (column, dir) =>
+                    buildCanonicalSessionsListHref(state, {
+                      sortColumn: column,
+                      sortDir: dir,
+                      page: 0,
+                    }),
+                  buildPageHref: (page) =>
+                    buildCanonicalSessionsListHref(state, {
+                      page,
+                    }),
+                  onRefresh: async () => {
+                    await Promise.allSettled([loadSessions(state), loadRuntimeInspector(state)]);
+                  },
                   onPatch: (key, patch) => patchSession(state, key, patch),
+                  onInspectRuntimeSession: async (sessionKey, runId) => {
+                    await loadRuntimeInspector(state, { sessionKey, runId });
+                    syncUrlWithTab(state, "sessions", true);
+                  },
+                  buildRuntimeInspectHref: (sessionKey, runId) =>
+                    buildCanonicalSessionsRuntimeHref(state, {
+                      sessionKey,
+                      runId: runId ?? null,
+                      checkpointId: null,
+                      actionId: null,
+                      closureRunId: null,
+                    }),
+                  buildRuntimeCheckpointHref: (checkpoint) =>
+                    buildCanonicalSessionsRuntimeHref(state, {
+                      sessionKey: checkpoint.sessionKey ?? state.runtimeSessionKey ?? null,
+                      runId: checkpoint.runId ?? state.runtimeRunId ?? null,
+                      checkpointId: checkpoint.id,
+                      actionId: null,
+                      closureRunId: null,
+                    }),
+                  buildRuntimeBootstrapHref: (sessionKey, requestId) =>
+                    buildCanonicalBootstrapHref(state, {
+                      sessionKey,
+                      requestId,
+                    }),
+                  buildRuntimeArtifactHref: (sessionKey, artifactId) =>
+                    buildCanonicalArtifactsHref(state, {
+                      sessionKey,
+                      artifactId,
+                    }),
+                  onSelectRuntimeCheckpoint: async (checkpointId) => {
+                    await loadRuntimeCheckpointDetail(state, checkpointId);
+                    syncUrlWithTab(state, "sessions", true);
+                  },
+                  buildRuntimeActionHref: (actionId) =>
+                    buildCanonicalSessionsRuntimeHref(state, {
+                      actionId,
+                    }),
+                  onSelectRuntimeAction: async (actionId) => {
+                    await loadRuntimeActionDetail(state, actionId);
+                    syncUrlWithTab(state, "sessions", true);
+                  },
+                  buildRuntimeClosureHref: (runId) =>
+                    buildCanonicalSessionsRuntimeHref(state, {
+                      closureRunId: runId,
+                    }),
+                  onSelectRuntimeClosure: async (runId) => {
+                    await loadRuntimeClosureDetail(state, runId);
+                    syncUrlWithTab(state, "sessions", true);
+                  },
+                  onClearRuntimeScope: async () => {
+                    await clearRuntimeInspectorScope(state);
+                    syncUrlWithTab(state, "sessions", true);
+                  },
+                  onExecuteRuntimeRecoveryAction: async (action) => {
+                    await executeRuntimeRecoveryAction(state, action);
+                    await loadSessions(state);
+                    syncUrlWithTab(state, "sessions", true);
+                  },
                   onToggleSelect: (key) => {
                     const next = new Set(state.sessionsSelectedKeys);
                     if (next.has(key)) {
@@ -826,10 +1010,15 @@ export function renderApp(state: AppViewState) {
                       state.sessionsSelectedKeys = next;
                     }
                   },
+                  buildChatHref: (sessionKey) =>
+                    buildCanonicalChatHref(state, {
+                      sessionKey,
+                    }),
                   onNavigateToChat: (sessionKey) => {
                     switchChatSession(state, sessionKey);
                     state.setTab("chat" as import("./navigation.ts").Tab);
                   },
+                  onNavigateRuntimeLinkedRecord: navigateByHref,
                 }),
               )
             : nothing
@@ -850,13 +1039,23 @@ export function renderApp(state: AppViewState) {
                   filterQuery: state.artifactsFilterQuery,
                   selectedId: state.artifactsSelectedId,
                   detail: state.artifactDetail,
+                  buildArtifactHref: (artifactId) =>
+                    buildCanonicalArtifactsHref(state, {
+                      artifactId,
+                    }),
                   onRefresh: () => loadArtifacts(state),
-                  onSelect: (artifactId) => loadArtifactDetail(state, artifactId),
+                  onSelect: async (artifactId) => {
+                    await loadArtifactDetail(state, artifactId);
+                    syncUrlWithTab(state, "artifacts", true);
+                  },
                   onFilterChange: (value) => {
                     state.artifactsFilterQuery = value;
+                    syncUrlWithTab(state, "artifacts", true);
                   },
-                  onTransition: (artifactId, operation) =>
-                    transitionArtifact(state, artifactId, operation),
+                  onTransition: async (artifactId, operation) => {
+                    await transitionArtifact(state, artifactId, operation);
+                    syncUrlWithTab(state, "artifacts", true);
+                  },
                 }),
               )
             : nothing
@@ -869,21 +1068,44 @@ export function renderApp(state: AppViewState) {
                   loading: state.bootstrapLoading,
                   detailLoading: state.bootstrapDetailLoading,
                   actionBusy: state.bootstrapActionBusy,
+                  runtimeLoading: state.runtimeLoading,
                   error: state.bootstrapError,
                   detailError: state.bootstrapDetailError,
+                  runtimeError: state.runtimeError,
                   requests: state.bootstrapList,
                   pendingCount: state.bootstrapPendingCount,
                   filterQuery: state.bootstrapFilterQuery,
                   selectedId: state.bootstrapSelectedId,
                   detail: state.bootstrapDetail,
-                  onRefresh: () => loadBootstrapRequests(state),
-                  onSelect: (requestId) => loadBootstrapDetail(state, requestId),
+                  runtimeCheckpoints: state.runtimeCheckpoints,
+                  buildRequestHref: (requestId) =>
+                    buildCanonicalBootstrapHref(state, {
+                      requestId,
+                    }),
+                  onRefresh: async () => {
+                    await Promise.allSettled([
+                      loadBootstrapRequests(state),
+                      loadRuntimeInspector(state, { sessionKey: null, runId: null }),
+                    ]);
+                  },
+                  onSelect: async (requestId) => {
+                    await loadBootstrapDetail(state, requestId);
+                    syncUrlWithTab(state, "bootstrap", true);
+                  },
                   onFilterChange: (value) => {
                     state.bootstrapFilterQuery = value;
+                    syncUrlWithTab(state, "bootstrap", true);
                   },
-                  onResolve: (requestId, decision) =>
-                    resolveBootstrapRequest(state, requestId, decision),
-                  onRun: (requestId) => runBootstrapRequest(state, requestId),
+                  onResolve: async (requestId, decision) => {
+                    await resolveBootstrapRequest(state, requestId, decision);
+                    await loadRuntimeInspector(state, { sessionKey: null, runId: null });
+                    syncUrlWithTab(state, "bootstrap", true);
+                  },
+                  onRun: async (requestId) => {
+                    await runBootstrapRequest(state, requestId);
+                    await loadRuntimeInspector(state, { sessionKey: null, runId: null });
+                    syncUrlWithTab(state, "bootstrap", true);
+                  },
                 }),
               )
             : nothing
@@ -910,7 +1132,21 @@ export function renderApp(state: AppViewState) {
           state.tab === "cron"
             ? lazyRender(lazyCron, (m) =>
                 m.renderCron({
-                  basePath: state.basePath,
+                  buildJobHref: (jobId) => buildCanonicalCronJobHref(state, jobId),
+                  buildEditHref: (jobId) => buildCanonicalCronEditHref(state, jobId),
+                  buildCancelEditHref: () => buildCanonicalCronEditHref(state, null),
+                  buildRunChatHref: (sessionKey) =>
+                    buildCanonicalChatHref(state, {
+                      sessionKey,
+                    }),
+                  buildRunRuntimeHref: (sessionKey) =>
+                    buildCanonicalSessionsRuntimeHref(state, {
+                      sessionKey,
+                      runId: null,
+                      checkpointId: null,
+                      actionId: null,
+                      closureRunId: null,
+                    }),
                   loading: state.cronLoading,
                   status: state.cronStatus,
                   jobs: visibleCronJobs,
@@ -956,16 +1192,32 @@ export function renderApp(state: AppViewState) {
                     state.cronFieldErrors = validateCronForm(state.cronForm);
                   },
                   onRefresh: () => state.loadCron(),
-                  onAdd: () => addCronJob(state),
-                  onEdit: (job) => startCronEdit(state, job),
-                  onClone: (job) => startCronClone(state, job),
-                  onCancelEdit: () => cancelCronEdit(state),
+                  onAdd: async () => {
+                    await addCronJob(state);
+                    syncUrlWithTab(state, "cron", true);
+                  },
+                  onEdit: (job) => {
+                    startCronEdit(state, job);
+                    syncUrlWithTab(state, "cron", true);
+                  },
+                  onClone: (job) => {
+                    startCronClone(state, job);
+                    syncUrlWithTab(state, "cron", true);
+                  },
+                  onCancelEdit: () => {
+                    cancelCronEdit(state);
+                    syncUrlWithTab(state, "cron", true);
+                  },
                   onToggle: (job, enabled) => toggleCronJob(state, job, enabled),
                   onRun: (job, mode) => runCronJob(state, job, mode ?? "force"),
-                  onRemove: (job) => removeCronJob(state, job),
+                  onRemove: async (job) => {
+                    await removeCronJob(state, job);
+                    syncUrlWithTab(state, "cron", true);
+                  },
                   onLoadRuns: async (jobId) => {
                     updateCronRunsFilter(state, { cronRunsScope: "job" });
                     await loadCronRuns(state, jobId);
+                    syncUrlWithTab(state, "cron", true);
                   },
                   onLoadMoreJobs: () => loadMoreCronJobs(state),
                   onJobsFiltersChange: async (patch) => {
@@ -978,6 +1230,7 @@ export function renderApp(state: AppViewState) {
                     if (shouldReload) {
                       await reloadCronJobs(state);
                     }
+                    syncUrlWithTab(state, "cron", true);
                   },
                   onJobsFiltersReset: async () => {
                     updateCronJobsFilter(state, {
@@ -989,20 +1242,24 @@ export function renderApp(state: AppViewState) {
                       cronJobsSortDir: "asc",
                     });
                     await reloadCronJobs(state);
+                    syncUrlWithTab(state, "cron", true);
                   },
                   onLoadMoreRuns: () => loadMoreCronRuns(state),
                   onRunsFiltersChange: async (patch) => {
                     updateCronRunsFilter(state, patch);
                     if (state.cronRunsScope === "all") {
                       await loadCronRuns(state, null);
+                      syncUrlWithTab(state, "cron", true);
                       return;
                     }
                     await loadCronRuns(state, state.cronRunsJobId);
+                    syncUrlWithTab(state, "cron", true);
                   },
                   onNavigateToChat: (sessionKey) => {
                     switchChatSession(state, sessionKey);
                     state.setTab("chat" as import("./navigation.ts").Tab);
                   },
+                  onNavigateToRuntime: navigateByHref,
                 }),
               )
             : nothing
@@ -1018,6 +1275,17 @@ export function renderApp(state: AppViewState) {
                   agentsList: state.agentsList,
                   selectedAgentId: resolvedAgentId,
                   activePanel: state.agentsPanel,
+                  buildPanelHref: (panel) =>
+                    buildCanonicalAgentsHref(state, {
+                      agentId: resolvedAgentId,
+                      panel,
+                    }),
+                  buildFileHref: (file) =>
+                    buildCanonicalAgentsHref(state, {
+                      agentId: resolvedAgentId,
+                      panel: "files",
+                      file,
+                    }),
                   config: {
                     form: configValue,
                     loading: state.configLoading,
@@ -1072,7 +1340,7 @@ export function renderApp(state: AppViewState) {
                       state.agentsList?.agents?.[0]?.id ??
                       null;
                     if (state.agentsPanel === "files" && refreshedAgentId) {
-                      void loadAgentFiles(state, refreshedAgentId);
+                      void refreshAgentFiles(refreshedAgentId, true);
                     }
                     if (state.agentsPanel === "skills" && refreshedAgentId) {
                       void loadAgentSkills(state, refreshedAgentId);
@@ -1104,9 +1372,10 @@ export function renderApp(state: AppViewState) {
                     state.toolsCatalogResult = null;
                     state.toolsCatalogError = null;
                     state.toolsCatalogLoading = false;
+                    syncUrlWithTab(state, "agents", true);
                     void loadAgentIdentity(state, agentId);
                     if (state.agentsPanel === "files") {
-                      void loadAgentFiles(state, agentId);
+                      void refreshAgentFiles(agentId, true);
                     }
                     if (state.agentsPanel === "tools") {
                       void loadToolsCatalog(state, agentId);
@@ -1124,7 +1393,9 @@ export function renderApp(state: AppViewState) {
                         state.agentFileActive = null;
                         state.agentFileContents = {};
                         state.agentFileDrafts = {};
-                        void loadAgentFiles(state, resolvedAgentId);
+                        void refreshAgentFiles(resolvedAgentId, true);
+                      } else if (state.agentFileActive) {
+                        void loadAgentFileContent(state, resolvedAgentId, state.agentFileActive);
                       }
                     }
                     if (panel === "skills") {
@@ -1146,10 +1417,12 @@ export function renderApp(state: AppViewState) {
                     if (panel === "cron") {
                       void state.loadCron();
                     }
+                    syncUrlWithTab(state, "agents", true);
                   },
-                  onLoadFiles: (agentId) => loadAgentFiles(state, agentId),
+                  onLoadFiles: (agentId) => refreshAgentFiles(agentId, true),
                   onSelectFile: (name) => {
                     state.agentFileActive = name;
+                    syncUrlWithTab(state, "agents", true);
                     if (!resolvedAgentId) {
                       return;
                     }
@@ -1217,7 +1490,10 @@ export function renderApp(state: AppViewState) {
                     }
                     void runCronJob(state, job, "force");
                   },
-                  onSkillsFilterChange: (next) => (state.skillsFilter = next),
+                  onSkillsFilterChange: (next) => {
+                    state.skillsFilter = next;
+                    syncUrlWithTab(state, "agents", true);
+                  },
                   onSkillsRefresh: () => {
                     if (resolvedAgentId) {
                       void loadAgentSkills(state, resolvedAgentId);
@@ -1375,7 +1651,10 @@ export function renderApp(state: AppViewState) {
                   edits: state.skillEdits,
                   messages: state.skillMessages,
                   busyKey: state.skillsBusyKey,
-                  onFilterChange: (next) => (state.skillsFilter = next),
+                  onFilterChange: (next) => {
+                    state.skillsFilter = next;
+                    syncUrlWithTab(state, "skills", true);
+                  },
                   onRefresh: () => loadSkills(state, { clearMessages: true }),
                   onToggle: (key, enabled) => updateSkillEnabled(state, key, enabled),
                   onEdit: (key, value) => updateSkillEdit(state, key, value),
@@ -1420,11 +1699,7 @@ export function renderApp(state: AppViewState) {
                   onDeviceRevoke: (deviceId, role) => revokeDeviceToken(state, { deviceId, role }),
                   onLoadConfig: () => loadConfig(state),
                   onLoadExecApprovals: () => {
-                    const target =
-                      state.execApprovalsTarget === "node" && state.execApprovalsTargetNodeId
-                        ? { kind: "node" as const, nodeId: state.execApprovalsTargetNodeId }
-                        : { kind: "gateway" as const };
-                    return loadExecApprovals(state, target);
+                    return loadExecApprovals(state, resolveExecApprovalsTarget(state));
                   },
                   onBindDefault: (nodeId) => {
                     if (nodeId) {
@@ -1449,19 +1724,21 @@ export function renderApp(state: AppViewState) {
                     state.execApprovalsForm = null;
                     state.execApprovalsDirty = false;
                     state.execApprovalsSelectedAgent = null;
+                    syncUrlWithTab(state, "nodes", true);
                   },
                   onExecApprovalsSelectAgent: (agentId) => {
                     state.execApprovalsSelectedAgent = agentId;
+                    syncUrlWithTab(state, "nodes", true);
                   },
+                  buildExecApprovalsScopeHref: (agentId) =>
+                    buildCanonicalNodesExecApprovalsHref(state, {
+                      agentId,
+                    }),
                   onExecApprovalsPatch: (path, value) =>
                     updateExecApprovalsFormValue(state, path, value),
                   onExecApprovalsRemove: (path) => removeExecApprovalsFormValue(state, path),
                   onSaveExecApprovals: () => {
-                    const target =
-                      state.execApprovalsTarget === "node" && state.execApprovalsTargetNodeId
-                        ? { kind: "node" as const, nodeId: state.execApprovalsTargetNodeId }
-                        : { kind: "gateway" as const };
-                    return saveExecApprovals(state, target);
+                    return saveExecApprovals(state, resolveExecApprovalsTarget(state));
                   },
                 }),
               )
@@ -1559,23 +1836,12 @@ export function renderApp(state: AppViewState) {
                   }
                 },
                 agentsList: state.agentsList,
-                currentAgentId: resolvedAgentId ?? "main",
+                currentAgentId: chatAgentId,
                 onAgentChange: (agentId: string) => {
-                  state.sessionKey = buildAgentMainSessionKey({ agentId });
-                  state.chatMessages = [];
-                  state.chatStream = null;
-                  state.chatRunId = null;
-                  state.applySettings({
-                    ...state.settings,
-                    sessionKey: state.sessionKey,
-                    lastActiveSessionKey: state.sessionKey,
-                  });
-                  void loadChatHistory(state);
-                  void state.loadAssistantIdentity();
-                  void loadSpecialistContext(state, { draft: "" });
+                  switchChatAgent(state, agentId);
                 },
                 onNavigateToAgent: () => {
-                  state.agentsSelectedId = resolvedAgentId;
+                  state.agentsSelectedId = chatAgentId;
                   state.setTab("agents" as import("./navigation.ts").Tab);
                 },
                 onSessionSelect: (key: string) => {
@@ -1618,6 +1884,9 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.configSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "config", { section }),
+                buildModeHref: (mode) => buildCanonicalSettingsShellHref(state, "config", { mode }),
                 activeSection:
                   state.configActiveSection &&
                   (COMMUNICATION_SECTION_KEYS.includes(
@@ -1660,14 +1929,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.configFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.configFormMode = mode;
+                  syncUrlWithTab(state, "config", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.configSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.configSearchQuery = query;
+                  syncUrlWithTab(state, "config", true);
+                },
                 onSectionChange: (section) => {
                   state.configActiveSection = section;
                   state.configActiveSubsection = null;
+                  syncUrlWithTab(state, "config", true);
                 },
-                onSubsectionChange: (section) => (state.configActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.configActiveSubsection = section;
+                  syncUrlWithTab(state, "config", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
@@ -1715,6 +1994,10 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.communicationsSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "communications", { section }),
+                buildModeHref: (mode) =>
+                  buildCanonicalSettingsShellHref(state, "communications", { mode }),
                 activeSection:
                   state.communicationsActiveSection &&
                   !COMMUNICATION_SECTION_KEYS.includes(
@@ -1733,14 +2016,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.communicationsFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.communicationsFormMode = mode;
+                  syncUrlWithTab(state, "communications", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.communicationsSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.communicationsSearchQuery = query;
+                  syncUrlWithTab(state, "communications", true);
+                },
                 onSectionChange: (section) => {
                   state.communicationsActiveSection = section;
                   state.communicationsActiveSubsection = null;
+                  syncUrlWithTab(state, "communications", true);
                 },
-                onSubsectionChange: (section) => (state.communicationsActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.communicationsActiveSubsection = section;
+                  syncUrlWithTab(state, "communications", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
@@ -1782,6 +2075,10 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.appearanceSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "appearance", { section }),
+                buildModeHref: (mode) =>
+                  buildCanonicalSettingsShellHref(state, "appearance", { mode }),
                 activeSection:
                   state.appearanceActiveSection &&
                   !APPEARANCE_SECTION_KEYS.includes(
@@ -1800,14 +2097,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.appearanceFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.appearanceFormMode = mode;
+                  syncUrlWithTab(state, "appearance", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.appearanceSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.appearanceSearchQuery = query;
+                  syncUrlWithTab(state, "appearance", true);
+                },
                 onSectionChange: (section) => {
                   state.appearanceActiveSection = section;
                   state.appearanceActiveSubsection = null;
+                  syncUrlWithTab(state, "appearance", true);
                 },
-                onSubsectionChange: (section) => (state.appearanceActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.appearanceActiveSubsection = section;
+                  syncUrlWithTab(state, "appearance", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
@@ -1849,6 +2156,10 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.automationSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "automation", { section }),
+                buildModeHref: (mode) =>
+                  buildCanonicalSettingsShellHref(state, "automation", { mode }),
                 activeSection:
                   state.automationActiveSection &&
                   !AUTOMATION_SECTION_KEYS.includes(
@@ -1867,14 +2178,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.automationFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.automationFormMode = mode;
+                  syncUrlWithTab(state, "automation", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.automationSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.automationSearchQuery = query;
+                  syncUrlWithTab(state, "automation", true);
+                },
                 onSectionChange: (section) => {
                   state.automationActiveSection = section;
                   state.automationActiveSubsection = null;
+                  syncUrlWithTab(state, "automation", true);
                 },
-                onSubsectionChange: (section) => (state.automationActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.automationActiveSubsection = section;
+                  syncUrlWithTab(state, "automation", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
@@ -1916,6 +2237,10 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.infrastructureSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "infrastructure", { section }),
+                buildModeHref: (mode) =>
+                  buildCanonicalSettingsShellHref(state, "infrastructure", { mode }),
                 activeSection:
                   state.infrastructureActiveSection &&
                   !INFRASTRUCTURE_SECTION_KEYS.includes(
@@ -1934,14 +2259,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.infrastructureFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.infrastructureFormMode = mode;
+                  syncUrlWithTab(state, "infrastructure", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.infrastructureSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.infrastructureSearchQuery = query;
+                  syncUrlWithTab(state, "infrastructure", true);
+                },
                 onSectionChange: (section) => {
                   state.infrastructureActiveSection = section;
                   state.infrastructureActiveSubsection = null;
+                  syncUrlWithTab(state, "infrastructure", true);
                 },
-                onSubsectionChange: (section) => (state.infrastructureActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.infrastructureActiveSubsection = section;
+                  syncUrlWithTab(state, "infrastructure", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
@@ -1983,6 +2318,10 @@ export function renderApp(state: AppViewState) {
                 formValue: state.configForm,
                 originalValue: state.configFormOriginal,
                 searchQuery: state.aiAgentsSearchQuery,
+                buildSectionHref: (section) =>
+                  buildCanonicalSettingsShellHref(state, "aiAgents", { section }),
+                buildModeHref: (mode) =>
+                  buildCanonicalSettingsShellHref(state, "aiAgents", { mode }),
                 activeSection:
                   state.aiAgentsActiveSection &&
                   !AI_AGENTS_SECTION_KEYS.includes(
@@ -2001,14 +2340,24 @@ export function renderApp(state: AppViewState) {
                   state.configRaw = next;
                 },
                 onRequestUpdate: requestHostUpdate,
-                onFormModeChange: (mode) => (state.aiAgentsFormMode = mode),
+                onFormModeChange: (mode) => {
+                  state.aiAgentsFormMode = mode;
+                  syncUrlWithTab(state, "aiAgents", true);
+                },
                 onFormPatch: (path, value) => updateConfigFormValue(state, path, value),
-                onSearchChange: (query) => (state.aiAgentsSearchQuery = query),
+                onSearchChange: (query) => {
+                  state.aiAgentsSearchQuery = query;
+                  syncUrlWithTab(state, "aiAgents", true);
+                },
                 onSectionChange: (section) => {
                   state.aiAgentsActiveSection = section;
                   state.aiAgentsActiveSubsection = null;
+                  syncUrlWithTab(state, "aiAgents", true);
                 },
-                onSubsectionChange: (section) => (state.aiAgentsActiveSubsection = section),
+                onSubsectionChange: (section) => {
+                  state.aiAgentsActiveSubsection = section;
+                  syncUrlWithTab(state, "aiAgents", true);
+                },
                 onReload: () => loadConfig(state),
                 onSave: () => saveConfig(state),
                 onApply: () => applyConfig(state),
@@ -2046,8 +2395,14 @@ export function renderApp(state: AppViewState) {
                   callParams: state.debugCallParams,
                   callResult: state.debugCallResult,
                   callError: state.debugCallError,
-                  onCallMethodChange: (next) => (state.debugCallMethod = next),
-                  onCallParamsChange: (next) => (state.debugCallParams = next),
+                  onCallMethodChange: (next) => {
+                    state.debugCallMethod = next;
+                    syncUrlWithTab(state, "debug", true);
+                  },
+                  onCallParamsChange: (next) => {
+                    state.debugCallParams = next;
+                    syncUrlWithTab(state, "debug", true);
+                  },
                   onRefresh: () => loadDebug(state),
                   onCall: () => callDebugMethod(state),
                 }),
@@ -2067,10 +2422,21 @@ export function renderApp(state: AppViewState) {
                   levelFilters: state.logsLevelFilters,
                   autoFollow: state.logsAutoFollow,
                   truncated: state.logsTruncated,
-                  onFilterTextChange: (next) => (state.logsFilterText = next),
+                  onFilterTextChange: (next) => {
+                    state.logsFilterText = next;
+                    syncUrlWithTab(state, "logs", true);
+                  },
                   onLevelToggle: (level, enabled) => {
                     state.logsLevelFilters = { ...state.logsLevelFilters, [level]: enabled };
+                    syncUrlWithTab(state, "logs", true);
                   },
+                  buildLevelHref: (level, enabled) =>
+                    buildCanonicalLogsHref(state, {
+                      levelFilters: {
+                        ...state.logsLevelFilters,
+                        [level]: enabled,
+                      },
+                    }),
                   onToggleAutoFollow: (next) => (state.logsAutoFollow = next),
                   onRefresh: () => loadLogs(state, { reset: true }),
                   onExport: (lines, label) => state.exportLogs(lines, label),

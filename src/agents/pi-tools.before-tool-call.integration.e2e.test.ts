@@ -1,14 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDiagnosticSessionStateForTest } from "../logging/diagnostic-session-state.js";
-import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
-import { toClientToolDefinitions, toToolDefinitions } from "./pi-tool-definition-adapter.js";
-import { wrapToolWithAbortSignal } from "./pi-tools.abort.js";
-import {
-  __testing as beforeToolCallTesting,
-  consumeAdjustedParamsForToolCall,
-  wrapToolWithBeforeToolCallHook,
-} from "./pi-tools.before-tool-call.js";
 
+// vi.mock is hoisted by Vitest's transform; however, in the forks pool the additional
+// static imports (pi-tool-definition-adapter, pi-tools.abort) cause a subtle module-
+// loading order that prevents the mock from reaching pi-tools.before-tool-call.ts.
+// We work around this by resetting the module cache in beforeAll and loading all
+// modules under test dynamically, ensuring the mock factory runs fresh each suite.
 vi.mock("../plugins/hook-runner-global.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../plugins/hook-runner-global.js")>();
   return {
@@ -17,7 +14,30 @@ vi.mock("../plugins/hook-runner-global.js", async (importOriginal) => {
   };
 });
 
-const mockGetGlobalHookRunner = vi.mocked(getGlobalHookRunner);
+let toClientToolDefinitions: typeof import("./pi-tool-definition-adapter.js").toClientToolDefinitions;
+let toToolDefinitions: typeof import("./pi-tool-definition-adapter.js").toToolDefinitions;
+let wrapToolWithAbortSignal: typeof import("./pi-tools.abort.js").wrapToolWithAbortSignal;
+let beforeToolCallTesting: typeof import("./pi-tools.before-tool-call.js").__testing;
+let consumeAdjustedParamsForToolCall: typeof import("./pi-tools.before-tool-call.js").consumeAdjustedParamsForToolCall;
+let wrapToolWithBeforeToolCallHook: typeof import("./pi-tools.before-tool-call.js").wrapToolWithBeforeToolCallHook;
+let mockGetGlobalHookRunner: ReturnType<typeof vi.mocked<typeof import("../plugins/hook-runner-global.js").getGlobalHookRunner>>;
+
+beforeAll(async () => {
+  // Reset module cache so the async vi.mock factory for hook-runner-global.js is
+  // guaranteed to run before pi-tools.before-tool-call.ts loads it.
+  vi.resetModules();
+  const hrgMod = await import("../plugins/hook-runner-global.js");
+  mockGetGlobalHookRunner = vi.mocked(hrgMod.getGlobalHookRunner);
+  const adapterMod = await import("./pi-tool-definition-adapter.js");
+  toClientToolDefinitions = adapterMod.toClientToolDefinitions;
+  toToolDefinitions = adapterMod.toToolDefinitions;
+  const abortMod = await import("./pi-tools.abort.js");
+  wrapToolWithAbortSignal = abortMod.wrapToolWithAbortSignal;
+  const btcMod = await import("./pi-tools.before-tool-call.js");
+  beforeToolCallTesting = btcMod.__testing;
+  consumeAdjustedParamsForToolCall = btcMod.consumeAdjustedParamsForToolCall;
+  wrapToolWithBeforeToolCallHook = btcMod.wrapToolWithBeforeToolCallHook;
+});
 
 type HookRunnerMock = {
   hasHooks: ReturnType<typeof vi.fn>;

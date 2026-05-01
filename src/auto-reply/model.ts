@@ -15,7 +15,7 @@ export function extractModelDirective(
   }
 
   const modelMatch = body.match(
-    /(?:^|\s)\/model(?=$|\s|:)\s*:?\s*([A-Za-z0-9_.:@-]+(?:\/[A-Za-z0-9_.:@-]+)*)?/i,
+    /(?:^|\s)(?:\/model(?=$|\s|:)\s*:?\s*([A-Za-z0-9_.:@-]+(?:\/[A-Za-z0-9_.:@-]+)*)?|model\s*:\s*([A-Za-z0-9_.:@-]+(?:\/[A-Za-z0-9_.:@-]+)*))/i,
   );
 
   const aliases = (options?.aliases ?? []).map((alias) => alias.trim()).filter(Boolean);
@@ -30,7 +30,9 @@ export function extractModelDirective(
         );
 
   const match = modelMatch ?? aliasMatch;
-  const raw = modelMatch ? modelMatch?.[1]?.trim() : aliasMatch?.[1]?.trim();
+  const raw = (
+    modelMatch ? (modelMatch[1] ?? modelMatch[2])?.trim() : aliasMatch?.[1]?.trim()
+  )?.replace(/[.,;!?]+$/g, "");
 
   let rawModel = raw;
   let rawProfile: string | undefined;

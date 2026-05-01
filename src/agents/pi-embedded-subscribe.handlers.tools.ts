@@ -17,6 +17,7 @@ import {
   extractToolResultMediaArtifact,
   extractMessagingToolSend,
   extractToolErrorMessage,
+  extractToolErrorRawMessage,
   extractToolResultText,
   filterToolResultMediaUrls,
   isToolResultError,
@@ -149,12 +150,21 @@ function queuePendingToolMedia(
   mediaReply: { mediaUrls: string[]; audioAsVoice?: boolean },
 ) {
   const seen = new Set(ctx.state.pendingToolMediaUrls);
+  const durableSeen = new Set(ctx.state.toolResultMediaUrls);
   for (const mediaUrl of mediaReply.mediaUrls) {
     if (seen.has(mediaUrl)) {
+      if (!durableSeen.has(mediaUrl)) {
+        durableSeen.add(mediaUrl);
+        ctx.state.toolResultMediaUrls.push(mediaUrl);
+      }
       continue;
     }
     seen.add(mediaUrl);
     ctx.state.pendingToolMediaUrls.push(mediaUrl);
+    if (!durableSeen.has(mediaUrl)) {
+      durableSeen.add(mediaUrl);
+      ctx.state.toolResultMediaUrls.push(mediaUrl);
+    }
   }
   if (mediaReply.audioAsVoice) {
     ctx.state.pendingToolAudioAsVoice = true;
@@ -304,9 +314,6 @@ async function emitToolResultOutput(params: {
     if (outputText) {
       ctx.emitToolOutput(toolName, meta, outputText, result);
     }
-    if (!hasStructuredMedia) {
-      return;
-    }
   }
 
   if (isToolError) {
@@ -331,6 +338,7 @@ export async function handleToolExecutionStart(
   ctx: ToolHandlerContext,
   evt: AgentEvent & { toolName: string; toolCallId: string; args: unknown },
 ) {
+  await Promise.resolve(ctx.params.onStructuralToolExecutionStarting?.());
   // Flush pending block replies to preserve message boundaries before tool execution.
   ctx.flushBlockReplyBuffer();
   if (ctx.params.onBlockReplyFlush) {
@@ -486,11 +494,18 @@ export async function handleToolExecutionEnd(
   ctx.state.toolMetaById.delete(toolCallId);
   ctx.state.toolSummaryById.delete(toolCallId);
   if (isToolError) {
+    const rawError = extractToolErrorRawMessage(sanitizedResult);
     const errorMessage = extractToolErrorMessage(sanitizedResult);
+    if (rawError) {
+      ctx.log.debug(
+        `tool_error tool=${toolName} toolCallId=${toolCallId} raw=${JSON.stringify(rawError)}`,
+      );
+    }
     ctx.state.lastToolError = {
       toolName,
       meta,
       error: errorMessage,
+      rawError: rawError ?? undefined,
       mutatingAction: callSummary?.mutatingAction,
       actionFingerprint: callSummary?.actionFingerprint,
     };

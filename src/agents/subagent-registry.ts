@@ -46,6 +46,7 @@ import {
   countActiveRunsForSessionFromRuns,
   countPendingDescendantRunsExcludingRunFromRuns,
   countPendingDescendantRunsFromRuns,
+  findActiveSubagentByLabelFromRuns,
   findRunIdsByChildSessionKeyFromRuns,
   listRunsForControllerFromRuns,
   listDescendantRunsForRequesterFromRuns,
@@ -1674,6 +1675,40 @@ export function listDescendantRunsForRequester(rootSessionKey: string): Subagent
   );
 }
 
+/**
+ * Finds the latest active persistent-session subagent run with a matching
+ * label in the same delivery origin.
+ *
+ * Used by the persistent_session.created commitment idempotency guard so
+ * repeated spawn requests for the same label reuse the existing live session
+ * instead of producing duplicates.
+ *
+ * @param label - User-visible session label requested by the spawn caller.
+ * @param origin - Delivery context of the requester.
+ * @returns The latest active matching run, or undefined when no live session matches.
+ *
+ * @deprecated Replaced by `findLivePersistentSessionByLabel`
+ *   (`src/agents/subagent-persistent-session-query.ts`) for the
+ *   `persistent_session.created` commitment idempotency guard. The runs-based
+ *   path is structurally unable to detect "live persistent session" in real
+ *   TG flow because every run closes with `endedAt` after the LLM turn ends
+ *   while the gateway session entry stays alive (Gap G3,
+ *   `commitment_kernel_idempotency_fix.plan.md` §1). Kept exported during the
+ *   PR-4 migration window so PR-1.5 / PR-2 / PR-3 query tests still build;
+ *   scheduled for removal in the post-PR-4b cleanup PR (master plan
+ *   §14, sub-plan §4).
+ */
+export function findActiveSubagentByLabel(
+  label: string,
+  origin: DeliveryContext | undefined,
+): SubagentRunRecord | undefined {
+  return findActiveSubagentByLabelFromRuns(
+    getSubagentRunsSnapshotForRead(subagentRuns),
+    label,
+    origin,
+  );
+}
+
 export function getSubagentRunByChildSessionKey(childSessionKey: string): SubagentRunRecord | null {
   const key = childSessionKey.trim();
   if (!key) {
@@ -1702,4 +1737,18 @@ export function getSubagentRunByChildSessionKey(childSessionKey: string): Subage
 
 export function initSubagentRegistry() {
   restoreSubagentRunsOnce();
+}
+
+/**
+ * Returns a merged snapshot of in-memory and disk-persisted subagent runs.
+ *
+ * Exposed for `SessionWorldStateObserver` consumers (the kernel cutover gate)
+ * that need a read-only view of the registry without taking a reference to
+ * the mutable in-memory map.
+ *
+ * @returns Read-only snapshot keyed by runId; mutations on the returned map
+ *   are not propagated back into the registry.
+ */
+export function snapshotSubagentRunsForObserver(): ReadonlyMap<string, SubagentRunRecord> {
+  return getSubagentRunsSnapshotForRead(subagentRuns);
 }

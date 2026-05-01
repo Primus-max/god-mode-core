@@ -52,6 +52,16 @@ function getCostBreakdown(totals: UsageTotals) {
   };
 }
 
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey
+  );
+}
+
 function renderFilterChips(
   selectedDays: string[],
   selectedHours: number[],
@@ -159,6 +169,7 @@ function renderDailyChartCompact(
   selectedDays: string[],
   chartMode: "tokens" | "cost",
   dailyChartMode: "total" | "by-type",
+  buildDailyChartModeHref: (mode: "total" | "by-type") => string,
   onDailyChartModeChange: (mode: "total" | "by-type") => void,
   onSelectDay: (day: string, shiftKey: boolean) => void,
 ) {
@@ -183,18 +194,34 @@ function renderDailyChartCompact(
     <div class="daily-chart-compact">
       <div class="daily-chart-header">
         <div class="chart-toggle small sessions-toggle">
-          <button
+          <a
             class="toggle-btn ${dailyChartMode === "total" ? "active" : ""}"
-            @click=${() => onDailyChartModeChange("total")}
+            href=${buildDailyChartModeHref("total")}
+            aria-current=${dailyChartMode === "total" ? "page" : "false"}
+            @click=${(event: MouseEvent) => {
+              if (isModifiedNavigationClick(event)) {
+                return;
+              }
+              event.preventDefault();
+              onDailyChartModeChange("total");
+            }}
           >
             ${t("usage.daily.total")}
-          </button>
-          <button
+          </a>
+          <a
             class="toggle-btn ${dailyChartMode === "by-type" ? "active" : ""}"
-            @click=${() => onDailyChartModeChange("by-type")}
+            href=${buildDailyChartModeHref("by-type")}
+            aria-current=${dailyChartMode === "by-type" ? "page" : "false"}
+            @click=${(event: MouseEvent) => {
+              if (isModifiedNavigationClick(event)) {
+                return;
+              }
+              event.preventDefault();
+              onDailyChartModeChange("by-type");
+            }}
           >
             ${t("usage.daily.byType")}
-          </button>
+          </a>
         </div>
         <div class="card-title">
           ${isTokenMode ? t("usage.daily.tokensTitle") : t("usage.daily.costTitle")}
@@ -649,6 +676,9 @@ function renderSessionsCard(
   sessionSortDir: "asc" | "desc",
   recentSessions: string[],
   sessionsTab: "all" | "recent",
+  buildSessionHref: (key: string) => string,
+  buildSessionsTabHref: (tab: "all" | "recent") => string,
+  buildSessionSortDirHref: (dir: "asc" | "desc") => string,
   onSelectSession: (key: string, shiftKey: boolean) => void,
   onSessionSortChange: (sort: "tokens" | "cost" | "recent" | "messages" | "errors") => void,
   onSessionSortDirChange: (dir: "asc" | "desc") => void,
@@ -752,27 +782,43 @@ function renderSessionsCard(
     const displayLabel = formatSessionListLabel(s);
     const meta = buildSessionMeta(s);
     return html`
-      <div
-        class="session-bar-row ${isSelected ? "selected" : ""}"
-        @click=${(e: MouseEvent) => onSelectSession(s.key, e.shiftKey)}
-        title="${s.key}"
-      >
-        <div class="session-bar-label">
-          <div class="session-bar-title">${displayLabel}</div>
-          ${meta.length > 0 ? html`<div class="session-bar-meta">${meta.join(" · ")}</div>` : nothing}
-        </div>
+      <div class="session-bar-row ${isSelected ? "selected" : ""}">
+        <a
+          href=${buildSessionHref(s.key)}
+          class="session-bar-link"
+          data-session-key=${s.key}
+          title=${s.key}
+          @click=${(event: MouseEvent) => {
+            if (
+              event.defaultPrevented ||
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.altKey
+            ) {
+              return;
+            }
+            event.preventDefault();
+            onSelectSession(s.key, event.shiftKey);
+          }}
+        >
+          <div class="session-bar-label">
+            <div class="session-bar-title">${displayLabel}</div>
+            ${meta.length > 0 ? html`<div class="session-bar-meta">${meta.join(" · ")}</div>` : nothing}
+          </div>
+          <div class="session-bar-value">${isTokenMode ? formatTokens(value) : formatCost(value)}</div>
+        </a>
         <div class="session-bar-actions">
           <button
             class="session-copy-btn"
             title=${t("usage.sessions.copyName")}
-            @click=${(e: MouseEvent) => {
-              e.stopPropagation();
+            @click=${(event: MouseEvent) => {
+              event.stopPropagation();
               void copySessionName(s);
             }}
           >
             ${t("usage.sessions.copy")}
           </button>
-          <div class="session-bar-value">${isTokenMode ? formatTokens(value) : formatCost(value)}</div>
         </div>
       </div>
     `;
@@ -807,18 +853,34 @@ function renderSessionsCard(
           <span>${totalErrors} ${t("usage.overview.errors").toLowerCase()}</span>
         </div>
         <div class="chart-toggle small">
-          <button
+          <a
             class="toggle-btn ${sessionsTab === "all" ? "active" : ""}"
-            @click=${() => onSessionsTabChange("all")}
+            href=${buildSessionsTabHref("all")}
+            aria-current=${sessionsTab === "all" ? "page" : "false"}
+            @click=${(event: MouseEvent) => {
+              if (isModifiedNavigationClick(event)) {
+                return;
+              }
+              event.preventDefault();
+              onSessionsTabChange("all");
+            }}
           >
             ${t("usage.sessions.all")}
-          </button>
-          <button
+          </a>
+          <a
             class="toggle-btn ${sessionsTab === "recent" ? "active" : ""}"
-            @click=${() => onSessionsTabChange("recent")}
+            href=${buildSessionsTabHref("recent")}
+            aria-current=${sessionsTab === "recent" ? "page" : "false"}
+            @click=${(event: MouseEvent) => {
+              if (isModifiedNavigationClick(event)) {
+                return;
+              }
+              event.preventDefault();
+              onSessionsTabChange("recent");
+            }}
           >
             ${t("usage.sessions.recent")}
-          </button>
+          </a>
         </div>
         <label class="sessions-sort">
           <span>${t("usage.sessions.sort")}</span>
@@ -832,17 +894,24 @@ function renderSessionsCard(
             <option value="tokens" ?selected=${sessionSort === "tokens"}>${t("usage.metrics.tokens")}</option>
           </select>
         </label>
-        <button
+        <a
           class="btn btn-sm sessions-action-btn icon"
-          @click=${() => onSessionSortDirChange(sessionSortDir === "desc" ? "asc" : "desc")}
+          href=${buildSessionSortDirHref(sessionSortDir === "desc" ? "asc" : "desc")}
           title=${
             sessionSortDir === "desc"
               ? t("usage.sessions.descending")
               : t("usage.sessions.ascending")
           }
+          @click=${(event: MouseEvent) => {
+            if (isModifiedNavigationClick(event)) {
+              return;
+            }
+            event.preventDefault();
+            onSessionSortDirChange(sessionSortDir === "desc" ? "asc" : "desc");
+          }}
         >
           ${sessionSortDir === "desc" ? "↓" : "↑"}
-        </button>
+        </a>
         ${
           selectedCount > 0
             ? html`

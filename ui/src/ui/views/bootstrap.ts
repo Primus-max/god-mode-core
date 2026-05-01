@@ -1,25 +1,51 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
 import { formatRelativeTimestamp } from "../format.ts";
-import type { BootstrapRequestRecordDetail, BootstrapRequestRecordSummary } from "../types.ts";
+import type {
+  BootstrapRequestRecordDetail,
+  BootstrapRequestRecordSummary,
+  RuntimeCheckpointSummary,
+} from "../types.ts";
+
+type BootstrapExecutionContext = NonNullable<
+  BootstrapRequestRecordDetail["request"]["executionContext"]
+>;
+type BootstrapBlockedResume = NonNullable<
+  BootstrapRequestRecordDetail["request"]["blockedRunResume"]
+>;
 
 export type BootstrapProps = {
   loading: boolean;
   detailLoading: boolean;
   actionBusy: boolean;
+  runtimeLoading?: boolean;
   error: string | null;
   detailError: string | null;
+  runtimeError?: string | null;
   requests: BootstrapRequestRecordSummary[];
   pendingCount: number;
   filterQuery: string;
   selectedId: string | null;
   detail: BootstrapRequestRecordDetail | null;
+  runtimeCheckpoints?: RuntimeCheckpointSummary[];
+  buildRequestHref: (requestId: string) => string;
   onRefresh: () => void | Promise<void>;
   onSelect: (requestId: string) => void | Promise<void>;
   onFilterChange: (value: string) => void;
   onResolve: (requestId: string, decision: "approve" | "deny") => void | Promise<void>;
   onRun: (requestId: string) => void | Promise<void>;
 };
+
+function isModifiedNavigationClick(event: MouseEvent): boolean {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  );
+}
 
 function matchesBootstrapQuery(entry: BootstrapRequestRecordSummary, query: string) {
   const normalized = query.trim().toLowerCase();
@@ -42,15 +68,22 @@ function matchesBootstrapQuery(entry: BootstrapRequestRecordSummary, query: stri
 function renderBootstrapListItem(params: {
   request: BootstrapRequestRecordSummary;
   selected: boolean;
+  buildRequestHref: (requestId: string) => string;
   onSelect: (requestId: string) => void | Promise<void>;
 }) {
-  const { request, selected, onSelect } = params;
+  const { request, selected, buildRequestHref, onSelect } = params;
   return html`
-    <button
-      class="btn"
-      type="button"
-      ?disabled=${selected}
-      @click=${() => onSelect(request.id)}
+    <a
+      class="btn ${selected ? "active" : ""}"
+      href=${buildRequestHref(request.id)}
+      aria-current=${selected ? "page" : "false"}
+      @click=${(event: MouseEvent) => {
+        if (isModifiedNavigationClick(event)) {
+          return;
+        }
+        event.preventDefault();
+        onSelect(request.id);
+      }}
       style="display:flex; width:100%; text-align:left; justify-content:space-between; gap:12px;"
     >
       <span>
@@ -60,7 +93,7 @@ function renderBootstrapListItem(params: {
         </span>
       </span>
       <span style="opacity:0.75;">${formatRelativeIsoTimestamp(request.updatedAt)}</span>
-    </button>
+    </a>
   `;
 }
 
@@ -78,12 +111,205 @@ function renderReasonList(label: string, reasons?: string[]) {
   `;
 }
 
+/**
+ * Localized label for `modelRouteTier` stored on the execution context snapshot.
+ * @param tier - Tier enum from the gateway/bootstrap payload.
+ * @returns Translated short label for the planning panel.
+ */
+function formatBootstrapModelRouteTierLabel(
+  tier: NonNullable<BootstrapExecutionContext["modelRouteTier"]>,
+): string {
+  switch (tier) {
+    case "local_eligible":
+      return t("bootstrap.planning.modelRouteTierValues.local_eligible");
+    case "remote_required":
+      return t("bootstrap.planning.modelRouteTierValues.remote_required");
+    default: {
+      const _exhaustive: never = tier;
+      return _exhaustive;
+    }
+  }
+}
+
+function renderRoutingAndPlanningPanel(ctx: BootstrapExecutionContext | undefined) {
+  if (!ctx) {
+    return nothing;
+  }
+  const readinessLine = ctx.readinessStatus
+    ? `${ctx.readinessStatus}${ctx.readinessReasons?.length ? ` — ${ctx.readinessReasons.join("; ")}` : ""}`
+    : "";
+  const intentLine = ctx.intent ?? "";
+  const autonomyLine = ctx.policyAutonomy ?? "";
+  const boundaryLine = ctx.unattendedBoundary ?? "";
+  const bootstrapCaps = ctx.bootstrapRequiredCapabilities?.join(", ") ?? "";
+  const requiredCaps = ctx.requiredCapabilities?.join(", ") ?? "";
+  const modelLine = [ctx.providerOverride, ctx.modelOverride].filter(Boolean).join(" · ");
+  const fallbackLine = ctx.fallbackModels?.length ? ctx.fallbackModels.join(", ") : "";
+  const toolsLine = ctx.requestedToolNames?.length ? ctx.requestedToolNames.join(", ") : "";
+
+  return html`
+    <div class="callout" style="margin-top:16px;">
+      <strong>${t("bootstrap.planning.title")}</strong>
+      <div class="muted" style="margin-top:6px;">${t("bootstrap.planning.subtitle")}</div>
+      <dl style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:12px 0 0;">
+        <dt>${t("bootstrap.planning.profileRecipe")}</dt>
+        <dd>${ctx.profileId} · ${ctx.recipeId}</dd>
+        ${
+          readinessLine
+            ? html`<dt>${t("bootstrap.planning.readiness")}</dt><dd>${readinessLine}</dd>`
+            : nothing
+        }
+        ${intentLine ? html`<dt>${t("bootstrap.planning.intent")}</dt><dd>${intentLine}</dd>` : nothing}
+        ${
+          autonomyLine
+            ? html`<dt>${t("bootstrap.planning.autonomy")}</dt><dd>${autonomyLine}</dd>`
+            : nothing
+        }
+        ${
+          boundaryLine
+            ? html`<dt>${t("bootstrap.planning.boundary")}</dt><dd>${boundaryLine}</dd>`
+            : nothing
+        }
+        ${
+          bootstrapCaps
+            ? html`<dt>${t("bootstrap.planning.bootstrapCaps")}</dt><dd>${bootstrapCaps}</dd>`
+            : nothing
+        }
+        ${
+          requiredCaps
+            ? html`<dt>${t("bootstrap.planning.requiredCaps")}</dt><dd>${requiredCaps}</dd>`
+            : nothing
+        }
+        ${
+          ctx.modelRouteTier
+            ? html`<dt>${t("bootstrap.planning.modelRouteTier")}</dt><dd>${formatBootstrapModelRouteTierLabel(
+                ctx.modelRouteTier,
+              )}</dd>`
+            : nothing
+        }
+        ${modelLine ? html`<dt>${t("bootstrap.planning.modelRoute")}</dt><dd>${modelLine}</dd>` : nothing}
+        ${
+          fallbackLine
+            ? html`<dt>${t("bootstrap.planning.fallbackModels")}</dt><dd>${fallbackLine}</dd>`
+            : nothing
+        }
+        ${toolsLine ? html`<dt>${t("bootstrap.planning.tools")}</dt><dd>${toolsLine}</dd>` : nothing}
+        ${
+          ctx.plannerReasoning
+            ? html`<dt>${t("bootstrap.planning.plannerReasoning")}</dt><dd>${ctx.plannerReasoning}</dd>`
+            : nothing
+        }
+      </dl>
+    </div>
+  `;
+}
+
+function renderBlockedResumePanel(resume: BootstrapBlockedResume | undefined) {
+  if (!resume) {
+    return nothing;
+  }
+  const summary =
+    resume.sourceRun.summaryLine?.trim() ||
+    (() => {
+      const p = resume.sourceRun.prompt.trim();
+      return p.length > 200 ? `${p.slice(0, 200)}…` : p;
+    })();
+  return html`
+    <div class="callout" style="margin-top:16px;">
+      <strong>${t("bootstrap.blockedResume.title")}</strong>
+      <div class="muted" style="margin-top:6px;">${t("bootstrap.blockedResume.subtitle")}</div>
+      <dl style="display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; margin:12px 0 0;">
+        <dt>${t("bootstrap.blockedResume.runId")}</dt>
+        <dd>${resume.blockedRunId}</dd>
+        ${
+          resume.sessionKey
+            ? html`<dt>${t("bootstrap.blockedResume.sessionKey")}</dt><dd>${resume.sessionKey}</dd>`
+            : nothing
+        }
+        <dt>${t("bootstrap.blockedResume.queueKey")}</dt>
+        <dd>${resume.queueKey}</dd>
+        <dt>${t("bootstrap.blockedResume.taskPreview")}</dt>
+        <dd>${summary}</dd>
+      </dl>
+    </div>
+  `;
+}
+
+function renderLifecyclePathPanel(detail: BootstrapRequestRecordDetail) {
+  const life = detail.result?.lifecycle;
+  if (!life?.transitions?.length) {
+    return nothing;
+  }
+  const path = life.transitions.join(" → ");
+  return html`
+    <div style="margin-top:16px;">
+      <strong>${t("bootstrap.lifecyclePath.title")}</strong>
+      <div class="muted" style="margin-top:6px;">${path}</div>
+      ${
+        life.verificationStatus
+          ? html`<div class="muted" style="margin-top:6px;">
+              ${t("bootstrap.lifecyclePath.verification")}: ${life.verificationStatus}
+            </div>`
+          : nothing
+      }
+    </div>
+  `;
+}
+
 function formatRelativeIsoTimestamp(timestamp?: string) {
   if (!timestamp) {
     return "n/a";
   }
   const parsed = Date.parse(timestamp);
   return formatRelativeTimestamp(Number.isFinite(parsed) ? parsed : null);
+}
+
+function renderRuntimeCheckpointPanel(
+  detail: BootstrapRequestRecordDetail | null,
+  checkpoints: RuntimeCheckpointSummary[],
+  runtimeLoading?: boolean,
+  runtimeError?: string | null,
+) {
+  if (!detail) {
+    return nothing;
+  }
+  if (runtimeError) {
+    return html`<div class="callout danger" style="margin-top:16px;">${runtimeError}</div>`;
+  }
+  if (runtimeLoading && checkpoints.length === 0) {
+    return html`<div class="muted" style="margin-top:16px;">${t("bootstrap.runtime.loading")}</div>`;
+  }
+  const checkpoint = checkpoints.find(
+    (entry) =>
+      entry.target?.bootstrapRequestId === detail.id ||
+      (entry.boundary === "bootstrap" && entry.id === detail.id),
+  );
+  if (!checkpoint) {
+    return nothing;
+  }
+  return html`
+    <div class="callout" style="margin-top:16px;">
+      <strong>${t("bootstrap.runtime.title")}</strong>
+      <div class="chip-row" style="margin-top:8px;">
+        <span class="chip">${checkpoint.status}</span>
+        ${checkpoint.continuation?.state ? html`<span class="chip">${checkpoint.continuation.state}</span>` : nothing}
+      </div>
+      ${
+        checkpoint.operatorHint
+          ? html`<div class="muted" style="margin-top:8px;">${checkpoint.operatorHint}</div>`
+          : nothing
+      }
+      ${
+        checkpoint.nextActions?.length
+          ? html`
+              <ul style="margin:8px 0 0 18px;">
+                ${checkpoint.nextActions.map((action) => html`<li>${action.label}</li>`)}
+              </ul>
+            `
+          : nothing
+      }
+    </div>
+  `;
 }
 
 export function renderBootstrap(props: BootstrapProps) {
@@ -93,6 +319,7 @@ export function renderBootstrap(props: BootstrapProps) {
   const detail = props.detail;
   const request = detail?.request;
   const result = detail?.result;
+  const runtimeCheckpoints = props.runtimeCheckpoints ?? [];
   const showApprove = detail?.state === "pending";
   const showRun = detail?.state === "approved";
 
@@ -131,6 +358,7 @@ export function renderBootstrap(props: BootstrapProps) {
                   renderBootstrapListItem({
                     request: entry,
                     selected: entry.id === props.selectedId,
+                    buildRequestHref: props.buildRequestHref,
                     onSelect: props.onSelect,
                   }),
                 )
@@ -172,10 +400,26 @@ export function renderBootstrap(props: BootstrapProps) {
                     <dt>${t("bootstrap.fields.updated")}</dt>
                     <dd>${detail.updatedAt}</dd>
                     <dt>${t("bootstrap.fields.lifecycle")}</dt>
-                    <dd>${result?.lifecycle?.status ?? result?.status ?? t("bootstrap.notRun")}</dd>
+                    <dd>
+                      ${result?.lifecycle?.status ?? result?.status ?? t("bootstrap.notRun")}
+                      ${
+                        detail.state
+                          ? html`<span class="muted"> (${t("bootstrap.recordStateHint", { state: detail.state })})</span>`
+                          : nothing
+                      }
+                    </dd>
                   </dl>
+                  ${renderRoutingAndPlanningPanel(request.executionContext)}
+                  ${renderBlockedResumePanel(request.blockedRunResume)}
+                  ${renderLifecyclePathPanel(detail)}
                   ${renderReasonList(t("bootstrap.reasonLists.record"), detail.reasons)}
                   ${renderReasonList(t("bootstrap.reasonLists.result"), result?.reasons)}
+                  ${renderRuntimeCheckpointPanel(
+                    detail,
+                    runtimeCheckpoints,
+                    props.runtimeLoading,
+                    props.runtimeError,
+                  )}
                   <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:16px;">
                     ${
                       showApprove

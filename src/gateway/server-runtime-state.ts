@@ -87,6 +87,7 @@ export async function createGatewayRuntimeState(params: {
   dedupe: Map<string, DedupeEntry>;
   chatRunState: ReturnType<typeof createChatRunState>;
   chatRunBuffers: Map<string, string>;
+  chatRunMediaUrls: Map<string, string[]>;
   chatDeltaSentAt: Map<string, number>;
   chatDeltaLastBroadcastLen: Map<string, number>;
   addChatRun: (sessionId: string, entry: ChatRunEntry) => void;
@@ -221,6 +222,7 @@ export async function createGatewayRuntimeState(params: {
     const chatRunState = createChatRunState();
     const chatRunRegistry = chatRunState.registry;
     const chatRunBuffers = chatRunState.buffers;
+    const chatRunMediaUrls = chatRunState.mediaUrls;
     const chatDeltaSentAt = chatRunState.deltaSentAt;
     const chatDeltaLastBroadcastLen = chatRunState.deltaLastBroadcastLen;
     const addChatRun = chatRunRegistry.add;
@@ -242,6 +244,7 @@ export async function createGatewayRuntimeState(params: {
       dedupe,
       chatRunState,
       chatRunBuffers,
+      chatRunMediaUrls,
       chatDeltaSentAt,
       chatDeltaLastBroadcastLen,
       addChatRun,

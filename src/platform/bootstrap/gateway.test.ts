@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getPlatformRuntimeCheckpointService,
@@ -22,7 +25,7 @@ function buildRequest(overrides: Partial<BootstrapRequest> = {}): BootstrapReque
   }
   return {
     capabilityId: "pdf-renderer",
-    installMethod: "download",
+    installMethod: catalogEntry.install?.method ?? "node",
     rollbackStrategy: "restore_previous",
     reason: "renderer_unavailable",
     sourceDomain: "document",
@@ -83,8 +86,53 @@ describe("bootstrap gateway methods", () => {
     );
   });
 
+  it("rehydrates requests created by another bootstrap service instance", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-bootstrap-gateway-"));
+    try {
+      const writer = createBootstrapRequestService({ stateDir });
+      const reader = createBootstrapRequestService({ stateDir });
+      const record = writer.create(buildRequest());
+
+      const listRespond = vi.fn();
+      await createBootstrapListGatewayMethod(reader)({
+        params: {},
+        req: { type: "req", method: "platform.bootstrap.list", id: "req-rehydrate-list" },
+        client: null,
+        isWebchatConnect: () => false,
+        respond: listRespond,
+        context: {} as never,
+      });
+      expect(listRespond).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({
+          pendingCount: 1,
+          requests: [expect.objectContaining({ id: record.id })],
+        }),
+      );
+
+      const getRespond = vi.fn();
+      await createBootstrapGetGatewayMethod(reader)({
+        params: { requestId: record.id },
+        req: { type: "req", method: "platform.bootstrap.get", id: "req-rehydrate-get" },
+        client: null,
+        isWebchatConnect: () => false,
+        respond: getRespond,
+        context: {} as never,
+      });
+      expect(getRespond).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({
+          detail: expect.objectContaining({ id: record.id, state: "pending" }),
+        }),
+      );
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
   it("resolves and runs bootstrap requests", async () => {
     const service = createBootstrapRequestService();
+    const runtimeService = getPlatformRuntimeCheckpointService();
     installBootstrapContinuationNoop();
     const record = service.create(buildRequest());
     const originalRun = service.run;
@@ -92,18 +140,18 @@ describe("bootstrap gateway methods", () => {
       originalRun({
         ...params,
         installers: {
-          download: async ({ request }) => ({
+          node: async ({ request }) => ({
             ok: true,
             capability: {
               ...request.catalogEntry.capability,
               trusted: true,
               sandboxed: true,
-              installMethod: "download",
+              installMethod: "node",
               status: "available",
             },
           }),
         },
-        availableBins: ["playwright"],
+        availableBins: ["node"],
         runHealthCheckCommand: async () => true,
       }),
     );
@@ -112,7 +160,18 @@ describe("bootstrap gateway methods", () => {
     await createBootstrapResolveGatewayMethod(service)({
       params: { requestId: record.id, decision: "approve" },
       req: { type: "req", method: "platform.bootstrap.resolve", id: "req-3" },
-      client: null,
+      client: {
+        connId: "conn-bootstrap",
+        connect: {
+          client: {
+            id: "control-ui",
+            displayName: "Operator Tanya",
+          },
+          device: {
+            id: "device-bootstrap",
+          },
+        },
+      } as never,
       isWebchatConnect: () => false,
       respond: resolveRespond,
       context: {} as never,
@@ -123,12 +182,32 @@ describe("bootstrap gateway methods", () => {
         detail: expect.objectContaining({ state: "approved" }),
       }),
     );
+    expect(runtimeService.get(record.id)?.lastOperatorDecision).toEqual(
+      expect.objectContaining({
+        action: "approve",
+        actor: expect.objectContaining({
+          displayName: "Operator Tanya",
+          deviceId: "device-bootstrap",
+        }),
+      }),
+    );
 
     const runRespond = vi.fn();
     await createBootstrapRunGatewayMethod(service)({
       params: { requestId: record.id },
       req: { type: "req", method: "platform.bootstrap.run", id: "req-4" },
-      client: null,
+      client: {
+        connId: "conn-bootstrap",
+        connect: {
+          client: {
+            id: "control-ui",
+            displayName: "Operator Tanya",
+          },
+          device: {
+            id: "device-bootstrap",
+          },
+        },
+      } as never,
       isWebchatConnect: () => false,
       respond: runRespond,
       context: {} as never,
@@ -137,6 +216,24 @@ describe("bootstrap gateway methods", () => {
       true,
       expect.objectContaining({
         detail: expect.objectContaining({ state: "available" }),
+      }),
+    );
+    expect(runtimeService.get(record.id)?.lastOperatorDecision).toEqual(
+      expect.objectContaining({
+        action: "run",
+        actor: expect.objectContaining({
+          displayName: "Operator Tanya",
+        }),
+      }),
+    );
+    expect(
+      runtimeService.getAction(`bootstrap:${record.id}:run`)?.receipt?.operatorDecision,
+    ).toEqual(
+      expect.objectContaining({
+        action: "run",
+        actor: expect.objectContaining({
+          deviceId: "device-bootstrap",
+        }),
       }),
     );
   });

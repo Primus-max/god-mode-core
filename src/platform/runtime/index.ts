@@ -39,6 +39,8 @@ export {
   PlatformRuntimeContinuationSchema,
   PlatformRuntimeContinuationStateSchema,
   PlatformRuntimeNextActionSchema,
+  PlatformRuntimeOperatorActorSchema,
+  PlatformRuntimeOperatorDecisionSchema,
   PlatformRuntimeRunOutcomeSchema,
   PlatformRuntimeRunClosureSchema,
   PlatformRuntimeRunClosureSummarySchema,
@@ -86,6 +88,8 @@ export {
   type PlatformRuntimeContinuationState,
   type PlatformRuntimeNextAction,
   type PlatformRuntimeNodeInvokeReceipt,
+  type PlatformRuntimeOperatorActor,
+  type PlatformRuntimeOperatorDecision,
   type PlatformRuntimeRunOutcome,
   type PlatformRuntimeRunClosure,
   type PlatformRuntimeRunClosureSummary,
@@ -94,6 +98,12 @@ export {
   type PlatformRuntimeSupervisorVerdictReasonCode,
   type PlatformRuntimeTarget,
 } from "./contracts.js";
+
+export {
+  buildExecutionIntentSeedFromRecipeRuntimePlan,
+  deriveExecutionContractExpectationsFromRuntimePlan,
+  type PlatformRuntimeExecutionIntentSeed,
+} from "./execution-intent-from-plan.js";
 
 export {
   createPlatformRuntimeCheckpointService,
@@ -105,6 +115,7 @@ export {
 export {
   createRuntimeActionGetGatewayMethod,
   createRuntimeActionListGatewayMethod,
+  createRuntimeCheckpointDispatchGatewayMethod,
   createRuntimeCheckpointGetGatewayMethod,
   createRuntimeCheckpointListGatewayMethod,
   createRuntimeClosureGetGatewayMethod,

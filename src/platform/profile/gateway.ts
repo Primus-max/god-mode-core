@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { loadConfig } from "../../config/config.js";
 import type { GatewayRequestHandler } from "../../gateway/server-methods/types.js";
 import { loadSessionEntry } from "../../gateway/session-entry.js";
-import { resolveSessionBackedExecutionRuntimePlan } from "../decision/input.js";
+import { resolveClassifiedSessionBackedExecutionRuntimePlan } from "../decision/input.js";
 import { SpecialistRuntimeSnapshotSchema } from "./contracts.js";
 import { getInitialProfile, getTaskOverlay, INITIAL_PROFILES } from "./defaults.js";
 import { resolveSessionSpecialistOverride } from "./session-overrides.js";
@@ -12,7 +13,7 @@ const SpecialistResolveParamsSchema = z.object({
 });
 
 export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
-  return ({ params, respond }) => {
+  return async ({ params, respond }) => {
     const parsed = SpecialistResolveParamsSchema.safeParse(params);
     if (!parsed.success) {
       respond(false, { error: "invalid platform.profile.resolve params" });
@@ -23,10 +24,11 @@ export function createProfileResolveGatewayMethod(): GatewayRequestHandler {
     const draft = parsed.data.draft?.trim() ?? "";
     const { entry, storePath } = loadSessionEntry(sessionKey);
     const override = resolveSessionSpecialistOverride(entry);
-    const resolved = resolveSessionBackedExecutionRuntimePlan({
+    const resolved = await resolveClassifiedSessionBackedExecutionRuntimePlan({
       draftPrompt: draft,
       storePath,
       sessionEntry: entry,
+      cfg: loadConfig(),
     });
     const selectedProfile = resolved.profile.selectedProfile;
     const activeProfileId = resolved.profile.activeProfile.sessionProfile ?? selectedProfile.id;

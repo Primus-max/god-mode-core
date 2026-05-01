@@ -1,8 +1,64 @@
-import type { DeliveryContext } from "../utils/delivery-context.js";
+import { type DeliveryContext, deliveryContextKey } from "../utils/delivery-context.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 
 function resolveControllerSessionKey(entry: SubagentRunRecord): string {
   return entry.controllerSessionKey?.trim() || entry.requesterSessionKey;
+}
+
+/**
+ * Finds the latest active persistent-session subagent run with a matching
+ * label and origin context.
+ *
+ * Idempotency guard for the `persistent_session.created` commitment effect:
+ * a follow-up spawn with the same label in the same delivery origin should
+ * reuse the existing live session rather than create a duplicate.
+ *
+ * @param runs - Read-only snapshot of the subagent runs registry.
+ * @param label - Trimmed user-visible label requested by the spawn caller.
+ * @param origin - Delivery context of the requester (channel/account/to/threadId).
+ * @returns The latest active matching run, or undefined when no live session matches.
+ *
+ * @deprecated Use `findLivePersistentSessionByLabel`
+ *   (`src/agents/subagent-persistent-session-query.ts`). The runs-based
+ *   detection here filters on `endedAt === undefined`, which the real TG
+ *   spawn flow toggles to a number after the LLM turn ends — even when the
+ *   persistent session itself is still alive in the gateway store (Gap G3,
+ *   `commitment_kernel_idempotency_fix.plan.md` §1). Kept during the PR-4
+ *   migration window for legacy query tests; will be removed alongside the
+ *   wrapper `findActiveSubagentByLabel` in the post-PR-4b cleanup PR.
+ */
+export function findActiveSubagentByLabelFromRuns(
+  runs: Map<string, SubagentRunRecord>,
+  label: string,
+  origin: DeliveryContext | undefined,
+): SubagentRunRecord | undefined {
+  const trimmedLabel = label.trim();
+  if (!trimmedLabel) {
+    return undefined;
+  }
+  const targetOriginKey = deliveryContextKey(origin);
+  let latest: SubagentRunRecord | undefined;
+  for (const entry of runs.values()) {
+    if (entry.label !== trimmedLabel) {
+      continue;
+    }
+    if (entry.spawnMode !== "session") {
+      continue;
+    }
+    if (typeof entry.endedAt === "number") {
+      continue;
+    }
+    if (targetOriginKey !== undefined) {
+      const entryOriginKey = deliveryContextKey(entry.requesterOrigin);
+      if (entryOriginKey !== targetOriginKey) {
+        continue;
+      }
+    }
+    if (!latest || entry.createdAt > latest.createdAt) {
+      latest = entry;
+    }
+  }
+  return latest;
 }
 
 export function findRunIdsByChildSessionKeyFromRuns(

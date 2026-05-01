@@ -29,6 +29,7 @@ import {
 import { applyVerboseOverride, parseVerboseOverride } from "../sessions/level-overrides.js";
 import { applyModelOverrideToSessionEntry } from "../sessions/model-overrides.js";
 import { normalizeSendPolicy } from "../sessions/send-policy.js";
+import { classifyLabelConflict } from "../sessions/session-label-conflict.js";
 import { parseSessionLabel } from "../sessions/session-label.js";
 import {
   ErrorCodes,
@@ -237,15 +238,28 @@ export async function applySessionsPatchToStore(params: {
       if (!parsed.ok) {
         return invalid(parsed.error);
       }
-      for (const [key, entry] of Object.entries(store)) {
-        if (key === storeKey) {
-          continue;
-        }
-        if (entry?.label === parsed.label) {
-          return invalid(`label already in use: ${parsed.label}`);
-        }
+      const resolution = classifyLabelConflict({ store, storeKey, label: parsed.label });
+      if (resolution.kind === "conflict") {
+        return invalid(`label already in use: ${parsed.label}`);
       }
-      next.label = parsed.label;
+      if (resolution.kind === "same_logical_session") {
+        // Idempotency guard: PR-4a closed G3 on spawn path via
+        // `findLivePersistentSessionByLabel`. When the spawn-time fast path
+        // misses (cross-turn origin drift, terminal sibling), the patch path
+        // would otherwise emit `INVALID_REQUEST: label already in use`. Same
+        // agentId scope subagent collision = stale terminal sibling — skip
+        // the label set silently so the new entry coexists without taking
+        // the label from the survivor.
+        console.info("[commitment]", {
+          effect: "persistent_session.created",
+          action: "reuse_label_on_patch",
+          label: parsed.label,
+          storeKey,
+          conflictKey: resolution.conflictKey,
+        });
+      } else {
+        next.label = parsed.label;
+      }
     }
   }
 

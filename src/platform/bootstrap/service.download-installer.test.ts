@@ -12,7 +12,10 @@ import type { BootstrapRequest } from "./contracts.js";
 import * as downloadFetch from "./download-fetch.js";
 import { createBootstrapRequestService } from "./service.js";
 
-const fetchBootstrapDownloadArtifactMock = vi.spyOn(downloadFetch, "fetchBootstrapDownloadArtifact");
+const fetchBootstrapDownloadArtifactMock = vi.spyOn(
+  downloadFetch,
+  "fetchBootstrapDownloadArtifact",
+);
 const withExtractedArchiveRootMock = vi.spyOn(installFlow, "withExtractedArchiveRoot");
 const installPackageDirWithManifestDepsMock = vi.spyOn(
   installPackageDir,

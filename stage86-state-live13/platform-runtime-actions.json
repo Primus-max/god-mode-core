@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "actionId": "bootstrap:feb3d7f5-55e7-43c3-9555-f94cc591a572:run",
+      "runId": "feb3d7f5-55e7-43c3-9555-f94cc591a572",
+      "kind": "bootstrap",
+      "state": "failed",
+      "boundary": "bootstrap",
+      "checkpointId": "feb3d7f5-55e7-43c3-9555-f94cc591a572",
+      "target": {
+        "bootstrapRequestId": "feb3d7f5-55e7-43c3-9555-f94cc591a572",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "feb3d7f5-55e7-43c3-9555-f94cc591a572",
+        "capabilityId": "table-parser",
+        "operation": "bootstrap.run",
+        "resultStatus": "degraded"
+      },
+      "attemptCount": 1,
+      "retryable": true,
+      "lastError": "Package not found on npm: @openclaw/table-parser@1.0.0. See https://docs.openclaw.ai/tools/plugin for installable plugins.",
+      "createdAtMs": 1775761273730,
+      "updatedAtMs": 1775761275524,
+      "stagedAtMs": 1775761273730,
+      "attemptedAtMs": 1775761273737,
+      "failedAtMs": 1775761275524
+    },
+    {
+      "actionId": "bootstrap:b9476a6d-8d54-4f59-af7a-c61e27709198:run",
+      "runId": "b9476a6d-8d54-4f59-af7a-c61e27709198",
+      "kind": "bootstrap",
+      "state": "confirmed",
+      "boundary": "bootstrap",
+      "checkpointId": "b9476a6d-8d54-4f59-af7a-c61e27709198",
+      "target": {
+        "bootstrapRequestId": "b9476a6d-8d54-4f59-af7a-c61e27709198",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "b9476a6d-8d54-4f59-af7a-c61e27709198",
+        "capabilityId": "pdf-renderer",
+        "operation": "bootstrap.run",
+        "resultStatus": "bootstrapped",
+        "operatorDecision": {
+          "action": "run",
+          "atMs": 1775759734354,
+          "actor": {
+            "id": "cli",
+            "displayName": "stage86-live-probe",
+            "deviceId": "bf4f0d0a5691ed6a5eca5b8ed067526161a54a53d18161ddaaee0615b7a6e48b",
+            "connId": "f64e1e94-dea9-4ac3-a0c5-85bac7f0037b"
+          },
+          "source": "platform.bootstrap.run"
+        }
+      },
+      "attemptCount": 1,
+      "retryable": false,
+      "createdAtMs": 1775759734354,
+      "updatedAtMs": 1775759737757,
+      "stagedAtMs": 1775759734354,
+      "attemptedAtMs": 1775759734361,
+      "confirmedAtMs": 1775759737757
+    }
+  ]
+}

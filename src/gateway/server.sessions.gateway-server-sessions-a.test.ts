@@ -52,6 +52,10 @@ const acpRuntimeMocks = vi.hoisted(() => ({
   getAcpRuntimeBackend: vi.fn(),
   requireAcpRuntimeBackend: vi.fn(),
 }));
+const acpSessionManagerMocks = vi.hoisted(() => ({
+  cancelSession: vi.fn(async () => {}),
+  closeSession: vi.fn(async () => ({ runtimeClosed: true, metaCleared: false })),
+}));
 const browserSessionTabMocks = vi.hoisted(() => ({
   closeTrackedBrowserTabsForSessions: vi.fn(async () => 0),
 }));
@@ -136,6 +140,17 @@ vi.mock("../acp/runtime/registry.js", async (importOriginal) => {
       }
       return backend;
     },
+  };
+});
+
+vi.mock("../acp/control-plane/manager.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../acp/control-plane/manager.js")>();
+  return {
+    ...actual,
+    getAcpSessionManager: vi.fn(() => ({
+      cancelSession: acpSessionManagerMocks.cancelSession,
+      closeSession: acpSessionManagerMocks.closeSession,
+    })),
   };
 });
 
@@ -242,6 +257,13 @@ describe("gateway server sessions", () => {
     acpRuntimeMocks.requireAcpRuntimeBackend.mockImplementation((backendId?: string) =>
       acpRuntimeMocks.getAcpRuntimeBackend(backendId),
     );
+    acpSessionManagerMocks.cancelSession.mockClear();
+    acpSessionManagerMocks.cancelSession.mockResolvedValue(undefined);
+    acpSessionManagerMocks.closeSession.mockClear();
+    acpSessionManagerMocks.closeSession.mockResolvedValue({
+      runtimeClosed: true,
+      metaCleared: false,
+    });
     browserSessionTabMocks.closeTrackedBrowserTabsForSessions.mockClear();
     browserSessionTabMocks.closeTrackedBrowserTabsForSessions.mockResolvedValue(0);
   });
@@ -1184,20 +1206,16 @@ describe("gateway server sessions", () => {
     });
     expect(deleted.ok).toBe(true);
     expect(deleted.payload?.deleted).toBe(true);
-    expect(acpRuntimeMocks.close).toHaveBeenCalledWith({
-      handle: {
-        sessionKey: "agent:main:discord:group:dev",
-        backend: "acpx",
-        runtimeSessionName: "runtime:delete",
-      },
+    expect(acpSessionManagerMocks.closeSession).toHaveBeenCalledWith({
+      cfg: expect.any(Object),
+      sessionKey: "agent:main:discord:group:dev",
       reason: "session-delete",
+      requireAcpSession: false,
+      allowBackendUnavailable: true,
     });
-    expect(acpRuntimeMocks.cancel).toHaveBeenCalledWith({
-      handle: {
-        sessionKey: "agent:main:discord:group:dev",
-        backend: "acpx",
-        runtimeSessionName: "runtime:delete",
-      },
+    expect(acpSessionManagerMocks.cancelSession).toHaveBeenCalledWith({
+      cfg: expect.any(Object),
+      sessionKey: "agent:main:discord:group:dev",
       reason: "session-delete",
     });
 
@@ -1422,12 +1440,16 @@ describe("gateway server sessions", () => {
       key: "main",
     });
     expect(reset.ok).toBe(true);
-    expect(acpRuntimeMocks.close).toHaveBeenCalledWith({
-      handle: {
-        sessionKey: "agent:main:main",
-        backend: "acpx",
-        runtimeSessionName: "runtime:reset",
-      },
+    expect(acpSessionManagerMocks.closeSession).toHaveBeenCalledWith({
+      cfg: expect.any(Object),
+      sessionKey: "agent:main:main",
+      reason: "session-reset",
+      requireAcpSession: false,
+      allowBackendUnavailable: true,
+    });
+    expect(acpSessionManagerMocks.cancelSession).toHaveBeenCalledWith({
+      cfg: expect.any(Object),
+      sessionKey: "agent:main:main",
       reason: "session-reset",
     });
 

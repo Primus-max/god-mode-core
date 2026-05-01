@@ -21,7 +21,10 @@ export type EmbeddedSubscribeLogger = {
 export type ToolErrorSummary = {
   toolName: string;
   meta?: string;
+  /** Sanitized for chat surfaces */
   error?: string;
+  /** Original message for logging and recoverability heuristics only */
+  rawError?: string;
   mutatingAction?: boolean;
   actionFingerprint?: string;
 };
@@ -79,6 +82,7 @@ export type EmbeddedPiSubscribeState = {
   successfulCronAdds: number;
   pendingMessagingMediaUrls: Map<string, string[]>;
   pendingToolMediaUrls: string[];
+  toolResultMediaUrls: string[];
   pendingToolAudioAsVoice: boolean;
   deterministicApprovalPromptSent: boolean;
   executionReceipts?: PlatformRuntimeExecutionReceipt[];
@@ -141,6 +145,7 @@ export type ToolHandlerParams = Pick<
   SubscribeEmbeddedPiSessionParams,
   | "runId"
   | "onBlockReplyFlush"
+  | "onStructuralToolExecutionStarting"
   | "onAgentEvent"
   | "onToolResult"
   | "sessionKey"
@@ -158,6 +163,7 @@ export type ToolHandlerState = Pick<
   | "pendingMessagingTexts"
   | "pendingMessagingMediaUrls"
   | "pendingToolMediaUrls"
+  | "toolResultMediaUrls"
   | "pendingToolAudioAsVoice"
   | "messagingToolSentTexts"
   | "messagingToolSentTextsNormalized"

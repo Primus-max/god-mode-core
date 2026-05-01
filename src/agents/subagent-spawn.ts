@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
+import type { AgentId, SessionKey } from "../platform/commitment/ids.js";
 import { formatThinkingLevels, normalizeThinkLevel } from "../auto-reply/thinking.js";
 import { DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH } from "../config/agent-limits.js";
 import { loadConfig } from "../config/config.js";
-import { mergeSessionEntry, updateSessionStore } from "../config/sessions.js";
+import { loadSessionStore, mergeSessionEntry, updateSessionStore } from "../config/sessions.js";
 import { callGateway } from "../gateway/call.js";
 import {
   pruneLegacyStoreKeys,
@@ -17,7 +18,7 @@ import {
   parseAgentSessionKey,
 } from "../routing/session-key.js";
 import { emitSessionLifecycleEvent } from "../sessions/session-lifecycle-events.js";
-import { normalizeDeliveryContext } from "../utils/delivery-context.js";
+import { deliveryContextKey, normalizeDeliveryContext } from "../utils/delivery-context.js";
 import { resolveAgentConfig } from "./agent-scope.js";
 import { AGENT_LANE_SUBAGENT } from "./lanes.js";
 import { resolveSubagentSpawnModelSelection } from "./model-selection.js";
@@ -35,6 +36,7 @@ import {
 } from "./subagent-attachments.js";
 import { resolveSubagentCapabilities } from "./subagent-capabilities.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
+import { findLivePersistentSessionByLabel } from "./subagent-persistent-session-query.js";
 import { countActiveRunsForSession, registerSubagentRun } from "./subagent-registry.js";
 import { readStringParam } from "./tools/common.js";
 import {
@@ -88,8 +90,28 @@ export type SpawnSubagentContext = {
 export const SUBAGENT_SPAWN_ACCEPTED_NOTE =
   "Auto-announce is push-based. After spawning children, do NOT call sessions_list, sessions_history, exec sleep, or any polling tool. Wait for completion events to arrive as user messages, track expected child session keys, and only send your final answer after ALL expected completions arrive. If a child completion event arrives AFTER your final answer, reply ONLY with NO_REPLY.";
 export const SUBAGENT_SPAWN_SESSION_ACCEPTED_NOTE =
-  "thread-bound session stays active after this task; continue in-thread for follow-ups.";
+  "follow-up session stays active after this task; send more messages to continue.";
 
+/**
+ * Structured discriminator values for error results. Callers should branch on
+ * this enum (NOT parse the `error` string) when they need to react to a
+ * specific failure class — e.g. the sessions_spawn tool transparently retries
+ * a `followup` request as one-shot when the channel reports
+ * `thread_binding_unsupported`.
+ */
+export type SpawnSubagentErrorReason = "thread_binding_unsupported";
+
+/**
+ * Pure-value result of a subagent spawn boundary.
+ *
+ * `agentId` / `parentSessionKey` are populated only on `status === "accepted"`;
+ * on error/forbidden they stay undefined and are dropped by the LLM-facing
+ * builder. Semantics:
+ *  - `parentSessionKey: null` -> top-level spawn (no caller session);
+ *  - `parentSessionKey: undefined` -> not applicable (drop in LLM payload);
+ *  - both fields are branded so callers cannot mix them with other ids without
+ *    explicit conversion (master invariant #16).
+ */
 export type SpawnSubagentResult = {
   status: "accepted" | "forbidden" | "error";
   childSessionKey?: string;
@@ -98,6 +120,9 @@ export type SpawnSubagentResult = {
   note?: string;
   modelApplied?: boolean;
   error?: string;
+  errorReason?: SpawnSubagentErrorReason;
+  agentId?: AgentId;
+  parentSessionKey?: SessionKey | null;
   attachments?: {
     count: number;
     totalBytes: number;
@@ -230,6 +255,44 @@ function summarizeError(err: unknown): string {
   return "error";
 }
 
+// User-safe error messages. Verbose internals (hook names, internal session ids,
+// raw gateway errors, UUIDs) must NEVER appear in returned `error` strings — they
+// are routed to logs only via `logSubagentSpawnFailure` below.
+const SAFE_ERROR_SESSIONS_UNAVAILABLE =
+  "Persistent subagent sessions are not available in this channel yet.";
+const SAFE_ERROR_CANNOT_START = "Cannot start a subagent right now.";
+
+type SpawnFailurePhase =
+  | "patch"
+  | "thread-binding"
+  | "register"
+  | "dispatch"
+  | "attachments"
+  | "runtime-model";
+
+function logSubagentSpawnFailure(args: {
+  phase: SpawnFailurePhase;
+  message: string;
+  childSessionKey?: string;
+  runId?: string;
+  extra?: Record<string, unknown>;
+}): void {
+  const payload: Record<string, unknown> = {
+    phase: args.phase,
+    message: args.message,
+  };
+  if (args.childSessionKey) {
+    payload.childSessionKey = args.childSessionKey;
+  }
+  if (args.runId) {
+    payload.runId = args.runId;
+  }
+  if (args.extra) {
+    Object.assign(payload, args.extra);
+  }
+  console.warn("[subagent-spawn]", payload);
+}
+
 async function ensureThreadBindingForSubagentSpawn(params: {
   hookRunner: ReturnType<typeof getGlobalHookRunner>;
   childSessionKey: string;
@@ -243,13 +306,22 @@ async function ensureThreadBindingForSubagentSpawn(params: {
     to?: string;
     threadId?: string | number;
   };
-}): Promise<{ status: "ok" } | { status: "error"; error: string }> {
+}): Promise<
+  | { status: "ok" }
+  | { status: "error"; error: string; errorReason?: SpawnSubagentErrorReason }
+> {
   const hookRunner = params.hookRunner;
   if (!hookRunner?.hasHooks("subagent_spawning")) {
+    logSubagentSpawnFailure({
+      phase: "thread-binding",
+      message:
+        "thread=true is unavailable because no channel plugin registered subagent_spawning hooks.",
+      childSessionKey: params.childSessionKey,
+    });
     return {
       status: "error",
-      error:
-        "thread=true is unavailable because no channel plugin registered subagent_spawning hooks.",
+      error: SAFE_ERROR_SESSIONS_UNAVAILABLE,
+      errorReason: "thread_binding_unsupported",
     };
   }
 
@@ -269,24 +341,40 @@ async function ensureThreadBindingForSubagentSpawn(params: {
       },
     );
     if (result?.status === "error") {
-      const error = result.error.trim();
+      logSubagentSpawnFailure({
+        phase: "thread-binding",
+        message: result.error?.trim() || "subagent_spawning hook returned error",
+        childSessionKey: params.childSessionKey,
+      });
       return {
         status: "error",
-        error: error || "Failed to prepare thread binding for this subagent session.",
+        error: SAFE_ERROR_SESSIONS_UNAVAILABLE,
+        errorReason: "thread_binding_unsupported",
       };
     }
     if (result?.status !== "ok" || !result.threadBindingReady) {
+      logSubagentSpawnFailure({
+        phase: "thread-binding",
+        message: "subagent_spawning hook did not complete thread binding",
+        childSessionKey: params.childSessionKey,
+        extra: { hookStatus: result?.status ?? "missing" },
+      });
       return {
         status: "error",
-        error:
-          "Unable to create or bind a thread for this subagent session. Session mode is unavailable for this target.",
+        error: SAFE_ERROR_SESSIONS_UNAVAILABLE,
+        errorReason: "thread_binding_unsupported",
       };
     }
     return { status: "ok" };
   } catch (err) {
+    logSubagentSpawnFailure({
+      phase: "thread-binding",
+      message: `Thread bind threw: ${summarizeError(err)}`,
+      childSessionKey: params.childSessionKey,
+    });
     return {
       status: "error",
-      error: `Thread bind failed: ${summarizeError(err)}`,
+      error: SAFE_ERROR_CANNOT_START,
     };
   }
 }
@@ -336,6 +424,7 @@ export async function spawnSubagentDirect(
     to: ctx.agentTo,
     threadId: ctx.agentThreadId,
   });
+
   const hookRunner = getGlobalHookRunner();
   const cfg = loadConfig();
 
@@ -368,31 +457,29 @@ export async function spawnSubagentDirect(
     mainKey,
   });
 
-  const callerDepth = getSubagentDepthFromSessionStore(requesterInternalKey, { cfg });
-  const maxSpawnDepth =
-    cfg.agents?.defaults?.subagents?.maxSpawnDepth ?? DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH;
-  if (callerDepth >= maxSpawnDepth) {
-    return {
-      status: "forbidden",
-      error: `sessions_spawn is not allowed at this depth (current depth: ${callerDepth}, max: ${maxSpawnDepth})`,
-    };
+  const parsedRequesterAgentId = parseAgentSessionKey(requesterInternalKey)?.agentId;
+  const requesterAgentIdSignal = ctx.requesterAgentIdOverride ?? parsedRequesterAgentId;
+  if (cfg.agents?.requireAgentId === true) {
+    const hasExplicitTarget = Boolean(requestedAgentId);
+    const hasResolvableRequester = Boolean(
+      ctx.requesterAgentIdOverride?.trim() || parsedRequesterAgentId,
+    );
+    if (!hasExplicitTarget && !hasResolvableRequester) {
+      return {
+        status: "forbidden",
+        error:
+          "sessions_spawn requires an explicit agentId. Use agents_list to discover allowed targets.",
+      };
+    }
   }
-
-  const maxChildren = cfg.agents?.defaults?.subagents?.maxChildrenPerAgent ?? 5;
-  const activeChildren = countActiveRunsForSession(requesterInternalKey);
-  if (activeChildren >= maxChildren) {
-    return {
-      status: "forbidden",
-      error: `sessions_spawn has reached max active children for this session (${activeChildren}/${maxChildren})`,
-    };
-  }
-
-  const requesterAgentId = normalizeAgentId(
-    ctx.requesterAgentIdOverride ?? parseAgentSessionKey(requesterInternalKey)?.agentId,
-  );
+  const requesterAgentId = normalizeAgentId(requesterAgentIdSignal);
   const targetAgentId = requestedAgentId ? normalizeAgentId(requestedAgentId) : requesterAgentId;
   if (targetAgentId !== requesterAgentId) {
-    const allowAgents = resolveAgentConfig(cfg, requesterAgentId)?.subagents?.allowAgents ?? [];
+    const perAgentConfig = resolveAgentConfig(cfg, requesterAgentId);
+    const allowAgents =
+      perAgentConfig?.subagents?.allowAgents ??
+      cfg.agents?.defaults?.subagents?.allowAgents ??
+      [];
     const allowAny = allowAgents.some((value) => value.trim() === "*");
     const normalizedTargetId = targetAgentId.toLowerCase();
     const allowSet = new Set(
@@ -408,6 +495,76 @@ export async function spawnSubagentDirect(
       };
     }
   }
+
+  // Commitment kernel idempotency for `persistent_session.created`.
+  //
+  // Same label + same delivery origin + live persistent subagent session
+  // already exists -> reuse it instead of spawning a duplicate. This is what
+  // the user-visible part of the cutover-1 effect promises: repeated "create
+  // Valera" requests in the same chat resolve to the same persistent session
+  // and produce a single accepted response, not duplicate spawns and
+  // "label already in use" errors.
+  //
+  // Liveness is detected via the gateway session store directly (Variant A,
+  // see commitment_kernel_idempotency_fix.plan.md §2.1). Run-mode subagents
+  // are physically removed from the store after cleanup, so a surviving
+  // entry under the canonical `agent:<id>:subagent:<uuid>` shape is, by
+  // construction, a live persistent session — independent of `endedAt`,
+  // which used to gate the broken runs-based guard (G3). Reuse runs before
+  // depth / maxChildren quotas: it does not register a new run record and
+  // therefore does not consume the parent's child budget.
+  if (label && requestThreadBinding) {
+    const storeTarget = resolveGatewaySessionStoreTarget({
+      cfg,
+      key: `agent:${targetAgentId}:main`,
+      scanLegacyKeys: false,
+    });
+    const store = loadSessionStore(storeTarget.storePath);
+    const reused = findLivePersistentSessionByLabel({
+      store,
+      label,
+      requesterOrigin,
+      targetAgentId,
+    });
+    if (reused) {
+      console.info("[commitment]", {
+        effect: "persistent_session.created",
+        action: "reuse_by_session",
+        label,
+        childSessionKey: reused.key,
+        origin: deliveryContextKey(requesterOrigin) ?? "n/a",
+      });
+      return {
+        status: "accepted",
+        childSessionKey: reused.key,
+        mode: "session",
+        note: `Reused existing persistent session "${label}" via commitment kernel; send follow-up messages with sessions_send.`,
+        modelApplied: false,
+        agentId: targetAgentId as AgentId,
+        parentSessionKey: (requesterInternalKey || null) as SessionKey | null,
+      };
+    }
+  }
+
+  const callerDepth = getSubagentDepthFromSessionStore(requesterInternalKey, { cfg });
+  const maxSpawnDepth =
+    cfg.agents?.defaults?.subagents?.maxSpawnDepth ?? DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH;
+  if (callerDepth >= maxSpawnDepth) {
+    return {
+      status: "forbidden",
+      error: `sessions_spawn is not allowed at this depth (current depth: ${callerDepth}, max: ${maxSpawnDepth}). Subagent nesting stays intentionally bounded—raise maxSpawnDepth only for a controlled extra hop, not deep planner stacks.`,
+    };
+  }
+
+  const maxChildren = cfg.agents?.defaults?.subagents?.maxChildrenPerAgent ?? 5;
+  const activeChildren = countActiveRunsForSession(requesterInternalKey);
+  if (activeChildren >= maxChildren) {
+    return {
+      status: "forbidden",
+      error: `sessions_spawn has reached max active children for this session (${activeChildren}/${maxChildren}). This caps fan-out per session; finish or kill in-flight children before spawning more.`,
+    };
+  }
+
   const childSessionKey = `agent:${targetAgentId}:subagent:${crypto.randomUUID()}`;
   const requesterRuntime = resolveSandboxRuntimeStatus({
     cfg,
@@ -489,10 +646,15 @@ export async function spawnSubagentDirect(
 
   const initialPatchError = await patchChildSession(initialChildSessionPatch);
   if (initialPatchError) {
+    logSubagentSpawnFailure({
+      phase: "patch",
+      message: initialPatchError,
+      childSessionKey,
+      extra: { step: "initial-session-patch" },
+    });
     return {
       status: "error",
-      error: initialPatchError,
-      childSessionKey,
+      error: SAFE_ERROR_CANNOT_START,
     };
   }
   if (resolvedModel) {
@@ -511,10 +673,14 @@ export async function spawnSubagentDirect(
       } catch {
         // Best-effort cleanup only.
       }
+      logSubagentSpawnFailure({
+        phase: "runtime-model",
+        message: runtimeModelPersistError,
+        childSessionKey,
+      });
       return {
         status: "error",
-        error: runtimeModelPersistError,
-        childSessionKey,
+        error: SAFE_ERROR_CANNOT_START,
       };
     }
     modelApplied = true;
@@ -544,10 +710,12 @@ export async function spawnSubagentDirect(
       } catch {
         // Best-effort cleanup only.
       }
+      // bindResult.error is already a SAFE_ERROR_* string assembled by
+      // ensureThreadBindingForSubagentSpawn (which logs the verbose detail).
       return {
         status: "error",
         error: bindResult.error,
-        childSessionKey,
+        ...(bindResult.errorReason ? { errorReason: bindResult.errorReason } : {}),
       };
     }
     threadBindingReady = true;
@@ -563,6 +731,7 @@ export async function spawnSubagentDirect(
     acpEnabled: cfg.acp?.enabled !== false && !childRuntime.sandboxed,
     childDepth,
     maxSpawnDepth,
+    maxChildrenPerAgent: maxChildren,
   });
 
   let retainOnSessionKeep = false;
@@ -587,6 +756,12 @@ export async function spawnSubagentDirect(
       emitLifecycleHooks: threadBindingReady,
       deleteTranscript: true,
     });
+    logSubagentSpawnFailure({
+      phase: "attachments",
+      message: materializedAttachments.error,
+      childSessionKey,
+      extra: { attachmentStatus: materializedAttachments.status },
+    });
     return {
       status: materializedAttachments.status,
       error: materializedAttachments.error,
@@ -601,7 +776,7 @@ export async function spawnSubagentDirect(
   }
 
   const childTaskMessage = [
-    `[Subagent Context] You are running as a subagent (depth ${childDepth}/${maxSpawnDepth}). Results auto-announce to your requester; do not busy-poll for status.`,
+    `[Subagent Context] You are running as a subagent (depth ${childDepth}/${maxSpawnDepth}). Orchestration is intentionally shallow—parallel workers beat stacked coordinators. Results auto-announce to your requester; do not busy-poll for status.`,
     spawnMode === "session"
       ? "[Subagent Context] This subagent session is persistent and remains available for thread follow-up messages."
       : undefined,
@@ -639,10 +814,15 @@ export async function spawnSubagentDirect(
       emitLifecycleHooks: threadBindingReady,
       deleteTranscript: true,
     });
+    logSubagentSpawnFailure({
+      phase: "patch",
+      message: spawnLineagePatchError,
+      childSessionKey,
+      extra: { step: "spawn-lineage-patch" },
+    });
     return {
       status: "error",
-      error: spawnLineagePatchError,
-      childSessionKey,
+      error: SAFE_ERROR_CANNOT_START,
     };
   }
 
@@ -685,6 +865,7 @@ export async function spawnSubagentDirect(
         // Best-effort cleanup only.
       }
     }
+    let emitLifecycleHooksOnDelete = false;
     if (threadBindingReady) {
       const hasEndedHook = hookRunner?.hasHooks("subagent_ended") === true;
       let endedHookEmitted = false;
@@ -712,28 +893,35 @@ export async function spawnSubagentDirect(
           // Spawn should still return an actionable error even if cleanup hooks fail.
         }
       }
-      // Always delete the provisional child session after a failed spawn attempt.
-      // If we already emitted subagent_ended above, suppress a duplicate lifecycle hook.
-      try {
-        await callGateway({
-          method: "sessions.delete",
-          params: {
-            key: childSessionKey,
-            deleteTranscript: true,
-            emitLifecycleHooks: !endedHookEmitted,
-          },
-          timeoutMs: 10_000,
-        });
-      } catch {
-        // Best-effort only.
-      }
+      // If we already emitted subagent_ended above, suppress a duplicate lifecycle hook
+      // when the gateway tears the session down.
+      emitLifecycleHooksOnDelete = !endedHookEmitted;
+    }
+    // Always delete the provisional child session after a failed spawn attempt,
+    // including the non-thread path so we don't leak orphaned sessions.
+    try {
+      await callGateway({
+        method: "sessions.delete",
+        params: {
+          key: childSessionKey,
+          deleteTranscript: true,
+          emitLifecycleHooks: emitLifecycleHooksOnDelete,
+        },
+        timeoutMs: 10_000,
+      });
+    } catch {
+      // Best-effort only.
     }
     const messageText = summarizeError(err);
-    return {
-      status: "error",
-      error: messageText,
+    logSubagentSpawnFailure({
+      phase: "dispatch",
+      message: messageText,
       childSessionKey,
       runId: childRunId,
+    });
+    return {
+      status: "error",
+      error: SAFE_ERROR_CANNOT_START,
     };
   }
 
@@ -768,17 +956,28 @@ export async function spawnSubagentDirect(
     try {
       await callGateway({
         method: "sessions.delete",
-        params: { key: childSessionKey, deleteTranscript: true, emitLifecycleHooks: false },
+        params: {
+          key: childSessionKey,
+          deleteTranscript: true,
+          // Preserve gateway-side cleanup hooks when the thread binding had
+          // already been established; without this, dangling thread state
+          // could leak even though registration failed.
+          emitLifecycleHooks: threadBindingReady,
+        },
         timeoutMs: 10_000,
       });
     } catch {
       // Best-effort cleanup only.
     }
-    return {
-      status: "error",
-      error: `Failed to register subagent run: ${summarizeError(err)}`,
+    logSubagentSpawnFailure({
+      phase: "register",
+      message: `registerSubagentRun threw: ${summarizeError(err)}`,
       childSessionKey,
       runId: childRunId,
+    });
+    return {
+      status: "error",
+      error: SAFE_ERROR_CANNOT_START,
     };
   }
 
@@ -836,6 +1035,8 @@ export async function spawnSubagentDirect(
     mode: spawnMode,
     note,
     modelApplied: resolvedModel ? modelApplied : undefined,
+    agentId: targetAgentId as AgentId,
+    parentSessionKey: (requesterInternalKey ?? null) as SessionKey | null,
     attachments: attachmentsReceipt,
   };
 }

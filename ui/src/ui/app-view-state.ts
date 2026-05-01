@@ -19,6 +19,7 @@ import type {
   ArtifactRecordSummary,
   BootstrapRequestRecordDetail,
   BootstrapRequestRecordSummary,
+  CapabilityCatalogSummary,
   AttentionItem,
   ChannelsStatusSnapshot,
   ConfigSnapshot,
@@ -34,6 +35,12 @@ import type {
   CostUsageSummary,
   SessionUsageTimeSeries,
   SessionsListResult,
+  RecipeCatalogSummary,
+  RuntimeActionDetail,
+  RuntimeActionSummary,
+  RuntimeCheckpointSummary,
+  RuntimeClosureDetail,
+  RuntimeClosureSummary,
   SkillStatusReport,
   SpecialistRuntimeSnapshot,
   StatusSummary,
@@ -151,6 +158,7 @@ export type AppViewState = {
   channelsSnapshot: ChannelsStatusSnapshot | null;
   channelsError: string | null;
   channelsLastSuccess: number | null;
+  channelsSelectedKey: string | null;
   whatsappLoginMessage: string | null;
   whatsappLoginQrDataUrl: string | null;
   whatsappLoginConnected: boolean | null;
@@ -162,6 +170,7 @@ export type AppViewState = {
   presenceEntries: PresenceEntry[];
   presenceError: string | null;
   presenceStatus: string | null;
+  instancesReveal: boolean;
   agentsLoading: boolean;
   agentsList: AgentsListResult | null;
   agentsError: string | null;
@@ -217,6 +226,26 @@ export type AppViewState = {
   bootstrapDetail: BootstrapRequestRecordDetail | null;
   bootstrapDetailError: string | null;
   bootstrapActionBusy: boolean;
+  runtimeLoading: boolean;
+  runtimeDetailLoading: boolean;
+  runtimeActionBusy: boolean;
+  runtimeError: string | null;
+  runtimeSessionKey: string | null;
+  runtimeRunId: string | null;
+  runtimeStatus: string;
+  runtimeCheckpoints: RuntimeCheckpointSummary[];
+  runtimeSelectedCheckpointId: string | null;
+  runtimeCheckpointDetail: RuntimeCheckpointSummary | null;
+  runtimeActions: RuntimeActionSummary[];
+  runtimeSelectedActionId: string | null;
+  runtimeActionDetail: RuntimeActionDetail | null;
+  runtimeClosures: RuntimeClosureSummary[];
+  runtimeSelectedClosureRunId: string | null;
+  runtimeClosureDetail: RuntimeClosureDetail | null;
+  catalogLoading: boolean;
+  catalogError: string | null;
+  recipeCatalog: RecipeCatalogSummary[];
+  capabilityCatalog: CapabilityCatalogSummary[];
   machineLoading: boolean;
   machineError: string | null;
   machineActionBusy: boolean;

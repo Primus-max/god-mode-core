@@ -210,7 +210,9 @@ describe("openai plugin", () => {
     ).toEqual(["openai", "openai-codex"]);
     expect(speechProviders).toHaveLength(1);
     expect(mediaProviders).toHaveLength(1);
-    expect(imageProviders).toHaveLength(1);
+    expect(
+      imageProviders.map((provider) => (provider as { id: string }).id).sort(),
+    ).toEqual(["hydra", "openai"]);
   });
 });
 

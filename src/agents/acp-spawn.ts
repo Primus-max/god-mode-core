@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import type { AgentId, SessionKey } from "../platform/commitment/ids.js";
 import { getAcpSessionManager } from "../acp/control-plane/manager.js";
 import {
   cleanupFailedAcpSpawn,
@@ -86,6 +87,19 @@ export type SpawnAcpContext = {
   sandboxed?: boolean;
 };
 
+/**
+ * Pure-value result of an ACP spawn boundary.
+ *
+ * Symmetric to `SpawnSubagentResult`: `agentId` / `parentSessionKey` are
+ * populated only on `status === "accepted"`. Symmetry is required because
+ * the future observer (PR-3) reads both channel-source results into a
+ * single `SessionWorldState.followupRegistry` — schema mismatch would force
+ * a downstream rewrite.
+ *
+ * Semantics:
+ *  - `parentSessionKey: null` -> top-level spawn (no caller session);
+ *  - `parentSessionKey: undefined` -> not applicable (drop in LLM payload).
+ */
 export type SpawnAcpResult = {
   status: "accepted" | "forbidden" | "error";
   childSessionKey?: string;
@@ -94,12 +108,44 @@ export type SpawnAcpResult = {
   streamLogPath?: string;
   note?: string;
   error?: string;
+  agentId?: AgentId;
+  parentSessionKey?: SessionKey | null;
 };
 
+/**
+ * Build the `accepted` payload for `spawnAcpDirect` so the result schema
+ * stays identical across the two accepted-return branches (with vs without
+ * parent stream relay). Used as a structural helper, not a generic DRY
+ * abstraction across runtimes — subagent and ACP boundaries stay separate.
+ */
+function buildAcceptedAcpResult(params: {
+  childSessionKey: string;
+  runId: string;
+  mode: SpawnAcpMode;
+  streamLogPath?: string;
+  note: string;
+  targetAgentId: string;
+  requesterInternalKey: string | null;
+}): SpawnAcpResult {
+  const result: SpawnAcpResult = {
+    status: "accepted",
+    childSessionKey: params.childSessionKey,
+    runId: params.runId,
+    mode: params.mode,
+    note: params.note,
+    agentId: params.targetAgentId as AgentId,
+    parentSessionKey: (params.requesterInternalKey ?? null) as SessionKey | null,
+  };
+  if (params.streamLogPath) {
+    result.streamLogPath = params.streamLogPath;
+  }
+  return result;
+}
+
 export const ACP_SPAWN_ACCEPTED_NOTE =
-  "initial ACP task queued in isolated session; follow-ups continue in the bound thread.";
+  "initial ACP task queued in isolated session; follow-ups continue in the same session.";
 export const ACP_SPAWN_SESSION_ACCEPTED_NOTE =
-  "thread-bound ACP session stays active after this task; continue in-thread for follow-ups.";
+  "follow-up ACP session stays active after this task; send more messages to continue.";
 
 export function resolveAcpSpawnRuntimePolicyError(params: {
   cfg: OpenClawConfig;
@@ -305,6 +351,33 @@ function summarizeError(err: unknown): string {
     return err;
   }
   return "error";
+}
+
+// User-safe error messages. Verbose internals (raw gateway / hook / binding
+// errors, internal session ids, UUIDs) must NEVER appear in returned `error`
+// strings — they are routed to logs only via `logAcpSpawnFailure` below.
+const SAFE_ACP_CANNOT_START = "Cannot start a subagent right now.";
+
+type AcpSpawnFailurePhase = "init" | "thread-binding" | "dispatch";
+
+function logAcpSpawnFailure(args: {
+  phase: AcpSpawnFailurePhase;
+  message: string;
+  childSessionKey?: string;
+  runId?: string;
+  extra?: Record<string, unknown>;
+}): void {
+  const meta: Record<string, unknown> = { phase: args.phase };
+  if (args.childSessionKey) {
+    meta.childSessionKey = args.childSessionKey;
+  }
+  if (args.runId) {
+    meta.runId = args.runId;
+  }
+  if (args.extra) {
+    Object.assign(meta, args.extra);
+  }
+  log.warn(`[acp-spawn] ${args.message}`, meta);
 }
 
 function resolveRequesterInternalSessionKey(params: {
@@ -831,9 +904,15 @@ export async function spawnAcpDirect(
       deleteTranscript: true,
       runtimeCloseHandle: initializedRuntime,
     });
+    logAcpSpawnFailure({
+      phase: preparedBinding ? "thread-binding" : "init",
+      message: isSessionBindingError(err) ? err.message : summarizeError(err),
+      childSessionKey: sessionKey,
+      extra: { sessionCreated },
+    });
     return {
       status: "error",
-      error: isSessionBindingError(err) ? err.message : summarizeError(err),
+      error: SAFE_ACP_CANNOT_START,
     };
   }
 
@@ -891,10 +970,15 @@ export async function spawnAcpDirect(
       shouldDeleteSession: true,
       deleteTranscript: true,
     });
+    logAcpSpawnFailure({
+      phase: "dispatch",
+      message: summarizeError(err),
+      childSessionKey: sessionKey,
+      runId: childRunId,
+    });
     return {
       status: "error",
-      error: summarizeError(err),
-      childSessionKey: sessionKey,
+      error: SAFE_ACP_CANNOT_START,
     };
   }
 
@@ -912,21 +996,23 @@ export async function spawnAcpDirect(
       });
     }
     parentRelay?.notifyStarted();
-    return {
-      status: "accepted",
+    return buildAcceptedAcpResult({
       childSessionKey: sessionKey,
       runId: childRunId,
       mode: spawnMode,
-      ...(streamLogPath ? { streamLogPath } : {}),
+      streamLogPath,
       note: spawnMode === "session" ? ACP_SPAWN_SESSION_ACCEPTED_NOTE : ACP_SPAWN_ACCEPTED_NOTE,
-    };
+      targetAgentId,
+      requesterInternalKey,
+    });
   }
 
-  return {
-    status: "accepted",
+  return buildAcceptedAcpResult({
     childSessionKey: sessionKey,
     runId: childRunId,
     mode: spawnMode,
     note: spawnMode === "session" ? ACP_SPAWN_SESSION_ACCEPTED_NOTE : ACP_SPAWN_ACCEPTED_NOTE,
-  };
+    targetAgentId,
+    requesterInternalKey,
+  });
 }

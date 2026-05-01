@@ -45,6 +45,19 @@ structured run closure into the post-execution seam, so plugins can validate
 prerequisites and inspect final supervisor truth without guessing from prompt
 or LLM hook timing.
 
+**Canonical context rule:** when a hook receives `ctx.platformExecution`, that
+object is the source of truth for the already-selected profile/recipe/runtime
+path. It now also carries precomputed `prependContext` and
+`prependSystemContext` values, so plugins should reuse that context instead of
+re-planning from raw prompt text on the real execution path.
+
+**Surface parity rule:** the same resolved runtime plan should also remain the
+source of truth when execution leaves the embedded runner. CLI-backed runs may
+adapt that context to backend limitations, but they should still reuse the
+already-resolved runtime prompt/system context instead of silently dropping it.
+Cron outer loops should derive timeout/fallback defaults from the same runtime
+plan unless an explicit job payload override intentionally wins.
+
 ## Seam 3 — Model Selection
 
 **Core file:** `src/agents/model-selection.ts`, `src/agents/model-fallback.ts`
@@ -83,8 +96,8 @@ All via `OpenClawPluginApi` methods: `registerTool`, `registerService`,
 
 - `/platform/profiles` — list/switch profiles
 - `/platform/artifacts` — artifact CRUD
-- `/platform/capabilities` — capability status
-- `/platform/recipes` — recipe catalog
+- `/platform/capabilities` / `platform.capabilities.list|get` — capability catalog and status
+- `/platform/recipes` / `platform.recipes.list|get` — recipe catalog
 
 ## Seam 6 — Security Audit
 

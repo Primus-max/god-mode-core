@@ -3,6 +3,7 @@ import {
   countActiveRunsForSessionFromRuns,
   countPendingDescendantRunsExcludingRunFromRuns,
   countPendingDescendantRunsFromRuns,
+  findActiveSubagentByLabelFromRuns,
   listRunsForRequesterFromRuns,
   resolveRequesterForChildSessionFromRuns,
   shouldIgnorePostCompletionAnnounceForSessionFromRuns,
@@ -383,5 +384,128 @@ describe("subagent registry query regressions", () => {
     ]);
 
     expect(shouldIgnorePostCompletionAnnounceForSessionFromRuns(runs, childSessionKey)).toBe(false);
+  });
+});
+
+describe("findActiveSubagentByLabelFromRuns (persistent_session.created idempotency)", () => {
+  const tgOrigin = {
+    channel: "telegram",
+    accountId: "acc-1",
+    to: "chat-1",
+    threadId: 0,
+  } as const;
+  const otherOrigin = {
+    channel: "telegram",
+    accountId: "acc-1",
+    to: "chat-2",
+    threadId: 0,
+  } as const;
+
+  it("returns active session-mode run with matching label and origin", () => {
+    const runs = toRunMap([
+      makeRun({
+        runId: "run-valera-active",
+        childSessionKey: "agent:main:subagent:valera-1",
+        requesterSessionKey: "agent:main:main",
+        label: "Валера",
+        spawnMode: "session",
+        requesterOrigin: { ...tgOrigin },
+        createdAt: 100,
+      }),
+    ]);
+
+    const found = findActiveSubagentByLabelFromRuns(runs, "Валера", { ...tgOrigin });
+    expect(found?.runId).toBe("run-valera-active");
+  });
+
+  it("returns the latest active match when multiple session-mode runs share the label", () => {
+    const runs = toRunMap([
+      makeRun({
+        runId: "run-valera-old",
+        childSessionKey: "agent:main:subagent:valera-old",
+        requesterSessionKey: "agent:main:main",
+        label: "Валера",
+        spawnMode: "session",
+        requesterOrigin: { ...tgOrigin },
+        createdAt: 100,
+      }),
+      makeRun({
+        runId: "run-valera-new",
+        childSessionKey: "agent:main:subagent:valera-new",
+        requesterSessionKey: "agent:main:main",
+        label: "Валера",
+        spawnMode: "session",
+        requesterOrigin: { ...tgOrigin },
+        createdAt: 200,
+      }),
+    ]);
+
+    expect(findActiveSubagentByLabelFromRuns(runs, "Валера", { ...tgOrigin })?.runId).toBe(
+      "run-valera-new",
+    );
+  });
+
+  it("ignores ended runs even when label matches", () => {
+    const runs = toRunMap([
+      makeRun({
+        runId: "run-valera-ended",
+        childSessionKey: "agent:main:subagent:valera-ended",
+        requesterSessionKey: "agent:main:main",
+        label: "Валера",
+        spawnMode: "session",
+        requesterOrigin: { ...tgOrigin },
+        createdAt: 100,
+        endedAt: 200,
+      }),
+    ]);
+
+    expect(findActiveSubagentByLabelFromRuns(runs, "Валера", { ...tgOrigin })).toBeUndefined();
+  });
+
+  it("ignores one-shot (run-mode) entries even when label matches", () => {
+    const runs = toRunMap([
+      makeRun({
+        runId: "run-valera-oneshot",
+        childSessionKey: "agent:main:subagent:valera-os",
+        requesterSessionKey: "agent:main:main",
+        label: "Валера",
+        spawnMode: "run",
+        requesterOrigin: { ...tgOrigin },
+        createdAt: 100,
+      }),
+    ]);
+
+    expect(findActiveSubagentByLabelFromRuns(runs, "Валера", { ...tgOrigin })).toBeUndefined();
+  });
+
+  it("scopes by delivery origin: same label in a different chat does not match", () => {
+    const runs = toRunMap([
+      makeRun({
+        runId: "run-valera-other-chat",
+        childSessionKey: "agent:main:subagent:valera-other",
+        requesterSessionKey: "agent:main:main",
+        label: "Валера",
+        spawnMode: "session",
+        requesterOrigin: { ...otherOrigin },
+        createdAt: 100,
+      }),
+    ]);
+
+    expect(findActiveSubagentByLabelFromRuns(runs, "Валера", { ...tgOrigin })).toBeUndefined();
+  });
+
+  it("returns undefined for empty label", () => {
+    const runs = toRunMap([
+      makeRun({
+        runId: "run-no-label",
+        childSessionKey: "agent:main:subagent:nolabel",
+        requesterSessionKey: "agent:main:main",
+        spawnMode: "session",
+        requesterOrigin: { ...tgOrigin },
+        createdAt: 100,
+      }),
+    ]);
+
+    expect(findActiveSubagentByLabelFromRuns(runs, "   ", { ...tgOrigin })).toBeUndefined();
   });
 });

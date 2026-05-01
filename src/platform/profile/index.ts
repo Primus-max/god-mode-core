@@ -17,6 +17,7 @@ export {
   resolveTaskOverlay,
   type EffectiveProfilePreference,
 } from "./overlay.js";
+export { normalizeProfileHintList } from "./hints.js";
 export {
   resolveProfile,
   scoreProfiles,

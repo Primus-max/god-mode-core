@@ -182,6 +182,46 @@ export type AgentDefaultsConfig = {
      * - trusted: trust project settings as-is
      */
     projectSettingsPolicy?: "trusted" | "sanitize" | "ignore";
+    /**
+     * Optional classifier used for platform task-shape resolution before planner scoring.
+     * Keep this replaceable: point it to a remote or local model without changing code.
+     */
+    taskClassifier?: {
+      enabled?: boolean;
+      /** Classifier backend adapter id, e.g. "pi-simple" or a custom adapter key. */
+      backend?: string;
+      /** Model ref used for task classification, e.g. "openai/gpt-5-mini" or "ollama/qwen3:14b". */
+      model?: string;
+      /** Optional timeout override for classifier completion. */
+      timeoutMs?: number;
+      /** Optional max output tokens for classifier JSON. */
+      maxTokens?: number;
+    };
+    /**
+     * Optional semantic intent classifier used by commitment-kernel shadow mode.
+     * Keep this replaceable for eval fixtures and future backend adapters.
+     */
+    intentContractor?: {
+      enabled?: boolean;
+      /** Intent contractor backend adapter id, e.g. "pi-simple" or a custom adapter key. */
+      backend?: string;
+      /** Model ref used for semantic intent classification. */
+      model?: string;
+      /** Optional timeout override for semantic intent completion. */
+      timeoutMs?: number;
+      /** Optional max output tokens for semantic intent JSON. */
+      maxTokens?: number;
+      /** Minimum confidence required before ShadowBuilder attempts commitment construction. */
+      confidenceThreshold?: number;
+    };
+    /**
+     * Commitment kernel runtime controls. PR-3 keeps cutover disabled until the quant gate
+     * and explicit maintainer signoff pass.
+     */
+    commitment?: {
+      /** Enables production cutover for cutover-policy-eligible commitment effects. */
+      cutoverEnabled?: boolean;
+    };
   };
   /** Vector memory search configuration (per-agent overrides supported). */
   memorySearch?: MemorySearchConfig;
@@ -282,6 +322,11 @@ export type AgentDefaultsConfig = {
     maxChildrenPerAgent?: number;
     /** Auto-archive sub-agent sessions after N minutes (default: 60, set 0 to disable). */
     archiveAfterMinutes?: number;
+    /**
+     * Default allowlist for cross-agent spawns when a requester does not
+     * declare its own subagents.allowAgents. Use "*" to allow any.
+     */
+    allowAgents?: string[];
     /** Default model selection for spawned sub-agents (string or {primary,fallbacks}). */
     model?: AgentModelConfig;
     /** Default thinking level for spawned sub-agents (e.g. "off", "low", "medium", "high"). */

@@ -11,11 +11,13 @@ import {
   isCompactionFailureError,
   isContextOverflowError,
   isBillingErrorMessage,
+  isFailoverErrorMessage,
   isLikelyContextOverflowError,
   isTransientHttpError,
   sanitizeUserFacingText,
 } from "../../agents/pi-embedded-helpers.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
+import { userFacingToolPolicyOrTransientMessage } from "../../agents/tool-error-sanitizer.js";
 import {
   resolveGroupSessionKey,
   resolveSessionTranscriptPath,
@@ -43,7 +45,7 @@ import {
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import {
   buildEmbeddedRunExecutionParams,
-  resolvePlatformExecutionContextForTemplateRun,
+  resolveRoutingSnapshotForTemplateRun,
   resolveModelFallbackOptions,
 } from "./agent-runner-utils.js";
 import { type BlockReplyPipeline } from "./block-reply-pipeline.js";
@@ -103,6 +105,25 @@ export async function runAgentTurnWithFallback(params: {
   activeSessionStore?: Record<string, SessionEntry>;
   storePath?: string;
   resolvedVerboseLevel: VerboseLevel;
+  /** Structural hook before tool flush — external block buffering (PR-A.2); no text inspection. */
+  onStructuralToolExecutionStarting?: () => void | Promise<void>;
+  /**
+   * Invoked once, right after the routing snapshot is resolved, when the
+   * planner flagged this turn as `ackThenDefer` (P1.4 D.2). Implementations
+   * are expected to:
+   *   - emit a `ack_deferred` progress frame,
+   *   - deliver an immediate "принял, работаю" ack reply,
+   *   - mark the run as a deferred bg-job on the follow-up queue.
+   * The async contract is awaited so the immediate reply races ahead of any
+   * downstream agent call. Errors are swallowed — a failed ack must never
+   * block the actual work.
+   */
+  onAckThenDefer?: (context: {
+    runId: string;
+    estimatedDurationMs?: number;
+    requiredCapabilities?: string[];
+    requestedToolNames?: string[];
+  }) => Promise<void> | void;
 }): Promise<AgentRunLoopResult> {
   const TRANSIENT_HTTP_RETRY_DELAY_MS = 2_500;
   let didLogHeartbeatStrip = false;
@@ -117,13 +138,37 @@ export async function runAgentTurnWithFallback(params: {
       ? params.opts.runId.trim()
       : undefined) ??
     runId;
-  const platformExecutionContext = resolvePlatformExecutionContextForTemplateRun({
+  const routingSnapshot = await resolveRoutingSnapshotForTemplateRun({
     prompt: params.commandBody,
     run: params.followupRun.run,
     sessionCtx: params.sessionCtx,
     storePath: params.storePath,
     sessionEntry: params.getActiveSessionEntry(),
   });
+  const platformExecutionContext = routingSnapshot.runtimePlan;
+  if (platformExecutionContext.ackThenDefer === true && params.onAckThenDefer && !params.isHeartbeat) {
+    try {
+      await params.onAckThenDefer({
+        runId,
+        ...(typeof platformExecutionContext.estimatedDurationMs === "number"
+          ? { estimatedDurationMs: platformExecutionContext.estimatedDurationMs }
+          : {}),
+        ...(platformExecutionContext.requiredCapabilities?.length
+          ? { requiredCapabilities: platformExecutionContext.requiredCapabilities }
+          : {}),
+        ...(platformExecutionContext.requestedToolNames?.length
+          ? { requestedToolNames: platformExecutionContext.requestedToolNames }
+          : {}),
+      });
+    } catch (ackError) {
+      // Ack delivery must never block the actual work. Downstream logs
+      // will surface this as a progress-bus error frame if wiring emits
+      // one; here we just preserve the run.
+      void ackError;
+    }
+  }
+  const bootstrapContextMode =
+    params.opts?.bootstrapContextMode ?? routingSnapshot.bootstrapContextMode;
   const normalizeReplyMediaPaths = createReplyMediaPathNormalizer({
     cfg: params.followupRun.run.config,
     sessionKey: params.sessionKey,
@@ -235,7 +280,10 @@ export async function runAgentTurnWithFallback(params: {
         : undefined;
       const onToolResult = params.opts?.onToolResult;
       const fallbackResult = await runWithModelFallback({
-        ...resolveModelFallbackOptions(params.followupRun.run),
+        ...resolveModelFallbackOptions(params.followupRun.run, {
+          preflightPrompt: params.commandBody,
+        }),
+        preflightPlannerInput: routingSnapshot.plannerInput,
         runId,
         run: (provider, model, runOptions) => {
           // Notify that model selection is complete (including after fallback).
@@ -275,6 +323,7 @@ export async function runAgentTurnWithFallback(params: {
                   timeoutMs: params.followupRun.run.timeoutMs,
                   runId,
                   extraSystemPrompt: params.followupRun.run.extraSystemPrompt,
+                  platformExecutionContext,
                   ownerNumbers: params.followupRun.run.ownerNumbers,
                   cliSessionId,
                   bootstrapPromptWarningSignaturesSeen,
@@ -384,7 +433,7 @@ export async function runAgentTurnWithFallback(params: {
                   return isMarkdownCapableMessageChannel(channel) ? "markdown" : "plain";
                 })(),
                 suppressToolErrorWarnings: params.opts?.suppressToolErrorWarnings,
-                bootstrapContextMode: params.opts?.bootstrapContextMode,
+                bootstrapContextMode,
                 bootstrapContextRunKind: params.opts?.isHeartbeat ? "heartbeat" : "default",
                 images: params.opts?.images,
                 abortSignal: params.opts?.abortSignal,
@@ -478,6 +527,7 @@ export async function runAgentTurnWithFallback(params: {
                         await blockReplyPipeline.flush({ force: true });
                       }
                     : undefined,
+                onStructuralToolExecutionStarting: params.onStructuralToolExecutionStarting,
                 shouldEmitToolResult: params.shouldEmitToolResult,
                 shouldEmitToolOutput: params.shouldEmitToolOutput,
                 bootstrapPromptWarningSignaturesSeen,
@@ -584,6 +634,8 @@ export async function runAgentTurnWithFallback(params: {
       const isSessionCorruption = /function call turn comes immediately after/i.test(message);
       const isRoleOrderingError = /incorrect role information|roles must alternate/i.test(message);
       const isTransientHttp = isTransientHttpError(message);
+      const isFailoverMessage = isFailoverErrorMessage(message);
+      const isModelFallbackExhausted = /^All (?:image )?models failed\b/i.test(message);
 
       if (
         isCompactionFailure &&
@@ -671,9 +723,10 @@ export async function runAgentTurnWithFallback(params: {
       }
 
       defaultRuntime.error(`Embedded agent failed before reply: ${message}`);
-      const safeMessage = isTransientHttp
-        ? sanitizeUserFacingText(message, { errorContext: true })
-        : message;
+      const policyOrTransientCopy = userFacingToolPolicyOrTransientMessage(message);
+      const safeMessage =
+        policyOrTransientCopy ??
+        sanitizeUserFacingText(message, { errorContext: true });
       const trimmedMessage = safeMessage.replace(/\.\s*$/, "");
       const fallbackText = isBilling
         ? BILLING_ERROR_USER_MESSAGE
@@ -681,7 +734,11 @@ export async function runAgentTurnWithFallback(params: {
           ? "⚠️ Context overflow — prompt too large for this model. Try a shorter message or a larger-context model."
           : isRoleOrderingError
             ? "⚠️ Message ordering conflict - please try again. If this persists, use /new to start a fresh session."
-            : `⚠️ Agent failed before reply: ${trimmedMessage}.\nLogs: openclaw logs --follow`;
+            : isModelFallbackExhausted
+              ? "⚠️ No available model could complete this request right now. Please try again in a moment."
+              : isFailoverMessage && trimmedMessage
+                ? trimmedMessage
+                : `⚠️ Agent failed before reply: ${trimmedMessage}.\nLogs: openclaw logs --follow`;
 
       return {
         kind: "final",

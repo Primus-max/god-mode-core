@@ -1,0 +1,41 @@
+{
+  "bf4f0d0a5691ed6a5eca5b8ed067526161a54a53d18161ddaaee0615b7a6e48b": {
+    "deviceId": "bf4f0d0a5691ed6a5eca5b8ed067526161a54a53d18161ddaaee0615b7a6e48b",
+    "publicKey": "wYg6-rhcTELhHFiL72G-QGVSAQntloDddfMPUN03dfg",
+    "displayName": "stage86-live-probe",
+    "platform": "win32",
+    "clientId": "cli",
+    "clientMode": "cli",
+    "role": "operator",
+    "roles": [
+      "operator"
+    ],
+    "scopes": [
+      "operator.admin",
+      "operator.read",
+      "operator.write",
+      "operator.approvals"
+    ],
+    "approvedScopes": [
+      "operator.admin",
+      "operator.read",
+      "operator.write",
+      "operator.approvals"
+    ],
+    "tokens": {
+      "operator": {
+        "token": "XSlkrMx_bhb9okLQnAK3rbS7qX0PWu6SAvuZF5CxdrM",
+        "role": "operator",
+        "scopes": [
+          "operator.admin",
+          "operator.approvals",
+          "operator.read",
+          "operator.write"
+        ],
+        "createdAtMs": 1775758652334
+      }
+    },
+    "createdAtMs": 1775758652334,
+    "approvedAtMs": 1775758652334
+  }
+}

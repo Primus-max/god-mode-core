@@ -265,8 +265,11 @@ describe("spawnSubagentDirect filename validation", () => {
 
     expect(result).toMatchObject({
       status: "error",
-      error: "lineage patch failed",
+      // Verbose gateway error is sanitized to a user-safe message; original
+      // detail is logged via "[subagent-spawn]" instead.
+      error: "Cannot start a subagent right now.",
     });
+    expect(result.childSessionKey).toBeUndefined();
     const attachmentsRoot = path.join(workspaceDirOverride, ".openclaw", "attachments");
     const retainedDirs = fs.existsSync(attachmentsRoot)
       ? fs.readdirSync(attachmentsRoot).filter((entry) => !entry.startsWith("."))

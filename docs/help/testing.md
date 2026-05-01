@@ -35,6 +35,15 @@ When debugging real providers/models (requires real creds):
 
 Tip: when you only need one failing case, prefer narrowing live tests via the allowlist env vars described below.
 
+## Navigation validation gate
+
+For the Control UI v1 shell/operator routing contract, treat these as the minimum pre-release checks:
+
+- Shell entrypoints (`sidebar`, topbar breadcrumb, command palette) must render the same canonical destinations as the target surfaces they open.
+- Primary clicks on internal shell/operator links must stay on the SPA handoff path; modified clicks may fall through to the browser-visible `href`.
+- Representative deep-link surfaces with richer query state (`usage`, `sessions`, `cron`) must still survive refresh/popstate through the shared routing helpers instead of local-only view state.
+- The expected jsdom warning `Not implemented: navigation to another Document` on non-intercepted modified-click fallthrough is not, by itself, a regression.
+
 ## Test suites (what runs where)
 
 Think of the suites as “increasing realism” (and increasing flakiness/cost):
@@ -74,6 +83,73 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
   - For Stage 15-style recovery changes, keep one deterministic scenario where delivery backlog drains after backoff without a gateway restart, one where a recovery budget flips the supervisor from `retry` to explicit `stop` or `escalate`, and one cross-surface scenario where cron/messaging both honor the same `recoveryPolicy` exhaustion semantics.
   - For Stage 16-style intent changes, keep one parity scenario where embedded and messaging closure both reuse the same declared `executionIntent`, one lifecycle scenario where `before_recipe_execute` and `after_recipe_execute` carry structured intent/closure truth across the plugin boundary, and one durable closure scenario where the final acceptance/supervisor outcome can be rehydrated from the runtime closure store.
   - Current reference coverage lives in `src/platform/runtime/service.test.ts`, `src/auto-reply/reply/agent-runner-helpers.test.ts`, `src/agents/pi-embedded-runner/usage-reporting.test.ts`, `src/plugins/hooks.phase-hooks.test.ts`, and `src/gateway/server/readiness.test.ts`.
+- Runtime activation note:
+  - When you touch planner/recipe activation on the agent path, keep one regression that proves `platformExecutionContext` reaches embedded runner hook evaluation with the selected recipe/profile/runtime hints, and one regression that proves prompt/LLM hook contexts receive the same structured `ctx.platformExecution` instead of recomputing from raw prompt text.
+  - Keep at least one plugin-side regression where pre-resolved `prependContext` / `prependSystemContext` are reused by the platform hook layer instead of rebuilding the route contract ad hoc.
+  - Current reference coverage lives in `src/agents/agent-command.stage2.test.ts`, `src/agents/pi-embedded-runner/run.overflow-compaction.test.ts`, `src/agents/pi-embedded-runner/run/attempt.test.ts`, and `src/platform/plugin.test.ts`.
+- Surface parity note:
+  - When you touch secondary execution surfaces, keep one regression where a CLI-backed path reuses canonical runtime prompt/system context from the already-resolved `platformExecutionContext`, and one regression where cron timeout/fallback defaults are derived from the same runtime plan rather than hand-maintained side policy.
+  - Also keep at least one cron regression that proves the same structured runtime context reaches the actual runner call (`embedded` or `CLI`) instead of being recomputed deeper in the surface-specific branch.
+  - Current reference coverage lives in `src/agents/cli-runner.test.ts`, `src/cron/isolated-agent/run.owner-auth.test.ts`, `src/cron/isolated-agent/run.skill-filter.test.ts`, and `src/cron/isolated-agent/run.payload-fallbacks.test.ts`.
+- Platform catalog note:
+  - When you touch platform catalog surfaces, keep one plugin regression proving `platform.recipes.*` and `platform.capabilities.*` are actually registered, one gateway regression proving recipe/capability payloads stay read-only and reference shared registry data, and one UI regression proving the overview specialist surface renders the catalog without bypassing gateway methods.
+  - Current reference coverage lives in `src/platform/plugin.test.ts`, `src/platform/catalog/gateway.test.ts`, `ui/src/ui/controllers/catalog.test.ts`, and `ui/src/ui/views/specialist-context.test.ts`.
+- Runtime operator note:
+  - When you touch operator-facing runtime surfaces, keep one regression where checkpoint/operator hints remain derived from canonical runtime checkpoint data, one controller regression where `platform.runtime.checkpoints/actions/closures` are loaded together as a single inspector flow, and one UI regression where sessions or adjacent operator surfaces render that runtime state without inventing a second source of truth.
+  - When you touch operator recovery actions, also keep one regression where a recovery write path reuses canonical backend methods/scopes instead of bypassing them, and one regression where the inspector reloads the same ledger after the action rather than mutating local view state ad hoc.
+  - Current reference coverage lives in `src/platform/runtime/gateway.test.ts`, `src/platform/runtime/recovery-operator-hint.test.ts`, `src/platform/plugin.test.ts`, `src/gateway/method-scopes.test.ts`, `ui/src/ui/controllers/runtime-inspector.test.ts`, `ui/src/ui/views/sessions.test.ts`, `ui/src/ui/views/specialist-context.test.ts`, and `ui/src/ui/views/bootstrap.test.ts`.
+- Operator trust note:
+  - When you touch confirmation guardrails or runtime attribution, keep one UI regression where a high-risk recovery action is blocked unless the confirmation step is accepted, and one gateway/runtime regression where the same operator write path returns durable `what/who/when` attribution in checkpoint or action detail.
+  - Current reference coverage lives in `ui/src/ui/controllers/runtime-inspector.test.ts`, `ui/src/ui/views/sessions.test.ts`, `src/platform/runtime/gateway.test.ts`, `src/platform/bootstrap/gateway.test.ts`, and `src/platform/artifacts/gateway.test.ts`.
+- Operator correlation note:
+  - When you touch overview attention, deep links, or cross-surface operator routing, keep one regression where attention items are derived from existing canonical session/runtime/bootstrap state, one regression where tab-specific query state survives refresh/popstate, and one regression where linked bootstrap/artifact targets open the correct record without manual id lookup.
+  - If you touch overview attention links directly, keep one render-level regression where internal attention `href`s match the same shared destination helper used by the target surface, one regression where primary click is intercepted into SPA handoff, and one regression where external or modified clicks still fall through to normal browser navigation.
+  - If you touch chat/overview entrypoints or sidebar navigation, keep one regression where the initiating handler calls the same canonical URL-sync helper used by the destination surface, and one render-level regression where open-in-new-tab `href`s reuse the shared routing contract instead of falling back to path-only links.
+  - If you touch inline links inside operator surfaces such as `sessions` or `cron`, keep one render-level regression where row/action `href`s are built through the shared routing helper rather than ad-hoc `pathForTab(...)` string assembly, so modified-click and open-in-new-tab keep matching the canonical destination contract.
+- If you touch overview dashboard cards, keep them as real anchor targets rather than click-only buttons, with a regression that covers both the rendered canonical `href` and the primary-click callback handoff for the same destination.
+- If you touch shell-level navigation affordances such as the topbar breadcrumb or command palette, keep them on the same canonical tab contract as the sidebar, with one regression for the rendered destination and one regression for the primary-click or selection handoff path.
+- For release-minded shell validation, also keep one regression where a command palette navigation row renders the same canonical `href` as the sidebar tab for that destination, so keyboard-first navigation and browser-native open-in-new-tab stay on one shared contract.
+- If you touch overview skills cards specifically, keep their `skillFilter` pivots on the shared canonical `skills` destination helper rather than inline `buildTabHref(...)`, so overview and attention links stay on the same shareable URL contract.
+- If you touch overview recent-session rows, keep them on the same shared chat/session routing contract as other entry surfaces, with a regression for both the rendered `chat` href and the primary-click handoff callback.
+- If you touch usage session rows, keep them on the same shared `usage` routing contract as the restored usage surface, with a regression for the rendered canonical `usage` href plus the primary-click and shift-click JS handoff semantics for the same session target.
+  - If you extend `usage` drill-down beyond the base session/filter context, keep one regression where `usageDays` / `usageHours` hydrate from URL state into the same selected day/hour chips, and one controller/UI regression where day/hour interactions serialize back through `syncUrlWithTab(...)` instead of becoming refresh-only local state.
+  - If you extend `bootstrap` or `artifacts` routing to include list-level investigation state, keep one regression where `bootstrapQ` / `artifactQ` hydrate from URL state together with `bootstrapRequest` / `artifact`, one regression where the same state serializes back into a shareable link via `syncUrlWithTab`, and one render-level regression where filter interactions still preserve the existing selected-record drill-down flow.
+  - If you touch bootstrap or artifact list rows directly, keep them on shared canonical routing helpers, with a regression for the rendered `bootstrap` / `artifacts` href plus the primary-click vs modified-click handoff semantics for representative selected-record targets.
+  - If overview preloads runtime state for the active session, keep one regression proving it reuses the same handoff-aware `runtimeRun` selection as the Sessions inspect path instead of falling back to session-only scope.
+  - If you extend `sessions` routing beyond runtime scope, keep one regression where list-level filters/search/sort/pagination survive refresh/popstate together with the existing runtime deep link, and one regression where invalid page/sort query state falls back without breaking the rest of the sessions URL contract.
+- If you touch `sessions` list chrome controls directly, keep sort/pagination links on the shared `sessions` routing helper, with a regression for the rendered canonical `sessions` href plus the primary-click vs modified-click handoff semantics for representative sort and page targets.
+- If you extend `sessions` runtime routing beyond `runtimeSession` / `runtimeRun` / `checkpoint`, keep one regression where selected runtime action/closure detail survives refresh/popstate together with the existing runtime scope, and one regression where stale `runtimeAction` / `runtimeClosure` query state is canonicalized without dropping the rest of the sessions investigation context.
+  - If you touch `sessions` runtime inspector controls, keep them on the shared runtime routing helper, with a regression for the rendered canonical `sessions` href plus the primary-click vs modified-click handoff semantics for representative `Inspect`, checkpoint, action, and closure targets.
+- If you touch `sessions` runtime linked-record pivots into `bootstrap` or `artifacts`, keep those inline links on the same shared destination helpers as the target surfaces, with a regression for the rendered canonical `bootstrap` / `artifacts` href plus primary-click SPA handoff vs modified-click browser fallthrough.
+- If you touch session-key pivots into `chat`, keep one regression where overview, cron, or sessions rows render the same canonical `chat` href produced by the shared destination helper instead of assembling `session=` locally.
+- If you touch cron run pivots into the Sessions runtime inspector, keep one regression where the rendered `sessions` href reuses the shared runtime helper and one regression where primary click still goes through SPA handoff while modified clicks fall through to the browser URL.
+  - If you add operator routing for `usage`, keep one regression where the canonical Usage surface restores `usageFrom` / `usageTo` / `usageTz` / `usageSession` / `usageQ` from URL state, one regression where the same state serializes back into a shareable link, and one regression where a restored single-session deep link reopens the same detail path after refresh/popstate.
+  - If you touch usage overview display controls, keep them on the shared `usage` routing contract, with a regression for the rendered canonical `usage` href plus the primary-click vs modified-click handoff semantics for representative `usageChart` / `usageDaily` / `usageSessions` or sort-direction targets.
+  - If you touch usage day/hour drill-down specifically, keep it on that same canonical contract too, so selected day/hour chips survive refresh/popstate and chart clicks write the same `usageDays` / `usageHours` state back into the URL.
+  - If you add operator routing for `agents`, keep one regression where the canonical Agents surface restores `agent` / `agentsPanel` / `agentFile` from URL state, one regression where the same state is serialized back into a shareable link, and one render-level regression where the restored file drill-down is visible after refresh/popstate.
+  - If you touch agents shell controls, keep them on the shared `agents` routing contract, with a regression for the rendered canonical `agents` href plus the primary-click vs modified-click handoff semantics for representative panel and file targets.
+  - If you add operator routing for `skills`, keep one regression where skills-related attention opens the canonical Skills surface with a persisted `skillFilter`, and one regression where the same filter still matches derived blocked/missing skill state after refresh/popstate.
+  - If you add operator routing for `channels`, keep one regression where explicit channel errors open the canonical Channels surface with a persisted `channel` selection, and one render-level regression where the restored channel selection is visible in the channels grid after refresh/popstate.
+  - If you touch channels card shells, keep them on the shared `channels` routing contract, with a regression for the rendered canonical `channels` href plus the primary-click vs modified-click handoff semantics for the same channel target.
+  - If you add operator routing for `instances`, keep one regression where `instancesReveal` hydrates from URL state into the canonical Instances privacy toggle, one regression where the same reveal state serializes back into a shareable link via `syncUrlWithTab`, and one render-level regression where the restored masked-vs-revealed mode is visible without relying on module-local view state.
+- If you add operator routing for the settings family (`config`, `communications`, `appearance`, `automation`, `infrastructure`, `aiAgents`), keep one regression where tab-prefixed mode/search/section/subsection state hydrates from URL state into the canonical settings surface, one regression where the same navigation context serializes back into a shareable link, and one regression where switching tabs clears the previous settings-family query contract instead of leaking stale navigation state.
+  - If you touch settings shell controls, keep them on the shared settings-family routing contract, with a regression for the rendered canonical settings `href` plus the primary-click vs modified-click handoff semantics for representative section and mode targets.
+  - If you add operator routing for `exec approvals` or `nodes`, keep one regression where pending approval attention opens the canonical Nodes surface with persisted `execTarget` / `execNode` / `execAgent` state, and one render-level regression where the restored approvals target/scope is visible in the Nodes exec approvals UI after refresh/popstate.
+  - If you touch exec approvals scope controls inside `nodes`, keep them on the shared `nodes` routing contract, with a regression for the rendered canonical `nodes` href plus the primary-click vs modified-click handoff semantics for representative defaults and agent targets.
+  - If you add operator routing for `debug`, keep one regression where `debugMethod` / `debugParams` hydrate from URL state into the Manual RPC controls, one regression where the same state serializes back into a shareable link via `syncUrlWithTab`, and one regression where invalid or empty `debugParams` falls back to the default JSON payload without replaying the old call result.
+  - If you add operator routing for `logs`, keep one regression where a gateway-level error opens the canonical Logs surface, one regression where `logQ` deep-link state survives refresh/popstate, and one render-level regression where the restored log filter is visible in the Logs UI after refresh/popstate.
+- If you touch `logs` severity chips directly, keep them on the shared `logs` routing contract, with a regression for the rendered canonical `logs` href plus the primary-click vs modified-click handoff semantics for representative level targets.
+- Current reference coverage lives in `ui/src/ui/app-settings.test.ts`, `ui/src/ui/views/overview-attention.test.ts`, `ui/src/ui/controllers/bootstrap.test.ts`, `ui/src/ui/controllers/artifacts.test.ts`, `ui/src/ui/views/bootstrap.test.ts`, `ui/src/ui/views/artifacts.test.ts`, `ui/src/ui/views/debug.test.ts`, `ui/src/ui/views/instances.test.ts`, and `ui/src/ui/views/sessions.test.ts`.
+- Cron correlation note:
+  - When you touch cron/operator routing, keep one regression where failed or overdue cron attention items open the canonical cron surface, one regression where `cronJob` deep-link state survives refresh/popstate, and one regression where cron run history opens the linked operator context without manual session lookup.
+  - If you touch cron job rows, keep them on the shared `cron` routing contract, with a regression for the rendered canonical `cron` href plus the primary-click vs modified-click handoff semantics for the same job-history target.
+  - If you extend `cron` routing to include list-level investigation state, keep one regression where `cronQ` / `cronEnabled` / `cronSchedule` / `cronStatus` / `cronSort` / `cronDir` hydrate from URL state together with `cronJob`, one regression where the same state serializes back into a shareable link, and one render/controller regression where job-list interactions still preserve the existing `cronJob` drill-down flow under active list filters.
+  - If you extend `cron` routing to include run-history (runs explorer) state, keep one regression where `cronRunsScope` / `cronRunsQ` / `cronRunsSort` / `cronRunsStatus` / `cronRunsDelivery` hydrate from URL state together with jobs-level `cron*` and `cronJob`, one regression where the same state serializes back via `syncUrlWithTab`, one regression where invalid run filter/sort/scope values fall back without breaking the jobs list URL contract, and one regression where `cronRunsScope=job` with a missing or stale `cronJob` soft-falls back to `all` after refresh without dropping jobs list filters.
+  - If you touch cron edit-mode controls, keep them on the shared `cron` routing contract too, with a regression for the rendered canonical `cron` href plus the primary-click vs modified-click handoff semantics for representative `Edit` / `Cancel` targets, and one fallback regression where stale `cronEdit` is cleared without dropping the rest of the cron investigation context.
+  - Current reference coverage lives in `ui/src/ui/app-settings.test.ts`, `ui/src/ui/controllers/cron.test.ts`, and `ui/src/ui/views/cron.test.ts`.
+- Handoff truth note:
+  - When you touch session handoff or runtime inspect routing, keep one regression where `handoffTruthSource === recovery` prefers `handoffRunId` / `handoffRequestRunId` over persisted closure history, and one regression where `handoffTruthSource === closure` preserves the closure-aligned inspect path without inventing a second source of truth.
+  - Current reference coverage lives in `ui/src/ui/views/sessions.test.ts` and `ui/src/ui/controllers/sessions.test.ts`.
 - Scheduler note:
   - `pnpm test` now keeps a small checked-in behavioral manifest for true pool/isolation overrides and a separate timing snapshot for the slowest unit files.
   - Shared unit coverage now defaults to `threads`, while the manifest keeps the measured fork-only exceptions and heavy singleton lanes explicit.
@@ -115,6 +191,7 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
 ### E2E (gateway smoke)
 
 - Command: `pnpm test:e2e`
+- Cheap release-confidence smoke: `pnpm test:e2e:smoke`
 - Config: `vitest.e2e.config.ts`
 - Files: `src/**/*.e2e.test.ts`, `test/**/*.e2e.test.ts`
 - Runtime defaults:
@@ -128,9 +205,13 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
   - Multi-instance gateway end-to-end behavior
   - WebSocket/HTTP surfaces, node pairing, and heavier networking
 - Expectations:
-  - Runs in CI (when enabled in the pipeline)
+  - `pnpm test:e2e:smoke` is the deterministic CI-safe baseline for release confidence
+  - The broader `pnpm test:e2e` suite remains available when you touch gateway/networking behavior beyond that smoke path
   - No real keys required
   - More moving parts than unit tests (can be slower)
+- Smoke baseline note:
+  - `test/gateway.smoke.e2e.test.ts` is the intended cheap always-on path: one local gateway, one HTTP wake request, one paired node, and one chat roundtrip.
+  - Keep that file deterministic and dependency-light; do not turn it into a second full E2E suite.
 
 ### E2E: OpenShell backend smoke
 
@@ -175,14 +256,91 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
 Use this decision table:
 
 - Editing logic/tests: run `pnpm test` (and `pnpm test:coverage` if you changed a lot)
-- Touching gateway networking / WS protocol / pairing: add `pnpm test:e2e`
+- Touching gateway boot / token auth / WS connect / basic node pairing / chat lifecycle: run `pnpm test:e2e:smoke`
+- Touching delivery truth / `runClosureSummary` / handoff fields / recovery checkpoints: run `pnpm test:gateway:recovery-confidence`
+- Touching session broadcast / `sessions.changed` payload shape / event hub policy / omission semantics: run `pnpm test:gateway:session-event-parity`
+- Pre-v1 release stamp / all focused deterministic gates: run `pnpm test:v1-gate`
+- Touching gateway networking / WS protocol / pairing more broadly: add `pnpm test:e2e`
 - Debugging “my bot is down” / provider-specific failures / tool calling: run a narrowed `pnpm test:live`
 
-WebSocket `sessions.changed` payloads intentionally mirror the gateway session row model (including `runClosureSummary`, recovery fields, and handoff projection) at the **top level**, not only inside nested `session`, so thin clients stay aligned with `sessions.list` without re-implementing field lists. Reference: `src/gateway/session-broadcast-snapshot.ts` and `src/gateway/session-broadcast-snapshot.test.ts`.
+For a deterministic pre-release baseline before a v1 push, prefer:
+
+- `pnpm build`
+- `pnpm check`
+- `pnpm test`
+- `pnpm test:e2e:smoke`
+
+Treat heavier layers as opt-in follow-ups:
+
+- `pnpm test:e2e` for broader gateway/network confidence
+- `pnpm test:live` for real providers/models
+- Docker- or VM-based smoke only when the touched area warrants it
+
+WebSocket `sessions.changed` payloads intentionally mirror the gateway session row model (including `runClosureSummary`, recovery fields, and handoff projection) at the **top level**, not only inside nested `session`, so thin clients stay aligned with `sessions.list` without re-implementing field lists. Reference: `src/gateway/session-broadcast-snapshot.ts`, `src/gateway/session-event-hub.ts`, and their focused tests.
+
+When validating consumer behavior, remember that `JSON.stringify()` drops keys whose value is `undefined`. For Stage 29 consumer adoption this means a missing optional `handoff*`, recovery, or `runClosureSummary` key on the wire should be interpreted as "field currently unset"; consumer-side caches/tests must not require those keys to be present with an explicit `undefined`.
+
+When you change producer-side session event behavior, keep the regression matrix split by variant:
+
+- `buildGatewaySessionBroadcastSnapshot()` remains the only lower-level field enumerator for session row broadcast data.
+- `src/gateway/session-event-hub.test.ts` should lock the policy differences between mutation, lifecycle, transcript, and `session.message` surfaces.
+- Gateway integration coverage should still prove the real emit paths stay wired through the same hub (`src/gateway/server.sessions.gateway-server-sessions-a.test.ts`, `src/gateway/session-message-events.test.ts`, `src/gateway/server-chat.agent-events.test.ts`).
+
+## Runtime recovery confidence evals (CI-safe)
+
+These deterministic regressions lock the release-relevant parity between session-facing handoff truth and runtime ledgers without requiring a live provider, a running local gateway, or manual log correlation.
+
+- Focused command: `pnpm test:gateway:recovery-confidence`
+- Focused suite: `src/gateway/gateway.recovery-confidence.test.ts`
+- Harness helpers: `src/gateway/recovery-confidence.test-helpers.ts`
+
+Current baseline scenarios:
+
+- Confirmed delivery parity: `sessions.list` handoff fields, `runClosureSummary`, and `messaging_delivery` action truth stay aligned for a clean confirmed send.
+- Non-clean outcome parity: a failed delivery stays retryable/blocked instead of being flattened into a clean delivered closure story.
+- Continuation contract: active recovery handoff truth can override the durable closure `runId` while reusing the original confirmed delivery evidence instead of creating a second confirmed action.
+
+Use this layer after changes that touch delivery truth, closure summaries, recovery checkpoints, or session-facing handoff projection. Keep the heavier manual smoke below for real local gateway validation and pre-deploy sanity checks.
+
+## Session event broadcast parity evals (CI-safe)
+
+These deterministic regressions lock the parity between canonical session row truth and the `sessions.changed` broadcast payload contract without requiring a live provider, a running local gateway, or manual WebSocket inspection.
+
+- Focused command: `pnpm test:gateway:session-event-parity`
+- Focused suite: `src/gateway/session-event-broadcast-parity.test.ts`
+- Underlying seams: `src/gateway/session-broadcast-snapshot.ts`, `src/gateway/session-event-hub.ts`
+
+This layer is distinct from the recovery-confidence suite: recovery-confidence proves parity between session-facing handoff truth and runtime ledgers; this layer proves that the same truth is stably delivered through the broadcast surface.
+
+Current baseline scenarios:
+
+- Flat payload parity: top-level `sessions.changed` fields match the canonical `GatewaySessionRow` truth for core identity, runtime, and model fields.
+- Omission semantics: absent optional `handoff*`, recovery, and `runClosureSummary` keys are dropped by `JSON.stringify` on the wire and must not be treated as contract drift by consumers.
+- Variant policy: mutation and lifecycle surfaces omit the nested `session` wrapper; transcript and `session.message` surfaces include it. This policy is stable across hub variants.
+- Recovery-aligned broadcast: recovery, closure, and handoff fields from Stage 82 (checkpointId, status, continuationState, handoffTruthSource, handoffRunId, runClosureSummary) travel through the broadcast layer at the top level without being buried inside a nested object.
+
+Use this layer after changes that touch session broadcast shape, handoff projection, event hub policy, or omission semantics. The recovery-confidence suite remains the right first stop for delivery truth and closure parity changes.
+
+## V1 release gate (CI-safe)
+
+This is the canonical pre-release stamp that must pass before tagging a v1 release. It orchestrates all focused deterministic gate suites added across Stages 79–83 into a single command.
+
+- **Command**: `pnpm test:v1-gate`
+- **Runs**: `pnpm test:gateway:recovery-confidence && pnpm test:gateway:session-event-parity`
+- **Requires**: no live providers, no running local gateway, no manual inspection
+
+What it covers:
+
+- Runtime recovery confidence: delivery truth, closure summaries, recovery checkpoints, and session-facing handoff parity (Stage 82).
+- Session event broadcast parity: `sessions.changed` payload shape, omission semantics, variant policy, and recovery-aligned broadcast fields (Stage 83).
+
+This command is **optional** as a follow-up to the base `pnpm build && pnpm check && pnpm test && pnpm test:e2e:smoke` ladder during ordinary development, but is **mandatory** before cutting a v1 tag. It is intentionally separate from `pnpm test:e2e:smoke`, which validates gateway boot and networking rather than data-layer parity contracts.
+
+As new focused deterministic gates are added in future stages, they are appended to this command — keeping `pnpm test:v1-gate` the single authoritative pre-release stamp.
 
 ## Local runtime recovery smoke
 
-Run this after changes that touch delivery truth, closure truth, restart/recovery behavior, or operator inspection surfaces.
+Run this after the deterministic recovery-confidence suite when changes touch delivery truth, closure truth, restart/recovery behavior, or operator inspection surfaces.
 
 Acceptance criteria:
 
@@ -193,12 +351,13 @@ Acceptance criteria:
 
 Recommended flow:
 
-1. Run the default backend gate first.
+1. Run the default backend gate first. If the touched area includes delivery/recovery parity, add the focused deterministic suite before the manual smoke.
 
 ```bash
 pnpm build
 pnpm check
 OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+pnpm test:gateway:recovery-confidence
 ```
 
 2. If the change touched gateway orchestration, pairing, or cross-process recovery, add:
@@ -258,6 +417,7 @@ Targeted references while debugging:
 
 - Delivery truth and queue recovery: `src/infra/outbound/delivery-queue.recovery.test.ts`
 - Delivery-aware closure parity: `src/auto-reply/dispatch.delivery-closure.test.ts`
+- Gateway recovery confidence suite: `src/gateway/gateway.recovery-confidence.test.ts`
 - Reply-path delivery parity: `src/auto-reply/reply/route-reply.test.ts`
 - Runtime closure and receipt evaluation: `src/platform/runtime/service.test.ts`
 

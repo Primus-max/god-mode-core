@@ -64,18 +64,18 @@ describe("bootstrap orchestrator", () => {
       policyContext: makePolicyContext(true),
       registry,
       installers: {
-        download: async ({ request }) => ({
+        node: async ({ request }) => ({
           ok: true,
           capability: {
             ...request.catalogEntry.capability,
             status: "available",
             trusted: true,
-            installMethod: "download",
+            installMethod: "node",
             sandboxed: true,
           },
         }),
       },
-      availableBins: ["playwright"],
+      availableBins: ["node"],
       runHealthCheckCommand: async () => true,
     });
 

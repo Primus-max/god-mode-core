@@ -133,7 +133,9 @@ function mergeCompletionOutcomeWithRuntimeOutcome(params: {
   return PlatformRuntimeRunOutcomeSchema.parse({
     runId: baseOutcome.runId,
     status,
-    checkpointIds: Array.from(new Set([...baseOutcome.checkpointIds, ...runtimeOutcome.checkpointIds])),
+    checkpointIds: Array.from(
+      new Set([...baseOutcome.checkpointIds, ...runtimeOutcome.checkpointIds]),
+    ),
     blockedCheckpointIds: Array.from(
       new Set([...baseOutcome.blockedCheckpointIds, ...runtimeOutcome.blockedCheckpointIds]),
     ),
@@ -166,6 +168,60 @@ function mergeCompletionOutcomeWithRuntimeOutcome(params: {
 
 type MessagingDeliveryReceiptInput = Partial<MessagingDeliveryReceipt> | undefined;
 
+function hasVerifiedMessagingDeliveryReceipt(
+  receipts: PlatformRuntimeExecutionVerification["receipts"] | undefined,
+): boolean {
+  return Boolean(
+    receipts?.some((receipt) => receipt.kind === "messaging_delivery" && receipt.proof === "verified"),
+  );
+}
+
+function shouldDropAdvisoryReadFailure(params: {
+  receipt: PlatformRuntimeExecutionVerification["receipts"][number];
+  receipts: PlatformRuntimeExecutionVerification["receipts"];
+  confirmedDeliveryCount: number;
+}): boolean {
+  if (params.confirmedDeliveryCount === 0) {
+    return false;
+  }
+  if (
+    params.receipt.kind !== "tool" ||
+    params.receipt.name !== "read" ||
+    params.receipt.status !== "failed"
+  ) {
+    return false;
+  }
+  return params.receipts.some(
+    (candidate) =>
+      candidate.kind === "tool" && candidate.name === "read" && candidate.status === "success",
+  );
+}
+
+function normalizeMessagingClosureReceipts(params: {
+  receipts: PlatformRuntimeExecutionVerification["receipts"] | undefined;
+  deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
+}): PlatformRuntimeExecutionVerification["receipts"] {
+  const confirmedDeliveryCount = Math.max(params.deliveryReceipt?.confirmedDeliveryCount ?? 0, 0);
+  const receipts = (params.receipts ?? []).filter(
+    (receipt) =>
+      !shouldDropAdvisoryReadFailure({
+        receipt,
+        receipts: params.receipts ?? [],
+        confirmedDeliveryCount,
+      }),
+  );
+  if (confirmedDeliveryCount > 0 && !hasVerifiedMessagingDeliveryReceipt(receipts)) {
+    receipts.push({
+      kind: "messaging_delivery",
+      name: "delivery.webchat",
+      status: "success",
+      proof: "verified",
+      summary: "confirmed by reply dispatcher",
+    });
+  }
+  return receipts;
+}
+
 export type MessagingDeliveryClosureCandidate = {
   runResult: {
     meta?: {
@@ -189,9 +245,7 @@ export type MessagingDeliveryClosureCandidate = {
   settings: QueueSettings;
 };
 
-type MessagingClosureDecision =
-  | PlatformRuntimeAcceptanceResult
-  | PlatformRuntimeSupervisorVerdict;
+type MessagingClosureDecision = PlatformRuntimeAcceptanceResult | PlatformRuntimeSupervisorVerdict;
 
 type MessagingClosurePresentation = {
   title: string;
@@ -276,11 +330,16 @@ export function buildCanonicalMessagingDeliveryReceipt(params: {
 export function buildMessagingAcceptanceEvidence(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads?: ReplyPayload[];
+  runPayloadsForEvidence?: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
 }): PlatformRuntimeAcceptanceEvidence {
+  const evidencePayloads = [
+    ...(params.runPayloadsForEvidence ?? []),
+    ...(params.replyPayloads ?? []),
+  ];
   const deliveryReceipt = buildCanonicalMessagingDeliveryReceipt({
-    replyPayloads: params.replyPayloads,
+    replyPayloads: evidencePayloads,
     receipts: [params.deliveryReceipt],
   });
   return {
@@ -296,8 +355,8 @@ export function buildMessagingAcceptanceEvidence(params: {
     ...(params.runResult.didSendViaMessagingTool !== undefined
       ? { didSendViaMessagingTool: params.runResult.didSendViaMessagingTool }
       : {}),
-    hasOutput: Boolean(params.replyPayloads?.some((payload) => Boolean(payload.text?.trim()))),
-    hasStructuredReplyPayload: Boolean(params.replyPayloads?.some(hasStructuredReplyPayload)),
+    hasOutput: evidencePayloads.some(isDeliverableReplyPayload),
+    hasStructuredReplyPayload: evidencePayloads.some(hasStructuredReplyPayload),
     deliveredReplyCount: deliveryReceipt.confirmedDeliveryCount,
     stagedReplyCount: deliveryReceipt.stagedReplyCount,
     attemptedDeliveryCount: deliveryReceipt.attemptedDeliveryCount,
@@ -337,6 +396,7 @@ export function buildMessagingAcceptanceEvidence(params: {
 function reevaluateMessagingDecision(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads: ReplyPayload[];
+  runPayloadsForEvidence?: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
   sourceRun?: FollowupRun;
@@ -361,9 +421,14 @@ function reevaluateMessagingDecision(params: {
     completionOutcome,
     runtimeOutcome: runtimeService.buildRunOutcome(completionOutcome.runId),
   });
+  const normalizedReceipts = normalizeMessagingClosureReceipts({
+    receipts: params.runResult.meta?.executionVerification?.receipts,
+    deliveryReceipt: params.deliveryReceipt,
+  });
   const baseEvidence = buildMessagingAcceptanceEvidence({
     runResult: params.runResult,
     replyPayloads: params.replyPayloads,
+    runPayloadsForEvidence: params.runPayloadsForEvidence,
     deliveryReceipt: params.deliveryReceipt,
     recoveryAttemptCount: params.recoveryAttemptCount,
   });
@@ -372,7 +437,7 @@ function reevaluateMessagingDecision(params: {
     requestRunId: params.sourceRun?.requestRunId ?? outcome.runId,
     ...(params.sourceRun?.parentRunId ? { parentRunId: params.sourceRun.parentRunId } : {}),
     outcome,
-    receipts: params.runResult.meta?.executionVerification?.receipts,
+    receipts: normalizedReceipts,
     evidence: baseEvidence,
     executionSurface: params.runResult.meta?.executionSurface,
     executionIntent: params.runResult.meta?.executionIntent,
@@ -389,6 +454,7 @@ function reevaluateMessagingDecision(params: {
 export function reevaluateMessagingDecisionForMessagingRun(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads: ReplyPayload[];
+  runPayloadsForEvidence?: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
   sourceRun?: FollowupRun;
@@ -406,6 +472,7 @@ export function reevaluateMessagingDecisionForMessagingRun(params: {
 export function reevaluateAcceptanceForMessagingRun(params: {
   runResult: MessagingDeliveryClosureCandidate["runResult"];
   replyPayloads: ReplyPayload[];
+  runPayloadsForEvidence?: ReplyPayload[];
   deliveryReceipt?: Partial<MessagingDeliveryReceipt>;
   recoveryAttemptCount?: number;
   sourceRun?: FollowupRun;
@@ -434,7 +501,7 @@ function resolveMessagingClosureTitle(decision: MessagingClosureDecision): strin
       : "Automatic recovery exhausted";
   }
   if (decision.remediation === "bootstrap") {
-    return "Bootstrap recovery in progress";
+    return "Task paused for capability install";
   }
   if (decision.remediation === "auth_refresh") {
     return "Authentication attention required";
@@ -461,7 +528,7 @@ function resolveMessagingClosureNextStep(decision: MessagingClosureDecision): st
       : "No further automatic recovery will be attempted.";
   }
   if (decision.remediation === "bootstrap") {
-    return "Bootstrap recovery must finish before the task can complete.";
+    return "Approve the capability in Control UI → Bootstrap, run the installer, then the paused task resumes automatically.";
   }
   if (decision.remediation === "auth_refresh") {
     return "Provider authentication must be refreshed before retrying.";
@@ -485,24 +552,23 @@ function buildMessagingClosurePresentation(
   decision: MessagingClosureDecision,
 ): MessagingClosurePresentation | undefined {
   const reason = decision.reasons[0] ?? "The task needs additional handling.";
-  const text =
-    decision.recoveryPolicy.exhausted
-      ? decision.recoveryPolicy.exhaustedAction === "escalate"
-        ? `I could not finish automatically and now need human intervention. ${reason}`.trim()
-        : `I exhausted the automatic recovery budget and could not complete this task. ${reason}`.trim()
-      : decision.remediation === "bootstrap"
-        ? `Still working on this. I need to finish bootstrap recovery before I can complete it. ${reason}`.trim()
-        : decision.remediation === "auth_refresh"
-          ? `I could not finish because provider authentication needs attention. ${reason}`.trim()
-          : decision.remediation === "provider_fallback"
-            ? `I hit a provider/model execution problem and need a different runtime path before I can finish. ${reason}`.trim()
-            : decision.action === "retry"
-              ? `Still working on this. I need one more pass to finish reliably. ${reason}`.trim()
-              : decision.action === "escalate"
-                ? `I need human input or approval before I can finish this. ${reason}`.trim()
-                : decision.action === "stop"
-                  ? `I could not complete this task. ${reason}`.trim()
-                  : undefined;
+  const text = decision.recoveryPolicy.exhausted
+    ? decision.recoveryPolicy.exhaustedAction === "escalate"
+      ? `I could not finish automatically and now need human intervention. ${reason}`.trim()
+      : `I exhausted the automatic recovery budget and could not complete this task. ${reason}`.trim()
+    : decision.remediation === "bootstrap"
+      ? `Your task is paused while a capability install is pending. Approve it in Control UI → Bootstrap, run bootstrap, and I will resume this task when the platform allows. ${reason}`.trim()
+      : decision.remediation === "auth_refresh"
+        ? `I could not finish because provider authentication needs attention. ${reason}`.trim()
+        : decision.remediation === "provider_fallback"
+          ? `I hit a provider/model execution problem and need a different runtime path before I can finish. ${reason}`.trim()
+          : decision.action === "retry"
+            ? `Still working on this. I need one more pass to finish reliably. ${reason}`.trim()
+            : decision.action === "escalate"
+              ? `I need human input or approval before I can finish this. ${reason}`.trim()
+              : decision.action === "stop"
+                ? `I could not complete this task. ${reason}`.trim()
+                : undefined;
   if (!text) {
     return undefined;
   }

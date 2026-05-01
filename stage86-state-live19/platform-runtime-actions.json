@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "actionId": "bootstrap:8bae37bb-2bac-48c4-aacd-d4b14511a16e:run",
+      "runId": "8bae37bb-2bac-48c4-aacd-d4b14511a16e",
+      "kind": "bootstrap",
+      "state": "failed",
+      "boundary": "bootstrap",
+      "checkpointId": "8bae37bb-2bac-48c4-aacd-d4b14511a16e",
+      "target": {
+        "bootstrapRequestId": "8bae37bb-2bac-48c4-aacd-d4b14511a16e",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "8bae37bb-2bac-48c4-aacd-d4b14511a16e",
+        "capabilityId": "table-parser",
+        "operation": "bootstrap.run",
+        "resultStatus": "degraded"
+      },
+      "attemptCount": 1,
+      "retryable": true,
+      "lastError": "Package not found on npm: @openclaw/table-parser@1.0.0. See https://docs.openclaw.ai/tools/plugin for installable plugins.",
+      "createdAtMs": 1775836894999,
+      "updatedAtMs": 1775836896183,
+      "stagedAtMs": 1775836894999,
+      "attemptedAtMs": 1775836895014,
+      "failedAtMs": 1775836896183
+    },
+    {
+      "actionId": "bootstrap:7192853f-4e82-4ba1-97f5-e98d4c66a578:run",
+      "runId": "7192853f-4e82-4ba1-97f5-e98d4c66a578",
+      "kind": "bootstrap",
+      "state": "failed",
+      "boundary": "bootstrap",
+      "checkpointId": "7192853f-4e82-4ba1-97f5-e98d4c66a578",
+      "target": {
+        "bootstrapRequestId": "7192853f-4e82-4ba1-97f5-e98d4c66a578",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "7192853f-4e82-4ba1-97f5-e98d4c66a578",
+        "capabilityId": "table-parser",
+        "operation": "bootstrap.run",
+        "resultStatus": "degraded"
+      },
+      "attemptCount": 1,
+      "retryable": true,
+      "lastError": "Package not found on npm: @openclaw/table-parser@1.0.0. See https://docs.openclaw.ai/tools/plugin for installable plugins.",
+      "createdAtMs": 1775835185748,
+      "updatedAtMs": 1775835187409,
+      "stagedAtMs": 1775835185748,
+      "attemptedAtMs": 1775835185758,
+      "failedAtMs": 1775835187409
+    }
+  ]
+}

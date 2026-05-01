@@ -7,6 +7,25 @@ import {
   prepareProviderExtraParams,
   wrapProviderStreamFn,
 } from "../../plugins/provider-runtime.js";
+
+// Mutable references allow test suites to inject no-op stubs without relying on vi.mock,
+// which is unreliable in Vitest's forks pool when provider-runtime.js is pre-loaded before
+// the mock factory registers. See resetProviderRuntimeHooksForExtraParamsTest below.
+let _prepareProviderExtraParams: typeof prepareProviderExtraParams = (params) =>
+  prepareProviderExtraParams(params);
+let _wrapProviderStreamFn: typeof wrapProviderStreamFn = (params) => wrapProviderStreamFn(params);
+
+/** Reset provider-runtime hook references for extra-params in isolated test workers.
+ *  Pass no arguments to restore the original (real) functions. */
+export function resetProviderRuntimeHooksForExtraParamsTest(hooks?: {
+  prepareProviderExtraParams?: typeof prepareProviderExtraParams;
+  wrapProviderStreamFn?: typeof wrapProviderStreamFn;
+}): void {
+  _prepareProviderExtraParams =
+    hooks?.prepareProviderExtraParams ?? ((params) => prepareProviderExtraParams(params));
+  _wrapProviderStreamFn =
+    hooks?.wrapProviderStreamFn ?? ((params) => wrapProviderStreamFn(params));
+}
 import {
   createAnthropicBetaHeadersWrapper,
   createBedrockNoCacheWrapper,
@@ -206,7 +225,7 @@ export function applyExtraParamsToAgent(
       : undefined;
   const merged = Object.assign({}, resolvedExtraParams, override);
   const effectiveExtraParams =
-    prepareProviderExtraParams({
+    _prepareProviderExtraParams({
       provider,
       config: cfg,
       context: {
@@ -257,7 +276,7 @@ export function applyExtraParamsToAgent(
     workspaceDir,
   });
   const providerStreamBase = agent.streamFn;
-  const pluginWrappedStreamFn = wrapProviderStreamFn({
+  const pluginWrappedStreamFn = _wrapProviderStreamFn({
     provider,
     config: cfg,
     context: {

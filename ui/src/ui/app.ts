@@ -1,5 +1,6 @@
 import { LitElement } from "lit";
-import { customElement, state } from "lit/decorators.js";
+import { state } from "lit/decorators.js";
+import { safeCustomElement } from "./lit-custom-element.ts";
 import { i18n, I18nController, isSupportedLocale } from "../i18n/index.ts";
 import {
   handleChannelConfigReload as handleChannelConfigReloadInternal,
@@ -71,6 +72,7 @@ import type {
   ArtifactRecordSummary,
   BootstrapRequestRecordDetail,
   BootstrapRequestRecordSummary,
+  CapabilityCatalogSummary,
   ConfigSnapshot,
   ConfigUiHints,
   ChatModelOverride,
@@ -83,6 +85,12 @@ import type {
   MachineControlStatus,
   ModelCatalogEntry,
   PresenceEntry,
+  RecipeCatalogSummary,
+  RuntimeActionDetail,
+  RuntimeActionSummary,
+  RuntimeCheckpointSummary,
+  RuntimeClosureDetail,
+  RuntimeClosureSummary,
   ChannelsStatusSnapshot,
   SessionsListResult,
   SkillStatusReport,
@@ -116,7 +124,7 @@ function resolveOnboardingMode(): boolean {
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
-@customElement("openclaw-app")
+@safeCustomElement("openclaw-app")
 export class OpenClawApp extends LitElement {
   private i18nController = new I18nController(this);
   clientInstanceId = generateUUID();
@@ -246,6 +254,7 @@ export class OpenClawApp extends LitElement {
   @state() channelsSnapshot: ChannelsStatusSnapshot | null = null;
   @state() channelsError: string | null = null;
   @state() channelsLastSuccess: number | null = null;
+  @state() channelsSelectedKey: string | null = null;
   @state() whatsappLoginMessage: string | null = null;
   @state() whatsappLoginQrDataUrl: string | null = null;
   @state() whatsappLoginConnected: boolean | null = null;
@@ -257,6 +266,7 @@ export class OpenClawApp extends LitElement {
   @state() presenceEntries: PresenceEntry[] = [];
   @state() presenceError: string | null = null;
   @state() presenceStatus: string | null = null;
+  @state() instancesReveal = false;
 
   @state() agentsLoading = false;
   @state() agentsList: AgentsListResult | null = null;
@@ -316,6 +326,26 @@ export class OpenClawApp extends LitElement {
   @state() bootstrapDetail: BootstrapRequestRecordDetail | null = null;
   @state() bootstrapDetailError: string | null = null;
   @state() bootstrapActionBusy = false;
+  @state() runtimeLoading = false;
+  @state() runtimeDetailLoading = false;
+  @state() runtimeActionBusy = false;
+  @state() runtimeError: string | null = null;
+  @state() runtimeSessionKey: string | null = null;
+  @state() runtimeRunId: string | null = null;
+  @state() runtimeStatus = "";
+  @state() runtimeCheckpoints: RuntimeCheckpointSummary[] = [];
+  @state() runtimeSelectedCheckpointId: string | null = null;
+  @state() runtimeCheckpointDetail: RuntimeCheckpointSummary | null = null;
+  @state() runtimeActions: RuntimeActionSummary[] = [];
+  @state() runtimeSelectedActionId: string | null = null;
+  @state() runtimeActionDetail: RuntimeActionDetail | null = null;
+  @state() runtimeClosures: RuntimeClosureSummary[] = [];
+  @state() runtimeSelectedClosureRunId: string | null = null;
+  @state() runtimeClosureDetail: RuntimeClosureDetail | null = null;
+  @state() catalogLoading = false;
+  @state() catalogError: string | null = null;
+  @state() recipeCatalog: RecipeCatalogSummary[] = [];
+  @state() capabilityCatalog: CapabilityCatalogSummary[] = [];
   @state() machineLoading = false;
   @state() machineError: string | null = null;
   @state() machineActionBusy = false;

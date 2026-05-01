@@ -10,14 +10,14 @@ const hoisted = vi.hoisted(() => {
 });
 
 vi.mock("../subagent-spawn.js", () => ({
-  SUBAGENT_SPAWN_MODES: ["run", "session"],
   spawnSubagentDirect: (...args: unknown[]) => hoisted.spawnSubagentDirectMock(...args),
+  SUBAGENT_SPAWN_MODES: ["run", "session"],
 }));
 
 vi.mock("../acp-spawn.js", () => ({
+  spawnAcpDirect: (...args: unknown[]) => hoisted.spawnAcpDirectMock(...args),
   ACP_SPAWN_MODES: ["run", "session"],
   ACP_SPAWN_STREAM_TARGETS: ["parent"],
-  spawnAcpDirect: (...args: unknown[]) => hoisted.spawnAcpDirectMock(...args),
 }));
 
 const { createSessionsSpawnTool } = await import("./sessions-spawn-tool.js");
@@ -36,7 +36,7 @@ describe("sessions_spawn tool", () => {
     });
   });
 
-  it("uses subagent runtime by default", async () => {
+  it("uses subagent runtime by default and maps continuation=followup to {thread:true, mode:session}", async () => {
     const tool = createSessionsSpawnTool({
       agentSessionKey: "agent:main:main",
       agentChannel: "discord",
@@ -51,8 +51,7 @@ describe("sessions_spawn tool", () => {
       model: "anthropic/claude-sonnet-4-6",
       thinking: "medium",
       runTimeoutSeconds: 5,
-      thread: true,
-      mode: "session",
+      continuation: "followup",
       cleanup: "keep",
     });
 
@@ -60,6 +59,7 @@ describe("sessions_spawn tool", () => {
       status: "accepted",
       childSessionKey: "agent:main:subagent:1",
       runId: "run-subagent",
+      effectiveContinuation: "followup",
     });
     expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -77,6 +77,137 @@ describe("sessions_spawn tool", () => {
       }),
     );
     expect(hoisted.spawnAcpDirectMock).not.toHaveBeenCalled();
+  });
+
+  it('maps continuation="one_shot" to {thread:false, mode:"run"}', async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    const result = await tool.execute("call-os", {
+      task: "single check",
+      continuation: "one_shot",
+    });
+
+    expect(result.details).toMatchObject({
+      status: "accepted",
+      effectiveContinuation: "one_shot",
+    });
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "single check",
+        thread: false,
+        mode: "run",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("defaults continuation to one_shot when not provided", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    const result = await tool.execute("call-default", {
+      task: "default behavior",
+    });
+
+    expect(result.details).toMatchObject({
+      status: "accepted",
+      effectiveContinuation: "one_shot",
+    });
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "default behavior",
+        thread: false,
+        mode: "run",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("retries followup as one_shot when channel reports thread_binding_unsupported", async () => {
+    hoisted.spawnSubagentDirectMock
+      .mockReset()
+      .mockResolvedValueOnce({
+        status: "error",
+        error: "Subagent sessions are unavailable in this channel.",
+        errorReason: "thread_binding_unsupported",
+      })
+      .mockResolvedValueOnce({
+        status: "accepted",
+        childSessionKey: "agent:main:subagent:fallback",
+        runId: "run-fallback",
+      });
+
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    const result = await tool.execute("call-fallback", {
+      task: "would prefer followup",
+      continuation: "followup",
+    });
+
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledTimes(2);
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ thread: true, mode: "session" }),
+      expect.any(Object),
+    );
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ thread: false, mode: "run" }),
+      expect.any(Object),
+    );
+
+    expect(result.details).toMatchObject({
+      status: "accepted",
+      childSessionKey: "agent:main:subagent:fallback",
+      runId: "run-fallback",
+      effectiveContinuation: "one_shot",
+      note: "Follow-up unavailable in this channel; ran one-shot instead.",
+    });
+    const detailsJson = JSON.stringify(result.details);
+    expect(detailsJson).not.toContain("thread");
+    expect(detailsJson).not.toContain("mode");
+  });
+
+  it("rejects legacy thread parameter with a clear error pointing to continuation", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    await expect(
+      tool.execute("call-legacy-thread", {
+        task: "legacy",
+        thread: true,
+      }),
+    ).rejects.toThrow(/continuation/);
+    expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy mode parameter with a clear error pointing to continuation", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    await expect(
+      tool.execute("call-legacy-mode", {
+        task: "legacy",
+        mode: "session",
+      }),
+    ).rejects.toThrow(/continuation/);
+    expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+  });
+
+  it("does not advertise legacy thread/mode keys on the tool schema", () => {
+    const tool = createSessionsSpawnTool();
+    const schema = tool.parameters as { properties?: Record<string, unknown> };
+    expect(schema.properties).toBeDefined();
+    expect(schema.properties).not.toHaveProperty("thread");
+    expect(schema.properties).not.toHaveProperty("mode");
+    expect(schema.properties).toHaveProperty("continuation");
   });
 
   it("passes inherited workspaceDir from tool context, not from tool args", async () => {
@@ -112,8 +243,7 @@ describe("sessions_spawn tool", () => {
       task: "investigate the failing CI run",
       agentId: "codex",
       cwd: "/workspace",
-      thread: true,
-      mode: "session",
+      continuation: "followup",
       streamTo: "parent",
     });
 
@@ -242,6 +372,146 @@ describe("sessions_spawn tool", () => {
     expect(details.error).toContain("streamTo is only supported for runtime=acp");
     expect(hoisted.spawnAcpDirectMock).not.toHaveBeenCalled();
     expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+  });
+
+  describe("LLM-facing result sanitization", () => {
+    const UUID_V4_REGEX =
+      /[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
+    const SUBAGENT_KEY_REGEX = /agent:[a-z0-9_-]+:subagent:/i;
+
+    function expectSanitized(text: string): void {
+      expect(text).not.toContain("childSessionKey");
+      expect(text).not.toContain("subagent_spawning");
+      expect(text).not.toContain("subagent_delivery_target");
+      expect(text).not.toMatch(SUBAGENT_KEY_REGEX);
+      expect(text).not.toMatch(UUID_V4_REGEX);
+    }
+
+    // We exercise the exported builder functions directly: they are the single
+    // sink that converts internal SpawnSubagentResult/SpawnAcpResult shapes
+    // into the LLM-facing payload and are the contract the tool relies on.
+
+    it("strips internal hints when subagent spawn returns error with leaked fields", async () => {
+      const { buildSubagentSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildSubagentSpawnLlmResult({
+        status: "error",
+        error: "Cannot start a subagent right now.",
+        // Simulate upstream code that incorrectly leaked these fields:
+        childSessionKey: "agent:main:subagent:11111111-1111-4111-8111-111111111111",
+        runId: "33333333-3333-4333-8333-333333333333",
+        agentId: "main",
+        parentSessionKey: "agent:main:main",
+      } as never);
+      expectSanitized(JSON.stringify(safe));
+      expect(safe.status).toBe("error");
+      expect(safe.error).toBe("Cannot start a subagent right now.");
+      expect(safe.agentId).toBeUndefined();
+      expect(safe.parentSessionKey).toBeUndefined();
+    });
+
+    it("strips internal hints when subagent spawn returns forbidden with leaked fields", async () => {
+      const { buildSubagentSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildSubagentSpawnLlmResult({
+        status: "forbidden",
+        error: "Subagent depth limit reached.",
+        childSessionKey: "agent:main:subagent:44444444-4444-4444-8444-444444444444",
+      } as never);
+      expectSanitized(JSON.stringify(safe));
+      expect(safe.status).toBe("forbidden");
+      expect(safe.error).toBe("Subagent depth limit reached.");
+    });
+
+    it("strips internal hints when ACP spawn returns error with leaked fields", async () => {
+      const { buildAcpSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildAcpSpawnLlmResult({
+        status: "error",
+        error: "Cannot start a subagent right now.",
+        childSessionKey: "agent:codex:subagent:55555555-5555-4555-8555-555555555555",
+        runId: "66666666-6666-4666-8666-666666666666",
+      } as never);
+      expectSanitized(JSON.stringify(safe));
+      expect(safe.status).toBe("error");
+      expect(safe.error).toBe("Cannot start a subagent right now.");
+    });
+
+    it("preserves childSessionKey on subagent success", async () => {
+      const { buildSubagentSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildSubagentSpawnLlmResult({
+        status: "accepted",
+        childSessionKey: "agent:main:subagent:1",
+        runId: "run-subagent",
+      } as never);
+      expect(safe.status).toBe("accepted");
+      expect(safe.childSessionKey).toBe("agent:main:subagent:1");
+      expect(safe.runId).toBe("run-subagent");
+    });
+
+    it("preserves childSessionKey on ACP success", async () => {
+      const { buildAcpSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildAcpSpawnLlmResult({
+        status: "accepted",
+        childSessionKey: "agent:codex:acp:1",
+        runId: "run-acp",
+      } as never);
+      expect(safe.status).toBe("accepted");
+      expect(safe.childSessionKey).toBe("agent:codex:acp:1");
+      expect(safe.runId).toBe("run-acp");
+    });
+
+    // PR-1.5 — runtime result schema extension. Surface agentId +
+    // parentSessionKey on accepted only. parentSessionKey: null is
+    // meaningful (top-level spawn) and must be preserved; parentSessionKey:
+    // undefined is dropped.
+    it("surfaces agentId and parentSessionKey on subagent accepted", async () => {
+      const { buildSubagentSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildSubagentSpawnLlmResult({
+        status: "accepted",
+        childSessionKey: "agent:main:subagent:1",
+        runId: "run-subagent",
+        agentId: "main",
+        parentSessionKey: "agent:main:main",
+      } as never);
+      expect(safe.agentId).toBe("main");
+      expect(safe.parentSessionKey).toBe("agent:main:main");
+    });
+
+    it("preserves parentSessionKey=null on subagent top-level accepted", async () => {
+      const { buildSubagentSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildSubagentSpawnLlmResult({
+        status: "accepted",
+        childSessionKey: "agent:main:subagent:1",
+        runId: "run-subagent",
+        agentId: "main",
+        parentSessionKey: null,
+      } as never);
+      expect(safe.parentSessionKey).toBeNull();
+      expect("parentSessionKey" in safe).toBe(true);
+    });
+
+    it("surfaces agentId and parentSessionKey on ACP accepted", async () => {
+      const { buildAcpSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildAcpSpawnLlmResult({
+        status: "accepted",
+        childSessionKey: "agent:codex:acp:1",
+        runId: "run-acp",
+        agentId: "codex",
+        parentSessionKey: "agent:main:main",
+      } as never);
+      expect(safe.agentId).toBe("codex");
+      expect(safe.parentSessionKey).toBe("agent:main:main");
+    });
+
+    it("strips agentId and parentSessionKey on ACP error", async () => {
+      const { buildAcpSpawnLlmResult } = await import("./sessions-spawn-tool.js");
+      const safe = buildAcpSpawnLlmResult({
+        status: "error",
+        error: "Cannot start a subagent right now.",
+        agentId: "codex",
+        parentSessionKey: "agent:main:main",
+      } as never);
+      expect(safe.agentId).toBeUndefined();
+      expect(safe.parentSessionKey).toBeUndefined();
+    });
   });
 
   it("keeps attachment content schema unconstrained for llama.cpp grammar safety", () => {

@@ -1,0 +1,1312 @@
+[
+  {
+    "id": "answer-en-001",
+    "prompt": "Summarize this paragraph in two sentences: The quick brown fox jumps over the lazy dog repeatedly each evening at sunset.",
+    "tags": ["answer", "english", "summarize"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer", "preferredFormat": "text" }
+    }
+  },
+  {
+    "id": "answer-en-002",
+    "prompt": "Explain in plain English what a binary search tree is.",
+    "tags": ["answer", "english", "explanation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-en-003",
+    "prompt": "Rewrite this sentence in a more formal tone: hey wanna grab lunch later",
+    "tags": ["answer", "english", "rewrite"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-en-004",
+    "prompt": "Brainstorm five product names for a vegan dog-food startup.",
+    "tags": ["answer", "english", "brainstorm"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-en-005",
+    "prompt": "What is the difference between TCP and UDP?",
+    "tags": ["answer", "english", "explanation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-en-006",
+    "prompt": "Write a short haiku about autumn leaves.",
+    "tags": ["answer", "english", "creative"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-en-007",
+    "prompt": "Translate \"good morning\" to French and Japanese.",
+    "tags": ["answer", "english", "translation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-ru-001",
+    "prompt": "Перескажи в двух предложениях: солнце село, и ветер стих над пустыми улицами.",
+    "tags": ["answer", "russian", "summarize"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-ru-002",
+    "prompt": "Объясни, что такое REST API простыми словами.",
+    "tags": ["answer", "russian", "explanation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-ru-003",
+    "prompt": "Перепиши вежливо: \"эй, скинь мне отчёт сегодня\".",
+    "tags": ["answer", "russian", "rewrite"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-ru-004",
+    "prompt": "Придумай пять названий для веганского кафе.",
+    "tags": ["answer", "russian", "brainstorm"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-ru-005",
+    "prompt": "Чем отличается список от кортежа в Python?",
+    "tags": ["answer", "russian", "explanation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-ru-006",
+    "prompt": "Привет, как настроение?",
+    "tags": ["answer", "russian", "small-talk"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-ru-007",
+    "prompt": "Что такое инкапсуляция в ООП?",
+    "tags": ["answer", "russian", "explanation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-ru-008",
+    "prompt": "Как сказать спасибо на испанском и итальянском?",
+    "tags": ["answer", "russian", "translation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "calc-en-001",
+    "prompt": "What is 17.5% of 248?",
+    "tags": ["calculation_result", "english", "math"],
+    "expectedTaskContract": {
+      "primaryOutcome": "calculation_result",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "calc-en-002",
+    "prompt": "Estimate the monthly compound interest on $5000 at 4.5% APR over one year.",
+    "tags": ["calculation_result", "english", "estimation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "calculation_result",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "calc-en-003",
+    "prompt": "If a function runs in O(n log n) and n is one million, roughly how many ops?",
+    "tags": ["calculation_result", "english", "estimation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "calculation_result",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "calc-en-004",
+    "prompt": "Convert 78 km/h into m/s.",
+    "tags": ["calculation_result", "english", "conversion"],
+    "expectedTaskContract": {
+      "primaryOutcome": "calculation_result",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "calc-ru-001",
+    "prompt": "Сколько будет 17.5% от 248?",
+    "tags": ["calculation_result", "russian", "math"],
+    "expectedTaskContract": {
+      "primaryOutcome": "calculation_result",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "calc-ru-002",
+    "prompt": "Прикинь сколько ходов в шахматной партии длится 35 минут при контроле 5+0.",
+    "tags": ["calculation_result", "russian", "estimation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "calculation_result",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "calc-ru-003",
+    "prompt": "Переведи 78 км/ч в м/с.",
+    "tags": ["calculation_result", "russian", "conversion"],
+    "expectedTaskContract": {
+      "primaryOutcome": "calculation_result",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "calc-ru-004",
+    "prompt": "Если RPS=1200 и средняя обработка 80 мс, сколько процессов нужно минимум?",
+    "tags": ["calculation_result", "russian", "estimation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "calculation_result",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-en-001",
+    "prompt": "Compare the attached pricing spreadsheets and tell me which vendor is cheaper.",
+    "fileNames": ["vendor-a.xlsx", "vendor-b.xlsx"],
+    "tags": ["comparison_report", "english", "tabular"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": ["needs_tabular_reasoning"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-en-002",
+    "prompt": "Open the local app at http://localhost:3000 and list any visual issues you see.",
+    "tags": ["comparison_report", "english", "browser"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_interactive_browser"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-en-003",
+    "prompt": "Audit the deployed marketing page for accessibility issues by inspecting it in the browser.",
+    "tags": ["comparison_report", "english", "browser", "audit"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_interactive_browser"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-en-004",
+    "prompt": "Look up the latest pricing for AWS Fargate vs Google Cloud Run and summarize.",
+    "tags": ["comparison_report", "english", "web-research"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_web_research"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-en-005",
+    "prompt": "Compare these three resumes and tell me which fits a senior backend role best.",
+    "fileNames": ["alice.pdf", "bob.pdf", "carol.pdf"],
+    "tags": ["comparison_report", "english", "files-attached"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "respond_only",
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-ru-001",
+    "prompt": "Сравни прайсы в приложенных таблицах и скажи какой поставщик выгоднее.",
+    "fileNames": ["price-a.xlsx", "price-b.xlsx"],
+    "tags": ["comparison_report", "russian", "tabular"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": ["needs_tabular_reasoning"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-ru-002",
+    "prompt": "Открой локальный дев-сервер в браузере и опиши, какие баги видишь на главной.",
+    "tags": ["comparison_report", "russian", "browser"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_interactive_browser"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-ru-003",
+    "prompt": "Найди в интернете актуальные цены на GPU 4090 и сравни три магазина.",
+    "tags": ["comparison_report", "russian", "web-research"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_web_research"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-ru-004",
+    "prompt": "Прочитай эти три резюме и скажи, кто лучше подходит на бэкенд-сеньора.",
+    "fileNames": ["res1.pdf", "res2.pdf", "res3.pdf"],
+    "tags": ["comparison_report", "russian", "files-attached"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "respond_only",
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-ru-005",
+    "prompt": "Просмотри страницу example.com в браузере и сделай скриншоты главного экрана.",
+    "tags": ["comparison_report", "russian", "browser"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_interactive_browser"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "doc-image-en-001",
+    "prompt": "Generate an image of a banana sitting on a beach.",
+    "tags": ["document_package", "english", "image"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_visual_composition"],
+      "deliverable": { "kind": "image", "preferredFormat": "png" }
+    }
+  },
+  {
+    "id": "doc-image-en-002",
+    "prompt": "Make a square 1:1 illustration of a fox riding a bicycle.",
+    "tags": ["document_package", "english", "image"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_visual_composition"],
+      "deliverable": { "kind": "image", "preferredFormat": "png" }
+    }
+  },
+  {
+    "id": "doc-image-ru-001",
+    "prompt": "Сгенерируй картинку банана на пляже.",
+    "tags": ["document_package", "russian", "image"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_visual_composition"],
+      "deliverable": { "kind": "image", "preferredFormat": "png" }
+    }
+  },
+  {
+    "id": "doc-image-ru-002",
+    "prompt": "Нарисуй постер 16:9 про путешествие на Марс с надписью \"Поехали\".",
+    "tags": ["document_package", "russian", "image"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_visual_composition"],
+      "deliverable": { "kind": "image", "preferredFormat": "png" }
+    }
+  },
+  {
+    "id": "doc-pdf-en-001",
+    "prompt": "Make a pdf about the life cycle of a banana, beautifully formatted with sections.",
+    "tags": ["document_package", "english", "pdf"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_multimodal_authoring"],
+      "deliverable": { "kind": "document", "preferredFormat": "pdf" }
+    }
+  },
+  {
+    "id": "doc-pdf-ru-001",
+    "prompt": "Сгенерируй pdf про жизнь банана, красивый пдф с разделами, не просто текст.",
+    "tags": ["document_package", "russian", "pdf"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_multimodal_authoring"],
+      "deliverable": { "kind": "document", "preferredFormat": "pdf" }
+    }
+  },
+  {
+    "id": "doc-docx-en-001",
+    "prompt": "Make the same content in Word format.",
+    "tags": ["document_package", "english", "docx"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_multimodal_authoring"],
+      "deliverable": { "kind": "document", "preferredFormat": "docx" }
+    }
+  },
+  {
+    "id": "doc-docx-ru-001",
+    "prompt": "То же самое в word, пожалуйста.",
+    "tags": ["document_package", "russian", "docx"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_multimodal_authoring"],
+      "deliverable": { "kind": "document", "preferredFormat": "docx" }
+    }
+  },
+  {
+    "id": "doc-docx-ru-002",
+    "prompt": "Сделай в ворде краткий отчёт по продажам за квартал.",
+    "tags": ["document_package", "russian", "docx"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_multimodal_authoring"],
+      "deliverable": { "kind": "document", "preferredFormat": "docx" }
+    }
+  },
+  {
+    "id": "doc-csv-en-001",
+    "prompt": "Any report in CSV with sales by region.",
+    "tags": ["document_package", "english", "csv"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_tabular_reasoning"],
+      "deliverable": { "kind": "data", "preferredFormat": "csv" }
+    }
+  },
+  {
+    "id": "doc-csv-ru-001",
+    "prompt": "Какой-то отчёт сделать в csv по продажам по регионам.",
+    "tags": ["document_package", "russian", "csv"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_tabular_reasoning"],
+      "deliverable": { "kind": "data", "preferredFormat": "csv" }
+    }
+  },
+  {
+    "id": "doc-xlsx-en-001",
+    "prompt": "Build an Excel report with monthly revenue and a totals column.",
+    "tags": ["document_package", "english", "xlsx"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_tabular_reasoning"],
+      "deliverable": { "kind": "data", "preferredFormat": "xlsx" }
+    }
+  },
+  {
+    "id": "doc-xlsx-ru-001",
+    "prompt": "Какой-то отчёт сделать в эксель: по месяцам выручка и итоговая колонка.",
+    "tags": ["document_package", "russian", "xlsx"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_tabular_reasoning"],
+      "deliverable": { "kind": "data", "preferredFormat": "xlsx" }
+    }
+  },
+  {
+    "id": "doc-site-en-001",
+    "prompt": "Create a simple landing page about bananas and give me the zipped archive.",
+    "tags": ["document_package", "english", "site", "external_delivery"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_external_delivery", "needs_multimodal_authoring"],
+      "deliverable": { "kind": "site", "preferredFormat": "zip" }
+    }
+  },
+  {
+    "id": "doc-site-ru-001",
+    "prompt": "Создание сайта — простая лендинг-страница про бананы, отдай готовый архив.",
+    "tags": ["document_package", "russian", "site", "external_delivery"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_external_delivery", "needs_multimodal_authoring"],
+      "deliverable": { "kind": "site", "preferredFormat": "zip" }
+    }
+  },
+  {
+    "id": "doc-extract-en-001",
+    "prompt": "Extract fields from this attached invoice PDF: invoice number, total, due date.",
+    "fileNames": ["invoice-2026-04.pdf"],
+    "tags": ["document_extraction", "english", "files-attached"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_extraction",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_document_extraction"],
+      "deliverable": { "kind": "data" }
+    }
+  },
+  {
+    "id": "doc-extract-en-002",
+    "prompt": "Pull the line items out of these receipts as JSON.",
+    "fileNames": ["receipt-1.jpg", "receipt-2.jpg"],
+    "tags": ["document_extraction", "english", "files-attached"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_extraction",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_document_extraction"],
+      "deliverable": { "kind": "data" }
+    }
+  },
+  {
+    "id": "doc-extract-en-003",
+    "prompt": "Read the attached contract PDF and extract the parties and the effective date.",
+    "fileNames": ["contract.pdf"],
+    "tags": ["document_extraction", "english", "files-attached"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_extraction",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_document_extraction"],
+      "deliverable": { "kind": "data" }
+    }
+  },
+  {
+    "id": "doc-extract-ru-001",
+    "prompt": "Достань поля из этого инвойса: номер, сумма, срок оплаты.",
+    "fileNames": ["invoice.pdf"],
+    "tags": ["document_extraction", "russian", "files-attached"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_extraction",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_document_extraction"],
+      "deliverable": { "kind": "data" }
+    }
+  },
+  {
+    "id": "doc-extract-ru-002",
+    "prompt": "Извлеки позиции из приложенных чеков и верни структурированно.",
+    "fileNames": ["check1.jpg", "check2.jpg"],
+    "tags": ["document_extraction", "russian", "files-attached"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_extraction",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_document_extraction"],
+      "deliverable": { "kind": "data" }
+    }
+  },
+  {
+    "id": "doc-extract-ru-003",
+    "prompt": "Считай данные из договора и выпиши стороны и дату.",
+    "fileNames": ["dogovor.pdf"],
+    "tags": ["document_extraction", "russian", "files-attached"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_extraction",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_document_extraction"],
+      "deliverable": { "kind": "data" }
+    }
+  },
+  {
+    "id": "ws-create-en-001",
+    "prompt": "Create file src/utils/hello.ts with the contents: export const hello = () => 'world';",
+    "tags": ["workspace_change", "english", "create_file"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-create-ru-001",
+    "prompt": "Создай файл src/utils/hello.ts с одной строкой: export const hello = () => 'world';",
+    "tags": ["workspace_change", "russian", "create_file"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-update-en-001",
+    "prompt": "Update README.md, replace the line \"WIP\" with \"v1.0 released\".",
+    "tags": ["workspace_change", "english", "update_file"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-update-ru-001",
+    "prompt": "Обнови файл README.md и замени слово \"WIP\" на \"v1.0 released\".",
+    "tags": ["workspace_change", "russian", "update_file"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-refactor-en-001",
+    "prompt": "Refactor the auth module to use async/await, show me the diff and run the tests.",
+    "tags": ["workspace_change", "english", "refactor", "run_tests"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [
+        "needs_workspace_mutation",
+        "needs_repo_execution",
+        "needs_local_runtime"
+      ],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-refactor-ru-001",
+    "prompt": "Отрефактори модуль auth на async/await, покажи diff и прогоняй тесты.",
+    "tags": ["workspace_change", "russian", "refactor", "run_tests"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [
+        "needs_workspace_mutation",
+        "needs_repo_execution",
+        "needs_local_runtime"
+      ],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-bugfix-en-001",
+    "prompt": "Find and fix the leak in the tests lane, leave it passing locally.",
+    "tags": ["workspace_change", "english", "bug_fix", "local-runtime"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [
+        "needs_workspace_mutation",
+        "needs_repo_execution",
+        "needs_local_runtime"
+      ],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-bugfix-ru-001",
+    "prompt": "Найди и пофикси багу в тестовой линии, оставь локально зелёным.",
+    "tags": ["workspace_change", "russian", "bug_fix", "local-runtime"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [
+        "needs_workspace_mutation",
+        "needs_repo_execution",
+        "needs_local_runtime"
+      ],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-deps-en-001",
+    "prompt": "Bump the lodash dependency to the latest minor and run security checks.",
+    "tags": ["workspace_change", "english", "dependency_update"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation", "needs_repo_execution"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-deps-ru-001",
+    "prompt": "Обнови зависимость lodash до последней минорной и прогоняй security checks.",
+    "tags": ["workspace_change", "russian", "dependency_update"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation", "needs_repo_execution"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-scaffold-en-001",
+    "prompt": "Scaffold a new repo with README and CI for a small node service.",
+    "tags": ["workspace_change", "english", "scaffold_repo"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation", "needs_repo_execution"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-scaffold-ru-001",
+    "prompt": "Инициализируй проект, добавь README и CI, базовый node-сервис.",
+    "tags": ["workspace_change", "russian", "scaffold_repo"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation", "needs_repo_execution"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-runcmd-en-001",
+    "prompt": "Run node --version and tell me the output.",
+    "tags": ["workspace_change", "english", "run_command", "repo_operation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_repo_execution", "needs_local_runtime"],
+      "deliverable": { "kind": "repo_operation" }
+    }
+  },
+  {
+    "id": "ws-runcmd-ru-001",
+    "prompt": "Запусти команду node --version и скажи что вернулось.",
+    "tags": ["workspace_change", "russian", "run_command", "repo_operation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_repo_execution", "needs_local_runtime"],
+      "deliverable": { "kind": "repo_operation" }
+    }
+  },
+  {
+    "id": "ws-runtests-en-001",
+    "prompt": "Run the test suite and report failures.",
+    "tags": ["workspace_change", "english", "run_tests", "repo_operation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_repo_execution", "needs_local_runtime"],
+      "deliverable": { "kind": "repo_operation" }
+    }
+  },
+  {
+    "id": "ws-runtests-ru-001",
+    "prompt": "Прогоняй тесты в проекте и расскажи, что упало.",
+    "tags": ["workspace_change", "russian", "run_tests", "repo_operation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_repo_execution", "needs_local_runtime"],
+      "deliverable": { "kind": "repo_operation" }
+    }
+  },
+  {
+    "id": "ws-integration-en-001",
+    "prompt": "Add a Bybit trading bot integration to src/integrations/bybit.ts.",
+    "tags": ["workspace_change", "english", "integration", "provider:bybit"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-integration-ru-001",
+    "prompt": "Добавь интеграцию с Bybit в src/integrations/bybit.ts.",
+    "tags": ["workspace_change", "russian", "integration", "provider:bybit"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "external-deploy-en-001",
+    "prompt": "Run release checks and publish the already-prepared build to production.",
+    "tags": ["external_delivery", "english", "publish", "production"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [
+        "needs_external_delivery",
+        "needs_high_reliability_provider",
+        "needs_repo_execution"
+      ],
+      "deliverable": { "kind": "external_delivery" }
+    }
+  },
+  {
+    "id": "external-deploy-ru-001",
+    "prompt": "Прогон release-проверок и публикация уже собранного билда в прод.",
+    "tags": ["external_delivery", "russian", "publish", "production"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [
+        "needs_external_delivery",
+        "needs_high_reliability_provider",
+        "needs_repo_execution"
+      ],
+      "deliverable": { "kind": "external_delivery" }
+    }
+  },
+  {
+    "id": "external-send-en-001",
+    "prompt": "Send the latest report to the team via Telegram channel #updates.",
+    "tags": ["external_delivery", "english", "send", "telegram"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_external_delivery"],
+      "deliverable": { "kind": "external_delivery" }
+    }
+  },
+  {
+    "id": "external-send-ru-001",
+    "prompt": "Отправь свежий отчёт в наш телеграм-канал #updates.",
+    "tags": ["external_delivery", "russian", "send", "telegram"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_external_delivery"],
+      "deliverable": { "kind": "external_delivery" }
+    }
+  },
+  {
+    "id": "external-publish-en-001",
+    "prompt": "Publish version 1.4.2 of the npm package to the public registry.",
+    "tags": ["external_delivery", "english", "publish", "npm"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [
+        "needs_external_delivery",
+        "needs_high_reliability_provider"
+      ],
+      "deliverable": { "kind": "external_delivery" }
+    }
+  },
+  {
+    "id": "external-publish-ru-001",
+    "prompt": "Опубликуй версию 1.4.2 npm-пакета в публичный реестр.",
+    "tags": ["external_delivery", "russian", "publish", "npm"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [
+        "needs_external_delivery",
+        "needs_high_reliability_provider"
+      ],
+      "deliverable": { "kind": "external_delivery" }
+    }
+  },
+  {
+    "id": "capinstall-en-001",
+    "prompt": "Install the third-party library pdfkit, please run the install.",
+    "tags": ["external_delivery", "english", "capability_install"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_external_delivery"],
+      "deliverable": { "kind": "capability_install", "preferredFormat": "npm-package" }
+    }
+  },
+  {
+    "id": "capinstall-en-002",
+    "prompt": "Install the python pip package requests for me.",
+    "tags": ["external_delivery", "english", "capability_install"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_external_delivery"],
+      "deliverable": { "kind": "capability_install", "preferredFormat": "pip-package" }
+    }
+  },
+  {
+    "id": "capinstall-ru-001",
+    "prompt": "Установи пожалуйста стороннюю библиотеку pdfkit — она нам нужна, выполни установку.",
+    "tags": ["external_delivery", "russian", "capability_install"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_external_delivery"],
+      "deliverable": { "kind": "capability_install", "preferredFormat": "npm-package" }
+    }
+  },
+  {
+    "id": "capinstall-ru-002",
+    "prompt": "Поставь питоновский pip-пакет requests.",
+    "tags": ["external_delivery", "russian", "capability_install"],
+    "expectedTaskContract": {
+      "primaryOutcome": "external_delivery",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_external_delivery"],
+      "deliverable": { "kind": "capability_install", "preferredFormat": "pip-package" }
+    }
+  },
+  {
+    "id": "reminder-en-001",
+    "prompt": "Remind me in 5 minutes to drink water.",
+    "tags": ["reminder", "english", "cron"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "reminder-en-002",
+    "prompt": "Reminder for tomorrow at 9am: stand-up meeting.",
+    "tags": ["reminder", "english", "cron"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "reminder-ru-001",
+    "prompt": "Напомни через 30 секунд тестовое сообщение.",
+    "tags": ["reminder", "russian", "cron"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "reminder-ru-002",
+    "prompt": "Напомни завтра в 12:00 пообедать.",
+    "tags": ["reminder", "russian", "cron"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "reminder-ru-003",
+    "prompt": "Поставь напоминание в этом чате через час сказать привет.",
+    "tags": ["reminder", "russian", "cron"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "clarify-en-001",
+    "prompt": "Make me a document about cats.",
+    "tags": ["clarification_needed", "english", "no-format"],
+    "expectedTaskContract": {
+      "primaryOutcome": "clarification_needed",
+      "interactionMode": "clarify_first"
+    }
+  },
+  {
+    "id": "clarify-en-002",
+    "prompt": "Fix the bug and ship it to production.",
+    "tags": ["clarification_needed", "english", "no-approval"],
+    "expectedTaskContract": {
+      "primaryOutcome": "clarification_needed",
+      "interactionMode": "clarify_first"
+    }
+  },
+  {
+    "id": "clarify-ru-001",
+    "prompt": "Сделай документ про кошек.",
+    "tags": ["clarification_needed", "russian", "no-format"],
+    "expectedTaskContract": {
+      "primaryOutcome": "clarification_needed",
+      "interactionMode": "clarify_first"
+    }
+  },
+  {
+    "id": "clarify-ru-002",
+    "prompt": "Пофикси багу и сразу выкатывай в прод.",
+    "tags": ["clarification_needed", "russian", "no-approval"],
+    "expectedTaskContract": {
+      "primaryOutcome": "clarification_needed",
+      "interactionMode": "clarify_first"
+    }
+  },
+  {
+    "id": "clarify-ru-003",
+    "prompt": "Подготовь презентацию.",
+    "tags": ["clarification_needed", "russian", "no-format"],
+    "expectedTaskContract": {
+      "primaryOutcome": "clarification_needed",
+      "interactionMode": "clarify_first"
+    }
+  },
+  {
+    "id": "ambig-en-001",
+    "prompt": "Maybe do something about the dashboard.",
+    "tags": ["clarification_needed", "english", "ambiguous"],
+    "expectedTaskContract": {
+      "primaryOutcome": "clarification_needed",
+      "interactionMode": "clarify_first"
+    }
+  },
+  {
+    "id": "ambig-ru-001",
+    "prompt": "Может, что-нибудь сделать с дашбордом.",
+    "tags": ["clarification_needed", "russian", "ambiguous"],
+    "expectedTaskContract": {
+      "primaryOutcome": "clarification_needed",
+      "interactionMode": "clarify_first"
+    }
+  },
+  {
+    "id": "low-conf-en-001",
+    "prompt": "Yeah ok do it.",
+    "tags": ["clarification_needed", "english", "low-confidence"],
+    "expectedTaskContract": {
+      "primaryOutcome": "clarification_needed",
+      "interactionMode": "clarify_first"
+    }
+  },
+  {
+    "id": "low-conf-ru-001",
+    "prompt": "Ну давай сделай.",
+    "tags": ["clarification_needed", "russian", "low-confidence"],
+    "expectedTaskContract": {
+      "primaryOutcome": "clarification_needed",
+      "interactionMode": "clarify_first"
+    }
+  },
+  {
+    "id": "compare-tabular-en-002",
+    "prompt": "Just compare these two CSVs and tell me the differences in revenue.",
+    "fileNames": ["q1.csv", "q2.csv"],
+    "tags": ["comparison_report", "english", "tabular", "files-attached"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": ["needs_tabular_reasoning"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-tabular-ru-002",
+    "prompt": "Сравни эти две csv-таблички и скажи, где выручка изменилась сильнее.",
+    "fileNames": ["q1.csv", "q2.csv"],
+    "tags": ["comparison_report", "russian", "tabular", "files-attached"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": ["needs_tabular_reasoning"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-en-008",
+    "prompt": "How does HTTPS handshake work at a high level?",
+    "tags": ["answer", "english", "explanation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-ru-009",
+    "prompt": "Как работает HTTPS-хендшейк, расскажи в общих чертах.",
+    "tags": ["answer", "russian", "explanation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "ws-update-en-002",
+    "prompt": "Update src/index.ts to import './bootstrap.js' before any other imports.",
+    "tags": ["workspace_change", "english", "update_file"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "ws-update-ru-002",
+    "prompt": "В файле src/index.ts добавь импорт './bootstrap.js' перед остальными импортами.",
+    "tags": ["workspace_change", "russian", "update_file"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_workspace_mutation"],
+      "deliverable": { "kind": "code_change", "preferredFormat": "patch" }
+    }
+  },
+  {
+    "id": "doc-pdf-en-002",
+    "prompt": "Build a 4-page pdf with charts about Q3 sales performance.",
+    "tags": ["document_package", "english", "pdf"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_multimodal_authoring"],
+      "deliverable": { "kind": "document", "preferredFormat": "pdf" }
+    }
+  },
+  {
+    "id": "doc-pdf-ru-002",
+    "prompt": "Сделай pdf на 4 страницы с графиками по продажам Q3.",
+    "tags": ["document_package", "russian", "pdf"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_multimodal_authoring"],
+      "deliverable": { "kind": "document", "preferredFormat": "pdf" }
+    }
+  },
+  {
+    "id": "compare-web-en-002",
+    "prompt": "Search the web for current GPT-5 pricing tiers and summarize them.",
+    "tags": ["comparison_report", "english", "web-research"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_web_research"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "compare-web-ru-002",
+    "prompt": "Поищи в интернете актуальные тарифы GPT-5 и сведи их в коротком обзоре.",
+    "tags": ["comparison_report", "russian", "web-research"],
+    "expectedTaskContract": {
+      "primaryOutcome": "comparison_report",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_web_research"],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-en-009",
+    "prompt": "Tell me a fun fact about octopuses.",
+    "tags": ["answer", "english", "small-talk"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "answer-ru-010",
+    "prompt": "Расскажи интересный факт про осьминогов.",
+    "tags": ["answer", "russian", "small-talk"],
+    "expectedTaskContract": {
+      "primaryOutcome": "answer",
+      "interactionMode": "respond_only",
+      "requiredCapabilities": [],
+      "deliverable": { "kind": "answer" }
+    }
+  },
+  {
+    "id": "ws-runtests-en-002",
+    "prompt": "Run pnpm test and tell me only the failing test names.",
+    "tags": ["workspace_change", "english", "run_tests", "repo_operation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_repo_execution", "needs_local_runtime"],
+      "deliverable": { "kind": "repo_operation" }
+    }
+  },
+  {
+    "id": "ws-runtests-ru-002",
+    "prompt": "Прогоняй pnpm test и верни только имена упавших тестов.",
+    "tags": ["workspace_change", "russian", "run_tests", "repo_operation"],
+    "expectedTaskContract": {
+      "primaryOutcome": "workspace_change",
+      "interactionMode": "tool_execution",
+      "requiredCapabilities": ["needs_repo_execution", "needs_local_runtime"],
+      "deliverable": { "kind": "repo_operation" }
+    }
+  },
+  {
+    "id": "doc-image-en-003",
+    "prompt": "Generate a wide 16:9 banner image with the text \"Welcome\" in bold.",
+    "tags": ["document_package", "english", "image"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_visual_composition"],
+      "deliverable": { "kind": "image", "preferredFormat": "png" }
+    }
+  },
+  {
+    "id": "doc-image-ru-003",
+    "prompt": "Сгенерируй широкий 16:9 баннер с надписью \"Добро пожаловать\" жирным.",
+    "tags": ["document_package", "russian", "image"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "interactionMode": "artifact_iteration",
+      "requiredCapabilities": ["needs_visual_composition"],
+      "deliverable": { "kind": "image", "preferredFormat": "png" }
+    }
+  },
+  {
+    "id": "doc-archive-en-001",
+    "prompt": "Zip these files into a single archive called bundle.zip and give me the archive.",
+    "fileNames": ["a.txt", "b.txt", "c.txt"],
+    "tags": ["document_package", "english", "archive", "edge"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "deliverable": { "kind": "archive" }
+    }
+  },
+  {
+    "id": "doc-archive-ru-001",
+    "prompt": "Запакуй эти файлы в один архив bundle.zip и отдай мне архив.",
+    "fileNames": ["a.txt", "b.txt", "c.txt"],
+    "tags": ["document_package", "russian", "archive", "edge"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "deliverable": { "kind": "archive" }
+    }
+  },
+  {
+    "id": "doc-audio-en-001",
+    "prompt": "Generate an mp3 audio greeting that says \"Hello and welcome to the show\".",
+    "tags": ["document_package", "english", "audio", "edge"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "deliverable": { "kind": "audio" }
+    }
+  },
+  {
+    "id": "doc-audio-ru-001",
+    "prompt": "Сгенерируй mp3 аудио-приветствие, скажи \"Привет и добро пожаловать на шоу\".",
+    "tags": ["document_package", "russian", "audio", "edge"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "deliverable": { "kind": "audio" }
+    }
+  },
+  {
+    "id": "doc-video-en-001",
+    "prompt": "Make a short 5-second mp4 video clip of a sunset over the ocean.",
+    "tags": ["document_package", "english", "video", "edge"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "deliverable": { "kind": "video" }
+    }
+  },
+  {
+    "id": "doc-video-ru-001",
+    "prompt": "Сделай короткий 5-секундный mp4-клип с закатом над океаном.",
+    "tags": ["document_package", "russian", "video", "edge"],
+    "expectedTaskContract": {
+      "primaryOutcome": "document_package",
+      "deliverable": { "kind": "video" }
+    }
+  }
+]

@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "actionId": "bootstrap:2884c69f-74b1-4f43-897a-5d49526d6fc6:run",
+      "runId": "2884c69f-74b1-4f43-897a-5d49526d6fc6",
+      "kind": "bootstrap",
+      "state": "failed",
+      "boundary": "bootstrap",
+      "checkpointId": "2884c69f-74b1-4f43-897a-5d49526d6fc6",
+      "target": {
+        "bootstrapRequestId": "2884c69f-74b1-4f43-897a-5d49526d6fc6",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "2884c69f-74b1-4f43-897a-5d49526d6fc6",
+        "capabilityId": "table-parser",
+        "operation": "bootstrap.run",
+        "resultStatus": "degraded"
+      },
+      "attemptCount": 1,
+      "retryable": true,
+      "lastError": "Package not found on npm: @openclaw/table-parser@1.0.0. See https://docs.openclaw.ai/tools/plugin for installable plugins.",
+      "createdAtMs": 1775745920033,
+      "updatedAtMs": 1775745921863,
+      "stagedAtMs": 1775745920033,
+      "attemptedAtMs": 1775745920046,
+      "failedAtMs": 1775745921863
+    },
+    {
+      "actionId": "bootstrap:07840a1f-32fe-4b7c-b10b-01a47b2f85f2:run",
+      "runId": "07840a1f-32fe-4b7c-b10b-01a47b2f85f2",
+      "kind": "bootstrap",
+      "state": "confirmed",
+      "boundary": "bootstrap",
+      "checkpointId": "07840a1f-32fe-4b7c-b10b-01a47b2f85f2",
+      "target": {
+        "bootstrapRequestId": "07840a1f-32fe-4b7c-b10b-01a47b2f85f2",
+        "operation": "bootstrap.run"
+      },
+      "receipt": {
+        "bootstrapRequestId": "07840a1f-32fe-4b7c-b10b-01a47b2f85f2",
+        "capabilityId": "pdf-renderer",
+        "operation": "bootstrap.run",
+        "resultStatus": "bootstrapped",
+        "operatorDecision": {
+          "action": "run",
+          "atMs": 1775744339556,
+          "actor": {
+            "id": "cli",
+            "displayName": "stage86-live-probe",
+            "deviceId": "bf4f0d0a5691ed6a5eca5b8ed067526161a54a53d18161ddaaee0615b7a6e48b",
+            "connId": "95790809-a08d-4485-92c9-e7230ff68188"
+          },
+          "source": "platform.bootstrap.run"
+        }
+      },
+      "attemptCount": 1,
+      "retryable": false,
+      "createdAtMs": 1775744339556,
+      "updatedAtMs": 1775744345035,
+      "stagedAtMs": 1775744339556,
+      "attemptedAtMs": 1775744339572,
+      "confirmedAtMs": 1775744345035
+    }
+  ]
+}

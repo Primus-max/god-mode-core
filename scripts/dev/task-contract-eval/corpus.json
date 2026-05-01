@@ -1,0 +1,1036 @@
+[
+  {
+    "id": "general-rewrite-message",
+    "language": "ru",
+    "taskClass": "general",
+    "prompt": "Перепиши это сообщение короче и дружелюбнее: Мы получили ваш запрос и вернемся с обновлением завтра.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "general",
+      "primaryOutcome": "answer",
+      "requiredCapabilities": [],
+      "constraints": [
+        "keep_it_brief"
+      ],
+      "suggestedArtifacts": [
+        "answer"
+      ],
+      "interactionMode": "respond_only",
+      "confidence": 0.98,
+      "ambiguities": [],
+      "suggestedFamily": "general_assistant",
+      "suggestedTools": []
+    }
+  },
+  {
+    "id": "general-summarize-for-audience",
+    "language": "en",
+    "taskClass": "general",
+    "prompt": "Summarize this source material into five executive bullets with no technical jargon.",
+    "fileNames": [
+      "source-notes.md"
+    ],
+    "expected": {
+      "taskClass": "general",
+      "primaryOutcome": "answer",
+      "requiredCapabilities": [],
+      "constraints": [
+        "keep_it_brief"
+      ],
+      "suggestedArtifacts": [
+        "answer"
+      ],
+      "interactionMode": "respond_only",
+      "confidence": 0.93,
+      "ambiguities": [],
+      "suggestedFamily": "general_assistant",
+      "suggestedTools": []
+    }
+  },
+  {
+    "id": "general-generate-options",
+    "language": "ru",
+    "taskClass": "general",
+    "prompt": "Придумай 12 названий для capability-first orchestrator: короткие, инженерные, без маркетингового пафоса.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "general",
+      "primaryOutcome": "answer",
+      "requiredCapabilities": [],
+      "constraints": [
+        "keep_it_brief"
+      ],
+      "suggestedArtifacts": [
+        "answer"
+      ],
+      "interactionMode": "respond_only",
+      "confidence": 0.97,
+      "ambiguities": [],
+      "suggestedFamily": "general_assistant",
+      "suggestedTools": []
+    }
+  },
+  {
+    "id": "code-fix-failing-behavior",
+    "language": "en",
+    "taskClass": "code",
+    "prompt": "Fix the failing behavior in the repo and update the test only if the behavior change is intentional.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "code",
+      "primaryOutcome": "workspace_change",
+      "requiredCapabilities": [
+        "needs_local_runtime",
+        "needs_repo_execution",
+        "needs_workspace_mutation"
+      ],
+      "constraints": [
+        "preserve_behavior_if_possible"
+      ],
+      "suggestedArtifacts": [
+        "patch",
+        "report"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.96,
+      "ambiguities": [],
+      "suggestedFamily": "code_build",
+      "suggestedTools": [
+        "apply_patch",
+        "exec",
+        "process"
+      ]
+    }
+  },
+  {
+    "id": "code-add-focused-test",
+    "language": "en",
+    "taskClass": "code",
+    "prompt": "Add a focused regression test for the parsing bug and run the relevant test file after the change.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "code",
+      "primaryOutcome": "workspace_change",
+      "requiredCapabilities": [
+        "needs_local_runtime",
+        "needs_repo_execution",
+        "needs_workspace_mutation"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "patch",
+        "report"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.97,
+      "ambiguities": [],
+      "suggestedFamily": "code_build",
+      "suggestedTools": [
+        "apply_patch",
+        "exec",
+        "process"
+      ]
+    }
+  },
+  {
+    "id": "code-refactor-module",
+    "language": "en",
+    "taskClass": "code",
+    "prompt": "Refactor the module to remove duplicated branching logic without changing external behavior.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "code",
+      "primaryOutcome": "workspace_change",
+      "requiredCapabilities": [
+        "needs_repo_execution",
+        "needs_workspace_mutation"
+      ],
+      "constraints": [
+        "preserve_behavior_if_possible"
+      ],
+      "suggestedArtifacts": [
+        "patch"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.95,
+      "ambiguities": [],
+      "suggestedFamily": "code_build",
+      "suggestedTools": [
+        "apply_patch",
+        "exec",
+        "process"
+      ]
+    }
+  },
+  {
+    "id": "code-implement-transform-with-tests",
+    "language": "en",
+    "taskClass": "code",
+    "prompt": "Implement a migration script that converts legacy structured data into the new schema and add focused tests.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "code",
+      "primaryOutcome": "workspace_change",
+      "requiredCapabilities": [
+        "needs_local_runtime",
+        "needs_repo_execution",
+        "needs_workspace_mutation"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "patch",
+        "report"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.96,
+      "ambiguities": [],
+      "suggestedFamily": "code_build",
+      "suggestedTools": [
+        "apply_patch",
+        "exec",
+        "process"
+      ]
+    }
+  },
+  {
+    "id": "publish-prerelease-package",
+    "language": "en",
+    "taskClass": "publish",
+    "prompt": "Version the package, generate concise release notes, and publish a prerelease to the package registry.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "publish",
+      "primaryOutcome": "publish_release",
+      "requiredCapabilities": [
+        "needs_external_delivery",
+        "needs_local_runtime",
+        "needs_repo_execution",
+        "needs_workspace_mutation"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "deployment_receipt",
+        "release_notes"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.95,
+      "ambiguities": [],
+      "suggestedFamily": "code_build",
+      "suggestedTools": [
+        "apply_patch",
+        "exec",
+        "process"
+      ]
+    }
+  },
+  {
+    "id": "publish-preview-deployment",
+    "language": "en",
+    "taskClass": "publish",
+    "prompt": "Deploy the current change set to a preview environment and return the resulting access URL.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "publish",
+      "primaryOutcome": "publish_release",
+      "requiredCapabilities": [
+        "needs_external_delivery",
+        "needs_local_runtime",
+        "needs_repo_execution"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "deployment_receipt"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.94,
+      "ambiguities": [],
+      "suggestedFamily": "ops_execution",
+      "suggestedTools": [
+        "exec",
+        "process"
+      ]
+    }
+  },
+  {
+    "id": "publish-live-deployment-with-checks",
+    "language": "en",
+    "taskClass": "publish",
+    "prompt": "Ship the fix to the live environment after running the relevant checks, and stop if anything looks unsafe.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "publish",
+      "primaryOutcome": "publish_release",
+      "requiredCapabilities": [
+        "needs_external_delivery",
+        "needs_local_runtime",
+        "needs_repo_execution"
+      ],
+      "constraints": [
+        "requires_explicit_confirmation_for_production"
+      ],
+      "suggestedArtifacts": [
+        "deployment_receipt",
+        "report"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.88,
+      "ambiguities": [],
+      "suggestedFamily": "ops_execution",
+      "suggestedTools": [
+        "exec",
+        "process"
+      ]
+    }
+  },
+  {
+    "id": "compare-structured-records",
+    "language": "en",
+    "taskClass": "compare",
+    "prompt": "Compare these structured records on matching keys and explain the biggest mismatches.",
+    "fileNames": [
+      "source-a.csv",
+      "source-b.csv"
+    ],
+    "expected": {
+      "taskClass": "compare",
+      "primaryOutcome": "comparison_report",
+      "requiredCapabilities": [
+      ],
+      "constraints": [
+        "compare_on_matching_keys"
+      ],
+      "suggestedArtifacts": [
+        "report",
+        "table"
+      ],
+      "interactionMode": "respond_only",
+      "confidence": 0.97,
+      "ambiguities": [],
+      "suggestedFamily": "analysis_transform",
+      "suggestedTools": []
+    }
+  },
+  {
+    "id": "compare-mixed-source-records",
+    "language": "en",
+    "taskClass": "compare",
+    "prompt": "Compare these mixed source files and explain every mismatch in the important fields.",
+    "fileNames": [
+      "source-a.pdf",
+      "source-b.csv"
+    ],
+    "expected": {
+      "taskClass": "compare",
+      "primaryOutcome": "comparison_report",
+      "requiredCapabilities": [
+        "needs_document_extraction",
+        "needs_tabular_reasoning"
+      ],
+      "constraints": [
+        "compare_on_matching_keys"
+      ],
+      "suggestedArtifacts": [
+        "report",
+        "table"
+      ],
+      "interactionMode": "respond_only",
+      "confidence": 0.96,
+      "ambiguities": [],
+      "suggestedFamily": "analysis_transform",
+      "suggestedTools": [
+        "pdf"
+      ]
+    }
+  },
+  {
+    "id": "compare-public-options",
+    "language": "en",
+    "taskClass": "compare",
+    "prompt": "Compare several current public options for task classification: cost, latency, reliability, and risk.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "compare",
+      "primaryOutcome": "comparison_report",
+      "requiredCapabilities": [
+        "needs_web_research"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "report",
+        "table"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.93,
+      "ambiguities": [],
+      "suggestedFamily": "analysis_transform",
+      "suggestedTools": []
+    }
+  },
+  {
+    "id": "calculation-direct-budget",
+    "language": "ru",
+    "taskClass": "calculation",
+    "prompt": "Посчитай бюджет команды на 6 месяцев: 4 инженера по 7000, 1 дизайнер по 4500, накладные 18% сверху.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "calculation",
+      "primaryOutcome": "calculation_result",
+      "requiredCapabilities": [],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "answer",
+        "report"
+      ],
+      "interactionMode": "respond_only",
+      "confidence": 0.98,
+      "ambiguities": [],
+      "suggestedFamily": "analysis_transform",
+      "suggestedTools": []
+    }
+  },
+  {
+    "id": "calculation-estimate-from-assumptions",
+    "language": "en",
+    "taskClass": "calculation",
+    "prompt": "Estimate the required CFM for a 12x14 ft bedroom with standard assumptions and show the calculation.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "calculation",
+      "primaryOutcome": "calculation_result",
+      "requiredCapabilities": [],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "answer",
+        "report"
+      ],
+      "interactionMode": "respond_only",
+      "confidence": 0.96,
+      "ambiguities": [],
+      "suggestedFamily": "analysis_transform",
+      "suggestedTools": []
+    }
+  },
+  {
+    "id": "calculation-simple-roi",
+    "language": "en",
+    "taskClass": "calculation",
+    "prompt": "Compute the 12-month ROI if onboarding automation saves 22 hours per week at $55/hour and costs $18,000 to implement.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "calculation",
+      "primaryOutcome": "calculation_result",
+      "requiredCapabilities": [],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "answer",
+        "report"
+      ],
+      "interactionMode": "respond_only",
+      "confidence": 0.97,
+      "ambiguities": [],
+      "suggestedFamily": "analysis_transform",
+      "suggestedTools": []
+    }
+  },
+  {
+    "id": "document-author-from-notes",
+    "language": "en",
+    "taskClass": "document_authoring",
+    "prompt": "Create a polished report for an executive audience from these notes.",
+    "fileNames": [
+      "source-notes.md"
+    ],
+    "expected": {
+      "taskClass": "document_authoring",
+      "primaryOutcome": "document_package",
+      "requiredCapabilities": [
+        "needs_multimodal_authoring"
+      ],
+      "constraints": [
+        "preserve_source_facts"
+      ],
+      "suggestedArtifacts": [
+        "pdf",
+        "report"
+      ],
+      "interactionMode": "artifact_iteration",
+      "confidence": 0.95,
+      "ambiguities": [],
+      "suggestedFamily": "media_generation",
+      "suggestedTools": [
+        "pdf"
+      ]
+    }
+  },
+  {
+    "id": "document-author-presentation",
+    "language": "en",
+    "taskClass": "document_authoring",
+    "prompt": "Turn this source memo into a concise presentation with one key message per slide.",
+    "fileNames": [
+      "source-memo.docx"
+    ],
+    "expected": {
+      "taskClass": "document_authoring",
+      "primaryOutcome": "document_package",
+      "requiredCapabilities": [
+        "needs_multimodal_authoring",
+        "needs_visual_composition"
+      ],
+      "constraints": [
+        "keep_structure_clear"
+      ],
+      "suggestedArtifacts": [
+        "slide_deck"
+      ],
+      "interactionMode": "artifact_iteration",
+      "confidence": 0.95,
+      "ambiguities": [],
+      "suggestedFamily": "document_render",
+      "suggestedTools": [
+        "pdf"
+      ]
+    }
+  },
+  {
+    "id": "document-author-visual-summary",
+    "language": "en",
+    "taskClass": "document_authoring",
+    "prompt": "Create a polished visual summary from the attached metrics. Keep it presentation-ready.",
+    "fileNames": [
+      "source-metrics.csv"
+    ],
+    "expected": {
+      "taskClass": "document_authoring",
+      "primaryOutcome": "document_package",
+      "requiredCapabilities": [
+        "needs_multimodal_authoring",
+        "needs_tabular_reasoning",
+        "needs_visual_composition"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "image",
+        "infographic"
+      ],
+      "interactionMode": "artifact_iteration",
+      "confidence": 0.93,
+      "ambiguities": [],
+      "suggestedFamily": "media_generation",
+      "suggestedTools": [
+        "image_generate"
+      ]
+    }
+  },
+  {
+    "id": "document-author-branded-deliverable",
+    "language": "en",
+    "taskClass": "document_authoring",
+    "prompt": "Draft a branded proposal document from the notes and use the provided logo on the cover.",
+    "fileNames": [
+      "source-notes.txt",
+      "logo.png"
+    ],
+    "expected": {
+      "taskClass": "document_authoring",
+      "primaryOutcome": "document_package",
+      "requiredCapabilities": [
+        "needs_multimodal_authoring",
+        "needs_visual_composition"
+      ],
+      "constraints": [
+        "preserve_source_facts"
+      ],
+      "suggestedArtifacts": [
+        "pdf",
+        "report"
+      ],
+      "interactionMode": "artifact_iteration",
+      "confidence": 0.95,
+      "ambiguities": [],
+      "suggestedFamily": "document_render",
+      "suggestedTools": [
+        "pdf"
+      ]
+    }
+  },
+  {
+    "id": "document-extract-key-points",
+    "language": "en",
+    "taskClass": "document_ingest",
+    "prompt": "Extract the key obligations and deadlines from the attached document.",
+    "fileNames": [
+      "source-document.pdf"
+    ],
+    "expected": {
+      "taskClass": "document_ingest",
+      "primaryOutcome": "document_extraction",
+      "requiredCapabilities": [
+        "needs_document_extraction"
+      ],
+      "constraints": [
+        "preserve_source_facts"
+      ],
+      "suggestedArtifacts": [
+        "extracted_text",
+        "report"
+      ],
+      "interactionMode": "respond_only",
+      "confidence": 0.97,
+      "ambiguities": [],
+      "suggestedFamily": "document_render",
+      "suggestedTools": [
+        "pdf"
+      ]
+    }
+  },
+  {
+    "id": "document-extract-normalized-fields",
+    "language": "en",
+    "taskClass": "document_ingest",
+    "prompt": "Extract content from this scanned document and return a normalized JSON summary of the key fields.",
+    "fileNames": [
+      "source-scan.jpg"
+    ],
+    "expected": {
+      "taskClass": "document_ingest",
+      "primaryOutcome": "document_extraction",
+      "requiredCapabilities": [
+        "needs_document_extraction"
+      ],
+      "constraints": [
+        "preserve_source_facts"
+      ],
+      "suggestedArtifacts": [
+        "extracted_text",
+        "table"
+      ],
+      "interactionMode": "respond_only",
+      "confidence": 0.97,
+      "ambiguities": [],
+      "suggestedFamily": "document_render",
+      "suggestedTools": [
+        "pdf"
+      ]
+    }
+  },
+  {
+    "id": "document-extract-table-summary",
+    "language": "en",
+    "taskClass": "document_ingest",
+    "prompt": "Read these documents and produce a table of the key dates, owners, and notice periods.",
+    "fileNames": [
+      "source-a.pdf",
+      "source-b.pdf",
+      "source-c.pdf"
+    ],
+    "expected": {
+      "taskClass": "document_ingest",
+      "primaryOutcome": "document_extraction",
+      "requiredCapabilities": [
+        "needs_document_extraction",
+        "needs_tabular_reasoning"
+      ],
+      "constraints": [
+        "preserve_source_facts"
+      ],
+      "suggestedArtifacts": [
+        "report",
+        "table"
+      ],
+      "interactionMode": "respond_only",
+      "confidence": 0.96,
+      "ambiguities": [],
+      "suggestedFamily": "document_render",
+      "suggestedTools": [
+        "pdf"
+      ]
+    }
+  },
+  {
+    "id": "browser-audit-page-elements",
+    "language": "en",
+    "taskClass": "browser_site",
+    "prompt": "Open the target page and list the broken or misleading calls to action on the landing page.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "browser_site",
+      "primaryOutcome": "answer",
+      "requiredCapabilities": [
+        "needs_interactive_browser"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "browser_notes",
+        "report"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.96,
+      "ambiguities": [],
+      "suggestedFamily": "analysis_transform",
+      "suggestedTools": [
+        "browser"
+      ]
+    }
+  },
+  {
+    "id": "browser-run-core-user-flow",
+    "language": "en",
+    "taskClass": "browser_site",
+    "prompt": "Run a quick browser smoke test through a core user flow and capture console and network errors.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "browser_site",
+      "primaryOutcome": "answer",
+      "requiredCapabilities": [
+        "needs_interactive_browser"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "browser_notes",
+        "report"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.97,
+      "ambiguities": [],
+      "suggestedFamily": "analysis_transform",
+      "suggestedTools": [
+        "browser"
+      ]
+    }
+  },
+  {
+    "id": "browser-compare-live-pages",
+    "language": "en",
+    "taskClass": "browser_site",
+    "prompt": "Compare https://site-a.example and https://site-b.example and tell me which explains value more clearly above the fold.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "browser_site",
+      "primaryOutcome": "comparison_report",
+      "requiredCapabilities": [
+        "needs_interactive_browser"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "browser_notes",
+        "report"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.95,
+      "ambiguities": [],
+      "suggestedFamily": "analysis_transform",
+      "suggestedTools": [
+        "browser"
+      ]
+    }
+  },
+  {
+    "id": "media-create-simple-visual",
+    "language": "en",
+    "taskClass": "media_image",
+    "prompt": "Generate a minimal visual asset: dark background, bright accent, flat vector feel.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "media_image",
+      "primaryOutcome": "image_asset",
+      "requiredCapabilities": [
+        "needs_multimodal_authoring",
+        "needs_visual_composition"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "image"
+      ],
+      "interactionMode": "artifact_iteration",
+      "confidence": 0.97,
+      "ambiguities": [],
+      "suggestedFamily": "media_generation",
+      "suggestedTools": [
+        "image_generate"
+      ]
+    }
+  },
+  {
+    "id": "media-create-composite-visual",
+    "language": "en",
+    "taskClass": "media_image",
+    "prompt": "Create a composite visual from the supplied text and image: bold title area, high contrast, wide aspect ratio.",
+    "fileNames": [
+      "source-text.txt",
+      "source-image.png"
+    ],
+    "expected": {
+      "taskClass": "media_image",
+      "primaryOutcome": "image_asset",
+      "requiredCapabilities": [
+        "needs_multimodal_authoring",
+        "needs_visual_composition"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "image"
+      ],
+      "interactionMode": "artifact_iteration",
+      "confidence": 0.96,
+      "ambiguities": [],
+      "suggestedFamily": "media_generation",
+      "suggestedTools": [
+        "image_generate"
+      ]
+    }
+  },
+  {
+    "id": "mixed-observe-fix-verify",
+    "language": "en",
+    "taskClass": "mixed_ambiguous",
+    "prompt": "Compare the current page against the attached reference, fix the visual mismatch in the repo, and verify in a browser.",
+    "fileNames": [
+      "reference-state.png"
+    ],
+    "expected": {
+      "taskClass": "mixed_ambiguous",
+      "primaryOutcome": "workspace_change",
+      "requiredCapabilities": [
+        "needs_interactive_browser",
+        "needs_local_runtime",
+        "needs_repo_execution",
+        "needs_workspace_mutation"
+      ],
+      "constraints": [
+        "preserve_visual_style"
+      ],
+      "suggestedArtifacts": [
+        "browser_notes",
+        "patch",
+        "report"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.84,
+      "ambiguities": [],
+      "suggestedFamily": "code_build",
+      "suggestedTools": [
+        "apply_patch",
+        "browser",
+        "exec",
+        "process"
+      ]
+    }
+  },
+  {
+    "id": "mixed-change-then-live-delivery",
+    "language": "en",
+    "taskClass": "mixed_ambiguous",
+    "prompt": "Fix the failing user flow and deploy the fix to the live environment if checks pass.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "mixed_ambiguous",
+      "primaryOutcome": "publish_release",
+      "requiredCapabilities": [
+        "needs_external_delivery",
+        "needs_repo_execution",
+        "needs_workspace_mutation"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "deployment_receipt",
+        "patch",
+        "report"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.74,
+      "ambiguities": [],
+      "suggestedFamily": "ops_execution",
+      "suggestedTools": [
+        "apply_patch",
+        "exec",
+        "process"
+      ]
+    }
+  },
+  {
+    "id": "mixed-extract-summarize-package",
+    "language": "en",
+    "taskClass": "mixed_ambiguous",
+    "prompt": "Take the supplied source documents, summarize the key trends, turn it into a short presentation, and prepare it for delivery.",
+    "fileNames": [
+      "source-a.pdf",
+      "source-b.pdf",
+      "source-c.pdf"
+    ],
+    "expected": {
+      "taskClass": "mixed_ambiguous",
+      "primaryOutcome": "document_package",
+      "requiredCapabilities": [
+        "needs_document_extraction",
+        "needs_external_delivery",
+        "needs_multimodal_authoring",
+        "needs_tabular_reasoning",
+        "needs_visual_composition"
+      ],
+      "constraints": [
+        "preserve_source_facts"
+      ],
+      "suggestedArtifacts": [
+        "answer",
+        "slide_deck"
+      ],
+      "interactionMode": "artifact_iteration",
+      "confidence": 0.56,
+      "ambiguities": [
+        "delivery target for finance is unspecified"
+      ],
+      "suggestedFamily": "unknown",
+      "suggestedTools": [
+        "pdf"
+      ]
+    }
+  },
+  {
+    "id": "mixed-source-to-published-surface",
+    "language": "en",
+    "taskClass": "mixed_ambiguous",
+    "prompt": "Use this source document to build a public-facing page and publish it to a preview URL.",
+    "fileNames": [
+      "source-document.pdf"
+    ],
+    "expected": {
+      "taskClass": "mixed_ambiguous",
+      "primaryOutcome": "publish_release",
+      "requiredCapabilities": [
+        "needs_document_extraction",
+        "needs_external_delivery",
+        "needs_local_runtime",
+        "needs_repo_execution",
+        "needs_visual_composition",
+        "needs_workspace_mutation"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "deployment_receipt",
+        "website"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.83,
+      "ambiguities": [],
+      "suggestedFamily": "ops_execution",
+      "suggestedTools": [
+        "apply_patch",
+        "exec",
+        "process"
+      ]
+    }
+  },
+  {
+    "id": "research-compare-public-offerings",
+    "language": "en",
+    "taskClass": "browser_site",
+    "prompt": "Find the latest public information for three major offerings in the category, then summarize the important differences for a small team.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "browser_site",
+      "primaryOutcome": "comparison_report",
+      "requiredCapabilities": [
+        "needs_web_research"
+      ],
+      "constraints": [
+        "use_public_information_only"
+      ],
+      "suggestedArtifacts": [
+        "report",
+        "table"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.88,
+      "ambiguities": [],
+      "suggestedFamily": "general_assistant",
+      "suggestedTools": [
+        "web_search"
+      ]
+    }
+  },
+  {
+    "id": "publish-approved-live-deployment",
+    "language": "en",
+    "taskClass": "publish",
+    "prompt": "Live deployment approval is already granted. Ship the fix after the standard release checks and return the deployment result.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "publish",
+      "primaryOutcome": "publish_release",
+      "requiredCapabilities": [
+        "needs_external_delivery",
+        "needs_local_runtime",
+        "needs_repo_execution"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "deployment_receipt",
+        "report"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.94,
+      "ambiguities": [],
+      "suggestedFamily": "ops_execution",
+      "suggestedTools": [
+        "exec",
+        "process"
+      ]
+    }
+  },
+  {
+    "id": "browser-observe-user-flow",
+    "language": "en",
+    "taskClass": "browser_site",
+    "prompt": "Run a browser smoke test on the target site and report the failures you observe during a representative user flow.",
+    "fileNames": [],
+    "expected": {
+      "taskClass": "browser_site",
+      "primaryOutcome": "answer",
+      "requiredCapabilities": [
+        "needs_interactive_browser"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "browser_notes",
+        "report"
+      ],
+      "interactionMode": "tool_execution",
+      "confidence": 0.93,
+      "ambiguities": [],
+      "suggestedFamily": "ops_execution",
+      "suggestedTools": [
+        "browser"
+      ]
+    }
+  },
+  {
+    "id": "media-create-branded-asset",
+    "language": "en",
+    "taskClass": "media_image",
+    "prompt": "Create a launch banner from the attached copy and logo. Keep it bold, clean, and social-ready.",
+    "fileNames": [
+      "source-copy.txt",
+      "logo.png"
+    ],
+    "expected": {
+      "taskClass": "media_image",
+      "primaryOutcome": "image_asset",
+      "requiredCapabilities": [
+        "needs_multimodal_authoring",
+        "needs_visual_composition"
+      ],
+      "constraints": [],
+      "suggestedArtifacts": [
+        "image"
+      ],
+      "interactionMode": "artifact_iteration",
+      "confidence": 0.95,
+      "ambiguities": [],
+      "suggestedFamily": "media_generation",
+      "suggestedTools": [
+        "image_generate"
+      ]
+    }
+  }
+]

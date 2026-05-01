@@ -21,8 +21,19 @@ import {
   createBootstrapResolveGatewayMethod,
   createBootstrapRunGatewayMethod,
   getPlatformBootstrapService,
+  TRUSTED_CAPABILITY_CATALOG,
 } from "./bootstrap/index.js";
-import { buildExecutionDecisionInput } from "./decision/input.js";
+import {
+  createCapabilityCatalogGetGatewayMethod,
+  createCapabilityCatalogListGatewayMethod,
+  createRecipeCatalogGetGatewayMethod,
+  createRecipeCatalogListGatewayMethod,
+} from "./catalog/index.js";
+import {
+  createDefaultExpectedDeltaResolver,
+  createDefaultMonitoredRuntime,
+} from "./commitment/index.js";
+import { runTurnDecision } from "./decision/run-turn-decision.js";
 import { captureDeveloperArtifactsFromLlmOutput } from "./developer/index.js";
 import { captureDocumentArtifactsFromLlmOutput } from "./document/index.js";
 import {
@@ -35,15 +46,16 @@ import {
 import { evaluatePolicy } from "./policy/engine.js";
 import { getInitialProfile, getTaskOverlay } from "./profile/defaults.js";
 import { createProfileResolveGatewayMethod } from "./profile/index.js";
-import { getInitialRecipe } from "./recipe/defaults.js";
 import {
   buildPolicyContextFromExecutionContext,
   resolvePlatformRuntimePlan,
   toPluginHookPlatformExecutionContext,
 } from "./recipe/runtime-adapter.js";
+import { createCapabilityRegistry } from "./registry/index.js";
 import {
   createRuntimeActionGetGatewayMethod,
   createRuntimeActionListGatewayMethod,
+  createRuntimeCheckpointDispatchGatewayMethod,
   createRuntimeCheckpointGetGatewayMethod,
   createRuntimeCheckpointListGatewayMethod,
   createRuntimeClosureGetGatewayMethod,
@@ -51,15 +63,34 @@ import {
   getPlatformRuntimeCheckpointService,
 } from "./runtime/index.js";
 
-function resolveHookExecution(
+const apiConfigRef: { current: OpenClawPluginApi["config"] | undefined } = {
+  current: undefined,
+};
+
+export async function resolveHookExecution(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
-): PluginHookPlatformExecutionContext {
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "workspaceDir" | "agentId">,
+): Promise<PluginHookPlatformExecutionContext> {
   if (ctx?.platformExecution) {
     return ctx.platformExecution;
   }
+  if (!apiConfigRef.current) {
+    throw new Error("Plugin API config not initialized");
+  }
+  const { productionDecision: classified } = await runTurnDecision({
+    prompt,
+    cfg: apiConfigRef.current,
+    agentDir: ctx?.workspaceDir,
+    monitoredRuntime: createDefaultMonitoredRuntime(),
+    expectedDeltaResolver: createDefaultExpectedDeltaResolver(
+      ctx?.agentId ? { targetAgentId: ctx.agentId } : {},
+    ),
+  });
   return toPluginHookPlatformExecutionContext(
-    resolvePlatformRuntimePlan(buildExecutionDecisionInput({ prompt })).runtime,
+    resolvePlatformRuntimePlan({
+      ...classified.plannerInput,
+      callerTag: "plugin-platformContext",
+    }).runtime,
   );
 }
 
@@ -78,71 +109,57 @@ function resolveExecutionLabels(execution: PluginHookPlatformExecutionContext): 
   };
 }
 
+function joinPromptContextSegments(...segments: Array<string | undefined>): string | undefined {
+  const parts = segments.map((segment) => segment?.trim()).filter(Boolean);
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
 function buildProfilePromptSection(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
-): PluginHookBeforePromptBuildResult | void {
-  const execution = resolveHookExecution(prompt, ctx);
-  const labels = resolveExecutionLabels(execution);
-  const recipe = getInitialRecipe(execution.recipeId);
-  return {
-    prependSystemContext: [
-      `Active specialist profile: ${labels.profileLabel}.`,
-      labels.overlayLabel ? `Task overlay: ${labels.overlayLabel}.` : undefined,
-      execution.requestedToolNames?.length
-        ? `Planned tools: ${execution.requestedToolNames.join(", ")}.`
-        : undefined,
-      `Execution recipe: ${execution.recipeId}.`,
-      recipe?.summary ? `Recipe summary: ${recipe.summary}` : undefined,
-      recipe?.systemPrompt,
-      execution.requiredCapabilities?.length
-        ? `Required capabilities: ${execution.requiredCapabilities.join(", ")}.`
-        : undefined,
-      execution.bootstrapRequiredCapabilities?.length
-        ? `Bootstrap required: ${execution.bootstrapRequiredCapabilities.join(", ")}.`
-        : undefined,
-      "Profile selection narrows preferences only; it does not grant hidden permissions.",
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  };
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "workspaceDir" | "agentId">,
+): Promise<PluginHookBeforePromptBuildResult | void> {
+  return resolveHookExecution(prompt, ctx).then((execution) => {
+    const labels = resolveExecutionLabels(execution);
+    return {
+      prependSystemContext: joinPromptContextSegments(
+        execution.prependSystemContext,
+        [
+          `Active specialist profile: ${labels.profileLabel}.`,
+          labels.overlayLabel ? `Task overlay: ${labels.overlayLabel}.` : undefined,
+          execution.requestedToolNames?.length
+            ? `Planned tools: ${execution.requestedToolNames.join(", ")}.`
+            : undefined,
+          "Profile selection narrows preferences only; it does not grant hidden permissions.",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      ),
+    };
+  });
 }
 
 function buildAgentStartResult(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
-): PluginHookBeforeAgentStartResult | void {
-  const execution = resolveHookExecution(prompt, ctx);
-  const labels = resolveExecutionLabels(execution);
-  return {
-    prependContext: [
-      `Profile hint: ${labels.profileLabel}.`,
-      `Recipe hint: ${execution.recipeId}.`,
-      execution.plannerReasoning ? `Planner reasoning: ${execution.plannerReasoning}` : undefined,
-      execution.bootstrapRequiredCapabilities?.length
-        ? `Pending bootstrap: ${execution.bootstrapRequiredCapabilities.join(", ")}.`
-        : undefined,
-      execution.requireExplicitApproval
-        ? `Policy posture: explicit approval required (${execution.policyAutonomy ?? "guarded"}).`
-        : undefined,
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  };
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "workspaceDir" | "agentId">,
+): Promise<PluginHookBeforeAgentStartResult | void> {
+  return resolveHookExecution(prompt, ctx).then((execution) => ({
+    prependContext: execution.prependContext,
+  }));
 }
 
 function buildModelResolveResult(
   prompt: string,
-  ctx?: Pick<PluginHookAgentContext, "platformExecution">,
-): PluginHookBeforeModelResolveResult | void {
-  const execution = resolveHookExecution(prompt, ctx);
-  if (!execution.modelOverride && !execution.providerOverride) {
-    return undefined;
-  }
-  return {
-    providerOverride: execution.providerOverride,
-    modelOverride: execution.modelOverride,
-  };
+  ctx?: Pick<PluginHookAgentContext, "platformExecution" | "workspaceDir" | "agentId">,
+): Promise<PluginHookBeforeModelResolveResult | void> {
+  return resolveHookExecution(prompt, ctx).then((execution) => {
+    if (!execution.modelOverride && !execution.providerOverride) {
+      return undefined;
+    }
+    return {
+      providerOverride: execution.providerOverride,
+      modelOverride: execution.modelOverride,
+    };
+  });
 }
 
 function isMachineControlToolCall(toolName: string, params: Record<string, unknown>): boolean {
@@ -153,11 +170,14 @@ function isMachineControlToolCall(toolName: string, params: Record<string, unkno
 }
 
 export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
+  apiConfigRef.current = api.config;
   const artifactService = getPlatformArtifactService({
     config: api.config,
   });
+  const capabilityRegistry = createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
   const bootstrapService = getPlatformBootstrapService({
     stateDir: resolveStateDir(process.env),
+    registry: capabilityRegistry,
   });
   const runtimeCheckpointService = getPlatformRuntimeCheckpointService({
     stateDir: resolveStateDir(process.env),
@@ -204,6 +224,16 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
     "platform.bootstrap.run",
     createBootstrapRunGatewayMethod(bootstrapService),
   );
+  api.registerGatewayMethod("platform.recipes.list", createRecipeCatalogListGatewayMethod());
+  api.registerGatewayMethod("platform.recipes.get", createRecipeCatalogGetGatewayMethod());
+  api.registerGatewayMethod(
+    "platform.capabilities.list",
+    createCapabilityCatalogListGatewayMethod(capabilityRegistry),
+  );
+  api.registerGatewayMethod(
+    "platform.capabilities.get",
+    createCapabilityCatalogGetGatewayMethod(capabilityRegistry),
+  );
   api.registerGatewayMethod(
     "platform.runtime.actions.list",
     createRuntimeActionListGatewayMethod(runtimeCheckpointService),
@@ -219,6 +249,10 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   api.registerGatewayMethod(
     "platform.runtime.checkpoints.get",
     createRuntimeCheckpointGetGatewayMethod(runtimeCheckpointService),
+  );
+  api.registerGatewayMethod(
+    "platform.runtime.checkpoints.dispatch",
+    createRuntimeCheckpointDispatchGatewayMethod(runtimeCheckpointService),
   );
   api.registerGatewayMethod(
     "platform.runtime.closures.list",
@@ -266,11 +300,8 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   );
   api.on(
     "llm_input",
-    (event, ctx) => {
-      const fallbackExecution = toPluginHookPlatformExecutionContext(
-        resolvePlatformRuntimePlan(buildExecutionDecisionInput({ prompt: event.prompt })).runtime,
-      );
-      const execution = ctx.platformExecution ?? fallbackExecution;
+    async (event, ctx) => {
+      const execution = ctx.platformExecution ?? (await resolveHookExecution(event.prompt, ctx));
       machineControlService.recordRunSnapshot({
         runId: event.runId,
         sessionId: event.sessionId,
@@ -285,7 +316,7 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
   );
   api.on(
     "before_tool_call",
-    (event, ctx) => {
+    async (event, ctx) => {
       const params =
         event.params && typeof event.params === "object" && !Array.isArray(event.params)
           ? event.params
@@ -303,9 +334,21 @@ export function registerPlatformProfilePlugin(api: OpenClawPluginApi): void {
           })
         : undefined;
       const fallbackDecision = !policyContext
-        ? resolvePlatformRuntimePlan(
-            buildExecutionDecisionInput({ prompt: runSnapshot?.prompt ?? "" }),
-          )
+        ? apiConfigRef.current
+          ? resolvePlatformRuntimePlan({
+              ...(
+                await runTurnDecision({
+                  prompt: runSnapshot?.prompt ?? "",
+                  cfg: apiConfigRef.current,
+                  monitoredRuntime: createDefaultMonitoredRuntime(),
+                  expectedDeltaResolver: createDefaultExpectedDeltaResolver(
+                    ctx.agentId ? { targetAgentId: ctx.agentId } : {},
+                  ),
+                })
+              ).productionDecision.plannerInput,
+              callerTag: "plugin-fallback-decision",
+            })
+          : undefined
         : undefined;
       const policy = evaluatePolicy(
         policyContext ?? {

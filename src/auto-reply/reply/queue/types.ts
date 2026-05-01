@@ -6,7 +6,14 @@ import type { InputProvenance } from "../../../sessions/input-provenance.js";
 import type { OriginatingChannelType } from "../../templating.js";
 import type { ElevatedLevel, ReasoningLevel, ThinkLevel, VerboseLevel } from "../directives.js";
 
-export type QueueMode = "steer" | "followup" | "collect" | "steer-backlog" | "interrupt" | "queue";
+export type QueueMode =
+  | "steer"
+  | "followup"
+  | "collect"
+  | "steer-backlog"
+  | "interrupt"
+  | "queue"
+  | "deferred_job";
 
 export type QueueDropPolicy = "old" | "new" | "summarize";
 
@@ -95,6 +102,12 @@ export type FollowupRun = {
     inputProvenance?: InputProvenance;
     extraSystemPrompt?: string;
     enforceFinalTag?: boolean;
+    /**
+     * When true, skip automatic route preflight reordering (cheap-remote-first, promote Hydra, etc.)
+     * and use the configured candidate order with the session primary first. Set when the session
+     * has an explicit model override, or via OPENCLAW_SKIP_MODEL_ROUTE_PREFLIGHT=1 at runtime.
+     */
+    modelRoutePreflightDisabled?: boolean;
   };
 };
 

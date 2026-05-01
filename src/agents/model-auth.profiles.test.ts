@@ -424,6 +424,19 @@ describe("getApiKeyForModel", () => {
     );
   });
 
+  it("resolveEnvApiKey('hydra') returns HYDRA_API_KEY when set", async () => {
+    await withEnvAsync(
+      {
+        HYDRA_API_KEY: "hydra-live-key",
+      },
+      async () => {
+        const resolved = resolveEnvApiKey("hydra");
+        expect(resolved?.apiKey).toBe("hydra-live-key");
+        expect(resolved?.source).toContain("HYDRA_API_KEY");
+      },
+    );
+  });
+
   it("resolveEnvApiKey('huggingface') prefers HUGGINGFACE_HUB_TOKEN over HF_TOKEN when both set", async () => {
     await withEnvAsync(
       {

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import {
   reevaluateMessagingDecisionForMessagingRun,
   type MessagingDeliveryClosureCandidate,
@@ -11,6 +12,7 @@ import {
   resolveAgentOutboundTarget,
 } from "../../infra/outbound/agent-delivery.js";
 import { resolveMessageChannelSelection } from "../../infra/outbound/channel-selection.js";
+import { resolveOutboundChannelPlugin } from "../../infra/outbound/channel-resolution.js";
 import { deliverOutboundPayloads } from "../../infra/outbound/deliver.js";
 import { buildOutboundResultEnvelope } from "../../infra/outbound/envelope.js";
 import {
@@ -74,6 +76,7 @@ function mergePostDeliveryRuntimeMeta(params: {
   const reevaluated = reevaluateMessagingDecisionForMessagingRun({
     runResult: params.result as MessagingDeliveryClosureCandidate["runResult"],
     replyPayloads: params.replyPayloads ?? [],
+    runPayloadsForEvidence: params.result.payloads ?? [],
   });
   if (!reevaluated) {
     return params.result.meta;
@@ -81,14 +84,64 @@ function mergePostDeliveryRuntimeMeta(params: {
   return {
     ...params.result.meta,
     ...(reevaluated.runClosure ? { runClosure: reevaluated.runClosure } : {}),
-    ...(reevaluated.acceptanceOutcome
-      ? { acceptanceOutcome: reevaluated.acceptanceOutcome }
-      : {}),
+    ...(reevaluated.acceptanceOutcome ? { acceptanceOutcome: reevaluated.acceptanceOutcome } : {}),
     ...(reevaluated.executionVerification
       ? { executionVerification: reevaluated.executionVerification }
       : {}),
     ...(reevaluated.supervisorVerdict ? { supervisorVerdict: reevaluated.supervisorVerdict } : {}),
   };
+}
+
+/**
+ * Resolves the runtime run id used to correlate outbound delivery actions with the
+ * run closure verification path. CLI turns often omit `opts.runId`, so we fall back
+ * to the completion outcome's run id to preserve verified delivery receipts.
+ *
+ * @param {AgentCommandOpts} opts - Agent command options for the current run.
+ * @param {RunResult} result - Embedded run result that may already contain closure metadata.
+ * @returns {string | undefined} Run id for durable delivery action correlation.
+ */
+function resolveDeliveryActionRunId(opts: AgentCommandOpts, result: RunResult): string | undefined {
+  const explicitRunId = opts.runId?.trim();
+  if (explicitRunId) {
+    return explicitRunId;
+  }
+  const completionRunId = result.meta?.completionOutcome?.runId?.trim();
+  return completionRunId ? completionRunId : undefined;
+}
+
+function createDeterministicDeliveryActionId(params: {
+  actionRunId?: string;
+  sessionKey?: string;
+  channel?: string;
+  to?: string;
+  accountId?: string;
+  threadId?: string | number | null;
+  replyToId?: string | null;
+  payloads: ReturnType<typeof normalizeOutboundPayloadsForJson>;
+}): string | undefined {
+  const actionRunId = params.actionRunId?.trim();
+  const channel = params.channel?.trim();
+  const to = params.to?.trim();
+  if (!actionRunId || !channel || !to) {
+    return undefined;
+  }
+  const fingerprint = crypto
+    .createHash("sha1")
+    .update(
+      JSON.stringify({
+        sessionKey: params.sessionKey ?? null,
+        channel,
+        to,
+        accountId: params.accountId ?? null,
+        threadId: params.threadId ?? null,
+        replyToId: params.replyToId ?? null,
+        payloads: params.payloads,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 20);
+  return `messaging:${actionRunId}:${fingerprint}`;
 }
 
 export async function deliverAgentCommandResult(params: {
@@ -102,6 +155,7 @@ export async function deliverAgentCommandResult(params: {
   payloads: RunResult["payloads"];
 }) {
   const { cfg, deps, runtime, opts, outboundSession, sessionEntry, payloads, result } = params;
+  const actionRunId = resolveDeliveryActionRunId(opts, result);
   const effectiveSessionKey = outboundSession?.key ?? opts.sessionKey;
   const deliver = opts.deliver === true;
   const bestEffortDeliver = opts.bestEffortDeliver === true;
@@ -140,7 +194,10 @@ export async function deliverAgentCommandResult(params: {
         };
   // Channel docking: delivery channels are resolved via plugin registry.
   const deliveryPlugin = !isInternalMessageChannel(deliveryChannel)
-    ? getChannelPlugin(normalizeChannelId(deliveryChannel) ?? deliveryChannel)
+    ? resolveOutboundChannelPlugin({
+        channel: normalizeChannelId(deliveryChannel) ?? deliveryChannel,
+        cfg,
+      })
     : undefined;
 
   const isDeliveryChannelKnown =
@@ -202,7 +259,18 @@ export async function deliverAgentCommandResult(params: {
     }
   }
 
-  const normalizedPayloads = normalizeOutboundPayloadsForJson(payloads ?? []);
+  const replyPayloads = payloads ?? [];
+  const normalizedPayloads = normalizeOutboundPayloadsForJson(replyPayloads);
+  const deterministicActionId = createDeterministicDeliveryActionId({
+    actionRunId,
+    sessionKey: effectiveSessionKey,
+    channel: deliveryChannel,
+    to: deliveryTarget ?? undefined,
+    accountId: resolvedAccountId,
+    threadId: resolvedThreadTarget ?? null,
+    replyToId: resolvedReplyToId ?? null,
+    payloads: normalizedPayloads,
+  });
   if (opts.json) {
     runtime.log(
       JSON.stringify(
@@ -219,12 +287,12 @@ export async function deliverAgentCommandResult(params: {
     }
   }
 
-  if (!payloads || payloads.length === 0) {
+  if (replyPayloads.length === 0) {
     runtime.log("No reply from agent.");
     return { payloads: [], meta: result.meta };
   }
 
-  const deliveryPayloads = normalizeOutboundPayloads(payloads);
+  const deliveryPayloads = normalizeOutboundPayloads(replyPayloads);
   const logPayload = (payload: NormalizedOutboundPayload) => {
     if (opts.json) {
       return;
@@ -247,7 +315,8 @@ export async function deliverAgentCommandResult(params: {
   if (deliver && deliveryChannel && !isInternalMessageChannel(deliveryChannel)) {
     if (deliveryTarget) {
       await deliverOutboundPayloads({
-        ...(opts.runId ? { actionRunId: opts.runId } : {}),
+        ...(deterministicActionId ? { actionId: deterministicActionId } : {}),
+        ...(actionRunId ? { actionRunId } : {}),
         cfg,
         channel: deliveryChannel,
         to: deliveryTarget,
@@ -265,7 +334,7 @@ export async function deliverAgentCommandResult(params: {
         payloads: normalizedPayloads,
         meta: mergePostDeliveryRuntimeMeta({
           result,
-          replyPayloads: payloads,
+          replyPayloads,
         }),
       };
     }

@@ -51,6 +51,7 @@ export type EmbeddedRunAttemptResult = {
     toolName: string;
     meta?: string;
     error?: string;
+    rawError?: string;
     mutatingAction?: boolean;
     actionFingerprint?: string;
   };
@@ -58,6 +59,7 @@ export type EmbeddedRunAttemptResult = {
   didSendDeterministicApprovalPrompt?: boolean;
   messagingToolSentTexts: string[];
   messagingToolSentMediaUrls: string[];
+  toolResultMediaUrls?: string[];
   messagingToolSentTargets: MessagingToolSend[];
   successfulCronAdds?: number;
   executionReceipts?: PlatformRuntimeExecutionReceipt[];

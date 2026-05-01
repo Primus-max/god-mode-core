@@ -20,7 +20,11 @@ import type {
 } from "./pi-embedded-subscribe.handlers.types.js";
 import { filterToolResultMediaUrls } from "./pi-embedded-subscribe.tools.js";
 import type { SubscribeEmbeddedPiSessionParams } from "./pi-embedded-subscribe.types.js";
-import { formatReasoningMessage, stripDowngradedToolCallText } from "./pi-embedded-utils.js";
+import {
+  formatReasoningMessage,
+  stripDowngradedToolCallText,
+  stripUniversalToolCallMarkup,
+} from "./pi-embedded-utils.js";
 import { hasNonzeroUsage, normalizeUsage, type UsageLike } from "./usage.js";
 
 const THINKING_TAG_SCAN_RE = /<\s*(\/?)\s*(?:think(?:ing)?|thought|antthinking)\s*>/gi;
@@ -81,6 +85,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     successfulCronAdds: 0,
     pendingMessagingMediaUrls: new Map(),
     pendingToolMediaUrls: [],
+    toolResultMediaUrls: [],
     pendingToolAudioAsVoice: false,
     deterministicApprovalPromptSent: false,
     executionReceipts: [],
@@ -492,8 +497,14 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
       return;
     }
     // Strip <think> and <final> blocks across chunk boundaries to avoid leaking reasoning.
-    // Also strip downgraded tool call text ([Tool Call: ...], [Historical context: ...], etc.).
-    const chunk = stripDowngradedToolCallText(stripBlockTags(text, state.blockState)).trimEnd();
+    // Also strip downgraded tool call text ([Tool Call: ...], [Historical context: ...], etc.)
+    // and universal tool-call XML markers (<tool_call>, <tool_use>, <function_call>) leaked
+    // by some models directly in assistant text — see Bug A sub-plan
+    // `commitment_kernel_streaming_leak.plan.md`. Defense-in-depth Level 1 (streaming);
+    // Level 2 (boundary) is the outbound-sanitizer in `src/infra/outbound/outbound-sanitizer.ts`.
+    const chunk = stripUniversalToolCallMarkup(
+      stripDowngradedToolCallText(stripBlockTags(text, state.blockState)),
+    ).trimEnd();
     if (!chunk) {
       return;
     }
@@ -612,6 +623,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     state.successfulCronAdds = 0;
     state.pendingMessagingMediaUrls.clear();
     state.pendingToolMediaUrls = [];
+    state.toolResultMediaUrls = [];
     state.pendingToolAudioAsVoice = false;
     state.deterministicApprovalPromptSent = false;
     state.executionReceipts = [];
@@ -701,6 +713,8 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     getMessagingToolSentTexts: () => messagingToolSentTexts.slice(),
     getMessagingToolSentMediaUrls: () => messagingToolSentMediaUrls.slice(),
     getMessagingToolSentTargets: () => messagingToolSentTargets.slice(),
+    getToolResultMediaUrls: () => state.toolResultMediaUrls.slice(),
+    getPendingToolMediaUrls: () => state.pendingToolMediaUrls.slice(),
     getSuccessfulCronAdds: () => state.successfulCronAdds,
     getExecutionReceipts: () => state.executionReceipts?.slice() ?? [],
     // Returns true if any messaging tool successfully sent a message.

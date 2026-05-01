@@ -460,6 +460,22 @@ describe("resolveCommandAuthorization", () => {
     expect(auth.senderIsOwner).toBe(true);
   });
 
+  it("grants isAuthorizedSender for internal channel with operator.admin scope even when commandAuthorized is false", () => {
+    const cfg = {} as OpenClawConfig;
+    const ctx = {
+      Provider: "webchat",
+      Surface: "webchat",
+      GatewayClientScopes: ["operator.admin"],
+    } as MsgContext;
+    const auth = resolveCommandAuthorization({
+      ctx,
+      cfg,
+      commandAuthorized: false,
+    });
+    expect(auth.senderIsOwner).toBe(true);
+    expect(auth.isAuthorizedSender).toBe(true);
+  });
+
   it("does not grant senderIsOwner for internal channel without admin scope", () => {
     const cfg = {} as OpenClawConfig;
     const ctx = {

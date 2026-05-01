@@ -45,8 +45,9 @@ describe("gateway session recovery state", () => {
       store: { "agent:main:main": entry },
       key: "agent:main:main",
       entry,
-      recoveryCheckpoint:
-        getPlatformRuntimeCheckpointService().list({ sessionKey: "agent:main:main" })[0],
+      recoveryCheckpoint: getPlatformRuntimeCheckpointService().list({
+        sessionKey: "agent:main:main",
+      })[0],
     });
 
     expect(row.status).toBe("blocked");

@@ -9,7 +9,7 @@ const baseParams = {
   replyToMode: "off" as const,
 };
 
-async function expectSameTargetRepliesSuppressed(params: { provider: string; to: string }) {
+async function expectSameTargetRepliesPreserved(params: { provider: string; to: string }) {
   const { replyPayloads } = await buildReplyPayloads({
     ...baseParams,
     payloads: [{ text: "hello world!" }],
@@ -20,10 +20,24 @@ async function expectSameTargetRepliesSuppressed(params: { provider: string; to:
     messagingToolSentTargets: [{ tool: "message", provider: params.provider, to: params.to }],
   });
 
-  expect(replyPayloads).toHaveLength(0);
+  expect(replyPayloads).toHaveLength(1);
+  expect(replyPayloads[0]?.text).toBe("hello world!");
 }
 
 describe("buildReplyPayloads media filter integration", () => {
+  it("drops standalone pseudo-tool JSON payloads from user-facing replies", async () => {
+    const { replyPayloads } = await buildReplyPayloads({
+      ...baseParams,
+      payloads: [
+        {
+          text: '```json\n{"function_name":"read","arguments":{"file_path":"MEMORY.md"}}\n```',
+        },
+      ],
+    });
+
+    expect(replyPayloads).toHaveLength(0);
+  });
+
   it("strips media URL from payload when in messagingToolSentMediaUrls", async () => {
     const { replyPayloads } = await buildReplyPayloads({
       ...baseParams,
@@ -141,7 +155,7 @@ describe("buildReplyPayloads media filter integration", () => {
     expect(replyPayloads[0]?.mediaUrl).toBe("file:///tmp/photo.jpg");
   });
 
-  it("suppresses same-target replies when messageProvider is synthetic but originatingChannel is set", async () => {
+  it("preserves novel same-target replies when messageProvider is synthetic but originatingChannel is set", async () => {
     const { replyPayloads } = await buildReplyPayloads({
       ...baseParams,
       payloads: [{ text: "hello world!" }],
@@ -152,15 +166,31 @@ describe("buildReplyPayloads media filter integration", () => {
       messagingToolSentTargets: [{ tool: "telegram", provider: "telegram", to: "268300329" }],
     });
 
+    expect(replyPayloads).toHaveLength(1);
+    expect(replyPayloads[0]?.text).toBe("hello world!");
+  });
+
+  it("preserves novel same-target replies when message tool target provider is generic", async () => {
+    await expectSameTargetRepliesPreserved({ provider: "message", to: "ou_abc123" });
+  });
+
+  it("preserves novel same-target replies when target provider is channel alias", async () => {
+    await expectSameTargetRepliesPreserved({ provider: "lark", to: "ou_abc123" });
+  });
+
+  it("still drops same-target replies when the final payload duplicates messaging tool text", async () => {
+    const { replyPayloads, allReplyPayloadsAlreadyDelivered } = await buildReplyPayloads({
+      ...baseParams,
+      payloads: [{ text: "hello world!" }],
+      messageProvider: "heartbeat",
+      originatingChannel: "telegram",
+      originatingTo: "268300329",
+      messagingToolSentTexts: ["hello world!"],
+      messagingToolSentTargets: [{ tool: "telegram", provider: "telegram", to: "268300329" }],
+    });
+
     expect(replyPayloads).toHaveLength(0);
-  });
-
-  it("suppresses same-target replies when message tool target provider is generic", async () => {
-    await expectSameTargetRepliesSuppressed({ provider: "message", to: "ou_abc123" });
-  });
-
-  it("suppresses same-target replies when target provider is channel alias", async () => {
-    await expectSameTargetRepliesSuppressed({ provider: "lark", to: "ou_abc123" });
+    expect(allReplyPayloadsAlreadyDelivered).toBe(true);
   });
 
   it("drops all final payloads when block pipeline streamed successfully", async () => {
@@ -175,7 +205,7 @@ describe("buildReplyPayloads media filter integration", () => {
     };
     // shouldDropFinalPayloads short-circuits to [] when the pipeline streamed
     // without aborting, so hasSentPayload is never reached.
-    const { replyPayloads } = await buildReplyPayloads({
+    const { replyPayloads, allReplyPayloadsAlreadyDelivered } = await buildReplyPayloads({
       ...baseParams,
       blockStreamingEnabled: true,
       blockReplyPipeline: pipeline,
@@ -184,6 +214,7 @@ describe("buildReplyPayloads media filter integration", () => {
     });
 
     expect(replyPayloads).toHaveLength(0);
+    expect(allReplyPayloadsAlreadyDelivered).toBe(true);
   });
 
   it("deduplicates final payloads against directly sent block keys regardless of replyToId", async () => {

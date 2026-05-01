@@ -3,6 +3,7 @@
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
+import { buildCanonicalChannelHref, buildTabHref } from "../app-settings.ts";
 import type { ChannelsStatusSnapshot } from "../types.ts";
 import { createNostrProfileFormState } from "./channels.nostr-profile-form.ts";
 import { renderChannels } from "./channels.ts";
@@ -24,7 +25,12 @@ function buildProps(overrides: Partial<ChannelsProps> = {}): ChannelsProps {
   return {
     connected: true,
     loading: false,
+    buildChannelHref: (channelKey) =>
+      buildTabHref({ basePath: "" }, "channels", {
+        channel: channelKey,
+      }),
     snapshot: buildSnapshot(),
+    selectedChannelKey: null,
     lastError: null,
     lastSuccessAt: null,
     whatsappMessage: null,
@@ -40,6 +46,7 @@ function buildProps(overrides: Partial<ChannelsProps> = {}): ChannelsProps {
     nostrProfileFormState: null,
     nostrProfileAccountId: null,
     onRefresh: vi.fn(),
+    onSelectChannel: vi.fn(),
     onWhatsAppStart: vi.fn(),
     onWhatsAppWait: vi.fn(),
     onWhatsAppLogout: vi.fn(),
@@ -96,5 +103,125 @@ describe("channels view", () => {
     expect(container.textContent).toContain("Редактировать профиль");
 
     await i18n.setLocale("en");
+  });
+
+  it("marks the selected channel shell and notifies when another channel is selected", async () => {
+    const container = document.createElement("div");
+    const onSelectChannel = vi.fn();
+
+    render(
+      renderChannels(
+        buildProps({
+          snapshot: buildSnapshot({
+            channelOrder: ["slack", "telegram"],
+            channelLabels: { slack: "Slack", telegram: "Telegram" },
+            channels: { slack: {}, telegram: {} },
+          }),
+          selectedChannelKey: "slack",
+          onSelectChannel,
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const selected = container.querySelector('[data-channel-key="slack"]');
+    const other = container.querySelector('[data-channel-key="telegram"]');
+    const otherLink = other?.querySelector(".channel-card-link-overlay");
+
+    expect(selected?.className).toContain("is-selected");
+    expect(other?.className).not.toContain("is-selected");
+
+    otherLink?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(onSelectChannel).toHaveBeenCalledWith("telegram");
+  });
+
+  it("renders canonical hrefs for channel cards", async () => {
+    const container = document.createElement("div");
+    render(
+      renderChannels(
+        buildProps({
+          snapshot: buildSnapshot({
+            channelOrder: ["slack", "telegram"],
+            channelLabels: { slack: "Slack", telegram: "Telegram" },
+            channels: { slack: {}, telegram: {} },
+          }),
+          buildChannelHref: (channelKey) =>
+            buildCanonicalChannelHref(
+              {
+                basePath: "/ui",
+                sessionKey: "main",
+                channelsSelectedKey: "slack",
+              } as Parameters<typeof buildCanonicalChannelHref>[0],
+              channelKey,
+            ),
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const otherLink = container.querySelector('[data-channel-key="telegram"] .channel-card-link-overlay');
+    expect(otherLink?.getAttribute("href")).toBe("/ui/channels?session=main&channel=telegram");
+  });
+
+  it("lets modified clicks fall through to the browser href for channel cards", async () => {
+    const container = document.createElement("div");
+    const onSelectChannel = vi.fn();
+    render(
+      renderChannels(
+        buildProps({
+          snapshot: buildSnapshot({
+            channelOrder: ["slack", "telegram"],
+            channelLabels: { slack: "Slack", telegram: "Telegram" },
+            channels: { slack: {}, telegram: {} },
+          }),
+          onSelectChannel,
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const otherLink = container.querySelector('[data-channel-key="telegram"] .channel-card-link-overlay');
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    otherLink?.dispatchEvent(click);
+
+    expect(onSelectChannel).not.toHaveBeenCalled();
+    expect(click.defaultPrevented).toBe(false);
+  });
+
+  it("keeps channel actions working and still selects the card", async () => {
+    const container = document.createElement("div");
+    const onSelectChannel = vi.fn();
+    const onRefresh = vi.fn();
+    render(
+      renderChannels(
+        buildProps({
+          snapshot: buildSnapshot({
+            channelOrder: ["slack"],
+            channels: { slack: {} },
+          }),
+          onSelectChannel,
+          onRefresh,
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const refreshButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Probe",
+    );
+    expect(refreshButton).not.toBeUndefined();
+
+    refreshButton?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    expect(onRefresh).toHaveBeenCalledWith(true);
+    expect(onSelectChannel).toHaveBeenCalledWith("slack");
   });
 });

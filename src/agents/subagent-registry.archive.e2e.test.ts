@@ -45,6 +45,10 @@ describe("subagent registry archive behavior", () => {
   let mod: typeof import("./subagent-registry.js");
 
   beforeAll(async () => {
+    // Reset module cache so the vi.mock("../config/config.js") factory runs fresh.
+    // config.js is pre-loaded by test/setup.ts; without this reset the cached real
+    // loadConfig is served and archiveAfterMinutes overrides are ignored.
+    vi.resetModules();
     mod = await import("./subagent-registry.js");
   });
 

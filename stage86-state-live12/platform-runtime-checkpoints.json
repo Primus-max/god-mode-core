@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "checkpoints": [
+    {
+      "id": "a10241cd-6e9e-4a75-9b62-5f93604b9662",
+      "runId": "a10241cd-6e9e-4a75-9b62-5f93604b9662",
+      "boundary": "bootstrap",
+      "status": "completed",
+      "blockedReason": "Bootstrap checkpoint: capability install is blocked until the operator approves (platform.bootstrap.resolve) and runs install/verify (platform.bootstrap.run).",
+      "nextActions": [
+        {
+          "method": "platform.bootstrap.resolve",
+          "label": "Approve or deny capability bootstrap (install) request",
+          "phase": "approve"
+        },
+        {
+          "method": "platform.bootstrap.run",
+          "label": "Execute approved install, health verification, and resume blocked work if configured",
+          "phase": "resume"
+        }
+      ],
+      "target": {
+        "bootstrapRequestId": "a10241cd-6e9e-4a75-9b62-5f93604b9662",
+        "operation": "bootstrap.run"
+      },
+      "continuation": {
+        "kind": "bootstrap_run",
+        "input": {
+          "blockedRunResume": true,
+          "blockedRunId": "stage86-case4-rerun-eef6776b-c06a-4db0-a9b5-b1535bcb1d9f",
+          "queueKey": "agent:main:thread:stage86-case4-live12"
+        },
+        "state": "idle",
+        "attempts": 0
+      },
+      "createdAtMs": 1775759169225,
+      "updatedAtMs": 1775759190374,
+      "approvedAtMs": 1775759184724,
+      "resumedAtMs": 1775759184739,
+      "completedAtMs": 1775759190374,
+      "lastOperatorDecision": {
+        "action": "run",
+        "atMs": 1775759184733,
+        "actor": {
+          "id": "cli",
+          "displayName": "stage86-live-probe",
+          "deviceId": "bf4f0d0a5691ed6a5eca5b8ed067526161a54a53d18161ddaaee0615b7a6e48b",
+          "connId": "57bcdab8-a29a-426e-918e-f4913f083b18"
+        },
+        "source": "platform.bootstrap.run"
+      }
+    },
+    {
+      "id": "bootstrap-origin:a10241cd-6e9e-4a75-9b62-5f93604b9662:stage86-case4-rerun-eef6776b-c06a-4db0-a9b5-b1535bcb1d9f",
+      "runId": "stage86-case4-rerun-eef6776b-c06a-4db0-a9b5-b1535bcb1d9f",
+      "boundary": "bootstrap",
+      "status": "completed",
+      "blockedReason": "Bootstrap evidence: the task requested a capability install before it could complete.",
+      "target": {
+        "bootstrapRequestId": "a10241cd-6e9e-4a75-9b62-5f93604b9662",
+        "operation": "bootstrap.run"
+      },
+      "createdAtMs": 1775759169235,
+      "updatedAtMs": 1775759169244,
+      "completedAtMs": 1775759169243
+    }
+  ]
+}

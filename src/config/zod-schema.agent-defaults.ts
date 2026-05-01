@@ -134,6 +134,33 @@ export const AgentDefaultsSchema = z
         projectSettingsPolicy: z
           .union([z.literal("trusted"), z.literal("sanitize"), z.literal("ignore")])
           .optional(),
+        taskClassifier: z
+          .object({
+            enabled: z.boolean().optional(),
+            backend: z.string().optional(),
+            model: z.string().optional(),
+            timeoutMs: z.number().int().positive().optional(),
+            maxTokens: z.number().int().positive().optional(),
+          })
+          .strict()
+          .optional(),
+        intentContractor: z
+          .object({
+            enabled: z.boolean().optional(),
+            backend: z.string().optional(),
+            model: z.string().optional(),
+            timeoutMs: z.number().int().positive().optional(),
+            maxTokens: z.number().int().positive().optional(),
+            confidenceThreshold: z.number().min(0).max(1).optional(),
+          })
+          .strict()
+          .optional(),
+        commitment: z
+          .object({
+            cutoverEnabled: z.boolean().optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),

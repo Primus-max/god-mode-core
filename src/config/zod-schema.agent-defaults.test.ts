@@ -11,4 +11,47 @@ describe("agent defaults schema", () => {
       }),
     ).not.toThrow();
   });
+
+  it("accepts task classifier backend and model overrides", () => {
+    expect(() =>
+      AgentDefaultsSchema.parse({
+        embeddedPi: {
+          taskClassifier: {
+            backend: "stub-backend",
+            model: "ollama/qwen3:14b",
+            timeoutMs: 10_000,
+            maxTokens: 256,
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it("accepts intent contractor shadow-mode overrides", () => {
+    expect(() =>
+      AgentDefaultsSchema.parse({
+        embeddedPi: {
+          intentContractor: {
+            backend: "stub-backend",
+            model: "ollama/qwen3:14b",
+            timeoutMs: 15_000,
+            maxTokens: 400,
+            confidenceThreshold: 0.6,
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it("accepts commitment cutover runtime controls", () => {
+    expect(() =>
+      AgentDefaultsSchema.parse({
+        embeddedPi: {
+          commitment: {
+            cutoverEnabled: false,
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
 });

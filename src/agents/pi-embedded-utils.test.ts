@@ -5,6 +5,7 @@ import {
   formatReasoningMessage,
   promoteThinkingTagsToBlocks,
   stripDowngradedToolCallText,
+  stripUniversalToolCallMarkup,
 } from "./pi-embedded-utils.js";
 
 function makeAssistantMessage(
@@ -564,6 +565,50 @@ describe("stripDowngradedToolCallText", () => {
   });
 });
 
+describe("stripUniversalToolCallMarkup (Bug A)", () => {
+  it("removes balanced <tool_call>...</tool_call> XML block leaving surrounding text", () => {
+    const input =
+      'Pre.\n<tool_call>{"name":"web_search","arguments":{"q":"x"}}</tool_call>\nPost.';
+    expect(stripUniversalToolCallMarkup(input)).toBe("Pre.\n\nPost.");
+  });
+
+  it("removes balanced <tool_use>...</tool_use> Anthropic-style block (multiline)", () => {
+    const input = [
+      "before",
+      '<tool_use name="exec">',
+      '  {"command":"ls -la"}',
+      "</tool_use>",
+      "after",
+    ].join("\n");
+    expect(stripUniversalToolCallMarkup(input)).toBe("before\n\nafter");
+  });
+
+  it("removes legacy <function_call>...</function_call> OpenAI-style block", () => {
+    const input =
+      'A<function_call>{"name":"image","arguments":{"prompt":"кот"}}</function_call>B';
+    expect(stripUniversalToolCallMarkup(input)).toBe("AB");
+  });
+
+  it("strips orphan open <tool_call ...> tag without closing", () => {
+    const input = 'before <tool_call name="x"> tail';
+    expect(stripUniversalToolCallMarkup(input)).toBe("before tail");
+  });
+
+  it("strips orphan close </tool_call> tag without opening", () => {
+    const input = "head </tool_call> tail";
+    expect(stripUniversalToolCallMarkup(input)).toBe("head tail");
+  });
+
+  it("returns input unchanged when no marker tags present (fast-path)", () => {
+    const input = "Plain prose mentioning tool_call as a topic — without brackets.";
+    expect(stripUniversalToolCallMarkup(input)).toBe(input);
+  });
+
+  it("returns empty string for empty input", () => {
+    expect(stripUniversalToolCallMarkup("")).toBe("");
+  });
+});
+
 describe("promoteThinkingTagsToBlocks", () => {
   it("does not crash on malformed null content entries", () => {
     const msg = makeAssistantMessage({
@@ -599,7 +644,11 @@ describe("promoteThinkingTagsToBlocks", () => {
 
 describe("empty input handling", () => {
   it("returns empty string", () => {
-    const helpers = [formatReasoningMessage, stripDowngradedToolCallText];
+    const helpers = [
+      formatReasoningMessage,
+      stripDowngradedToolCallText,
+      stripUniversalToolCallMarkup,
+    ];
     for (const helper of helpers) {
       expect(helper("")).toBe("");
     }

@@ -7,6 +7,7 @@ export function createBaseToolHandlerState() {
     pendingMessagingTargets: new Map<string, unknown>(),
     pendingMessagingMediaUrls: new Map<string, string[]>(),
     pendingToolMediaUrls: [] as string[],
+    toolResultMediaUrls: [] as string[],
     pendingToolAudioAsVoice: false,
     messagingToolSentTexts: [] as string[],
     messagingToolSentTextsNormalized: [] as string[],

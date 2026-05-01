@@ -79,7 +79,9 @@ export async function loadChatHistory(state: ChatState) {
       },
     );
     const messages = Array.isArray(res.messages) ? res.messages : [];
-    state.chatMessages = messages.filter((message) => !isAssistantSilentReply(message));
+    state.chatMessages = dedupeChatHistoryMessages(
+      messages.filter((message) => !isAssistantSilentReply(message)),
+    );
     state.chatThinkingLevel = res.thinkingLevel ?? null;
     // Clear all streaming state — history includes tool results and text
     // inline, so keeping streaming artifacts would cause duplicates.
@@ -148,6 +150,36 @@ function normalizeFinalAssistantMessage(message: unknown): Record<string, unknow
     roleRequirement: "optional",
     allowTextField: true,
   });
+}
+
+function assistantMessageDedupeKey(message: unknown): string | null {
+  const normalized = normalizeAssistantMessage(message, {
+    roleRequirement: "required",
+    allowTextField: true,
+  });
+  if (!normalized) {
+    return null;
+  }
+  const text = typeof normalized.text === "string" ? normalized.text : extractText(normalized);
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  return trimmed ? `assistant:${trimmed}` : null;
+}
+
+function appendDistinctChatMessage(messages: unknown[], message: unknown): unknown[] {
+  // Defense-in-depth only: the gateway/runtime is responsible for preventing
+  // duplicate finals. The UI keeps this adjacent-text shield to avoid replayed
+  // or reloaded assistant duplicates leaking into chat when older runtimes or
+  // racey history/final event combinations produce the same payload twice.
+  const nextKey = assistantMessageDedupeKey(message);
+  if (!nextKey) {
+    return [...messages, message];
+  }
+  const prevKey = messages.length > 0 ? assistantMessageDedupeKey(messages[messages.length - 1]) : null;
+  return prevKey === nextKey ? messages : [...messages, message];
+}
+
+function dedupeChatHistoryMessages(messages: unknown[]): unknown[] {
+  return messages.reduce<unknown[]>((acc, message) => appendDistinctChatMessage(acc, message), []);
 }
 
 export async function sendChatMessage(
@@ -274,7 +306,7 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     if (payload.state === "final") {
       const finalMessage = normalizeFinalAssistantMessage(payload.message);
       if (finalMessage && !isAssistantSilentReply(finalMessage)) {
-        state.chatMessages = [...state.chatMessages, finalMessage];
+        state.chatMessages = appendDistinctChatMessage(state.chatMessages, finalMessage);
         return null;
       }
       return "final";
@@ -293,16 +325,13 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
   } else if (payload.state === "final") {
     const finalMessage = normalizeFinalAssistantMessage(payload.message);
     if (finalMessage && !isAssistantSilentReply(finalMessage)) {
-      state.chatMessages = [...state.chatMessages, finalMessage];
+      state.chatMessages = appendDistinctChatMessage(state.chatMessages, finalMessage);
     } else if (state.chatStream?.trim() && !isSilentReplyStream(state.chatStream)) {
-      state.chatMessages = [
-        ...state.chatMessages,
-        {
-          role: "assistant",
-          content: [{ type: "text", text: state.chatStream }],
-          timestamp: Date.now(),
-        },
-      ];
+      state.chatMessages = appendDistinctChatMessage(state.chatMessages, {
+        role: "assistant",
+        content: [{ type: "text", text: state.chatStream }],
+        timestamp: Date.now(),
+      });
     }
     state.chatStream = null;
     state.chatRunId = null;
@@ -310,18 +339,15 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
   } else if (payload.state === "aborted") {
     const normalizedMessage = normalizeAbortedAssistantMessage(payload.message);
     if (normalizedMessage && !isAssistantSilentReply(normalizedMessage)) {
-      state.chatMessages = [...state.chatMessages, normalizedMessage];
+      state.chatMessages = appendDistinctChatMessage(state.chatMessages, normalizedMessage);
     } else {
       const streamedText = state.chatStream ?? "";
       if (streamedText.trim() && !isSilentReplyStream(streamedText)) {
-        state.chatMessages = [
-          ...state.chatMessages,
-          {
-            role: "assistant",
-            content: [{ type: "text", text: streamedText }],
-            timestamp: Date.now(),
-          },
-        ];
+        state.chatMessages = appendDistinctChatMessage(state.chatMessages, {
+          role: "assistant",
+          content: [{ type: "text", text: streamedText }],
+          timestamp: Date.now(),
+        });
       }
     }
     state.chatStream = null;

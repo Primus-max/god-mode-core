@@ -36,6 +36,7 @@ describe("tsdown config", () => {
       expect.arrayContaining([
         "index",
         "cli/memory-cli",
+        "cli/program/register.subclis",
         "plugins/runtime/index",
         "plugin-sdk/compat",
         "plugin-sdk/index",

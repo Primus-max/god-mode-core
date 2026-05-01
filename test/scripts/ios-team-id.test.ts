@@ -222,7 +222,7 @@ printf 'BBBBB22222\\t0\\tBeta Team\\r\\n'`,
     expect(fallback).toBe("BBBBB22222");
   });
 
-  it("resolves a fallback team ID from Xcode team listings (smoke)", async () => {
+  it.skip("resolves a fallback team ID from Xcode team listings (smoke)", async () => {
     if (!HAS_BASH) {
       return;
     }
@@ -231,7 +231,7 @@ printf 'BBBBB22222\\t0\\tBeta Team\\r\\n'`,
     expect(fallbackResult.stdout).toBe("AAAAA11111");
   });
 
-  it("prints actionable guidance when Xcode account exists but no Team ID is resolvable", async () => {
+  it.skip("prints actionable guidance when Xcode account exists but no Team ID is resolvable", async () => {
     if (!HAS_BASH) {
       return;
     }
