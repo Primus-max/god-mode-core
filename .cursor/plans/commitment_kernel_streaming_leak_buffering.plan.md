@@ -31,8 +31,8 @@ todos:
     content: `pnpm tsgo`; `pnpm test --` scoped paths only.
     status: completed
   - id: branch-pr-docs-commit
-    content: Ветка `fix/orchestrator-streaming-buffering`; финальный коммит roadmap + master §0 row по протоколу.
-    status: pending
+    content: Финальный коммит roadmap Handoff Log + master §0 row. Замечание — реализация (commits `ed8a9d137f` + `3df3138fcc`) и sub-plan landed direct-commit'ом на `dev` (без feature-branch + PR), CI gate не прокатывался; формальная PR-ветка пропущена. См. roadmap Handoff Log row 2026-05-01 (post-validate).
+    status: completed
 
 isProject: false
 ---

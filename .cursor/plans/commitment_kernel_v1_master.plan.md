@@ -65,6 +65,7 @@ isProject: true
 | 2026-04-29 | Bug C — recipe routing для intent=publish | 9f6f8d8d3d | Bug A streaming-leak sub-plan kickoff |
 | 2026-04-29 | Bug A — streaming-leak (universal tool-call markers) | 7f56fbd9ab | Bug A.2 buffering / Bug B / Bug D / Bug F sub-plan kickoff |
 | 2026-04-29 | Bug D — clarification policy gate (PolicyGate Stage 1) | caca87a634 | PolicyGate Stages 2-6 (approvals/budgets/role-based/retry/escalation) — signoff required |
+| 2026-05-01 | Bug A.2 — block-streaming buffering at tool_call (PR-A.2) | 3df3138fcc | PR-H — session-history-aware clarify (Stage 1.5 PolicyGate) sub-plan kickoff |
 
 
 ### Active Work Handoff Protocol
