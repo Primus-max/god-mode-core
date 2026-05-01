@@ -36,8 +36,8 @@ todos:
     content: pnpm tsgo green; pnpm test -- cron-tool.test.ts cron-tool.flat-params.test.ts — 39/39 green; outbound-sanitizer.test.ts — 27/27 green (sanitization patterns не сломаны).
     status: completed
   - id: branch-pr-merge-handoff
-    content: Branch fix/orchestrator-cron-tool-no-retry-on-foreign-chat, PR --base dev, admin-merge при BlackSmith offline, restart gateway, verify нет 4× retries в live логе.
-    status: pending
+    content: PR #118 admin-merged 00062f70a6 на dev. Restart gateway + live verification — gated на user action.
+    status: completed
 
 isProject: false
 ---
@@ -110,6 +110,7 @@ if (!policy.ok) {
 
 | Date | Step | Branch | SHA | PR # | Notes |
 | --- | --- | --- | --- | --- | --- |
+| 2026-05-01 | Slice 4 merged | `fix/orchestrator-cron-tool-no-retry-on-foreign-chat` | `00062f70a6` | [#118](https://github.com/Primus-max/god-mode-core/pull/118) | `evaluateNonOwnerCronAddPolicy` pure classifier (closed reason set 9 значений) + structured `jsonResult({ blocked, reason, message })` через `execute()`. Single `[cron-tool] block reason=<R>` info-line per attempt; zero `[tools] cron failed: ...` retry spam. 39/39 cron-tool tests + 27/27 outbound-sanitizer tests green; pnpm tsgo exit 0. Hard invariants #5/#6/#8/#11/#15 соблюдены. CI infra: BlackSmith total_count=0 → admin-merge after local validation + no frozen contracts touched. Live verification (после restart gateway): expect один info-line на foreign-chat attempt, ноль 4×-retry pattern в логе. |
 
 ## 7. References
 
