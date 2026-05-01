@@ -57,6 +57,7 @@ import {
   reevaluateMessagingDecisionForMessagingRun,
   signalTypingIfNeeded,
 } from "./agent-runner-helpers.js";
+import { resolveRoutingSnapshotForTemplateRun } from "./agent-runner-utils.js";
 import { runMemoryFlushIfNeeded } from "./agent-runner-memory.runtime.js";
 import { buildReplyPayloads } from "./agent-runner-payloads.js";
 import {
@@ -882,6 +883,13 @@ export async function runReplyAgent(params: {
       ) {
         await emitDeferredAck(progressTurnId);
       }
+      const routingSnapshot = await resolveRoutingSnapshotForTemplateRun({
+        prompt: commandBody,
+        run: followupRun.run,
+        sessionCtx,
+        storePath,
+        sessionEntry: activeSessionEntry,
+      });
       const runStartedAt = Date.now();
       const runOutcome = await runAgentTurnWithFallback({
         commandBody,
@@ -912,6 +920,7 @@ export async function runReplyAgent(params: {
           await emitDeferredAck(ackRunId);
           void estimatedDurationMs;
         },
+        routingSnapshot,
       });
 
       if (runOutcome.kind === "final") {

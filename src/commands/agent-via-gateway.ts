@@ -110,6 +110,7 @@ function formatPayloadForLog(payload: {
   return lines.join("\n").trimEnd();
 }
 
+
 export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: RuntimeEnv) {
   const body = (opts.message ?? "").trim();
   if (!body) {

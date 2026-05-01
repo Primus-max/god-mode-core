@@ -163,6 +163,28 @@ describe("cron tool", () => {
     );
   });
 
+  it("normalizes cron.list page responses to a top-level jobs array", async () => {
+    callGatewayMock.mockResolvedValueOnce({
+      items: [{ id: "job-1", name: "Reminder" }],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      hasMore: false,
+    });
+
+    const tool = createTool();
+    const result = await tool.execute("call-list", { action: "list" });
+
+    expect(readGatewayCall().method).toBe("cron.list");
+    expect(result.details).toEqual({
+      jobs: [{ id: "job-1", name: "Reminder" }],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      hasMore: false,
+    });
+  });
+
   it("blocks non-owner reminder scheduling to another chat", async () => {
     const tool = createTool({
       agentSessionKey: "agent:main:telegram:direct:123",

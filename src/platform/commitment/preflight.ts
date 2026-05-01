@@ -1,26 +1,52 @@
-import type {
-  ClarificationDecision,
-  ClarificationPolicy,
-} from "./clarification-policy.js";
-import type { CutoverDecision, CutoverPolicy } from "./cutover-policy.js";
-import type { SessionWorldStateObserver } from "./session-world-state-observer.js";
-import type { SessionWorldStateSnapshot } from "./world-state.js";
+// The preflight slice intentionally defines its own narrow types instead of
+// reusing the kernel's `SessionWorldStateObserver` / `CutoverPolicy` shapes.
+// Those kernel types describe the cutover-2 commitment pipeline and are not
+// callable as policies on a free-form world-state object. Keeping these types
+// local makes the slice's scope explicit at audit time (master plan §0.5.2).
 
 export interface CommitmentPreflightInput {
-  sessionId: string;
-  userMessage: string;
+  readonly sessionId: string;
+  readonly userMessage: string;
 }
 
+export type PreflightWorldStateSnapshot = {
+  readonly sessionId: string;
+  readonly latestUserMessage: string;
+  readonly openQuestions: readonly string[];
+  readonly expectedDelta: null;
+  readonly delivery: null;
+};
+
+export type PreflightClarificationDecision =
+  | { readonly kind: "proceed" }
+  | { readonly kind: "clarify"; readonly reason: string };
+
+export type PreflightCutoverDecision =
+  | { readonly kind: "proceed" }
+  | { readonly kind: "defer"; readonly reason: string };
+
+export type PreflightSessionWorldStateObserver = (
+  input: CommitmentPreflightInput,
+) => Promise<PreflightWorldStateSnapshot> | PreflightWorldStateSnapshot;
+
+export type PreflightClarificationPolicy = (
+  worldState: PreflightWorldStateSnapshot,
+) => PreflightClarificationDecision;
+
+export type PreflightCutoverPolicy = (
+  worldState: PreflightWorldStateSnapshot,
+) => PreflightCutoverDecision;
+
 export interface CommitmentPreflightDecision {
-  worldState: SessionWorldStateSnapshot;
-  clarification: ClarificationDecision;
-  cutover: CutoverDecision;
+  readonly worldState: PreflightWorldStateSnapshot;
+  readonly clarification: PreflightClarificationDecision;
+  readonly cutover: PreflightCutoverDecision;
 }
 
 export interface CommitmentPreflightRuntime {
-  observeSessionWorldState: SessionWorldStateObserver;
-  clarificationPolicy: ClarificationPolicy;
-  cutoverPolicy: CutoverPolicy;
+  readonly observeSessionWorldState: PreflightSessionWorldStateObserver;
+  readonly clarificationPolicy: PreflightClarificationPolicy;
+  readonly cutoverPolicy: PreflightCutoverPolicy;
 }
 
 export async function runCommitmentPreflight(

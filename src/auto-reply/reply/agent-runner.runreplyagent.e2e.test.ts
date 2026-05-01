@@ -50,6 +50,7 @@ const accountingState = vi.hoisted(() => ({
 const executionState = vi.hoisted(() => ({
   runAgentTurnWithFallbackMock: vi.fn(),
   runAgentTurnWithFallbackActual: null as null | ((params: unknown) => Promise<unknown>),
+  resolveRoutingSnapshotForTemplateRunMock: vi.fn(),
 }));
 
 const helperState = vi.hoisted(() => ({
@@ -154,6 +155,15 @@ vi.mock("./agent-runner-execution.runtime.js", async (importOriginal) => {
   };
 });
 
+vi.mock("./agent-runner-utils.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./agent-runner-utils.js")>();
+  return {
+    ...actual,
+    resolveRoutingSnapshotForTemplateRun: (...args: unknown[]) =>
+      executionState.resolveRoutingSnapshotForTemplateRunMock(...args),
+  };
+});
+
 vi.mock("./agent-runner-helpers.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./agent-runner-helpers.js")>();
   helperState.finalizeWithFollowupActual = actual.finalizeWithFollowup as (...args: unknown[]) => unknown;
@@ -181,6 +191,7 @@ beforeEach(async () => {
   accountingState.persistRunSessionUsageMock.mockReset();
   accountingState.incrementRunCompactionCountMock.mockReset();
   executionState.runAgentTurnWithFallbackMock.mockReset();
+  executionState.resolveRoutingSnapshotForTemplateRunMock.mockReset();
   helperState.finalizeWithFollowupMock.mockReset();
   accountingState.persistRunSessionUsageMock.mockImplementation(async (params: unknown) => {
     await accountingState.persistRunSessionUsageActual?.(params);
@@ -190,6 +201,23 @@ beforeEach(async () => {
   });
   executionState.runAgentTurnWithFallbackMock.mockImplementation(async (params: unknown) => {
     return await executionState.runAgentTurnWithFallbackActual?.(params);
+  });
+  executionState.resolveRoutingSnapshotForTemplateRunMock.mockResolvedValue({
+    plannerInput: {
+      prompt: "hello",
+      fileNames: [],
+      integrations: [],
+      requestedTools: [],
+      classifierTelemetry: { source: "llm" },
+    },
+    runtimePlan: {
+      requestedToolNames: [],
+      requiredCapabilities: [],
+      readinessStatus: "ready",
+      executionMode: "respond",
+      timeoutSeconds: 600,
+    },
+    channelHints: {},
   });
   helperState.finalizeWithFollowupMock.mockImplementation((...args: unknown[]) => {
     return helperState.finalizeWithFollowupActual?.(...args);
@@ -389,6 +417,22 @@ async function runReplyAgentWithBase(params: {
 }
 
 describe("runReplyAgent heartbeat followup guard", () => {
+  it("passes a precomputed routing snapshot into execution", async () => {
+    executionState.runAgentTurnWithFallbackMock.mockResolvedValueOnce({
+      kind: "final",
+      payload: { text: "ok" },
+    });
+
+    const { run } = createMinimalRun();
+    await run();
+
+    expect(executionState.resolveRoutingSnapshotForTemplateRunMock).toHaveBeenCalledTimes(1);
+    const call = executionState.runAgentTurnWithFallbackMock.mock.calls[0]?.[0] as {
+      routingSnapshot?: unknown;
+    };
+    expect(call?.routingSnapshot).toBeDefined();
+  });
+
   it("drops heartbeat runs when another run is active", async () => {
     const { run, typing } = createMinimalRun({
       opts: { isHeartbeat: true },

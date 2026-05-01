@@ -83,6 +83,22 @@ function mockLocalAgentReply(text = "local") {
   });
 }
 
+function createRuntimeEnv() {
+  return {
+    cwd: process.cwd(),
+    env: process.env,
+    stdout: process.stdout,
+    stderr: process.stderr,
+    log: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    err: vi.fn(),
+    error: vi.fn(),
+    print: vi.fn(),
+    exit: vi.fn(),
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -90,7 +106,6 @@ beforeEach(() => {
 describe("agentCliCommand", () => {
   it("returns a clarification prompt before gateway dispatch for empty session messages", async () => {
     const runtime = createRuntimeEnv();
-    openClawApiRequestMock.mockReset();
     const result = await agentCliCommand(
       {
         sessionId: "session-1",
@@ -99,7 +114,8 @@ describe("agentCliCommand", () => {
       runtime,
     );
 
-    expect(result.text).toContain("I need a bit more detail");
+    expect((result as { text?: string }).text).toContain("I need a bit more detail");
+    expect(vi.mocked(callGateway)).not.toHaveBeenCalled();
     expect(openClawApiRequestMock).not.toHaveBeenCalled();
   });
 
@@ -117,7 +133,7 @@ describe("agentCliCommand", () => {
       runtime,
     );
 
-    expect(result.text).toContain("I need a bit more detail");
+    expect((result as { text?: string }).text).toContain("I need a bit more detail");
     expect(openClawApiRequestMock).not.toHaveBeenCalled();
   });
 
@@ -133,7 +149,7 @@ describe("agentCliCommand", () => {
       runtime,
     );
 
-    expect(result.text).toContain("Who should I send this to?");
+    expect((result as { text?: string }).text).toContain("Who should I send this to?");
     expect(openClawApiRequestMock).not.toHaveBeenCalled();
   });
 

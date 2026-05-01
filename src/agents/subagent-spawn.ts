@@ -37,7 +37,11 @@ import {
 import { resolveSubagentCapabilities } from "./subagent-capabilities.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
 import { findLivePersistentSessionByLabel } from "./subagent-persistent-session-query.js";
-import { countActiveRunsForSession, registerSubagentRun } from "./subagent-registry.js";
+import {
+  countActiveRunsForSession,
+  listSubagentRunsForRequester,
+  registerSubagentRun,
+} from "./subagent-registry.js";
 import { readStringParam } from "./tools/common.js";
 import {
   resolveDisplaySessionKey,
@@ -91,6 +95,43 @@ export const SUBAGENT_SPAWN_ACCEPTED_NOTE =
   "Auto-announce is push-based. After spawning children, do NOT call sessions_list, sessions_history, exec sleep, or any polling tool. Wait for completion events to arrive as user messages, track expected child session keys, and only send your final answer after ALL expected completions arrive. If a child completion event arrives AFTER your final answer, reply ONLY with NO_REPLY.";
 export const SUBAGENT_SPAWN_SESSION_ACCEPTED_NOTE =
   "follow-up session stays active after this task; send more messages to continue.";
+
+function findActiveContinuationChildByLabel(params: {
+  requesterSessionKey: string;
+  label: string;
+}): { childSessionKey: string; runId: string } | undefined {
+  const trimmedLabel = params.label.trim();
+  if (!trimmedLabel) {
+    return undefined;
+  }
+  let latestCreatedAt = -Infinity;
+  let match: { childSessionKey: string; runId: string } | undefined;
+  for (const record of listSubagentRunsForRequester(params.requesterSessionKey)) {
+    if (record.label !== trimmedLabel) {
+      continue;
+    }
+    if (typeof record.endedAt === "number") {
+      continue;
+    }
+    const isPersistent = record.spawnMode === "session";
+    const isFollowupExpectingCompletion =
+      record.spawnMode === "run" && record.expectsCompletionMessage === true;
+    if (!isPersistent && !isFollowupExpectingCompletion) {
+      continue;
+    }
+    if (!record.childSessionKey || !record.runId) {
+      continue;
+    }
+    if (record.createdAt > latestCreatedAt) {
+      latestCreatedAt = record.createdAt;
+      match = {
+        childSessionKey: record.childSessionKey,
+        runId: record.runId,
+      };
+    }
+  }
+  return match;
+}
 
 /**
  * Structured discriminator values for error results. Callers should branch on
@@ -514,6 +555,30 @@ export async function spawnSubagentDirect(
   // depth / maxChildren quotas: it does not register a new run record and
   // therefore does not consume the parent's child budget.
   if (label && requestThreadBinding) {
+    const activeContinuationChild = findActiveContinuationChildByLabel({
+      requesterSessionKey: requesterInternalKey,
+      label,
+    });
+    if (activeContinuationChild) {
+      console.info("[commitment]", {
+        effect: "continuation_child.reused",
+        action: "reuse_active_run",
+        label,
+        childSessionKey: activeContinuationChild.childSessionKey,
+        runId: activeContinuationChild.runId,
+      });
+      return {
+        status: "accepted",
+        childSessionKey: activeContinuationChild.childSessionKey,
+        runId: activeContinuationChild.runId,
+        mode: spawnMode,
+        note: `Reused active continuation child "${label}"; wait for its completion message instead of spawning a duplicate.`,
+        modelApplied: false,
+        agentId: targetAgentId as AgentId,
+        parentSessionKey: (requesterInternalKey || null) as SessionKey | null,
+      };
+    }
+
     const storeTarget = resolveGatewaySessionStoreTarget({
       cfg,
       key: `agent:${targetAgentId}:main`,

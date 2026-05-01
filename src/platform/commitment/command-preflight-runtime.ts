@@ -1,4 +1,8 @@
-import type { CommitmentPreflightRuntime } from "./preflight.js";
+import type {
+  CommitmentPreflightInput,
+  CommitmentPreflightRuntime,
+  PreflightWorldStateSnapshot,
+} from "./preflight.js";
 
 export interface CommandPreflightContextHints {
   openQuestions?: string[];
@@ -10,7 +14,10 @@ export function createCommandPreflightRuntime(
   hints?: CommandPreflightContextHints,
 ): CommitmentPreflightRuntime {
   return {
-    async observeSessionWorldState({ sessionId, userMessage }) {
+    async observeSessionWorldState({
+      sessionId,
+      userMessage,
+    }: CommitmentPreflightInput): Promise<PreflightWorldStateSnapshot> {
       return {
         sessionId,
         latestUserMessage: userMessage,
@@ -18,12 +25,12 @@ export function createCommandPreflightRuntime(
           ? [...hints.openQuestions]
           : userMessage.trim()
             ? []
-            : ["user-message"],
+            : ["empty-user-message"],
         expectedDelta: null,
         delivery: null,
       };
     },
-    clarificationPolicy(worldState) {
+    clarificationPolicy(worldState: PreflightWorldStateSnapshot) {
       return worldState.latestUserMessage.trim() && worldState.openQuestions.length === 0
         ? { kind: "proceed" as const }
         : {
@@ -31,7 +38,7 @@ export function createCommandPreflightRuntime(
             reason: worldState.openQuestions[0] ?? "empty-user-message",
           };
     },
-    cutoverPolicy() {
+    cutoverPolicy(_worldState: PreflightWorldStateSnapshot) {
       return { kind: "proceed" as const };
     },
   };

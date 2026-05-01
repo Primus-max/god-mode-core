@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../config/config.js";
+import { loadConfig, type OpenClawConfig } from "../config/config.js";
 import { Type } from "@sinclair/typebox";
 import { getInitialProfile } from "../platform/profile/defaults.js";
 import { resolvePluginTools } from "../plugins/tools.js";
@@ -165,7 +165,7 @@ export function createOpenClawTools(
     options?.spawnWorkspaceDir ?? options?.workspaceDir,
   );
   const effectiveConfig = applyProfileImageGenerationDefaults({
-    cfg: options?.config,
+    cfg: options?.config ?? loadConfig(),
     selectedProfileId: options?.selectedProfileId,
   });
   const runtimeWebTools = getActiveRuntimeWebToolsMetadata();
@@ -250,6 +250,11 @@ export function createOpenClawTools(
         requireExplicitTarget: options?.requireExplicitMessageTarget,
         requesterSenderId: options?.requesterSenderId ?? undefined,
       });
+  const agentsListTool = createAgentsListTool({
+    agentSessionKey: options?.agentSessionKey,
+    requesterAgentIdOverride: options?.requesterAgentIdOverride,
+    config: effectiveConfig,
+  });
   const tools: AnyAgentTool[] = [
     createBrowserTool({
       sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
@@ -281,10 +286,7 @@ export function createOpenClawTools(
       agentSessionKey: options?.agentSessionKey,
       config: effectiveConfig,
     }),
-    createAgentsListTool({
-      agentSessionKey: options?.agentSessionKey,
-      requesterAgentIdOverride: options?.requesterAgentIdOverride,
-    }),
+    agentsListTool,
     createSessionsListTool({
       agentSessionKey: options?.agentSessionKey,
       sandboxed: options?.sandboxed,

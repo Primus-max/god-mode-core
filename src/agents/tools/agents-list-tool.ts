@@ -1,14 +1,10 @@
 import { Type } from "@sinclair/typebox";
+import type { OpenClawConfig } from "../../config/config.js";
 import { loadConfig } from "../../config/config.js";
-import {
-  DEFAULT_AGENT_ID,
-  normalizeAgentId,
-  parseAgentSessionKey,
-} from "../../routing/session-key.js";
-import { resolveAgentConfig } from "../agent-scope.js";
+import { normalizeAgentId } from "../../routing/session-key.js";
+import { resolveSessionAgentId } from "../agent-scope.js";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult } from "./common.js";
-import { resolveInternalSessionKey, resolveMainSessionAlias } from "./sessions-helpers.js";
 
 const AgentsListToolSchema = Type.Object({});
 
@@ -22,6 +18,7 @@ export function createAgentsListTool(opts?: {
   agentSessionKey?: string;
   /** Explicit agent ID override for cron/hook sessions. */
   requesterAgentIdOverride?: string;
+  config?: OpenClawConfig;
 }): AnyAgentTool {
   return {
     label: "Agents",
@@ -30,39 +27,41 @@ export function createAgentsListTool(opts?: {
       'List OpenClaw agent ids you can target with `sessions_spawn` when `runtime="subagent"` (based on subagent allowlists).',
     parameters: AgentsListToolSchema,
     execute: async () => {
-      const cfg = loadConfig();
-      const { mainKey, alias } = resolveMainSessionAlias(cfg);
-      const requesterInternalKey =
-        typeof opts?.agentSessionKey === "string" && opts.agentSessionKey.trim()
-          ? resolveInternalSessionKey({
-              key: opts.agentSessionKey,
-              alias,
-              mainKey,
-            })
-          : alias;
-      const requesterAgentId = normalizeAgentId(
-        opts?.requesterAgentIdOverride ??
-          parseAgentSessionKey(requesterInternalKey)?.agentId ??
-          DEFAULT_AGENT_ID,
+      const cfg = opts?.config ?? loadConfig();
+      const requesterAgentId =
+        opts?.requesterAgentIdOverride?.trim() ||
+        resolveSessionAgentId({
+          config: cfg,
+          sessionKey: opts?.agentSessionKey,
+        });
+      const configuredAgents = Array.isArray(cfg.agents?.list) ? cfg.agents.list : [];
+      const normalizedRequesterId = normalizeAgentId(requesterAgentId);
+      const requesterEntry = configuredAgents.find(
+        (entry) => normalizeAgentId(entry?.id) === normalizedRequesterId,
       );
-
-      const allowAgents = resolveAgentConfig(cfg, requesterAgentId)?.subagents?.allowAgents ?? [];
+      const allowAgents = requesterEntry?.subagents?.allowAgents ?? [];
       const allowAny = allowAgents.some((value) => value.trim() === "*");
       const allowSet = new Set(
         allowAgents
-          .filter((value) => value.trim() && value.trim() !== "*")
-          .map((value) => normalizeAgentId(value)),
+          .map((value) => value.trim())
+          .filter((value) => value && value !== "*"),
       );
 
-      const configuredAgents = Array.isArray(cfg.agents?.list) ? cfg.agents?.list : [];
-      const configuredIds = configuredAgents.map((entry) => normalizeAgentId(entry.id));
+      const configuredIds = configuredAgents
+        .map((entry) => normalizeAgentId(entry?.id))
+        .filter(Boolean);
       const configuredNameMap = new Map<string, string>();
       for (const entry of configuredAgents) {
-        const name = entry?.name?.trim() ?? "";
-        if (!name) {
+        const id = normalizeAgentId(entry?.id);
+        if (!id) {
           continue;
         }
-        configuredNameMap.set(normalizeAgentId(entry.id), name);
+        const name = entry?.name?.trim() ?? "";
+        if (!name) {
+          configuredNameMap.set(id, id);
+          continue;
+        }
+        configuredNameMap.set(id, name);
       }
 
       const allowed = new Set<string>();
@@ -91,6 +90,8 @@ export function createAgentsListTool(opts?: {
       return jsonResult({
         requester: requesterAgentId,
         allowAny,
+        configuredIds,
+        allowAgents,
         agents,
       });
     },

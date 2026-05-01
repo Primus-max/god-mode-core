@@ -37,6 +37,7 @@ import * as subagentRegistry from "./subagent-registry.js";
 const callGatewaySpy = vi.spyOn(gatewayCall, "callGateway");
 const registerSubagentRunSpy = vi.spyOn(subagentRegistry, "registerSubagentRun");
 const countActiveRunsSpy = vi.spyOn(subagentRegistry, "countActiveRunsForSession");
+const listSubagentRunsForRequesterSpy = vi.spyOn(subagentRegistry, "listSubagentRunsForRequester");
 const getSubagentDepthSpy = vi.spyOn(subagentDepth, "getSubagentDepthFromSessionStore");
 const resolveSandboxSpy = vi.spyOn(sandboxRuntimeStatus, "resolveSandboxRuntimeStatus");
 const materializeAttachmentsSpy = vi.spyOn(subagentAttachments, "materializeSubagentAttachments");
@@ -124,6 +125,7 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation((() => undefined) as unknown as typeof subagentRegistry.registerSubagentRun);
   countActiveRunsSpy.mockReset().mockReturnValue(0);
+  listSubagentRunsForRequesterSpy.mockReset().mockReturnValue([]);
   getSubagentDepthSpy.mockReset().mockReturnValue(0);
   resolveSandboxSpy
     .mockReset()
@@ -204,6 +206,43 @@ describe("spawnSubagentDirect persistent_session.created idempotency", () => {
     expect(callGatewaySpy).not.toHaveBeenCalled();
     expect(registerSubagentRunSpy).not.toHaveBeenCalled();
     expect(runSubagentSpawningMock).not.toHaveBeenCalled();
+  });
+
+  it("reuses an active continuation child with the same requester label instead of spawning a duplicate", async () => {
+    listSubagentRunsForRequesterSpy.mockReturnValue([
+      {
+        runId: "run-active-1",
+        childSessionKey: "agent:main:subagent:active-child",
+        requesterSessionKey: "agent:main:main",
+        requesterDisplayKey: "main",
+        task: "background work",
+        cleanup: "keep",
+        label: "Валера",
+        spawnMode: "session",
+        expectsCompletionMessage: true,
+        createdAt: 10_000,
+      },
+    ]);
+
+    const result = await spawnSubagentDirect(
+      {
+        task: "create Валера again",
+        label: "Валера",
+        thread: true,
+        mode: "session",
+        agentId: "main",
+      },
+      tgRequesterCtx,
+    );
+
+    expect(result.status).toBe("accepted");
+    expect(result.childSessionKey).toBe("agent:main:subagent:active-child");
+    expect(result.runId).toBe("run-active-1");
+    expect(result.note ?? "").toMatch(/Reused active continuation child/);
+    expect(callGatewaySpy).not.toHaveBeenCalled();
+    expect(registerSubagentRunSpy).not.toHaveBeenCalled();
+    expect(runSubagentSpawningMock).not.toHaveBeenCalled();
+    expect(loadSessionStoreSpy).not.toHaveBeenCalled();
   });
 
   it("picks the latest entry by updatedAt when multiple subagent entries share the label and origin", async () => {

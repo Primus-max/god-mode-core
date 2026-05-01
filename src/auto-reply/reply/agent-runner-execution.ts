@@ -47,6 +47,7 @@ import {
   buildEmbeddedRunExecutionParams,
   resolveRoutingSnapshotForTemplateRun,
   resolveModelFallbackOptions,
+  type TemplateRunRoutingSnapshot,
 } from "./agent-runner-utils.js";
 import { type BlockReplyPipeline } from "./block-reply-pipeline.js";
 import type { FollowupRun } from "./queue.js";
@@ -124,6 +125,7 @@ export async function runAgentTurnWithFallback(params: {
     requiredCapabilities?: string[];
     requestedToolNames?: string[];
   }) => Promise<void> | void;
+  routingSnapshot?: TemplateRunRoutingSnapshot;
 }): Promise<AgentRunLoopResult> {
   const TRANSIENT_HTTP_RETRY_DELAY_MS = 2_500;
   let didLogHeartbeatStrip = false;
@@ -138,13 +140,15 @@ export async function runAgentTurnWithFallback(params: {
       ? params.opts.runId.trim()
       : undefined) ??
     runId;
-  const routingSnapshot = await resolveRoutingSnapshotForTemplateRun({
-    prompt: params.commandBody,
-    run: params.followupRun.run,
-    sessionCtx: params.sessionCtx,
-    storePath: params.storePath,
-    sessionEntry: params.getActiveSessionEntry(),
-  });
+  const routingSnapshot =
+    params.routingSnapshot ??
+    (await resolveRoutingSnapshotForTemplateRun({
+      prompt: params.commandBody,
+      run: params.followupRun.run,
+      sessionCtx: params.sessionCtx,
+      storePath: params.storePath,
+      sessionEntry: params.getActiveSessionEntry(),
+    }));
   const platformExecutionContext = routingSnapshot.runtimePlan;
   if (platformExecutionContext.ackThenDefer === true && params.onAckThenDefer && !params.isHeartbeat) {
     try {

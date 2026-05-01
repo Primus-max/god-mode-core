@@ -369,11 +369,24 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
         case "status":
           return jsonResult(await callGateway("cron.status", gatewayOpts, {}));
         case "list":
-          return jsonResult(
-            await callGateway("cron.list", gatewayOpts, {
+          {
+            const page = (await callGateway("cron.list", gatewayOpts, {
               includeDisabled: Boolean(params.includeDisabled),
-            }),
-          );
+            })) as {
+              items?: unknown[];
+              total?: number;
+              limit?: number;
+              offset?: number;
+              hasMore?: boolean;
+            };
+            return jsonResult({
+              jobs: Array.isArray(page?.items) ? page.items : [],
+              total: typeof page?.total === "number" ? page.total : undefined,
+              limit: typeof page?.limit === "number" ? page.limit : undefined,
+              offset: typeof page?.offset === "number" ? page.offset : undefined,
+              hasMore: typeof page?.hasMore === "boolean" ? page.hasMore : undefined,
+            });
+          }
         case "add": {
           // Flat-params recovery: non-frontier models (e.g. Grok) sometimes flatten
           // job properties to the top level alongside `action` instead of nesting
