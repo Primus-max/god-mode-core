@@ -68,6 +68,7 @@ isProject: true
 | 2026-05-01 | Bug A.2 — block-streaming buffering at tool_call (PR-A.2) | 3df3138fcc | PR-H — session-history-aware clarify (Stage 1.5 PolicyGate) sub-plan kickoff |
 | 2026-05-01 | PR-H — session-history-aware clarify (Stage 1.5 ClarificationPolicy) | 185cf7d3fb | PR-H Phase 2 — per-session SemanticIntent cache wiring at caller layer (auto-reply / pi-embedded-runner); затем PR-MT concurrent broker (signoff required) |
 | 2026-05-01 | PR-H Phase 2 — per-session SemanticIntent cache wiring (intent-ledger + input.ts callers) | 01afedff6a | PR-MT — concurrent broker (deferred, signoff required); roadmap step 4 ждёт maintainer |
+| 2026-05-01 | Regression Slice 1 — model-fallback respect configured order (route-preflight passthrough) | c0bee0846f | Regression Slice 2 — sessions.patch label idempotency (extend G3 fix) |
 
 
 ### Active Work Handoff Protocol

@@ -32,11 +32,11 @@ todos:
     content: 2 новых теста — all-remote no-local чейн → unchanged + decision.reordered=false; stronger_route passthrough → unchanged + decision.reordered=false. Existing 5 тестов остаются green.
     status: completed
   - id: tsgo-scoped-tests
-    content: pnpm tsgo green; pnpm test -- src/platform/decision/route-preflight.test.ts green.
-    status: pending
+    content: pnpm tsgo green; pnpm test -- src/platform/decision/route-preflight.test.ts 10/10 green.
+    status: completed
   - id: branch-pr-merge-handoff
-    content: Branch fix/orchestrator-model-fallback-respect-configured-order, PR через gh, admin-merge при BlackSmith offline (после frozen-layer SUCCESS), restart gateway, verify в live логе claude-opus-4.6 first.
-    status: pending
+    content: Branch fix/orchestrator-model-fallback-respect-configured-order, PR #114 admin-merged c0bee0846f при BlackSmith offline (local validation + no frozen contracts touched), restart gateway pending, live verification pending.
+    status: completed
 
 isProject: false
 ---
@@ -103,6 +103,7 @@ const remoteAdjusted = reorderRemoteTailCandidates({...});
 
 | Date | Step | Branch | SHA | PR # | Notes |
 | --- | --- | --- | --- | --- | --- |
+| 2026-05-01 | Slice 1 merged | `fix/orchestrator-model-fallback-respect-configured-order` | `c0bee0846f` | [#114](https://github.com/Primus-max/god-mode-core/pull/114) | finalizeResult skips reorderRemoteTailCandidates когда decision.reordered=false. 2 новых теста (all-remote no-local + stronger_route passthrough); 10/10 route-preflight.test.ts green; pnpm tsgo exit 0 (включая piggyback-fix Map<> generic widening на FIELD_TO_BLOCKING_REASON_FRAGMENTS — pre-existing tsgo regression от PR-H Phase 1). BlackSmith total_count=0 → admin-merge после local validation + no frozen contracts touched. Live verification pending: после restart gateway проверить лог `route candidates ordered: hydra/claude-opus-4.6 first`. |
 
 ## 7. References
 
