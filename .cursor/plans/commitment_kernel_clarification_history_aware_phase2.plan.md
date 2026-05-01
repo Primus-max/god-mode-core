@@ -36,11 +36,11 @@ todos:
     content: 8 cases для intent-ledger recent-intent — record+read most recent; sliding window latest; cross-session isolation; cross-channel isolation; cold start; low-confidence drop; window trim; TTL eviction.
     status: completed
   - id: tsgo-scoped-tests
-    content: pnpm tsgo green; pnpm test -- src/platform/session/intent-ledger.test.ts src/platform/commitment/__tests__/clarification-policy.test.ts src/platform/decision/run-turn-decision.clarification-downgrade.test.ts green.
-    status: pending
+    content: pnpm tsgo green; pnpm test -- src/platform/session/intent-ledger.test.ts src/platform/commitment/__tests__/clarification-policy.test.ts src/platform/decision/run-turn-decision.clarification-downgrade.test.ts — 55/55 green.
+    status: completed
   - id: branch-pr-merge-docs-handoff
-    content: Ветка fix/orchestrator-clarify-session-aware-wiring от origin/dev; gh pr create vs dev; CI infra может быть offline (BlackSmith) — admin-merge after local validation; finalize Handoff Log на 3 plan-файлах.
-    status: pending
+    content: Ветка fix/orchestrator-clarify-session-aware-wiring → PR #113 → admin-merged 01afedff6a (BlackSmith offline). Handoff Log на 3 plan-файлах обновлены.
+    status: completed
 
 isProject: false
 ---
@@ -126,6 +126,7 @@ isProject: false
 
 | Date | Step | Branch | SHA | PR # | Notes |
 | --- | --- | --- | --- | --- | --- |
+| 2026-05-01 | Phase 2 wiring merged | `fix/orchestrator-clarify-session-aware-wiring` | `01afedff6a` | [#113](https://github.com/Primus-max/god-mode-core/pull/113) | Closes Phase 2 → roadmap step 3 (PR-H) end-to-end. intentLedger extended; RunTurnDecisionResult.intent exposed; input.ts:541+578 wired (read priorIntent → pass → record finalIntent). 55/55 scoped tests green. CI infra note: BlackSmith offline; admin-merged after frozen-layer SUCCESS + local validation. Production effect виден после restart gateway: continuous chat (Telegram/iMessage/WhatsApp) бот не клерифаит очевидное когда prior turn intent уже структурно резолвил поле. |
 
 ## 7. References
 
