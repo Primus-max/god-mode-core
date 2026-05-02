@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelCandidate } from "../../agents/model-fallback.types.js";
+import type { ResolutionContract } from "./resolution-contract.js";
 import { applyModelRoutePreflight, inferLocalRoutingEligibleFromPlannerInput } from "./route-preflight.js";
 
 const BASE_CHAIN: ModelCandidate[] = [
@@ -196,6 +197,68 @@ describe("applyModelRoutePreflight", () => {
       },
     });
 
+    expect(decision?.reasonCode).not.toBe("preflight_routed_grok_for_web_search");
+  });
+
+  it("promotes hydra/grok-4 first when bundles=[public_web_lookup] and requestedTools is empty (slice B bundle-signal)", () => {
+    const chain: ModelCandidate[] = [
+      { provider: "hydra", model: "claude-opus-4.6" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "grok-4" },
+      { provider: "hydra", model: "hydra-gpt-pro" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: chain,
+      plannerInput: {
+        intent: "general",
+        requestedTools: [],
+        resolutionContract: {
+          toolBundles: ["public_web_lookup"],
+        } as unknown as ResolutionContract,
+      },
+    });
+
+    expect(candidates).toEqual([
+      { provider: "hydra", model: "grok-4" },
+      { provider: "hydra", model: "claude-opus-4.6" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "hydra-gpt-pro" },
+    ]);
+    expect(decision?.reasonCode).toBe("preflight_routed_grok_for_web_search");
+    expect(decision?.reordered).toBe(true);
+  });
+
+  it("uses exact-match against NATIVE_WEB_SEARCH_MODEL_IDS, ignoring grok-named models without nativeWebSearchTool", () => {
+    const chain: ModelCandidate[] = [
+      { provider: "hydra", model: "claude-opus-4.6" },
+      { provider: "hydra", model: "grok-coder-fast-1" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: chain,
+      plannerInput: { intent: "general", requestedTools: ["web_search"] },
+    });
+
+    expect(candidates).toEqual(chain);
+    expect(decision?.reasonCode).not.toBe("preflight_routed_grok_for_web_search");
+  });
+
+  it("leaves chain unchanged when public_web_lookup bundle is signaled but no native-search candidate is in the chain", () => {
+    const chain: ModelCandidate[] = [
+      { provider: "hydra", model: "claude-opus-4.6" },
+      { provider: "hydra", model: "gpt-5.4" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: chain,
+      plannerInput: {
+        intent: "general",
+        requestedTools: [],
+        resolutionContract: {
+          toolBundles: ["public_web_lookup"],
+        } as unknown as ResolutionContract,
+      },
+    });
+
+    expect(candidates).toEqual(chain);
     expect(decision?.reasonCode).not.toBe("preflight_routed_grok_for_web_search");
   });
 });

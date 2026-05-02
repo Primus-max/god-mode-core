@@ -8,9 +8,33 @@ export type RoutePreflightMode = "default" | "force_stronger";
 
 const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process", "browser", "web_search"]);
 
+/**
+ * Models with `compat.nativeWebSearchTool: true` in
+ * `~/.openclaw-dev/agents/dev/agent/models.json`.
+ *
+ * SOURCE OF TRUTH for which candidates can serve `web_search` end-to-end via
+ * Hydra without falling back to OpenClaw's local DDG scraper. Mirror this set
+ * any time a new model gains `nativeWebSearchTool: true` in models.json. PR-#125
+ * added the original grok-4 compat block; this slice (capability-aware routing)
+ * replaces the prior substring `includes("grok")` lookup with exact membership.
+ *
+ * Current members:
+ * - `grok-4` — xAI Live Search via openai-completions schema.
+ */
+const NATIVE_WEB_SEARCH_MODEL_IDS: ReadonlySet<string> = new Set(["grok-4"]);
+
+function hasNativeWebSearchCapability(candidate: ModelCandidate): boolean {
+  return NATIVE_WEB_SEARCH_MODEL_IDS.has(candidate.model.trim().toLowerCase());
+}
+
 type LocalRoutingPlannerInput = Pick<
   RecipePlannerInput,
-  "intent" | "requestedTools" | "fileNames" | "artifactKinds" | "routing"
+  | "intent"
+  | "requestedTools"
+  | "fileNames"
+  | "artifactKinds"
+  | "routing"
+  | "resolutionContract"
 >;
 
 const HEAVY_FILE_EXTENSION =
@@ -785,25 +809,32 @@ export function applyModelRoutePreflight(params: {
     return { candidates: list, decision: null };
   }
 
-  // Tool-aware routing: Hydra proxies the Grok models, which are the only
-  // family in this catalog whose `web_search` is reliably served end-to-end
-  // (xAI Live Search via openai-completions schema). When the planner
-  // explicitly requests `web_search`, promote a Grok candidate to first so
-  // OpenClaw's local DDG-backed tool is bypassed (`hasNativeWebSearchTool`
-  // detects the xai compat profile and filters the redundant tool out).
-  // Fallbacks remain in their original order behind Grok — failover semantics
-  // unchanged.
+  // Tool-aware routing (extends PR-#125): when the turn signals a web_search
+  // need — either explicitly via `requestedTools` OR structurally via the
+  // `public_web_lookup` tool bundle on the resolution contract — promote any
+  // candidate that has a working native search capability ahead of the
+  // configured chain. OpenClaw's local DDG-backed `web_search` tool is rate-
+  // limited / bot-detected, and for models without `compat.nativeWebSearchTool=true`
+  // an autonomous `web_search` call dies with `Provider finish_reason: error`
+  // (see gateway-grok-route.log 2026-05-02 turn 355ae135). Today only `grok-4`
+  // carries the marker (xAI Live Search via openai-completions schema); the
+  // curated `NATIVE_WEB_SEARCH_MODEL_IDS` set mirrors the models.json compat
+  // blocks. Fallbacks remain in their original order behind the promoted
+  // candidate — failover semantics unchanged.
   const requestedTools = plannerInput.requestedTools ?? [];
-  if (requestedTools.includes("web_search")) {
-    const grokIndex = list.findIndex((c) => c.model.toLowerCase().includes("grok"));
-    if (grokIndex > 0) {
-      const grok = list[grokIndex];
-      const ordered = [grok, ...list.filter((_, idx) => idx !== grokIndex)];
+  const toolBundles = plannerInput.resolutionContract?.toolBundles ?? [];
+  const isWebSearchSignaled =
+    requestedTools.includes("web_search") || toolBundles.includes("public_web_lookup");
+  if (isWebSearchSignaled) {
+    const nativeIndex = list.findIndex(hasNativeWebSearchCapability);
+    if (nativeIndex > 0) {
+      const native = list[nativeIndex];
+      const ordered = [native, ...list.filter((_, idx) => idx !== nativeIndex)];
       return {
         candidates: ordered,
         decision: buildDecisionForOrdered(ordered, {
           reasonCode: "preflight_routed_grok_for_web_search",
-          reason: `Promoted ${grok.provider}/${grok.model} ahead of the configured chain because the turn requests web_search and Grok is the only candidate with a working native search through Hydra.`,
+          reason: `Promoted ${native.provider}/${native.model} ahead of the configured chain because the turn signals web_search (requestedTools or public_web_lookup bundle) and ${native.provider}/${native.model} is the candidate with compat.nativeWebSearchTool=true.`,
           localRoutingEligible: false,
           reordered: true,
         }),
