@@ -14,14 +14,22 @@ const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process", "browser", "we
  *
  * SOURCE OF TRUTH for which candidates can serve `web_search` end-to-end via
  * Hydra without falling back to OpenClaw's local DDG scraper. Mirror this set
- * any time a new model gains `nativeWebSearchTool: true` in models.json. PR-#125
- * added the original grok-4 compat block; this slice (capability-aware routing)
- * replaces the prior substring `includes("grok")` lookup with exact membership.
+ * any time a new model gains `nativeWebSearchTool: true` in models.json.
+ *
+ * Empirical verification via Hydra `/v1/models` (2026-05-02): only Perplexity
+ * `sonar` and `sonar-pro` carry a `web_search: true` capability flag in
+ * Hydra's own catalog AND reply with live SERP citations on chat-completions
+ * calls (verified via `curl` returning current-day news with cited URLs).
+ * `grok-4` was previously marked native (PR-#125) without curl verification;
+ * Hydra does NOT advertise web_search for grok-4 and a live test returned
+ * training-cutoff knowledge (July 2025) instead of fresh data — its compat
+ * block was removed in this follow-up.
  *
  * Current members:
- * - `grok-4` — xAI Live Search via openai-completions schema.
+ * - `sonar` — Perplexity Sonar via Hydra openai-completions.
+ * - `sonar-pro` — Perplexity Sonar Pro via Hydra openai-completions.
  */
-const NATIVE_WEB_SEARCH_MODEL_IDS: ReadonlySet<string> = new Set(["grok-4"]);
+const NATIVE_WEB_SEARCH_MODEL_IDS: ReadonlySet<string> = new Set(["sonar", "sonar-pro"]);
 
 function hasNativeWebSearchCapability(candidate: ModelCandidate): boolean {
   return NATIVE_WEB_SEARCH_MODEL_IDS.has(candidate.model.trim().toLowerCase());
