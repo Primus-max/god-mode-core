@@ -12,24 +12,38 @@ const HEAVY_TOOL_IDS = new Set(["exec", "apply_patch", "process", "browser", "we
  * Models with `compat.nativeWebSearchTool: true` in
  * `~/.openclaw-dev/agents/dev/agent/models.json`.
  *
- * SOURCE OF TRUTH for which candidates can serve `web_search` end-to-end via
- * Hydra without falling back to OpenClaw's local DDG scraper. Mirror this set
- * any time a new model gains `nativeWebSearchTool: true` in models.json.
+ * INTENTIONALLY EMPTY (2026-05-02, post live verification of PR-#126):
+ * Perplexity `sonar` / `sonar-pro` are search-specialty models that do NOT
+ * accept arbitrary function-tool schemas (live test returned `HTTP 400 Your
+ * request is invalid` when planner emitted bundles=[artifact_authoring,
+ * public_web_lookup] requestedTools=[image_generate,pdf,web_search]). Naive
+ * promotion of sonar-pro inside this preflight gate breaks combo turns that
+ * need both web_search AND an artifact tool (the PDF + research scenario
+ * from gateway-grok-route.log 2026-05-02 turn `098ad94d`).
  *
- * Empirical verification via Hydra `/v1/models` (2026-05-02): only Perplexity
- * `sonar` and `sonar-pro` carry a `web_search: true` capability flag in
- * Hydra's own catalog AND reply with live SERP citations on chat-completions
- * calls (verified via `curl` returning current-day news with cited URLs).
- * `grok-4` was previously marked native (PR-#125) without curl verification;
- * Hydra does NOT advertise web_search for grok-4 and a live test returned
- * training-cutoff knowledge (July 2025) instead of fresh data — its compat
- * block was removed in this follow-up.
+ * Hydra `/v1/models` 2026-05-02 audit: ONLY `sonar` and `sonar-pro` carry
+ * the `web_search: true` flag in Hydra's own catalog. `grok-4` was wrongly
+ * marked native by PR-#125 without curl verification; live test returned
+ * training-cutoff knowledge (July 2025) instead of fresh SERP data, so its
+ * compat block was removed.
  *
- * Current members:
- * - `sonar` — Perplexity Sonar via Hydra openai-completions.
- * - `sonar-pro` — Perplexity Sonar Pro via Hydra openai-completions.
+ * Until the architectural search/composer pipeline ships (sub-plan
+ * `commitment_kernel_search_composer_pipeline.plan.md`, signoff required),
+ * the set is empty: this gate is dead code today. The infrastructure (gate
+ * predicate + bundle/requestedTools signals + capability lookup) stays in
+ * place so that the future pipeline only needs to populate this set with
+ * `sonar`, `sonar-pro` (and any other search-specialty model) AND wire the
+ * Affordance(perplexity_search) + Affordance(composer_after_search)
+ * affordance graph in `src/platform/commitment/affordance-registry.ts`.
+ *
+ * MUST stay in sync with:
+ * - `~/.openclaw-dev/agents/dev/agent/models.json` compat blocks (currently
+ *   `sonar` and `sonar-pro` carry `nativeWebSearchTool: true` — kept there
+ *   so the future pipeline finds them).
+ * - sub-plan `commitment_kernel_search_composer_pipeline.plan.md` (defines
+ *   when this set gets populated and what affordance graph backs it).
  */
-const NATIVE_WEB_SEARCH_MODEL_IDS: ReadonlySet<string> = new Set(["sonar", "sonar-pro"]);
+const NATIVE_WEB_SEARCH_MODEL_IDS: ReadonlySet<string> = new Set<string>();
 
 function hasNativeWebSearchCapability(candidate: ModelCandidate): boolean {
   return NATIVE_WEB_SEARCH_MODEL_IDS.has(candidate.model.trim().toLowerCase());

@@ -159,14 +159,14 @@ describe("applyModelRoutePreflight", () => {
     expect(decision?.reordered).toBe(true);
   });
 
-  it("promotes hydra/sonar-pro first when web_search is requested, preserving the rest of the chain", () => {
+  it("does not touch the chain when web_search is requested (gate disabled until search/composer pipeline lands)", () => {
     const chain: ModelCandidate[] = [
       { provider: "hydra", model: "claude-opus-4.6" },
       { provider: "hydra", model: "gpt-5.4" },
       { provider: "hydra", model: "sonar-pro" },
       { provider: "hydra", model: "hydra-gpt-pro" },
     ];
-    const { candidates, decision } = applyModelRoutePreflight({
+    const { decision } = applyModelRoutePreflight({
       candidates: chain,
       plannerInput: {
         intent: "general",
@@ -174,17 +174,31 @@ describe("applyModelRoutePreflight", () => {
       },
     });
 
-    expect(candidates).toEqual([
-      { provider: "hydra", model: "sonar-pro" },
-      { provider: "hydra", model: "claude-opus-4.6" },
-      { provider: "hydra", model: "gpt-5.4" },
-      { provider: "hydra", model: "hydra-gpt-pro" },
-    ]);
-    expect(decision?.reasonCode).toBe("preflight_routed_grok_for_web_search");
-    expect(decision?.reordered).toBe(true);
+    expect(decision?.reasonCode).not.toBe("preflight_routed_grok_for_web_search");
   });
 
-  it("does not touch the chain when web_search is requested but no native-search candidate is present (grok-4 no longer counts)", () => {
+  it("does not touch the chain when bundles=[public_web_lookup] and sonar-pro is in the chain (gate disabled)", () => {
+    const chain: ModelCandidate[] = [
+      { provider: "hydra", model: "claude-opus-4.6" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "sonar-pro" },
+      { provider: "hydra", model: "hydra-gpt-pro" },
+    ];
+    const { decision } = applyModelRoutePreflight({
+      candidates: chain,
+      plannerInput: {
+        intent: "general",
+        requestedTools: [],
+        resolutionContract: {
+          toolBundles: ["public_web_lookup"],
+        } as unknown as ResolutionContract,
+      },
+    });
+
+    expect(decision?.reasonCode).not.toBe("preflight_routed_grok_for_web_search");
+  });
+
+  it("does not touch the chain when web_search is requested but no native-search candidate is present", () => {
     const chain: ModelCandidate[] = [
       { provider: "hydra", model: "claude-opus-4.6" },
       { provider: "hydra", model: "gpt-5.4" },
@@ -198,48 +212,6 @@ describe("applyModelRoutePreflight", () => {
       },
     });
 
-    expect(decision?.reasonCode).not.toBe("preflight_routed_grok_for_web_search");
-  });
-
-  it("promotes hydra/sonar-pro first when bundles=[public_web_lookup] and requestedTools is empty", () => {
-    const chain: ModelCandidate[] = [
-      { provider: "hydra", model: "claude-opus-4.6" },
-      { provider: "hydra", model: "gpt-5.4" },
-      { provider: "hydra", model: "sonar-pro" },
-      { provider: "hydra", model: "hydra-gpt-pro" },
-    ];
-    const { candidates, decision } = applyModelRoutePreflight({
-      candidates: chain,
-      plannerInput: {
-        intent: "general",
-        requestedTools: [],
-        resolutionContract: {
-          toolBundles: ["public_web_lookup"],
-        } as unknown as ResolutionContract,
-      },
-    });
-
-    expect(candidates).toEqual([
-      { provider: "hydra", model: "sonar-pro" },
-      { provider: "hydra", model: "claude-opus-4.6" },
-      { provider: "hydra", model: "gpt-5.4" },
-      { provider: "hydra", model: "hydra-gpt-pro" },
-    ]);
-    expect(decision?.reasonCode).toBe("preflight_routed_grok_for_web_search");
-    expect(decision?.reordered).toBe(true);
-  });
-
-  it("uses exact-match against NATIVE_WEB_SEARCH_MODEL_IDS, ignoring sonar-substring model names that are not in the set", () => {
-    const chain: ModelCandidate[] = [
-      { provider: "hydra", model: "claude-opus-4.6" },
-      { provider: "hydra", model: "sonar-future-edition" },
-    ];
-    const { candidates, decision } = applyModelRoutePreflight({
-      candidates: chain,
-      plannerInput: { intent: "general", requestedTools: ["web_search"] },
-    });
-
-    expect(candidates).toEqual(chain);
     expect(decision?.reasonCode).not.toBe("preflight_routed_grok_for_web_search");
   });
 
@@ -261,20 +233,5 @@ describe("applyModelRoutePreflight", () => {
 
     expect(candidates).toEqual(chain);
     expect(decision?.reasonCode).not.toBe("preflight_routed_grok_for_web_search");
-  });
-
-  it("picks the first native-search candidate by chain order when both sonar and sonar-pro are present", () => {
-    const chain: ModelCandidate[] = [
-      { provider: "hydra", model: "claude-opus-4.6" },
-      { provider: "hydra", model: "sonar" },
-      { provider: "hydra", model: "sonar-pro" },
-    ];
-    const { candidates, decision } = applyModelRoutePreflight({
-      candidates: chain,
-      plannerInput: { intent: "general", requestedTools: ["web_search"] },
-    });
-
-    expect(candidates[0]).toEqual({ provider: "hydra", model: "sonar" });
-    expect(decision?.reasonCode).toBe("preflight_routed_grok_for_web_search");
   });
 });
