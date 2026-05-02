@@ -168,8 +168,30 @@ describe("runTurnDecision cutover-2 (Wave B chat effects)", () => {
         | undefined;
       expect(productionTrace?.kernelDerived?.sourceOfTruth).toBe("kernel");
       expect(productionTrace?.kernelDerived?.effect).toBe(effect);
+
+      expect(result.derivedCommitment).toBeDefined();
+      expect(result.derivedCommitment?.effect).toBe(effect);
     },
   );
+
+  it("omits derivedCommitment on legacy fallback (channel disabled)", async () => {
+    const monitoredRuntime = {
+      run: vi.fn(async () => attestation(true)),
+    };
+    const semantic = intent({ kind: "external_channel", channelId: TG }, { kind: "create" });
+
+    const result = await runTurnDecision({
+      prompt: "chat-bound delivery turn",
+      cfg: cfg({ channels: { telegram: { enabled: false, botToken: "tg-bot-token" } } }),
+      classifierAdapterRegistry: { "legacy-mock": legacyAdapter() },
+      intentContractorAdapterRegistry: { "intent-mock": intentAdapter(semantic) },
+      monitoredRuntime,
+      expectedDeltaResolver: () => deliveryDelta("answer"),
+    });
+
+    expect(result.kernelFallback).toBe(true);
+    expect(result.derivedCommitment).toBeUndefined();
+  });
 
   it("falls back to legacy when the PolicyGate denies (e.g. channel_disabled)", async () => {
     const monitoredRuntime = {
