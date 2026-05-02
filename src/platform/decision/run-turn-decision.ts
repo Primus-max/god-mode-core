@@ -118,6 +118,16 @@ export type RunTurnDecisionResult = {
    * shadow branch failed or timed out.
    */
   readonly intent?: SemanticIntent;
+  /**
+   * Kernel-derived `ExecutionCommitment` surfaced from the shadow branch on
+   * the kernel-source-of-truth path (`gate_in_success` + `commitmentSatisfied`).
+   * Absent on legacy fallback. Exposed for the Search-Composer Phase 4b''-e
+   * caller wiring (`commitment_kernel_search_composer_pipeline.plan.md` §8.5),
+   * which gates the two-affordance dispatch (specialist → composer) on
+   * `isWebResearchFamilyEffect(derivedCommitment.effect)`. Outside that
+   * branch, the existing single-LLM flow runs untouched.
+   */
+  readonly derivedCommitment?: ExecutionCommitment;
 };
 
 export type CutoverGateTrace =
@@ -234,6 +244,9 @@ export async function runTurnDecision(
     kernelFallback: !isKernelDerived,
     ...(fallbackReason ? { fallbackReason } : {}),
     ...(shadowOutcome.intent ? { intent: shadowOutcome.intent } : {}),
+    ...(isKernelDerived && shadowCommitment.kind === "commitment"
+      ? { derivedCommitment: shadowCommitment.value }
+      : {}),
     traceId,
   };
 }
