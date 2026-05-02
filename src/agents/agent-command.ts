@@ -52,6 +52,10 @@ import {
   buildSessionBackedExecutionDecisionInput,
   shouldUseLightweightBootstrapContext,
 } from "../platform/decision/input.js";
+import {
+  filterWebSearchFromTools,
+  maybeFetchWebEvidence,
+} from "../platform/decision/web-evidence-prefetch.js";
 import type { TaskClassifierAdapter } from "../platform/decision/task-classifier.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../platform/profile/session-overrides.js";
 import {
@@ -1328,6 +1332,22 @@ async function prepareAgentCommandExecution(
     stagedDocuments.inlinePreviews,
   );
   const runId = opts.runId?.trim() || sessionId;
+  const webEvidencePrefetch = await maybeFetchWebEvidence({
+    requestedTools: platformPlannerInput.requestedTools,
+    userPrompt: body,
+    cfg,
+    agentDir,
+    sessionId,
+    turnId: runId,
+    logger: (line) => log.info(line),
+  });
+  if (webEvidencePrefetch) {
+    body = webEvidencePrefetch.enrichedPrompt;
+    const filtered = filterWebSearchFromTools(platformPlannerInput.requestedTools);
+    if (filtered) {
+      (platformPlannerInput as { requestedTools?: string[] }).requestedTools = [...filtered];
+    }
+  }
   const acpManager = getAcpSessionManager();
   const acpResolution = sessionKey
     ? acpManager.resolveSession({
