@@ -222,7 +222,7 @@ describe("affordance registry — web_research family (Search-Composer Phase 2)"
     ).toEqual([]);
   });
 
-  it("Phase 3 specialist predicate reports slice_absent on empty state; composer stub stays Phase-4-pending", () => {
+  it("Phase 4b: both predicates read state-after — empty state yields web_evidence.slice_absent on both", () => {
     const emptyState: WorldStateSnapshot = Object.freeze({});
     const emptyDelta: ExpectedDelta = Object.freeze({});
     const ctx = {
@@ -242,7 +242,7 @@ describe("affordance registry — web_research family (Search-Composer Phase 2)"
     const composerResult = COMPOSER_AFTER_SEARCH_AFFORDANCE_ENTRY.donePredicate(ctx);
     expect(composerResult.satisfied).toBe(false);
     expect(composerResult.satisfied === false ? composerResult.missing : []).toEqual([
-      "composer.runtime_adapter_pending_phase_4",
+      "web_evidence.slice_absent",
     ]);
   });
 
