@@ -625,7 +625,7 @@ describe("sendMessageTelegram", () => {
     });
   });
 
-  it("splits long captions into media + text messages when text exceeds 1024 chars", async () => {
+  it("packs the caption to the limit and sends overflow as follow-up text when text exceeds 1024 chars", async () => {
     const chatId = "123";
     const longText = "A".repeat(1100);
 
@@ -655,9 +655,10 @@ describe("sendMessageTelegram", () => {
     });
 
     expect(sendPhoto).toHaveBeenCalledWith(chatId, expect.anything(), {
-      caption: undefined,
+      caption: "A".repeat(1024),
+      parse_mode: "HTML",
     });
-    expect(sendMessage).toHaveBeenCalledWith(chatId, longText, {
+    expect(sendMessage).toHaveBeenCalledWith(chatId, "A".repeat(76), {
       parse_mode: "HTML",
     });
     expect(res.messageId).toBe("71");
