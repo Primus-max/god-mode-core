@@ -12,6 +12,10 @@ import {
   type DeliveryReceiptRegistry,
 } from "./delivery-receipt-registry.js";
 import { createDeliveryWorldStateObserver } from "./delivery-world-state-observer.js";
+import {
+  createWebEvidenceWorldStateObserver,
+  getProcessWebEvidenceCollector,
+} from "./web-evidence-world-state-observer.js";
 import type { ExecutionCommitment } from "./execution-commitment.js";
 import type {
   DeliveryReceiptRef,
@@ -90,7 +94,10 @@ export function createDefaultMonitoredRuntime(options: {
   );
   const registry = options.deliveryReceiptRegistry ?? getProcessDeliveryReceiptRegistry();
   const deliveryObserver = createDeliveryWorldStateObserver(registry);
-  return createMonitoredRuntime({ sessionObserver, deliveryObserver });
+  const webEvidenceObserver = createWebEvidenceWorldStateObserver(
+    getProcessWebEvidenceCollector(),
+  );
+  return createMonitoredRuntime({ sessionObserver, deliveryObserver, webEvidenceObserver });
 }
 
 /**

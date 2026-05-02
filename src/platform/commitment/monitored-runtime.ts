@@ -8,6 +8,7 @@ import type { DeliveryWorldStateObserver } from "./delivery-world-state-observer
 import type { ExecutionCommitment } from "./execution-commitment.js";
 import type { ExpectedDelta } from "./expected-delta.js";
 import type { SessionWorldStateObserver } from "./session-world-state-observer.js";
+import type { WebEvidenceWorldStateObserver } from "./web-evidence-world-state-observer.js";
 import type { WorldStateSnapshot } from "./world-state.js";
 
 export type RuntimeTerminalState = "action_completed" | "rejected" | "unsupported";
@@ -59,6 +60,7 @@ export interface MonitoredRuntime {
 export function createMonitoredRuntime(deps: {
   readonly sessionObserver: SessionWorldStateObserver;
   readonly deliveryObserver?: DeliveryWorldStateObserver;
+  readonly webEvidenceObserver?: WebEvidenceWorldStateObserver;
 }): MonitoredRuntime {
   return Object.freeze({
     async run(params: MonitoredRuntimeRunParams): Promise<RuntimeAttestation> {
@@ -69,11 +71,13 @@ export function createMonitoredRuntime(deps: {
         stateBefore = freezeSnapshot({
           sessions: deps.sessionObserver.observe(),
           deliveries: deps.deliveryObserver?.observe(),
+          webEvidence: deps.webEvidenceObserver?.observe(),
         });
         await params.execute?.();
         stateAfter = freezeSnapshot({
           sessions: deps.sessionObserver.observe(),
           deliveries: deps.deliveryObserver?.observe(),
+          webEvidence: deps.webEvidenceObserver?.observe(),
         });
       } catch {
         return observerUnavailableAttestation();
@@ -115,9 +119,12 @@ const EMPTY_RECEIPTS: ReceiptsBundle = Object.freeze({
 });
 
 function freezeSnapshot(snapshot: WorldStateSnapshot): WorldStateSnapshot {
-  const out: WorldStateSnapshot = { sessions: snapshot.sessions };
+  let out: WorldStateSnapshot = { sessions: snapshot.sessions };
   if (snapshot.deliveries) {
-    return Object.freeze({ ...out, deliveries: snapshot.deliveries });
+    out = { ...out, deliveries: snapshot.deliveries };
+  }
+  if (snapshot.webEvidence) {
+    out = { ...out, webEvidence: snapshot.webEvidence };
   }
   return Object.freeze(out);
 }
