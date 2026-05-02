@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type {
-  WebEvidenceRecord,
-  WebEvidenceWorldState,
-  WorldStateSnapshot,
+import {
+  webEvidenceRecordSchema,
+  type WebEvidenceRecord,
+  type WebEvidenceWorldState,
+  type WorldStateSnapshot,
 } from "../world-state.js";
 import type { ISO8601 } from "../ids.js";
 
@@ -40,6 +41,72 @@ describe("WebEvidenceSlice — Search-Composer Phase 3 (type + read-side)", () =
       capturedAt: ISO_NOW,
     });
     expect(full.title).toBe("Model Family Announcement");
+  });
+
+  it("webEvidenceRecordSchema accepts the canonical shape (with and without title)", () => {
+    expect(
+      webEvidenceRecordSchema.safeParse({
+        url: "https://example.com",
+        snippet: "found",
+        capturedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(true);
+    expect(
+      webEvidenceRecordSchema.safeParse({
+        url: "https://example.com",
+        snippet: "found",
+        title: "Example",
+        capturedAt: "2026-05-02T11:00:00Z",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("webEvidenceRecordSchema rejects empty url", () => {
+    expect(
+      webEvidenceRecordSchema.safeParse({
+        url: "",
+        snippet: "x",
+        capturedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("webEvidenceRecordSchema rejects malformed ISO-8601 capturedAt", () => {
+    expect(
+      webEvidenceRecordSchema.safeParse({
+        url: "https://example.com",
+        snippet: "x",
+        capturedAt: "May 2 2026",
+      }).success,
+    ).toBe(false);
+    expect(
+      webEvidenceRecordSchema.safeParse({
+        url: "https://example.com",
+        snippet: "x",
+        capturedAt: "2026-05-02",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("webEvidenceRecordSchema rejects missing required fields", () => {
+    expect(
+      webEvidenceRecordSchema.safeParse({ url: "https://example.com", snippet: "x" }).success,
+    ).toBe(false);
+    expect(
+      webEvidenceRecordSchema.safeParse({ url: "https://example.com", capturedAt: ISO_NOW })
+        .success,
+    ).toBe(false);
+  });
+
+  it("webEvidenceRecordSchema rejects extra fields (strict)", () => {
+    expect(
+      webEvidenceRecordSchema.safeParse({
+        url: "https://example.com",
+        snippet: "x",
+        capturedAt: "2026-05-02T11:00:00.000Z",
+        extraField: "nope",
+      }).success,
+    ).toBe(false);
   });
 
   it("WebEvidenceWorldState carries multiple records preserving insertion order", () => {
