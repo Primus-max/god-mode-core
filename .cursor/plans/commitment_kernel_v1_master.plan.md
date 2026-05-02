@@ -72,6 +72,13 @@ isProject: true
 | 2026-05-01 | Regression Slice 2 — sessions.patch label idempotency (G3 extension to patch path) | 9fc0790bce | Regression Slice 3 — PR-H Phase 2 wiring debug |
 | 2026-05-01 | Regression Slice 3 Phase A — `[intent-history]` debug instrumentation | 690bc2dfe0 | Regression Slice 4 — cron tool single-block-no-retry; Slice 3 Phase B/C gated на live user evidence |
 | 2026-05-01 | Regression Slice 4 — cron tool structured blocked result (no retry on policy violation) | 00062f70a6 | Regression block (4/4) merged; final live verification + Slice 3 Phase B/C gated на user action |
+| 2026-05-01 | Slice 3 Phase B — `[intent-contractor]` debug log wiring (run-turn-decision onDebugEvent) | 3f467f414e | Phase C root-cause fix (semantic-intent reshape) |
+| 2026-05-01 | Slice 3 Phase B+ — include truncated rawText in `[intent-contractor]` log on parse_error | 8fccaf292d | Phase C continued |
+| 2026-05-01 | Slice 3 Phase C — tolerate flattened SemanticIntent JSON from gpt-5-mini (defensive reshape) | 0347e00489 | Edge-case follow-up (null fields + double-quoted kinds) |
+| 2026-05-01 | Slice 3 Phase C+ — strip null fields and unwrap double-quoted kinds in semantic-intent reshape | 30a098b1e3 | Diagnostic improvements: classifier prompt.head |
+| 2026-05-01 | Diagnostic — sanitized `prompt.head` (200 chars, then 500) in `[task-classifier]` log | f6abc9745f | Strip metadata envelope + reply-language log |
+| 2026-05-01 | Diagnostic — strip Telegram inbound metadata envelope before classifier; log `[assistant-reply] lang=ru\|en` | 8efe32a6a2 | Tool-aware routing for web_search |
+| 2026-05-01 | Tool-aware routing — promote `hydra/grok-4` first when turn requests `web_search` (xAI Live Search via Hydra openai-completions; only native search path) | e3d8c538f8 | PR-MT (concurrent broker) — deferred, signoff required; OR next narrow slice (Telegram caption-overflow UX, see roadmap forward-deferred) |
 
 
 ### Active Work Handoff Protocol
