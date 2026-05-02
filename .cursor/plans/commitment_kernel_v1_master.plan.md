@@ -79,6 +79,7 @@ isProject: true
 | 2026-05-01 | Diagnostic — sanitized `prompt.head` (200 chars, then 500) in `[task-classifier]` log | f6abc9745f | Strip metadata envelope + reply-language log |
 | 2026-05-01 | Diagnostic — strip Telegram inbound metadata envelope before classifier; log `[assistant-reply] lang=ru\|en` | 8efe32a6a2 | Tool-aware routing for web_search |
 | 2026-05-01 | Tool-aware routing — promote `hydra/grok-4` first when turn requests `web_search` (xAI Live Search via Hydra openai-completions; only native search path) | e3d8c538f8 | PR-MT (concurrent broker) — deferred, signoff required; OR next narrow slice (Telegram caption-overflow UX, see roadmap forward-deferred) |
+| 2026-05-02 | SLICE B — broaden `web_search` promotion gate to `bundles=[public_web_lookup]` signal + capability-aware lookup (curated `NATIVE_WEB_SEARCH_MODEL_IDS` mirroring models.json compat) | e7da04fb3e | Bundle-as-contract enforcement at LLM schema layer + IntentContractor freshness constraint — both **signoff required** (architectural shifts; see sub-plan §8). Otherwise: PR-MT (concurrent broker, signoff required) OR Telegram caption-overflow UX. |
 
 
 ### Active Work Handoff Protocol
@@ -146,6 +147,7 @@ Active handoff source of truth:
 | `Invariant #5 — zero text-control plane на user-bearing reply` | Блок `[DEBUG ROUTING]` всё ещё выводится в user-facing TG-ответ | `src/agents/command/delivery.ts:44-83` |
 | `§2.3 AffordanceGraph` как отдельный компонент | Файла `affordance-graph.ts` нет; функция `findByFamily(...)` лежит в `affordance-registry.ts` и не использует preconditions / policy / budgets для tie-break | `src/platform/commitment/affordance-registry.ts:94-111` |
 | `PolicyGate` интегрирован в pipeline | `runShadowBranch` использует `allowAllPolicyGate` (no-op stub); реальные credentials/approvals/channel-policy через kernel не проходят | `src/platform/decision/run-turn-decision.ts:158` |
+| Tool exposure согласована с model capability и bundle-контрактом | LLM tool schema собирается в `attempt.ts:1915` через `createOpenClawCodingTools(...)` БЕЗ параметра `toolBundles` — bundle (включая `respond_only`) advisory, не фильтрует schema. Capability-фильтр существует только для xai-native (`applyModelProviderToolPolicy` удаляет DDG `web_search` у моделей с `nativeWebSearchTool=true`); противоположной защиты — «не давать DDG-tool моделям без native search» — нет. Result: classifier-mis-emit `bundles=[respond_only] requestedTools=[]` приводит к autonomous `web_search` → DDG bot-detection → `Provider finish_reason: error` (gateway-grok-route.log 2026-05-02 turn `355ae135`). | `src/agents/pi-embedded-runner/run/attempt.ts:1915-1971`, `src/agents/pi-tools.ts:94-104` (`applyModelProviderToolPolicy`), `src/platform/decision/route-preflight.ts:797` (PR-#125+#126 narrow gate, не bundle-filter). Closure: `commitment_kernel_policy_gate_full.plan.md` Stage T (TBD) — bundle-as-contract enforcement at schema layer; **signoff required** (heartbeat-class flows зависят от bundle-as-advisory; см. PR-#126 sub-plan §8 row 1). |
 
 ### 0.5.2. Six critical gaps (каждый закрывается в указанном scope)
 

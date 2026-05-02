@@ -40,7 +40,7 @@ todos:
 
   - id: implement-capability-and-bundle-gate
     order: 2
-    status: pending
+    status: completed
     content: |
       Edit `src/platform/decision/route-preflight.ts`:
       1. Add `NATIVE_WEB_SEARCH_MODEL_IDS: ReadonlySet<string>` at module top, initialised to `new Set(["grok-4"])`. Comment cross-referencing `~/.openclaw-dev/agents/dev/agent/models.json` compat block as the source of truth — the set MUST stay in sync when new models acquire `nativeWebSearchTool: true`.
@@ -55,7 +55,7 @@ todos:
 
   - id: tests
     order: 3
-    status: pending
+    status: completed
     content: |
       Edit `src/platform/decision/route-preflight.test.ts`:
       1. NEW: "promotes hydra/grok-4 first when bundles=[public_web_lookup] and requestedTools=[]" — bundle-only signal fires gate.
@@ -66,19 +66,19 @@ todos:
 
   - id: tsgo-and-targeted-tests
     order: 4
-    status: pending
+    status: completed
     content: |
       `pnpm tsgo` clean (whole repo) + targeted `pnpm test -- src/platform/decision/route-preflight.test.ts` green. ReadLints clean.
 
   - id: commit-and-pr
     order: 5
-    status: pending
+    status: completed
     content: |
       Single commit on `fix/orchestrator-web-search-capability-routing`. PR via `gh pr create --base dev`. Frozen layer NOT touched (`reasonCode` union unchanged, `ResolutionContract` only read). PR body labels: `bug-fix` only — no `compatibility` checkbox needed. CI infra likely offline (BlackSmith total_count=0 historical) → admin-merge after frozen-layer SUCCESS + local validation per recent slice precedent (PR-#114, PR-#118, PR-#122, PR-#125).
 
   - id: handoff-and-master-row
     order: 6
-    status: pending
+    status: completed
     content: |
       After merge:
       - docs(plan) commit on dev with handoff log row in `commitment_kernel_smart_orchestrator_roadmap.plan.md` §6 + master `commitment_kernel_v1_master.plan.md` §0 PR Progress Log row.
@@ -378,7 +378,19 @@ Hard invariants check (16):
 
 ### 2026-05-02 — Implementation, tests, merge
 
-(To be filled after merge — PR # / merge SHA / live verification result.)
+- Completed TODOs: `write-subplan`, `implement-capability-and-bundle-gate`, `tests`, `tsgo-and-targeted-tests`, `commit-and-pr`, `handoff-and-master-row`.
+- Touched files (3):
+  - `src/platform/decision/route-preflight.ts` — `NATIVE_WEB_SEARCH_MODEL_IDS` + `hasNativeWebSearchCapability` predicate; `LocalRoutingPlannerInput` Pick widened with `"resolutionContract"`; gate at the previous line 796–812 replaced (predicate `requestedTools.includes("web_search") || toolBundles.includes("public_web_lookup")`; candidate lookup via `findIndex(hasNativeWebSearchCapability)`; refreshed inline comment + reason string).
+  - `src/platform/decision/route-preflight.test.ts` — 3 new tests (bundle-only signal promotes, exact-match capability rejects `grok-coder-fast-1`, no-op without native-search candidate).
+  - `.cursor/plans/orchestrator_web_search_capability_routing.plan.md` — this sub-plan.
+- Validation: `pnpm tsgo` exit 0; `pnpm test -- src/platform/decision/route-preflight.test.ts` 15/15 green (5 inferLocal + 7 existing applyModelRoutePreflight + 3 new). ReadLints clean.
+- Frozen layer untouched: `ModelRoutePreflightDecision.reasonCode` reused (`preflight_routed_grok_for_web_search`); `ResolutionContract` only READ; `RecipePlannerInput` shape unchanged; 4 frozen call sites untouched.
+- Hard invariants #5/#6/#8/#11/#15 satisfied.
+- PR `#126` opened against `dev`. CI infra: BlackSmith `total_count=0` runners offline; 8 checks queued ~9 min not started → admin-merge per documented protocol (PR-#112/#114/#118/#122/#125 precedent), local validation green + frozen layer untouched.
+- Merge SHA: `e7da04fb3e` (squash of `816927b061`); branch deleted on remote.
+- Master plan §0 PR Progress Log row + §0.5.1 audit-findings row "tool exposure ↔ model capability gating" + roadmap §6 Handoff Log row added in follow-up `docs(plan)` commit on `dev`.
+- **Live verification gated на user action**: restart `pnpm gateway:dev:channels`. Expected: turn signaling web_search via bundle (e.g. «поищи в интернете последние модели с открытыми весами») → `decision=preflight_routed_grok_for_web_search reordered=true first=hydra/grok-4` even when `requestedTools=[]`. Regression check: turn classified as `bundles=[respond_only] requestedTools=[]` → no promotion (gate doesn't fire — same UX behavior as classifier-mis-emit case stays unchanged; closure deferred to §8).
+- Unresolved: turn-class `355ae135` (silent `Provider finish_reason: error` after autonomous web_search on `respond_only`) is **not** closed by this slice; if it recurs in live verification, escalate to §8 row 1 (bundle-as-contract enforcement at schema layer; signoff required).
 
 ## 8. Adjacent / deferred bugs (signoff required; out of scope for this slice)
 
