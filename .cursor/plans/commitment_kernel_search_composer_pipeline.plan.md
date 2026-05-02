@@ -124,12 +124,23 @@ todos:
 
   - id: phase4b-composer-adapter-and-receipt
     order: 5.2
+    status: pending-split
+    signoff: required
+    content: |
+      **Phase 4b** (split from Phase 4 per §8.5; **further split into 4b/4b'** per 2026-05-02 14:55 amendment after attempt.ts audit revealed 3,468-LOC orchestration loop exceeded the bootstrap drift threshold for caller wiring). Composer runtime adapter + delivery-receipt emission + composer predicate re-wire.
+      Files (Phase 4b proper): `web-research-runtime-adapter.ts` (extend with `runComposerAfterSearch`), `done-predicate-web-research-summarized.ts` (re-wire from stub), tests.
+      Caller wiring at `attempt.ts` deferred to Phase 4b' below.
+      ~250 LOC + tests. Frozen-layer: none. Behaviour-neutral on production until 4c.
+
+  - id: phase4b-prime-caller-wiring-attempt-ts
+    order: 5.25
     status: pending
     signoff: required
     content: |
-      **Phase 4b** (split from Phase 4 per §8.5). Composer runtime adapter + delivery-receipt emission + composer predicate re-wire.
-      Files: `web-research-runtime-adapter.ts` (extend), `done-predicate-web-research-summarized.ts` (re-wire from stub), tests.
-      ~230 LOC + tests. Frozen-layer: none. Behaviour-neutral on production until 4c.
+      **Phase 4b'** (split from Phase 4b per 2026-05-02 14:55 amendment). Caller wiring at `src/agents/pi-embedded-runner/run/attempt.ts` (3,468 LOC orchestration loop) for both `runWebResearchSpecialist` and `runComposerAfterSearch`.
+      Audit attempt.ts entry-points first; choose narrowest insertion site. Wire the 2-call sequence (sonar → composer) when affordance.effect matches the web_research family. Budget: ≤3 LOC change to attempt.ts orchestration loop body + 1 helper file (`web-research-orchestrator.ts` or similar) for the two-step driver. If wiring requires more, STOP and write Phase 4b'' amendment.
+      Behaviour-neutral on production because no production turn currently emits `web_research` (classifier prompt-hint still 3-family allowlist until 4c).
+      ~80 LOC + smoke tests. Frozen-layer: none.
 
   - id: phase4c-classifier-gate-flip-and-live-verify
     order: 5.3
@@ -413,6 +424,23 @@ No "I just searched, now compose" text-rule. Pure structural sequencing per mast
 - Frozen-layer touch: **none**.
 - Local validation: `pnpm tsgo` clean; **57/57** scoped + **53/53** adjacent (`input.test.ts` / `run-turn-decision.cutover1.test.ts` / `run-turn-decision.cutover2.test.ts` / `shadow-builder-impl.test.ts`) → **110/110** total over 12 files.
 - Next: **Phase 4b** — composer runtime adapter (extend `web-research-runtime-adapter.ts` with `runComposerAfterSearch(...)`); delivery-receipt emission with `effect=WEB_RESEARCH_SUMMARIZED_EFFECT`; re-wire `webResearchSummarizedPredicate` from Phase-4-partial stub to real read-side check (slice records present AND delivery-receipt with composer effect present); **caller wiring at `attempt.ts`** routing both specialist + composer adapters when affordance.effect matches (narrow conditional; behaviour-neutral on production until 4c flips classifier hint). Composer prompt injects `WebEvidenceSlice.records` as structural `<web_evidence>` block (closed-shape JSON-like — invariant #5 safe per §6.2); tool schema = full set MINUS `web_search` keyed on `webEvidence.records.length >= 1` rather than model compat.
+
+### 2026-05-02 — Phase 4b merged (PR-#131, squash `800ddc6e59`); §8.5 amendment further split into 4b/4b'
+
+**§8.5 amendment update**: after `attempt.ts` audit (3,468 LOC orchestration loop), the original Phase 4b entry was further split into 4b (composer adapter + predicate re-wire) and 4b' (caller wiring at attempt.ts). The drift safeguard authorized this split: inserting the 2-call sequence into a 3.4k-LOC orchestration loop without prior audit exceeded the >2-file / >3-LOC threshold.
+
+**Phase 4b proper** (`800ddc6e59`):
+- Branch: `feat/orchestrator-search-composer-phase4b` от свежего `origin/dev` (HEAD `858f2b7aab`). Squash-merged via admin per documented precedent (BlackSmith stuck pattern matches PR-#127 through PR-#130).
+- Diff: `+729 -19` over 5 files (1 new test file, 4 modified).
+  - `src/agents/pi-embedded-runner/run/web-research-runtime-adapter.ts` (+169): new `runComposerAfterSearch({ commitment, intent, turnKey, webEvidenceSlice, deliveryContextKey, transport, deliveryReceiptRegistry, fullToolCatalog, now?, logger? })`. Closed failure-reason set: `effect_mismatch | web_evidence_missing | transport_error | empty_reply`. Filters `web_search` out of `fullToolCatalog`. Builds composer system message with structural `<web_evidence>{ records, summary }</web_evidence>` block (closed-shape JSON-like — invariant #5 safe). Emits `DeliveryReceipt` with `effect=WEB_RESEARCH_SUMMARIZED_EFFECT` and `kind="answer"` on success (reuses existing `DeliveryReceiptKind`, no frozen-shape extension). Deterministic messageId fallback `composer:<sessionId>:<turnId>:<sentAt>`. Telemetry `[commitment] effect=web_research.summarized recordCount=<N> ...`.
+  - `src/platform/commitment/done-predicate-web-research-summarized.ts` (+117/-15): replaced Phase-4-partial stub with read-side predicate over `ctx.stateAfter.webEvidence?.records` AND `ctx.stateAfter.deliveries?.receipts`. Closed missing-key set: `web_evidence.slice_absent | web_evidence.records.empty | composer.delivery_receipt_missing`. On satisfied, emits two `EvidenceFact` (slice + receipt). Scopes receipt lookup by `deliveryContextKey` from `ctx.expectedDelta.deliveries.receipts.added[0]`; any-context fallback when expected key absent (single-channel correctness).
+  - Two new test files: `done-predicate-web-research-summarized.test.ts` (8 cases incl. **Proxy-sentinel invariant #9** structural assertion); `web-research-runtime-adapter.test.ts` extended with 9 composer cases (happy + every failure branch + tool-catalog filter + `<web_evidence>` injection assertion + deterministic messageId).
+  - `registries.test.ts`: Phase 2/3/4-pending stub assertions consolidated — both predicates now report `web_evidence.slice_absent` on empty state (Phase 3 wired specialist, Phase 4b wired composer).
+- **Behaviour-neutral on production** — no caller invokes either adapter yet; the composer predicate is reachable only from fixture-driven tests.
+- Hard invariants reverse-tested: **#1, #2, #5, #6, #7, #8, #9, #10, #11, #16** — #5 explicitly via `<web_evidence>` block content assertion; #9 explicitly via Proxy-sentinel test on the predicate.
+- Frozen-layer touch: **none**.
+- Local validation: `pnpm tsgo` clean; **71/71** scoped + **19/19** adjacent → **90/90** total over 10 files.
+- Next: **Phase 4b'** — caller wiring at `attempt.ts` for both `runWebResearchSpecialist` and `runComposerAfterSearch`. Budget: ≤3 LOC change to attempt.ts orchestration loop body + 1 new helper file (`web-research-orchestrator.ts` or similar) for the two-step driver. If wiring requires more touch, STOP and write Phase 4b'' amendment.
 
 ### (To be filled per phase as work progresses post-signoff.)
 
