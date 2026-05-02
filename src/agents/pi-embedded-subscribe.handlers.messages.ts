@@ -1,5 +1,6 @@
 import type { AgentEvent, AgentMessage } from "@mariozechner/pi-agent-core";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
+import { defaultRuntime } from "../runtime.js";
 import { parseReplyDirectives } from "../auto-reply/reply/reply-directives.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { emitAgentEvent } from "../infra/agent-events.js";
@@ -344,6 +345,15 @@ export function handleMessageEnd(
     rawText,
     rawThinking: extractAssistantThinking(assistantMessage),
   });
+  if (rawText) {
+    const headSample = rawText.replace(/\s+/g, " ").trim().slice(0, 120).replace(/"/g, "'");
+    const cyrillic = (rawText.match(/[Ѐ-ӿ]/g) ?? []).length;
+    const latin = (rawText.match(/[A-Za-z]/g) ?? []).length;
+    const langGuess = cyrillic > latin ? "ru" : latin > 0 ? "en" : "other";
+    defaultRuntime.log(
+      `[assistant-reply] runId=${String(ctx.params.runId).slice(0, 8)} lang=${langGuess} cyr=${String(cyrillic)} lat=${String(latin)} head="${headSample}"`,
+    );
+  }
 
   const text = resolveSilentReplyFallbackText({
     text: ctx.stripBlockTags(rawText, { thinking: false, final: false }),

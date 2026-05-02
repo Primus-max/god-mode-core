@@ -1,5 +1,6 @@
 import { completeSimple, type TextContent } from "@mariozechner/pi-ai";
 import { z } from "zod";
+import { stripLeadingInboundMetadata } from "../../auto-reply/reply/strip-inbound-meta.js";
 import { getApiKeyForModel, requireApiKey } from "../../agents/model-auth.js";
 import { parseModelRef } from "../../agents/model-selection.js";
 import { resolveModelAsync } from "../../agents/pi-embedded-runner/model.js";
@@ -1685,7 +1686,7 @@ export async function classifyTaskForDecision(params: {
           decisionTrace,
         });
         log.info(
-          `classified: backend=${classifierConfig.backend} model=${classifierConfig.model} outcome=${finalContract.primaryOutcome} mode=${finalContract.interactionMode} conf=${finalContract.confidence} deliverable=${finalContract.deliverable?.kind ?? "n/a"}/${(finalContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${finalContract.requiredCapabilities.join(",")}] ambig=[${finalContract.ambiguities.join(" | ")}] prompt.head="${truncatePromptForLog(params.prompt, 200)}"`,
+          `classified: backend=${classifierConfig.backend} model=${classifierConfig.model} outcome=${finalContract.primaryOutcome} mode=${finalContract.interactionMode} conf=${finalContract.confidence} deliverable=${finalContract.deliverable?.kind ?? "n/a"}/${(finalContract.deliverable?.acceptedFormats ?? []).join(",")} caps=[${finalContract.requiredCapabilities.join(",")}] ambig=[${finalContract.ambiguities.join(" | ")}] prompt.head="${truncatePromptForLog(params.prompt, 500)}"`,
         );
         return {
           source: "llm",
@@ -1740,7 +1741,10 @@ export async function classifyTaskForDecision(params: {
 }
 
 function truncatePromptForLog(value: string, maxLength: number): string {
-  // Strip newlines and excessive whitespace so the diagnostic line stays single-line.
-  const collapsed = value.replace(/\s+/g, " ").trim().replace(/"/g, "'");
+  // Drop the leading "Conversation info / Sender (untrusted metadata)" envelope
+  // injected by inbound-meta so the actual user text fits in the truncation
+  // window — without this the head was filled with channel metadata only.
+  const stripped = stripLeadingInboundMetadata(value);
+  const collapsed = stripped.replace(/\s+/g, " ").trim().replace(/"/g, "'");
   return collapsed.length <= maxLength ? collapsed : `${collapsed.slice(0, maxLength - 1)}…`;
 }
