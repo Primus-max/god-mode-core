@@ -5,12 +5,17 @@ import {
   externalEffectPerformedPredicate,
 } from "./done-predicate-delivery.js";
 import type { CommitmentTarget } from "./execution-commitment.js";
-import type { AffordanceId, EffectFamilyId, EffectId } from "./ids.js";
+import type { AffordanceId, EffectFamilyId, EffectId, PreconditionId } from "./ids.js";
 import {
   COMMUNICATION_EFFECT_FAMILY,
   PERSISTENT_SESSION_EFFECT_FAMILY,
+  WEB_EVIDENCE_COLLECTED_EFFECT,
+  WEB_RESEARCH_EFFECT_FAMILY,
+  WEB_RESEARCH_SUMMARIZED_EFFECT,
 } from "./effect-family-registry.js";
 import { persistentSessionCreatedPredicate } from "./done-predicate-persistent-session.js";
+import { webEvidenceCollectedPredicate } from "./done-predicate-web-evidence-collected.js";
+import { webResearchSummarizedPredicate } from "./done-predicate-web-research-summarized.js";
 import type { OperationHint, TargetRef } from "./semantic-intent.js";
 
 export type RegisteredAffordance = Affordance & {
@@ -184,11 +189,98 @@ export const EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY = Object.freeze({
   donePredicate: externalEffectPerformedPredicate,
 } satisfies RegisteredAffordance);
 
+const PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE =
+  "perplexity_search_specialist" as AffordanceId;
+const COMPOSER_AFTER_SEARCH_AFFORDANCE = "composer_after_search" as AffordanceId;
+
+export const WEB_EVIDENCE_PRESENT_PRECONDITION =
+  "web_evidence_present" as PreconditionId;
+
+/**
+ * Matches semantic targets that the search specialist can serve. The
+ * commitment for a `web_research` turn does not bind a delivery channel
+ * yet — the specialist runs against the user query carried via
+ * `SemanticIntent`, regardless of whether the eventual answer goes to
+ * Telegram, an artifact bucket, or stays unbound until the composer
+ * resolves the response surface.
+ *
+ * @param target - Commitment target candidate.
+ * @returns True for `unspecified`, `external_channel`, `artifact`, or `workspace`.
+ */
+function matchesPerplexitySearchSpecialistTarget(target: CommitmentTarget): boolean {
+  return (
+    target.kind === "unspecified" ||
+    target.kind === "external_channel" ||
+    target.kind === "artifact" ||
+    target.kind === "workspace"
+  );
+}
+
+/**
+ * Matches semantic targets the composer-after-search affordance can satisfy.
+ * The composer ultimately delivers either a text response over an external
+ * channel or a structured artifact (PDF / document); both are valid bindings
+ * for `web_research.summarized`.
+ *
+ * @param target - Commitment target candidate.
+ * @returns True for `external_channel` or `artifact` only.
+ */
+function matchesComposerAfterSearchTarget(target: CommitmentTarget): boolean {
+  return target.kind === "external_channel" || target.kind === "artifact";
+}
+
+export const PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY = Object.freeze({
+  id: PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE,
+  effectFamily: WEB_RESEARCH_EFFECT_FAMILY,
+  effect: WEB_EVIDENCE_COLLECTED_EFFECT,
+  operationKinds: Object.freeze(["create"] satisfies OperationHint["kind"][]),
+  target: matchesPerplexitySearchSpecialistTarget,
+  requiredPreconditions: Object.freeze([]),
+  requiredEvidence: Object.freeze([
+    Object.freeze({ kind: "web_evidence.collected", mandatory: true }),
+  ]),
+  allowedConstraintKeys: Object.freeze(["queryString", "freshness", "region", "maxRecords"]),
+  riskTier: "low",
+  defaultBudgets: Object.freeze({
+    maxLatencyMs: 30_000,
+    maxRetries: 1,
+  }),
+  observerHandle: Object.freeze({ id: "web_evidence_world_state" }),
+  donePredicate: webEvidenceCollectedPredicate,
+} satisfies RegisteredAffordance);
+
+export const COMPOSER_AFTER_SEARCH_AFFORDANCE_ENTRY = Object.freeze({
+  id: COMPOSER_AFTER_SEARCH_AFFORDANCE,
+  effectFamily: WEB_RESEARCH_EFFECT_FAMILY,
+  effect: WEB_RESEARCH_SUMMARIZED_EFFECT,
+  operationKinds: Object.freeze(["create"] satisfies OperationHint["kind"][]),
+  target: matchesComposerAfterSearchTarget,
+  requiredPreconditions: Object.freeze([WEB_EVIDENCE_PRESENT_PRECONDITION]),
+  requiredEvidence: Object.freeze([
+    Object.freeze({ kind: "web_research.summarized", mandatory: true }),
+  ]),
+  allowedConstraintKeys: Object.freeze([
+    "responseFormat",
+    "deliveryContextKey",
+    "channelId",
+    "artifactKind",
+  ]),
+  riskTier: "low",
+  defaultBudgets: Object.freeze({
+    maxLatencyMs: 60_000,
+    maxRetries: 0,
+  }),
+  observerHandle: Object.freeze({ id: "delivery_world_state" }),
+  donePredicate: webResearchSummarizedPredicate,
+} satisfies RegisteredAffordance);
+
 const DEFAULT_AFFORDANCES = Object.freeze([
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
   ANSWER_DELIVERED_AFFORDANCE_ENTRY,
   CLARIFICATION_REQUESTED_AFFORDANCE_ENTRY,
   EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY,
+  PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY,
+  COMPOSER_AFTER_SEARCH_AFFORDANCE_ENTRY,
 ] satisfies RegisteredAffordance[]);
 
 class StaticAffordanceRegistry implements AffordanceRegistry {
