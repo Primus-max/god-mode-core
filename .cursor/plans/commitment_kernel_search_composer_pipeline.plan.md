@@ -151,14 +151,43 @@ todos:
 
   - id: phase4b-prime-b-decision-layer-dispatch
     order: 5.252
+    status: blocked-architectural-mismatch
+    signoff: required
+    content: |
+      **Phase 4b'-b** — BLOCKED per 2026-05-02 15:18 audit (4b''-c amendment below). The dispatch-point caller wiring cannot be a single bounded autonomous /loop slice. Split into 4b''-c (architectural amendment, this commit) + 4b''-d / 4b''-e (signoff-required design + wiring slices).
+
+  - id: phase4b-double-prime-c-architectural-mismatch
+    order: 5.253
     status: pending
     signoff: required
     content: |
-      **Phase 4b'-b** (split from 4b' per 2026-05-02 15:08 amendment). Caller wiring at `src/platform/decision/input.ts` (or wherever runTurnDecision is dispatched alongside the LLM call) — NOT at attempt.ts.
-      Audit input.ts and `plugin.ts` (the two call-sites of runTurnDecision per `src/platform/decision/run-turn-decision.ts`) to find the narrowest insertion site. Insert a single conditional `if (isWebResearchFamilyEffect(commitment.effect)) { await runWebResearchTurn(...); }` that routes the 2-step dispatch through the orchestrator helper; outside the branch, the existing flow runs untouched.
-      The LLM transports (`specialistTransport`, `composerTransport`) need production wiring — `prepareModelForSimpleCompletion` + `completeSimple` from `@mariozechner/pi-ai`, mirroring the IntentContractor pattern.
-      Budget: ≤3 LOC change to dispatch site + 1 file for transport setup. If wiring requires more, STOP and write Phase 4b''-c amendment.
-      ~80 LOC + integration smoke tests. Frozen-layer: none. Behaviour-neutral on production until 4c flips classifier hint.
+      **Phase 4b''-c** — Architectural amendment documenting why 4b'-b is blocked.
+      Audit at `src/platform/decision/input.ts` lines 548 + 587 found that `runTurnDecision` returns `{ productionDecision: TaskContract-shaped, intent: SemanticIntent }`. The kernel-derived `ExecutionCommitment` is internal to `run-turn-decision.ts` and not surfaced in the result. The caller flows `productionDecision` downstream as the model-routing TaskContract; the existing output of `runWebResearchTurn` (`{ specialist, composer }`) does not fit this shape. Caller wiring requires:
+        (a) Either a `RunTurnDecisionResult.derivedCommitment?: ExecutionCommitment` field surfaced from the kernel (small additive change — `~20 LOC` to `run-turn-decision.ts`).
+        (b) Or a productionDecision-replacement path in the caller (architectural — replaces the model-routing TaskContract for `web_research` turns with a "deliver this composer text directly" signal).
+      Both paths cross architectural boundaries beyond the autonomous /loop's per-slice budget. ESCALATE TO MAINTAINER ARCHITECTURE REVIEW. Do not attempt 4b'-b without explicit signoff.
+      0 LOC code change (docs only).
+
+  - id: phase4b-double-prime-d-result-extension
+    order: 5.254
+    status: pending-signoff
+    signoff: required
+    content: |
+      **Phase 4b''-d** (FUTURE; awaits maintainer signoff per 4b''-c). Extend `RunTurnDecisionResult` with optional `derivedCommitment?: ExecutionCommitment` field surfaced from the kernel-source-of-truth path (when `gate_in_success` + `commitmentSatisfied`).
+      Frozen layer: `RunTurnDecisionResult` is itself a non-frozen helper type, NOT one of the 5 frozen decision contracts; extension is safe per invariant #11. Verify this before opening the PR.
+      ~20 LOC + tests. Behaviour-neutral.
+
+  - id: phase4b-double-prime-e-decision-layer-wiring
+    order: 5.255
+    status: pending-signoff
+    signoff: required
+    content: |
+      **Phase 4b''-e** (FUTURE; awaits 4b''-d). Caller wiring at `input.ts:548 / 587` (production fire-path) using the `derivedCommitment` field to gate `runWebResearchTurn` invocation. Composer text replaces the productionDecision-driven response when the orchestrator succeeds; orchestrator failure falls through to legacy single-model path.
+      Architectural decision required: how does the composer text flow back to the user? Three candidates:
+        (i) Synthesize a productionDecision with a "direct response" TaskContract that downstream layers know to render as-is.
+        (ii) Add a new `RunTurnDecisionResult.directResponse?: { text: string; messageId: string }` field that bypasses the TaskContract path.
+        (iii) Move the user-delivery call INSIDE `runWebResearchTurn` so the orchestrator handles delivery directly.
+      ~80 LOC + integration tests. Behaviour-neutral on production until Phase 4c flips classifier prompt hint.
 
   - id: phase4c-classifier-gate-flip-and-live-verify
     order: 5.3
@@ -477,6 +506,26 @@ No "I just searched, now compose" text-rule. Pure structural sequencing per mast
 - Frozen-layer touch: **none**.
 - Local validation: `pnpm tsgo` clean; **62/62** scoped (orchestrator + adapter + composer-predicate + observer + registries + monitored-runtime).
 - Next: **Phase 4b'-b** — caller wiring at the decision-layer dispatch point (`input.ts` or `plugin.ts` — audit which is narrower) + LLM transport setup (`prepareModelForSimpleCompletion` + `completeSimple`). ≤3 LOC change to dispatch site + 1 file for transport setup. If wiring requires more, STOP and write Phase 4b''-c amendment.
+
+### 2026-05-02 — Phase 4b''-c amendment (architectural mismatch documented; Phase 4b'-b BLOCKED pending maintainer signoff)
+
+**Audit at `src/platform/decision/input.ts` lines 548 + 587** (the two production runTurnDecision call-sites; `plugin.ts` callers are scoped to single-shot internal hooks per Phase 2 handoff in clarification-policy and not in the production fire-path):
+
+```ts
+const { productionDecision: classified, intent: classifiedIntent } = await runTurnDecision({...});
+```
+
+`runTurnDecision` returns `{ productionDecision: TaskContract-shaped, intent: SemanticIntent }`. The kernel-derived `ExecutionCommitment` is **internal to `run-turn-decision.ts`** and not surfaced in the result. The caller flows `productionDecision` downstream as the model-routing TaskContract; the output of `runWebResearchTurn` (`{ specialist: { recordCount }, composer: { messageId } }`) does NOT fit this shape.
+
+Two integration paths exist; both exceed the autonomous /loop's per-slice budget:
+- **Path A**: Add `RunTurnDecisionResult.derivedCommitment?: ExecutionCommitment` (~20 LOC, additive, behaviour-neutral). Then caller does the gate + dispatch. Path-A still needs Path-B's productionDecision-replacement to actually flow composer text to user.
+- **Path B**: Productionalize the productionDecision-replacement signal so the composer's text replaces the TaskContract-driven response. Three sub-options noted in §8.5 4b''-e: synthesize a `direct_response` TaskContract; add a `directResponse` field on the result; OR move delivery inside the orchestrator. **All three are architectural decisions that need maintainer review.**
+
+**Decision**: 4b'-b BLOCKED pending maintainer signoff on Path A vs Path B (or a hybrid). The Search-Composer pipeline is **structurally complete from the kernel side** — Phases 1-4b'-a deliver the registry, affordances, slice, predicates, observers, runtime adapters (sonar + composer), and the orchestrator helper. **What remains is purely the architectural integration between the kernel's commitment shape and the caller's response shape.**
+
+**Pivot**: this autonomous /loop iteration commits the §8.5 amendment and pivots to **Telegram caption-overflow UX** (roadmap §8 forward-deferred narrow slice, no signoff required, no architectural touch). The Search-Composer queue resumes once maintainer signoff lands on the §8.5 4b''-d / 4b''-e path choice.
+
+No code change in this iteration. attempt.ts still untouched (and confirmed unsuitable for the integration); input.ts/plugin.ts also untouched pending architectural review.
 
 ### (To be filled per phase as work progresses post-signoff.)
 
