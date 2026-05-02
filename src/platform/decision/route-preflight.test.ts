@@ -157,4 +157,45 @@ describe("applyModelRoutePreflight", () => {
     expect(decision?.reasonCode).toBe("preflight_reordered_remote_first");
     expect(decision?.reordered).toBe(true);
   });
+
+  it("promotes hydra/grok-4 first when web_search is requested, preserving the rest of the chain (slice grok-search)", () => {
+    const chain: ModelCandidate[] = [
+      { provider: "hydra", model: "claude-opus-4.6" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "grok-4" },
+      { provider: "hydra", model: "hydra-gpt-pro" },
+    ];
+    const { candidates, decision } = applyModelRoutePreflight({
+      candidates: chain,
+      plannerInput: {
+        intent: "general",
+        requestedTools: ["web_search"],
+      },
+    });
+
+    expect(candidates).toEqual([
+      { provider: "hydra", model: "grok-4" },
+      { provider: "hydra", model: "claude-opus-4.6" },
+      { provider: "hydra", model: "gpt-5.4" },
+      { provider: "hydra", model: "hydra-gpt-pro" },
+    ]);
+    expect(decision?.reasonCode).toBe("preflight_routed_grok_for_web_search");
+    expect(decision?.reordered).toBe(true);
+  });
+
+  it("does not touch the chain when web_search is requested but no grok candidate is present", () => {
+    const chain: ModelCandidate[] = [
+      { provider: "hydra", model: "claude-opus-4.6" },
+      { provider: "hydra", model: "gpt-5.4" },
+    ];
+    const { decision } = applyModelRoutePreflight({
+      candidates: chain,
+      plannerInput: {
+        intent: "general",
+        requestedTools: ["web_search"],
+      },
+    });
+
+    expect(decision?.reasonCode).not.toBe("preflight_routed_grok_for_web_search");
+  });
 });

@@ -785,6 +785,32 @@ export function applyModelRoutePreflight(params: {
     return { candidates: list, decision: null };
   }
 
+  // Tool-aware routing: Hydra proxies the Grok models, which are the only
+  // family in this catalog whose `web_search` is reliably served end-to-end
+  // (xAI Live Search via openai-completions schema). When the planner
+  // explicitly requests `web_search`, promote a Grok candidate to first so
+  // OpenClaw's local DDG-backed tool is bypassed (`hasNativeWebSearchTool`
+  // detects the xai compat profile and filters the redundant tool out).
+  // Fallbacks remain in their original order behind Grok — failover semantics
+  // unchanged.
+  const requestedTools = plannerInput.requestedTools ?? [];
+  if (requestedTools.includes("web_search")) {
+    const grokIndex = list.findIndex((c) => c.model.toLowerCase().includes("grok"));
+    if (grokIndex > 0) {
+      const grok = list[grokIndex];
+      const ordered = [grok, ...list.filter((_, idx) => idx !== grokIndex)];
+      return {
+        candidates: ordered,
+        decision: buildDecisionForOrdered(ordered, {
+          reasonCode: "preflight_routed_grok_for_web_search",
+          reason: `Promoted ${grok.provider}/${grok.model} ahead of the configured chain because the turn requests web_search and Grok is the only candidate with a working native search through Hydra.`,
+          localRoutingEligible: false,
+          reordered: true,
+        }),
+      };
+    }
+  }
+
   const localEligible =
     params.mode === "force_stronger"
       ? false
