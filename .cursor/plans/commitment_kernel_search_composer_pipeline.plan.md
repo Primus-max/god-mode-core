@@ -94,10 +94,12 @@ todos:
 
   - id: phase4-runtime-wiring
     order: 5
-    status: pending
+    status: pending-split
     signoff: required
     content: |
       **Phase 4 — MonitoredRuntime adapter for the two-affordance run.**
+
+      **2026-05-02 amendment** (autonomous /loop scope-drift finding): split into 4a/4b/4c per §8.5 of this sub-plan. Original spec preserved below for traceability; concrete implementation plan in §8.5.
 
       `src/agents/pi-embedded-runner/run/attempt.ts` или `src/auto-reply/reply/agent-runner.ts`:
       - When `commitmentSatisfied` evaluation chooses Affordance(`perplexity_search_specialist`):
@@ -110,6 +112,33 @@ todos:
         - Existing PDF / artifact authoring path unchanged.
 
       No changes to `createOpenClawCodingTools()` signature (invariant #8 safe — edit lives in `src/platform/decision` + `src/platform/commitment` + adapter glue, not crossing into `commitment/` from `decision/`).
+
+  - id: phase4a-web-evidence-observer-and-sonar-adapter
+    order: 5.1
+    status: pending
+    signoff: required
+    content: |
+      **Phase 4a** (split from Phase 4 per §8.5). New `WebEvidenceWorldStateObserver` + sonar runtime adapter only. Behaviour-neutral on production.
+      Files: `web-evidence-world-state-observer.ts` (new), `monitored-runtime.ts` (deps), `production-runtime-defaults.ts` (wire), `web-research-runtime-adapter.ts` (new helper called from `attempt.ts`), Zod schema in `world-state.ts`.
+      ~325 LOC + tests. Frozen-layer: none.
+
+  - id: phase4b-composer-adapter-and-receipt
+    order: 5.2
+    status: pending
+    signoff: required
+    content: |
+      **Phase 4b** (split from Phase 4 per §8.5). Composer runtime adapter + delivery-receipt emission + composer predicate re-wire.
+      Files: `web-research-runtime-adapter.ts` (extend), `done-predicate-web-research-summarized.ts` (re-wire from stub), tests.
+      ~230 LOC + tests. Frozen-layer: none. Behaviour-neutral on production until 4c.
+
+  - id: phase4c-classifier-gate-flip-and-live-verify
+    order: 5.3
+    status: pending
+    signoff: required
+    content: |
+      **Phase 4c** (split from Phase 4 per §8.5). IntentContractor prompt-hint flip + live verify.
+      Files: `intent-contractor-impl.ts:472` (4-family allowlist + one example row), `intent-contractor-impl.test.ts` (extend).
+      ~35 LOC + live verify against gateway. **Behaviour CHANGES**: classifier starts emitting `web_research`. NEVER ship without 4a + 4b merged.
 
   - id: phase5-route-preflight-rollout
     order: 6
@@ -376,6 +405,65 @@ No "I just searched, now compose" text-rule. Pure structural sequencing per mast
 | 2 | IntentContractor `freshness` / `recency` constraint surface | Same as above, addressed from routing side | Extend `SemanticIntent.constraints` shape; route-preflight gate also fires on `intent.constraints.freshness === "current"` | Architectural addition to `SemanticIntent`; deferred per `orchestrator_web_search_capability_routing.plan.md` §8 row 2. |
 | 3 | Concurrent / multi-tenant turn pipeline | Single-threaded turn-blocked processing | New broker / scheduler with concurrency limits | `pr-mt-broker-future` in roadmap §6 row 4; requires this slice + PR-G + PR-A.2 + PR-H all merged. |
 | 4 | Image-search specialist (besides web_search text) | Some turns need image search (e.g. "find logos of these models") | Extend Affordance(`perplexity_search_specialist`) or new `image_search_specialist` affordance | Out of scope; pickup after this slice settles. |
+
+## 8.5. Phase 4 sub-decomposition — 2026-05-02 amendment
+
+**Scope-drift finding** (autonomous /loop, 2026-05-02 14:30 local): The original Phase 4 (`phase4-runtime-wiring`) frontmatter entry estimated ~150 LOC in a single entry-point file (`pi-embedded-runner/run/attempt.ts` or `auto-reply/reply/agent-runner.runtime.ts`). Audit revealed the realistic touch surface is at least **5 files**:
+
+1. `src/platform/commitment/web-evidence-world-state-observer.ts` — **new file** modelled on `delivery-world-state-observer.ts`. Holds the per-`(sessionId, turnId)` `WebEvidenceCollector` that the runtime adapter populates from a sonar reply and exposes via `observe(): WebEvidenceWorldState`.
+2. `src/platform/commitment/monitored-runtime.ts` — extend `createMonitoredRuntime` deps with optional `webEvidenceObserver?: WebEvidenceWorldStateObserver`; extend `freezeSnapshot` to include `webEvidence: deps.webEvidenceObserver?.observe()`.
+3. `src/platform/commitment/production-runtime-defaults.ts` — wire the new observer into `createDefaultMonitoredRuntime`.
+4. `src/agents/pi-embedded-runner/run/attempt.ts` (or new helper file) — **new runtime-adapter entry point** that detects a `web_research`-family commitment, runs sonar/sonar-pro with empty tool schema + structured-JSON system instruction, parses the reply via a Zod schema, and pushes records into the collector.
+5. `src/platform/commitment/done-predicate-web-research-summarized.ts` — re-wire from Phase-4-partial stub to the real read-side predicate (slice records present AND delivery-receipt with `effect=WEB_RESEARCH_SUMMARIZED_EFFECT` present).
+
+Plus the IntentContractor prompt-hint flip at `intent-contractor-impl.ts:472` and the composer-side runtime adapter (which mirrors the sonar adapter but for opus/gpt models with `<web_evidence>` injection and `web_search` removed from the tool schema).
+
+This is **structurally too wide for one /loop slice** (>2-file drift threshold, behaviour-changing in three orthogonal dimensions: ingestion-side, composer-side, classifier-side). The `commitment_kernel_smart_orchestrator_roadmap.plan.md` autonomous-loop bootstrap explicitly authorizes a sub-decomposition when this drift is detected.
+
+**Phase 4 is split into three narrow slices:**
+
+### Phase 4a — WebEvidenceWorldStateObserver + sonar runtime adapter
+
+| Layer | File | Change | LOC est. |
+| --- | --- | --- | --- |
+| New observer | `src/platform/commitment/web-evidence-world-state-observer.ts` (new) | `WebEvidenceWorldStateObserver` interface + `createWebEvidenceWorldStateObserver` factory backed by an in-memory `WebEvidenceCollector` (per-`(sessionId, turnId)` keying; reset-at-turn-start; idempotent `record(record: WebEvidenceRecord): void`) | ~80 |
+| Kernel | `src/platform/commitment/monitored-runtime.ts` | Extend `createMonitoredRuntime` deps + `freezeSnapshot` to thread `webEvidence` slice through | ~15 |
+| Kernel defaults | `src/platform/commitment/production-runtime-defaults.ts` | Wire the new observer into `createDefaultMonitoredRuntime` | ~10 |
+| Runtime adapter | `src/agents/pi-embedded-runner/run/web-research-runtime-adapter.ts` (new helper, called from existing `attempt.ts` orchestration loop conditional on the commitment effect) | Detect `commitment.effect === WEB_EVIDENCE_COLLECTED_EFFECT`; run sonar/sonar-pro via existing transport with empty tool schema + system instruction "Return findings as structured JSON: `{ records: [{ url, snippet, title? }], summary }`. Cite real URLs."; parse reply with a new Zod schema declared in `world-state.ts`; push records to the collector; emit `[commitment] effect=web_evidence.collected records=<N>` telemetry; on parse-failure / HTTP 400 / 5xx / no citations → mark unsatisfied + fall through to legacy path (no regression) | ~100 |
+| Tests | `src/platform/commitment/__tests__/web-evidence-world-state-observer.test.ts` (new) + `src/agents/pi-embedded-runner/run/web-research-runtime-adapter.test.ts` (new) | Observer ingestion + reset; adapter happy-path with stubbed sonar transport; Zod parse-failure path; HTTP 400 path | ~120 |
+
+**Total 4a: ~325 LOC + tests.** Frozen-layer: none. Behaviour: sonar runs and the slice is populated, but the kernel still won't *select* `web_research` from `findByFamily` because the IntentContractor prompt hint hasn't been flipped — production turns continue to flow through `communication`/`persistent_session`/`unknown`. **Behaviour-neutral on production turns**; new code path is reachable only via direct registry inspection or fixture-driven tests.
+
+### Phase 4b — composer runtime adapter + delivery-receipt + predicate re-wire
+
+| Layer | File | Change | LOC est. |
+| --- | --- | --- | --- |
+| Runtime adapter | `src/agents/pi-embedded-runner/run/web-research-runtime-adapter.ts` (extend) | Add composer branch: detect `commitment.effect === WEB_RESEARCH_SUMMARIZED_EFFECT` after Affordance #1's slice is populated; run composer-class model (claude-opus-4.6 / gpt-5.4 / hydra-gpt-pro) with full tool schema EXCEPT `web_search` (drop via existing `applyModelProviderToolPolicy`-style filter, but keyed on `webEvidence.records.length >= 1` rather than model compat); inject `WebEvidenceSlice.records` into composer system message as structural `<web_evidence>{ records: [...], summary }</web_evidence>` block (closed-shape JSON-like, NOT user text — invariant #5 safe per §6.2); existing PDF / artifact authoring path unchanged | ~80 |
+| Delivery receipt | `src/agents/pi-embedded-runner/run/web-research-runtime-adapter.ts` + `src/platform/commitment/delivery-receipt-registry.ts` (audit) | Emit a `DeliveryReceipt` after composer run with `effect = WEB_RESEARCH_SUMMARIZED_EFFECT` and `kind: "answer"` (reusing existing `DeliveryReceiptKind` — no frozen-shape extension) | ~20 |
+| Predicate re-wire | `src/platform/commitment/done-predicate-web-research-summarized.ts` | Replace Phase-4-pending stub with read-side predicate: `unsatisfied { web_evidence.slice_absent }` if no slice; `unsatisfied { composer.delivery_receipt_missing:<effect> }` if no receipt with `effect=WEB_RESEARCH_SUMMARIZED_EFFECT`; `satisfied` with one `EvidenceFact` for the receipt + one for the slice when both present | ~40 |
+| Tests | `src/platform/commitment/__tests__/done-predicate-web-research-summarized.test.ts` (new) + extend adapter test | Predicate matrix (slice absent / receipt absent / both present); composer adapter happy-path with stubbed transport; tool-schema filter correctness | ~90 |
+
+**Total 4b: ~230 LOC + tests.** Frozen-layer: none. Behaviour: composer end-to-end works in tests; production still doesn't reach this path (gate flip in 4c).
+
+### Phase 4c — IntentContractor prompt-hint flip + live verify
+
+| Layer | File | Change | LOC est. |
+| --- | --- | --- | --- |
+| Classifier prompt | `src/platform/commitment/intent-contractor-impl.ts:472` | Update `responseShape.desiredEffectFamily` from `'"persistent_session" | "communication" | "unknown"'` to `'"persistent_session" | "communication" | "web_research" | "unknown"'`; add one new `examples[*]` row with `desiredEffectFamily: "web_research"` for a freshness-sensitive query (e.g. "поищи в интернете последние модели") | ~20 |
+| Tests | `src/platform/commitment/__tests__/intent-contractor-impl.test.ts` (extend) | Confirm prompt JSON contains `web_research` in the union and the new example | ~15 |
+| Live verify | (no code) | Restart `pnpm gateway:dev:channels` (stop existing PID first); test combo turn `bundles=[artifact_authoring, public_web_lookup] requestedTools=[pdf, web_search]` and pure-search turn `bundles=[public_web_lookup]`; confirm `[commitment] effect=web_evidence.collected records=<N>` then `[commitment] effect=web_research.summarized` in `gateway-*.log`; confirm PDF/text-reply quality matches sub-plan §5 acceptance #1/#2; confirm turn-class `355ae135` (classifier-mis-emit `bundles=[respond_only]` for fresh-data queries) **NOT closed** — that's deferred to §8 row 1 (bundle-as-contract enforcement) | — |
+
+**Total 4c: ~35 LOC + live verify.** Frozen-layer: none. **Behaviour CHANGES on this slice** — the classifier starts emitting `web_research` for freshness-sensitive turns; if 4a + 4b are both green this triggers the two-affordance pipeline end-to-end. If live verify regresses, file a narrow follow-up slice and DO NOT roll back 4a/4b (they're behaviour-neutral on their own — only 4c flips the gate).
+
+### Acceptance for the split
+
+The §5 acceptance criteria still apply to the *aggregate* of 4a+4b+4c; intermediate slices are partial. The original §5 #1/#2 (combo turn + pure-search turn) live-verify against 4c; #3/#4/#5/#6 are unchanged.
+
+### Why this split is safe
+
+- **4a alone**: new code reachable only via direct registry inspection or tests; production prompts still pin classifier to 3-family allowlist; no path through `findByFamily(WEB_RESEARCH_EFFECT_FAMILY, …)` from production decision flow.
+- **4a + 4b without 4c**: still behaviour-neutral on production for the same reason. Composer adapter exists but never runs because the classifier never emits `web_research`.
+- **4c without 4a/4b**: would regress production — classifier emits `web_research`, kernel finds the affordances, but with no observer / no runtime adapter the predicates report `web_evidence.slice_absent` and the runtime falls back to legacy (which is what we have today on this turn class — bot-detection / training-cutoff). NEVER ship 4c standalone. Sequence is **4a → 4b → 4c**.
 
 ## 9. References
 
