@@ -16,10 +16,11 @@ import {
 import type { ChannelId, EffectFamilyId } from "../ids.js";
 
 describe("effect-family registry", () => {
-  it("includes persistent_session, communication (PR-4b), and unknown families", () => {
+  it("includes persistent_session, communication (PR-4b), web_research (search-composer), and unknown families", () => {
     expect(EFFECT_FAMILY_REGISTRY.map((entry) => entry.id)).toEqual([
       "persistent_session",
       "communication",
+      "web_research",
       "unknown",
     ]);
   });

@@ -1,17 +1,24 @@
-import type { EffectFamilyId } from "./ids.js";
+import type { EffectFamilyId, EffectId } from "./ids.js";
 import type { OperationHint } from "./semantic-intent.js";
 
 export type OperationHintKind = OperationHint["kind"];
+
+export type BranchingHint = "search_specialist" | "search_then_composer";
 
 export type EffectFamilyDefinition = {
   readonly id: EffectFamilyId;
   readonly displayName: string;
   readonly allowedOperationKinds: readonly OperationHintKind[];
+  readonly branchingHints?: readonly BranchingHint[];
 };
 
 export const PERSISTENT_SESSION_EFFECT_FAMILY = "persistent_session" as EffectFamilyId;
 export const COMMUNICATION_EFFECT_FAMILY = "communication" as EffectFamilyId;
+export const WEB_RESEARCH_EFFECT_FAMILY = "web_research" as EffectFamilyId;
 export const UNKNOWN_EFFECT_FAMILY = "unknown" as EffectFamilyId;
+
+export const WEB_EVIDENCE_COLLECTED_EFFECT = "web_evidence.collected" as EffectId;
+export const WEB_RESEARCH_SUMMARIZED_EFFECT = "web_research.summarized" as EffectId;
 
 export const EFFECT_FAMILY_REGISTRY = Object.freeze([
   Object.freeze({
@@ -23,6 +30,15 @@ export const EFFECT_FAMILY_REGISTRY = Object.freeze([
     id: COMMUNICATION_EFFECT_FAMILY,
     displayName: "Communication",
     allowedOperationKinds: Object.freeze(["create", "observe"] satisfies OperationHintKind[]),
+  }),
+  Object.freeze({
+    id: WEB_RESEARCH_EFFECT_FAMILY,
+    displayName: "Web research",
+    allowedOperationKinds: Object.freeze(["create"] satisfies OperationHintKind[]),
+    branchingHints: Object.freeze([
+      "search_specialist",
+      "search_then_composer",
+    ] satisfies BranchingHint[]),
   }),
   Object.freeze({
     id: UNKNOWN_EFFECT_FAMILY,
