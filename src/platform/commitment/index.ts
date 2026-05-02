@@ -29,11 +29,16 @@ export {
 export {
   ANSWER_DELIVERED_AFFORDANCE_ENTRY,
   CLARIFICATION_REQUESTED_AFFORDANCE_ENTRY,
+  COMPOSER_AFTER_SEARCH_AFFORDANCE_ENTRY,
   EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY,
+  PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
+  WEB_EVIDENCE_PRESENT_PRECONDITION,
   createAffordanceRegistry,
   defaultAffordanceRegistry,
 } from "./affordance-registry.js";
+export { webEvidenceCollectedPredicate } from "./done-predicate-web-evidence-collected.js";
+export { webResearchSummarizedPredicate } from "./done-predicate-web-research-summarized.js";
 export {
   DEFAULT_INTENT_CONTRACTOR_BACKEND,
   DEFAULT_INTENT_CONTRACTOR_CONFIDENCE_THRESHOLD,
