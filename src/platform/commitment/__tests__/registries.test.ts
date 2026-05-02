@@ -222,7 +222,7 @@ describe("affordance registry — web_research family (Search-Composer Phase 2)"
     ).toEqual([]);
   });
 
-  it("Phase 2 stub donePredicates report unsatisfied with documented Phase 3/4 missing keys", () => {
+  it("Phase 3 specialist predicate reports slice_absent on empty state; composer stub stays Phase-4-pending", () => {
     const emptyState: WorldStateSnapshot = Object.freeze({});
     const emptyDelta: ExpectedDelta = Object.freeze({});
     const ctx = {
@@ -236,14 +236,13 @@ describe("affordance registry — web_research family (Search-Composer Phase 2)"
     const searchResult = PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY.donePredicate(ctx);
     expect(searchResult.satisfied).toBe(false);
     expect(searchResult.satisfied === false ? searchResult.missing : []).toEqual([
-      "web_evidence.records.population_pending_phase_3",
+      "web_evidence.slice_absent",
     ]);
 
     const composerResult = COMPOSER_AFTER_SEARCH_AFFORDANCE_ENTRY.donePredicate(ctx);
     expect(composerResult.satisfied).toBe(false);
     expect(composerResult.satisfied === false ? composerResult.missing : []).toEqual([
-      "web_evidence.records.population_pending_phase_3",
-      "composer.delivery_receipt_pending_phase_4",
+      "composer.runtime_adapter_pending_phase_4",
     ]);
   });
 

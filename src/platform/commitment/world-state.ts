@@ -29,9 +29,21 @@ export type DeliveryWorldState = {
 export type ArtifactWorldState = Record<string, never>;
 export type WorkspaceWorldState = Record<string, never>;
 
+export type WebEvidenceRecord = {
+  readonly url: string;
+  readonly snippet: string;
+  readonly title?: string;
+  readonly capturedAt: ISO8601;
+};
+
+export type WebEvidenceWorldState = {
+  readonly records: readonly WebEvidenceRecord[];
+};
+
 export type WorldStateSnapshot = {
   readonly sessions?: SessionWorldState;
   readonly artifacts?: ArtifactWorldState;
   readonly workspace?: WorkspaceWorldState;
   readonly deliveries?: DeliveryWorldState;
+  readonly webEvidence?: WebEvidenceWorldState;
 };
