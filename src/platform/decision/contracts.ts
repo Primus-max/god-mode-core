@@ -89,7 +89,8 @@ export type ModelRoutePreflightDecision = {
     | "preflight_no_local_candidate"
     | "preflight_reordered_remote_first"
     | "preflight_reordered_local_strong_first"
-    | "preflight_reordered_local_first";
+    | "preflight_reordered_local_first"
+    | "preflight_routed_grok_for_web_search";
   /** Human-readable explanation */
   reason: string;
   costTier: ModelRouteCostTier;
