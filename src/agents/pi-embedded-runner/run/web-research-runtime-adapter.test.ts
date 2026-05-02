@@ -352,7 +352,11 @@ describe("runComposerAfterSearch — Search-Composer Phase 4b", () => {
       logger,
     });
 
-    expect(result).toEqual({ ok: true, messageId: "msg-composer-1" });
+    expect(result).toEqual({
+      ok: true,
+      messageId: "msg-composer-1",
+      text: "Composed reply with citations [https://example.com/announcement].",
+    });
 
     const receipts = registry.list(TELEGRAM_CONTEXT_KEY);
     expect(receipts).toHaveLength(1);
@@ -526,6 +530,10 @@ describe("runComposerAfterSearch — Search-Composer Phase 4b", () => {
       fullToolCatalog: FULL_TOOL_CATALOG,
       now: () => 1_700_000_000_000,
     });
-    expect(result).toEqual({ ok: true, messageId: `composer:${SESSION_A}:turn-1:1700000000000` });
+    expect(result).toEqual({
+      ok: true,
+      messageId: `composer:${SESSION_A}:turn-1:1700000000000`,
+      text: "OK",
+    });
   });
 });

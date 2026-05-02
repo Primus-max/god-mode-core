@@ -217,7 +217,7 @@ export type WebResearchComposerFailureReason =
   | "empty_reply";
 
 export type WebResearchComposerResult =
-  | { readonly ok: true; readonly messageId: string }
+  | { readonly ok: true; readonly messageId: string; readonly text: string }
   | {
       readonly ok: false;
       readonly reason: WebResearchComposerFailureReason;
@@ -351,7 +351,7 @@ export async function runComposerAfterSearch(
     `[commitment] effect=web_research.summarized recordCount=${records.length} sessionId=${params.turnKey.sessionId} turnId=${params.turnKey.turnId} messageId=${messageId}`,
   );
 
-  return { ok: true, messageId };
+  return { ok: true, messageId, text: reply.text };
 }
 
 function buildComposerSystemMessage(params: {

@@ -110,7 +110,7 @@ describe("runWebResearchTurn — Search-Composer Phase 4b'-a", () => {
     expect(result).toEqual({
       ok: true,
       specialist: { recordCount: 2 },
-      composer: { messageId: "msg-composer-1" },
+      composer: { messageId: "msg-composer-1", text: "Composed reply with citations." },
     });
 
     expect(specialistTransport).toHaveBeenCalledTimes(1);

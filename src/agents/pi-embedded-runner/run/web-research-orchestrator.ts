@@ -25,7 +25,7 @@ export type WebResearchTurnResult =
   | {
       readonly ok: true;
       readonly specialist: { readonly recordCount: number };
-      readonly composer: { readonly messageId: string };
+      readonly composer: { readonly messageId: string; readonly text: string };
     }
   | {
       readonly ok: false;
@@ -159,7 +159,7 @@ export async function runWebResearchTurn(
   return {
     ok: true,
     specialist: { recordCount: specialist.recordCount },
-    composer: { messageId: composer.messageId },
+    composer: { messageId: composer.messageId, text: composer.text },
   };
 }
 
