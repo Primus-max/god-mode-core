@@ -170,24 +170,52 @@ todos:
 
   - id: phase4b-double-prime-d-result-extension
     order: 5.254
-    status: pending-signoff
+    status: merged
+    signoff: maintainer-authorized-2026-05-02
+    content: |
+      **Phase 4b''-d** MERGED (PR-#134 `d852020517`). Extended `RunTurnDecisionResult` with optional `derivedCommitment?: ExecutionCommitment` field surfaced from the kernel-source-of-truth path (`gate_in_success` + `commitmentSatisfied`). +13 LOC + 22 LOC test. `pnpm tsgo` clean; 27/27 scoped + adjacent tests green. Behaviour-neutral.
+
+  - id: phase4b-double-prime-e1-surface-composer-text
+    order: 5.255
+    status: merged
+    signoff: maintainer-authorized-2026-05-02
+    content: |
+      **Phase 4b''-e1** MERGED (PR-#135 `4e2b21dd71`). Bubbled `composer.text` through `WebResearchComposerResult` / `WebResearchTurnResult` ok variants — previously the composer adapter discarded the model output after the DeliveryReceipt was recorded. +15/-7 LOC over 4 files. `pnpm tsgo` clean; 27/27 scoped vitest green. Behaviour-neutral.
+
+  - id: phase4b-double-prime-e2-production-transports
+    order: 5.256
+    status: merged
+    signoff: maintainer-authorized-2026-05-02
+    content: |
+      **Phase 4b''-e2** MERGED (PR-#136 `9421ec7ea0`). New `src/platform/decision/web-research-transports.ts` with `createWebResearchSpecialistTransport` (defaults `hydra/sonar-pro`, 30s/2000 tokens) + `createWebResearchComposerTransport` (defaults `hydra/claude-opus-4.6`, 60s/4000 tokens). Both wrap `prepareModelForSimpleCompletion` + `completeSimple` mirroring the IntentContractor pattern at `intent-contractor-impl.ts:250`. Shared `completeWithModel` helper unifies resolution + auth + abort-controller-driven timeout. +179 LOC over 2 new files. `pnpm tsgo` clean; 4/4 scoped vitest green. Behaviour-neutral.
+
+  - id: phase4b-double-prime-e3-dispatch-helper
+    order: 5.257
+    status: merged
+    signoff: maintainer-authorized-2026-05-02
+    content: |
+      **Phase 4b''-e3** MERGED (PR-#137 `e07b477697`). New `src/platform/decision/web-research-dispatch.ts` with `runWebResearchDispatch(...)` — thin glue helper that builds production transports (or accepts test overrides), synthesises the composer commitment from the specialist commitment by cloning + replacing effect to `WEB_RESEARCH_SUMMARIZED_EFFECT` (architectural cleanup deferred), and invokes `runWebResearchTurn`. Returns `{ ok: true, text, messageId, recordCount }` on success. Closed failure set: `effect_not_dispatchable` + propagation of orchestrator stage failures. +395 LOC over 2 new files. `pnpm tsgo` clean; 5/5 scoped vitest green (happy path + 2x effect_not_dispatchable + specialist-failure + composer-failure). Behaviour-neutral on production — no caller invokes the helper yet.
+
+  - id: phase4b-double-prime-e4-caller-wiring-architectural
+    order: 5.258
+    status: pending-architectural-decision
     signoff: required
     content: |
-      **Phase 4b''-d** (FUTURE; awaits maintainer signoff per 4b''-c). Extend `RunTurnDecisionResult` with optional `derivedCommitment?: ExecutionCommitment` field surfaced from the kernel-source-of-truth path (when `gate_in_success` + `commitmentSatisfied`).
-      Frozen layer: `RunTurnDecisionResult` is itself a non-frozen helper type, NOT one of the 5 frozen decision contracts; extension is safe per invariant #11. Verify this before opening the PR.
-      ~20 LOC + tests. Behaviour-neutral.
+      **Phase 4b''-e4** (PENDING) — caller wiring at the agent-runner / model-fallback layer to invoke `runWebResearchDispatch` and short-circuit the LLM call when dispatch returns `{ ok: true, text }`.
+      The dispatch helper from Phase 4b''-e3 is fully assembled (transports + commitment synthesis + closed failure set). What remains is plumbing the composer text from the dispatch result back to the user-facing message-delivery layer. Architectural options identified during 4b''-e2/e3:
+        - **Option α** (planner-input threading): Add `RecipePlannerInput.directResponse?: { text, messageId }` field. Modify `model-fallback.ts` (~600 LOC orchestration) to short-circuit the LLM call when this field is set. Reach: deep into the multi-LOC fallback orchestration.
+        - **Option β** (runtime-plan threading): Same as α but field on `RecipeRuntimePlan`. Same reach problem.
+        - **Option γ** (pre-planner hook): Hook the dispatch BEFORE planner-input construction in `agent-command.ts` / `agent-runner-utils.ts`. After dispatch success, deliver text directly via the channel adapter, return a sentinel signaling "already delivered". Reach: agent-runner reply loop.
+        - **Option δ** (route-preflight replacement): Replace the PR-#125/#126 grok-4 promotion in `route-preflight.ts` with a "dispatch web_research and emit synthetic preflight" path. Reach: route-preflight + the layer above it that consumes preflight results.
+        - **Option ε** (pre-orchestrator + evidence injection): Run sonar specialist BEFORE the normal planner LLM call, populate `WebEvidenceCollector`. The composer LLM call is the existing planner-driven LLM call BUT receives `<web_evidence>` system-prompt injection AND has `web_search` filtered out AND is routed to opus/gpt-5.4 (NOT grok). Reach: planner system-prompt construction + tool catalog filter.
+      All five options are architectural; no single one fits in the autonomous /loop's per-slice budget without escalation. Recommendation: maintainer review of Option α vs γ vs ε — the highest-quality outcome (opus/gpt-5.4 composes with sonar evidence) likely requires γ or ε; α is safer but requires the model-fallback layer modification.
 
   - id: phase4b-double-prime-e-decision-layer-wiring
-    order: 5.255
-    status: pending-signoff
+    order: 5.259
+    status: superseded-by-e4
     signoff: required
     content: |
-      **Phase 4b''-e** (FUTURE; awaits 4b''-d). Caller wiring at `input.ts:548 / 587` (production fire-path) using the `derivedCommitment` field to gate `runWebResearchTurn` invocation. Composer text replaces the productionDecision-driven response when the orchestrator succeeds; orchestrator failure falls through to legacy single-model path.
-      Architectural decision required: how does the composer text flow back to the user? Three candidates:
-        (i) Synthesize a productionDecision with a "direct response" TaskContract that downstream layers know to render as-is.
-        (ii) Add a new `RunTurnDecisionResult.directResponse?: { text: string; messageId: string }` field that bypasses the TaskContract path.
-        (iii) Move the user-delivery call INSIDE `runWebResearchTurn` so the orchestrator handles delivery directly.
-      ~80 LOC + integration tests. Behaviour-neutral on production until Phase 4c flips classifier prompt hint.
+      **Phase 4b''-e** SUPERSEDED — split into 4b''-e1 / e2 / e3 (kernel side, all merged) + 4b''-e4 (architectural caller wiring, pending). The original "single 4b''-e slice" plan was replaced by the four-sub-slice decomposition once the architectural reach of caller wiring became clear during 4b''-e2 build-out.
 
   - id: phase4c-classifier-gate-flip-and-live-verify
     order: 5.3
