@@ -318,6 +318,22 @@ No "I just searched, now compose" text-rule. Pure structural sequencing per mast
 - `~/.openclaw-dev/agents/dev/agent/models.json` retains `sonar` and `sonar-pro` entries with `compat: { nativeWebSearchTool: true }` — they will be consumed by Phase 5 when this slice ships.
 - `~/.openclaw-dev/openclaw.json` chain retains `hydra/sonar-pro` as a fallback so the model is loadable when Phase 4 runtime adapter calls it.
 
+### 2026-05-02 — Phase 1 merged (PR-#127, squash `5c2813b141`)
+
+- Branch: `feat/orchestrator-search-composer-phase1` от свежего `origin/dev` (HEAD `e1d58ab614` на момент checkout). Squash-merged via `gh pr merge 127 --admin --squash --delete-branch` after BlackSmith CI stuck pending >5 min (documented precedent PR-#112/#114/#118/#122/#125/#126); local validation green: `pnpm tsgo` clean, `pnpm test --run src/platform/commitment/__tests__/effect-family-registry.test.ts src/platform/commitment/__tests__/registries.test.ts` → 15/15 passed (4.86s).
+- Diff: `+85 -2` over 4 files.
+  - `src/platform/commitment/effect-family-registry.ts`: extended `EffectFamilyDefinition` with optional `branchingHints?: readonly BranchingHint[]`; added `WEB_RESEARCH_EFFECT_FAMILY` constant; pushed `web_research` entry into `EFFECT_FAMILY_REGISTRY` with `allowedOperationKinds: ["create"]` + frozen `branchingHints: ["search_specialist", "search_then_composer"]`; declared and exported `WEB_EVIDENCE_COLLECTED_EFFECT` (`"web_evidence.collected"` as `EffectId`) and `WEB_RESEARCH_SUMMARIZED_EFFECT` (`"web_research.summarized"` as `EffectId`) — Phase 2 affordance keys.
+  - `src/platform/commitment/index.ts`: re-exported the three new constants.
+  - `src/platform/commitment/__tests__/effect-family-registry.test.ts` (new, 7 tests): `Object.isFrozen(EFFECT_FAMILY_REGISTRY)` + per-entry frozen + `push throws`; `web_research` registered exactly once with create-only operation; `branchingHints` exposed only on `web_research` (closed extension, undefined elsewhere); `WEB_EVIDENCE_COLLECTED_EFFECT` / `WEB_RESEARCH_SUMMARIZED_EFFECT` brand-equal expected strings; `isKnownEffectFamilyId("web_research") === true`.
+  - `src/platform/commitment/__tests__/registries.test.ts`: order check extended to `["persistent_session", "communication", "web_research", "unknown"]`.
+- **Behavior-neutral on this slice** (architectural pre-wiring only):
+  - The `IntentContractor` structured-output prompt hint at `src/platform/commitment/intent-contractor-impl.ts:472` retains the 3-family allowlist (`"persistent_session" | "communication" | "unknown"`), so the classifier continues to pick from the same 3 options. Phase 4 will update this hint together with the runtime adapter.
+  - The dynamic `familyDirectory` constructed at `intent-contractor-impl.ts:461` does pick up `web_research` automatically (this is by design per master §13 — registry is single source of truth) but the responseShape hint dominates classifier behavior on gpt-5-mini in practice; live verification post-merge will confirm.
+  - `route-preflight.ts` `NATIVE_WEB_SEARCH_MODEL_IDS` remains empty per the Phase 0 rollback in `e1d58ab614`.
+- Hard invariants reverse-tested: **#1, #2, #5, #6, #7, #8, #11, #16** — all clear (no `ExecutionCommitment` shape change, no affordance selection logic, no UserPrompt phrase-rule, no IntentContractor raw-text reader change, no ShadowBuilder change, no `commitment/` ↛ `decision/` import boundary violation, frozen 5 decision contracts untouched, distinct `EffectFamilyId` vs `EffectId` branded types preserved on the new family + 2 effects).
+- Frozen-layer touch: **none** (Phase 5 will be the only frozen-layer slice in this sub-plan — `ModelRoutePreflightDecision.reasonCode` union extension under `compatibility` label).
+- Next: **Phase 2** — two affordances `perplexity_search_specialist` (effect=`WEB_EVIDENCE_COLLECTED_EFFECT`, target=`evidence_record` matcher, donePredicate on `webEvidence.records[*].url`) and `composer_after_search` (effect=`WEB_RESEARCH_SUMMARIZED_EFFECT`, precondition `webEvidence.records.length >= 1`, target = `document` | `text_response` matcher) in `src/platform/commitment/affordance-registry.ts`. Predicates currently stub-able (real `WebEvidenceSlice` lands in Phase 3); use a forward-declared `WorldStateSnapshot.webEvidence?` shape in `world-state.ts` to keep the affordance pair compilable but inert until Phase 3-4 wire the population path.
+
 ### (To be filled per phase as work progresses post-signoff.)
 
 ## 8. Adjacent / deferred bugs (out of scope)
