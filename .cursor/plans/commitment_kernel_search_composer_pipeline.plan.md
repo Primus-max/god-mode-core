@@ -134,13 +134,31 @@ todos:
 
   - id: phase4b-prime-caller-wiring-attempt-ts
     order: 5.25
+    status: pending-split
+    signoff: required
+    content: |
+      **Phase 4b'** (split from Phase 4b per 2026-05-02 14:55 amendment; **further split into 4b'-a / 4b'-b** per 2026-05-02 15:08 amendment after grep audit confirmed `attempt.ts` has zero kernel awareness — the 2-step dispatch must live at `src/platform/decision/input.ts`, not the LLM-call layer). Original "caller wiring at attempt.ts" goal preserved below for traceability; the actual integration target is the decision-layer dispatch point.
+
+  - id: phase4b-prime-a-orchestrator-helper
+    order: 5.251
     status: pending
     signoff: required
     content: |
-      **Phase 4b'** (split from Phase 4b per 2026-05-02 14:55 amendment). Caller wiring at `src/agents/pi-embedded-runner/run/attempt.ts` (3,468 LOC orchestration loop) for both `runWebResearchSpecialist` and `runComposerAfterSearch`.
-      Audit attempt.ts entry-points first; choose narrowest insertion site. Wire the 2-call sequence (sonar → composer) when affordance.effect matches the web_research family. Budget: ≤3 LOC change to attempt.ts orchestration loop body + 1 helper file (`web-research-orchestrator.ts` or similar) for the two-step driver. If wiring requires more, STOP and write Phase 4b'' amendment.
-      Behaviour-neutral on production because no production turn currently emits `web_research` (classifier prompt-hint still 3-family allowlist until 4c).
-      ~80 LOC + smoke tests. Frozen-layer: none.
+      **Phase 4b'-a** (split from 4b' per 2026-05-02 15:08 amendment). New `web-research-orchestrator.ts` helper alone — no caller wiring.
+      Files: `src/agents/pi-embedded-runner/run/web-research-orchestrator.ts` (new), `web-research-orchestrator.test.ts` (new).
+      `runWebResearchTurn(...)` orchestrates specialist → observer.observe → composer with closed failure semantics (specialist fails → no composer call; composer fails after specialist success → sonar slice survives for caller). Also exports `isWebResearchFamilyEffect(effect)` predicate for the Phase 4b'-b conditional.
+      ~165 LOC + 9 tests. Frozen-layer: none. Behaviour-neutral on production (no caller invokes the orchestrator).
+
+  - id: phase4b-prime-b-decision-layer-dispatch
+    order: 5.252
+    status: pending
+    signoff: required
+    content: |
+      **Phase 4b'-b** (split from 4b' per 2026-05-02 15:08 amendment). Caller wiring at `src/platform/decision/input.ts` (or wherever runTurnDecision is dispatched alongside the LLM call) — NOT at attempt.ts.
+      Audit input.ts and `plugin.ts` (the two call-sites of runTurnDecision per `src/platform/decision/run-turn-decision.ts`) to find the narrowest insertion site. Insert a single conditional `if (isWebResearchFamilyEffect(commitment.effect)) { await runWebResearchTurn(...); }` that routes the 2-step dispatch through the orchestrator helper; outside the branch, the existing flow runs untouched.
+      The LLM transports (`specialistTransport`, `composerTransport`) need production wiring — `prepareModelForSimpleCompletion` + `completeSimple` from `@mariozechner/pi-ai`, mirroring the IntentContractor pattern.
+      Budget: ≤3 LOC change to dispatch site + 1 file for transport setup. If wiring requires more, STOP and write Phase 4b''-c amendment.
+      ~80 LOC + integration smoke tests. Frozen-layer: none. Behaviour-neutral on production until 4c flips classifier hint.
 
   - id: phase4c-classifier-gate-flip-and-live-verify
     order: 5.3
@@ -441,6 +459,24 @@ No "I just searched, now compose" text-rule. Pure structural sequencing per mast
 - Frozen-layer touch: **none**.
 - Local validation: `pnpm tsgo` clean; **71/71** scoped + **19/19** adjacent → **90/90** total over 10 files.
 - Next: **Phase 4b'** — caller wiring at `attempt.ts` for both `runWebResearchSpecialist` and `runComposerAfterSearch`. Budget: ≤3 LOC change to attempt.ts orchestration loop body + 1 new helper file (`web-research-orchestrator.ts` or similar) for the two-step driver. If wiring requires more touch, STOP and write Phase 4b'' amendment.
+
+### 2026-05-02 — Phase 4b'-a merged (PR-#132, squash `986fb04b03`); §8.5 amended again (4b' → 4b'-a / 4b'-b)
+
+**Audit finding**: direct grep against `src/agents/pi-embedded-runner/run/attempt.ts` for `runTurnDecision|monitoredRuntime|webEvidenceCollector|completeSimple|affordance|commitment\.effect` returned **0 matches**. attempt.ts is purely the LLM-call layer with zero kernel awareness. The 2-step dispatch (sonar → composer) cannot be inserted at the LLM-call layer without architectural integration. Per the §8.5 drift safeguard's `4b'-a / 4b'-b` provision, Phase 4b' was split:
+
+- **4b'-a** (this merge): `web-research-orchestrator.ts` helper alone. attempt.ts untouched.
+- **4b'-b** (next slice): caller wiring at the **decision-layer dispatch point** (`src/platform/decision/input.ts` or `src/platform/plugin.ts`, the two call-sites of `runTurnDecision`), NOT at attempt.ts. The transport wiring (`prepareModelForSimpleCompletion` + `completeSimple` from `@mariozechner/pi-ai`) lands alongside.
+
+**Phase 4b'-a** (`986fb04b03`):
+- Branch: `feat/orchestrator-search-composer-phase4b-prime` от свежего `origin/dev` (HEAD `060f5d21b0` после Phase 4b docs commit). Squash-merged via admin per documented precedent.
+- Diff: `+532 -0` over 2 new files.
+  - `src/agents/pi-embedded-runner/run/web-research-orchestrator.ts` (new, +185): `runWebResearchTurn(...)` orchestrates specialist → observer.observe → composer with closed failure semantics. Specialist failure short-circuits composer (no wasted composer call). Composer failure after specialist success preserves the sonar slice on the observer (caller can decide partial-state UX). Defensive guard: pathological observer returning `undefined` after specialist success → abort with `web_evidence_missing` rather than passing `undefined` slice to composer. `isWebResearchFamilyEffect(effect)` predicate exported for the Phase 4b'-b conditional — returns `true` only for `WEB_EVIDENCE_COLLECTED_EFFECT` or `WEB_RESEARCH_SUMMARIZED_EFFECT`.
+  - `src/agents/pi-embedded-runner/run/web-research-orchestrator.test.ts` (new, +347): 9 cases covering canonical happy path; specialist transport_error short-circuits composer; specialist no_records short-circuits composer; composer transport_error after specialist success preserves slice + zero receipts emitted; effect_mismatch on either commitment skips both transports; pathological observer guard; predicate matrix (true for 2 web_research effects, false for `persistent_session.created` / `answer.delivered` / `clarification_requested` / `external_effect.performed`).
+- **Behaviour-neutral on production** — no caller invokes the orchestrator yet; attempt.ts untouched (and confirmed-via-audit unsuitable for the integration); the predicate is dead code in production until 4b'-b wires the decision-layer conditional.
+- Hard invariants reverse-tested: **#1, #2, #5, #6, #7, #8, #9, #10, #11, #16** — all clear; #8 explicitly: orchestrator lives in `agents/pi-embedded-runner` (allowed to import both layers).
+- Frozen-layer touch: **none**.
+- Local validation: `pnpm tsgo` clean; **62/62** scoped (orchestrator + adapter + composer-predicate + observer + registries + monitored-runtime).
+- Next: **Phase 4b'-b** — caller wiring at the decision-layer dispatch point (`input.ts` or `plugin.ts` — audit which is narrower) + LLM transport setup (`prepareModelForSimpleCompletion` + `completeSimple`). ≤3 LOC change to dispatch site + 1 file for transport setup. If wiring requires more, STOP and write Phase 4b''-c amendment.
 
 ### (To be filled per phase as work progresses post-signoff.)
 
