@@ -1334,6 +1334,7 @@ async function prepareAgentCommandExecution(
   const runId = opts.runId?.trim() || sessionId;
   const webEvidencePrefetch = await maybeFetchWebEvidence({
     requestedTools: platformPlannerInput.requestedTools,
+    toolBundles: platformPlannerInput.resolutionContract?.toolBundles,
     userPrompt: body,
     cfg,
     agentDir,

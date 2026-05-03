@@ -29,9 +29,10 @@ describe("filterWebSearchFromTools", () => {
 });
 
 describe("maybeFetchWebEvidence", () => {
-  it("returns undefined immediately when requestedTools is undefined", async () => {
+  it("returns undefined immediately when neither requestedTools nor toolBundles signal web_search", async () => {
     const result = await maybeFetchWebEvidence({
       requestedTools: undefined,
+      toolBundles: undefined,
       userPrompt: "hi",
       cfg,
       sessionId: "s",
@@ -40,9 +41,10 @@ describe("maybeFetchWebEvidence", () => {
     expect(result).toBeUndefined();
   });
 
-  it("returns undefined immediately when requestedTools omits web_search", async () => {
+  it("returns undefined immediately when requestedTools + toolBundles are present but neither carries the web_search signal", async () => {
     const result = await maybeFetchWebEvidence({
       requestedTools: ["pdf", "image_generate"],
+      toolBundles: ["artifact_authoring"],
       userPrompt: "hi",
       cfg,
       sessionId: "s",
@@ -51,11 +53,29 @@ describe("maybeFetchWebEvidence", () => {
     expect(result).toBeUndefined();
   });
 
-  it("returns undefined and logs when the specialist transport fails", async () => {
+  it("returns undefined and logs when the specialist transport fails (requestedTools signal)", async () => {
     const logger = vi.fn();
     const result = await maybeFetchWebEvidence({
       requestedTools: ["web_search"],
+      toolBundles: undefined,
       userPrompt: "what is the latest news",
+      cfg,
+      sessionId: "s",
+      turnId: "t",
+      logger,
+    });
+    expect(result).toBeUndefined();
+    expect(logger).toHaveBeenCalled();
+    const message = logger.mock.calls[0]?.[0] ?? "";
+    expect(message).toContain("[web-evidence-prefetch] specialist_failed");
+  });
+
+  it("triggers the prefetch when requestedTools omits web_search but the resolution contract carries the public_web_lookup bundle", async () => {
+    const logger = vi.fn();
+    const result = await maybeFetchWebEvidence({
+      requestedTools: ["pdf"],
+      toolBundles: ["artifact_authoring", "public_web_lookup"],
+      userPrompt: "fetch the latest IT news and make a PDF summary",
       cfg,
       sessionId: "s",
       turnId: "t",
