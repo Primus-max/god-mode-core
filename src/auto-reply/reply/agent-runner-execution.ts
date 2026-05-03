@@ -45,6 +45,7 @@ import {
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import {
   filterWebSearchFromTools,
+  hasWebSearchSignal,
   maybeFetchWebEvidence,
 } from "../../platform/decision/web-evidence-prefetch.js";
 import {
@@ -451,7 +452,10 @@ export async function runAgentTurnWithFallback(params: {
                 parentRunId: params.followupRun.parentRunId,
                 platformExecutionContext,
                 prompt: effectiveCommandBody,
-                disableWebSearchTool: webEvidencePrefetch !== undefined,
+                disableWebSearchTool: hasWebSearchSignal({
+                  requestedTools: routingSnapshot.plannerInput.requestedTools,
+                  toolBundles: routingSnapshot.plannerInput.resolutionContract?.toolBundles,
+                }),
                 extraSystemPrompt: params.followupRun.run.extraSystemPrompt,
                 toolResultFormat: (() => {
                   const channel = resolveMessageChannel(

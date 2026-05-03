@@ -93,6 +93,25 @@ function shouldFetchWebEvidence(params: {
 }
 
 /**
+ * Returns `true` when the turn signals fresh-data intent
+ * (`requestedTools` includes `web_search` OR `toolBundles` includes
+ * `public_web_lookup`). Callers use this to force-disable the
+ * `web_search` tool in the LLM tool catalog regardless of whether
+ * `maybeFetchWebEvidence` succeeded — exposing the broken DDG fallback
+ * to the model causes `Provider finish_reason: error` upstream, so the
+ * safer mode is to either let the model answer from sonar evidence
+ * (when prefetch succeeded) or answer without fresh data (when sonar
+ * itself failed). Either way is better than running into the DDG
+ * fallback.
+ */
+export function hasWebSearchSignal(params: {
+  readonly requestedTools: readonly string[] | undefined;
+  readonly toolBundles: readonly string[] | undefined;
+}): boolean {
+  return shouldFetchWebEvidence(params);
+}
+
+/**
  * Phase 4b''-e4 (Option ε) prefetch helper. Invoked by the agent runner just
  * before the LLM call. When the planner indicates the turn requires
  * `web_search`, runs the sonar specialist synchronously to produce a fresh
