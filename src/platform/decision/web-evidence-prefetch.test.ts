@@ -2,10 +2,49 @@ import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
   filterWebSearchFromTools,
+  hasWebSearchSignal,
   maybeFetchWebEvidence,
 } from "./web-evidence-prefetch.js";
 
 const cfg: OpenClawConfig = { agents: { defaults: {} } } as OpenClawConfig;
+
+describe("hasWebSearchSignal", () => {
+  it("returns false when neither requestedTools nor toolBundles signal web_search", () => {
+    expect(
+      hasWebSearchSignal({
+        requestedTools: ["pdf"],
+        toolBundles: ["artifact_authoring"],
+      }),
+    ).toBe(false);
+  });
+
+  it("returns true when requestedTools includes web_search", () => {
+    expect(
+      hasWebSearchSignal({
+        requestedTools: ["pdf", "web_search"],
+        toolBundles: undefined,
+      }),
+    ).toBe(true);
+  });
+
+  it("returns true when toolBundles includes public_web_lookup", () => {
+    expect(
+      hasWebSearchSignal({
+        requestedTools: undefined,
+        toolBundles: ["public_web_lookup"],
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false when both inputs are undefined", () => {
+    expect(
+      hasWebSearchSignal({
+        requestedTools: undefined,
+        toolBundles: undefined,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("filterWebSearchFromTools", () => {
   it("returns undefined when input is undefined", () => {

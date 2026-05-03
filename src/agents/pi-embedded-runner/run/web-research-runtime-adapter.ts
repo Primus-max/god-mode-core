@@ -112,6 +112,9 @@ export async function runWebResearchSpecialist(
 
   const parsed = parseRecords(reply.text);
   if (!parsed.ok) {
+    params.logger?.(
+      `[commitment] effect=web_evidence.parse_failed detail=${parsed.detail} replyHead="${reply.text.slice(0, 240).replace(/\s+/g, " ")}" sessionId=${params.turnKey.sessionId} turnId=${params.turnKey.turnId}`,
+    );
     return { ok: false, reason: "parse_error", detail: parsed.detail };
   }
 
@@ -179,14 +182,29 @@ type ParseResult =
   | { readonly ok: true; readonly records: readonly WebEvidenceRecord[] }
   | { readonly ok: false; readonly detail: string };
 
+function extractJsonArrayCandidate(raw: string): string | undefined {
+  const fenceMatch = /```(?:json)?\s*([\s\S]*?)```/iu.exec(raw);
+  const candidate = (fenceMatch?.[1] ?? raw).trim();
+  if (candidate.startsWith("[")) {
+    return candidate;
+  }
+  const firstBracket = candidate.indexOf("[");
+  const lastBracket = candidate.lastIndexOf("]");
+  if (firstBracket >= 0 && lastBracket > firstBracket) {
+    return candidate.slice(firstBracket, lastBracket + 1);
+  }
+  return undefined;
+}
+
 function parseRecords(text: string): ParseResult {
   const trimmed = text.trim();
   if (trimmed === "") {
     return { ok: false, detail: "empty_reply" };
   }
+  const jsonCandidate = extractJsonArrayCandidate(trimmed) ?? trimmed;
   let json: unknown;
   try {
-    json = JSON.parse(trimmed);
+    json = JSON.parse(jsonCandidate);
   } catch (error) {
     return {
       ok: false,

@@ -54,6 +54,7 @@ import {
 } from "../platform/decision/input.js";
 import {
   filterWebSearchFromTools,
+  hasWebSearchSignal,
   maybeFetchWebEvidence,
 } from "../platform/decision/web-evidence-prefetch.js";
 import type { TaskClassifierAdapter } from "../platform/decision/task-classifier.js";
@@ -1400,7 +1401,10 @@ async function prepareAgentCommandExecution(
     runId,
     acpManager,
     acpResolution,
-    disableWebSearchTool: webEvidencePrefetch !== undefined,
+    disableWebSearchTool: hasWebSearchSignal({
+      requestedTools: platformPlannerInput.requestedTools,
+      toolBundles: platformPlannerInput.resolutionContract?.toolBundles,
+    }),
   };
 }
 
