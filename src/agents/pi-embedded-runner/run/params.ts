@@ -71,12 +71,14 @@ export type RunEmbeddedPiAgentParams = {
   /** If true, omit the message tool from the tool list. */
   disableMessageTool?: boolean;
   /**
-   * If true, omit the `web_search` tool from the tool list. Set by the
-   * web-evidence-prefetch hook when sonar already populated `<web_evidence>`
-   * in the prompt — exposing the broken DDG fallback to the model would let
-   * it loop into `Provider finish_reason: error`. Per
+   * If true, omit external web tools (`web_search` and `web_fetch`) from the
+   * tool list. Set by the web-evidence-prefetch hook when a web_search signal
+   * is present — sonar has either already populated `<web_evidence>` in the
+   * prompt OR failed cleanly. Either way, exposing the broken DDG fallback
+   * (`web_search`) or raw HTTP fetch (`web_fetch`, blocked by bot detection)
+   * to the model lets it loop into `Provider finish_reason: error`. Per
    * `commitment_kernel_search_composer_pipeline.plan.md` §8.5 4b''-e4
-   * Option ε.
+   * Option ε; web_fetch added in PR-#144 after live verify of PR-#143.
    */
   disableWebSearchTool?: boolean;
   /** Allow runtime plugins for this run to late-bind the gateway subagent. */
