@@ -403,6 +403,13 @@ type RunAgentAttemptParams = {
   allowTransientCooldownProbe?: boolean;
   platformRuntimePlan: ResolvedPlatformRuntimePlan;
   bootstrapContextMode?: "full" | "lightweight";
+  /**
+   * Set by the web-evidence-prefetch hook when sonar already populated
+   * `<web_evidence>` in `body` — drops `web_search` from the tool catalog
+   * inside `attempt.ts` so the model can't redundantly invoke the broken
+   * DDG fallback.
+   */
+  disableWebSearchTool?: boolean;
 };
 
 type BuildEmbeddedAgentRunParams = Pick<
@@ -430,6 +437,7 @@ type BuildEmbeddedAgentRunParams = Pick<
   | "onAgentEvent"
   | "platformRuntimePlan"
   | "bootstrapContextMode"
+  | "disableWebSearchTool"
 > & {
   effectivePrompt: string;
   images?: AgentCommandOpts["images"];
@@ -628,6 +636,7 @@ export function buildEmbeddedAgentRunParams(
     platformExecutionContext: params.platformRuntimePlan.runtime,
     allowTransientCooldownProbe: params.allowTransientCooldownProbe,
     bootstrapContextMode: params.bootstrapContextMode,
+    disableWebSearchTool: params.disableWebSearchTool,
     onAgentEvent: params.onAgentEvent,
     bootstrapPromptWarningSignaturesSeen: params.bootstrapPromptWarningSignaturesSeen,
     bootstrapPromptWarningSignature: params.bootstrapPromptWarningSignature,
@@ -1391,6 +1400,7 @@ async function prepareAgentCommandExecution(
     runId,
     acpManager,
     acpResolution,
+    disableWebSearchTool: webEvidencePrefetch !== undefined,
   };
 }
 
@@ -1425,6 +1435,7 @@ async function agentCommandInternal(
     runId,
     acpManager,
     acpResolution,
+    disableWebSearchTool,
   } = prepared;
   let sessionEntry = prepared.sessionEntry;
 
@@ -1912,6 +1923,7 @@ async function agentCommandInternal(
             allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
             platformRuntimePlan,
             bootstrapContextMode,
+            disableWebSearchTool,
             onAgentEvent: (evt) => {
               // Track lifecycle end for fallback emission below.
               if (

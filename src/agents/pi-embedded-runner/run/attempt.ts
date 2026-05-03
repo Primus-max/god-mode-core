@@ -1970,8 +1970,11 @@ export async function runEmbeddedAttempt(
           },
         });
     const toolsEnabled = supportsModelTools(params.model);
+    const toolsAfterWebSearchFilter = params.disableWebSearchTool
+      ? toolsRaw.filter((tool) => tool.name !== "web_search")
+      : toolsRaw;
     const tools = sanitizeToolsForGoogle({
-      tools: toolsEnabled ? toolsRaw : [],
+      tools: toolsEnabled ? toolsAfterWebSearchFilter : [],
       provider: params.provider,
     });
     const clientTools = toolsEnabled ? params.clientTools : undefined;
