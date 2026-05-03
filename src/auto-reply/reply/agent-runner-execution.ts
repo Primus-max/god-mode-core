@@ -44,6 +44,10 @@ import {
 } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import {
+  filterWebSearchFromTools,
+  maybeFetchWebEvidence,
+} from "../../platform/decision/web-evidence-prefetch.js";
+import {
   buildEmbeddedRunExecutionParams,
   resolveRoutingSnapshotForTemplateRun,
   resolveModelFallbackOptions,
@@ -145,6 +149,24 @@ export async function runAgentTurnWithFallback(params: {
     storePath: params.storePath,
     sessionEntry: params.getActiveSessionEntry(),
   });
+  let effectiveCommandBody = params.commandBody;
+  const webEvidencePrefetch = await maybeFetchWebEvidence({
+    requestedTools: routingSnapshot.plannerInput.requestedTools,
+    toolBundles: routingSnapshot.plannerInput.resolutionContract?.toolBundles,
+    userPrompt: effectiveCommandBody,
+    cfg: params.followupRun.run.config,
+    agentDir: params.followupRun.run.agentDir,
+    sessionId: params.sessionKey ?? params.followupRun.run.sessionKey ?? runId,
+    turnId: runId,
+    logger: (line) => logVerbose(line),
+  });
+  if (webEvidencePrefetch) {
+    effectiveCommandBody = webEvidencePrefetch.enrichedPrompt;
+    const filtered = filterWebSearchFromTools(routingSnapshot.plannerInput.requestedTools);
+    if (filtered) {
+      (routingSnapshot.plannerInput as { requestedTools?: string[] }).requestedTools = [...filtered];
+    }
+  }
   const platformExecutionContext = routingSnapshot.runtimePlan;
   if (platformExecutionContext.ackThenDefer === true && params.onAckThenDefer && !params.isHeartbeat) {
     try {
@@ -281,7 +303,7 @@ export async function runAgentTurnWithFallback(params: {
       const onToolResult = params.opts?.onToolResult;
       const fallbackResult = await runWithModelFallback({
         ...resolveModelFallbackOptions(params.followupRun.run, {
-          preflightPrompt: params.commandBody,
+          preflightPrompt: effectiveCommandBody,
         }),
         preflightPlannerInput: routingSnapshot.plannerInput,
         runId,
@@ -316,7 +338,7 @@ export async function runAgentTurnWithFallback(params: {
                   sessionFile: params.followupRun.run.sessionFile,
                   workspaceDir: params.followupRun.run.workspaceDir,
                   config: params.followupRun.run.config,
-                  prompt: params.commandBody,
+                  prompt: effectiveCommandBody,
                   provider,
                   model,
                   thinkLevel: params.followupRun.run.thinkLevel,
@@ -420,7 +442,7 @@ export async function runAgentTurnWithFallback(params: {
                 requestRunId,
                 parentRunId: params.followupRun.parentRunId,
                 platformExecutionContext,
-                prompt: params.commandBody,
+                prompt: effectiveCommandBody,
                 extraSystemPrompt: params.followupRun.run.extraSystemPrompt,
                 toolResultFormat: (() => {
                   const channel = resolveMessageChannel(
