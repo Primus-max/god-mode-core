@@ -150,6 +150,9 @@ export async function runAgentTurnWithFallback(params: {
     sessionEntry: params.getActiveSessionEntry(),
   });
   let effectiveCommandBody = params.commandBody;
+  defaultRuntime.log(
+    `[web-evidence-prefetch] hook entered runId=${runId} requestedTools=[${(routingSnapshot.plannerInput.requestedTools ?? []).join(",")}] toolBundles=[${(routingSnapshot.plannerInput.resolutionContract?.toolBundles ?? []).join(",")}]`,
+  );
   const webEvidencePrefetch = await maybeFetchWebEvidence({
     requestedTools: routingSnapshot.plannerInput.requestedTools,
     toolBundles: routingSnapshot.plannerInput.resolutionContract?.toolBundles,
@@ -158,7 +161,7 @@ export async function runAgentTurnWithFallback(params: {
     agentDir: params.followupRun.run.agentDir,
     sessionId: params.sessionKey ?? params.followupRun.run.sessionKey ?? runId,
     turnId: runId,
-    logger: (line) => logVerbose(line),
+    logger: (line) => defaultRuntime.log(line),
   });
   if (webEvidencePrefetch) {
     effectiveCommandBody = webEvidencePrefetch.enrichedPrompt;
@@ -166,6 +169,11 @@ export async function runAgentTurnWithFallback(params: {
     if (filtered) {
       (routingSnapshot.plannerInput as { requestedTools?: string[] }).requestedTools = [...filtered];
     }
+    defaultRuntime.log(
+      `[web-evidence-prefetch] applied recordCount=${webEvidencePrefetch.recordCount} runId=${runId} promptDeltaChars=${webEvidencePrefetch.enrichedPrompt.length - params.commandBody.length}`,
+    );
+  } else {
+    defaultRuntime.log(`[web-evidence-prefetch] not_applied runId=${runId}`);
   }
   const platformExecutionContext = routingSnapshot.runtimePlan;
   if (platformExecutionContext.ackThenDefer === true && params.onAckThenDefer && !params.isHeartbeat) {

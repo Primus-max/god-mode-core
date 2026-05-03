@@ -1332,6 +1332,9 @@ async function prepareAgentCommandExecution(
     stagedDocuments.inlinePreviews,
   );
   const runId = opts.runId?.trim() || sessionId;
+  defaultRuntime.log(
+    `[web-evidence-prefetch] hook entered runId=${runId} requestedTools=[${(platformPlannerInput.requestedTools ?? []).join(",")}] toolBundles=[${(platformPlannerInput.resolutionContract?.toolBundles ?? []).join(",")}] caller=agent-command`,
+  );
   const webEvidencePrefetch = await maybeFetchWebEvidence({
     requestedTools: platformPlannerInput.requestedTools,
     toolBundles: platformPlannerInput.resolutionContract?.toolBundles,
@@ -1340,7 +1343,7 @@ async function prepareAgentCommandExecution(
     agentDir,
     sessionId,
     turnId: runId,
-    logger: (line) => log.info(line),
+    logger: (line) => defaultRuntime.log(line),
   });
   if (webEvidencePrefetch) {
     body = webEvidencePrefetch.enrichedPrompt;
@@ -1348,6 +1351,11 @@ async function prepareAgentCommandExecution(
     if (filtered) {
       (platformPlannerInput as { requestedTools?: string[] }).requestedTools = [...filtered];
     }
+    defaultRuntime.log(
+      `[web-evidence-prefetch] applied recordCount=${webEvidencePrefetch.recordCount} runId=${runId} caller=agent-command`,
+    );
+  } else {
+    defaultRuntime.log(`[web-evidence-prefetch] not_applied runId=${runId} caller=agent-command`);
   }
   const acpManager = getAcpSessionManager();
   const acpResolution = sessionKey
