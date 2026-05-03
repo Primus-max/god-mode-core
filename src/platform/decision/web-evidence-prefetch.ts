@@ -66,6 +66,14 @@ function syntheticSpecialistIntent(prompt: string): SemanticIntent {
 
 export type MaybeFetchWebEvidenceParams = {
   readonly requestedTools: readonly string[] | undefined;
+  /**
+   * Tool bundles surfaced by the recipe planner via the resolution contract.
+   * Matches the broader signal handled by `route-preflight.ts` PR-#126:
+   * a turn can request fresh web data via the `public_web_lookup` bundle
+   * even when `requestedTools` does not list `web_search` explicitly (the
+   * planner derives the two independently).
+   */
+  readonly toolBundles?: readonly string[] | undefined;
   readonly userPrompt: string;
   readonly cfg: OpenClawConfig;
   readonly agentDir?: string;
@@ -73,6 +81,16 @@ export type MaybeFetchWebEvidenceParams = {
   readonly turnId: string;
   readonly logger?: (line: string) => void;
 };
+
+function shouldFetchWebEvidence(params: {
+  readonly requestedTools: readonly string[] | undefined;
+  readonly toolBundles: readonly string[] | undefined;
+}): boolean {
+  return Boolean(
+    params.requestedTools?.includes("web_search") ||
+      params.toolBundles?.includes("public_web_lookup"),
+  );
+}
 
 /**
  * Phase 4b''-e4 (Option ε) prefetch helper. Invoked by the agent runner just
@@ -91,7 +109,12 @@ export type MaybeFetchWebEvidenceParams = {
 export async function maybeFetchWebEvidence(
   params: MaybeFetchWebEvidenceParams,
 ): Promise<MaybeFetchWebEvidenceResult | undefined> {
-  if (!params.requestedTools?.includes("web_search")) {
+  if (
+    !shouldFetchWebEvidence({
+      requestedTools: params.requestedTools,
+      toolBundles: params.toolBundles,
+    })
+  ) {
     return undefined;
   }
 
