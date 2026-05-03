@@ -70,6 +70,15 @@ export type RunEmbeddedPiAgentParams = {
   requireExplicitMessageTarget?: boolean;
   /** If true, omit the message tool from the tool list. */
   disableMessageTool?: boolean;
+  /**
+   * If true, omit the `web_search` tool from the tool list. Set by the
+   * web-evidence-prefetch hook when sonar already populated `<web_evidence>`
+   * in the prompt — exposing the broken DDG fallback to the model would let
+   * it loop into `Provider finish_reason: error`. Per
+   * `commitment_kernel_search_composer_pipeline.plan.md` §8.5 4b''-e4
+   * Option ε.
+   */
+  disableWebSearchTool?: boolean;
   /** Allow runtime plugins for this run to late-bind the gateway subagent. */
   allowGatewaySubagentBinding?: boolean;
   sessionFile: string;

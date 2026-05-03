@@ -451,6 +451,7 @@ export async function runAgentTurnWithFallback(params: {
                 parentRunId: params.followupRun.parentRunId,
                 platformExecutionContext,
                 prompt: effectiveCommandBody,
+                disableWebSearchTool: webEvidencePrefetch !== undefined,
                 extraSystemPrompt: params.followupRun.run.extraSystemPrompt,
                 toolResultFormat: (() => {
                   const channel = resolveMessageChannel(
