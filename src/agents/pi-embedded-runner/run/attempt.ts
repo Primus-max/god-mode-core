@@ -1971,7 +1971,10 @@ export async function runEmbeddedAttempt(
         });
     const toolsEnabled = supportsModelTools(params.model);
     const toolsAfterWebSearchFilter = params.disableWebSearchTool
-      ? toolsRaw.filter((tool) => tool.name !== "web_search" && tool.name !== "web_fetch")
+      ? toolsRaw.filter(
+          (tool) =>
+            tool.name !== "web_search" && tool.name !== "web_fetch" && tool.name !== "browser",
+        )
       : toolsRaw;
     const tools = sanitizeToolsForGoogle({
       tools: toolsEnabled ? toolsAfterWebSearchFilter : [],
