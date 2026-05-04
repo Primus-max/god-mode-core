@@ -51,7 +51,7 @@ export type RunWebResearchSpecialistParams = {
 };
 
 const DEFAULT_SYSTEM_MESSAGE =
-  'Return ONLY a JSON array matching the shape `[{ "url": string, "snippet": string, "title"?: string, "capturedAt": ISO8601 }]`. Each entry MUST cite a real URL from your search. No prose, no code fences, no preamble.';
+  'Return ONLY a JSON object matching the shape `{ "records": [{ "url": string, "snippet": string, "title"?: string, "capturedAt": ISO8601 }] }`. Each record MUST cite a real URL from your search. No prose, no code fences, no preamble, no markdown headers — pure JSON only. The reply will be parsed by `JSON.parse()` directly.';
 
 const SUMMARY_FALLBACK = "(no_summary)";
 
@@ -182,11 +182,16 @@ type ParseResult =
   | { readonly ok: true; readonly records: readonly WebEvidenceRecord[] }
   | { readonly ok: false; readonly detail: string };
 
-function extractJsonArrayCandidate(raw: string): string | undefined {
+function extractJsonCandidate(raw: string): string | undefined {
   const fenceMatch = /```(?:json)?\s*([\s\S]*?)```/iu.exec(raw);
   const candidate = (fenceMatch?.[1] ?? raw).trim();
-  if (candidate.startsWith("[")) {
+  if (candidate.startsWith("[") || candidate.startsWith("{")) {
     return candidate;
+  }
+  const firstBrace = candidate.indexOf("{");
+  const lastBrace = candidate.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return candidate.slice(firstBrace, lastBrace + 1);
   }
   const firstBracket = candidate.indexOf("[");
   const lastBracket = candidate.lastIndexOf("]");
@@ -201,7 +206,7 @@ function parseRecords(text: string): ParseResult {
   if (trimmed === "") {
     return { ok: false, detail: "empty_reply" };
   }
-  const jsonCandidate = extractJsonArrayCandidate(trimmed) ?? trimmed;
+  const jsonCandidate = extractJsonCandidate(trimmed) ?? trimmed;
   let json: unknown;
   try {
     json = JSON.parse(jsonCandidate);
@@ -211,12 +216,22 @@ function parseRecords(text: string): ParseResult {
       detail: error instanceof Error ? `invalid_json:${error.message}` : "invalid_json",
     };
   }
-  if (!Array.isArray(json)) {
+  let array: unknown;
+  if (Array.isArray(json)) {
+    array = json;
+  } else if (
+    json !== null &&
+    typeof json === "object" &&
+    Array.isArray((json as { records?: unknown }).records)
+  ) {
+    array = (json as { records: unknown[] }).records;
+  } else {
     return { ok: false, detail: "not_an_array" };
   }
+  const items = array as unknown[];
   const records: WebEvidenceRecord[] = [];
-  for (let index = 0; index < json.length; index += 1) {
-    const result = webEvidenceRecordSchema.safeParse(json[index]);
+  for (let index = 0; index < items.length; index += 1) {
+    const result = webEvidenceRecordSchema.safeParse(items[index]);
     if (!result.success) {
       return {
         ok: false,

@@ -31,6 +31,16 @@ async function completeWithModel(params: {
   readonly userPrompt: string;
   readonly maxTokens: number;
   readonly timeoutMs: number;
+  /**
+   * Optional JSON Schema injected into the upstream payload as
+   * `response_format: { type: "json_schema", json_schema: { schema } }`.
+   * Used by the specialist transport to force Perplexity sonar to return
+   * structured JSON instead of markdown prose (live regression in turn
+   * 5722d87c — sonar replied "### Последние новости..." breaking parse).
+   * The hook mutates the payload via pi-ai's `onPayload` callback, which is
+   * the supported extension point for OpenAI-compatible completions.
+   */
+  readonly responseJsonSchema?: Record<string, unknown>;
 }): Promise<string> {
   const parsedRef = parseModelRef(params.modelRef, "openai");
   if (!parsedRef) {
@@ -50,6 +60,7 @@ async function completeWithModel(params: {
   const apiKey = requireApiKey(auth, model.provider);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), params.timeoutMs);
+  const schema = params.responseJsonSchema;
   try {
     const result = await completeSimple(
       model,
@@ -68,6 +79,22 @@ async function completeWithModel(params: {
         maxTokens: params.maxTokens,
         temperature: 0,
         signal: controller.signal,
+        ...(schema
+          ? {
+              onPayload: (payload: unknown) => {
+                if (!payload || typeof payload !== "object") {
+                  return undefined;
+                }
+                return {
+                  ...(payload as Record<string, unknown>),
+                  response_format: {
+                    type: "json_schema",
+                    json_schema: { schema },
+                  },
+                };
+              },
+            }
+          : {}),
       },
     );
     return result.content
@@ -79,6 +106,35 @@ async function completeWithModel(params: {
     clearTimeout(timeout);
   }
 }
+
+/**
+ * JSON Schema injected into the Perplexity sonar payload to force a
+ * structured envelope `{ records: WebEvidenceRecord[] }`. Wrapping the array
+ * in an object root is the broadly-compatible Perplexity shape (top-level
+ * arrays are rejected by some sonar tiers). The runtime adapter's parser
+ * unwraps both shapes.
+ */
+const SPECIALIST_RESPONSE_JSON_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    records: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          url: { type: "string", minLength: 1 },
+          snippet: { type: "string" },
+          title: { type: "string" },
+          capturedAt: { type: "string" },
+        },
+        required: ["url", "snippet", "capturedAt"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["records"],
+  additionalProperties: false,
+};
 
 export type CreateWebResearchSpecialistTransportParams = {
   readonly cfg: OpenClawConfig;
@@ -104,6 +160,7 @@ export function createWebResearchSpecialistTransport(
       userPrompt: prompt,
       maxTokens,
       timeoutMs,
+      responseJsonSchema: SPECIALIST_RESPONSE_JSON_SCHEMA,
     });
     return { text };
   };

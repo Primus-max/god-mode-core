@@ -216,6 +216,56 @@ describe("runWebResearchSpecialist — Search-Composer Phase 4a", () => {
     expect(result).toEqual({ ok: false, reason: "no_records" });
   });
 
+  it("accepts the `{ records: [...] }` envelope shape returned when sonar honors response_format", async () => {
+    const collector = createWebEvidenceCollector();
+    const observer = createWebEvidenceWorldStateObserver(collector);
+    const transport: WebResearchSpecialistTransport = vi.fn(async () => ({
+      text: JSON.stringify({
+        records: [
+          {
+            url: "https://example.com/news",
+            snippet: "envelope-shape record",
+            title: "Headline",
+            capturedAt: "2026-05-04T12:00:00.000Z",
+          },
+        ],
+      }),
+    }));
+
+    const result = await runWebResearchSpecialist({
+      commitment: makeCommitment(),
+      intent: makeIntent(),
+      turnKey: TURN_KEY,
+      transport,
+      collector,
+    });
+
+    expect(result).toEqual({ ok: true, recordCount: 1 });
+    const slice = observer.observe();
+    expect(slice?.records.map((r) => r.url)).toEqual(["https://example.com/news"]);
+  });
+
+  it("returns parse_error when the reply is markdown prose with no JSON object or array", async () => {
+    const collector = createWebEvidenceCollector();
+    const transport: WebResearchSpecialistTransport = vi.fn(async () => ({
+      text: "### Последние новости на 4 мая 2026 года\n\nНа основе анализа источников...",
+    }));
+
+    const result = await runWebResearchSpecialist({
+      commitment: makeCommitment(),
+      intent: makeIntent(),
+      turnKey: TURN_KEY,
+      transport,
+      collector,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("parse_error");
+      expect(result.detail).toMatch(/invalid_json/);
+    }
+  });
+
   it("does not invoke logger when the result is a failure (ok=false branches)", async () => {
     const collector = createWebEvidenceCollector();
     const transport: WebResearchSpecialistTransport = vi.fn(async () => ({
