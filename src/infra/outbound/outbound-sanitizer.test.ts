@@ -34,7 +34,15 @@ describe("outbound-sanitizer / EXTERNAL_DELIVERY_SURFACES", () => {
 });
 
 describe("outbound-sanitizer / pattern coverage", () => {
-  it("ships exactly the 23 curated patternIds (10 Bug E + 6 Bug A universal tool-call + 7 Slice I english_meta_*)", () => {
+  it("ships exactly the 16 curated patternIds (10 Bug E diagnostics + 6 Bug A universal tool-call)", () => {
+    // Slice I rollback (PR #162 reverted): the 7 `english_meta_*` regex patterns
+    // were dropped — see master roadmap
+    // `commitment_kernel_v1_release_roadmap.plan.md` §3 ("LLM-mediated, not
+    // regex"). B5 leak defense is now (a) Phase 4 prompt hint instructing the
+    // model to wrap reasoning in `<thinking>` + (b) extraction-path
+    // `stripThinkingTagsFromText` strip in `pi-embedded-utils.ts`. The
+    // post-filter regex layer intentionally avoids regex-on-free-English
+    // (false-positive on legitimate prose, false-negative on mid-line leaks).
     expect([...__OUTBOUND_LEAK_PATTERN_IDS_FOR_TESTS].sort()).toEqual(
       [
         "tool_error_marker",
@@ -53,17 +61,6 @@ describe("outbound-sanitizer / pattern coverage", () => {
         "universal_tool_call_json_envelope",
         "universal_tool_call_orphan_open",
         "universal_tool_call_orphan_close",
-        // Slice I Phase 3 — sub-plan
-        // `commitment_kernel_reply_sanitizer.plan.md` todo
-        // `i-phase-3-meta-text-pattern-family`. Curated leading-imperative
-        // English meta-thinking, line-anchored + code-region-aware.
-        "english_meta_let_me",
-        "english_meta_ill",
-        "english_meta_i_should",
-        "english_meta_first_ill",
-        "english_meta_lets",
-        "english_meta_looking_at",
-        "english_meta_checking",
       ].sort(),
     );
   });
