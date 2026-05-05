@@ -270,16 +270,50 @@ v1 release is shippable when:
 5. **Architectural debt closed**: `disableWebSearchTool` flag is gone (slice A). Bundle is contract (slice B). Freshness is semantic (slice C). No prag-fixes remain marked TODO/HACK in code touched by v1 slices.
 6. **Memory layer is the only memory layer**: in-process intent-ledger continues to exist for hot-path latency; mem0 (slice E) is the persistent store; no third "shadow" memory mechanism added.
 
-## 6. Open questions (require maintainer decision before slice signoff)
+## 6. Decisions (closed 2026-05-05 — maintainer signoff at roadmap level)
 
-1. **mem0 vs build-our-own**: slice E proposes mem0 wrapped behind an interface so it's swappable. Alternatives: letta (heavier; agent-architecture-coupled) or sqlite-vec (lightweight, but no LLM-driven extraction). If maintainer prefers no-third-party for v1, slice E expands to ~3× scope (writing the extraction pipeline ourselves). Default recommendation: **mem0 wrapped**.
-2. **Slice A architectural choice**: Path A (extend `RunTurnDecisionResult` with `directResponse?`) vs Path B (move delivery into `runWebResearchTurn`). Path A keeps decision-layer purity; Path B is simpler but couples delivery to the orchestrator. Default recommendation: **Path A**.
-3. **Slice K scope split**: cutover-3 (artifact) and cutover-4 (repo_operation) can be one slice or two. They share the pattern but different evidence shapes. Default recommendation: **two child slices under K**.
-4. **TaskLedger persistence backend**: same SQLite as memory (slice E) or a separate table? Shared store is simpler; separate gives clean replay/rollback. Default recommendation: **shared SQLite, separate table**.
-5. **Reply sanitizer approach** (slice I): prompt-side fix (instruct opus to use `<thinking>`) vs post-filter (language detection). Default recommendation: **try prompt-side first; post-filter as belt-and-suspenders**.
-6. **Cross-channel parity scope** (acceptance #3): full E2E across all channels in v1 or backend-fixture parity? Default recommendation: **backend-fixture parity for v1; full E2E in v1.1**.
+The 6 questions previously open are now closed. Each decision is binding for the v1 sub-plans below; deviation in a child sub-plan requires explicit re-opening here.
 
-Maintainer answers to these 6 questions become §6 row updates in this plan, and feed into each sub-plan's §6 / §8 sections when they're authored.
+### D1. Memory backend → **mem0 (Apache 2.0) + sqlite-vec for embedded vector store**
+
+Rationale: mem0's LLM-driven extraction (auto-decide what to remember + de-dupe + semantic recall) would cost 2-3 months to build ourselves. mem0 is 30k+ stars, weekly commits, has a TS SDK. Wrapping it behind a project `MemoryStore` interface keeps it swappable. Vector-store backend: **sqlite-vec** instead of mem0's default Qdrant — keeps everything in one embedded SQLite file, no external service. Slice E ships the wrapper; if mem0 turns out wrong in production, the swap takes a day inside the wrapper.
+
+Rejected:
+- **letta**: forces its own agent runtime; loses architectural freedom.
+- **Build-our-own**: extraction pipeline alone is 3-4 weeks; not in v1 budget.
+- **chromadb / pure sqlite-vec**: vector store only; we'd still write extraction.
+- **zep**: license recently moved to open-core; dependency risk.
+
+### D2. Slice A — Search-Composer dispatch → **Path A** (`RunTurnDecisionResult.directResponse?`)
+
+Rationale: existing reply-pipeline (channel adapters with all their accumulated logic — Telegram caption split, Slack threading, Web UI streaming, etc.) is the right delivery layer. Path A reuses it; Path B duplicates it inside the orchestrator and creates two delivery code paths. The `directResponse?` field is small additive surface area; it scales for future dispatchers (memory query, task query) without touching delivery logic each time.
+
+### D3. Slice K split → **K1 (artifacts) + K2 (repo operations)** as separate sub-plans
+
+Rationale: standard practice — small cohesive PRs per evidence shape (artifact: filepath/size/mimetype; repo: SHA/branch/files-changed). Independent test surfaces. K2 can wait if K1 reveals issues. Both touch the frozen layer and need explicit master-plan amendment per invariant #11.
+
+### D4. TaskLedger persistence → **shared SQLite, dedicated `tasks` table**
+
+Rationale: every production app (Slack, Linear, Notion) uses a single transactional store with multiple tables. Critical reason: atomicity — moving a task from "running" → "completed" while writing the memory entry must be a single transaction. Separate stores make this hard. Scale concerns (millions of ops/sec) don't apply to us. Migration path to a separate store later is straightforward if it's ever needed.
+
+### D5. Reply sanitizer → **defense in depth (prompt-side + post-filter, both)**
+
+Rationale: this is the standard approach (called "defense in depth"). Prompt-side primary: instruct Opus to put internal reasoning in `<thinking>` blocks; we strip those before delivery. Post-filter safety net: detect English-meta-text patterns at the assistant-reply boundary and either drop them or wrap them so they don't reach the channel. Single-layer defense fails when the model occasionally ignores the prompt; both layers together hit zero leak in observation.
+
+**Channel-aware visibility** (added 2026-05-05): different channels have different "show reasoning" rules. The sanitizer has a per-channel policy:
+- **Telegram**, **Max** (RU messenger), **iMessage**, **Signal**, **WhatsApp**: never show reasoning. Strip `<thinking>` and meta-text completely.
+- **Web UI** (when implemented): may show reasoning collapsibly per its UX. Sanitizer keeps `<thinking>` blocks structured (JSON-tagged) so the UI can render them; doesn't strip.
+- **Slack**, **Discord**: hide by default, surface in a sidebar / thread on user request.
+
+The sanitizer is one component, but its policy is parameterized by channel.
+
+### D6. Cross-channel parity at v1 release → **Telegram full E2E + Web UI full E2E (when ready); other channels backend-fixture parity; Max joins in v1.1**
+
+Rationale: Telegram is the primary channel today; Web UI is the priority companion. Both must be exhaustively tested at v1. Slack/Discord/iMessage/Signal/WhatsApp adapters: backend code paths covered by integration tests, UI not exhaustively rehearsed. Max (RU messenger) is added in v1.1 once a Max channel adapter exists. Reasoning: shipping a "perfect everywhere" v1 means v1 never ships; "perfect for primary channels, working everywhere else" is industry standard.
+
+**Implication for slice I (reply sanitizer)**: sanitizer policy is channel-keyed (see D5). Web UI explicit support is part of slice I's acceptance.
+
+**Implication for slice D (channel-agnostic persistence)**: the new keying `(channel, externalId, sessionScope)` MUST cover at minimum: `telegram`, `web`, `max` (placeholder), `slack`, `discord`, `imessage`, `signal`, `whatsapp`. Adding new channels later is a one-row registry addition, not a schema change.
 
 ## 7. References
 
