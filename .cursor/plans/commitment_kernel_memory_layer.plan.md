@@ -16,13 +16,13 @@ todos:
     status: completed
   - id: e-phase-5-commitment-runtime-memory-hook
     content: "Phase 5 — wire memory writes from the commitment-kernel boundary. The hook fires AFTER `attestation.commitmentSatisfied === true` for selected effect families. Implementation lives OUTSIDE `src/platform/commitment/` to honour invariant #8 — new file `src/agents/pi-embedded-runner/run/memory-write-on-satisfied.ts` consumes the existing `RuntimeAttestation` from `monitored-runtime.ts` plus the resolved `IdentityId` from the session-key. Episodic events emitted: `persistent_session.created` → conversation-message memory; future `subagent.created`/`reminder.set`/`artifact.created` slots are stubbed but inert until slices F/G/J/K wire them. Frozen-layer touch: NONE — `MonitoredRuntime` is unchanged, the call site is the existing `pi-embedded-runner` orchestration that already receives the attestation. Tests: hook runs only on `commitmentSatisfied`, hook is no-op when `IdentityId` resolution returns `undefined` (anonymous session — no leak), memory write failure does NOT mark commitment unsatisfied (memory is observability, not gate), reverse-test: hook does NOT write on `commitmentSatisfied=false`."
-    status: pending
+    status: completed
   - id: e-phase-6-recall-block-in-intent-contractor
     content: "Phase 6 — memory recall hook into `IntentContractor` prompt as a `<memory>` block, mirroring the existing `<web_evidence>` pattern (see `src/agents/pi-embedded-runner/run/params.ts:77`). Recall is keyed by the resolved `IdentityId` and the raw prompt text. The recall HAPPENS INSIDE `intent-contractor-impl.ts` (the only invariant #6-sanctioned reader of raw user text); the `MemoryStore` is injected as a constructor dep. Top-K (default 5) results are formatted into a `<memory>...</memory>` block prepended to the contractor prompt. Frozen-layer touch: `intent-contractor-impl.ts` is in `src/platform/commitment/` — its constructor surface gains an optional `memoryStore?: MemoryStore` dep. This is additive, NOT a contract change, so does NOT need master amendment per §11; the 5 frozen contracts (`TaskContract` etc.) are untouched. Tests: contractor with no memory dep behaves exactly as today; contractor with empty memory injects no `<memory>` block (no whitespace pollution); contractor with N memories injects exactly N entries; recall failure (sqlite locked, embedder timeout) → no `<memory>` block AND warning log, NEVER throws into the contractor; reverse-test: anonymous session (no IdentityId) → no recall attempted."
-    status: pending
+    status: completed
   - id: e-phase-7-acceptance-fixture-b1-replay
     content: "Phase 7 — end-to-end acceptance test for B1 closure. Single integration test: (a) inject IdentityRegistry with one operator, (b) run a turn that creates a reminder via cron tool — episodic event captured, (c) clear in-process turn cache (simulates `/new`), (d) run a second turn with the prompt 'какие у меня напоминания' — `<memory>` block injected, contractor classifies `desiredEffectFamily=cron observe`, response surfaces the reminder. Test file: `src/platform/memory/b1-replay.acceptance.test.ts`. Fixture-mode (no real Telegram, no real LLM — uses stubbed embedder + recorded LLM responses); the live-verify replay against a real Telegram log is part of the v1-release acceptance step §5 of the roadmap, not this slice."
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -231,6 +231,50 @@ Per-phase specifics:
 - Local gate: the agent worktree had no `node_modules` and the sandbox blocks `pnpm install`. Local `pnpm tsgo` + `pnpm vitest run src/platform/memory/` could not be run from the slice-implementer environment; the PR relies on CI to run the full memory test suite (existing 106 cases + new ~22 cases for the Phase-4 store + ~12 for the prompt schema).
 - Auto-merge note: admin-squashed via `gh pr merge --admin --squash --delete-branch` per Vladimir's blanket maintainer-signoff for v1 commitment-kernel slices (granted 2026-05-05; admin-merged via blanket signoff (Vladimir 2026-05-05)).
 - Phase 5 unblocked: `e-phase-5-commitment-runtime-memory-hook` can wire any of the three impls (`InMemoryMemoryStore` / `SqliteVecMemoryStore` / `LlmExtractorMemoryStore` wrapping one of those) at the call site without touching this module.
+
+### 2026-05-05 — Phase 5 landed (PR #169)
+
+- Phase 5 `e-phase-5-commitment-runtime-memory-hook` shipped (admin-merged via blanket maintainer-signoff).
+- PR: https://github.com/Primus-max/god-mode-core/pull/169
+- Squash-merge SHA on `dev`: `24ed29692320dd753ef9b887bf5419317b1a8a0c`.
+- Files added/modified:
+  - NEW `src/agents/pi-embedded-runner/run/memory-write-on-satisfied.ts` (252 LOC) — `recordMemoryOnCommitmentSatisfied(...)` hook. Returns `{kind:'wrote'|'skipped'|'failed', ...}`. Reads attestation via structural type `CommitmentSatisfiedAttestationLike`, NOT via import from `src/platform/commitment/` (defense-in-depth around invariant #8). Future effect-family slots (`subagent.created`/`reminder.set`/`artifact.created`) typed-but-inert until F/G/J/K wire them.
+  - NEW `src/agents/pi-embedded-runner/run/memory-write-on-satisfied.test.ts` (381 LOC, 11 cases): happy path, reverse `commitmentSatisfied=false`, defensive flag-missing, anonymous session, missing memoryStore, missing episodicEvent, failure isolation, payload contract verbatim, three inert-slot dispatches.
+  - MODIFIED `src/platform/decision/run-turn-decision.ts` (+40 LOC) — added optional `onAttestation` callback field on `RunTurnDecisionInput`; existing call sites pass `undefined` and behave byte-identical. The hook seam is wired but inert until Phase 7 lights it up at the production caller.
+- **Frozen layer stayed frozen**: `src/platform/commitment/` source untouched. The hook reads the attestation OBJECT through a structural type; no `import { ... } from 'src/platform/commitment/...'` added. The 5 frozen contracts and `monitored-runtime.ts` byte-identical to predecessor `09c9f06a01`.
+- Audit deviation: sub-plan §2.5 pre-supposed the existing call site lived in `src/agents/pi-embedded-runner/run/`. Actual code routes the attestation only through the decision pipeline (`run-turn-decision.ts:evaluateCutoverGate` is the sole production caller of `MonitoredRuntime.run(...)`). Per spec the hook FILE is in `src/agents/pi-embedded-runner/run/`; the joining seam is the `onAttestation` callback on `RunTurnDecisionInput` so the hook stays out of the frozen layer (invariant #8) and is invoked from a non-frozen module.
+- Gate: `pnpm exec tsgo --noEmit` exit 0. Targeted vitest 11/11. `src/platform/decision/` 197/197 (no regression). `src/platform/memory/` 133/133. `src/agents/pi-embedded-runner/` 451 pass / 47 pre-existing fail (`TypeError: this._modelRegistry.getApiKey is not a function`) — failure count identical to dev baseline, no new regressions.
+- Phase 6 unblocked: `e-phase-6-recall-block-in-intent-contractor` will add the symmetric read-side hook into `IntentContractor`.
+
+### 2026-05-05 — Phase 6 landed (PR #168)
+
+- Phase 6 `e-phase-6-recall-block-in-intent-contractor` shipped (admin-merged via blanket maintainer-signoff).
+- PR: https://github.com/Primus-max/god-mode-core/pull/168
+- Squash-merge SHA on `dev`: `883256a2b1c8ea54c97925ebab1a152fc86592e1`.
+- Files modified/added:
+  - MODIFIED `src/platform/commitment/intent-contractor-impl.ts` (+175 -4 LOC) — `createIntentContractor` constructor accepts optional `memoryStore?: MemoryStore`, `identityId?: IdentityId`, `logger?: IntentContractorLogger`, `memoryRecallLimit?: number`. New helpers `maybeRecallMemory`, `buildMemoryBlock`, `appendRecallFailureTag`. Recall fires at lines ~233-243 inside the `classify` arrow function BEFORE `adapter.classify(...)`. Top-K default = 5. Empty result → no `<memory>` block (no whitespace pollution). Recall failure → no block + `memory_recall_failed` uncertainty tag + warn log; NEVER throws into the contractor.
+  - MODIFIED `src/platform/commitment/index.ts` — re-exports `DEFAULT_INTENT_CONTRACTOR_MEMORY_RECALL_LIMIT`, `MEMORY_RECALL_FAILED_UNCERTAINTY`, `IntentContractorLogger` type.
+  - NEW `src/platform/commitment/__tests__/intent-contractor-impl.memory-recall.test.ts` (415 LOC, 11 cases): regression (no-deps byte-identical), anonymous-session (no recall), empty result (no block), N=3 entries (3 prepended), failure (no block + warn + uncertainty tag), failure does-not-throw, recall-query verbatim, 2-arg constructor regression, default limit=5, normalization on recall path, baseline 5-entry JSON parses.
+- **Frozen layer**: only `intent-contractor-impl.ts` modified inside `src/platform/commitment/`. The 5 frozen contracts (`TaskContract` etc.) byte-identical. The constructor change is ADDITIVE — existing 2-arg callers compile + behave byte-identical (verified via the 13 existing contractor tests passing unchanged).
+- Block format: `<memory>${JSON.stringify({entries})}</memory>` — closed-shape JSON twin of the existing `<web_evidence>` pattern. `<web_evidence>` lives in `src/platform/decision/web-evidence-prefetch.ts`; importing from decision into commitment would violate invariant #8, so the `<memory>` builder is a 4-line near-twin instead of a shared helper.
+- Gate: `pnpm exec tsgo --noEmit` exit 0. Targeted 24/24. `src/platform/commitment/` 129/129 (no regression). `src/platform/decision/` 197/197 (production-caller regression).
+
+### 2026-05-05 — Phase 7 landed (PR #170) — **slice E COMPLETE; B1 CLOSED**
+
+- Phase 7 `e-phase-7-acceptance-fixture-b1-replay` shipped (admin-merged via blanket maintainer-signoff). **B1 ("memory does not persist across `/new`") is now CLOSED.**
+- PR: https://github.com/Primus-max/god-mode-core/pull/170
+- Squash-merge SHA on `dev`: `f4cc3af92d4b3b2e39743a4a44c9e9ecfb387776`.
+- Files added/modified:
+  - NEW `src/platform/memory/b1-replay.acceptance.test.ts` (493 LOC, 5 cases): (1) **B1 closure positive** — turn-2 surfaces the reminder planted in turn-1 across a simulated `/new` boundary (real `SqliteVecMemoryStore` against a tmp-dir sqlite file, contractor closed and reopened with a fresh instance pointing at the same DB file path); (2) anonymous-session negative; (3) `commitmentSatisfied=false` reverse; (4) **omit-memoryStore reverse-test** — proves the wiring is what carries the closure; (5) IdentityRegistry session-key resolution smoke.
+  - MODIFIED `src/platform/decision/run-turn-decision.ts` (+37 LOC) — wired `memoryStore` + `identityId` + `memoryLogger` (all optional) into `RunTurnDecisionInput`; spread into `createIntentContractor(...)` inside `runShadowBranch`. ~40 LOC total wiring, well under the 50-LOC cap.
+- Acceptance pattern verified verbatim per gate report: positive case at lines 217-321 (`expect(turn2Prompt).toContain("<memory>")` + `expect(turn2Prompt).toContain(REMINDER_TEXT)`); reverse-test at lines 427-461 (omits `memoryStore`, asserts `not.toContain("<memory>")` AND `not.toContain(REMINDER_TEXT)`); proves wiring is essential.
+- Gate: `pnpm exec tsgo --noEmit` exit 0. Targeted 5/5. `src/platform/memory/` 138/138 (133 prior + 5 new). `src/platform/decision/` 197/197 (no regression).
+- **Frozen layer**: `src/platform/commitment/` source untouched. Wiring lives in `src/platform/decision/` (production caller of contractor) which is non-frozen.
+- Out-of-scope follow-ups (NOT blockers for slice E close):
+  - `src/platform/decision/input.ts` not yet populating `memoryStore`/`identityId`/`onAttestation` from a session-keyed `IdentityRegistry` + `MemoryStore` singleton. This is the gateway → `buildClassifiedExecutionDecisionInput` → `runTurnDecision` chain plumbing; sliced out to slice F/G/J emit-site work where the singleton ownership lands.
+  - Cron-family semantic emit lives inline in the test's `onAttestation` callback today; production cron-family hooks will mirror this shape from slice J's emit site.
+  - Live-verify replay against a real Telegram log is part of v1-release acceptance §5, not this slice.
+- **Slice E status: COMPLETE.** All 7 phases merged: P1 #154 (interface + types), P2 #156 (InMemoryMemoryStore), P3 #160 (SqliteVecMemoryStore), P4 #165 (LlmExtractorMemoryStore Path B), P5 #169 (commitment-satisfied write hook), P6 #168 (IntentContractor recall), P7 #170 (B1 acceptance + production wiring). Foundation in place for slice F (TaskLedger), slice G (subagent registry), slice J (artifacts), slice K (reminders) — all of which consume `MemoryStore` keyed on `IdentityId`.
 
 ## 8. Adjacent / deferred (out of scope)
 
