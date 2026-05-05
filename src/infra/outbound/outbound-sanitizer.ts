@@ -34,19 +34,25 @@
  *
  * Sub-plan: `.cursor/plans/commitment_kernel_outbound_sanitizer.plan.md`.
  *
- * Slice I Phase 3 (sub-plan
- * `.cursor/plans/commitment_kernel_reply_sanitizer.plan.md` todo
- * `i-phase-3-meta-text-pattern-family`): добавляет curated `english_meta_*`
- * pattern family — line-anchored regex'ы на leading-imperative English
- * meta-thinking верхнего предложения assistant-ответа. Каждый такой pattern
- * помечен `codeRegionAware: true` и ВСЕГДА уходит мимо matches, попадающих
- * внутрь fenced code blocks (` ``` ` / ` ~~~ `) или inline code spans
- * (` `code` `) — это исключает false-positive на копи-паст из доков либо
- * code-snippet с teaching-tone текстом. Phase 3 ограничивается
- * `kind="strip"` поведением; `policy.reasoning === "structured"` (webchat
- * wrap) приходит в Phase 5 вместе с policy-aware call signature.
+ * Slice I rollback (2026-05-05): the 7 `english_meta_*` regex patterns
+ * landed by PR #162 have been REVERTED per master roadmap
+ * `commitment_kernel_v1_release_roadmap.plan.md` §3 ("LLM-mediated, not
+ * regex"). B5 leak defense is now provided by:
+ *   (a) Phase 4 prompt hint (`src/agents/pi-embedded-runner/internal-reasoning-hint.ts`)
+ *       — instructs the model to wrap reasoning in `<thinking>…</thinking>`;
+ *   (b) extraction-path strip (`stripThinkingTagsFromText` in
+ *       `src/agents/pi-embedded-utils.ts:280`) — removes the wrapped reasoning
+ *       BEFORE the payload reaches this module.
+ *
+ * The `policy?: ReplySanitizerPolicy` parameter on
+ * `sanitizeOutboundForExternalChannel` is preserved for signature stability
+ * (Phase 5 wiring at `deliver.ts:404` still passes it). Post-rollback the
+ * structured branch is a no-op: the 16 diagnostic patterns are NOT reasoning
+ * leaks; they remain strip/replace under every policy. A future slice that
+ * moves the strip-thinking-tags layer into this module will consume
+ * `policy.reasoning === "structured"` to wrap (instead of strip) `<thinking>`
+ * content for webchat.
  */
-import { findCodeRegions, isInsideCode } from "../../shared/text/code-regions.js";
 import type { ReplySanitizerPolicy } from "./reply-sanitizer-policy.js";
 
 const EXTERNAL_DELIVERY_SURFACE_LIST = [
@@ -93,15 +99,6 @@ type LeakPattern = {
   readonly id: string;
   readonly pattern: RegExp;
   readonly replacement: LeakReplacement;
-  /**
-   * Если true — matches попадающие внутрь fenced ` ``` ` / ` ~~~ ` блоков либо
-   * inline `code` span'ов будут пропущены (НЕ заменены). Защищает от false-
-   * positive на teaching-snippets / copy-paste из docs / code-region текста.
-   * Используется `english_meta_*` family (Slice I Phase 3); existing 16 patterns
-   * остаются НЕ code-region-aware, чтобы byte-identical совпадать с pre-Phase-3
-   * поведением.
-   */
-  readonly codeRegionAware?: boolean;
 };
 
 /**
@@ -209,63 +206,6 @@ const OUTBOUND_LEAK_PATTERNS: readonly LeakPattern[] = [
     pattern: /<\/(?:tool_call|tool_use|function_call)\s*>/giu,
     replacement: { kind: "strip" },
   },
-  // ---------------------------------------------------------------------------
-  // Slice I Phase 3 — `english_meta_*` family. Line-anchored, code-region-aware.
-  //
-  // Каждый pattern целит на leading-imperative English meta-thinking sentence
-  // (B5 evidence: 2026-05-04 Telegram, «Let me check memory for any context
-  // about Vladimir's preferences»). Regex consume'ит до конца строки
-  // (`[^\n]*$`), чтобы strip убирал ПОЛНОЕ предложение, а не только prefix.
-  //
-  // Verb whitelist (check|look|search|verify|see) и аналоги curated по
-  // evidence — добавление новых требует gateway-log entry в signoff request
-  // (per sub-plan §6.2). False-positive на mid-paragraph leak-prefix исключён
-  // line-anchor'ом `^\s*…`; false-positive на code-snippet с teaching tone —
-  // флагом `codeRegionAware: true` (см. `findCodeRegions` в
-  // `src/shared/text/code-regions.ts`).
-  // ---------------------------------------------------------------------------
-  {
-    id: "english_meta_let_me",
-    pattern: /^\s*Let me\s+(?:check|look|search|verify|see)\b[^\n]*$/gmu,
-    replacement: { kind: "strip" },
-    codeRegionAware: true,
-  },
-  {
-    id: "english_meta_ill",
-    pattern: /^\s*I'?ll\s+(?:check|look|search|verify|see)\b[^\n]*$/gmu,
-    replacement: { kind: "strip" },
-    codeRegionAware: true,
-  },
-  {
-    id: "english_meta_i_should",
-    pattern: /^\s*I should\s+\w+[^\n]*$/gmu,
-    replacement: { kind: "strip" },
-    codeRegionAware: true,
-  },
-  {
-    id: "english_meta_first_ill",
-    pattern: /^\s*First,?\s+I'?ll\b[^\n]*$/gmu,
-    replacement: { kind: "strip" },
-    codeRegionAware: true,
-  },
-  {
-    id: "english_meta_lets",
-    pattern: /^\s*Let'?s\s+(?:check|look|verify|see)\b[^\n]*$/gmu,
-    replacement: { kind: "strip" },
-    codeRegionAware: true,
-  },
-  {
-    id: "english_meta_looking_at",
-    pattern: /^\s*Looking at\s+\w+[^\n]*$/gmu,
-    replacement: { kind: "strip" },
-    codeRegionAware: true,
-  },
-  {
-    id: "english_meta_checking",
-    pattern: /^\s*Checking\s+(?:memory|context|the|for)\b[^\n]*$/gmu,
-    replacement: { kind: "strip" },
-    codeRegionAware: true,
-  },
 ] as const;
 
 export type OutboundSanitizerStripEvent = {
@@ -283,35 +223,15 @@ export type OutboundSanitizerResult = {
 const DEFAULT_STRIP_POLICY: ReplySanitizerPolicy = Object.freeze({ reasoning: "strip" });
 
 /**
- * Escapes `<` / `>` / `&` for placement inside a `<thinking lang="en">…</thinking>`
- * wrap so the wrap stays a single well-formed element even when the leak line
- * itself contains angle brackets (e.g. `Let me check <important> bounds`).
- *
- * Order matters: `&` first so a literal `&` in input does not get re-encoded by
- * the subsequent `<`/`>` substitutions producing `&amp;lt;` etc.
- */
-function escapeForThinkingWrap(content: string): string {
-  return content
-    .replace(/&/gu, "&amp;")
-    .replace(/</gu, "&lt;")
-    .replace(/>/gu, "&gt;");
-}
-
-/**
  * Применяет curated leak-patterns к outbound payload-text. Вызывается ТОЛЬКО
  * для каналов из `REPLY_SANITIZER_SURFACES` (caller проверяет через
  * `isReplySanitizerSurface(channel)`).
  *
  * Алгоритм:
  * 1. Для каждого pattern: replaceAll match на kind=strip ('') либо kind=replace.with.
- *    Slice I Phase 5: если `policy.reasoning === "structured"` И pattern.id
- *    начинается с `english_meta_`, match не вырезается, а оборачивается в
- *    `<thinking lang="en">…</thinking>` (escaped content) — для UI-aware
- *    адаптеров (today: webchat). Existing 16 patterns остаются strip/replace
- *    под все policy values — они НЕ reasoning leaks, а raw diagnostics.
- *    `policy.reasoning === "deferred"` ведёт себя как `"strip"` для inline
- *    payload (slack/discord адаптеры могут позже opt-in в sidebar без
- *    re-touching этого модуля).
+ *    Все 16 patterns — diagnostic markers (НЕ reasoning leaks); они strip/replace
+ *    под все три значения `policy.reasoning` (`"strip"`, `"structured"`,
+ *    `"deferred"`).
  * 2. После всех patterns — collapse 3+ blank lines в 2 (стрипнутые line-markers
  *    оставляют пустые строки).
  * 3. Trim trailing whitespace но НЕ leading: leading может быть значимым
@@ -320,8 +240,12 @@ function escapeForThinkingWrap(content: string): string {
  * @param text - raw payload text (после `sanitizeForPlainText` если применимо)
  * @param policy - per-channel structural policy. Default = `{ reasoning: "strip" }`
  *   so existing call sites без policy продолжают работать byte-identical.
- * @returns обработанный text + audit-trail strip-events (события фиксируются
- *   и для wrap-режима — telemetry preserved).
+ *   Slice I rollback (2026-05-05): post-rollback the policy is currently a
+ *   no-op for the 16 diagnostic patterns — the parameter is preserved for
+ *   signature stability and consumed by a future slice that moves the
+ *   strip-thinking-tags layer into this module (`policy.reasoning ===
+ *   "structured"` will then wrap `<thinking>` content for webchat).
+ * @returns обработанный text + audit-trail strip-events.
  */
 export function sanitizeOutboundForExternalChannel(
   text: string,
@@ -330,33 +254,19 @@ export function sanitizeOutboundForExternalChannel(
   if (!text) {
     return { text, stripped: [] };
   }
+  // Slice I rollback: `policy` is intentionally inspected only for type-shape
+  // compatibility — every value branches identically until the future
+  // tag-based wrap consumer lands. Reference the parameter to avoid an
+  // unused-binding lint while keeping the signature stable.
+  void policy;
 
   let working = text;
   const events: OutboundSanitizerStripEvent[] = [];
 
-  for (const { id, pattern, replacement, codeRegionAware } of OUTBOUND_LEAK_PATTERNS) {
+  for (const { id, pattern, replacement } of OUTBOUND_LEAK_PATTERNS) {
     let matchCount = 0;
-    // Code-region awareness (Slice I Phase 3): re-compute regions per pattern
-    // because preceding patterns могут сократить text. Это дешёвый scan
-    // (linear по text, no regex re-engine на каждый match), и корректность
-    // выше микро-оптимизации.
-    const regions = codeRegionAware ? findCodeRegions(working) : null;
-    const useStructuredWrap =
-      policy.reasoning === "structured" && id.startsWith("english_meta_");
-    const replaced = working.replace(pattern, (match: string, ...args: unknown[]) => {
-      // String.prototype.replace передаёт offset как второй-с-конца аргумент
-      // (последний — full string). Извлекаем robust'но через `args` чтобы не
-      // зависеть от capture-group count в каждом regex.
-      const offset = typeof args[args.length - 2] === "number"
-        ? (args[args.length - 2] as number)
-        : 0;
-      if (regions && isInsideCode(offset, regions)) {
-        return match;
-      }
+    const replaced = working.replace(pattern, () => {
       matchCount += 1;
-      if (useStructuredWrap) {
-        return `<thinking lang="en">${escapeForThinkingWrap(match)}</thinking>`;
-      }
       return replacement.kind === "strip" ? "" : replacement.with;
     });
     if (matchCount > 0) {
