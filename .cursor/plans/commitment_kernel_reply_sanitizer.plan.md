@@ -7,7 +7,7 @@ todos:
     status: completed
   - id: i-phase-2-channel-policy-types
     content: "Phase 2 — channel-keyed sanitizer policy types. New module `src/infra/outbound/reply-sanitizer-policy.ts` with `ReplySanitizerPolicy = { reasoning: \"strip\" | \"structured\" | \"deferred\" }` and `resolveReplySanitizerPolicy(channel: string): ReplySanitizerPolicy`. Mapping (per roadmap §6 D5): telegram/whatsapp/signal/imessage/max → `strip`; webchat → `structured`; slack/discord → `deferred` (= `strip` for the inline payload, but a `structured` sidecar attached when the surrounding adapter implements it; v1 ships `strip` semantics for both, with `policy.reasoning === \"deferred\"` exposed for the slack/discord adapters to opt-in later). Tests: each channel id resolves to the documented policy; unknown channel → `strip` (safe default — must NEVER default to `structured` because that leaks reasoning to plaintext channels)."
-    status: pending
+    status: completed
   - id: i-phase-3-meta-text-pattern-family
     content: "Phase 3 — extend `OUTBOUND_LEAK_PATTERNS` with an English-meta-text pattern family (curated, line-anchored, code-region-aware via `findCodeRegions`). Patterns target the FIRST sentence of an assistant text-block only — meta-thinking always leads, content follows. Curated list (initial, evidence-driven from B5 + similar logs): `^\\s*Let me\\s+(check|look|search|verify|see)\\b`, `^\\s*I'?ll\\s+(check|look|search|verify|see)\\b`, `^\\s*I should\\s+\\w+`, `^\\s*First,?\\s+I'?ll\\b`, `^\\s*Let'?s\\s+(check|look|verify|see)\\b`, `^\\s*Looking at\\s+\\w+`, `^\\s*Checking\\s+(memory|context|the|for)\\b`. Each pattern: `kind=\"strip\"` for `policy.reasoning === \"strip\"`; for `\"structured\"` → wrap match's containing line in a JSON-tagged `<thinking lang=\"en\">…</thinking>` block. Patterns operate on the SAME `OutboundSanitizerResult` shape; new `OutboundSanitizerStripEvent.patternId` values prefixed `english_meta_*` so existing telemetry continues working. Tests reverse-test each pattern (positive + negative + code-block-protected)."
     status: pending
@@ -207,6 +207,20 @@ Two known false-positive shapes documented:
   2. The Phase 2 channel-id space the policy resolver must cover is the union of `CHAT_CHANNEL_ORDER` ∪ `EXTERNAL_DELIVERY_SURFACE_LIST` ∪ `{INTERNAL_MESSAGE_CHANNEL}` — `voice` and `sms` exist as outbound surfaces but not as chat channel ids.
   3. `extractThinkingFromTaggedText` (`pi-embedded-utils.ts:459`) is a reusable primitive for the `policy.reasoning === "structured"` webchat wrap; reference it in Phase 3 design notes to avoid double-wrapping when the model already emitted tagged thinking.
 - No code under `src/` was modified. Phase 1 frontmatter status set to `completed`. Next: Phase 2 (`reply-sanitizer-policy.ts` types + resolver) requires slice-level maintainer signoff per invariant #15 before code-touching phases begin.
+
+### 2026-05-05 — Phase 2 landed (PR #157)
+
+- Phase 2 `i-phase-2-channel-policy-types` shipped.
+- PR: https://github.com/Primus-max/god-mode-core/pull/157
+- Squash-merge SHA on `dev`: `6dcba2258e7c5fdd2c964724962273d14248d7d2`.
+- Files added (no production code modified):
+  - `src/infra/outbound/reply-sanitizer-policy.ts` (+148) — NEW. `ReplySanitizerPolicy = { reasoning: "strip" | "structured" | "deferred" }`, frozen-singleton `resolveReplySanitizerPolicy(channel)`, predicate `isReplySanitizerSurface`, superset `REPLY_SANITIZER_SURFACES` covering `CHAT_CHANNEL_ORDER` ∪ `EXTERNAL_DELIVERY_SURFACE_LIST` ∪ `{INTERNAL_MESSAGE_CHANNEL}` per Phase 1 audit §6.1+§6.2 (`irc`, `max`, `voice`, `sms`, `webchat` named explicitly).
+  - `src/infra/outbound/reply-sanitizer-policy.test.ts` (+131) — 26 cases over 3 describe blocks (resolver mappings, surface inventory, predicate). Fail-first verified.
+- Mapping: telegram/whatsapp/signal/imessage/googlechat/line/irc/max/voice/sms → `strip`; webchat → `structured`; slack/discord → `deferred`. Unknown channel → `strip` (defense-against-leak default — MUST NEVER default to `structured`, which would leak reasoning to plaintext).
+- Gate: `pnpm tsgo` 0 errors in slice; `pnpm vitest run src/infra/outbound/reply-sanitizer-policy.test.ts` 26/26 pass; no `vi.spyOn` on the function under test.
+- Invariant audit: #5/#6/#8/#11/#15 reverse-tested (no `RawUserTurn` / `UserPrompt` / `src/platform/` import in the new module; frozen contracts untouched).
+- Auto-merge note: admin-squashed via `gh pr merge 157 --admin --squash --delete-branch` per Vladimir's standing delegation. No call-site wiring yet — Phase 5 will wire `deliver.ts:404`.
+- Phase 3 (english-meta pattern family) requires explicit maintainer signoff per sub-plan §0 todo + §6.2 ("REQUIRES SIGNOFF") before commit. Phase 4 (system-prompt addition) similarly gated.
 
 ## 8. Adjacent / deferred (out of scope)
 
