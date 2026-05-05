@@ -43,8 +43,10 @@ export {
   DEFAULT_INTENT_CONTRACTOR_BACKEND,
   DEFAULT_INTENT_CONTRACTOR_CONFIDENCE_THRESHOLD,
   DEFAULT_INTENT_CONTRACTOR_MAX_TOKENS,
+  DEFAULT_INTENT_CONTRACTOR_MEMORY_RECALL_LIMIT,
   DEFAULT_INTENT_CONTRACTOR_MODEL,
   DEFAULT_INTENT_CONTRACTOR_TIMEOUT_MS,
+  MEMORY_RECALL_FAILED_UNCERTAINTY,
   createIntentContractor,
   parseSemanticIntentResponse,
   resolveIntentContractorAdapter,
@@ -106,6 +108,7 @@ export type {
   IntentContractorAdapter,
   IntentContractorAdapterRegistry,
   IntentContractorDebugEvent,
+  IntentContractorLogger,
   ResolvedIntentContractorConfig,
 } from "./intent-contractor-impl.js";
 export type {
