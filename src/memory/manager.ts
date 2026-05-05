@@ -20,6 +20,7 @@ import {
 import { bm25RankToScore, buildFtsQuery, mergeHybridResults } from "./hybrid.js";
 import { MemoryManagerEmbeddingOps } from "./manager-embedding-ops.js";
 import { searchKeyword, searchVector } from "./manager-search.js";
+import { reportLegacyMemorySyncFailure } from "./manager-sync-ops.js";
 import { extractKeywords } from "./query-expansion.js";
 import { readMemoryFile } from "./read-file.js";
 import type {
@@ -321,7 +322,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
       return;
     }
     void this.sync({ reason: "session-start" }).catch((err) => {
-      log.warn(`memory sync failed (session-start): ${String(err)}`);
+      reportLegacyMemorySyncFailure(log, "session-start", err);
     });
     if (key) {
       this.sessionWarm.add(key);
@@ -340,7 +341,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     void this.warmSession(opts?.sessionKey);
     if (this.settings.sync.onSearch && (this.dirty || this.sessionsDirty)) {
       void this.sync({ reason: "search" }).catch((err) => {
-        log.warn(`memory sync failed (search): ${String(err)}`);
+        reportLegacyMemorySyncFailure(log, "search", err);
       });
     }
     const cleaned = query.trim();

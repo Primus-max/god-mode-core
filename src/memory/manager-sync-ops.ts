@@ -94,9 +94,75 @@ function shouldIgnoreMemoryWatchPath(watchPath: string): boolean {
   return parts.some((segment) => IGNORED_MEMORY_WATCH_DIR_NAMES.has(segment));
 }
 
+/**
+ * Minimal logger surface used by `reportLegacyMemorySyncFailure`. Kept
+ * narrow so the helper is trivially injectable from tests without dragging
+ * in the full subsystem-logger plumbing.
+ */
+type LegacyMemorySyncFailureLogger = {
+  warn: (message: string, meta?: Record<string, unknown>) => void;
+  debug: (message: string, meta?: Record<string, unknown>) => void;
+};
+
+/**
+ * Returns true when `err` is the benign Windows-only EBUSY rename failure
+ * raised by `swapIndexFiles -> moveIndexFiles` during the legacy memory
+ * reindex's rollback-backup step. The cause is the OS not having released
+ * the just-closed sqlite file handle yet (or the slice-E
+ * `SqliteVecMemoryStore` momentarily holding a reader on the same path).
+ *
+ * The legacy reindex catch path already cleans up the temp DB and reopens
+ * the original via `restoreOriginalState`, so the next scheduled `sync()`
+ * cycle retries cleanly — i.e. the EBUSY is non-fatal noise. We classify
+ * it here so `reportLegacyMemorySyncFailure` can demote it to `debug`.
+ */
+function isLegacyMemoryBenignBackupError(err: unknown): boolean {
+  if (!err || typeof err !== "object") {
+    return false;
+  }
+  const node = err as Partial<NodeJS.ErrnoException> & { syscall?: unknown };
+  const code = typeof node.code === "string" ? node.code : "";
+  const syscall = typeof node.syscall === "string" ? node.syscall : "";
+  if (code === "EBUSY" && syscall === "rename") {
+    return true;
+  }
+  // Some wrappings drop `code`/`syscall` but preserve the libuv message
+  // verbatim — match the "EBUSY ... rename" + ".backup-" pair as a safety
+  // net for those cases.
+  const message = err instanceof Error ? err.message : "";
+  if (
+    message.includes("EBUSY") &&
+    message.includes("rename") &&
+    message.includes(".backup-")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Centralised reporter for the four legacy-memory `sync failed (<reason>)`
+ * call-sites (`runDetachedMemorySync`, the `session-delta` catch in
+ * `processSessionDeltaBatch`, and the `session-start` / `search` catches
+ * in `MemoryManager`). EBUSY rename failures are demoted to `debug`; every
+ * other error class stays at `warn`.
+ */
+export function reportLegacyMemorySyncFailure(
+  logger: LegacyMemorySyncFailureLogger,
+  reason: string,
+  err: unknown,
+): void {
+  const message = `memory sync failed (${reason}): ${String(err)}`;
+  if (isLegacyMemoryBenignBackupError(err)) {
+    logger.debug(message);
+    return;
+  }
+  logger.warn(message);
+}
+
 export function runDetachedMemorySync(sync: () => Promise<void>, reason: "interval" | "watch") {
   void sync().catch((err) => {
-    log.warn(`memory sync failed (${reason}): ${String(err)}`);
+    reportLegacyMemorySyncFailure(log, reason, err);
   });
 }
 
@@ -500,7 +566,7 @@ export abstract class MemoryManagerSyncOps {
     }
     if (shouldSync) {
       void this.sync({ reason: "session-delta" }).catch((err) => {
-        log.warn(`memory sync failed (session-delta): ${String(err)}`);
+        reportLegacyMemorySyncFailure(log, "session-delta", err);
       });
     }
   }
