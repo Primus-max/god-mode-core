@@ -10,7 +10,7 @@ todos:
     status: completed
   - id: e-phase-3-persistent-backend-sqlite-vec-store
     content: "Phase 3 — `SqliteVecMemoryStore` impl. Uses existing `src/memory/sqlite-vec.ts` extension loader + `node:sqlite` `DatabaseSync`. Schema: `memory_episodic(id, identity_id, effect_family, effect_id, payload_json, created_at)`, `memory_semantic(id, identity_id, content, embedding BLOB, metadata_json, created_at)` + `vec0` virtual table indexed on `(identity_id, embedding)`. Embedding provider: a thin `MemoryEmbedder` interface; default impl reuses `src/memory/embeddings*.ts` (provider-agnostic — already supports OpenAI/Gemini/Mistral/Voyage/Ollama). DB path: `~/.openclaw-dev/memory/identity-memory.sqlite` (separate from existing `dev.sqlite`). Tests: schema migration idempotency, store→recall round-trip with mock embedder, vector recall returns nearest neighbours by cosine, recall scoped by identity, `forget` removes from both base + vec0 tables, sqlite-vec extension load failure → store falls back to LIKE-based recall AND surfaces a `vector_unavailable` warning rather than throwing."
-    status: pending
+    status: completed
   - id: e-phase-4-mem0-wrapper-or-fallback
     content: "Phase 4 — mem0 wrapper. Per roadmap §6 D1 mem0 is the LLM-driven extraction + dedup layer ON TOP OF the sqlite-vec store. Audit (Phase 4 first task) confirms current Node SDK shape — if `mem0ai` npm package presents a clean Node API, wrap it in `Mem0MemoryStore` that delegates final persistence to the `SqliteVecMemoryStore` from Phase 3 (mem0 for `add`/`search`/`update` orchestration, sqlite-vec for storage). If mem0 Node story is unworkable (no Node SDK, Python-only, HTTP service required), surface as a §6 amendment proposal AND ship a `SqliteVecMemoryStore` + a small in-house `LlmExtractor` (single LLM call producing `{ keep: bool, normalized: string, tags: string[] }`). Either path: the public `MemoryStore` interface from Phase 1 does NOT change. Tests: extraction-on (mem0 path) round-trip with stubbed LLM; extraction-off (raw sqlite path) round-trip; pluggability — same acceptance test passes against both impls swapped at construction."
     status: pending
@@ -193,6 +193,21 @@ Per-phase specifics:
 - Invariant audit: #5/#6 (no `RawUserTurn` / `UserPrompt`); #8 (no import into `src/platform/commitment/`); #11 (`MemoryEntryId` brand preserved); #16 (`IdentityId` is the only cross-session key — never `chatId` / `sessionId`).
 - Auto-merge note: PR was admin-squashed via `gh pr merge 156 --admin --squash --delete-branch` per Vladimir's standing delegation. Local gate (tsgo + scoped vitest) passed before merge; CI checks still pending at merge time (runner backlog, environmental — same pattern as PR-#154).
 - Phase 3 unblocked: `e-phase-3-persistent-backend-sqlite-vec-store` can build on the InMemoryMemoryStore acceptance contract.
+
+### 2026-05-05 — Phase 3 landed (PR #160)
+
+- Phase 3 `e-phase-3-persistent-backend-sqlite-vec-store` shipped.
+- PR: https://github.com/Primus-max/god-mode-core/pull/160
+- Squash-merge SHA on `dev`: `d1fa5de6cbab1ca6a9970611bc18481c1d878734`.
+- Files added/modified:
+  - `src/platform/memory/sqlite-vec-store.ts` (NEW, 707 LOC) — `SqliteVecMemoryStore` impl + `MemoryEmbedder` / `SqliteVecMemoryStoreLogger` / `LoadSqliteVecExtensionFn` injection seams + `defaultSqliteVecMemoryStorePath()` helper.
+  - `src/platform/memory/sqlite-vec-store.test.ts` (NEW, 414 LOC, 13 cases against real tmp-dir sqlite file).
+  - `src/platform/memory/index.ts` (modified) — barrel exports the new class + types.
+- Acceptance: assignable to `MemoryStore` interface; `schema_version=1`; episodic round-trip persists across reopen; semantic round-trip via real vector path; identity isolation across two operators on same DB (list + recall); schema migration idempotency (3 sequential opens); `vector_unavailable` fallback to LIKE + warning surfaced exactly once; recall empty on virgin store; forget removes from base + vec0; malformed semantic/episodic rejected by Zod; recall respects limit; list effectFamily filter.
+- Gate: `pnpm tsgo` 0 errors; `pnpm vitest run src/platform/memory/` 106/106 pass (23 in-memory + 13 sqlite-vec + 70 Phase-1 contract).
+- Invariant audit: #5/#6 (no `RawUserTurn` / `UserPrompt`); #8 (no import into `src/platform/commitment/`); #11 (`MemoryEntryId` brand preserved); #16 (`IdentityId` is the only cross-session key — every read predicates on `identity_id = ?`, vec0 omits identity by design, recall JOIN re-applies the filter so `MemoryEntryId` alone never crosses operators).
+- Auto-merge note: admin-squashed via `gh pr merge 160 --admin --squash --delete-branch` per Vladimir's blanket maintainer-signoff for v1 commitment-kernel slices (granted 2026-05-05). Local gate (tsgo + scoped vitest) passed before merge.
+- Phase 4 unblocked: `e-phase-4-mem0-wrapper-or-fallback` will build on the Phase-3 storage layer; injection seams keep the store free of provider-specific imports so mem0 (or in-house extractor) wraps without touching this module.
 
 ## 8. Adjacent / deferred (out of scope)
 

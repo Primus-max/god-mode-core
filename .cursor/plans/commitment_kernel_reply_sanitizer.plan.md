@@ -10,10 +10,10 @@ todos:
     status: completed
   - id: i-phase-3-meta-text-pattern-family
     content: "Phase 3 — extend `OUTBOUND_LEAK_PATTERNS` with an English-meta-text pattern family (curated, line-anchored, code-region-aware via `findCodeRegions`). Patterns target the FIRST sentence of an assistant text-block only — meta-thinking always leads, content follows. Curated list (initial, evidence-driven from B5 + similar logs): `^\\s*Let me\\s+(check|look|search|verify|see)\\b`, `^\\s*I'?ll\\s+(check|look|search|verify|see)\\b`, `^\\s*I should\\s+\\w+`, `^\\s*First,?\\s+I'?ll\\b`, `^\\s*Let'?s\\s+(check|look|verify|see)\\b`, `^\\s*Looking at\\s+\\w+`, `^\\s*Checking\\s+(memory|context|the|for)\\b`. Each pattern: `kind=\"strip\"` for `policy.reasoning === \"strip\"`; for `\"structured\"` → wrap match's containing line in a JSON-tagged `<thinking lang=\"en\">…</thinking>` block. Patterns operate on the SAME `OutboundSanitizerResult` shape; new `OutboundSanitizerStripEvent.patternId` values prefixed `english_meta_*` so existing telemetry continues working. Tests reverse-test each pattern (positive + negative + code-block-protected)."
-    status: pending
+    status: completed
   - id: i-phase-4-prompt-side-hint
     content: "Phase 4 — prompt-side defense. Add a NEW system-prompt hint `internalReasoningHint` (distinct from `reasoningTagHint` which is the strict `<think>+<final>` enforcement for google/minimax). Triggered when (a) `runtimeChannel` is in `EXTERNAL_DELIVERY_SURFACES`, AND (b) `isReasoningTagProvider(provider) === false` (i.e. Anthropic/Opus and similar). Text: «If you have any internal reasoning, planning, or English meta-thinking like \"Let me check…\" / \"I'll search…\" / \"First, I'll…\", wrap it in `<thinking>...</thinking>` blocks. ONLY user-facing reply text in the user's language goes outside `<thinking>` blocks. The user will not see anything inside `<thinking>`.» This is ADVISORY (does not gate output, unlike `<final>` which is strict). Files: `src/agents/system-prompt.ts` (new param + new section between line 602's `reasoningHint` block and the next `## …` section); `src/agents/pi-embedded-runner/system-prompt.ts` (thread the new param through `buildEmbeddedSystemPrompt`); `src/agents/pi-embedded-runner/run/attempt.ts` (compute the value at line 2067 alongside `reasoningTagHint`). Tests: golden-snapshot for telegram+anthropic includes the hint; webchat+anthropic excludes the hint (UI shows reasoning); google+telegram excludes the new hint (already covered by the strict `<think>+<final>` block)."
-    status: pending
+    status: completed
   - id: i-phase-5-policy-aware-sanitizer-call
     content: "Phase 5 — wire policy into the outbound sanitizer. Change signature: `sanitizeOutboundForExternalChannel(text, policy: ReplySanitizerPolicy)` — non-breaking via overload preserving the no-arg variant for existing callers' tests. Call site in `deliver.ts:404` passes the resolved policy from `resolveReplySanitizerPolicy(channel)`. For `webchat` (which is NOT in `EXTERNAL_DELIVERY_SURFACES` today), expand the gate: a NEW `isReplySanitizerSurface(channel)` returns true for both external channels AND webchat (because webchat WANTS the structured wrap, not silent passthrough). Backward-compat: existing 16 leak patterns remain unchanged for all surfaces; only the new `english_meta_*` family branches on `policy.reasoning`. Tests: telegram + meta-text → stripped; webchat + meta-text → wrapped in `<thinking lang=\"en\">…</thinking>`; slack + meta-text → stripped (deferred = strip in v1); existing 16 patterns still strip on all surfaces; webchat does NOT strip the existing 16 (those are diagnostics that webchat may also want to show — but v1 keeps them stripped because they are non-reasoning leaks; webchat-specific handling is a follow-up)."
     status: pending
@@ -221,6 +221,39 @@ Two known false-positive shapes documented:
 - Invariant audit: #5/#6/#8/#11/#15 reverse-tested (no `RawUserTurn` / `UserPrompt` / `src/platform/` import in the new module; frozen contracts untouched).
 - Auto-merge note: admin-squashed via `gh pr merge 157 --admin --squash --delete-branch` per Vladimir's standing delegation. No call-site wiring yet — Phase 5 will wire `deliver.ts:404`.
 - Phase 3 (english-meta pattern family) requires explicit maintainer signoff per sub-plan §0 todo + §6.2 ("REQUIRES SIGNOFF") before commit. Phase 4 (system-prompt addition) similarly gated.
+
+### 2026-05-05 — Phase 4 landed (PR #161)
+
+- Phase 4 `i-phase-4-prompt-side-hint` shipped (admin-merged via Vladimir's blanket maintainer-signoff for v1 commitment-kernel slices, granted 2026-05-05).
+- PR: https://github.com/Primus-max/god-mode-core/pull/161
+- Squash-merge SHA on `dev`: `190381adc0d58e186643e7b40e75ac301d8d99af`.
+- Files added/modified:
+  - NEW `src/agents/pi-embedded-runner/internal-reasoning-hint.ts` — `INTERNAL_REASONING_HINT_TEXT` constant + `isInternalReasoningHintApplicable(provider, runtimeChannel)` predicate (single source of truth).
+  - NEW `src/agents/pi-embedded-runner/internal-reasoning-hint.test.ts` — 19 cases (predicate matrix, hint shape).
+  - MODIFIED `src/agents/system-prompt.ts` — accepts optional `internalReasoningHint?: string`; emits new `## Internal Reasoning Format` section between the existing `reasoningHint` block and the next `## …` heading.
+  - MODIFIED `src/agents/system-prompt.test.ts` — 5 new golden tests (presence/absence/whitespace/coexistence/ordering).
+  - MODIFIED `src/agents/pi-embedded-runner/system-prompt.ts` — threads param through `buildEmbeddedSystemPrompt`.
+  - MODIFIED `src/agents/pi-embedded-runner/run/attempt.ts` — computes the hint at the same site as `reasoningTagHint` (line ~2067).
+- Hint is **advisory** (does not gate output, unlike `<final>` strict block). Triggers only when `isReasoningTagProvider(provider) === false` AND `runtimeChannel ∈ EXTERNAL_DELIVERY_SURFACES`.
+- Gate: `pnpm tsgo` 0 errors; vitest 72/72 pass across the three named test files (19 + 5 + 48 existing). Affected suite (bootstrap-budget, sanitize-for-prompt, system-prompt-report) 31/31 pass — no regressions.
+- Invariant audit: #5/#6 (no `RawUserTurn` / `UserPrompt` flow into the new param); #8 (`src/platform/commitment/` untouched); #11/#15 (5 frozen contracts unchanged; defense-in-depth — prompt-side layer with Phase 3 post-filter as runtime safety net).
+- Auto-merge note: admin-squashed via `gh pr merge 161 --admin --squash --delete-branch` per blanket maintainer-signoff.
+- Live verify steps documented for the live-verifier: (1) Anthropic+telegram turn → system prompt contains `## Internal Reasoning Format` followed by the verbatim §6.4 hint text; (2) Anthropic+webchat turn → section absent; (3) Google+telegram turn → section absent (strict `## Reasoning Format` block remains).
+
+### 2026-05-05 — Phase 3 landed (PR #162)
+
+- Phase 3 `i-phase-3-meta-text-pattern-family` shipped (admin-merged via blanket maintainer-signoff).
+- PR: https://github.com/Primus-max/god-mode-core/pull/162
+- Squash-merge SHA on `dev`: `ac77fcdf8a136f18fe067e746b33645ce8c05445`.
+- Files added/modified:
+  - MODIFIED `src/infra/outbound/outbound-sanitizer.ts` (+97 -3) — adds 7 new `english_meta_*` patterns to `OUTBOUND_LEAK_PATTERNS`. Existing 16 patterns BYTE-IDENTICAL.
+  - MODIFIED `src/infra/outbound/outbound-sanitizer.test.ts` (+13 -1) — patternId-count assertion bumped 16 → 23 (only change).
+  - NEW `src/infra/outbound/outbound-sanitizer.english-meta.test.ts` (+361, 37 cases): 3 pattern-coverage + 8 positive (one strip per pattern + B5) + 9 negative (same-prefix legitimate per pattern + mid-paragraph + code-identifier) + 10 code-block-protected (one fenced-bash per pattern + B5 + inline + cross-fence) + 4 regression (existing patterns byte-identical) + 2 clean passthrough + 1 telemetry.
+- **Code-region awareness**: reused existing helpers `findCodeRegions` / `isInsideCode` at `src/shared/text/code-regions.ts` (no new module needed per sub-plan §6.1 "only if not already present").
+- Pattern ids: `english_meta_let_me`, `english_meta_ill`, `english_meta_i_should`, `english_meta_first_ill`, `english_meta_lets`, `english_meta_looking_at`, `english_meta_checking`. All emit `OutboundSanitizerStripEvent` with their respective patternId.
+- Gate: `pnpm tsgo` 0 errors; `pnpm vitest run src/infra/outbound/outbound-sanitizer.{english-meta,}.test.ts` 64/64 pass; full outbound regression `pnpm vitest run src/infra/outbound/` 486 pass / 2 skipped / 46 files.
+- Invariant audit: #5/#6 (outbound-sanitizer is post-extraction; no `RawUserTurn` / `UserPrompt` import added); #8 (`src/platform/commitment/` untouched); #15 (defense-in-depth — patterns are the post-filter; prompt-side defense in Phase 4).
+- Phase 5 unblocked: `i-phase-5-policy-aware-sanitizer-call` will wire `policy.reasoning` parameter at `deliver.ts:404` so the patterns route to `strip` (telegram/etc.) vs `structured` (webchat) vs `deferred` (slack/discord) per the Phase-2 policy resolver.
 
 ## 8. Adjacent / deferred (out of scope)
 
