@@ -213,3 +213,60 @@
 - For manual `openclaw message send` messages that include `!`, use the heredoc pattern noted below to avoid the Bash tool’s escaping.
 - Release guardrails: do not change version numbers without operator’s explicit consent; always ask permission before running any npm publish/release step.
 - Beta release guardrail: when using a beta Git tag (for example `vYYYY.M.D-beta.N`), publish npm with a matching beta version suffix (for example `YYYY.M.D-beta.N`) rather than a plain version on `--tag beta`; otherwise the plain version name gets consumed/blocked.
+
+## Commitment Kernel v1 — Subagent Team Protocol
+
+This repo's master-plan work is split across roles defined in `.claude/agents/`. The orchestrator (top-level Claude Code session) coordinates them; subagents execute one bounded job each.
+
+### Roles
+
+| Agent | Scope | Edits code? | Edits plans? |
+|---|---|---|---|
+| `plan-reader` | Reads master plan + roadmap + recent merges, returns frontier + next slice | no | no |
+| `slice-implementer` | Implements ONE slice end-to-end in a worktree → commit → open PR | yes | no |
+| `gate-runner` | Runs `pnpm tsgo` + targeted vitest, returns structured pass/fail | no | no |
+| `live-verifier` | Restarts dev gateway, monitors log, parses against acceptance signals | no | no |
+| `handoff-writer` | After live-verify PASS, appends master §0 row + sub-plan §6 row + memory entry, commits `docs(plan)` | no | yes |
+
+### Standard cycle
+
+1. Orchestrator spawns `plan-reader` → returns `next_recommended` (one slice).
+2. Orchestrator confirms scope with the user.
+3. Orchestrator spawns `slice-implementer` (one per independent slice; multiple in parallel only when scopes do not overlap and worktrees are isolated).
+4. After PR open: orchestrator spawns `gate-runner` against the worktree. If FAIL, return to slice-implementer; if WORKTREE_BROKEN, recreate worktree.
+5. User reviews PR; orchestrator merges to dev (admin-merge after local validation matches the project's recent practice — see §0 PR Progress Log style).
+6. Orchestrator spawns `live-verifier` against the merge SHA. User sends the test prompt in Telegram; live-verifier parses the log.
+7. If `live-verifier` returns PASS: orchestrator spawns `handoff-writer` with the verifier's report. Handoff-writer appends rows + memory + `docs(plan)` commit.
+8. Cycle: spawn `plan-reader` again to identify the next slice.
+
+### Parallelism rules
+
+- **Independent slices in parallel** (`slice-implementer` × N): only if (a) no shared file in scope, (b) different sub-plan or different §-section, (c) no shared frozen-layer dependency, (d) each gets its own worktree under `C:\Users\Tanya\.claude\worktrees\`.
+- **Never parallelize live-verifier** runs — only one gateway is restarted at a time, and one Telegram test maps to one turn.
+- **Never parallelize handoff-writer** — append-only tables collide on concurrent writes.
+- **Never parallelize gate-runner** against the same worktree — one tsgo at a time per checkout.
+
+### Cross-session memory
+
+Auto-memory at `~/.claude/projects/C--Users-Tanya-source-repos-god-mode-core/memory/`. The handoff-writer creates one `<slice_id>.md` per merged slice. The plan-reader reads `MEMORY.md` index at session start to bootstrap fast without raking through git log. The plan §6 Handoff Log remains the canonical, version-controlled source of truth; auto-memory is a supplementary breadcrumb.
+
+### Tests must catch real bugs (non-negotiable)
+
+This applies to every slice:
+1. **Reproduce the symptom in a test before fixing.** Test must fail on the broken code. If it doesn't, the test is wrong — not the bug.
+2. **No mocking the guard.** `vi.spyOn(...)` on the function under test (or its private dependency) to force a return value does NOT count as proof of fix. Tests must exercise the real code path.
+3. **Stress + edge cases when the bug class admits them**: empty input, malformed input, oversized payload, race conditions, concurrent turns, retries, debounce.
+4. **No test-fitting.** If a test is hard to write because the code is structured wrong, restructure the code, do not loosen the assertion.
+5. **Negative coverage.** For every "X works when Y" test, add at least one "X rejects Z" boundary test.
+6. **Live verify is not optional** for slices that touch runtime behavior. A green test suite without live-verify PASS is not a closed slice.
+
+### Frozen layer
+
+`src/platform/commitment/**` and the 5 frozen contracts (`TaskContract`, `OutcomeContract`, `QualificationExecutionContract`, `ResolutionContract`, `RecipeRoutingHints`) are read-only by default. Any slice that needs to amend them requires explicit master-plan amendment + maintainer signoff. The slice-implementer refuses with `BLOCKED: frozen layer in scope`.
+
+### What the orchestrator does NOT delegate
+
+- Picking the next slice without user confirmation.
+- Merging PRs (the user merges, or the orchestrator merges only after explicit per-PR approval).
+- Bumping version numbers (always asks permission per existing repo guardrail).
+- Publishing to npm (always asks per existing repo guardrail).
