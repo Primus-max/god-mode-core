@@ -1,0 +1,148 @@
+/**
+ * Reply-sanitizer channel policy (slice I, Phase 2).
+ *
+ * Per-channel structural policy describing how the outbound sanitizer should
+ * treat assistant-emitted reasoning / English meta-thinking text. v1 ships
+ * three values:
+ *
+ *   - `"strip"`     — drop reasoning entirely (plaintext messengers; default).
+ *   - `"structured"` — wrap reasoning in a `<thinking lang="…">` block so a
+ *                     UI-aware adapter (today: webchat) can render it.
+ *   - `"deferred"`  — sanitizer surfaces this so slack / discord adapters can
+ *                     opt into a thread / sidebar later. v1 callers MUST
+ *                     treat it as `"strip"` for the inline payload (Phase 5
+ *                     wiring lands the explicit branch).
+ *
+ * This module is types + resolver only. It does NOT consume policy at any
+ * call site. Phase 5 (`deliver.ts:404`) wires `resolveReplySanitizerPolicy`
+ * into the existing outbound-sanitizer call.
+ *
+ * Channel coverage (per Phase 1 audit `extensions/AUDIT-reply-sanitizer.md`
+ * §6.1 + §6.2):
+ *
+ *   policy domain = CHAT_CHANNEL_ORDER ∪ EXTERNAL_DELIVERY_SURFACE_LIST
+ *                   ∪ { INTERNAL_MESSAGE_CHANNEL }
+ *
+ * `irc` and `max` are in `CHAT_CHANNEL_ORDER` but absent from the existing
+ * `EXTERNAL_DELIVERY_SURFACES` set; this module names them explicitly so the
+ * policy mapping does not silently fall through to the safe-default branch.
+ * `voice` and `sms` exist as outbound delivery surfaces only (not chat
+ * channel ids) and likewise need explicit listing.
+ *
+ * Hard invariants (`.cursor/rules/commitment-kernel-invariants.mdc`):
+ * - #5: resolver consumes a `string` channel id, NOT raw user text. No
+ *   `RawUserTurn` / `UserPrompt` import anywhere in this file.
+ * - #6: `IntentContractor` is the sole reader of raw user text; this module
+ *   reads only a channel id, never user text — the invariant is upheld in
+ *   spirit.
+ * - #8: `src/infra/outbound/` does NOT import from `src/platform/decision/`.
+ *   This module imports only from sibling channel registry modules.
+ * - #11, #15: 5 frozen contracts untouched. Phase 2 is types + resolver
+ *   only; pattern curation (Phase 3) and prompt-side wiring (Phase 4)
+ *   require additional signoff.
+ *
+ * Sub-plan: `.cursor/plans/commitment_kernel_reply_sanitizer.plan.md` §6.1.
+ */
+
+import { CHAT_CHANNEL_ORDER } from "../../channels/ids.js";
+import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
+
+/**
+ * Per-channel structural policy. Frozen object — callers MUST NOT mutate.
+ * v1 ships exactly one field; future fields land additively without breaking
+ * existing call sites that destructure `{ reasoning }`.
+ */
+export type ReplySanitizerPolicy = {
+  readonly reasoning: "strip" | "structured" | "deferred";
+};
+
+/** Frozen singletons returned by the resolver. Per-call allocation avoided. */
+const POLICY_STRIP: ReplySanitizerPolicy = Object.freeze({ reasoning: "strip" });
+const POLICY_STRUCTURED: ReplySanitizerPolicy = Object.freeze({ reasoning: "structured" });
+const POLICY_DEFERRED: ReplySanitizerPolicy = Object.freeze({ reasoning: "deferred" });
+
+/**
+ * Channel → policy map. Values cover the union of three sets per audit §6.2.
+ * Unknown channel ids fall through to `POLICY_STRIP` (safe default; see
+ * `resolveReplySanitizerPolicy`).
+ */
+const CHANNEL_POLICY: ReadonlyMap<string, ReplySanitizerPolicy> = new Map([
+  // Plaintext messengers — strip reasoning entirely.
+  ["telegram", POLICY_STRIP],
+  ["whatsapp", POLICY_STRIP],
+  ["signal", POLICY_STRIP],
+  ["imessage", POLICY_STRIP],
+  ["googlechat", POLICY_STRIP],
+  ["line", POLICY_STRIP],
+  // Audit §6.1: irc / max are in CHAT_CHANNEL_ORDER but absent from
+  // EXTERNAL_DELIVERY_SURFACES — name them explicitly.
+  ["irc", POLICY_STRIP],
+  ["max", POLICY_STRIP],
+  // Audit §6.2: voice / sms exist as outbound delivery surfaces only
+  // (not chat channel ids) — name them explicitly so callers passing the
+  // outbound-only id resolve the right policy.
+  ["voice", POLICY_STRIP],
+  ["sms", POLICY_STRIP],
+  // Internal UI channel — sanitizer wraps reasoning in <thinking lang="…">
+  // for the webchat UI to render. MUST NEVER be reachable from a plaintext
+  // channel id (the unknown-channel default is `strip`, not `structured`,
+  // precisely so a typo cannot leak reasoning).
+  [INTERNAL_MESSAGE_CHANNEL, POLICY_STRUCTURED],
+  // Thread-capable surfaces — sanitizer surfaces `deferred` so future
+  // adapter work can opt into a thread / sidebar. v1 callers treat this as
+  // `strip` for the inline payload (Phase 5 wiring).
+  ["slack", POLICY_DEFERRED],
+  ["discord", POLICY_DEFERRED],
+]);
+
+/**
+ * Set of channels for which the sanitizer should run. Superset of:
+ *   - `EXTERNAL_DELIVERY_SURFACES` (telegram/whatsapp/slack/discord/signal/
+ *     imessage/sms/voice/googlechat) — defined in `outbound-sanitizer.ts`.
+ *   - `INTERNAL_MESSAGE_CHANNEL` (`webchat`) — for the structured wrap.
+ *   - `irc`, `max`, `line` — chat channels not yet in
+ *     `EXTERNAL_DELIVERY_SURFACES` today (audit §6.1; Phase 5 / 6 will
+ *     either add them there or rely on this superset).
+ *
+ * Derived directly from `CHANNEL_POLICY.keys()` so the two stay in sync —
+ * adding a channel to the policy map automatically enrolls it as a
+ * sanitizer surface. Unknown channels (no entry in the map) are NOT in this
+ * set; the sanitizer should bypass them entirely.
+ */
+export const REPLY_SANITIZER_SURFACES: ReadonlySet<string> = new Set(CHANNEL_POLICY.keys());
+
+/**
+ * Resolves the sanitizer policy for a channel id.
+ *
+ * @param channel - channel id (chat channel, outbound delivery surface, or
+ *   `INTERNAL_MESSAGE_CHANNEL`).
+ * @returns frozen `ReplySanitizerPolicy` instance. Unknown channel ids
+ *   resolve to `{ reasoning: "strip" }` — the SAFE default. The default
+ *   MUST NEVER be `"structured"` because that would leak reasoning to
+ *   plaintext channels for any channel id the resolver fails to recognise.
+ *
+ * Defense-in-depth: `isReplySanitizerSurface(channel)` returns false for
+ * unknown channels, so the call site in Phase 5 will skip the sanitizer
+ * entirely. But IF a future caller bypasses the gate, this resolver still
+ * returns a strip policy — both layers must fail safe.
+ */
+export function resolveReplySanitizerPolicy(channel: string): ReplySanitizerPolicy {
+  return CHANNEL_POLICY.get(channel) ?? POLICY_STRIP;
+}
+
+/**
+ * True when `channel` is a known sanitizer surface (chat channel, outbound
+ * surface, or `webchat`). False for unknown / internal-only ids.
+ */
+export function isReplySanitizerSurface(channel: string): boolean {
+  return REPLY_SANITIZER_SURFACES.has(channel);
+}
+
+/**
+ * @internal Test-only: list of channel ids covered by an explicit policy
+ * entry. Used by `reply-sanitizer-policy.test.ts` to smoke-check coverage
+ * against `CHAT_CHANNEL_ORDER` + `INTERNAL_MESSAGE_CHANNEL`.
+ */
+export const __REPLY_SANITIZER_POLICY_CHANNELS_FOR_TESTS: readonly string[] = Array.from(
+  CHANNEL_POLICY.keys(),
+);
