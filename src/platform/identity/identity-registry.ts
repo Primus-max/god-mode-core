@@ -1,6 +1,19 @@
 import type { ChatChannelId } from "../../channels/ids.js";
+import type { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
 
 import type { IdentityId } from "./identity-id.js";
+
+/**
+ * Channels eligible to participate in identity resolution. Includes the
+ * external chat channels (`ChatChannelId` — Telegram, Slack, Discord,
+ * Max, etc.) AND the internal Web UI channel
+ * (`INTERNAL_MESSAGE_CHANNEL = "webchat"`). The Web UI is architecturally
+ * distinct from chat channels (it's the operator-facing gateway client,
+ * not an external messaging platform), but for cross-channel memory it
+ * MUST be addressable through the same registry — otherwise a logged-in
+ * Web UI user has no shared memory with their Telegram counterpart.
+ */
+export type IdentityChannelId = ChatChannelId | typeof INTERNAL_MESSAGE_CHANNEL;
 
 /**
  * One mapping between an external (channel-side) addressable peer and
@@ -12,11 +25,11 @@ import type { IdentityId } from "./identity-id.js";
  * Telegram numeric chat_id is encoded as the decimal string by the
  * Telegram adapter).
  *
- * `channel` is constrained to `ChatChannelId` so the registry can only
- * accept channels the runtime knows about.
+ * `channel` is constrained to `IdentityChannelId` so the registry can
+ * only accept channels the runtime knows about.
  */
 export type IdentityMapping = {
-  readonly channel: ChatChannelId;
+  readonly channel: IdentityChannelId;
   readonly externalId: string;
 };
 
@@ -46,7 +59,7 @@ export type IdentityRecord = {
  * locally.
  */
 export interface IdentityRegistry {
-  resolve(channel: ChatChannelId, externalId: string): IdentityId | undefined;
+  resolve(channel: IdentityChannelId, externalId: string): IdentityId | undefined;
   list(): readonly IdentityRecord[];
   byIdentity(identityId: IdentityId): IdentityRecord | undefined;
 }

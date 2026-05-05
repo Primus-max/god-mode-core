@@ -133,6 +133,16 @@ const CHAT_CHANNEL_META: Record<ChatChannelId, ChannelMeta> = {
     blurb: "LINE Messaging API webhook bot.",
     systemImage: "message",
   },
+  max: {
+    id: "max",
+    label: "Max",
+    selectionLabel: "Max (RU messenger)",
+    detailLabel: "Max Bot",
+    docsPath: "/channels/max",
+    docsLabel: "max",
+    blurb: "Russian messenger Max — placeholder for v1.1 channel adapter.",
+    systemImage: "bubble.left",
+  },
 };
 
 export const CHAT_CHANNEL_ALIASES: Record<string, ChatChannelId> = {

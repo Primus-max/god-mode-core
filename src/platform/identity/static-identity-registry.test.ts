@@ -109,6 +109,60 @@ describe("StaticIdentityRegistry — list() + byIdentity()", () => {
   });
 });
 
+describe("StaticIdentityRegistry — Phase 3 channel coverage (max + webchat)", () => {
+  it("accepts `max` (RU messenger) as a chat-channel mapping", () => {
+    const registry = new StaticIdentityRegistry({
+      records: [
+        {
+          identityId: VLADIMIR,
+          displayName: "Vladimir",
+          mappings: [{ channel: "max", externalId: "max-user-001" }],
+        },
+      ],
+    });
+    expect(registry.resolve("max", "max-user-001")).toBe(VLADIMIR);
+  });
+
+  it("accepts `webchat` (Web UI internal channel) as a mapping", () => {
+    const registry = new StaticIdentityRegistry({
+      records: [
+        {
+          identityId: VLADIMIR,
+          displayName: "Vladimir",
+          mappings: [
+            { channel: "telegram", externalId: "111" },
+            { channel: "webchat", externalId: "vladimir@example.com" },
+          ],
+        },
+      ],
+    });
+    expect(registry.resolve("telegram", "111")).toBe(VLADIMIR);
+    expect(registry.resolve("webchat", "vladimir@example.com")).toBe(VLADIMIR);
+  });
+
+  it("Telegram peer + Web UI peer for the same operator both resolve to the same identity (cross-channel parity)", () => {
+    const registry = new StaticIdentityRegistry({
+      records: [
+        {
+          identityId: VLADIMIR,
+          displayName: "Vladimir",
+          mappings: [
+            { channel: "telegram", externalId: "tg-vlad" },
+            { channel: "webchat", externalId: "web-vlad" },
+            { channel: "max", externalId: "max-vlad" },
+          ],
+        },
+      ],
+    });
+    const fromTelegram = registry.resolve("telegram", "tg-vlad");
+    const fromWeb = registry.resolve("webchat", "web-vlad");
+    const fromMax = registry.resolve("max", "max-vlad");
+    expect(fromTelegram).toBe(fromWeb);
+    expect(fromTelegram).toBe(fromMax);
+    expect(fromTelegram).toBe(VLADIMIR);
+  });
+});
+
 describe("StaticIdentityRegistry — config validation at construction", () => {
   it("rejects duplicate identity ids in records", () => {
     expect(
