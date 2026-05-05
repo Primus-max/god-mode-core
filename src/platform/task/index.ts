@@ -1,12 +1,14 @@
 /**
- * Public surface of the platform task module — slice F Phase 3.
+ * Public surface of the platform task module — slice F.
  *
- * Phase 2 shipped types + Zod schemas + the `TaskLedger` interface.
- * Phase 3 adds the Map-backed `InMemoryTaskLedger` impl below; Phase
- * 4 will add `SqliteTaskLedger`.
+ * Phase 2 ships types + Zod schemas + the `TaskLedger` interface.
+ * Phase 3 adds the Map-backed `InMemoryTaskLedger`.
+ * Phase 4 adds the persistent `SqliteTaskLedger` + `defaultSqliteTaskLedgerPath`.
  *
  * Per invariant #8, this module imports ONLY from
- * `src/platform/identity/`, the standard library, and Zod. It does
+ * `src/platform/identity/`, the standard library, Zod, and the
+ * project's existing `src/utils.ts` / `src/memory/sqlite.ts` /
+ * `node:sqlite` shims used by the Phase 4 sqlite impl. It does
  * NOT import from `src/platform/decision/` or any decision-layer
  * adapter, and it does NOT touch `src/platform/commitment/` (the
  * frozen 5-contract layer). The frozen `TaskContract`
@@ -42,3 +44,11 @@ export {
   type InMemoryTaskLedgerLogger,
   type InMemoryTaskLedgerOptions,
 } from "./in-memory-task-ledger.js";
+
+export {
+  SQLITE_TASK_LEDGER_SCHEMA_VERSION,
+  SqliteTaskLedger,
+  defaultSqliteTaskLedgerPath,
+  type SqliteTaskLedgerLogger,
+  type SqliteTaskLedgerOpenOptions,
+} from "./sqlite-task-ledger.js";
