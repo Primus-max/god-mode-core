@@ -4,7 +4,7 @@ overview: "Close B4 (`то отправляет сообщение потом у
 todos:
   - id: h-phase-1-audit-call-graph
     content: "Phase 1 — read PR-A.2 baseline (`commitment_kernel_streaming_leak_buffering.plan.md`) and PR-A baseline (`commitment_kernel_streaming_leak.plan.md`). Trace the live call graph from `pi-embedded-subscribe.handlers.tools.ts::handleToolExecutionStart` → `onStructuralToolExecutionStarting` → `flushBlockReplyBuffer` → `onBlockReplyFlush` → `BlockReplyPipeline.flush({force})` → external block-reply delivery → channel adapter (Telegram `draft-stream.ts::materialize` + `archivedAnswerPreviews` deletion). Document every concrete callsite for `onBlockReply`, `onBlockReplyFlush`, `onStructuralToolExecutionStarting`, `onPartialReply`, `onAssistantMessageStart`. Map subagent-ack emission (`emitDeferredAck` in `agent-runner.ts`) and PR-G `applyAggregationOverride` holding emission relative to the deferral finalize. Audit-only — output as §2 of this plan; no code changes."
-    status: pending
+    status: completed
   - id: h-phase-2-failing-test-b4-repro
     content: "Phase 2 — write a failing harness/test that reproduces B4. Drive a fake stream through `createBlockReplyPipeline` + `createExternalBlockReplyDeferral` + a mock channel-adapter that records the verbatim sequence of `(send | edit | delete)` operations. Scenario: assistant emits 2 partial deltas, model triggers `subagent_spawn` tool_call, parent emits subagent ack, then assistant final reply lands. Assert the recorded operation sequence does NOT contain `send → delete → send` for the same logical reply. If the unit-level harness can't reproduce, escalate to integration via `createStubSessionHarness` + `bot-message-dispatch.test.ts`-style fixture. The test MUST fail on `dev` HEAD before the fix lands (per AGENTS.md §253)."
     status: pending
@@ -50,11 +50,11 @@ All 16 in force. Specific call-outs:
 | **#15** | Maintainer signoff per architectural change. | Phase 1 + 2 (audit + failing test) ride the roadmap signoff. Phase 3 (the fix) requires explicit signoff once the candidate (H1 / H2 / H3) is known. |
 | **#16** | Branded types distinct. | No new branded type introduced. |
 
-## 2. Audit findings (Phase 1 — to be filled by audit; current snapshot)
+## 2. Audit findings (Phase 1 — verified 2026-05-04 against dev HEAD `4ce7302a78`)
 
-### 2.1. Call graph — pre-tool-call flush ordering
+All line numbers below were re-grep-verified on `origin/dev = 4ce7302a7834e3788fa4719ba0a29211fae3c7ce` from branch `audit/v1-slice-h-stream-ordering-phase-1`. The §2 sketch from the kickoff snapshot held up — the call graph, the ack bypass, and the Telegram archive-delete order all reproduce on read with no surprises. Only minor line-range tightening required (line 850 → 850–873 block; finally-loop range narrowed from 790–855 → 822–843 for the answer-lane cleanup; rotate-body 305 → 305–333; deferral wiring tightened from 589–615 → 592–613). Hypothesis ranking unchanged from the kickoff sketch and confirmed by re-read (see §2.5 at bottom).
 
-Confirmed-by-grep on dev HEAD; full citations in references §9.
+### 2.1. Call graph — pre-tool-call flush ordering (verified)
 
 ```
 LLM event stream
@@ -69,49 +69,98 @@ LLM event stream
                           └─ onPartialReply (typing/preview lane only)
 
 LLM tool execution event
-  └─ pi-embedded-subscribe.handlers.tools.ts::handleToolExecutionStart
-        ├─ AWAIT params.onStructuralToolExecutionStarting?.()
-        │     └─ externalBlockDeferral.notifyStructuralToolExecutionStarting()  // sets flag
-        ├─ ctx.flushBlockReplyBuffer()                                           // chunker buffer flush
-        └─ AWAIT params.onBlockReplyFlush?.()
-              └─ blockReplyPipeline.flush({ force: true })                       // coalescer drain → wrapped deliver → STILL DEFERRED
+  └─ pi-embedded-subscribe.handlers.tools.ts::handleToolExecutionStart            (line 337)
+        ├─ AWAIT Promise.resolve(ctx.params.onStructuralToolExecutionStarting?.())  (line 341)
+        │     └─ wired in agent-runner.ts:908–910 to externalBlockDeferral.notifyStructuralToolExecutionStarting()  // sets flag
+        ├─ ctx.flushBlockReplyBuffer()                                              (line 343)  // chunker buffer flush
+        └─ AWAIT params.onBlockReplyFlush?.()                                       (line 345)
+              └─ wired in agent-runner-execution.ts:559–563 to blockReplyPipeline.flush({ force: true })  // coalescer drain → wrapped deliver → STILL DEFERRED
 ```
 
-Critical: `wrapDeliver` returns immediately with `deferred.push(payload)`; the inner channel adapter (Telegram draft-stream) is NOT called during pre-tool flush. It is called later from `agent-runner.ts:992` `externalBlockDeferral.finalizeAfterRun(streamingAwareBlockReply)` after the run finishes.
+Wiring evidence (verified):
+- `agent-runner.ts:592` declares `streamingAwareBlockReply` (the original `opts.onBlockReply` re-bound).
+- `agent-runner.ts:596–604` constructs `externalBlockDeferral` only when `blockStreamingEnabled && shouldBufferExternalBlockStreams && streamingAwareBlockReply` is truthy.
+- `agent-runner.ts:606–613` builds `wrapped = externalBlockDeferral.wrapDeliver(streamingAwareBlockReply)` and assigns it to `deliveredBlockReply`.
+- `agent-runner.ts:908–910` passes the `notifyStructuralToolExecutionStarting()` thunk into `runAgentTurnWithFallback` as `onStructuralToolExecutionStarting` (only when the deferral exists; otherwise `undefined`).
+- `agent-runner-execution.ts:114` types the `onStructuralToolExecutionStarting?` field; `:558` wires `onBlockReply: blockReplyHandler`; `:559–563` wires `onBlockReplyFlush` to `blockReplyPipeline.flush({ force: true })` (only when `params.blockStreamingEnabled && blockReplyPipeline` are both truthy); `:565` forwards `onStructuralToolExecutionStarting` straight through. `:477–490` carries `onPartialReply` + `onAssistantMessageStart` on the typing/preview lane (orthogonal to the block-reply flow).
+- `pi-embedded-subscribe.handlers.tools.ts:337–346` is the only call site for `handleToolExecutionStart`; the await order is exactly `onStructuralToolExecutionStarting → flushBlockReplyBuffer → onBlockReplyFlush`. `Promise.resolve(...)` wrapper at 341 means a sync return is awaited normally; no microtask boundary leak observed.
 
-### 2.2. Subagent ack emission relative to main reply
+Critical: `wrapDeliver` returns immediately with `deferred.push(payload)`; the inner channel adapter (Telegram bot-message-dispatch) is NOT called during pre-tool flush. It is called later from `agent-runner.ts:991–992` `externalBlockDeferral.finalizeAfterRun(streamingAwareBlockReply)` after the run finishes (immediately after `blockReplyPipeline.flush({ force: true })` at line 989).
 
-`agent-runner.ts:850 emitDeferredAck` — fires ack via `effectiveOpts?.onBlockReply` directly (NOT through the pipeline, NOT through the deferral wrap). It is a standalone send to the channel adapter, racing with:
-1. The deferred preamble that will be replayed/consolidated later.
-2. The post-tool-call holding payload from `applyAggregationOverride` (PR-G), which replaces the final payload set when `sessions_spawn` was observed.
+### 2.2. Subagent ack emission relative to main reply (verified)
 
-This is the structural seam most likely to produce B4: the channel adapter receives `ack_text` first (creates msg #1), then the streaming preamble's deferred replay arrives (creates msg #2 OR edits msg #1 depending on Telegram lane state — `draft-stream.ts::sendOrEditStreamMessage` decides based on `streamMessageId`), then the final consolidated/holding payload arrives (which may trigger `forceNewMessage` + `materialize` + `archivedAnswerPreviews.deleteIfUnused` cleanup). The "send → delete → final" pattern matches the user's transcript verbatim.
+`agent-runner.ts:850 emitDeferredAck` (full body 850–873) — verified call sequence:
 
-### 2.3. Channel adapter buffering behaviour (Telegram reference)
+1. Line 853–854: idempotency guard (`didEmitDeferredAck`).
+2. Line 855–856: resolves locale + ack text.
+3. Line 857–860: emits `turnProgressEmitter.emit("ack_deferred", ...)` if available (internal lane only).
+4. Line 861–865: marks deferred-job state in `markDeferredJobRunning(...)`.
+5. **Line 866: `const deliver = effectiveOpts?.onBlockReply;`** — pulls the **raw** `onBlockReply` off `effectiveOpts`, NOT `deliveredBlockReply`, NOT the wrapped deferral.
+6. **Line 867–872: `await deliver(applyReplyToMode({ text: ackText }))`** — fires the ack DIRECTLY at the channel adapter, bypassing both `streamingAwareBlockReply` and `externalBlockDeferral.wrapDeliver`.
 
-`extensions/telegram/src/bot-message-dispatch.ts:305 rotateAnswerLaneForNewAssistantMessage`:
-- Calls `answerLane.stream?.materialize?.()` → may send a new permanent message.
-- Pushes `previewMessageId` to `archivedAnswerPreviews`.
-- Calls `forceNewMessage()` which clears `streamMessageId`.
+`emitDeferredAck` is invoked from two places (verified):
+- `agent-runner.ts:883` — pre-run, when `hasExplicitAckThenDeferHint({...})` is true on the followup prompt.
+- `agent-runner.ts:912` — inside the `runAgentTurnWithFallback` `onAckThenDefer` callback during a run.
 
-`bot-message-dispatch.ts:835` finally-block: iterates `archivedAnswerPreviews` and calls `bot.api.deleteMessage(chatId, archivedPreview.messageId)` for entries with `deleteIfUnused === true`.
+Both paths reach the channel adapter without going through the deferral. So during a turn that subsequently produces a `sessions_spawn` tool_call:
+1. The deferred preamble that will be replayed/consolidated later sits in `externalBlockDeferral.deferred[]`.
+2. The post-tool-call holding payload from `applyAggregationOverride` (PR-G, called at `agent-runner.ts:964`, with override applied at 980–982) replaces the final payload set when `sessions_spawn` was observed.
+3. The ack lands on the adapter BEFORE either of the above.
 
-Mismatch hypothesis: when the deferral-wrapped pipeline emits a single consolidated payload that does NOT match the snapshot of an archived preview text byte-for-byte, the cleanup deletes the now-stale preview AFTER the new permanent message lands → user sees `send (preview) → send (final) → delete (preview)`, perceived as `send → delete → final`. The order recorded by the bot may differ from the order user sees, but the visual artefact is the same.
+This is the structural seam most likely to produce B4: the channel adapter receives `ack_text` first (creates msg #1), then the streaming preamble's deferred replay arrives (creates msg #2 OR edits msg #1 depending on Telegram lane state — `draft-stream.ts::sendOrEditStreamMessage` 200–267 decides based on `streamMessageId`), then the final consolidated/holding payload arrives (which may trigger `forceNewMessage` + `materialize` + `archivedAnswerPreviews.deleteIfUnused` cleanup). The "send → delete → final" pattern matches the user's transcript verbatim.
 
-### 2.4. Existing tests — gaps
+### 2.3. Channel adapter buffering behaviour (Telegram reference, verified)
 
-`block-external-buffer.test.ts` (5 tests, PR-A.2):
-- T1 consolidated emit on structural-tool-seen — covers state machine but uses `vi.fn` inner; does NOT exercise channel adapter.
-- T2 replay on no-tool — same limitation.
-- T3 cross-session isolation.
-- T4 idempotent double-finalize.
-- T5 — none beyond above.
+`extensions/telegram/src/bot-message-dispatch.ts:305–333 rotateAnswerLaneForNewAssistantMessage`:
+- Line 308: gates on `answerLane.hasStreamedMessage`.
+- Line 311: `const materializedId = await answerLane.stream?.materialize?.();` — calls `draft-stream.ts:394–449 materialize` which may send a new permanent message and return its id.
+- Line 312: resolves `previewMessageId = materializedId ?? answerLane.stream?.messageId()`.
+- Line 313–322: if `activePreviewLifecycleByLane.answer === "transient"` and we have a numeric id, pushes `{ messageId, textSnapshot, deleteIfUnused: false }` into `archivedAnswerPreviews`.
+- Line 323: `answerLane.stream?.forceNewMessage()` (which `draft-stream.ts:372` clears `streamMessageId`).
+- Line 324–331: resets lane state and (if rotated) flips `activePreviewLifecycleByLane.answer = "transient"` + `retainPreviewOnCleanupByLane.answer = false`.
 
-`bot-message-dispatch.test.ts:651` materializes-boundary-preview — covers the Telegram lane edge but NOT the cross-product of `(externalBlockDeferral consolidates) × (Telegram materialize/forceNewMessage/archivedAnswerPreviews)`.
+Call sites of `rotateAnswerLaneForNewAssistantMessage` (verified):
+- `bot-message-dispatch.ts:363` — fires from `onAssistantMessageStart` callback.
+- `bot-message-dispatch.ts:757` — fires from a queued lane-event boundary task.
 
-`pi-embedded-subscribe.subscribe-embedded-pi-session.calls-onblockreplyflush-before-tool-execution-start-preserve.test.ts` — covers `onBlockReplyFlush` is called before tool start (single subsystem, not the pipeline-deferral-channel triple).
+`bot-message-dispatch.ts:790–855` finally-block (verified):
+- Line 791: `await draftLaneEventQueue` — drains queued lane work first (boundary rotations / materialization complete before stream cleanup).
+- Line 794–826: per-lane stream stop/clear, with `hasBoundaryFinalizedActivePreview` check at 815–820 protecting the active preview from being cleared if it matches a `deleteIfUnused === false` entry.
+- Line 822–826: `await stream.stop()` and conditionally `await stream.clear()`.
+- **Line 835–843**: iterates `archivedAnswerPreviews`; for each entry where `deleteIfUnused !== false` (i.e. the entries pushed at `bot-message-dispatch.ts:235–238` from a different code path with `deleteIfUnused: true`), calls `bot.api.deleteMessage(chatId, archivedPreview.messageId)`.
+- Line 845–853: similar cleanup for `archivedReasoningPreviewIds`.
 
-**No existing test exercises**: a turn where (a) preamble flows through the pipeline, (b) tool_call fires, (c) subagent ack is emitted via `emitDeferredAck`, (d) finalize emits the consolidated payload, (e) channel adapter records the resulting `(send | edit | delete)` ordering. This is the gap Phase 2 closes.
+Important refinement (verified during this audit): the entries pushed at line 313–322 from `rotateAnswerLaneForNewAssistantMessage` use `deleteIfUnused: false`, so they are NOT deleted in the finally-block at 835–843. The entries that **are** deleted are pushed at line 235 (from a different boundary path with `deleteIfUnused: true`). H3 in §3 needs to be re-read with that in mind: the delete-after-final pattern is driven by the line-235 push site, not the line-316 one. The §3 fix sketches still hold but need to scope to the `deleteIfUnused: true` push site.
+
+Mismatch hypothesis (kept): when the deferral-wrapped pipeline emits a single consolidated payload that does NOT match the snapshot of an archived preview text byte-for-byte (and that preview was pushed with `deleteIfUnused: true`), the cleanup deletes the now-stale preview AFTER the new permanent message lands → user sees `send (preview) → send (final) → delete (preview)`, perceived as `send → delete → final`. The order recorded by the bot may differ from the order user sees, but the visual artefact is the same.
+
+### 2.4. Existing tests — verified gap
+
+`src/auto-reply/reply/block-external-buffer.test.ts` (6 tests, PR-A.2; line numbers 9/21/31/49/69/82):
+- T1 (line 9) `mergeExternalDeferredReplyPayloads` — text join + tail metadata.
+- T2 (line 21) `externalBufferFinalizeKind` — idempotent for same structural flag/count.
+- T3 (line 31) defers then emits single consolidated payload after structural tool — uses `vi.fn` inner, does NOT exercise channel adapter.
+- T4 (line 49) replays all deferred chunks when no structural tool — same limitation.
+- T5 (line 69) two deferrals do not share deferred payloads (cross-session isolation) — `vi.fn` only.
+- T6 (line 82) finalize is safe to call twice — idempotency.
+
+`extensions/telegram/src/bot-message-dispatch.test.ts:651` `materializes boundary preview and keeps it when no matching final arrives` — covers the Telegram lane edge (asserts `deleteMessage` is NOT called for the materialized id 4321), but NOT the cross-product of `(externalBlockDeferral consolidates) × (Telegram materialize/forceNewMessage/archivedAnswerPreviews)`.
+
+`src/agents/pi-embedded-subscribe.subscribe-embedded-pi-session.calls-onblockreplyflush-before-tool-execution-start-preserve.test.ts` (2 tests at lines 9 and 53) — covers `onBlockReplyFlush` is called before `tool_execution_start` (single subsystem, not the pipeline-deferral-channel triple).
+
+`grep -rn "externalBlockDeferral|createExternalBlockReplyDeferral|emitDeferredAck" --include="*.test.ts"` — all references are in `block-external-buffer.test.ts`. **Zero tests** mention `externalBlockDeferral` together with any channel-adapter recorder.
+
+**Confirmed: no existing test exercises** a turn where (a) preamble flows through the pipeline, (b) tool_call fires, (c) subagent ack is emitted via `emitDeferredAck`, (d) finalize emits the consolidated payload, (e) channel adapter records the resulting `(send | edit | delete)` ordering. This is the gap Phase 2 closes.
+
+### 2.5. Hypothesis ranking — verified
+
+Re-read of the call graph confirms the kickoff sketch's ranking. **Final ranking unchanged**:
+
+1. **H2 — emitDeferredAck races finalize: medium-high probability (PRIMARY).** The bypass is structural and direct: `agent-runner.ts:866` reads `effectiveOpts?.onBlockReply` (raw) instead of `deliveredBlockReply` (wrapped), and there is no test exercising this seam together with a channel-adapter recorder. Every B4 transcript symptom (ack lands → preamble lands → archive-delete) maps cleanly to this code path.
+2. **H3 — Channel adapter delete-archive racing the consolidated emit: medium probability (SECONDARY).** Refined during this audit: the delete-after-final loop at `bot-message-dispatch.ts:835–843` only fires for entries with `deleteIfUnused !== false`. The line-316 rotation path uses `deleteIfUnused: false`, so H3 reduces to the line-235 push path (different boundary, different code path). Still plausible but narrower than the kickoff text suggested.
+3. **H1 — Pre-tool-call flush-ordering bug: low probability (NULL).** The await order at `pi-embedded-subscribe.handlers.tools.ts:341–345` is correct: `notifyStructuralToolExecutionStarting()` flips the flag BEFORE `flushBlockReplyBuffer()` and BEFORE `onBlockReplyFlush()`. Any inner await yields keep the flag set, so a chunk landing mid-flush stays deferred. No microtask leak found on read.
+
+The Phase 2 failing repro test should target H2 first (record ordering with `emitDeferredAck` triggered + structural tool seen + finalize) and only fall through to H3 if H2's recorded order is consistent with no race. H1 is the null candidate — Phase 2 does NOT need to write a test for it unless H2/H3 both pass on dev HEAD (which would indicate the symptom is somewhere we haven't audited and Phase 1 needs a follow-up).
 
 ## 3. Hypothesis (3 candidates — pick one in Phase 3)
 
@@ -187,6 +236,16 @@ Each phase's tests must:
 - Phase 1 (audit) starts immediately; Phases 2–6 gated on Phase 1 outputs and per-phase signoff per invariant #15.
 - Branch: `feat/v1-slice-h-stream-edit-ordering` (from latest `origin/dev`).
 - Predecessor merged: PR-A.2 baseline. Predecessor in roadmap order: slice D (channel-agnostic persistence) — non-blocking for streaming-layer fix (no shared file).
+
+### 2026-05-04 — Phase 1 audit completed (verified call graph)
+
+- Branch: `audit/v1-slice-h-stream-ordering-phase-1` (from `origin/dev = 4ce7302a7834e3788fa4719ba0a29211fae3c7ce`).
+- Re-grep-verified every line citation in §2 + §9. All numbers match dev HEAD on read; only minor range tightening (rotate-body 305 → 305–333; finally-loop narrowed to 822–843; deferral wiring 589–615 → 592–613).
+- Read-only audit, zero source/test mutations. Only `.cursor/plans/commitment_kernel_stream_ordering_followup.plan.md` §2 (verified content) and §7 (this entry) changed; frontmatter `h-phase-1-audit-call-graph` flipped to `completed`.
+- Call graph matches the kickoff sketch — no surprises. The `Promise.resolve(...)` wrapper at `pi-embedded-subscribe.handlers.tools.ts:341` confirms a clean await of the structural notification before `flushBlockReplyBuffer`.
+- Refinement: `archivedAnswerPreviews` finally-loop at `bot-message-dispatch.ts:835–843` only deletes entries with `deleteIfUnused !== false`. The rotate-body push at line 313–322 sets `deleteIfUnused: false`, so it is exempt; the entries that DO get deleted are pushed at line 235 (different boundary path with `deleteIfUnused: true`). H3 in §3 needs to be scoped to that path when Phase 3 picks fixes.
+- Hypothesis ranking confirmed unchanged: H2 medium-high (primary), H3 medium (secondary, narrower than kickoff text suggested), H1 low (null candidate). Phase 2 should target H2 first.
+- No new findings affect Phase 2 test design beyond the H3-scope refinement above. Phase 2 can proceed against the §5 test plan as written.
 
 ## 8. Adjacent / deferred
 
