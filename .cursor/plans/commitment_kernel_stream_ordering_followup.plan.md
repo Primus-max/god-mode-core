@@ -7,7 +7,7 @@ todos:
     status: completed
   - id: h-phase-2-failing-test-b4-repro
     content: "Phase 2 — write a failing harness/test that reproduces B4. Drive a fake stream through `createBlockReplyPipeline` + `createExternalBlockReplyDeferral` + a mock channel-adapter that records the verbatim sequence of `(send | edit | delete)` operations. Scenario: assistant emits 2 partial deltas, model triggers `subagent_spawn` tool_call, parent emits subagent ack, then assistant final reply lands. Assert the recorded operation sequence does NOT contain `send → delete → send` for the same logical reply. If the unit-level harness can't reproduce, escalate to integration via `createStubSessionHarness` + `bot-message-dispatch.test.ts`-style fixture. The test MUST fail on `dev` HEAD before the fix lands (per AGENTS.md §253)."
-    status: pending
+    status: completed
   - id: h-phase-3-pick-and-apply-fix
     content: "Phase 3 — pick exactly one of three candidate fixes (see §3 H1/H2/H3) based on which is exercised by the Phase-2 test. Apply minimum surface change. The candidate is unknown until Phase 1 audit is done; per AGENTS.md `do not write speculative code` we commit to the choice in Handoff Log only after the failing repro pinpoints it."
     status: pending
