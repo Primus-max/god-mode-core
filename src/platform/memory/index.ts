@@ -52,3 +52,8 @@ export type {
   MemoryListResult,
   MemoryStore,
 } from "./memory-store.js";
+
+export {
+  InMemoryMemoryStore,
+  type InMemoryListPaginatedQuery,
+} from "./in-memory-store.js";
