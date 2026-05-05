@@ -1,9 +1,9 @@
 /**
- * Public surface of the platform task module — slice F Phase 2.
+ * Public surface of the platform task module — slice F Phase 3.
  *
- * Phase 2 ships ONLY types + Zod schemas + the `TaskLedger`
- * interface. No implementation is exported here yet; Phase 3 will
- * add `InMemoryTaskLedger`, Phase 4 will add `SqliteTaskLedger`.
+ * Phase 2 shipped types + Zod schemas + the `TaskLedger` interface.
+ * Phase 3 adds the Map-backed `InMemoryTaskLedger` impl below; Phase
+ * 4 will add `SqliteTaskLedger`.
  *
  * Per invariant #8, this module imports ONLY from
  * `src/platform/identity/`, the standard library, and Zod. It does
@@ -36,3 +36,9 @@ export {
 } from "./task-record.js";
 
 export type { TaskLedger, TaskNotFound } from "./task-ledger.js";
+
+export {
+  InMemoryTaskLedger,
+  type InMemoryTaskLedgerLogger,
+  type InMemoryTaskLedgerOptions,
+} from "./in-memory-task-ledger.js";
