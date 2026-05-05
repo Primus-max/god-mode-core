@@ -88,6 +88,25 @@ export type RunTurnDecisionInput = {
    * Stage 1 still runs.
    */
   readonly priorIntent?: SemanticIntent;
+  /**
+   * Slice E Phase 5 — commitment-runtime memory hook callback. Fires
+   * AFTER the cutover gate produces a `RuntimeAttestation` (regardless
+   * of `commitmentSatisfied` — the hook itself filters). Absent when
+   * the gate did not produce an attestation (cutover disabled,
+   * shadow unsupported, etc.) so that "no attestation" never fans out
+   * to a memory write attempt with stale state.
+   *
+   * The callback's failure is contained: any thrown / rejected error
+   * is caught here, logged via `defaultRuntime.log`, and DOES NOT
+   * propagate back to the calling commitment turn (memory layer is
+   * observability, not gating — invariant #15). The hook
+   * implementation lives in
+   * `src/agents/pi-embedded-runner/run/memory-write-on-satisfied.ts`
+   * outside the frozen `src/platform/commitment/` module (invariant
+   * #8); this field is the single seam through which the call site
+   * threads the hook into the decision pipeline.
+   */
+  readonly onAttestation?: (attestation: RuntimeAttestation) => void | Promise<void>;
 };
 
 export type RunTurnDecisionResult = {
@@ -234,6 +253,27 @@ export async function runTurnDecision(
   const fallbackReason = isKernelDerived
     ? undefined
     : resolveFallbackReason(shadowCommitment, cutover.gate);
+
+  // Slice E Phase 5 — fire the commitment-runtime memory hook callback
+  // when the gate produced a `RuntimeAttestation`. The callback (set by
+  // the pi-embedded-runner orchestration via
+  // `recordMemoryOnCommitmentSatisfied`) filters internally on
+  // `commitmentSatisfied === true` plus identity / store presence; this
+  // call site forwards the attestation unconditionally so absence of a
+  // gate result never reaches the hook. Failures stay local —
+  // memory-layer outages MUST NOT break the commitment turn (invariant
+  // #15).
+  if (input.onAttestation && cutover.attestation) {
+    try {
+      await input.onAttestation(cutover.attestation);
+    } catch (error) {
+      defaultRuntime.log(
+        `[memory-hook] onAttestation callback failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   return {
     legacyDecision,
