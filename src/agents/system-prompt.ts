@@ -182,6 +182,16 @@ export function buildAgentSystemPrompt(params: {
   ownerDisplay?: OwnerIdDisplay;
   ownerDisplaySecret?: string;
   reasoningTagHint?: boolean;
+  /**
+   * Slice I Phase 4 — advisory hint that asks non-tag providers
+   * (Anthropic etc.) to wrap English meta-thinking in `<thinking>` blocks.
+   * Distinct from `reasoningTagHint` (strict `<think>+<final>` for
+   * google/minimax). Emitted as `## Internal Reasoning Format` when the
+   * value is a non-empty string. Caller decides applicability via
+   * `isInternalReasoningHintApplicable` (see
+   * `pi-embedded-runner/internal-reasoning-hint.ts`).
+   */
+  internalReasoningHint?: string;
   toolNames?: string[];
   toolSummaries?: Record<string, string>;
   modelAliasLines?: string[];
@@ -601,6 +611,14 @@ export function buildAgentSystemPrompt(params: {
   }
   if (reasoningHint) {
     lines.push("## Reasoning Format", reasoningHint, "");
+  }
+  // Slice I Phase 4 — advisory section for non-tag providers on external
+  // surfaces. Caller (pi-embedded-runner attempt) gates on
+  // `isInternalReasoningHintApplicable`; this builder only checks for a
+  // non-empty trimmed value so the section is omitted by default.
+  const internalReasoningHint = params.internalReasoningHint?.trim();
+  if (internalReasoningHint) {
+    lines.push("## Internal Reasoning Format", internalReasoningHint, "");
   }
 
   const contextFiles = params.contextFiles ?? [];

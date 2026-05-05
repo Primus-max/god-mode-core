@@ -39,6 +39,10 @@ import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
 import { resolveUserPath } from "../../../utils.js";
 import { normalizeMessageChannel } from "../../../utils/message-channel.js";
 import { isReasoningTagProvider } from "../../../utils/provider-utils.js";
+import {
+  INTERNAL_REASONING_HINT_TEXT,
+  isInternalReasoningHintApplicable,
+} from "../internal-reasoning-hint.js";
 import { resolveOpenClawAgentDir } from "../../agent-paths.js";
 import { resolveSessionAgentIds } from "../../agent-scope.js";
 import { createAnthropicPayloadLogger } from "../../anthropic-payload-log.js";
@@ -2065,6 +2069,17 @@ export async function runEmbeddedAttempt(
         : undefined;
     const sandboxInfo = buildEmbeddedSandboxInfo(sandbox, params.bashElevated);
     const reasoningTagHint = isReasoningTagProvider(params.provider);
+    // Slice I Phase 4 — advisory `<thinking>` hint for non-tag providers on
+    // external delivery surfaces (e.g. Anthropic + telegram). Distinct from
+    // the strict `<think>+<final>` block above; defense-in-depth pair with
+    // the Phase 3 post-filter `english_meta_*` family in
+    // `outbound-sanitizer.ts`. Sub-plan §6.4.
+    const internalReasoningHint = isInternalReasoningHintApplicable(
+      params.provider,
+      runtimeChannel,
+    )
+      ? INTERNAL_REASONING_HINT_TEXT
+      : undefined;
     // Resolve channel-specific message actions for system prompt
     const channelActions = runtimeChannel
       ? listChannelSupportedActions(
@@ -2136,6 +2151,7 @@ export async function runEmbeddedAttempt(
       ownerDisplay: ownerDisplay.ownerDisplay,
       ownerDisplaySecret: ownerDisplay.ownerDisplaySecret,
       reasoningTagHint,
+      internalReasoningHint,
       heartbeatPrompt,
       skillsPrompt,
       docsPath: docsPath ?? undefined,
