@@ -2,11 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
 import { asIdentityId } from "../identity/identity-id.js";
-
 import { type EpisodicMemoryEvent } from "./episodic-memory-event.js";
 import { isMemoryEntryId } from "./memory-entry-id.js";
 import type { MemoryStore } from "./memory-store.js";
@@ -261,17 +258,14 @@ describe("SqliteVecMemoryStore — Phase 3 acceptance", () => {
       dbPath,
       embedder: createStubEmbedder(),
       vectorDims: VECTOR_DIMS,
-      loadExtension: () =>
-        Promise.resolve({ ok: false, error: "deliberate test failure" }),
+      loadExtension: () => Promise.resolve({ ok: false, error: "deliberate test failure" }),
       logger,
     });
 
     expect(store.isVectorAvailable()).toBe(false);
 
     // The warning is surfaced once, at open time (not on every recall).
-    expect(
-      logger.warnings.some((w) => w.includes("vector_unavailable")),
-    ).toBe(true);
+    expect(logger.warnings.some((w) => w.includes("vector_unavailable"))).toBe(true);
 
     // Storing still works (we just skip the vec0 insert).
     const id = await store.storeSemantic({
@@ -345,9 +339,7 @@ describe("SqliteVecMemoryStore — Phase 3 acceptance", () => {
       embedder: createStubEmbedder(),
       vectorDims: VECTOR_DIMS,
     });
-    await expect(
-      store.storeSemantic({ identityId: VLADIMIR, content: "" }),
-    ).rejects.toThrow();
+    await expect(store.storeSemantic({ identityId: VLADIMIR, content: "" })).rejects.toThrow();
     await store.close();
   });
 
