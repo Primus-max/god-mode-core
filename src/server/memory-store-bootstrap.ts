@@ -18,10 +18,18 @@
  *   caught and downgraded to an `InMemoryMemoryStore` so the gateway stays
  *   callable end-to-end (invariant #15 — memory layer is observability,
  *   not gating).
- * - Per-process singleton via `resolveGlobalSingleton` keyed on `cfg`
- *   reference equality so cfg-reload returns a fresh runtime; same `cfg`
- *   ref returns the same `{ memoryStore, identityRegistry }` pair so
- *   downstream callers see a stable instance throughout the turn.
+ * - Per-process singleton keyed on a STABLE SIGNATURE of the cfg fields
+ *   the bootstrap actually reads (memorySearch defaults, agent ids,
+ *   identities, state-dir). Reference identity is NOT used: the per-turn
+ *   config resolver (`resolveCommandSecretRefsViaGateway` -> `structuredClone`
+ *   in `src/cli/command-secret-gateway.ts`) deep-clones the cfg, so two
+ *   sequential turns under stable config produce two distinct cfg refs
+ *   with identical content. Pre-fix this caused the bootstrap to fire
+ *   on every turn (observed 2026-05-05: four consecutive
+ *   `[memory] slice-E memory bootstrap` lines across four turns).
+ *   Cfg-reload semantics are still honoured: when one of the signature
+ *   fields actually changes, the cache invalidates and the runtime
+ *   rebuilds.
  */
 
 import { listAgentIds } from "../agents/agent-scope.js";
@@ -77,7 +85,7 @@ export type MemoryRuntimeDeps = {
 const RUNTIME_KEY = Symbol.for("openclaw.slice-e.memory-runtime-singleton");
 
 type Singleton = {
-  cfg: OpenClawConfig;
+  signature: string;
   runtime: Promise<MemoryRuntime>;
 };
 
@@ -90,21 +98,75 @@ function getStore(): { current?: Singleton } {
 }
 
 /**
+ * Stable cfg signature for memoization. Captures only the fields the
+ * bootstrap actually reads — agent ids (drives `defaultResolveEmbedder`'s
+ * primary-agent pick), per-agent + default `memorySearch` (drives the
+ * embedder provider/model/local), `identities` (drives the identity
+ * registry), and state-dir env (drives the sqlite-vec db path).
+ *
+ * `JSON.stringify` is sufficient because all signature inputs are plain
+ * JSON-shaped config values. Any field NOT in the signature is treated as
+ * memoization-irrelevant — changing those fields will NOT invalidate the
+ * cache, which is intentional: those fields are not load-bearing for the
+ * memory runtime.
+ */
+function computeMemoryRuntimeSignature(cfg: OpenClawConfig): string {
+  const agentsCfg = (cfg as unknown as {
+    agents?: { defaults?: { memorySearch?: unknown }; entries?: unknown };
+  }).agents;
+  const identitiesCfg = (cfg as unknown as { identities?: unknown }).identities;
+  // STATE_DIR / OPENCLAW_STATE_DIR / HOME — anything that influences
+  // `defaultSqliteVecMemoryStorePath`. We hash the resolved path itself
+  // so any of those env-derived inputs participate in the signature
+  // without us re-listing the env-var contract here.
+  let stateDirComponent: string;
+  try {
+    stateDirComponent = defaultSqliteVecMemoryStorePath();
+  } catch {
+    stateDirComponent = "<unresolved>";
+  }
+  try {
+    return JSON.stringify({
+      agents: agentsCfg ?? null,
+      identities: identitiesCfg ?? null,
+      stateDir: stateDirComponent,
+    });
+  } catch {
+    // Defense-in-depth: a non-serializable cfg (cycle, BigInt) would
+    // otherwise crash the gateway boot. Return a unique sentinel so the
+    // bootstrap behaves like a "no cache" — every call rebuilds, but
+    // nothing throws. Operators see warnings from `buildMemoryRuntime`.
+    return `<unhashable:${Date.now()}-${Math.random()}>`;
+  }
+}
+
+/**
  * Resolve the per-process memory runtime — `{ memoryStore, identityRegistry }`.
- * Cached on `cfg` reference: a different `cfg` (cfg-reload, distinct test
- * fixtures) rebuilds. The cache lives on `globalThis` keyed by a Symbol.for
- * to survive ESM module-level dedup quirks.
+ * Cached on a stable cfg signature (NOT reference identity): the per-turn
+ * config resolver deep-clones the cfg, so reference equality would force
+ * a rebuild on every turn. Two cfgs with the same signature share the
+ * cached runtime; a real cfg-reload that changes one of the signature
+ * fields invalidates the cache and rebuilds. The cache lives on
+ * `globalThis` keyed by a `Symbol.for` to survive ESM module-level
+ * dedup quirks.
  */
 export async function getMemoryRuntime(
   cfg: OpenClawConfig,
   deps: MemoryRuntimeDeps = {},
 ): Promise<MemoryRuntime> {
   const store = getStore();
-  if (store.current && store.current.cfg === cfg) {
+  const signature = computeMemoryRuntimeSignature(cfg);
+  if (store.current && store.current.signature === signature) {
     return store.current.runtime;
   }
+  const logger = deps.logger ?? log;
+  if (store.current) {
+    logger.info?.(
+      "slice-E memory bootstrap: rebuilding memory runtime — cfg signature changed",
+    );
+  }
   const runtime = buildMemoryRuntime(cfg, deps);
-  store.current = { cfg, runtime };
+  store.current = { signature, runtime };
   return runtime;
 }
 

@@ -131,12 +131,81 @@ describe("memory-store-bootstrap — slice E gateway wiring bridge", () => {
     expect(b.identityRegistry).toBe(a.identityRegistry);
   });
 
-  it("rebuilds when cfg reference changes (cfg-reload semantics)", async () => {
+  it("memoizes across deep-cloned cfg objects with identical signature (4 turns -> 1 bootstrap)", async () => {
+    // Reproduces the production bug: per-turn cfg resolution deep-clones
+    // (`structuredClone`) the config, so reference equality breaks even
+    // though the meaningful signature (memorySearch, identities,
+    // state-dir) hasn't changed. The fix: key the singleton on a stable
+    // signature so 4 sequential turns trigger ONE bootstrap.
+    const infoMessages: string[] = [];
+    const warnMessages: string[] = [];
+    let resolverCalls = 0;
+    const deps: MemoryRuntimeDeps = {
+      resolveEmbedder: async () => {
+        resolverCalls += 1;
+        return null;
+      },
+      logger: {
+        warn: (m) => warnMessages.push(m),
+        info: (m) => infoMessages.push(m),
+      },
+    };
+    const base = cfgWithIdentities();
+    const turn1 = await getMemoryRuntime(structuredClone(base), deps);
+    const turn2 = await getMemoryRuntime(structuredClone(base), deps);
+    const turn3 = await getMemoryRuntime(structuredClone(base), deps);
+    const turn4 = await getMemoryRuntime(structuredClone(base), deps);
+    // Same singleton across all 4 turns (stable signature -> cache hit).
+    expect(turn2).toBe(turn1);
+    expect(turn3).toBe(turn1);
+    expect(turn4).toBe(turn1);
+    expect(turn4.memoryStore).toBe(turn1.memoryStore);
+    expect(turn4.identityRegistry).toBe(turn1.identityRegistry);
+    // Bootstrap-side effects fired exactly once.
+    expect(resolverCalls).toBe(1);
+    const bootstrapInfoLines = infoMessages.filter((line) =>
+      line.includes("slice-E memory bootstrap"),
+    );
+    expect(bootstrapInfoLines).toHaveLength(1);
+  });
+
+  it("rebuilds when memorySearch signature changes (cfg-reload semantics)", async () => {
+    // Real cfg-reload: the cached signature must invalidate when meaningful
+    // memory-config fields change between calls. Pre-fix this test passed
+    // because EVERY new cfg ref invalidated; post-fix it must still pass
+    // because the signature now captures `memorySearch` provider/model.
     const deps: MemoryRuntimeDeps = {
       resolveEmbedder: async () => null,
     };
-    const a = await getMemoryRuntime(cfgWithIdentities(), deps);
-    const b = await getMemoryRuntime(cfgWithIdentities(), deps);
+    const cfgA = {
+      ...cfgWithIdentities(),
+      agents: { defaults: { memorySearch: { provider: "gemini" } } },
+    } as unknown as OpenClawConfig;
+    const cfgB = {
+      ...cfgWithIdentities(),
+      agents: { defaults: { memorySearch: { provider: "openai" } } },
+    } as unknown as OpenClawConfig;
+    const a = await getMemoryRuntime(cfgA, deps);
+    const b = await getMemoryRuntime(cfgB, deps);
+    expect(b).not.toBe(a);
+    expect(b.memoryStore).not.toBe(a.memoryStore);
+  });
+
+  it("rebuilds when identities signature changes (cfg-reload semantics)", async () => {
+    const deps: MemoryRuntimeDeps = {
+      resolveEmbedder: async () => null,
+    };
+    const cfgA = cfgWithIdentities();
+    const cfgB = {
+      identities: {
+        "identity:vladimir": {
+          displayName: "Vladimir",
+          mappings: [{ channel: "telegram", externalId: "999" }],
+        },
+      },
+    } as unknown as OpenClawConfig;
+    const a = await getMemoryRuntime(cfgA, deps);
+    const b = await getMemoryRuntime(cfgB, deps);
     expect(b).not.toBe(a);
     expect(b.memoryStore).not.toBe(a.memoryStore);
   });
