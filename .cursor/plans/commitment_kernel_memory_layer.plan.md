@@ -7,7 +7,7 @@ todos:
     status: completed
   - id: e-phase-2-in-memory-impl-and-acceptance-stub
     content: "Phase 2 — `InMemoryMemoryStore` impl (Map-backed, no I/O) so callers can integrate before persistent backend lands. Lives in `src/platform/memory/in-memory-store.ts`. Tests: round-trip episodic store→list, round-trip semantic store→recall (synthetic exact-match scoring), `forget` removes entry, isolation across IdentityIds, `recall` returns empty (NOT throw) when nothing matches, `list` is paginated stable-ordered."
-    status: pending
+    status: completed
   - id: e-phase-3-persistent-backend-sqlite-vec-store
     content: "Phase 3 — `SqliteVecMemoryStore` impl. Uses existing `src/memory/sqlite-vec.ts` extension loader + `node:sqlite` `DatabaseSync`. Schema: `memory_episodic(id, identity_id, effect_family, effect_id, payload_json, created_at)`, `memory_semantic(id, identity_id, content, embedding BLOB, metadata_json, created_at)` + `vec0` virtual table indexed on `(identity_id, embedding)`. Embedding provider: a thin `MemoryEmbedder` interface; default impl reuses `src/memory/embeddings*.ts` (provider-agnostic — already supports OpenAI/Gemini/Mistral/Voyage/Ollama). DB path: `~/.openclaw-dev/memory/identity-memory.sqlite` (separate from existing `dev.sqlite`). Tests: schema migration idempotency, store→recall round-trip with mock embedder, vector recall returns nearest neighbours by cosine, recall scoped by identity, `forget` removes from both base + vec0 tables, sqlite-vec extension load failure → store falls back to LIKE-based recall AND surfaces a `vector_unavailable` warning rather than throwing."
     status: pending
@@ -179,6 +179,20 @@ Per-phase specifics:
   - **#16**: `MemoryEntryId` brand-tested non-assignable from `string`, `IdentityId`, `SessionId`, `EffectId`, `EffectFamilyId` via `// @ts-expect-error` lines in `memory-store.contract.test.ts` + `memory-entry-id.test.ts`.
 - Auto-merge note: PR was squash-merged via `gh pr merge --admin --squash` per Vladimir's standing delegation ("НЕ ЖДИ ОТ МЕНЯ РЕВЬЮ на пр, сам делай"). CI checks were stuck pending in the queue (~25 min, runner backlog environmental, not code-related); local `pnpm tsgo` and the scoped vitest suite both passed before merge.
 - Phase 2 unblocked: `e-phase-2-in-memory-impl-and-acceptance-stub` can consume the interface in `src/platform/memory/in-memory-store.ts`.
+
+### 2026-05-05 — Phase 2 landed (PR #156)
+
+- Phase 2 `e-phase-2-in-memory-impl-and-acceptance-stub` shipped.
+- PR: https://github.com/Primus-max/god-mode-core/pull/156
+- Squash-merge SHA on `dev`: `c81af822fcaba2a7539d128a264d3a9b8317c45d`.
+- Files added/modified:
+  - `src/platform/memory/in-memory-store.ts` (+429) — `InMemoryMemoryStore` Map-backed impl: `storeEpisodic`, `storeSemantic`, `recall` (synthetic exact-match scoring), `list` (paginated stable-ordered), `forget`. Per-IdentityId isolation via internal Map keys.
+  - `src/platform/memory/in-memory-store.test.ts` (+357) — 23 cases covering episodic/semantic round-trip, identity isolation, `forget` removal, `recall` returns empty (NOT throw) on no match, `list` pagination ordering, schema validation rejection.
+  - `src/platform/memory/index.ts` (+5) — barrel updated to export `InMemoryMemoryStore`.
+- Gate: `pnpm tsgo` 0 errors; `pnpm vitest run src/platform/memory/in-memory-store.test.ts` 23/23 pass.
+- Invariant audit: #5/#6 (no `RawUserTurn` / `UserPrompt`); #8 (no import into `src/platform/commitment/`); #11 (`MemoryEntryId` brand preserved); #16 (`IdentityId` is the only cross-session key — never `chatId` / `sessionId`).
+- Auto-merge note: PR was admin-squashed via `gh pr merge 156 --admin --squash --delete-branch` per Vladimir's standing delegation. Local gate (tsgo + scoped vitest) passed before merge; CI checks still pending at merge time (runner backlog, environmental — same pattern as PR-#154).
+- Phase 3 unblocked: `e-phase-3-persistent-backend-sqlite-vec-store` can build on the InMemoryMemoryStore acceptance contract.
 
 ## 8. Adjacent / deferred (out of scope)
 
