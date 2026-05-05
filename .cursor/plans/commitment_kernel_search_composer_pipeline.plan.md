@@ -555,6 +555,72 @@ Two integration paths exist; both exceed the autonomous /loop's per-slice budget
 
 No code change in this iteration. attempt.ts still untouched (and confirmed unsuitable for the integration); input.ts/plugin.ts also untouched pending architectural review.
 
+### 2026-05-02 — Phase 4b''-d merged (PR-#134, squash `d852020517`)
+
+- Path A per §8.5 4b''-d, maintainer-authorized 2026-05-02. Extends `RunTurnDecisionResult` with optional `derivedCommitment?: ExecutionCommitment` field surfaced on `gate_in_success` + `commitmentSatisfied`. +13 LOC + tests. `pnpm tsgo` clean; 27/27 scoped + adjacent. Behaviour-neutral. Frozen layer: none. Admin-merged after BlackSmith stuck.
+- Next: **4b''-e1** — surface composer text in adapter + orchestrator return shapes.
+
+### 2026-05-02 — Phase 4b''-e1 merged (PR-#135, squash `4e2b21dd71`)
+
+- Bubbles `composer.text` through `WebResearchComposerResult` / `WebResearchTurnResult` ok variants. Previously composer adapter discarded model output after DeliveryReceipt; new shape surfaces text so caller wiring can route composed answer to user via directResponse. +15/-7 LOC over 4 files. `pnpm tsgo` clean; 27/27 scoped vitest. Behaviour-neutral. Frozen layer: none. Admin-merged.
+- Next: **4b''-e2** — production transport factories.
+
+### 2026-05-02 — Phase 4b''-e2 merged (PR-#136, squash `9421ec7ea0`)
+
+- New `src/platform/decision/web-research-transports.ts`: `createWebResearchSpecialistTransport` (defaults `hydra/sonar-pro`, 30s/2000) + `createWebResearchComposerTransport` (defaults `hydra/claude-opus-4.6`, 60s/4000). Wraps `prepareModelForSimpleCompletion` + `completeSimple` mirroring IntentContractor pattern. Shared `completeWithModel` helper. +179 LOC over 2 new files. `pnpm tsgo` clean; 4/4 scoped. Behaviour-neutral. Frozen layer: none. Admin-merged.
+- Next: **4b''-e3** — dispatch helper.
+
+### 2026-05-02 — Phase 4b''-e3 merged (PR-#137, squash `e07b477697`)
+
+- New `src/platform/decision/web-research-dispatch.ts` with `runWebResearchDispatch(...)`. Builds production transports (or accepts test overrides), synthesises composer commitment from specialist commitment by cloning + replacing effect to `WEB_RESEARCH_SUMMARIZED_EFFECT`, invokes `runWebResearchTurn`. Returns `{ ok: true, text, messageId, recordCount }`. Closed failure set: `effect_not_dispatchable` + propagation of orchestrator stage failures. +395 LOC over 2 new files. `pnpm tsgo` clean; 5/5 scoped. **Search-Composer kernel side fully complete (Phases 1 → 4b'-a → 4b''-d → 4b''-e1 → 4b''-e2 → 4b''-e3).** Frozen layer: none. Admin-merged.
+- Next: **4b''-e4** — caller wiring (architectural decision required: Option α / γ / ε per §8.5 4b''-e4).
+
+### 2026-05-02 — Phase 4b''-e4 merged (PR-#138, squash `7fa1c4eebe`) — pipeline active in production
+
+- Caller wiring landed via **Option ε pragmatic**: new `src/platform/decision/web-evidence-prefetch.ts` with `maybeFetchWebEvidence(...)` invoked in `runAgentCommand` (single ~20 LOC integration). When `requestedTools.includes("web_search")`, runs sonar specialist against production transport, prepends `<web_evidence>` block to user prompt, filters `web_search` from tools → opus-4.6 composes with evidence. On failure: undefined return → fall through to legacy. **Search-Composer pipeline now active in production for web_search turns: sonar-pro → opus-4.6 (no grok).** +238 LOC over 3 files. `pnpm tsgo` clean; 41/41 scoped vitest. Hard invariants #5/#6/#7/#8/#11/#16 clear. Frozen layer: none. Admin-merged.
+- Next: **Phase 4c — live verify after gateway restart**, plus follow-up tightening as defects surface in the live log.
+
+### 2026-05-03 — Phase 4c follow-up #139 merged (PR-#139, squash `47ca323788`)
+
+- Broaden `web-evidence-prefetch` trigger from `requestedTools.includes("web_search")` to also accept `toolBundles.includes("public_web_lookup")` — covers turns where the planner emits the bundle signal but no explicit `web_search` request. Diff: small predicate change in `web-evidence-prefetch.ts` plus tests. `pnpm tsgo` clean. Behaviour-changing on production for the bundle-signal turn class. Frozen layer: none. Admin-merged.
+- Next: **#140** — wire prefetch into the auto-reply path (was attached only to `runAgentCommand`).
+
+### 2026-05-03 — Phase 4c follow-up #140 merged (PR-#140, squash `234ee35e46`)
+
+- Wire `maybeFetchWebEvidence` into the auto-reply agent-runner path (`src/auto-reply/reply/agent-runner-execution.ts`). Previously prefetch fired only on the agent-command path; the auto-reply path (used for Telegram/Slack inbound user turns) bypassed it entirely, so production user-channel turns never benefited from #138's wiring. Diff: parallel hook insertion mirroring the `runAgentCommand` pattern. `pnpm tsgo` clean. Behaviour-changing on production for inbound channel turns. Frozen layer: none. Admin-merged.
+- Next: **#141** — switch logging to `defaultRuntime.log` so `[web-evidence-prefetch]` traces actually appear in the gateway log.
+
+### 2026-05-03 — Phase 4c follow-up #141 merged (PR-#141, squash `17c65df438`)
+
+- Switch the prefetch decision-layer logger from a context-bound channel logger that didn't reach the gateway log to `defaultRuntime.log`. Without this, `[web-evidence-prefetch] hook entered/applied/not_applied` traces were silently swallowed and live verification was blind. Diagnostic-only change. `pnpm tsgo` clean. Frozen layer: none. Admin-merged.
+- Next: **#142** — drop `web_search` from the tool catalog after prefetch succeeds (so opus can't double-call DDG).
+
+### 2026-05-03 — Phase 4c follow-up #142 merged (PR-#142, squash `77f45096c3`)
+
+- After successful `web-evidence-prefetch`, set `disableWebSearchTool=true` on the inner agent-runner params so opus's tool catalog excludes `web_search`. Without this filter opus would (a) read the injected `<web_evidence>` block AND (b) still call `web_search` itself, hitting the broken DDG fallback and crashing the turn. Diff: param threading + filter at `attempt.ts:1974` (initial `tool.name !== "web_search"`). `pnpm tsgo` clean. Behaviour-changing on production. Frozen layer: none. Admin-merged.
+- Next: **#143** — force-disable the flag on the web_search signal even when prefetch FAILED (sonar mid-flight error), plus sonar parse robustness for code-fenced replies.
+
+### 2026-05-03 — Phase 4c follow-up #143 merged (PR-#143, squash `a30f9e8a3a`)
+
+- Two coupled fixes: (1) `disableWebSearchTool` is now driven by `hasWebSearchSignal(plannerInput)` directly, not by prefetch success, so a mid-flight sonar error no longer leaves opus with `web_search` exposed (which previously crashed the turn into bot-detection); (2) sonar parse robustness via new `extractJsonArrayCandidate` helper that strips ` ```json ... ``` ` fences and slices first-`[` to last-`]` as fallback. New shared `hasWebSearchSignal()` export in `web-evidence-prefetch.ts` mirrors `shouldFetchWebEvidence`. +5 prefetch test cases (12/12), +7 adapter cases (18/18). `pnpm tsgo` clean. Frozen layer: none. Admin-merged.
+- Live evidence: turn `11dbd90c-dc47-46e6-94dc-573c262a613a` confirmed prefetch ok recordCount=8 +2771 chars and no `web_search` calls; but opus pivoted to `web_fetch` instead → bot detection → `Provider finish_reason: error` after 1m50s.
+- Next: **#144** — extend the disable filter to also drop `web_fetch`.
+
+### 2026-05-03 — Phase 4c follow-up #144 merged (PR-#144, squash `d8e51cdc0a`)
+
+- Extend the `disableWebSearchTool` filter in `attempt.ts` to also drop `web_fetch`. Same flag, same call sites — when a web_search signal is present, the model answers from `<web_evidence>` (or without fresh data) instead of pivoting to raw HTTP fetch (which is also blocked by news-site bot detection). Doc updated in `params.ts` to reflect broader semantics. `pnpm tsgo` clean. Frozen layer: none. Admin-merged.
+- Next: **#145** — extend filter further to drop `browser` (the OpenClaw Chrome MCP, third pivot path), AND force Perplexity sonar to emit JSON via `response_format: json_schema`.
+
+### 2026-05-04 — Phase 4c follow-up #145 merged + LIVE-VERIFIED (PR-#145, squash `06baa2d364`)
+
+- Two coupled fixes for the residual prefetch+composer failure modes observed at PR-#144's live verify:
+  1. **`browser` added to the disable filter** in `attempt.ts:1974`. Live evidence (turn `5722d87c-f92f-44c2-aeb8-7f36fb5d0803`): with web_search/web_fetch already disabled, opus pivoted to `browser`, which timed out 4× in a row (cold-start + load) → `Provider finish_reason: error` after 4m of retries. Same bot-detection / external-resource class as the prior two pivots.
+  2. **Force Perplexity sonar to emit JSON via `response_format: { type: "json_schema", json_schema: { schema } }`**, injected into the upstream payload through pi-ai's `onPayload` extension hook in `web-research-transports.ts`. Schema wraps the records array in a `{ records: [...] }` envelope (top-level arrays are rejected by some sonar tiers). Without this, sonar sometimes returned markdown prose (`### Последние новости...`) and parse_error broke prefetch entirely. System prompt updated to match envelope; runtime-adapter parser broadened to accept both bare-array AND envelope shapes (backward compatible).
+- Diff: `+143 -15` over 5 files (attempt.ts + params.ts + web-research-transports.ts + web-research-runtime-adapter.ts + adapter test). +2 adapter cases (envelope happy path, markdown-prose still rejected as parse_error). `pnpm tsgo` clean. Frozen layer: none. Admin-merged.
+- **Live verify (2026-05-04)**: turn `6d9d80e8-cd35-4ff4-b6ce-7bc2eed08682` against `gateway-pr145.log`: `[web-evidence-prefetch] ok recordCount=8 promptDeltaChars=2808` ✓; classifier `recipe=calculation_report bundles=[artifact_authoring,public_web_lookup] requestedTools=[image_generate,pdf,web_search]` ✓; **zero** `[tools] (browser|web_fetch|web_search) failed` lines ✓; opus invoked `pdf` tool exactly once at `phase=tool_call`; turn closed at `phase=done` with no `Provider finish_reason: error` ✓; Telegram delivery confirmed by `[telegram] sendMessage ok`. **Phase 4c live-verify acceptance from §5 #2 (pure-search turn) effectively validated** for the `requestedTools=[image_generate,pdf,web_search]` combo turn class.
+- Frontmatter status: pipeline structurally complete + production-active + live-verified. Hard invariants reverse-test for the hot-path code (#5, #6, #7, #8, #11, #16) clear across PR-#138..#145; frozen layer untouched in any of the seven follow-ups.
+- Next: **v1 release roadmap** — see `commitment_kernel_v1_release_roadmap.plan.md` (drafting). Outstanding architectural work for v1: Search-Composer production dispatch (replace Option ε `disableWebSearchTool` flag with polymorphic `isWebResearchFamilyEffect` dispatch on `runWebResearchTurn` — closes G6.c and removes the prag-fix); bundle-as-contract enforcement; IntentContractor freshness; cutover-3/4; channel-agnostic session persistence; memory layer (mem0); per-user task scheduler (TaskLedger); subagent registry persistence + reply routing; reply sanitizer (English-leak); cron query/list/cancel surface. All require maintainer signoff per §15.
+
 ### (To be filled per phase as work progresses post-signoff.)
 
 ## 8. Adjacent / deferred bugs (out of scope)
