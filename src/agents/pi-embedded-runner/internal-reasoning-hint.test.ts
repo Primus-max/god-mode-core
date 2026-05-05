@@ -107,8 +107,9 @@ describe("INTERNAL_REASONING_HINT_TEXT", () => {
   });
 
   it("explicitly states the user does not see thinking content", () => {
-    expect(INTERNAL_REASONING_HINT_TEXT.toLowerCase()).toContain(
-      "the user will not see anything inside",
-    );
+    // Tolerate the verbatim line-wrap between "anything" and "inside" — the
+    // sub-plan §6.4 wording prefers a paragraph wrap there.
+    const collapsed = INTERNAL_REASONING_HINT_TEXT.toLowerCase().replaceAll(/\s+/g, " ");
+    expect(collapsed).toContain("the user will not see anything inside");
   });
 });

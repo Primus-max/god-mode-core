@@ -17,6 +17,11 @@ export function buildEmbeddedSystemPrompt(params: {
   ownerDisplay?: "raw" | "hash";
   ownerDisplaySecret?: string;
   reasoningTagHint: boolean;
+  /**
+   * Slice I Phase 4 — advisory hint for non-tag providers on external
+   * channels. See `./internal-reasoning-hint.ts`.
+   */
+  internalReasoningHint?: string;
   heartbeatPrompt?: string;
   skillsPrompt?: string;
   docsPath?: string;
@@ -62,6 +67,7 @@ export function buildEmbeddedSystemPrompt(params: {
     ownerDisplay: params.ownerDisplay,
     ownerDisplaySecret: params.ownerDisplaySecret,
     reasoningTagHint: params.reasoningTagHint,
+    internalReasoningHint: params.internalReasoningHint,
     heartbeatPrompt: params.heartbeatPrompt,
     skillsPrompt: params.skillsPrompt,
     docsPath: params.docsPath,
