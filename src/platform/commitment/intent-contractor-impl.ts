@@ -5,6 +5,8 @@ import { parseModelRef } from "../../agents/model-selection.js";
 import { resolveModelAsync } from "../../agents/pi-embedded-runner/model.js";
 import { prepareModelForSimpleCompletion } from "../../agents/simple-completion-transport.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { IdentityId } from "../identity/identity-id.js";
+import type { MemoryStore, SemanticMemoryEntry } from "../memory/index.js";
 import {
   EFFECT_FAMILY_REGISTRY,
   getEffectFamilyDefinition,
@@ -21,6 +23,32 @@ export const DEFAULT_INTENT_CONTRACTOR_MODEL = "hydra/gpt-5-mini";
 export const DEFAULT_INTENT_CONTRACTOR_TIMEOUT_MS = 15_000;
 export const DEFAULT_INTENT_CONTRACTOR_MAX_TOKENS = 400;
 export const DEFAULT_INTENT_CONTRACTOR_CONFIDENCE_THRESHOLD = 0.6;
+
+/**
+ * Default top-K for the slice-E Phase-6 `<memory>` recall hook. Five
+ * entries is the sub-plan §0/§5 default; mirrors the `<web_evidence>`
+ * pattern at `src/platform/decision/web-evidence-prefetch.ts`.
+ */
+export const DEFAULT_INTENT_CONTRACTOR_MEMORY_RECALL_LIMIT = 5;
+
+/**
+ * Uncertainty tag appended to a returned `SemanticIntent` when the
+ * memory-recall call rejects (e.g. sqlite locked, embedder timeout).
+ * Per invariant #15 the recall failure must NEVER throw into the
+ * contractor flow — it degrades to "no `<memory>` block + warning log
+ * + this tag on the returned intent" (sub-plan §5 Phase 6).
+ */
+export const MEMORY_RECALL_FAILED_UNCERTAINTY = "memory_recall_failed";
+
+/**
+ * Minimal logger seam used by the IntentContractor for memory-recall
+ * observability. The production `run-turn-decision.ts` call site logs
+ * via `console.warn` / structured loggers; tests inject a `vi.fn()`
+ * spy. Kept structural (no class) so callers don't need a wrapper.
+ */
+export type IntentContractorLogger = {
+  warn(message: string, payload?: Record<string, unknown>): void;
+};
 
 export type ResolvedIntentContractorConfig = {
   readonly enabled: boolean;
@@ -143,7 +171,21 @@ export function resolveIntentContractorAdapter(
 /**
  * Creates the real PR-2 IntentContractor wrapper.
  *
- * @param deps - Runtime config and optional adapter registry.
+ * Slice-E Phase-6 additive: when both `memoryStore` and `identityId`
+ * are provided, `classify` performs a top-K memory recall keyed on the
+ * identity and the raw prompt before calling the adapter; non-empty
+ * results are formatted into a `<memory>{JSON}</memory>` block and
+ * prepended to the prompt the adapter sees (mirrors the
+ * `<web_evidence>` pattern from
+ * `src/platform/decision/web-evidence-prefetch.ts`). Recall failures
+ * are observability-only — they NEVER throw into the contractor flow
+ * (invariant #15) and are surfaced via `logger.warn` plus a
+ * `memory_recall_failed` tag on the returned intent's uncertainty.
+ *
+ * @param deps - Runtime config, optional adapter registry, and the
+ *   slice-E Phase-6 optional `memoryStore` / `identityId` / `logger`
+ *   recall seam (all three default to undefined for byte-identical
+ *   regression behaviour with pre-Phase-6 callers).
  * @returns IntentContractor that never throws for classification failures.
  */
 export function createIntentContractor(deps: {
@@ -153,6 +195,35 @@ export function createIntentContractor(deps: {
   readonly agentDir?: string;
   readonly adapterRegistry?: IntentContractorAdapterRegistry;
   readonly onDebugEvent?: (event: IntentContractorDebugEvent) => void;
+  /**
+   * Slice-E Phase-6 additive: optional memory store used to recall
+   * top-K semantic memories keyed on `identityId` and the raw prompt.
+   * Omitting this seam (or omitting `identityId`) disables the recall
+   * hook entirely — behaviour is byte-identical to pre-Phase-6.
+   */
+  readonly memoryStore?: MemoryStore;
+  /**
+   * Slice-E Phase-6 additive: resolved operator identity for the
+   * current turn. When undefined, the recall hook is a no-op (per
+   * sub-plan §5 — anonymous sessions do NOT leak memory across
+   * operators). Resolved upstream via
+   * `src/platform/identity/resolve-identity.ts`.
+   */
+  readonly identityId?: IdentityId;
+  /**
+   * Slice-E Phase-6 additive: structural logger used to surface
+   * `memory_recall_failed` warnings without coupling to a specific
+   * production logger (invariant #15 — recall failure is observability,
+   * not a hard fault).
+   */
+  readonly logger?: IntentContractorLogger;
+  /**
+   * Slice-E Phase-6 additive: override the default top-K cap for
+   * memory recall. Defaults to
+   * `DEFAULT_INTENT_CONTRACTOR_MEMORY_RECALL_LIMIT` (5) per sub-plan
+   * §0/§5.
+   */
+  readonly memoryRecallLimit?: number;
 }): IntentContractor {
   return {
     async classify(prompt: string): Promise<SemanticIntent> {
@@ -176,9 +247,25 @@ export function createIntentContractor(deps: {
         });
         return lowConfidenceIntent("unknown_backend");
       }
+
+      // Slice-E Phase-6: top-K memory recall before adapter dispatch.
+      // The recall query uses raw user text — this is exactly what
+      // invariant #6 sanctions at this site (the contractor is the
+      // only sanctioned reader of `RawUserTurn` / `UserPrompt`).
+      // Recall failure NEVER throws into the contractor flow per
+      // invariant #15 — it degrades to no block + warn + uncertainty tag.
+      const recall = await maybeRecallMemory({
+        memoryStore: deps.memoryStore,
+        identityId: deps.identityId,
+        prompt,
+        limit: deps.memoryRecallLimit ?? DEFAULT_INTENT_CONTRACTOR_MEMORY_RECALL_LIMIT,
+        logger: deps.logger,
+      });
+      const promptForAdapter = recall.block ? `${recall.block}${prompt}` : prompt;
+
       try {
         const raw = await adapter.classify({
-          prompt,
+          prompt: promptForAdapter,
           fileNames: deps.fileNames ?? [],
           ...(deps.ledgerContext ? { ledgerContext: deps.ledgerContext } : {}),
           config,
@@ -199,7 +286,7 @@ export function createIntentContractor(deps: {
             message: `normalize_forced_low_confidence reason=${introduced ?? "unknown"} rawConfidence=${raw.confidence.toFixed(2)} rawFamily=${String(raw.desiredEffectFamily)}`,
           });
         }
-        return normalized;
+        return appendRecallFailureTag(normalized, recall.failed);
       } catch (error) {
         const reason = isAbortError(error) ? "llm_timeout" : "llm_error";
         emitDebugEvent(deps.onDebugEvent, {
@@ -208,9 +295,89 @@ export function createIntentContractor(deps: {
           configuredModel: config.model,
           message: error instanceof Error ? error.message : String(error),
         });
-        return lowConfidenceIntent(reason);
+        return appendRecallFailureTag(lowConfidenceIntent(reason), recall.failed);
       }
     },
+  };
+}
+
+type MemoryRecallOutcome = {
+  readonly block: string | null;
+  readonly failed: boolean;
+};
+
+/**
+ * Slice-E Phase-6 helper. Performs the optional memory recall and
+ * returns either a `<memory>{JSON}</memory>` block (non-empty result)
+ * or `null` (no store, no identity, empty result, or recall failure).
+ * Recall errors are caught and surfaced via the injected logger plus
+ * the `failed` flag — they do NOT throw into the contractor.
+ *
+ * Block shape mirrors `<web_evidence>` (closed-shape JSON, never raw
+ * user text — invariant #5 safe):
+ *   `<memory>{"entries":[{ id, content, score, metadata }, ...]}</memory>`
+ */
+async function maybeRecallMemory(params: {
+  readonly memoryStore?: MemoryStore;
+  readonly identityId?: IdentityId;
+  readonly prompt: string;
+  readonly limit: number;
+  readonly logger?: IntentContractorLogger;
+}): Promise<MemoryRecallOutcome> {
+  if (!params.memoryStore || !params.identityId) {
+    // Anonymous session OR no memoryStore wired — recall is a clean no-op.
+    return { block: null, failed: false };
+  }
+  try {
+    const result = await params.memoryStore.recall({
+      identityId: params.identityId,
+      query: params.prompt,
+      limit: params.limit,
+    });
+    if (result.entries.length === 0) {
+      // Empty result must NOT inject a block — zero whitespace pollution.
+      return { block: null, failed: false };
+    }
+    return { block: buildMemoryBlock(result.entries), failed: false };
+  } catch (error) {
+    params.logger?.warn(MEMORY_RECALL_FAILED_UNCERTAINTY, {
+      identityId: String(params.identityId),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { block: null, failed: true };
+  }
+}
+
+/**
+ * Closed-shape JSON encoding of recalled entries. Mirrors the
+ * `<web_evidence>` pattern; the wrapper tags are static literals so
+ * the downstream LLM can parse them cheaply. Per invariant #5 the
+ * inner payload is structured JSON, NOT raw user text.
+ */
+function buildMemoryBlock(entries: readonly SemanticMemoryEntry[]): string {
+  const payload = {
+    entries: entries.map((entry) => ({
+      id: String(entry.id),
+      content: entry.content,
+      score: entry.score,
+      metadata: entry.metadata,
+    })),
+  };
+  return `<memory>${JSON.stringify(payload)}</memory>`;
+}
+
+/**
+ * Appends the `memory_recall_failed` uncertainty tag to a normalised
+ * intent if the recall step rejected. The tag is observability-only
+ * (the intent itself stays valid and confidence is unchanged), per
+ * sub-plan §5 Phase 6 + invariant #15.
+ */
+function appendRecallFailureTag(intent: SemanticIntent, failed: boolean): SemanticIntent {
+  if (!failed) return intent;
+  if (intent.uncertainty.includes(MEMORY_RECALL_FAILED_UNCERTAINTY)) return intent;
+  return {
+    ...intent,
+    uncertainty: [...intent.uncertainty, MEMORY_RECALL_FAILED_UNCERTAINTY],
   };
 }
 
