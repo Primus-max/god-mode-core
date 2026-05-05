@@ -34,7 +34,7 @@ describe("outbound-sanitizer / EXTERNAL_DELIVERY_SURFACES", () => {
 });
 
 describe("outbound-sanitizer / pattern coverage", () => {
-  it("ships exactly the 16 curated patternIds (10 Bug E + 6 Bug A universal tool-call)", () => {
+  it("ships exactly the 23 curated patternIds (10 Bug E + 6 Bug A universal tool-call + 7 Slice I english_meta_*)", () => {
     expect([...__OUTBOUND_LEAK_PATTERN_IDS_FOR_TESTS].sort()).toEqual(
       [
         "tool_error_marker",
@@ -53,6 +53,17 @@ describe("outbound-sanitizer / pattern coverage", () => {
         "universal_tool_call_json_envelope",
         "universal_tool_call_orphan_open",
         "universal_tool_call_orphan_close",
+        // Slice I Phase 3 — sub-plan
+        // `commitment_kernel_reply_sanitizer.plan.md` todo
+        // `i-phase-3-meta-text-pattern-family`. Curated leading-imperative
+        // English meta-thinking, line-anchored + code-region-aware.
+        "english_meta_let_me",
+        "english_meta_ill",
+        "english_meta_i_should",
+        "english_meta_first_ill",
+        "english_meta_lets",
+        "english_meta_looking_at",
+        "english_meta_checking",
       ].sort(),
     );
   });
