@@ -50,6 +50,10 @@ import {
   isExternalDeliverySurface,
   sanitizeOutboundForExternalChannel,
 } from "./outbound-sanitizer.js";
+import {
+  isReplySanitizerSurface,
+  resolveReplySanitizerPolicy,
+} from "./reply-sanitizer-policy.js";
 import { isPlainTextSurface, sanitizeForPlainText } from "./sanitize-text.js";
 import { resolveOutboundSendDep, type OutboundSendDeps } from "./send-deps.js";
 import type { OutboundSessionContext } from "./session-context.js";
@@ -401,9 +405,19 @@ function normalizePayloadsForChannelDelivery(
     // ПОСЛЕ HTML strip — обе sanitizations работают последовательно.
     // См. `outbound-sanitizer.ts` + sub-plan
     // `.cursor/plans/commitment_kernel_outbound_sanitizer.plan.md`.
-    if (isExternal && sanitizedPayload.text) {
+    //
+    // Slice I Phase 5: gate расширен с `isExternalDeliverySurface` на
+    // `isReplySanitizerSurface` чтобы webchat (`INTERNAL_MESSAGE_CHANNEL`) тоже
+    // получал policy-aware sanitizer call (structured wrap для reasoning-leak
+    // lines). Webchat сегодня НЕ маршрутизируется через
+    // `deliverOutboundPayloads` (не `DeliverableMessageChannel`), но gate
+    // расширяется заранее на случай future-routing — defense-in-depth.
+    // `resolveReplySanitizerPolicy(channel)` возвращает per-channel policy
+    // (telegram/etc → strip, webchat → structured, slack/discord → deferred).
+    if (isReplySanitizerSurface(channel) && sanitizedPayload.text) {
       const beforeText = sanitizedPayload.text;
-      const sanitizationResult = sanitizeOutboundForExternalChannel(beforeText);
+      const policy = resolveReplySanitizerPolicy(channel);
+      const sanitizationResult = sanitizeOutboundForExternalChannel(beforeText, policy);
       if (sanitizationResult.stripped.length > 0) {
         const finalText = sanitizationResult.text || EMPTY_AFTER_SANITIZATION_FALLBACK_TEXT;
         sanitizedPayload = { ...sanitizedPayload, text: finalText };

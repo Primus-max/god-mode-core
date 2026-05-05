@@ -47,6 +47,7 @@
  * wrap) приходит в Phase 5 вместе с policy-aware call signature.
  */
 import { findCodeRegions, isInsideCode } from "../../shared/text/code-regions.js";
+import type { ReplySanitizerPolicy } from "./reply-sanitizer-policy.js";
 
 const EXTERNAL_DELIVERY_SURFACE_LIST = [
   "telegram",
@@ -279,21 +280,53 @@ export type OutboundSanitizerResult = {
   readonly stripped: readonly OutboundSanitizerStripEvent[];
 };
 
+const DEFAULT_STRIP_POLICY: ReplySanitizerPolicy = Object.freeze({ reasoning: "strip" });
+
+/**
+ * Escapes `<` / `>` / `&` for placement inside a `<thinking lang="en">…</thinking>`
+ * wrap so the wrap stays a single well-formed element even when the leak line
+ * itself contains angle brackets (e.g. `Let me check <important> bounds`).
+ *
+ * Order matters: `&` first so a literal `&` in input does not get re-encoded by
+ * the subsequent `<`/`>` substitutions producing `&amp;lt;` etc.
+ */
+function escapeForThinkingWrap(content: string): string {
+  return content
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;");
+}
+
 /**
  * Применяет curated leak-patterns к outbound payload-text. Вызывается ТОЛЬКО
- * для каналов из `EXTERNAL_DELIVERY_SURFACES` (caller проверяет).
+ * для каналов из `REPLY_SANITIZER_SURFACES` (caller проверяет через
+ * `isReplySanitizerSurface(channel)`).
  *
  * Алгоритм:
  * 1. Для каждого pattern: replaceAll match на kind=strip ('') либо kind=replace.with.
+ *    Slice I Phase 5: если `policy.reasoning === "structured"` И pattern.id
+ *    начинается с `english_meta_`, match не вырезается, а оборачивается в
+ *    `<thinking lang="en">…</thinking>` (escaped content) — для UI-aware
+ *    адаптеров (today: webchat). Existing 16 patterns остаются strip/replace
+ *    под все policy values — они НЕ reasoning leaks, а raw diagnostics.
+ *    `policy.reasoning === "deferred"` ведёт себя как `"strip"` для inline
+ *    payload (slack/discord адаптеры могут позже opt-in в sidebar без
+ *    re-touching этого модуля).
  * 2. После всех patterns — collapse 3+ blank lines в 2 (стрипнутые line-markers
  *    оставляют пустые строки).
  * 3. Trim trailing whitespace но НЕ leading: leading может быть значимым
  *    (markdown / code blocks).
  *
  * @param text - raw payload text (после `sanitizeForPlainText` если применимо)
- * @returns обработанный text + audit-trail strip-events
+ * @param policy - per-channel structural policy. Default = `{ reasoning: "strip" }`
+ *   so existing call sites без policy продолжают работать byte-identical.
+ * @returns обработанный text + audit-trail strip-events (события фиксируются
+ *   и для wrap-режима — telemetry preserved).
  */
-export function sanitizeOutboundForExternalChannel(text: string): OutboundSanitizerResult {
+export function sanitizeOutboundForExternalChannel(
+  text: string,
+  policy: ReplySanitizerPolicy = DEFAULT_STRIP_POLICY,
+): OutboundSanitizerResult {
   if (!text) {
     return { text, stripped: [] };
   }
@@ -308,6 +341,8 @@ export function sanitizeOutboundForExternalChannel(text: string): OutboundSaniti
     // (linear по text, no regex re-engine на каждый match), и корректность
     // выше микро-оптимизации.
     const regions = codeRegionAware ? findCodeRegions(working) : null;
+    const useStructuredWrap =
+      policy.reasoning === "structured" && id.startsWith("english_meta_");
     const replaced = working.replace(pattern, (match: string, ...args: unknown[]) => {
       // String.prototype.replace передаёт offset как второй-с-конца аргумент
       // (последний — full string). Извлекаем robust'но через `args` чтобы не
@@ -319,6 +354,9 @@ export function sanitizeOutboundForExternalChannel(text: string): OutboundSaniti
         return match;
       }
       matchCount += 1;
+      if (useStructuredWrap) {
+        return `<thinking lang="en">${escapeForThinkingWrap(match)}</thinking>`;
+      }
       return replacement.kind === "strip" ? "" : replacement.with;
     });
     if (matchCount > 0) {
