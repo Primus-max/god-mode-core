@@ -33,7 +33,20 @@
  * - #11: 5 frozen decision contracts не тронуты.
  *
  * Sub-plan: `.cursor/plans/commitment_kernel_outbound_sanitizer.plan.md`.
+ *
+ * Slice I Phase 3 (sub-plan
+ * `.cursor/plans/commitment_kernel_reply_sanitizer.plan.md` todo
+ * `i-phase-3-meta-text-pattern-family`): добавляет curated `english_meta_*`
+ * pattern family — line-anchored regex'ы на leading-imperative English
+ * meta-thinking верхнего предложения assistant-ответа. Каждый такой pattern
+ * помечен `codeRegionAware: true` и ВСЕГДА уходит мимо matches, попадающих
+ * внутрь fenced code blocks (` ``` ` / ` ~~~ `) или inline code spans
+ * (` `code` `) — это исключает false-positive на копи-паст из доков либо
+ * code-snippet с teaching-tone текстом. Phase 3 ограничивается
+ * `kind="strip"` поведением; `policy.reasoning === "structured"` (webchat
+ * wrap) приходит в Phase 5 вместе с policy-aware call signature.
  */
+import { findCodeRegions, isInsideCode } from "../../shared/text/code-regions.js";
 
 const EXTERNAL_DELIVERY_SURFACE_LIST = [
   "telegram",
@@ -79,6 +92,15 @@ type LeakPattern = {
   readonly id: string;
   readonly pattern: RegExp;
   readonly replacement: LeakReplacement;
+  /**
+   * Если true — matches попадающие внутрь fenced ` ``` ` / ` ~~~ ` блоков либо
+   * inline `code` span'ов будут пропущены (НЕ заменены). Защищает от false-
+   * positive на teaching-snippets / copy-paste из docs / code-region текста.
+   * Используется `english_meta_*` family (Slice I Phase 3); existing 16 patterns
+   * остаются НЕ code-region-aware, чтобы byte-identical совпадать с pre-Phase-3
+   * поведением.
+   */
+  readonly codeRegionAware?: boolean;
 };
 
 /**
@@ -186,6 +208,63 @@ const OUTBOUND_LEAK_PATTERNS: readonly LeakPattern[] = [
     pattern: /<\/(?:tool_call|tool_use|function_call)\s*>/giu,
     replacement: { kind: "strip" },
   },
+  // ---------------------------------------------------------------------------
+  // Slice I Phase 3 — `english_meta_*` family. Line-anchored, code-region-aware.
+  //
+  // Каждый pattern целит на leading-imperative English meta-thinking sentence
+  // (B5 evidence: 2026-05-04 Telegram, «Let me check memory for any context
+  // about Vladimir's preferences»). Regex consume'ит до конца строки
+  // (`[^\n]*$`), чтобы strip убирал ПОЛНОЕ предложение, а не только prefix.
+  //
+  // Verb whitelist (check|look|search|verify|see) и аналоги curated по
+  // evidence — добавление новых требует gateway-log entry в signoff request
+  // (per sub-plan §6.2). False-positive на mid-paragraph leak-prefix исключён
+  // line-anchor'ом `^\s*…`; false-positive на code-snippet с teaching tone —
+  // флагом `codeRegionAware: true` (см. `findCodeRegions` в
+  // `src/shared/text/code-regions.ts`).
+  // ---------------------------------------------------------------------------
+  {
+    id: "english_meta_let_me",
+    pattern: /^\s*Let me\s+(?:check|look|search|verify|see)\b[^\n]*$/gmu,
+    replacement: { kind: "strip" },
+    codeRegionAware: true,
+  },
+  {
+    id: "english_meta_ill",
+    pattern: /^\s*I'?ll\s+(?:check|look|search|verify|see)\b[^\n]*$/gmu,
+    replacement: { kind: "strip" },
+    codeRegionAware: true,
+  },
+  {
+    id: "english_meta_i_should",
+    pattern: /^\s*I should\s+\w+[^\n]*$/gmu,
+    replacement: { kind: "strip" },
+    codeRegionAware: true,
+  },
+  {
+    id: "english_meta_first_ill",
+    pattern: /^\s*First,?\s+I'?ll\b[^\n]*$/gmu,
+    replacement: { kind: "strip" },
+    codeRegionAware: true,
+  },
+  {
+    id: "english_meta_lets",
+    pattern: /^\s*Let'?s\s+(?:check|look|verify|see)\b[^\n]*$/gmu,
+    replacement: { kind: "strip" },
+    codeRegionAware: true,
+  },
+  {
+    id: "english_meta_looking_at",
+    pattern: /^\s*Looking at\s+\w+[^\n]*$/gmu,
+    replacement: { kind: "strip" },
+    codeRegionAware: true,
+  },
+  {
+    id: "english_meta_checking",
+    pattern: /^\s*Checking\s+(?:memory|context|the|for)\b[^\n]*$/gmu,
+    replacement: { kind: "strip" },
+    codeRegionAware: true,
+  },
 ] as const;
 
 export type OutboundSanitizerStripEvent = {
@@ -222,9 +301,23 @@ export function sanitizeOutboundForExternalChannel(text: string): OutboundSaniti
   let working = text;
   const events: OutboundSanitizerStripEvent[] = [];
 
-  for (const { id, pattern, replacement } of OUTBOUND_LEAK_PATTERNS) {
+  for (const { id, pattern, replacement, codeRegionAware } of OUTBOUND_LEAK_PATTERNS) {
     let matchCount = 0;
-    const replaced = working.replace(pattern, () => {
+    // Code-region awareness (Slice I Phase 3): re-compute regions per pattern
+    // because preceding patterns могут сократить text. Это дешёвый scan
+    // (linear по text, no regex re-engine на каждый match), и корректность
+    // выше микро-оптимизации.
+    const regions = codeRegionAware ? findCodeRegions(working) : null;
+    const replaced = working.replace(pattern, (match: string, ...args: unknown[]) => {
+      // String.prototype.replace передаёт offset как второй-с-конца аргумент
+      // (последний — full string). Извлекаем robust'но через `args` чтобы не
+      // зависеть от capture-group count в каждом regex.
+      const offset = typeof args[args.length - 2] === "number"
+        ? (args[args.length - 2] as number)
+        : 0;
+      if (regions && isInsideCode(offset, regions)) {
+        return match;
+      }
       matchCount += 1;
       return replacement.kind === "strip" ? "" : replacement.with;
     });
