@@ -322,7 +322,10 @@ export const registerTelegramHandlers = ({
     });
     const threadKeys =
       dmThreadId != null
-        ? resolveThreadSessionKeys({ baseSessionKey, threadId: `${params.chatId}:${dmThreadId}` })
+        ? resolveThreadSessionKeys({
+            baseSessionKey,
+            threadId: `${String(params.chatId)}:${dmThreadId}`,
+          })
         : null;
     const sessionKey = threadKeys?.sessionKey ?? baseSessionKey;
     const storePath = telegramDeps.resolveStorePath(runtimeCfg.session?.store, {
