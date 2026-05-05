@@ -4,7 +4,7 @@ overview: "Persistent cross-session memory keyed by `IdentityId` (slice D). Epis
 todos:
   - id: e-phase-1-memory-store-interface-and-types
     content: "Phase 1 — `MemoryStore` interface + types in new module `src/platform/memory/`. Pure API: `MemoryEntryId` brand, `EpisodicMemoryEvent` (discriminated union per effect family), `SemanticMemoryQuery`, `MemoryRecallResult`, `MemoryStore { storeEpisodic, storeSemantic, recall, list, forget }`. Keys on `IdentityId`. No impl yet — types + Zod schemas + zero-arg test fixtures only. Tests: schema round-trip, brand discipline (`MemoryEntryId` distinct from `IdentityId`/`SessionId`/`EffectId`), discriminated-union exhaustiveness compile-check."
-    status: pending
+    status: completed
   - id: e-phase-2-in-memory-impl-and-acceptance-stub
     content: "Phase 2 — `InMemoryMemoryStore` impl (Map-backed, no I/O) so callers can integrate before persistent backend lands. Lives in `src/platform/memory/in-memory-store.ts`. Tests: round-trip episodic store→list, round-trip semantic store→recall (synthetic exact-match scoring), `forget` removes entry, isolation across IdentityIds, `recall` returns empty (NOT throw) when nothing matches, `list` is paginated stable-ordered."
     status: pending
@@ -159,6 +159,26 @@ Per-phase specifics:
 - Existing `extensions/memory-lancedb` and `extensions/memory-core` are RELATED but NOT what slice E delivers — they are workspace-memory-tool plugins, not commitment-kernel-keyed cross-session operator memory. Coexistence is intentional; v2 may consolidate.
 - Predecessor slice D landed on `dev` (per `commitment_kernel_channel_agnostic_persistence.plan.md`); `IdentityId`, `IdentityRegistry`, `resolveIdentityFromSessionKey` are available.
 - Branch: `feat/v1-slice-e-memory-store-interface` (Phase 1).
+
+### 2026-05-05 — Phase 1 landed (PR #154)
+
+- Phase 1 `e-phase-1-memory-store-interface-and-types` shipped.
+- PR: https://github.com/Primus-max/god-mode-core/pull/154
+- Squash-merge SHA on `dev`: `f13d771e571ca4548b45b2baf809663c16673980`.
+- Files added (all new, none modified):
+  - `src/platform/memory/memory-entry-id.ts` — `MemoryEntryId` brand + `asMemoryEntryId` / `isMemoryEntryId`.
+  - `src/platform/memory/episodic-memory-event.ts` — `EpisodicEffectFamily`, `EpisodicMemoryEvent` discriminated union, per-payload types + Zod schemas, `assertNeverEpisodic` exhaustiveness helper.
+  - `src/platform/memory/semantic-memory.ts` — `SemanticMemoryWrite` / `SemanticMemoryQuery` / `SemanticMemoryEntry` / `MemoryRecallResult` / `SemanticMemoryMetadata` types + Zod schemas (scalar-only metadata).
+  - `src/platform/memory/memory-store.ts` — `MemoryStore` interface (`storeEpisodic`, `storeSemantic`, `recall`, `list`, `forget`), `MemoryListQuery`, `MemoryListResult`, `EpisodicMemoryListing`.
+  - `src/platform/memory/index.ts` — barrel.
+  - Tests: `memory-entry-id.test.ts`, `episodic-memory-event.test.ts`, `semantic-memory.test.ts`, `memory-store.contract.test.ts` — **70 cases, 70 passing** locally on this dev box (`pnpm vitest run src/platform/memory --config vitest.unit.config.ts`).
+- Invariant audit:
+  - **#5 / #6**: API takes structured `SemanticMemoryQuery` / `EpisodicMemoryEvent`; never `RawUserTurn` / `UserPrompt`.
+  - **#8**: Module imports only `src/platform/identity/`, Zod, stdlib. The contract test imports `type SessionId / EffectId / EffectFamilyId` from `src/platform/commitment/ids.ts` for compile-time non-assignability only — no runtime / value imports, no modification.
+  - **#11**: 5 frozen contracts untouched.
+  - **#16**: `MemoryEntryId` brand-tested non-assignable from `string`, `IdentityId`, `SessionId`, `EffectId`, `EffectFamilyId` via `// @ts-expect-error` lines in `memory-store.contract.test.ts` + `memory-entry-id.test.ts`.
+- Auto-merge note: PR was squash-merged via `gh pr merge --admin --squash` per Vladimir's standing delegation ("НЕ ЖДИ ОТ МЕНЯ РЕВЬЮ на пр, сам делай"). CI checks were stuck pending in the queue (~25 min, runner backlog environmental, not code-related); local `pnpm tsgo` and the scoped vitest suite both passed before merge.
+- Phase 2 unblocked: `e-phase-2-in-memory-impl-and-acceptance-stub` can consume the interface in `src/platform/memory/in-memory-store.ts`.
 
 ## 8. Adjacent / deferred (out of scope)
 
