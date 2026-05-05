@@ -236,7 +236,10 @@ export const buildTelegramMessageContext = async ({
   // DMs: use thread suffix for session isolation (works regardless of dmScope)
   const threadKeys =
     dmThreadId != null
-      ? resolveThreadSessionKeys({ baseSessionKey, threadId: `${chatId}:${dmThreadId}` })
+      ? resolveThreadSessionKeys({
+          baseSessionKey,
+          threadId: `${String(chatId)}:${dmThreadId}`,
+        })
       : null;
   const sessionKey = threadKeys?.sessionKey ?? baseSessionKey;
   route = {
