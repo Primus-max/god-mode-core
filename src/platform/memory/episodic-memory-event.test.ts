@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { asIdentityId } from "../identity/identity-id.js";
+import { asTaskId } from "../task/task-id.js";
 
 import {
   ArtifactCreatedPayloadSchema,
@@ -101,7 +102,7 @@ describe("EpisodicMemoryEventSchema — stub variants typed but parseable", () =
       effectId: "task-effect-created",
       payload: {
         kind: "created",
-        taskId: "task:0001",
+        taskId: asTaskId("task:0001"),
         ownerIdentityId: VLADIMIR,
         label: "Draft retrospective",
         occurredAt: VALID_ISO,
@@ -122,7 +123,7 @@ describe("EpisodicMemoryEventSchema — stub variants typed but parseable", () =
       effectId: "task-effect-completed",
       payload: {
         kind: "completed",
-        taskId: "task:0001",
+        taskId: asTaskId("task:0001"),
         ownerIdentityId: VLADIMIR,
         result: "Posted retrospective to #eng-leads",
         occurredAt: VALID_ISO,
@@ -142,7 +143,7 @@ describe("EpisodicMemoryEventSchema — stub variants typed but parseable", () =
       effectId: "task-effect-cancelled",
       payload: {
         kind: "cancelled",
-        taskId: "task:0001",
+        taskId: asTaskId("task:0001"),
         ownerIdentityId: VLADIMIR,
         occurredAt: VALID_ISO,
       },
@@ -161,7 +162,7 @@ describe("EpisodicMemoryEventSchema — stub variants typed but parseable", () =
       effectId: "task-effect-failed",
       payload: {
         kind: "failed",
-        taskId: "task:0001",
+        taskId: asTaskId("task:0001"),
         ownerIdentityId: VLADIMIR,
         result: "Upstream API timed out",
         occurredAt: VALID_ISO,
@@ -182,7 +183,7 @@ describe("EpisodicMemoryEventSchema — stub variants typed but parseable", () =
         effectId: "e",
         payload: {
           kind: "snoozed",
-          taskId: "task:0001",
+          taskId: asTaskId("task:0001"),
           ownerIdentityId: VLADIMIR,
           occurredAt: VALID_ISO,
         },
@@ -389,7 +390,7 @@ describe("Per-payload schemas — direct round-trip", () => {
     expect(() =>
       TaskCreatedPayloadSchema.parse({
         kind: "created",
-        taskId: "task:0001",
+        taskId: asTaskId("task:0001"),
         ownerIdentityId: VLADIMIR,
         // label missing
         occurredAt: VALID_ISO,
@@ -398,7 +399,7 @@ describe("Per-payload schemas — direct round-trip", () => {
     expect(() =>
       TaskCompletedPayloadSchema.parse({
         kind: "completed",
-        taskId: "task:0001",
+        taskId: asTaskId("task:0001"),
         // ownerIdentityId missing
         occurredAt: VALID_ISO,
       }),
@@ -414,7 +415,7 @@ describe("Per-payload schemas — direct round-trip", () => {
     expect(() =>
       TaskFailedPayloadSchema.parse({
         kind: "failed",
-        taskId: "task:0001",
+        taskId: asTaskId("task:0001"),
         ownerIdentityId: VLADIMIR,
         // occurredAt missing
       }),
@@ -425,7 +426,7 @@ describe("Per-payload schemas — direct round-trip", () => {
     expect(() =>
       TaskCreatedPayloadSchema.parse({
         kind: "completed",
-        taskId: "task:0001",
+        taskId: asTaskId("task:0001"),
         ownerIdentityId: VLADIMIR,
         label: "x",
         occurredAt: VALID_ISO,
@@ -489,7 +490,7 @@ describe("EpisodicMemoryEvent — discriminated-union exhaustiveness compile-che
       effectId: "e",
       payload: {
         kind: "created",
-        taskId: "task:0001",
+        taskId: asTaskId("task:0001"),
         ownerIdentityId: VLADIMIR,
         label: "x",
         occurredAt: VALID_ISO,

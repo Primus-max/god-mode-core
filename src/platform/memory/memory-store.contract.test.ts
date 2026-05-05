@@ -6,6 +6,7 @@ import {
   type SessionId,
 } from "../commitment/ids.js";
 import { asIdentityId, type IdentityId } from "../identity/identity-id.js";
+import { asTaskId } from "../task/task-id.js";
 
 import { assertNeverEpisodic, type EpisodicMemoryEvent } from "./episodic-memory-event.js";
 import { asMemoryEntryId, type MemoryEntryId } from "./memory-entry-id.js";
@@ -171,7 +172,7 @@ describe("EpisodicMemoryEvent — exhaustiveness compile-check", () => {
         effectId: "e",
         payload: {
           kind: "created",
-          taskId: "task:0001",
+          taskId: asTaskId("task:0001"),
           ownerIdentityId: VLADIMIR,
           label: "x",
           occurredAt: VALID_ISO,

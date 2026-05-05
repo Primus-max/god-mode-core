@@ -139,17 +139,22 @@ describe("TaskLedger.update / complete / cancel — return-shape carries `not_fo
   });
 });
 
-describe("TaskLedger.create — accepts ONLY a TaskCreateInput at the type level", () => {
-  it("rejects a TaskRecord passed where a TaskCreateInput is required (record carries id/status/timestamps)", () => {
-    // @ts-expect-error - TaskRecord is not assignable to TaskCreateInput (extra required fields)
-    void stub.create(VALID_RECORD);
-    expect(typeof stub.create).toBe("function");
-  });
-
-  it("accepts a TaskCreateInput — the only valid input", async () => {
-    // No @ts-expect-error — this MUST type-check and resolve.
+describe("TaskLedger.create — accepts a TaskCreateInput", () => {
+  // Structural typing: a `TaskRecord` is technically assignable to
+  // `TaskCreateInput` because excess fields are allowed in non-literal
+  // positions. The runtime guard is `TaskCreateInputSchema.parse(...)`
+  // which is `.strict()` and rejects unknown keys (covered in
+  // `task-record.test.ts`). At the interface level here we only assert
+  // that the happy path type-checks and resolves.
+  it("accepts a TaskCreateInput — the happy-path call type-checks", async () => {
     const result = await stub.create(VALID_CREATE);
     expect(result.id).toBe(TASK_ID);
+  });
+
+  it("rejects a raw string passed where a TaskCreateInput is required", () => {
+    // @ts-expect-error - TaskCreateInput is a structured object, not a string
+    void stub.create("just a label");
+    expect(typeof stub.create).toBe("function");
   });
 });
 
@@ -197,5 +202,3 @@ describe("TaskLedger — runtime smoke (no impl wired)", () => {
 // (The `commitment/ids` import here is for brand-discipline reverse-tests
 // only — `SessionId` / `EffectId` / `EffectFamilyId` are TYPE imports;
 // no runtime values from `commitment/` are touched.)
-declare const _structuralBoundaryProbe: TaskLedger;
-void _structuralBoundaryProbe;

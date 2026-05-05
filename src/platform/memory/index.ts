@@ -20,6 +20,11 @@ export {
   PersistentSessionCreatedPayloadSchema,
   ReminderSetPayloadSchema,
   SubagentCreatedPayloadSchema,
+  TaskCancelledPayloadSchema,
+  TaskCompletedPayloadSchema,
+  TaskCreatedPayloadSchema,
+  TaskFailedPayloadSchema,
+  TaskLifecyclePayloadSchema,
   assertNeverEpisodic,
   type ArtifactCreatedPayload,
   type EpisodicEffectFamily,
@@ -27,6 +32,11 @@ export {
   type PersistentSessionCreatedPayload,
   type ReminderSetPayload,
   type SubagentCreatedPayload,
+  type TaskCancelledPayload,
+  type TaskCompletedPayload,
+  type TaskCreatedPayload,
+  type TaskFailedPayload,
+  type TaskLifecyclePayload,
 } from "./episodic-memory-event.js";
 
 export {

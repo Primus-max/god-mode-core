@@ -1,27 +1,39 @@
 import { z } from "zod";
 
 import { asIdentityId, isIdentityId, type IdentityId } from "../identity/identity-id.js";
+import { asTaskId, isTaskId, type TaskId } from "../task/task-id.js";
 
 /**
  * Effect-family discriminator for episodic memory events.
  *
- * Slice E (this slice) ships only `persistent_session.created` as a
- * payload-bearing event. The other three variants — `subagent.created`,
- * `reminder.set`, `artifact.created` — are typed but inert: their
- * payload shapes are defined here so consumers (slices F / G / J / K)
- * can wire them by adding emit sites WITHOUT modifying this discriminated
- * union. Until those slices land, no production code path emits them.
+ * Slice E ships only `persistent_session.created` as a
+ * payload-bearing event. The other variants — `subagent.created`,
+ * `reminder.set`, `artifact.created`, and (slice F Phase 2) `task.*`
+ * — are typed but inert: their payload shapes are defined here so
+ * consumers (slices F / G / J / K) can wire them by adding emit
+ * sites WITHOUT modifying this discriminated union. Until those
+ * slices light their own emit sites, no production code path emits
+ * them.
  *
- * Adding a new variant later is a discriminated-union extension, NOT a
- * breaking change for existing consumers; the exhaustiveness compile
- * check (`memory-store.contract.test.ts`) guarantees `recall` /
- * `storeEpisodic` callers cover every case.
+ * Adding a new variant later is a discriminated-union extension,
+ * NOT a breaking change for existing consumers; the exhaustiveness
+ * compile check (`memory-store.contract.test.ts`) guarantees
+ * `recall` / `storeEpisodic` callers cover every case.
+ *
+ * Slice F Phase 2 added the `task` variant — typed-but-inert until
+ * slice F Phase 5 wires the `task-write-on-satisfied.ts` hook. The
+ * task variant is multiplexed via a payload-level `kind`
+ * discriminator (`created` / `completed` / `cancelled` / `failed`)
+ * rather than four separate effect families, so the
+ * discriminated-union surface stays compact and slices that filter
+ * on `effectFamily` see one symbol.
  */
 export type EpisodicEffectFamily =
   | "persistent_session"
   | "subagent"
   | "reminder"
-  | "artifact";
+  | "artifact"
+  | "task";
 
 /**
  * `persistent_session.created` — emitted when a commitment-runtime turn
@@ -87,6 +99,79 @@ export type ArtifactCreatedPayload = {
 };
 
 /**
+ * `task.created` — slice F Phase 2. Typed-but-INERT until slice F
+ * Phase 5 wires the `task-write-on-satisfied.ts` hook. Carries the
+ * full identifying triple (`taskId` × `ownerIdentityId` × `occurredAt`)
+ * plus the operator-facing `label`. The `kind: "created"` literal is
+ * the payload-level discriminator that lets the four task-lifecycle
+ * payloads share the single `effectFamily: "task"` slot.
+ */
+export type TaskCreatedPayload = {
+  readonly kind: "created";
+  readonly taskId: TaskId;
+  readonly ownerIdentityId: IdentityId;
+  readonly label: string;
+  readonly occurredAt: string;
+};
+
+/**
+ * `task.completed` — slice F Phase 2. Typed-but-INERT until slice F
+ * Phase 5. Optional `result` carries operator-facing summary text
+ * (e.g. "Posted retrospective to #eng-leads"). The `ownerIdentityId`
+ * is duplicated alongside the event's outer `identityId` because the
+ * payload is the joinable record on the `(identityId × taskId)`
+ * cross-reference between memory and the task ledger; carrying it
+ * inside the payload keeps the JOIN closed even if a future
+ * persistence layer denormalises the outer envelope.
+ */
+export type TaskCompletedPayload = {
+  readonly kind: "completed";
+  readonly taskId: TaskId;
+  readonly ownerIdentityId: IdentityId;
+  readonly result?: string;
+  readonly occurredAt: string;
+};
+
+/**
+ * `task.cancelled` — slice F Phase 2. Typed-but-INERT until slice F
+ * Phase 5. No result field by design: cancellation reasons are
+ * stored on the `TaskRecord.result` row at the ledger boundary, not
+ * smuggled through the episodic stream (the episodic event is the
+ * cross-reference marker, not the source of truth).
+ */
+export type TaskCancelledPayload = {
+  readonly kind: "cancelled";
+  readonly taskId: TaskId;
+  readonly ownerIdentityId: IdentityId;
+  readonly occurredAt: string;
+};
+
+/**
+ * `task.failed` — slice F Phase 2. Typed-but-INERT until slice F
+ * Phase 5. Optional `result` carries the operator-facing failure
+ * summary (e.g. "Upstream API timed out").
+ */
+export type TaskFailedPayload = {
+  readonly kind: "failed";
+  readonly taskId: TaskId;
+  readonly ownerIdentityId: IdentityId;
+  readonly result?: string;
+  readonly occurredAt: string;
+};
+
+/**
+ * Discriminated union of every `task.*` lifecycle payload. Used as
+ * the `payload` slot of the `EpisodicMemoryEvent` task variant —
+ * the outer family is one symbol (`"task"`); the per-status
+ * shape is multiplexed by `payload.kind`.
+ */
+export type TaskLifecyclePayload =
+  | TaskCreatedPayload
+  | TaskCompletedPayload
+  | TaskCancelledPayload
+  | TaskFailedPayload;
+
+/**
  * Episodic memory event — the input shape for `MemoryStore.storeEpisodic`.
  *
  * Discriminated by `effectFamily`. The store is responsible for:
@@ -124,6 +209,12 @@ export type EpisodicMemoryEvent =
       readonly effectFamily: "artifact";
       readonly effectId: string;
       readonly payload: ArtifactCreatedPayload;
+    }
+  | {
+      readonly identityId: IdentityId;
+      readonly effectFamily: "task";
+      readonly effectId: string;
+      readonly payload: TaskLifecyclePayload;
     };
 
 const ISO8601_PATTERN =
@@ -177,6 +268,91 @@ export const ArtifactCreatedPayloadSchema = z.object({
 });
 
 /**
+ * Zod schema for a `TaskId`. Mirrors `IdentityIdSchema` discipline:
+ * validate via the upstream `isTaskId` guard, then re-brand via
+ * `asTaskId`. Use at decode boundaries (e.g. when a persistent
+ * store row carrying a task lifecycle event is read back from JSON).
+ *
+ * Defined here (rather than imported from `../task/task-record.js`)
+ * to keep this file's import surface narrow — only the brand factory
+ * is needed, not the heavier `TaskRecord` schema, and the dependency
+ * direction stays `memory → task-id` only (the task module does NOT
+ * import from memory in Phase 2).
+ */
+const TaskIdSchema = z
+  .string()
+  .refine(isTaskId, {
+    message: "expected a TaskId of the form `task:<slug>`",
+  })
+  .transform((value) => asTaskId(value));
+
+// Internal raw `ZodObject` definitions for the four task-lifecycle
+// payloads. These are NOT annotated with `z.ZodType<...>` because the
+// discriminated-union construction below needs the stricter `ZodObject`
+// shape that carries the discriminant metadata Zod 4 reads. They are
+// kept un-exported; the exported, brand-typed surface is the four
+// `Task*PayloadSchema` constants below them, each annotated as
+// `z.ZodType<T>` to prevent TS4023 (the brand symbols are private).
+const RawTaskCreatedPayload = z.object({
+  kind: z.literal("created"),
+  taskId: TaskIdSchema,
+  ownerIdentityId: IdentityIdSchema,
+  label: NonEmptyString,
+  occurredAt: IsoTimestampSchema,
+});
+
+const RawTaskCompletedPayload = z.object({
+  kind: z.literal("completed"),
+  taskId: TaskIdSchema,
+  ownerIdentityId: IdentityIdSchema,
+  result: NonEmptyString.optional(),
+  occurredAt: IsoTimestampSchema,
+});
+
+const RawTaskCancelledPayload = z.object({
+  kind: z.literal("cancelled"),
+  taskId: TaskIdSchema,
+  ownerIdentityId: IdentityIdSchema,
+  occurredAt: IsoTimestampSchema,
+});
+
+const RawTaskFailedPayload = z.object({
+  kind: z.literal("failed"),
+  taskId: TaskIdSchema,
+  ownerIdentityId: IdentityIdSchema,
+  result: NonEmptyString.optional(),
+  occurredAt: IsoTimestampSchema,
+});
+
+/**
+ * Public, brand-typed schemas for the four task-lifecycle payloads.
+ * Annotated as `z.ZodType<T>` so the emitted `.d.ts` does NOT inline
+ * the private `TaskIdBrand` / `IdentityIdBrand` symbols (TS4023).
+ */
+export const TaskCreatedPayloadSchema: z.ZodType<TaskCreatedPayload> =
+  RawTaskCreatedPayload;
+export const TaskCompletedPayloadSchema: z.ZodType<TaskCompletedPayload> =
+  RawTaskCompletedPayload;
+export const TaskCancelledPayloadSchema: z.ZodType<TaskCancelledPayload> =
+  RawTaskCancelledPayload;
+export const TaskFailedPayloadSchema: z.ZodType<TaskFailedPayload> =
+  RawTaskFailedPayload;
+
+/**
+ * Discriminated union of every task-lifecycle payload. Matches the
+ * `TaskLifecyclePayload` type's payload-level `kind` discriminator
+ * so callers building events via Zod parse get the same compile-time
+ * narrowing they would get if the type were authored directly.
+ */
+export const TaskLifecyclePayloadSchema: z.ZodType<TaskLifecyclePayload> =
+  z.discriminatedUnion("kind", [
+    RawTaskCreatedPayload,
+    RawTaskCompletedPayload,
+    RawTaskCancelledPayload,
+    RawTaskFailedPayload,
+  ]);
+
+/**
  * Zod schema for an `EpisodicMemoryEvent`. Discriminated on
  * `effectFamily`. Use at decode boundaries (e.g. when a persistent
  * store row is read back from JSON) to assert the payload matches its
@@ -212,6 +388,12 @@ export const EpisodicMemoryEventSchema: z.ZodType<EpisodicMemoryEvent> =
       effectFamily: z.literal("artifact"),
       effectId: NonEmptyString,
       payload: ArtifactCreatedPayloadSchema,
+    }),
+    z.object({
+      identityId: IdentityIdSchema,
+      effectFamily: z.literal("task"),
+      effectId: NonEmptyString,
+      payload: TaskLifecyclePayloadSchema,
     }),
   ]);
 
