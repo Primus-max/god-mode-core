@@ -193,6 +193,92 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("<final>...</final>");
   });
 
+  // Slice I Phase 4 — internalReasoningHint advisory section (Anthropic + external channels).
+  // Distinct from `reasoningTagHint` (strict <think>+<final> block for google/minimax).
+  describe("internalReasoningHint advisory section (slice I Phase 4)", () => {
+    const ADVISORY_HINT = [
+      "If you have any internal reasoning, planning, or English meta-thinking like",
+      '"Let me check…" / "I\'ll search…" / "First, I\'ll…", wrap it in',
+      "<thinking>...</thinking> blocks. ONLY user-facing reply text in the user's",
+      "language goes outside <thinking> blocks. The user will not see anything",
+      "inside <thinking>.",
+    ].join("\n");
+
+    it("emits ## Internal Reasoning Format section when internalReasoningHint is provided", () => {
+      const prompt = buildAgentSystemPrompt({
+        workspaceDir: "/tmp/openclaw",
+        internalReasoningHint: ADVISORY_HINT,
+      });
+
+      expect(prompt).toContain("## Internal Reasoning Format");
+      expect(prompt).toContain(ADVISORY_HINT);
+      // Defense-in-depth pairing with Phase 3 post-filter pattern family
+      // (`english_meta_let_me`, `english_meta_ill_check`, `english_meta_first_ill`).
+      expect(prompt).toContain("Let me check");
+      expect(prompt).toContain("I'll search");
+      expect(prompt).toContain("First, I'll");
+    });
+
+    it("omits ## Internal Reasoning Format when internalReasoningHint is undefined", () => {
+      const prompt = buildAgentSystemPrompt({
+        workspaceDir: "/tmp/openclaw",
+      });
+
+      expect(prompt).not.toContain("## Internal Reasoning Format");
+      expect(prompt).not.toContain("wrap it in\n<thinking>");
+    });
+
+    it("omits ## Internal Reasoning Format when internalReasoningHint is an empty string", () => {
+      const prompt = buildAgentSystemPrompt({
+        workspaceDir: "/tmp/openclaw",
+        internalReasoningHint: "",
+      });
+
+      expect(prompt).not.toContain("## Internal Reasoning Format");
+    });
+
+    it("omits ## Internal Reasoning Format when internalReasoningHint is whitespace-only", () => {
+      const prompt = buildAgentSystemPrompt({
+        workspaceDir: "/tmp/openclaw",
+        internalReasoningHint: "   \n  \t  ",
+      });
+
+      expect(prompt).not.toContain("## Internal Reasoning Format");
+    });
+
+    it("emits both ## Reasoning Format (strict) and ## Internal Reasoning Format (advisory) when both flags set", () => {
+      // Defensive: the two are independent — strict path is for google/minimax,
+      // advisory path is for non-tag providers on external surfaces. They must not collide.
+      const prompt = buildAgentSystemPrompt({
+        workspaceDir: "/tmp/openclaw",
+        reasoningTagHint: true,
+        internalReasoningHint: ADVISORY_HINT,
+      });
+
+      expect(prompt).toContain("## Reasoning Format");
+      expect(prompt).toContain("<final>...</final>");
+      expect(prompt).toContain("## Internal Reasoning Format");
+      expect(prompt).toContain(ADVISORY_HINT);
+    });
+
+    it("places ## Internal Reasoning Format after ## Reasoning Format and before # Project Context / ## Silent Replies", () => {
+      const prompt = buildAgentSystemPrompt({
+        workspaceDir: "/tmp/openclaw",
+        reasoningTagHint: true,
+        internalReasoningHint: ADVISORY_HINT,
+      });
+
+      const strictIdx = prompt.indexOf("## Reasoning Format");
+      const advisoryIdx = prompt.indexOf("## Internal Reasoning Format");
+      const silentIdx = prompt.indexOf("## Silent Replies");
+
+      expect(strictIdx).toBeGreaterThan(-1);
+      expect(advisoryIdx).toBeGreaterThan(strictIdx);
+      // Silent Replies is one of the next sections after the reasoning blocks.
+      expect(silentIdx).toBeGreaterThan(advisoryIdx);
+    });
+  });
+
   it("includes a CLI quick reference section", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",
