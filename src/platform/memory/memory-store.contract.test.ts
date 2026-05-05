@@ -126,12 +126,14 @@ describe("EpisodicMemoryEvent — exhaustiveness compile-check", () => {
         return "reminder";
       case "artifact":
         return "artifact";
+      case "task":
+        return "task";
       default:
         return assertNeverEpisodic(event);
     }
   }
 
-  it("describeEvent covers all 4 variants", () => {
+  it("describeEvent covers all 5 variants", () => {
     const VALID_ISO = "2026-05-05T12:34:56.000Z";
     const variants: EpisodicMemoryEvent[] = [
       {
@@ -163,12 +165,25 @@ describe("EpisodicMemoryEvent — exhaustiveness compile-check", () => {
         effectId: "e",
         payload: { artifactId: "a", kind: "image", occurredAt: VALID_ISO },
       },
+      {
+        identityId: VLADIMIR,
+        effectFamily: "task",
+        effectId: "e",
+        payload: {
+          kind: "created",
+          taskId: "task:0001",
+          ownerIdentityId: VLADIMIR,
+          label: "x",
+          occurredAt: VALID_ISO,
+        },
+      },
     ];
     expect(variants.map(describeEvent)).toEqual([
       "session",
       "subagent",
       "reminder",
       "artifact",
+      "task",
     ]);
   });
 });

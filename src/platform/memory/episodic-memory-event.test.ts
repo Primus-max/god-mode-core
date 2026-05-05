@@ -8,6 +8,10 @@ import {
   PersistentSessionCreatedPayloadSchema,
   ReminderSetPayloadSchema,
   SubagentCreatedPayloadSchema,
+  TaskCancelledPayloadSchema,
+  TaskCompletedPayloadSchema,
+  TaskCreatedPayloadSchema,
+  TaskFailedPayloadSchema,
   assertNeverEpisodic,
   type EpisodicMemoryEvent,
 } from "./episodic-memory-event.js";
@@ -85,6 +89,122 @@ describe("EpisodicMemoryEventSchema — stub variants typed but parseable", () =
     };
     const parsed = EpisodicMemoryEventSchema.parse(event);
     expect(parsed.effectFamily).toBe("artifact");
+  });
+
+  // Slice F Phase 2 — additive `task.*` variants. Typed-but-INERT until
+  // slice F Phase 5 wires emit sites; these tests cover the schema shape
+  // only. Existing 4 prior families above remain byte-identical.
+  it("accepts a task.created stub event", () => {
+    const event: EpisodicMemoryEvent = {
+      identityId: VLADIMIR,
+      effectFamily: "task",
+      effectId: "task-effect-created",
+      payload: {
+        kind: "created",
+        taskId: "task:0001",
+        ownerIdentityId: VLADIMIR,
+        label: "Draft retrospective",
+        occurredAt: VALID_ISO,
+      },
+    };
+    const parsed = EpisodicMemoryEventSchema.parse(event);
+    expect(parsed.effectFamily).toBe("task");
+    if (parsed.effectFamily === "task" && parsed.payload.kind === "created") {
+      expect(parsed.payload.taskId).toBe("task:0001");
+      expect(parsed.payload.label).toBe("Draft retrospective");
+    }
+  });
+
+  it("accepts a task.completed stub event with optional result", () => {
+    const event: EpisodicMemoryEvent = {
+      identityId: VLADIMIR,
+      effectFamily: "task",
+      effectId: "task-effect-completed",
+      payload: {
+        kind: "completed",
+        taskId: "task:0001",
+        ownerIdentityId: VLADIMIR,
+        result: "Posted retrospective to #eng-leads",
+        occurredAt: VALID_ISO,
+      },
+    };
+    const parsed = EpisodicMemoryEventSchema.parse(event);
+    expect(parsed.effectFamily).toBe("task");
+    if (parsed.effectFamily === "task" && parsed.payload.kind === "completed") {
+      expect(parsed.payload.result).toBe("Posted retrospective to #eng-leads");
+    }
+  });
+
+  it("accepts a task.cancelled stub event", () => {
+    const event: EpisodicMemoryEvent = {
+      identityId: VLADIMIR,
+      effectFamily: "task",
+      effectId: "task-effect-cancelled",
+      payload: {
+        kind: "cancelled",
+        taskId: "task:0001",
+        ownerIdentityId: VLADIMIR,
+        occurredAt: VALID_ISO,
+      },
+    };
+    const parsed = EpisodicMemoryEventSchema.parse(event);
+    expect(parsed.effectFamily).toBe("task");
+    if (parsed.effectFamily === "task" && parsed.payload.kind === "cancelled") {
+      expect(parsed.payload.taskId).toBe("task:0001");
+    }
+  });
+
+  it("accepts a task.failed stub event with optional result", () => {
+    const event: EpisodicMemoryEvent = {
+      identityId: VLADIMIR,
+      effectFamily: "task",
+      effectId: "task-effect-failed",
+      payload: {
+        kind: "failed",
+        taskId: "task:0001",
+        ownerIdentityId: VLADIMIR,
+        result: "Upstream API timed out",
+        occurredAt: VALID_ISO,
+      },
+    };
+    const parsed = EpisodicMemoryEventSchema.parse(event);
+    expect(parsed.effectFamily).toBe("task");
+    if (parsed.effectFamily === "task" && parsed.payload.kind === "failed") {
+      expect(parsed.payload.result).toBe("Upstream API timed out");
+    }
+  });
+
+  it("rejects a task event with an unknown payload `kind` literal", () => {
+    expect(() =>
+      EpisodicMemoryEventSchema.parse({
+        identityId: VLADIMIR,
+        effectFamily: "task",
+        effectId: "e",
+        payload: {
+          kind: "snoozed",
+          taskId: "task:0001",
+          ownerIdentityId: VLADIMIR,
+          occurredAt: VALID_ISO,
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a task event with a malformed taskId (no `task:` prefix)", () => {
+    expect(() =>
+      EpisodicMemoryEventSchema.parse({
+        identityId: VLADIMIR,
+        effectFamily: "task",
+        effectId: "e",
+        payload: {
+          kind: "created",
+          taskId: "0001",
+          ownerIdentityId: VLADIMIR,
+          label: "x",
+          occurredAt: VALID_ISO,
+        },
+      }),
+    ).toThrow();
   });
 });
 
@@ -213,6 +333,105 @@ describe("Per-payload schemas — direct round-trip", () => {
       ArtifactCreatedPayloadSchema.parse({ artifactId: "a", kind: "image" }),
     ).toThrow();
   });
+
+  // Slice F Phase 2 — task.* per-payload schemas (additive).
+  it("TaskCreatedPayloadSchema round-trips", () => {
+    const payload = {
+      kind: "created" as const,
+      taskId: "task:0001",
+      ownerIdentityId: VLADIMIR,
+      label: "Draft retrospective",
+      occurredAt: VALID_ISO,
+    };
+    expect(TaskCreatedPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("TaskCompletedPayloadSchema round-trips with optional result", () => {
+    const withResult = {
+      kind: "completed" as const,
+      taskId: "task:0001",
+      ownerIdentityId: VLADIMIR,
+      result: "done",
+      occurredAt: VALID_ISO,
+    };
+    const withoutResult = {
+      kind: "completed" as const,
+      taskId: "task:0001",
+      ownerIdentityId: VLADIMIR,
+      occurredAt: VALID_ISO,
+    };
+    expect(TaskCompletedPayloadSchema.parse(withResult)).toEqual(withResult);
+    expect(TaskCompletedPayloadSchema.parse(withoutResult)).toEqual(withoutResult);
+  });
+
+  it("TaskCancelledPayloadSchema round-trips", () => {
+    const payload = {
+      kind: "cancelled" as const,
+      taskId: "task:0001",
+      ownerIdentityId: VLADIMIR,
+      occurredAt: VALID_ISO,
+    };
+    expect(TaskCancelledPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("TaskFailedPayloadSchema round-trips with optional result", () => {
+    const payload = {
+      kind: "failed" as const,
+      taskId: "task:0001",
+      ownerIdentityId: VLADIMIR,
+      result: "upstream timeout",
+      occurredAt: VALID_ISO,
+    };
+    expect(TaskFailedPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("each task.* per-payload schema rejects a missing required field", () => {
+    expect(() =>
+      TaskCreatedPayloadSchema.parse({
+        kind: "created",
+        taskId: "task:0001",
+        ownerIdentityId: VLADIMIR,
+        // label missing
+        occurredAt: VALID_ISO,
+      }),
+    ).toThrow();
+    expect(() =>
+      TaskCompletedPayloadSchema.parse({
+        kind: "completed",
+        taskId: "task:0001",
+        // ownerIdentityId missing
+        occurredAt: VALID_ISO,
+      }),
+    ).toThrow();
+    expect(() =>
+      TaskCancelledPayloadSchema.parse({
+        kind: "cancelled",
+        // taskId missing
+        ownerIdentityId: VLADIMIR,
+        occurredAt: VALID_ISO,
+      }),
+    ).toThrow();
+    expect(() =>
+      TaskFailedPayloadSchema.parse({
+        kind: "failed",
+        taskId: "task:0001",
+        ownerIdentityId: VLADIMIR,
+        // occurredAt missing
+      }),
+    ).toThrow();
+  });
+
+  it("task.* schemas reject mismatched discriminator literals", () => {
+    expect(() =>
+      TaskCreatedPayloadSchema.parse({
+        kind: "completed",
+        taskId: "task:0001",
+        ownerIdentityId: VLADIMIR,
+        label: "x",
+        occurredAt: VALID_ISO,
+      }),
+    ).toThrow();
+  });
 });
 
 describe("EpisodicMemoryEvent — discriminated-union exhaustiveness compile-check", () => {
@@ -232,6 +451,8 @@ describe("EpisodicMemoryEvent — discriminated-union exhaustiveness compile-che
         return `reminder:${event.payload.reminderId}`;
       case "artifact":
         return `artifact:${event.payload.artifactId}`;
+      case "task":
+        return `task:${event.payload.kind}`;
       default:
         return assertNeverEpisodic(event);
     }
@@ -262,10 +483,23 @@ describe("EpisodicMemoryEvent — discriminated-union exhaustiveness compile-che
       effectId: "e",
       payload: { artifactId: "a", kind: "image", occurredAt: VALID_ISO },
     };
+    const taskEvent: EpisodicMemoryEvent = {
+      identityId: VLADIMIR,
+      effectFamily: "task",
+      effectId: "e",
+      payload: {
+        kind: "created",
+        taskId: "task:0001",
+        ownerIdentityId: VLADIMIR,
+        label: "x",
+        occurredAt: VALID_ISO,
+      },
+    };
     expect(classify(sessionEvent)).toBe("session:user");
     expect(classify(subagentEvent)).toBe("subagent:s");
     expect(classify(reminderEvent)).toBe("reminder:r");
     expect(classify(artifactEvent)).toBe("artifact:a");
+    expect(classify(taskEvent)).toBe("task:created");
   });
 
   it("assertNeverEpisodic throws at runtime when fed an impossible value (defensive)", () => {
