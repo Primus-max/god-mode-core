@@ -60,3 +60,19 @@ export {
   type SqliteVecMemoryStoreLogger,
   type SqliteVecMemoryStoreOpenOptions,
 } from "./sqlite-vec-store.js";
+
+export {
+  EXTRACTOR_TAGS_METADATA_KEY,
+  LlmExtractorMemoryStore,
+  type LlmExtractor,
+  type LlmExtractorDecision,
+  type LlmExtractorInput,
+  type LlmExtractorMemoryStoreLogger,
+  type LlmExtractorMemoryStoreOptions,
+} from "./llm-extractor-store.js";
+
+export {
+  LLM_EXTRACTOR_PROMPT,
+  LlmExtractorDecisionSchema,
+  parseLlmExtractorDecision,
+} from "./llm-extractor-prompt.js";
