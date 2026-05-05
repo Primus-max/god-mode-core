@@ -4,22 +4,22 @@ overview: "Refactor session/memory keying so the same operator-identity is reach
 todos:
   - id: d-phase-1-identity-id-type-and-registry
     content: "Phase 1 — introduce `IdentityId` branded type + static identity registry. New file `src/platform/identity/identity-id.ts` with `IdentityId = (string & { __brand: \"IdentityId\" })` + helpers `formatIdentityId`, `parseIdentityId`. New file `src/platform/identity/identity-registry.ts` with `IdentityRegistry` interface + `StaticIdentityRegistry` impl reading mappings from openclaw.json under a new `identities` section. No callers wire it yet — purely additive. Tests: registry round-trip, branded-type discipline, missing-mapping → undefined (NOT throw)."
-    status: pending
+    status: completed
   - id: d-phase-2-resolve-identity-from-session-key
     content: "Phase 2 — `resolveIdentityFromSessionKey(sessionKey, registry)` helper. Parses the session-key shape `agent:{agentId}:{channel}:{peerKind}:{peerId}`, looks up `(channel, peerId)` in the identity registry, returns `IdentityId | undefined`. New file `src/platform/identity/resolve-identity.ts`. Tests: telegram peer → identity, web peer → same identity, unknown channel → undefined, malformed key → undefined (no throw)."
-    status: pending
+    status: completed
   - id: d-phase-3-channel-registry-extend
     content: "Phase 3 — extend `ChatChannelId` registry in `src/channels/ids.ts` with `web` and `max`. Add ordering. Backward compat: existing `(string & {})` extensibility preserved; no consumer change required. Tests: enum order, includes new ids."
-    status: pending
+    status: completed
   - id: d-phase-4-extension-audit-telegram
     content: "Phase 4 — audit `extensions/telegram/**` for raw `message.chat.id` usage outside the adapter boundary. Confirm the adapter normalizes peerId (string-encoded numeric) before calling `buildAgentPeerSessionKey`. If any prod-path code reads chat.id directly past the adapter, fix it in this phase. Audit-only if no violations found; one fix-PR if found. Output: `extensions/telegram/AUDIT.md` with findings."
-    status: pending
+    status: completed
   - id: d-phase-5-config-section-and-bootstrap
     content: "Phase 5 — add `identities` section to openclaw.json schema in `src/config/zod-schema.*` + bootstrap defaults. Schema: `identities: { [identityId]: { mappings: Array<{ channel: ChannelId, externalId: string }>, displayName: string } }`. v1 default: one identity for the operator (Vladimir) statically configured. Tests: schema validation, default loading, malformed-config rejection."
-    status: pending
+    status: completed
   - id: d-phase-6-acceptance-fixture
     content: "Phase 6 — backend-fixture acceptance test: same `IdentityId` resolved from a Telegram session key AND from a Web session key when both map to the same operator. This is the test that proves slice D's contract. Memory layer (slice E) consumes this directly. Test file: `src/platform/identity/cross-channel-identity.test.ts`."
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -117,6 +117,46 @@ Each phase's tests must:
 - Audit (2026-05-05) confirms scope is purely additive; no frozen-layer touch; no schema migration.
 - Git base: `dev` HEAD `849f214094` (post-roadmap commit).
 - Branch: `feat/v1-slice-d-identity-id-foundation` (Phase 1).
+
+### 2026-05-04 — Phase 1 merged (PR-#146)
+
+- `IdentityId` branded type + `IdentityRegistry` interface + `StaticIdentityRegistry` impl landed under `src/platform/identity/`.
+- Eager validation at construction: rejects duplicate `identityId`, conflicting `(channel,externalId)` mappings, empty `externalId`. All records frozen.
+- Tests: `identity-id.test.ts` (brand discipline + parse/format round-trip), `static-identity-registry.test.ts` (resolve, list, byIdentity, validation negatives, all-records-frozen).
+- No callers wired yet (purely additive). Frozen layer untouched. 16 invariants reverse-tested.
+
+### 2026-05-04 — Phase 2 merged (PR-#147)
+
+- `resolveIdentityFromSessionKey(sessionKey, registry)` helper + `extractChannelAndPeerFromSessionKey` parser landed in `src/platform/identity/resolve-identity.ts`.
+- Handles all session-key shapes from `src/routing/session-key.ts`: per-channel-peer, per-account-channel-peer, group/channel variants. Fail-closed for main keys, no-channel DMs, wrapped scopes (`subagent`/`cron`/`acp`), unknown channels, malformed/empty peer ids.
+- Tests: `resolve-identity.test.ts` covers all shapes + each negative case (no throw). Reverse-tests confirm wrapped scopes do NOT leak parent operator's identity.
+
+### 2026-05-04 — Phase 3 merged (PR-#148)
+
+- Added `max` to `CHAT_CHANNEL_ORDER` in `src/channels/ids.ts`.
+- Added `Max` ChannelMeta entry in `src/channels/registry.ts` (selectionLabel "Max (RU messenger)") to satisfy exhaustiveness check.
+- Introduced `IdentityChannelId = ChatChannelId | typeof INTERNAL_MESSAGE_CHANNEL` so the registry can map both chat channels AND the internal `webchat` surface.
+- Web is the existing `INTERNAL_MESSAGE_CHANNEL = "webchat"` (kept distinct from chat channels per existing convention; identity layer accepts both).
+- Tests: `static-identity-registry.test.ts` extended to cover webchat + max channel ids.
+
+### 2026-05-04 — Phase 4 merged (PR-#149)
+
+- Audit-and-fix on `extensions/telegram/**`. Two behaviour-neutral changes for explicit type discipline at the peer-id boundary: `bot-message-context.ts:239` and `bot-handlers.runtime.ts:325` now use `${String(chatId)}:${dmThreadId}` instead of relying on implicit number→string coercion.
+- Adapter audit confirms `message.chat.id` is normalized to `String(chatId)` before any `buildAgentPeerSessionKey` call.
+- Pre-existing 188 telegram-extension test failures verified as unrelated to slice D (baseline reproduces them on `dev` HEAD before changes via `git stash`).
+
+### 2026-05-04 — Phase 5 merged (PR-#150)
+
+- New `src/config/zod-schema.identities.ts` with `IdentityMappingSchema`, `IdentityRecordSchema`, `IdentitiesSchema`. Channel enum sourced from `[...CHAT_CHANNEL_ORDER, INTERNAL_MESSAGE_CHANNEL]`. Strict object validation; empty `externalId` rejected.
+- Wired into `src/config/zod-schema.ts` `OpenClawSchema` as `identities: IdentitiesSchema.optional()`.
+- New `src/platform/identity/load-identities-from-config.ts`: `buildIdentityRecordsFromConfig` validates each map key via `asIdentityId` (clear error message on malformed key); `loadIdentityRegistryFromConfig` is the one-call helper.
+- Tests: `load-identities-from-config.test.ts` (round-trip, empty input, malformed key surfaces, registry-level validation propagation).
+
+### 2026-05-04 — Phase 6 merged (PR-#151)
+
+- Acceptance fixture `src/platform/identity/cross-channel-identity.acceptance.test.ts` (8 cases) proves slice D's contract end-to-end: cross-channel parity (Telegram + Web + Max + Slack share one IdentityId), per-account variant key shape, group/channel session keys, anonymous → undefined (no cross-tenant bleed), wrapped scope (subagent/cron/acp) → undefined.
+- This is the test slice E (memory layer) consumes as the foundation guarantee. If it passes, "one operator, one memory across channels" is keyable on `IdentityId`.
+- 16 invariants reverse-tested; frozen layer untouched throughout the slice.
 
 ## 8. Adjacent / deferred (out of scope)
 
