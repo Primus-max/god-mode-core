@@ -43,6 +43,7 @@ import {
   INTERNAL_REASONING_HINT_TEXT,
   isInternalReasoningHintApplicable,
 } from "../internal-reasoning-hint.js";
+import { createAnthropicThinkingWrapper } from "../anthropic-thinking-wrapper.js";
 import { resolveOpenClawAgentDir } from "../../agent-paths.js";
 import { resolveSessionAgentIds } from "../../agent-scope.js";
 import { createAnthropicPayloadLogger } from "../../anthropic-payload-log.js";
@@ -2466,6 +2467,20 @@ export async function runEmbeddedAttempt(
         sessionAgentId,
         effectiveWorkspace,
       );
+
+      // Slice I — Anthropic Extended Thinking for plaintext-channel turns
+      // (B5 principled fix per master plan §3 line 200 (a)). The wrapper
+      // sets `payload.thinking = { type: "enabled", budget_tokens: N }` when
+      // the model speaks `anthropic-messages` and `runtimeChannel` is in
+      // `EXTERNAL_DELIVERY_SURFACES`; no-op otherwise. Pairs with the
+      // Phase 4 advisory `internalReasoningHint` (defense-in-depth fallback
+      // for cases where extended thinking isn't enabled).
+      if (params.model.api === "anthropic-messages" && runtimeChannel) {
+        activeSession.agent.streamFn = createAnthropicThinkingWrapper(
+          activeSession.agent.streamFn,
+          { runtimeChannel },
+        );
+      }
 
       if (cacheTrace) {
         cacheTrace.recordStage("session:loaded", {
