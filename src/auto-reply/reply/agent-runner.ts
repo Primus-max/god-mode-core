@@ -862,6 +862,26 @@ export async function runReplyAgent(params: {
         turnId: ackRunId,
         ackMessage: ackText,
       });
+      // Slice H Phase 3 (H2 sentinel): when an external block-reply
+      // deferral is active for this turn, the ack MUST flow through
+      // `enqueueAck` so it participates in the same ordering pipeline
+      // as the streamed preamble + final tail. Reading the raw
+      // `effectiveOpts?.onBlockReply` here was the B4 root cause —
+      // ack landed at the channel adapter immediately while the
+      // preamble was still parked in `externalBlockDeferral.deferred[]`,
+      // producing the «то отправляет сообщение потом удаляет, потом
+      // показывает финальное» visible artefact (sub-plan §3 H2).
+      // When the deferral is null (e.g. internal-channel turn or
+      // `shouldBufferExternalBlockStreams === false`), keep the
+      // pre-existing direct-deliver path as the fallback.
+      if (externalBlockDeferral) {
+        try {
+          await externalBlockDeferral.enqueueAck(applyReplyToMode({ text: ackText }));
+        } catch (deliveryError) {
+          void deliveryError;
+        }
+        return;
+      }
       const deliver = effectiveOpts?.onBlockReply;
       if (deliver) {
         try {
