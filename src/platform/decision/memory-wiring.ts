@@ -25,6 +25,10 @@
 
 import { randomUUID } from "node:crypto";
 import { recordMemoryOnCommitmentSatisfied } from "../../agents/pi-embedded-runner/run/memory-write-on-satisfied.js";
+import {
+  recordTaskOnCommitmentSatisfied,
+  type TaskWriteInput,
+} from "../../agents/pi-embedded-runner/run/task-write-on-satisfied.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { defaultRuntime } from "../../runtime.js";
 import { getMemoryRuntime } from "../../server/memory-store-bootstrap.js";
@@ -33,11 +37,13 @@ import type { RuntimeAttestation } from "../commitment/index.js";
 import type { IdentityId } from "../identity/identity-id.js";
 import { resolveIdentityFromSessionKey } from "../identity/resolve-identity.js";
 import type { MemoryStore } from "../memory/memory-store.js";
+import type { TaskLedger } from "../task/task-ledger.js";
 
 export type MemoryWiringForTurn = Partial<{
   memoryStore: MemoryStore;
   identityId: IdentityId;
   memoryLogger: IntentContractorLogger;
+  taskLedger: TaskLedger;
   onAttestation: (attestation: RuntimeAttestation) => Promise<void>;
 }>;
 
@@ -46,6 +52,15 @@ export type ResolveMemoryWiringForTurnParams = {
   readonly sessionKey?: string;
   readonly sessionId?: string;
   readonly promptText: string;
+  /**
+   * Slice F Phase 5 — optional caller-side `TaskWriteInput`. When set,
+   * the fanned-out `onAttestation` callback dispatches the task hook
+   * alongside the memory hook with this input. When absent (the
+   * default Phase-5 production wiring), the task hook is wired but
+   * inert — slice J (cron) and slice G (subagent) supply this input
+   * at their attestation construction sites once those slices land.
+   */
+  readonly taskWriteInput?: TaskWriteInput;
 };
 
 export async function resolveMemoryWiringForTurn(
@@ -75,7 +90,13 @@ export async function resolveMemoryWiringForTurn(
     memoryLogger: {
       warn: (message: string) => defaultRuntime.log(`[memory-recall] ${message}`),
     },
+    taskLedger: runtime.taskLedger,
     onAttestation: async (attestation) => {
+      // Slice F Phase 5 — fan-out: ONE attestation drives BOTH the
+      // memory hook AND the task hook. Strategy A from
+      // `extensions/AUDIT-task-ledger.md` §5: extending the existing
+      // wiring helper preserves the single-callback discipline at
+      // `run-turn-decision.ts:294` and avoids a second call site.
       const outcome = await recordMemoryOnCommitmentSatisfied({
         attestation,
         identityId,
@@ -118,6 +139,34 @@ export async function resolveMemoryWiringForTurn(
             `[memory-write] semantic write failed: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
+      }
+
+      // Slice F Phase 5 task hook fan-out. The hook self-filters on
+      // `commitmentSatisfied`, identity, ledger presence, and
+      // `taskInput` presence — so calling it here unconditionally is
+      // safe (it returns `{ kind: 'skipped', ... }` when the wiring
+      // does NOT carry a `TaskWriteInput`, which is the default
+      // production path until slice J / G emit task lifecycle
+      // attestations). The task hook NEVER throws (invariant #15);
+      // the outer `try`/`catch` is defensive only.
+      try {
+        await recordTaskOnCommitmentSatisfied({
+          attestation,
+          identityId,
+          taskLedger: runtime.taskLedger,
+          memoryStore: runtime.memoryStore,
+          taskInput: params.taskWriteInput,
+          logger: {
+            warn: (message: string) => defaultRuntime.log(`[task-write] ${message}`),
+            debug: () => {
+              /* trace volume — drop debug events at the production seam */
+            },
+          },
+        });
+      } catch (err) {
+        defaultRuntime.log(
+          `[task-write] fan-out failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     },
   };
