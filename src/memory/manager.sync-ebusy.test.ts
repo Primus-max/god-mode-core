@@ -18,27 +18,28 @@
  * not emit a `warn`-level line for it. We demote EBUSY rename failures to
  * `debug` and keep `warn` for every other class of error.
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { reportLegacyMemorySyncFailure } from "./manager-sync-ops.js";
 
-type LogCalls = {
-  warn: Array<{ message: string; meta?: Record<string, unknown> }>;
-  debug: Array<{ message: string; meta?: Record<string, unknown> }>;
+type LogEntry = { message: string; meta?: Record<string, unknown> };
+type LogCalls = { warn: LogEntry[]; debug: LogEntry[] };
+type FakeLogger = {
+  warn: (message: string, meta?: Record<string, unknown>) => void;
+  debug: (message: string, meta?: Record<string, unknown>) => void;
 };
 
-function makeLog(): {
-  log: { warn: ReturnType<typeof vi.fn>; debug: ReturnType<typeof vi.fn> };
-  calls: LogCalls;
-} {
+function makeLog(): { log: FakeLogger; calls: LogCalls } {
   const calls: LogCalls = { warn: [], debug: [] };
-  const warn = vi.fn((message: string, meta?: Record<string, unknown>) => {
-    calls.warn.push({ message, meta });
-  });
-  const debug = vi.fn((message: string, meta?: Record<string, unknown>) => {
-    calls.debug.push({ message, meta });
-  });
-  return { log: { warn, debug }, calls };
+  const log: FakeLogger = {
+    warn: (message, meta) => {
+      calls.warn.push({ message, meta });
+    },
+    debug: (message, meta) => {
+      calls.debug.push({ message, meta });
+    },
+  };
+  return { log, calls };
 }
 
 function makeEbusyRenameError(): NodeJS.ErrnoException {
