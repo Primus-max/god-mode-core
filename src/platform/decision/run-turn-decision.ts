@@ -14,6 +14,7 @@ import {
   type CutoverPolicy,
   type ExpectedDelta,
   type IntentContractorAdapter,
+  type IntentContractorLogger,
   type MonitoredRuntime,
   type PolicyGateReader,
   type RuntimeAttestation,
@@ -25,6 +26,8 @@ import type {
   ShadowBuildResult,
   ShadowUnsupportedReason,
 } from "../commitment/shadow-builder.js";
+import type { IdentityId } from "../identity/identity-id.js";
+import type { MemoryStore } from "../memory/memory-store.js";
 import type { BuildExecutionDecisionInputParams } from "./input.js";
 import {
   classifyTaskForDecision,
@@ -107,6 +110,31 @@ export type RunTurnDecisionInput = {
    * threads the hook into the decision pipeline.
    */
   readonly onAttestation?: (attestation: RuntimeAttestation) => void | Promise<void>;
+  /**
+   * Slice E Phase 7 — recall seam. When BOTH `memoryStore` and
+   * `identityId` are supplied, `runShadowBranch` threads them into
+   * `createIntentContractor(...)` so the contractor's optional Phase-6
+   * recall hook (the `<memory>` block) can fire. Either field absent
+   * disables recall cleanly — the contractor falls back to byte-identical
+   * pre-Phase-6 behaviour.
+   *
+   * The fields are kept on `RunTurnDecisionInput` (not on a deeper deps
+   * struct) because the production caller in `input.ts` already builds
+   * the input object turn-by-turn; threading them through the existing
+   * surface is the smallest possible change that closes B1 (memory
+   * across `/new`).
+   */
+  readonly memoryStore?: MemoryStore;
+  readonly identityId?: IdentityId;
+  /**
+   * Slice E Phase 7 — optional structural logger forwarded to
+   * `createIntentContractor` so memory-recall warnings (e.g. sqlite
+   * locked, embedder timeout) are observable without coupling the
+   * decision layer to a specific logger implementation. When omitted,
+   * recall failures degrade silently (per invariant #15 — recall is
+   * observability, not a hard fault).
+   */
+  readonly memoryLogger?: IntentContractorLogger;
 };
 
 export type RunTurnDecisionResult = {
@@ -302,6 +330,16 @@ async function runShadowBranch(input: RunTurnDecisionInput): Promise<ShadowBranc
           ledgerContext: input.ledgerContext,
           agentDir: input.agentDir,
           adapterRegistry: input.intentContractorAdapterRegistry,
+          // Slice E Phase 7 — wire the memory recall seam introduced in
+          // Phase 6. Both fields are optional; the contractor disables
+          // recall cleanly when either is absent (anonymous session OR
+          // caller has not threaded a store yet). This is the single
+          // production wiring point that closes B1 — without it, the
+          // Phase-6 recall surface stays inert at runtime even though
+          // its tests pass in isolation.
+          ...(input.memoryStore ? { memoryStore: input.memoryStore } : {}),
+          ...(input.identityId ? { identityId: input.identityId } : {}),
+          ...(input.memoryLogger ? { logger: input.memoryLogger } : {}),
           onDebugEvent: (event) => {
             const parts: string[] = [
               `[intent-contractor] stage=${event.stage}`,

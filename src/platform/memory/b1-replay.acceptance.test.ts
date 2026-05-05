@@ -9,7 +9,6 @@ import {
   PERSISTENT_SESSION_EFFECT_FAMILY,
   type ExpectedDelta,
   type IntentContractorAdapter,
-  type IntentContractorAdapterRegistry,
   type RuntimeAttestation,
 } from "../commitment/index.js";
 import type { AgentId, SessionId } from "../commitment/ids.js";
