@@ -12,11 +12,7 @@
  * frozen 5-contract layer).
  */
 
-export {
-  asMemoryEntryId,
-  isMemoryEntryId,
-  type MemoryEntryId,
-} from "./memory-entry-id.js";
+export { asMemoryEntryId, isMemoryEntryId, type MemoryEntryId } from "./memory-entry-id.js";
 
 export {
   ArtifactCreatedPayloadSchema,
@@ -53,7 +49,14 @@ export type {
   MemoryStore,
 } from "./memory-store.js";
 
+export { InMemoryMemoryStore, type InMemoryListPaginatedQuery } from "./in-memory-store.js";
+
 export {
-  InMemoryMemoryStore,
-  type InMemoryListPaginatedQuery,
-} from "./in-memory-store.js";
+  SqliteVecMemoryStore,
+  SQLITE_VEC_MEMORY_STORE_SCHEMA_VERSION,
+  defaultSqliteVecMemoryStorePath,
+  type LoadSqliteVecExtensionFn,
+  type MemoryEmbedder,
+  type SqliteVecMemoryStoreLogger,
+  type SqliteVecMemoryStoreOpenOptions,
+} from "./sqlite-vec-store.js";
