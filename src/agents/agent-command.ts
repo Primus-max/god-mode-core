@@ -700,6 +700,15 @@ export async function buildClassifiedPlatformPlannerInput(params: {
    * instead of being reclassified as fresh user prompts.
    */
   inputProvenance?: InputProvenance;
+  /**
+   * Slice E gateway-wiring bridge — full agent session-key (e.g.
+   * `agent:worker:telegram:direct:123`). Forwarded to
+   * `buildClassifiedExecutionDecisionInput` so the per-turn memory runtime
+   * can resolve an `IdentityId` for recall + commitment-satisfied write.
+   * Anonymous sessions / wrapped scopes (cron/subagent/acp) resolve to
+   * `undefined` and skip cleanly per invariant #16.
+   */
+  sessionKey?: string;
 }): Promise<Parameters<typeof resolvePlatformRuntimePlan>[0]> {
   return buildClassifiedExecutionDecisionInput({
     prompt: params.prompt,
@@ -711,6 +720,7 @@ export async function buildClassifiedPlatformPlannerInput(params: {
     agentDir: params.agentDir,
     adapterRegistry: params.adapterRegistry,
     ...(params.inputProvenance ? { inputProvenance: params.inputProvenance } : {}),
+    ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
   });
 }
 
@@ -1285,6 +1295,7 @@ async function prepareAgentCommandExecution(
     storePath,
     cfg,
     ...(opts.inputProvenance ? { inputProvenance: opts.inputProvenance } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
   });
   const platformRuntimePlan = resolvePlatformRuntimePlan(
     { ...platformPlannerInput, callerTag: "agent-command-main" },

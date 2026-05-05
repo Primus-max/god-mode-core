@@ -301,6 +301,10 @@ export async function resolveRoutingSnapshotForTemplateRun(params: {
     cfg: params.run.config,
     agentDir: params.run.agentDir,
     ...(params.run.inputProvenance ? { inputProvenance: params.run.inputProvenance } : {}),
+    // Slice E gateway-wiring bridge — pass the full session-key so
+    // `buildClassifiedExecutionDecisionInput` can resolve `IdentityId`
+    // and thread the memory runtime into `runTurnDecision`.
+    ...(params.run.sessionKey ? { sessionKey: params.run.sessionKey } : {}),
   });
   return {
     plannerInput,
