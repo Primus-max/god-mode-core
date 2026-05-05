@@ -5,6 +5,7 @@ import { normalizeAnyChannelId } from "../../channels/registry.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import { defaultRuntime } from "../../runtime.js";
 import type { InputProvenance } from "../../sessions/input-provenance.js";
+import { resolveMemoryWiringForTurn } from "./memory-wiring.js";
 import { getCurrentTurnProgressEmitter } from "../progress/progress-bus.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../profile/session-overrides.js";
 import type { RecipePlannerInput } from "../recipe/planner.js";
@@ -459,6 +460,16 @@ export async function buildClassifiedExecutionDecisionInput(params: {
    * that have not yet been threaded.
    */
   inputProvenance?: InputProvenance;
+  /**
+   * Slice E gateway-wiring bridge — full agent session-key. When supplied,
+   * this function resolves it through the per-process `IdentityRegistry`
+   * to obtain an `IdentityId` and threads `{ memoryStore, identityId,
+   * memoryLogger, onAttestation }` into `runTurnDecision` so the Phase-6
+   * recall hook + Phase-5 commitment-on-satisfied write hook fire at
+   * runtime. Anonymous sessions (no mapping) skip cleanly per invariant
+   * #16. `undefined` preserves legacy byte-identical behaviour.
+   */
+  sessionKey?: string;
 }): Promise<RecipePlannerInput> {
   if (params.inputProvenance && params.inputProvenance.kind !== "external_user") {
     return buildNonUserProvenanceShortCircuitPlannerInput({
@@ -545,6 +556,15 @@ export async function buildClassifiedExecutionDecisionInput(params: {
   defaultRuntime.log(
     `[intent-history] event=wire session=${shortIdForLog(ledgerSessionId)} channel=${shortIdForLog(ledgerChannelId)} priorIntent=${priorIntent ? "1" : "0"}${priorIntent ? ` target.kind=${priorIntent.target?.kind ?? "-"} operation=${priorIntent.operation?.kind ?? "-"}` : ""}`,
   );
+  // Slice E gateway-wiring bridge — resolve memory store + identity once per
+  // turn and surface the four optional fields on `RunTurnDecisionInput`.
+  // `undefined` on any field is the legacy (byte-identical) shape.
+  const memoryWiring = await resolveMemoryWiringForTurn({
+    cfg: params.cfg,
+    sessionKey: params.sessionKey,
+    sessionId: ledgerSessionId,
+    promptText: classifierPrompt,
+  });
   const { productionDecision: classified, intent: classifiedIntent } = await runTurnDecision({
     prompt: classifierPrompt,
     fileNames: classifierInput.fileNames,
@@ -558,6 +578,7 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     classifierAdapterRegistry: params.adapterRegistry,
     monitoredRuntime: createDefaultMonitoredRuntime(),
     expectedDeltaResolver: createDefaultExpectedDeltaResolver(),
+    ...memoryWiring,
   });
 
   let finalClassified = classified;
@@ -598,6 +619,7 @@ export async function buildClassifiedExecutionDecisionInput(params: {
         classifierAdapterRegistry: params.adapterRegistry,
         monitoredRuntime: createDefaultMonitoredRuntime(),
         expectedDeltaResolver: createDefaultExpectedDeltaResolver(),
+        ...memoryWiring,
       });
       finalClassified = productionDecision;
       finalClassifiedIntent = workspaceIntent ?? finalClassifiedIntent;

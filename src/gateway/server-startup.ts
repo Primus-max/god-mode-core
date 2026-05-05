@@ -27,6 +27,7 @@ import { loadInternalHooks } from "../hooks/loader.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import type { loadOpenClawPlugins } from "../plugins/loader.js";
 import { type PluginServicesHandle, startPluginServices } from "../plugins/services.js";
+import { getMemoryRuntime } from "../server/memory-store-bootstrap.js";
 import { startBrowserControlServerIfEnabled } from "./server-browser.js";
 import {
   scheduleRestartSentinelWake,
@@ -228,6 +229,15 @@ export async function startGatewaySidecars(params: {
 
   void startGatewayMemoryBackend({ cfg: params.cfg, log: params.log }).catch((err) => {
     params.log.warn(`qmd memory startup initialization failed: ${String(err)}`);
+  });
+
+  // Slice E gateway-wiring bridge — eagerly resolve the per-process memory
+  // runtime singleton so the first turn does not pay the embedder + sqlite
+  // open cost in-line. Idempotent (`getMemoryRuntime` memoizes on `cfg`
+  // reference); failures degrade to `InMemoryMemoryStore` per invariant
+  // #15 and are logged once by the bootstrap helper itself.
+  void getMemoryRuntime(params.cfg).catch((err) => {
+    params.log.warn(`slice-E memory runtime warmup failed: ${String(err)}`);
   });
 
   if (shouldWakeFromRestartSentinel()) {
