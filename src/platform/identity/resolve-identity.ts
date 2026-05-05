@@ -1,10 +1,14 @@
-import { CHAT_CHANNEL_ORDER, type ChatChannelId } from "../../channels/ids.js";
+import { CHAT_CHANNEL_ORDER } from "../../channels/ids.js";
 import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
+import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
 
 import type { IdentityId } from "./identity-id.js";
-import type { IdentityRegistry } from "./identity-registry.js";
+import type { IdentityChannelId, IdentityRegistry } from "./identity-registry.js";
 
-const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<string>(CHAT_CHANNEL_ORDER);
+const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<string>([
+  ...CHAT_CHANNEL_ORDER,
+  INTERNAL_MESSAGE_CHANNEL,
+]);
 
 /**
  * Set of segment names that wrap a session key into a non-identity scope
@@ -18,7 +22,7 @@ const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<string>(CHAT_CHANNEL_ORDE
 const NON_IDENTITY_SCOPE_MARKERS: ReadonlySet<string> = new Set(["subagent", "cron", "acp"]);
 
 export type ChannelAndPeer = {
-  readonly channel: ChatChannelId;
+  readonly channel: IdentityChannelId;
   readonly peerId: string;
 };
 
@@ -67,7 +71,7 @@ export function extractChannelAndPeerFromSessionKey(
   if (!KNOWN_CHANNEL_IDS.has(firstSegment)) {
     return undefined;
   }
-  const channel = firstSegment as ChatChannelId;
+  const channel = firstSegment as IdentityChannelId;
 
   // Peer-kind appears in segments[1] for the simple per-channel-peer
   // shape, or segments[2] for the per-account-channel-peer shape (the

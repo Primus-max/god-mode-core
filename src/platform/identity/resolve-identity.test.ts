@@ -91,6 +91,19 @@ describe("extractChannelAndPeerFromSessionKey — shape parser", () => {
     });
   });
 
+  it("extracts (max, peerId) from a Max DM session key", () => {
+    expect(extractChannelAndPeerFromSessionKey("agent:main:max:direct:max-user-001")).toEqual({
+      channel: "max",
+      peerId: "max-user-001",
+    });
+  });
+
+  it("extracts (webchat, peerId) from a Web UI session key", () => {
+    expect(
+      extractChannelAndPeerFromSessionKey("agent:main:webchat:direct:vladimir@example.com"),
+    ).toEqual({ channel: "webchat", peerId: "vladimir@example.com" });
+  });
+
   it("does NOT extract from cron / subagent / acp wrapped keys (out of identity scope)", () => {
     expect(
       extractChannelAndPeerFromSessionKey("agent:main:subagent:abc:telegram:direct:123"),
