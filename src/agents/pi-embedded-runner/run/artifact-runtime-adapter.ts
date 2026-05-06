@@ -40,6 +40,7 @@ import {
 import type { SessionId } from "../../../platform/commitment/ids.js";
 import type { ExpectedDelta } from "../../../platform/commitment/expected-delta.js";
 import type { ArtifactRecord } from "../../../platform/commitment/world-state.js";
+import type { InboundImageReferencePreconditionValue } from "../../../platform/commitment/inbound-image-reference-precondition-resolver.js";
 
 const SUPPORTED_KINDS: ReadonlySet<ArtifactRecord["kind"]> = new Set([
   "pdf",
@@ -192,4 +193,118 @@ export function recordArtifactCreated(
   };
 
   return { ok: true, artifactId, expectedDelta };
+}
+
+// ─── Cutover-3 Phase 6 — img2img structural pre-binding ────────────────
+//
+// Bug #2 closure (audit §c). The `image_generate` tool already accepts
+// `image` / `images` schema params (`image-generate-tool.ts:118-128`)
+// and the provider transport already wires `inputImages` through to
+// Hydra `/v1/images/edits` (`runtime.ts:169`); the bug is the missing
+// structural pre-binding seam between an inbound TG attachment and the
+// tool args. `injectInboundImageReferenceIntoToolArgs` closes that
+// seam by surfacing the resolved `INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION`
+// value (a closed `{ paths }` shape from
+// `inbound-image-reference-precondition-resolver.ts`) into the tool
+// args BEFORE the model formulates its call — same structural pre-
+// binding posture Search-Composer 4b PR-#131 used for `<web_evidence>`.
+//
+// Per invariants #5/#6 the input is STRUCTURED only — paths + tool
+// name. No raw user text crosses this seam.
+
+/**
+ * Subset of the `image_generate` tool args this helper touches. The
+ * tool schema (`image-generate-tool.ts:118-128`) declares both
+ * `image: string` (single ref) and `images: string[]` (multi-ref). The
+ * helper writes ONE of the two depending on the precondition arity and
+ * never both — keeping the provider call unambiguous.
+ */
+export interface ImageGenerateToolArgs {
+  prompt?: string;
+  image?: string;
+  images?: readonly string[];
+  // Allow additional caller-supplied args to flow through unchanged.
+  readonly [key: string]: unknown;
+}
+
+export interface InjectInboundImageReferenceInput {
+  /**
+   * The tool name the runner is about to invoke. Only `image_generate`
+   * receives the injection — other tools are returned unchanged.
+   */
+  readonly toolName: string;
+  /**
+   * The args object the runner will pass to the tool. Treated as
+   * READ-ONLY by this helper; the returned `toolArgs` is a NEW object.
+   */
+  readonly toolArgs: ImageGenerateToolArgs;
+  /**
+   * The resolved value of `INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION`,
+   * or `null` when no inbound image attachment is present this turn
+   * (the from-scratch generation branch is preserved verbatim).
+   */
+  readonly preconditionValue: InboundImageReferencePreconditionValue | null;
+  /**
+   * Optional sink for the `[image-generate] inputImages count=N
+   * referenceMode=img2img` telemetry line. Production wiring routes
+   * through `defaultRuntime.log`; tests inject a `vi.fn()` capture.
+   */
+  readonly logger?: (line: string) => void;
+}
+
+export interface InjectInboundImageReferenceResult {
+  /**
+   * `true` when the helper rewrote `toolArgs` with `image:` (single
+   * ref) or `images:` (multi-ref); `false` when the call was a no-op
+   * (non-`image_generate` tool, null precondition, or empty paths).
+   */
+  readonly injected: boolean;
+  /**
+   * The (possibly rewritten) tool args object. Always a NEW reference
+   * — the caller-supplied object is NEVER mutated.
+   */
+  readonly toolArgs: ImageGenerateToolArgs;
+}
+
+/**
+ * Structural pre-binding of inbound image references onto the
+ * `image_generate` tool args. When the tool is `image_generate` AND the
+ * precondition resolves with at least one path, injects:
+ *   - `image: paths[0]` for single-ref (one inbound image),
+ *   - `images: paths` for multi-ref (two or more).
+ *
+ * Returns a NEW args object — caller-supplied args stay untouched.
+ * Logs `[image-generate] inputImages count=N referenceMode=img2img` on
+ * injection so the live-verifier gateway log signal is present
+ * regardless of which provider transport actually invokes Hydra.
+ *
+ * @param input - Tool name, args, resolved precondition value, optional
+ *   logger.
+ * @returns `{ injected, toolArgs }`.
+ */
+export function injectInboundImageReferenceIntoToolArgs(
+  input: InjectInboundImageReferenceInput,
+): InjectInboundImageReferenceResult {
+  if (input.toolName !== "image_generate") {
+    return { injected: false, toolArgs: { ...input.toolArgs } };
+  }
+  const value = input.preconditionValue;
+  if (!value || value.paths.length === 0) {
+    return { injected: false, toolArgs: { ...input.toolArgs } };
+  }
+  const paths = value.paths;
+  const next: ImageGenerateToolArgs = { ...input.toolArgs };
+  if (paths.length === 1) {
+    next.image = paths[0];
+    // Make sure the previous value (if any) does not bleed through onto
+    // the multi-ref slot — single-ref injection is exclusive.
+    delete next.images;
+  } else {
+    next.images = Object.freeze([...paths]);
+    delete next.image;
+  }
+  input.logger?.(
+    `[image-generate] inputImages count=${String(paths.length)} referenceMode=img2img`,
+  );
+  return { injected: true, toolArgs: next };
 }

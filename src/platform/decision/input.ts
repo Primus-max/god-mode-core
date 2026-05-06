@@ -32,6 +32,7 @@ import { resolveResolutionContract, toRecipeRoutingHints } from "./resolution-co
 import {
   createDefaultExpectedDeltaResolver,
   createDefaultMonitoredRuntime,
+  type InboundMediaSummary,
 } from "../commitment/index.js";
 import { runTurnDecision } from "./run-turn-decision.js";
 import {
@@ -470,6 +471,23 @@ export async function buildClassifiedExecutionDecisionInput(params: {
    * #16. `undefined` preserves legacy byte-identical behaviour.
    */
   sessionKey?: string;
+  /**
+   * Cutover-3 Phase 6 gateway-wiring bridge — optional inbound-media
+   * resolver that surfaces the structural metadata for the current
+   * turn (paths + MIME types + closed `kind` enumeration). When
+   * supplied, the resolver is threaded into `runTurnDecision` →
+   * `createIntentContractor` so the contractor's
+   * `<inbound_attachments>` block fires (per cutover-3 sub-plan
+   * Phase 6, ADDITIVE constructor extension). When absent, the block
+   * is elided cleanly — pre-Phase-6 byte-identical behaviour for
+   * callers that have not yet threaded the seam.
+   *
+   * Production wiring source: `agent-command.ts` `stagedDocuments`
+   * flow at lines 1346-1354. The resolver reads STRUCTURAL data only
+   * (path + MIME type + closed `kind`), NEVER raw user text
+   * (invariants #5/#6).
+   */
+  inboundMediaResolver?: () => InboundMediaSummary | undefined;
 }): Promise<RecipePlannerInput> {
   if (params.inputProvenance && params.inputProvenance.kind !== "external_user") {
     return buildNonUserProvenanceShortCircuitPlannerInput({
@@ -579,6 +597,9 @@ export async function buildClassifiedExecutionDecisionInput(params: {
     monitoredRuntime: createDefaultMonitoredRuntime(),
     expectedDeltaResolver: createDefaultExpectedDeltaResolver(),
     ...memoryWiring,
+    ...(params.inboundMediaResolver
+      ? { inboundMediaResolver: params.inboundMediaResolver }
+      : {}),
   });
 
   let finalClassified = classified;
@@ -620,6 +641,9 @@ export async function buildClassifiedExecutionDecisionInput(params: {
         monitoredRuntime: createDefaultMonitoredRuntime(),
         expectedDeltaResolver: createDefaultExpectedDeltaResolver(),
         ...memoryWiring,
+        ...(params.inboundMediaResolver
+          ? { inboundMediaResolver: params.inboundMediaResolver }
+          : {}),
       });
       finalClassified = productionDecision;
       finalClassifiedIntent = workspaceIntent ?? finalClassifiedIntent;
