@@ -1,12 +1,15 @@
 // NEW-A Phase 2 — types + derivation helper for modality-aware routing.
+// NEW-A Phase 3 — `modelCoversModalityRequirement` capability check helper.
 // Lives under `src/agents/` (orchestration layer) per master invariant #11 — frozen
 // `src/platform/commitment/` is NOT touched. The local `InboundMediaSummaryLike` is
 // a structural duck-type, NOT an import from `src/platform/commitment/` (defense-in-depth
 // for invariant #8).
 //
-// Sub-plan: .cursor/plans/commitment_kernel_modality_aware_routing.plan.md (todo
-// `ma-phase-2-types-and-derivation`).
+// Sub-plan: .cursor/plans/commitment_kernel_modality_aware_routing.plan.md (todos
+// `ma-phase-2-types-and-derivation`, `ma-phase-3-model-registry-surface-confirmation`).
 // Audit anchor: extensions/AUDIT-modality-aware-routing.md §c, §e, §f.
+
+import type { ModelCatalogEntry } from "./model-catalog.js";
 
 /**
  * Closed union of modality requirements a turn may impose on the candidate
@@ -88,4 +91,48 @@ export function deriveTurnModalityRequirements(input: {
   // so callers cannot mutate the requirement set in-place.
   const sorted = Array.from(requirements).sort();
   return Object.freeze(sorted) as readonly ModalityRequirement[];
+}
+
+/**
+ * NEW-A Phase 3 — capability-driven check (NOT provider-name aware).
+ *
+ * Returns true if the model entry's declared `input` modality list covers the
+ * given `requirement`. Driven SOLELY by `ModelCatalogEntry.input` (audit §c) —
+ * never branches on `entry.provider` / `entry.id` / `entry.name`. This keeps
+ * the slice provider-agnostic per master §0.5.6 NEW-A directive ("per-provider
+ * blocklists are EXPLICITLY forbidden").
+ *
+ * Conservative defaults:
+ * - `entry.input === undefined` → treated as `['text']`-only. Many local
+ *   providers omit the field; we MUST NOT assume image-capability silently.
+ * - `'audio'` / `'video'` requirement → returns `false` against ANY current
+ *   catalog entry. The current `ModelInputType` union (`'text' | 'image' |
+ *   'document'`) does NOT declare `'audio'` / `'video'`. The reverse-test in
+ *   `*.test.ts` is the canary that flags the day a future slice widens
+ *   `ModelInputType` and forgets to update this helper. Fail-closed posture.
+ *
+ * Mapping rules:
+ * - `'text'` → always `true` (no model is text-blind; defensive against an
+ *   entry mis-omitting `'text'` from a populated `input` list).
+ * - `'image'` → `(entry.input ?? ['text']).includes('image')`.
+ * - `'audio'` → `false` (typed-but-inert).
+ * - `'video'` → `false` (typed-but-inert).
+ */
+export function modelCoversModalityRequirement(
+  entry: ModelCatalogEntry,
+  requirement: ModalityRequirement,
+): boolean {
+  if (requirement === "text") {
+    // Every model accepts text. Conservative even if `entry.input` declares no
+    // `'text'` member explicitly (e.g. `input: ['image']` — implausible but
+    // structurally permitted by `ModelInputType[]`).
+    return true;
+  }
+  if (requirement === "image") {
+    const declared = entry.input ?? (["text"] as const);
+    return declared.includes("image");
+  }
+  // 'audio' | 'video' — typed-but-inert. No `ModelInputType` member maps.
+  // Fails-closed; reverse-tested.
+  return false;
 }
