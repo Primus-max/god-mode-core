@@ -24,6 +24,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { commitOutboundOnCommitmentSatisfied } from "../../agents/pi-embedded-runner/run/commit-outbound-on-satisfied.js";
 import { recordMemoryOnCommitmentSatisfied } from "../../agents/pi-embedded-runner/run/memory-write-on-satisfied.js";
 import {
   recordArtifactOnCommitmentSatisfied,
@@ -34,6 +35,7 @@ import {
   type TaskWriteInput,
 } from "../../agents/pi-embedded-runner/run/task-write-on-satisfied.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { OutboundCoalescer } from "../../infra/outbound/outbound-coalescer-types.js";
 import { defaultRuntime } from "../../runtime.js";
 import { getMemoryRuntime } from "../../server/memory-store-bootstrap.js";
 import type { IntentContractorLogger } from "../commitment/intent-contractor-impl.js";
@@ -86,6 +88,31 @@ export type ResolveMemoryWiringForTurnParams = {
    * through their own family-specific hooks at this fan-out seam.
    */
   readonly effectFamily?: string;
+  /**
+   * NEW-C Phase 5 — optional outbound-coalescer instance + the turnId
+   * that scopes its bucket store. When supplied AND the attestation
+   * reports `commitmentSatisfied === true`, the fanned-out
+   * `onAttestation` callback dispatches the PRIMARY commit trigger
+   * (sibling of the memory / task / artifact hooks). When absent (the
+   * default decision-layer wiring path in `input.ts:580` — the
+   * coalescer is constructed later, per-`runReplyAgent` invocation in
+   * `agent-runner.ts`), the primary trigger is wired but inert and the
+   * fallback `finalizeAfterRun` finally block at
+   * `agent-runner.ts:~1792` covers the commit edge.
+   *
+   * The optional pairing keeps the contract surface backward-
+   * compatible: callers that DO have a coalescer (e.g. the slice F P5
+   * acceptance fixture, future agent-runner-side wiring) opt-in
+   * additively without touching legacy decision flows.
+   */
+  readonly outboundCoalescer?: OutboundCoalescer;
+  /**
+   * NEW-C Phase 5 — turnId carried alongside `outboundCoalescer`. The
+   * coalescer keys on `(turnId, channelKey)` so the primary-trigger
+   * dispatch must know which turn to flush. When `outboundCoalescer`
+   * is omitted, this field is ignored.
+   */
+  readonly outboundTurnId?: string;
 };
 
 export async function resolveMemoryWiringForTurn(
@@ -227,6 +254,33 @@ export async function resolveMemoryWiringForTurn(
         defaultRuntime.log(
           `[artifact-write] fan-out failed: ${err instanceof Error ? err.message : String(err)}`,
         );
+      }
+
+      // NEW-C Phase 5 outbound-coalescer commit-on-satisfied hook
+      // fan-out. The hook self-filters on `commitmentSatisfied===true`
+      // — calling it here unconditionally is safe (returns silently on
+      // unsatisfied attestations). When BOTH `outboundCoalescer` AND
+      // `outboundTurnId` are supplied, the hook fires the PRIMARY
+      // commit trigger (sibling of slice E memory hook, slice F task
+      // hook, cutover-3 artifact hook). When EITHER is absent (the
+      // default decision-layer wiring path — coalescer is built later
+      // in `agent-runner.ts`), the hook is wired but inert and the
+      // fallback `finalizeAfterRun` finally block covers the commit
+      // edge. The hook NEVER throws (invariant #15); the outer
+      // `try`/`catch` is defensive only.
+      if (params.outboundCoalescer && params.outboundTurnId) {
+        try {
+          await commitOutboundOnCommitmentSatisfied({
+            coalescer: params.outboundCoalescer,
+            attestation,
+            turnId: params.outboundTurnId,
+            logger: (line: string) => defaultRuntime.log(line),
+          });
+        } catch (err) {
+          defaultRuntime.log(
+            `[commit-outbound] fan-out failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
     },
   };

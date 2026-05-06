@@ -1778,19 +1778,30 @@ export async function runReplyAgent(params: {
       throw error;
     } finally {
       blockReplyPipeline?.stop();
-      // NEW-C Phase 4 — fallback commit trigger (audit §d third line).
-      // Primary commit edge (`commitmentSatisfied===true`) lands in
-      // Phase 5; for Phase 4 we commit here so every registered
-      // message (final from block-buffer, ack from no-deferral
-      // fallback when wired, intermediate from compaction notice)
-      // flushes through the channel adapter before the function
-      // returns. Empty-bucket commits are silent noops, so this is
-      // safe across early-return paths (queuedSemanticRetry,
-      // acceptance fallback, error catch). Failure isolation is
-      // built-in (`deps.deliver` throws → bucket cleared, warn log,
-      // no propagation).
+      // NEW-C Phase 5 — fallback commit trigger (audit §d second line of
+      // the three-line defense). The PRIMARY trigger lives in
+      // `commit-outbound-on-satisfied.ts` and is dispatched from the
+      // `memory-wiring.ts` `onAttestation` fan-out when the gate
+      // produces `commitmentSatisfied===true`. This finally-block is
+      // the FALLBACK for paths the primary did NOT cover (policy
+      // denial, abort mid-LLM, queuedSemanticRetry, error catch).
+      // Empty-bucket commits are silent noops, so this is safe even
+      // when the primary already drained the bucket (idempotency —
+      // both edges firing produces ONE deliver per channel).
+      // Failure isolation is built-in (`deps.deliver` throws → bucket
+      // cleared, warn log, no propagation).
       if (outboundCoalescer) {
         try {
+          // Phase 5 telemetry — distinguish the commit source so
+          // operators can correlate which edge actually flushed each
+          // bucket. Telemetry only; the actual commit happens via
+          // `commitAll` regardless. The line is emitted even when the
+          // bucket is empty so a forensic search for
+          // `source=finalize_after_run` always lands on the finally
+          // block (slice F P5 telemetry-source-pairing precedent).
+          defaultRuntime.log(
+            `[outbound-coalescer] event=commit_signal source=finalize_after_run turnId=${progressTurnId}`,
+          );
           await outboundCoalescer.commitAll(progressTurnId);
         } catch {
           // commitAll is failure-isolated internally; surfacing here
