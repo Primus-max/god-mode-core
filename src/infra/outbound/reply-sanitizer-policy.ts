@@ -49,11 +49,56 @@ import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
 
 /**
  * Per-channel structural policy. Frozen object — callers MUST NOT mutate.
- * v1 ships exactly one field; future fields land additively without breaking
- * existing call sites that destructure `{ reasoning }`.
+ *
+ * Field history:
+ *   - `reasoning` — slice I P5+P6 ADDITIVE-policy surface (v1).
+ *   - `localeFilter` — NEW-D Phase 2 ADDITIVE optional field (live evidence
+ *     L2392: ALERT-style English text reached telegram channel with audience
+ *     locale=ru; Phase 3 introduces the in-sanitizer locale gate that
+ *     consumes this policy field).
+ *
+ * Existing call sites that destructure `{ reasoning }` continue to compile
+ * unchanged; the locale-aware resolver
+ * (`resolveReplySanitizerPolicyWithLocale`) is opt-in until Phase 4 wires
+ * deliver.ts.
  */
 export type ReplySanitizerPolicy = {
   readonly reasoning: "strip" | "structured" | "deferred";
+  readonly localeFilter?: LocaleFilterPolicy;
+};
+
+/**
+ * Per-channel audience-locale filter for the outbound sanitizer.
+ *
+ * Sub-plan: `.cursor/plans/commitment_kernel_locale_aware_sanitizer.plan.md`
+ * §2 / phase 2 todo. Phase 3 introduces the in-sanitizer detector that
+ * mirrors the predominant-locale arithmetic from
+ * `src/agents/pi-embedded-subscribe.handlers.messages.ts:350-354` (Cyrillic
+ * via `/[Ѐ-ӿ]/g` count vs. Latin via `/[A-Za-z]/g` count). When the detected
+ * predominant locale is NOT in `allowedLocales`, the sanitizer blocks the
+ * chunk by emitting a synthetic `locale_filter_block` strip event.
+ *
+ * Locale ids in v1 are tri-valued: `'ru'` | `'en'` | `'other'` (per the
+ * existing detector verdict). The shape allows additional ids without a
+ * breaking change.
+ */
+export type LocaleFilterPolicy = {
+  /**
+   * Audience locales allowed on this channel. The chunk is blocked when the
+   * detected predominant locale is absent from this list. Empty list is
+   * unsupported (operators should remove the channel entry from
+   * `CHANNEL_LOCALE_DEFAULTS` to disable the gate instead of supplying an
+   * empty list).
+   */
+  readonly allowedLocales: readonly string[];
+  /**
+   * Minimum predominance ratio for the locale verdict to count. Default 0.5
+   * — half the alphabetic chars must match the predominant locale. The
+   * Phase 3 detector also requires a minimum-alphabetic-char threshold
+   * (proposed 8 chars) before firing the gate; this avoids false-blocks on
+   * short / numeric / emoji-only replies (`OK`, `5`, `👍`).
+   */
+  readonly minimumRatio: number;
 };
 
 /** Frozen singletons returned by the resolver. Per-call allocation avoided. */
@@ -146,3 +191,100 @@ export function isReplySanitizerSurface(channel: string): boolean {
 export const __REPLY_SANITIZER_POLICY_CHANNELS_FOR_TESTS: readonly string[] = Array.from(
   CHANNEL_POLICY.keys(),
 );
+
+// ---------------------------------------------------------------------------
+// NEW-D Phase 2 — locale-aware resolver (additive)
+// ---------------------------------------------------------------------------
+//
+// Sub-plan: `.cursor/plans/commitment_kernel_locale_aware_sanitizer.plan.md`
+// §2 / phase 2 todo + audit deliverable `extensions/AUDIT-locale-aware-
+// sanitizer.md` §b.
+//
+// The locale-aware surface co-exists with the original `resolveReplySanitizer
+// Policy`. Phase 4 will rebind the single `deliver.ts:419` call-site to the
+// locale-aware variant. Both functions return the SAME shape; the locale-
+// aware variant additionally populates the optional `localeFilter` field
+// from the operator-curated `CHANNEL_LOCALE_DEFAULTS` map.
+//
+// Map curation discipline matches slice I 16-pattern list — additions only
+// under live-log evidence. v1 ships ONLY the two channels with documented
+// audience-locale evidence (telegram via L2392, webchat as multi-locale UI);
+// every other channel is opt-in.
+
+/**
+ * Minimum predominance ratio for `LocaleFilterPolicy`. Half the alphabetic
+ * chars must match the predominant locale before the gate fires.
+ */
+const DEFAULT_LOCALE_MINIMUM_RATIO = 0.5;
+
+/**
+ * Operator-curated audience-locale defaults per channel id. Values are
+ * frozen `readonly string[]` arrays of locale ids (`'ru'` / `'en'` /
+ * `'other'`). Channels ABSENT from this map resolve to a policy with
+ * `localeFilter === undefined` — the Phase 3 sanitizer branch is skipped and
+ * behavior is byte-identical to today.
+ *
+ * Curation v1 (sub-plan §6 implementation notes):
+ *   - `telegram` → `['ru']` — live test channel; L2392 evidence (`lang=en
+ *     cyr=0`) of English ALERT leak motivated the slice.
+ *   - `webchat` (`INTERNAL_MESSAGE_CHANNEL`) → `['ru','en']` — multi-locale
+ *     UI default; both locales acceptable on the same channel.
+ *
+ * The remaining 11 channel-policy entries (whatsapp / signal / imessage /
+ * googlechat / line / irc / max / voice / sms / slack / discord) are
+ * intentionally absent so the gate stays evidence-driven. Operators add a
+ * channel here only after observing a leak class on that surface.
+ */
+export const CHANNEL_LOCALE_DEFAULTS: ReadonlyMap<string, readonly string[]> = new Map<
+  string,
+  readonly string[]
+>([
+  ["telegram", Object.freeze(["ru"]) as readonly string[]],
+  [INTERNAL_MESSAGE_CHANNEL, Object.freeze(["ru", "en"]) as readonly string[]],
+]);
+
+/**
+ * Per-channel locale-aware policy singletons. Built once at module init from
+ * the existing reasoning-based singletons + the locale entries above. Two
+ * calls to `resolveReplySanitizerPolicyWithLocale` for the same channel
+ * return the IDENTICAL frozen reference — no per-call object allocation.
+ *
+ * Channels absent from `CHANNEL_LOCALE_DEFAULTS` are NOT placed in this map;
+ * the resolver falls back to the existing `resolveReplySanitizerPolicy`
+ * singleton (same `{ reasoning }` shape, no `localeFilter` property).
+ */
+const CHANNEL_POLICY_WITH_LOCALE: ReadonlyMap<string, ReplySanitizerPolicy> = new Map(
+  Array.from(CHANNEL_LOCALE_DEFAULTS, ([channel, allowedLocales]): [string, ReplySanitizerPolicy] => {
+    const base = CHANNEL_POLICY.get(channel) ?? POLICY_STRIP;
+    const localeFilter: LocaleFilterPolicy = Object.freeze({
+      allowedLocales,
+      minimumRatio: DEFAULT_LOCALE_MINIMUM_RATIO,
+    });
+    const merged: ReplySanitizerPolicy = Object.freeze({
+      reasoning: base.reasoning,
+      localeFilter,
+    });
+    return [channel, merged];
+  }),
+);
+
+/**
+ * Locale-aware variant of `resolveReplySanitizerPolicy`. Returns the existing
+ * frozen singleton (`POLICY_STRIP` / `POLICY_STRUCTURED` / `POLICY_DEFERRED`)
+ * merged with the operator-curated `localeFilter` from
+ * `CHANNEL_LOCALE_DEFAULTS` when one is configured. Channels absent from the
+ * map return the SAME singleton as `resolveReplySanitizerPolicy(channel)` —
+ * `localeFilter === undefined`, behavior byte-identical.
+ *
+ * Phase 4 wires this into `deliver.ts:419` (single resolver swap). Until
+ * then, `resolveReplySanitizerPolicy` remains the live call-site and this
+ * function is exercised only by tests.
+ *
+ * @param channel - channel id (chat channel, outbound delivery surface, or
+ *   `INTERNAL_MESSAGE_CHANNEL`).
+ * @returns frozen `ReplySanitizerPolicy`. The result is reference-stable
+ *   across calls for any given channel (configured or not).
+ */
+export function resolveReplySanitizerPolicyWithLocale(channel: string): ReplySanitizerPolicy {
+  return CHANNEL_POLICY_WITH_LOCALE.get(channel) ?? resolveReplySanitizerPolicy(channel);
+}
