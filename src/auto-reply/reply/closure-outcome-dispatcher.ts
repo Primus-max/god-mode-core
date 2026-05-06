@@ -701,13 +701,38 @@ function ensureClosureApprovalRequest(params: {
   return approvalId;
 }
 
+/**
+ * Phase 8 Bug #1 (audit AUDIT-policy-gate-full.md §d): the historical
+ * `string[]` return collapsed three causally distinct empty-array paths
+ * — (i) no capabilities advertised, (ii) all capabilities already
+ * verified at runtime, (iii) untrusted/unknown — into one. The dispatcher
+ * could not tell path (ii) apart from (i)/(iii) and therefore fired
+ * `bootstrap_noop` after a successful resume. The discriminated return
+ * shape below restores that distinction so the caller can early-return on
+ * `already_verified` BEFORE `markClosureRecoveryCheckpointFailed` runs.
+ */
+type EnsureBootstrapRequestsResult =
+  | {
+      kind: "requests_created";
+      requestIds: string[];
+      /**
+       * Capabilities that the bootstrap service confirmed are at
+       * `state: "available"` even though new requests were created for the
+       * remaining unverified ones. Surface them so the dispatcher can emit
+       * the `bootstrap_skip_already_verified` log line for telemetry.
+       */
+      verifiedCapabilityIds: string[];
+    }
+  | { kind: "already_verified"; verifiedCapabilityIds: string[] }
+  | { kind: "no_capabilities_advertised" };
+
 function ensureBootstrapRequests(params: {
   decision: MessagingClosureDecision;
   executionIntent?: PlatformRuntimeExecutionIntent;
   queueKey?: string;
   sourceRun?: FollowupRun;
   settings?: QueueSettings;
-}): string[] {
+}): EnsureBootstrapRequestsResult {
   const outcome = resolveDecisionOutcome(params.decision);
   const existingRequestIds = outcome?.bootstrapRequestIds ?? [];
   const capabilityIds = Array.from(
@@ -734,15 +759,35 @@ function ensureBootstrapRequests(params: {
         service.attachBlockedRunResume(requestId, blockedRunResume);
       }
     }
-    return existingRequestIds;
+    return {
+      kind: "requests_created",
+      requestIds: [...existingRequestIds],
+      verifiedCapabilityIds: [],
+    };
   }
   if (capabilityIds.length === 0) {
-    return [];
+    return { kind: "no_capabilities_advertised" };
+  }
+
+  // Phase 8 Bug #1: detect capabilities that the bootstrap service has
+  // already driven to `state: "available"` (verified at runtime). The
+  // dispatcher's local registry is intentionally fresh — the source of
+  // truth for prior verification lives in the bootstrap request records.
+  const service = getPlatformBootstrapService();
+  const verifiedRecords = service
+    .list()
+    .filter((record) => record.state === "available");
+  const verifiedSet = new Set(verifiedRecords.map((record) => record.capabilityId));
+  const verifiedCapabilityIds = capabilityIds.filter((id) => verifiedSet.has(id));
+  const remainingCapabilityIds = capabilityIds.filter((id) => !verifiedSet.has(id));
+
+  if (remainingCapabilityIds.length === 0) {
+    return { kind: "already_verified", verifiedCapabilityIds };
   }
 
   const registry = createCapabilityRegistry([], TRUSTED_CAPABILITY_CATALOG);
   const resolutions = resolveBootstrapRequests({
-    capabilityIds,
+    capabilityIds: remainingCapabilityIds,
     registry,
     reason: resolveBootstrapReason(params.executionIntent),
     sourceDomain: resolveBootstrapSourceDomain(params.executionIntent),
@@ -753,11 +798,19 @@ function ensureBootstrapRequests(params: {
     }),
     ...(blockedRunResume ? { blockedRunResume } : {}),
   });
-  const service = getPlatformBootstrapService();
-  return resolutions
+  const requestIds = resolutions
     .map((resolution) => resolution.request)
     .filter((request): request is BootstrapRequest => request !== undefined)
     .map((request) => service.create(request).id);
+
+  if (requestIds.length === 0 && verifiedCapabilityIds.length > 0) {
+    // Mixed input where unverified capabilities resolved to
+    // unknown/untrusted. The verified portion still merits the skip log
+    // and supersedes the bootstrap_noop fail-closed branch.
+    return { kind: "already_verified", verifiedCapabilityIds };
+  }
+
+  return { kind: "requests_created", requestIds, verifiedCapabilityIds };
 }
 
 export function enqueueSemanticRetryFollowup(params: {
@@ -834,7 +887,7 @@ export function dispatchMessagingClosureOutcome(params: {
   }
 
   const isBootstrapRemediation = decision.remediation === "bootstrap";
-  const bootstrapRequestIds = isBootstrapRemediation
+  const bootstrapResult: EnsureBootstrapRequestsResult = isBootstrapRemediation
     ? ensureBootstrapRequests({
         decision,
         executionIntent: params.executionIntent,
@@ -842,7 +895,29 @@ export function dispatchMessagingClosureOutcome(params: {
         sourceRun: params.sourceRun,
         settings: params.settings,
       })
-    : [];
+    : { kind: "no_capabilities_advertised" };
+
+  // Phase 8 Bug #1: emit the skip log line for any capability the
+  // bootstrap service has already driven to `state: "available"` (mixed
+  // and pure-verified shapes). This restores telemetry parity for the
+  // verified path that the historical `string[]` return collapsed.
+  if (bootstrapResult.kind === "already_verified" || bootstrapResult.kind === "requests_created") {
+    for (const capabilityId of bootstrapResult.verifiedCapabilityIds) {
+      console.log(
+        `[closure-outcome] event=bootstrap_skip_already_verified capability=${capabilityId}`,
+      );
+    }
+  }
+
+  // Pure verified path: the previous `bootstrap_noop` branch fired here
+  // as a false positive — the run was genuinely allowed to proceed.
+  // Short-circuit before `markClosureRecoveryCheckpointFailed`.
+  if (bootstrapResult.kind === "already_verified") {
+    return { queuedSemanticRetry: false };
+  }
+
+  const bootstrapRequestIds =
+    bootstrapResult.kind === "requests_created" ? bootstrapResult.requestIds : [];
 
   // Fail-closed safety net: the verifier asked for a bootstrap but the
   // intent did not actually advertise any capabilities to install (e.g.
