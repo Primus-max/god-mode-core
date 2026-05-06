@@ -236,3 +236,117 @@ describe("resolveMemoryWiringForTurn — slice F Phase 5 task ledger fan-out (St
     expect(list.semantic.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe("resolveMemoryWiringForTurn — cutover-3 Phase 5 artifact hook fan-out", () => {
+  beforeEach(() => {
+    __resetMemoryRuntimeForTests();
+  });
+  afterEach(() => {
+    __resetMemoryRuntimeForTests();
+  });
+
+  it("the returned onAttestation does NOT write an artifact entry when no artifactWriteInput is supplied (default behaviour)", async () => {
+    // Reverse coverage: the wiring fans out to the artifact hook but the
+    // hook self-filters on `artifactInput` presence, so the default
+    // path (no artifact input) emits ZERO artifact-family episodic
+    // entries even when the attestation satisfies.
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      promptText: "hello",
+    });
+    await wiring.onAttestation!(satisfied);
+    const list = await wiring.memoryStore!.list({ identityId: wiring.identityId! });
+    const artifactEntries = list.episodic.filter(
+      (entry) => entry.event.effectFamily === "artifact",
+    );
+    expect(artifactEntries).toEqual([]);
+  });
+
+  it("the returned onAttestation writes an artifact-family episodic entry when artifactWriteInput + effectFamily=artifact are supplied", async () => {
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      sessionId: "session-art-1",
+      promptText: "сделай PDF",
+      effectFamily: "artifact",
+      artifactWriteInput: {
+        artifactId: "artifact:pdf:wiring-1",
+        kind: "pdf",
+        occurredAt: "2026-05-06T12:00:00.000Z",
+        effectId: "pdf.created",
+      },
+    });
+    await wiring.onAttestation!(satisfied);
+    const list = await wiring.memoryStore!.list({ identityId: wiring.identityId! });
+    const artifactEntries = list.episodic.filter(
+      (entry) => entry.event.effectFamily === "artifact",
+    );
+    expect(artifactEntries).toHaveLength(1);
+    expect(artifactEntries[0]?.event.effectId).toBe("pdf.created");
+  });
+
+  it("the returned onAttestation does NOT write an artifact entry when effectFamily is not artifact (cross-family no-op)", async () => {
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      sessionId: "session-art-cross",
+      promptText: "answer me",
+      effectFamily: "communication",
+      artifactWriteInput: {
+        artifactId: "artifact:image:should-not-write",
+        kind: "image",
+        occurredAt: "2026-05-06T12:00:00.000Z",
+      },
+    });
+    await wiring.onAttestation!(satisfied);
+    const list = await wiring.memoryStore!.list({ identityId: wiring.identityId! });
+    const artifactEntries = list.episodic.filter(
+      (entry) => entry.event.effectFamily === "artifact",
+    );
+    expect(artifactEntries).toEqual([]);
+  });
+
+  it("the returned onAttestation does NOT write an artifact entry on commitmentSatisfied=false (reverse)", async () => {
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      sessionId: "session-art-rev",
+      promptText: "rejected turn",
+      effectFamily: "artifact",
+      artifactWriteInput: {
+        artifactId: "artifact:pdf:rejected",
+        kind: "pdf",
+        occurredAt: "2026-05-06T12:00:00.000Z",
+      },
+    });
+    await wiring.onAttestation!(unsatisfied);
+    const list = await wiring.memoryStore!.list({ identityId: wiring.identityId! });
+    const artifactEntries = list.episodic.filter(
+      (entry) => entry.event.effectFamily === "artifact",
+    );
+    expect(artifactEntries).toEqual([]);
+  });
+
+  it("absorbs a thrown artifact-write so the calling turn is unaffected (invariant #15 — defense-in-depth)", async () => {
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      sessionId: "session-art-throw",
+      promptText: "hello",
+      effectFamily: "artifact",
+      artifactWriteInput: {
+        artifactId: "artifact:pdf:throw",
+        kind: "pdf",
+        occurredAt: "2026-05-06T12:00:00.000Z",
+      },
+    });
+    const store = wiring.memoryStore!;
+    const original = store.storeEpisodic.bind(store);
+    vi.spyOn(store, "storeEpisodic").mockImplementation(async () => {
+      throw new Error("artifact write blew up");
+    });
+    await expect(wiring.onAttestation!(satisfied)).resolves.toBeUndefined();
+    vi.spyOn(store, "storeEpisodic").mockImplementation(original);
+  });
+});

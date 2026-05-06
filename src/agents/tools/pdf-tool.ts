@@ -18,6 +18,7 @@ import {
   materializeArtifact,
   resolveHtmlBody,
 } from "../../platform/materialization/index.js";
+import { emitArtifactFromTool } from "../pi-embedded-runner/run/emit-artifact-from-tool.js";
 import { resolveUserPath } from "../../utils.js";
 import {
   type ImageModelConfig,
@@ -908,6 +909,17 @@ export function createPdfTool(options?: {
           undefined,
           filename,
         );
+        // Cutover-3 Phase 5 emit site — record this artifact in the
+        // commitment-runtime WorldState slice so the Phase 4
+        // `pdfCreatedPredicate` resolves on commitmentSatisfied.
+        // No-op when no ambient turn key is set (Phase 7/8 wires the
+        // runner-side `setAmbientArtifactTurn`).
+        emitArtifactFromTool({
+          kind: "pdf",
+          path: saved.path,
+          mimeType: "application/pdf",
+          sizeBytes: saved.size,
+        });
         return {
           content: [
             {

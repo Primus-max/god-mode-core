@@ -24,7 +24,24 @@ export type DeliveryExpectedDelta = {
   };
 };
 
-export type ArtifactExpectedDelta = Record<string, never>;
+/**
+ * Cutover-3 Phase 5 — additive widening of the artifacts slice. Phase 4
+ * shipped done-predicates that read `delta.artifacts.added` via a
+ * forward-compat structural cast; Phase 5 lights this up by extending
+ * the type itself. `added` is the closed list of `artifactId` values
+ * the runtime adapter (`artifact-runtime-adapter.ts`) emitted during
+ * the turn — the predicates JOIN against
+ * `WorldStateSnapshot.artifacts.records[*].artifactId`.
+ *
+ * Pure additive extension (cutover-2 PR-#104 / slice E P6 precedent):
+ * existing `ArtifactExpectedDelta` consumers expected `Record<string,
+ * never>`; the new shape is structurally assignable from the empty
+ * object, so callers that did not populate `added` continue to compile
+ * and behave byte-identical.
+ */
+export type ArtifactExpectedDelta = {
+  readonly added?: readonly string[];
+};
 export type WorkspaceExpectedDelta = Record<string, never>;
 
 export type ExpectedDelta = {

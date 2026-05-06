@@ -26,6 +26,10 @@
 import { randomUUID } from "node:crypto";
 import { recordMemoryOnCommitmentSatisfied } from "../../agents/pi-embedded-runner/run/memory-write-on-satisfied.js";
 import {
+  recordArtifactOnCommitmentSatisfied,
+  type ArtifactWriteInput,
+} from "../../agents/pi-embedded-runner/run/recordArtifactOnCommitmentSatisfied.js";
+import {
   recordTaskOnCommitmentSatisfied,
   type TaskWriteInput,
 } from "../../agents/pi-embedded-runner/run/task-write-on-satisfied.js";
@@ -61,6 +65,27 @@ export type ResolveMemoryWiringForTurnParams = {
    * at their attestation construction sites once those slices land.
    */
   readonly taskWriteInput?: TaskWriteInput;
+  /**
+   * Cutover-3 Phase 5 — optional caller-side `ArtifactWriteInput`. When
+   * set AND the satisfying commitment's `effectFamily === "artifact"`,
+   * the fanned-out `onAttestation` callback emits a typed
+   * `EpisodicMemoryEvent { effectFamily: "artifact", payload:
+   * ArtifactCreatedPayload }` against the operator's `IdentityId`. This
+   * is the FIRST emit site for the slice E `artifact` slot on `dev`.
+   *
+   * When absent (the default until artifact-producing tools light
+   * their emit sites in this same phase via the runtime adapter +
+   * caller plumbing), the hook is wired but inert.
+   */
+  readonly artifactWriteInput?: ArtifactWriteInput;
+  /**
+   * Cutover-3 Phase 5 — optional `effectFamily` of the satisfying
+   * commitment. The artifact hook self-filters on
+   * `effectFamily === "artifact"` so non-artifact families
+   * (`persistent_session`, `task`, `web_research`, etc.) stay routed
+   * through their own family-specific hooks at this fan-out seam.
+   */
+  readonly effectFamily?: string;
 };
 
 export async function resolveMemoryWiringForTurn(
@@ -166,6 +191,41 @@ export async function resolveMemoryWiringForTurn(
       } catch (err) {
         defaultRuntime.log(
           `[task-write] fan-out failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      // Cutover-3 Phase 5 artifact hook fan-out. Self-filters on
+      // `commitmentSatisfied`, `effectFamily === "artifact"`,
+      // identity, store presence, and `artifactInput` presence — so
+      // calling it here unconditionally is safe (returns
+      // `{ kind: "skipped", ... }` when any precondition misses). When
+      // it DOES write, it emits the LIVE log line
+      // `[memory-write-on-satisfied] effectFamily=artifact wrote=true`
+      // (slice E typed-but-inert `artifact` slot now LIT for the first
+      // time on `dev`).
+      try {
+        const artifactOutcome = await recordArtifactOnCommitmentSatisfied({
+          attestation,
+          identityId,
+          memoryStore: runtime.memoryStore,
+          artifactInput: params.artifactWriteInput,
+          effectFamily: params.effectFamily,
+          logger: {
+            warn: (message: string) =>
+              defaultRuntime.log(`[artifact-write] ${message}`),
+            debug: () => {
+              /* trace volume — drop debug events at the production seam */
+            },
+          },
+        });
+        if (artifactOutcome.kind === "written") {
+          defaultRuntime.log(
+            `[memory-write-on-satisfied] effectFamily=artifact wrote=true entryId=${artifactOutcome.entryId}`,
+          );
+        }
+      } catch (err) {
+        defaultRuntime.log(
+          `[artifact-write] fan-out failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     },

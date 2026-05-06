@@ -1,10 +1,6 @@
 import type { DonePredicate, EvidenceFact } from "./affordance.js";
 import type { ArtifactRecord } from "./world-state.js";
 
-type ArtifactExpectedDeltaForPhase4 = {
-  readonly added?: readonly string[];
-};
-
 /**
  * Verifies that the runtime adapter (Phase 5) recorded a `docx` artifact
  * whose `artifactId` was emitted via the commitment's
@@ -32,9 +28,7 @@ export const docxCreatedPredicate: DonePredicate = (ctx) => {
     };
   }
 
-  const expectedAdded =
-    (ctx.expectedDelta.artifacts as ArtifactExpectedDeltaForPhase4 | undefined)
-      ?.added ?? [];
+  const expectedAdded = ctx.expectedDelta.artifacts?.added ?? [];
   if (expectedAdded.length === 0) {
     return {
       satisfied: false,

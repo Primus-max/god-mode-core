@@ -2,6 +2,7 @@ import path from "node:path";
 import { Type } from "@sinclair/typebox";
 import { saveMediaBuffer } from "../../media/store.js";
 import { loadCapabilityModule } from "../../platform/bootstrap/index.js";
+import { emitArtifactFromTool } from "../pi-embedded-runner/run/emit-artifact-from-tool.js";
 import { type AnyAgentTool, readStringParam } from "./common.js";
 
 const DocxToolSchema = Type.Object({
@@ -202,6 +203,17 @@ export function createDocxTool(): AnyAgentTool {
         10 * 1024 * 1024,
         `${fileStem}.docx`,
       );
+      // Cutover-3 Phase 5 emit site — record this DOCX in the
+      // commitment-runtime WorldState slice so the Phase 4
+      // `docxCreatedPredicate` resolves on commitmentSatisfied.
+      // No-op when no ambient turn key is set.
+      emitArtifactFromTool({
+        kind: "docx",
+        path: saved.path,
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sizeBytes: saved.size,
+      });
       const basename = path.basename(saved.path);
       return {
         content: [
