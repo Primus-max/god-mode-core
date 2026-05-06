@@ -38,6 +38,7 @@ export {
 } from "./effect-family-registry.js";
 export {
   ANSWER_DELIVERED_AFFORDANCE_ENTRY,
+  BRANCH_NAME_VALID_PRECONDITION,
   CLARIFICATION_REQUESTED_AFFORDANCE_ENTRY,
   CODE_PATCH_APPLIED_AFFORDANCE_ENTRY,
   COMPOSER_AFTER_SEARCH_AFFORDANCE_ENTRY,
@@ -50,6 +51,11 @@ export {
   PDF_RENDERER_AVAILABLE_PRECONDITION,
   PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
+  REPO_BRANCH_CREATED_AFFORDANCE_ENTRY,
+  REPO_COMMIT_LANDED_AFFORDANCE_ENTRY,
+  REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY,
+  REPO_MERGE_COMPLETED_AFFORDANCE_ENTRY,
+  REPO_ROOT_AVAILABLE_PRECONDITION,
   WEB_EVIDENCE_PRESENT_PRECONDITION,
   createAffordanceRegistry,
   defaultAffordanceRegistry,
@@ -58,6 +64,10 @@ export { codePatchAppliedPredicate } from "./done-predicate-code-patch-applied.j
 export { docxCreatedPredicate } from "./done-predicate-docx-created.js";
 export { imageCreatedPredicate } from "./done-predicate-image-created.js";
 export { pdfCreatedPredicate } from "./done-predicate-pdf-created.js";
+export { repoBranchCreatedPredicate } from "./done-predicate-repo-branch-created.js";
+export { repoCommitLandedPredicate } from "./done-predicate-repo-commit-landed.js";
+export { repoDiffObservedPredicate } from "./done-predicate-repo-diff-observed.js";
+export { repoMergeCompletedPredicate } from "./done-predicate-repo-merge-completed.js";
 export { webEvidenceCollectedPredicate } from "./done-predicate-web-evidence-collected.js";
 export { webResearchSummarizedPredicate } from "./done-predicate-web-research-summarized.js";
 export {

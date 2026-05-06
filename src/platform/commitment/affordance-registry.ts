@@ -8,6 +8,10 @@ import {
 import { docxCreatedPredicate } from "./done-predicate-docx-created.js";
 import { imageCreatedPredicate } from "./done-predicate-image-created.js";
 import { pdfCreatedPredicate } from "./done-predicate-pdf-created.js";
+import { repoBranchCreatedPredicate } from "./done-predicate-repo-branch-created.js";
+import { repoCommitLandedPredicate } from "./done-predicate-repo-commit-landed.js";
+import { repoDiffObservedPredicate } from "./done-predicate-repo-diff-observed.js";
+import { repoMergeCompletedPredicate } from "./done-predicate-repo-merge-completed.js";
 import type { CommitmentTarget } from "./execution-commitment.js";
 import type { AffordanceId, EffectFamilyId, EffectId, PreconditionId } from "./ids.js";
 import {
@@ -18,6 +22,11 @@ import {
   IMAGE_CREATED_EFFECT,
   PDF_CREATED_EFFECT,
   PERSISTENT_SESSION_EFFECT_FAMILY,
+  REPO_BRANCH_CREATED_EFFECT,
+  REPO_COMMIT_LANDED_EFFECT,
+  REPO_DIFF_OBSERVED_EFFECT,
+  REPO_EFFECT_FAMILY,
+  REPO_MERGE_COMPLETED_EFFECT,
   WEB_EVIDENCE_COLLECTED_EFFECT,
   WEB_RESEARCH_EFFECT_FAMILY,
   WEB_RESEARCH_SUMMARIZED_EFFECT,
@@ -444,6 +453,164 @@ export const IMAGE_CREATED_AFFORDANCE_ENTRY = Object.freeze({
   donePredicate: imageCreatedPredicate,
 } satisfies RegisteredAffordance);
 
+// ─── Cutover-4 Phase 4 — repo-family affordances + preconditions ───────────
+//
+// Additive registry extension under the `repo` effect-family registered in
+// Phase 2 (`REPO_EFFECT_FAMILY`). Each entry references one of the four
+// `EffectId` constants from `effect-family-registry.ts`; tool→effect
+// resolution lives in the Phase 5 runtime adapter (`repo-runtime-adapter.ts`),
+// so the affordance stays tool-free per invariant #1. Done-predicates read
+// `ctx.stateAfter.repo?.records` (Phase 3 slice) only — no raw user text, no
+// tool surface, no `TaskContract` (invariant #9).
+//
+// Risk-tier asymmetry within the family is intentional: `repo.diff_observed`
+// is read-only (low) vs `repo.merge_completed` is history-altering on
+// protected refs (high). Phase 6 PolicyGate Stage 4 enforces the maintainer
+// role on `repo.merge_completed`. `defaultBudgets.maxRetries` is `0` for
+// every mutation effect — duplicate branch/commit/partial-merge replays from
+// auto-retry are unsafe (audit `extensions/AUDIT-cutover4-repo-operation.md`
+// §a). Only the read-only `repo.diff_observed` permits a single retry on
+// transient failure.
+
+export const REPO_ROOT_AVAILABLE_PRECONDITION =
+  "repo_root_available" as PreconditionId;
+export const BRANCH_NAME_VALID_PRECONDITION =
+  "branch_name_valid" as PreconditionId;
+
+const REPO_BRANCH_CREATED_AFFORDANCE = "repo.branch_created" as AffordanceId;
+const REPO_COMMIT_LANDED_AFFORDANCE = "repo.commit_landed" as AffordanceId;
+const REPO_MERGE_COMPLETED_AFFORDANCE = "repo.merge_completed" as AffordanceId;
+const REPO_DIFF_OBSERVED_AFFORDANCE = "repo.diff_observed" as AffordanceId;
+
+/**
+ * Matches the workspace target for repo-mutating effects (branch / commit /
+ * merge). All three operations write to the workspace tree; artifact-bucket
+ * or session targets are not valid bindings.
+ *
+ * @param target - Commitment target candidate.
+ * @returns True for `workspace` only.
+ */
+function matchesRepoMutationTarget(target: CommitmentTarget): boolean {
+  return target.kind === "workspace";
+}
+
+/**
+ * Matches the read-only `repo.diff_observed` target space. Diff turns may be
+ * issued without a bound workspace (e.g. "show me the diff" early in a
+ * session before the IntentContractor has resolved the workspace target);
+ * accepting `unspecified` lets the affordance resolve when the workspace is
+ * implicit.
+ *
+ * @param target - Commitment target candidate.
+ * @returns True for `workspace` or `unspecified` only.
+ */
+function matchesRepoDiffObservedTarget(target: CommitmentTarget): boolean {
+  return target.kind === "workspace" || target.kind === "unspecified";
+}
+
+export const REPO_BRANCH_CREATED_AFFORDANCE_ENTRY = Object.freeze({
+  id: REPO_BRANCH_CREATED_AFFORDANCE,
+  effectFamily: REPO_EFFECT_FAMILY,
+  effect: REPO_BRANCH_CREATED_EFFECT,
+  operationKinds: Object.freeze(["create"] satisfies OperationHint["kind"][]),
+  target: matchesRepoMutationTarget,
+  requiredPreconditions: Object.freeze([
+    REPO_ROOT_AVAILABLE_PRECONDITION,
+    BRANCH_NAME_VALID_PRECONDITION,
+  ]),
+  requiredEvidence: Object.freeze([
+    Object.freeze({ kind: "repo.completed", mandatory: true }),
+  ]),
+  allowedConstraintKeys: Object.freeze([
+    "branchName",
+    "baseRef",
+    "checkoutAfterCreate",
+  ]),
+  riskTier: "medium",
+  defaultBudgets: Object.freeze({
+    maxLatencyMs: 30_000,
+    maxRetries: 0,
+  }),
+  observerHandle: Object.freeze({ id: "repo_world_state" }),
+  donePredicate: repoBranchCreatedPredicate,
+} satisfies RegisteredAffordance);
+
+export const REPO_COMMIT_LANDED_AFFORDANCE_ENTRY = Object.freeze({
+  id: REPO_COMMIT_LANDED_AFFORDANCE,
+  effectFamily: REPO_EFFECT_FAMILY,
+  effect: REPO_COMMIT_LANDED_EFFECT,
+  operationKinds: Object.freeze(["update"] satisfies OperationHint["kind"][]),
+  target: matchesRepoMutationTarget,
+  requiredPreconditions: Object.freeze([REPO_ROOT_AVAILABLE_PRECONDITION]),
+  requiredEvidence: Object.freeze([
+    Object.freeze({ kind: "repo.completed", mandatory: true }),
+  ]),
+  allowedConstraintKeys: Object.freeze([
+    "commitMessage",
+    "filesIncluded",
+    "signedOff",
+    "author",
+  ]),
+  riskTier: "medium",
+  defaultBudgets: Object.freeze({
+    maxLatencyMs: 60_000,
+    maxRetries: 0,
+  }),
+  observerHandle: Object.freeze({ id: "repo_world_state" }),
+  donePredicate: repoCommitLandedPredicate,
+} satisfies RegisteredAffordance);
+
+export const REPO_MERGE_COMPLETED_AFFORDANCE_ENTRY = Object.freeze({
+  id: REPO_MERGE_COMPLETED_AFFORDANCE,
+  effectFamily: REPO_EFFECT_FAMILY,
+  effect: REPO_MERGE_COMPLETED_EFFECT,
+  operationKinds: Object.freeze(["update"] satisfies OperationHint["kind"][]),
+  target: matchesRepoMutationTarget,
+  requiredPreconditions: Object.freeze([REPO_ROOT_AVAILABLE_PRECONDITION]),
+  requiredEvidence: Object.freeze([
+    Object.freeze({ kind: "repo.completed", mandatory: true }),
+  ]),
+  allowedConstraintKeys: Object.freeze([
+    "sourceBranch",
+    "targetBranch",
+    "strategy",
+    "fastForward",
+    "squash",
+  ]),
+  riskTier: "high",
+  defaultBudgets: Object.freeze({
+    maxLatencyMs: 120_000,
+    maxRetries: 0,
+  }),
+  observerHandle: Object.freeze({ id: "repo_world_state" }),
+  donePredicate: repoMergeCompletedPredicate,
+} satisfies RegisteredAffordance);
+
+export const REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY = Object.freeze({
+  id: REPO_DIFF_OBSERVED_AFFORDANCE,
+  effectFamily: REPO_EFFECT_FAMILY,
+  effect: REPO_DIFF_OBSERVED_EFFECT,
+  operationKinds: Object.freeze(["observe"] satisfies OperationHint["kind"][]),
+  target: matchesRepoDiffObservedTarget,
+  requiredPreconditions: Object.freeze([REPO_ROOT_AVAILABLE_PRECONDITION]),
+  requiredEvidence: Object.freeze([
+    Object.freeze({ kind: "repo.completed", mandatory: true }),
+  ]),
+  allowedConstraintKeys: Object.freeze([
+    "baseRef",
+    "headRef",
+    "pathFilter",
+    "includeStatus",
+  ]),
+  riskTier: "low",
+  defaultBudgets: Object.freeze({
+    maxLatencyMs: 15_000,
+    maxRetries: 1,
+  }),
+  observerHandle: Object.freeze({ id: "repo_world_state" }),
+  donePredicate: repoDiffObservedPredicate,
+} satisfies RegisteredAffordance);
+
 const DEFAULT_AFFORDANCES = Object.freeze([
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
   ANSWER_DELIVERED_AFFORDANCE_ENTRY,
@@ -455,6 +622,10 @@ const DEFAULT_AFFORDANCES = Object.freeze([
   DOCX_CREATED_AFFORDANCE_ENTRY,
   CODE_PATCH_APPLIED_AFFORDANCE_ENTRY,
   IMAGE_CREATED_AFFORDANCE_ENTRY,
+  REPO_BRANCH_CREATED_AFFORDANCE_ENTRY,
+  REPO_COMMIT_LANDED_AFFORDANCE_ENTRY,
+  REPO_MERGE_COMPLETED_AFFORDANCE_ENTRY,
+  REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY,
 ] satisfies RegisteredAffordance[]);
 
 class StaticAffordanceRegistry implements AffordanceRegistry {
