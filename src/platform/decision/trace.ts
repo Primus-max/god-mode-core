@@ -141,6 +141,38 @@ export type ClarificationPolicyDowngradeMarker = {
   readonly inheritedFields?: readonly ("target.kind" | "operation")[];
 };
 
+/**
+ * Observability-only marker emitted by `run-turn-decision.ts` when the
+ * Stage 2 Approvals gate (`commitment_kernel_policy_gate_full.plan.md`
+ * Phase 3) denies a kernel-derived effect. The gate runs AFTER the
+ * affordance allowlist (which lives inside `runShadowBranch`) and
+ * BEFORE the kernel-derived production decision is returned to the
+ * caller.
+ *
+ * Carrying the closed-string `reason` mirrors the
+ * `APPROVAL_POLICY_REASONS` frozen tuple
+ * (`policy-gate-stages.ts`); the `approvalRequestId` is the join key
+ * between the decision trace, the `policy_approval` episodic event,
+ * and the `ExecApprovalManager` record raised by the same denial
+ * event. Per audit §g, this marker is the trace-side observability
+ * channel — `RuntimeAttestation` is **not** widened with a
+ * `policyDenialReasons` slot (policy denials short-circuit upstream of
+ * the runtime).
+ *
+ * The closed-string `reason` mirrors the frozen
+ * `APPROVAL_POLICY_REASONS = ['requires_approval']` tuple (Phase 2
+ * deliverable). Stages 3-6 will land sibling markers
+ * (`policyBudgetDenial`, `policyRoleDenial`, etc.) following the same
+ * pattern; each extension is gated on its own sub-plan phase with
+ * maintainer signoff.
+ */
+export type PolicyApprovalDenialMarker = {
+  readonly stage: "approval";
+  readonly reason: "requires_approval";
+  readonly effectId: EffectId;
+  readonly approvalRequestId: string;
+};
+
 export type DecisionTrace = {
   version: 1;
   classifier?: DecisionTraceClassifier;
@@ -156,6 +188,7 @@ export type DecisionTrace = {
   readonly kernelFallback?: boolean;
   readonly fallbackReason?: KernelFallbackReason;
   readonly clarificationPolicy?: ClarificationPolicyDowngradeMarker;
+  readonly policyApprovalDenial?: PolicyApprovalDenialMarker;
 };
 
 function sortUnique(values: readonly string[] | undefined): string[] {

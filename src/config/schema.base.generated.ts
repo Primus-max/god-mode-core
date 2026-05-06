@@ -85,6 +85,55 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
         },
         additionalProperties: false,
       },
+      identities: {
+        type: "object",
+        propertyNames: {
+          type: "string",
+          minLength: 1,
+        },
+        additionalProperties: {
+          type: "object",
+          properties: {
+            displayName: {
+              type: "string",
+              minLength: 1,
+            },
+            mappings: {
+              default: [],
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  channel: {
+                    type: "string",
+                    enum: [
+                      "telegram",
+                      "whatsapp",
+                      "discord",
+                      "irc",
+                      "googlechat",
+                      "slack",
+                      "signal",
+                      "imessage",
+                      "line",
+                      "max",
+                      "webchat",
+                    ],
+                  },
+                  externalId: {
+                    type: "string",
+                    minLength: 1,
+                  },
+                },
+                required: ["channel", "externalId"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["displayName", "mappings"],
+          additionalProperties: false,
+        },
+      },
       diagnostics: {
         type: "object",
         properties: {
@@ -2500,6 +2549,45 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                         type: "integer",
                         exclusiveMinimum: 0,
                         maximum: 9007199254740991,
+                      },
+                    },
+                    additionalProperties: false,
+                  },
+                  intentContractor: {
+                    type: "object",
+                    properties: {
+                      enabled: {
+                        type: "boolean",
+                      },
+                      backend: {
+                        type: "string",
+                      },
+                      model: {
+                        type: "string",
+                      },
+                      timeoutMs: {
+                        type: "integer",
+                        exclusiveMinimum: 0,
+                        maximum: 9007199254740991,
+                      },
+                      maxTokens: {
+                        type: "integer",
+                        exclusiveMinimum: 0,
+                        maximum: 9007199254740991,
+                      },
+                      confidenceThreshold: {
+                        type: "number",
+                        minimum: 0,
+                        maximum: 1,
+                      },
+                    },
+                    additionalProperties: false,
+                  },
+                  commitment: {
+                    type: "object",
+                    properties: {
+                      cutoverEnabled: {
+                        type: "boolean",
                       },
                     },
                     additionalProperties: false,
@@ -11646,6 +11734,38 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                 },
               },
               required: ["source"],
+              additionalProperties: false,
+            },
+          },
+        },
+        additionalProperties: false,
+      },
+      policy: {
+        type: "object",
+        properties: {
+          approvals: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                effectId: {
+                  type: "string",
+                  minLength: 1,
+                },
+                requiredApprovals: {
+                  type: "integer",
+                  minimum: 0,
+                  maximum: 9007199254740991,
+                },
+                approvers: {
+                  type: "array",
+                  items: {
+                    type: "string",
+                    minLength: 1,
+                  },
+                },
+              },
+              required: ["effectId", "requiredApprovals"],
               additionalProperties: false,
             },
           },

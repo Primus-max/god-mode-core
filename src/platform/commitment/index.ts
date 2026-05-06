@@ -92,6 +92,13 @@ export type {
   ClarificationPolicyReason,
   InheritableIntentField,
 } from "./clarification-policy.js";
+export { createApprovalPolicy } from "./approval-policy.js";
+export type {
+  ApprovalPolicyConfigEntry,
+  ApprovalRequestCreatePayload,
+  ApprovalRequestCreator,
+  CreateApprovalPolicyOptions,
+} from "./approval-policy.js";
 export {
   APPROVAL_POLICY_REASONS,
   ApprovalPolicyDecisionSchema,

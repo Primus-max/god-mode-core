@@ -225,9 +225,15 @@ export type EscalationHookDecision =
  * Stage 2 — Approvals reader. Phase 3 supplies the implementation
  * (`createApprovalPolicy({cfg, approvalLookup})`); Phase 2 only freezes
  * the shape so wiring + tests can compile.
+ *
+ * Phase 3 amendment: `identityId` is optional. An undefined identity
+ * marks an anonymous turn — the gate fail-closes when the effect is
+ * listed in `policy.approvals`, and passes (default-allow) when it is
+ * not (`createApprovalPolicy` is a denial gate, not an identification
+ * gate).
  */
 export type ApprovalPolicyEvaluateInput = {
-  readonly identityId: IdentityId;
+  readonly identityId?: IdentityId;
   readonly effectId: EffectId;
 };
 
@@ -351,7 +357,7 @@ const RoleIdSchema = BrandedNonEmptyString.transform(
 
 export const ApprovalPolicyEvaluateInputSchema: z.ZodType<ApprovalPolicyEvaluateInput> =
   z.object({
-    identityId: IdentityIdSchema,
+    identityId: IdentityIdSchema.optional(),
     effectId: EffectIdSchema,
   });
 

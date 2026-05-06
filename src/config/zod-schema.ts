@@ -945,6 +945,33 @@ export const OpenClawSchema = z
       })
       .strict()
       .optional(),
+    /**
+     * Phase 3 — Stage 2 (Approvals) of
+     * `commitment_kernel_policy_gate_full.plan.md`. Each entry pins a
+     * specific `effectId` behind an explicit approval gate; identities
+     * not in `approvers` (and anonymous turns) are denied by
+     * `createApprovalPolicy`. Backward-compatible: configs without the
+     * `policy.approvals` slot pass every effect (default-allow). Stages
+     * 3-6 (`budgets`, `roles`, `retry`, `escalation`) extend this slot
+     * additively in their respective phases without re-touching the
+     * already-shipped `approvals` shape.
+     */
+    policy: z
+      .object({
+        approvals: z
+          .array(
+            z
+              .object({
+                effectId: z.string().min(1),
+                requiredApprovals: z.number().int().nonnegative(),
+                approvers: z.array(z.string().min(1)).optional(),
+              })
+              .strict(),
+          )
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {
