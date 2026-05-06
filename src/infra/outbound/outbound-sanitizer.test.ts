@@ -349,3 +349,106 @@ describe("outbound-sanitizer / fallback constants", () => {
     expect(TOOL_CALL_MARKUP_REPLACEMENT).toBe("(внутренний tool-call; обработан)");
   });
 });
+
+// ---------------------------------------------------------------------------
+// NEW-D Phase 3 — locale gate (additive in-function branch)
+// ---------------------------------------------------------------------------
+//
+// Sub-plan: `.cursor/plans/commitment_kernel_locale_aware_sanitizer.plan.md`
+// §5 / phase 3 todo. Tests added in fail-first order BEFORE the sanitizer
+// branch lands. The locale gate only fires when `policy.localeFilter` is
+// defined; channels resolved without `localeFilter` (the historical default)
+// MUST exhibit byte-identical behavior across all 16 existing patterns + clean
+// text.
+describe("outbound-sanitizer / locale_filter gate", () => {
+  const localeFilterRu = {
+    reasoning: "strip" as const,
+    localeFilter: { allowedLocales: ["ru"] as readonly string[], minimumRatio: 0.5 },
+  };
+  const localeFilterEn = {
+    reasoning: "strip" as const,
+    localeFilter: { allowedLocales: ["en"] as readonly string[], minimumRatio: 0.5 },
+  };
+
+  it("(a) blocks ALERT-style English on a ru-only channel and emits locale_filter_block", () => {
+    const input = "ALERT: Vladimir is waiting for confirmation";
+    const result = sanitizeOutboundForExternalChannel(input, localeFilterRu);
+    expect(result.text).toBe("");
+    const ids = result.stripped.map((e) => e.patternId);
+    expect(ids).toContain("locale_filter_block");
+    expect(result.stripped.find((e) => e.patternId === "locale_filter_block")?.count).toBe(1);
+  });
+
+  it("(b) leaves Russian text unchanged on a ru-only channel (no locale_filter_block)", () => {
+    const input = "Привет";
+    const result = sanitizeOutboundForExternalChannel(input, localeFilterRu);
+    expect(result.text).toBe(input);
+    expect(result.stripped).toEqual([]);
+  });
+
+  it("(c) leaves English text unchanged on an en-only channel", () => {
+    const input = "Hello, this is a perfectly ordinary English reply.";
+    const result = sanitizeOutboundForExternalChannel(input, localeFilterEn);
+    expect(result.text).toBe(input);
+    expect(result.stripped).toEqual([]);
+  });
+
+  it("(d) does not block short text under the minimum-alphabetic-char threshold (e.g. 'OK')", () => {
+    // 'OK' has only 2 alphabetic chars — under the documented 8-char threshold;
+    // numeric-only and emoji-only inputs likewise must not fire the gate.
+    expect(sanitizeOutboundForExternalChannel("OK", localeFilterRu).text).toBe("OK");
+    expect(sanitizeOutboundForExternalChannel("OK", localeFilterRu).stripped).toEqual([]);
+    expect(sanitizeOutboundForExternalChannel("5", localeFilterRu).text).toBe("5");
+    expect(sanitizeOutboundForExternalChannel("👍", localeFilterRu).text).toBe("👍");
+  });
+
+  it("(e) blocks Latin-predominant text on a ru-only channel even when Cyrillic chars are present", () => {
+    // 'Привет' = 6 cyrillic, 'here is a code block' = 17 latin → predominant=en.
+    const input = "Привет, here is a code block";
+    const result = sanitizeOutboundForExternalChannel(input, localeFilterRu);
+    expect(result.text).toBe("");
+    expect(result.stripped.map((e) => e.patternId)).toContain("locale_filter_block");
+  });
+
+  it("(f) regression: planner_marker strip wins before locale gate (text empty pre-locale-check)", () => {
+    const input = "[planner] route=external lang=en step=1";
+    const result = sanitizeOutboundForExternalChannel(input, localeFilterRu);
+    // Existing planner_marker strip empties the text; the locale gate sees
+    // empty text and MUST NOT fire (no `locale_filter_block` event).
+    expect(result.text).toBe("");
+    const ids = result.stripped.map((e) => e.patternId);
+    expect(ids).toContain("planner_marker");
+    expect(ids).not.toContain("locale_filter_block");
+  });
+
+  it("(g) backward-compat: undefined localeFilter → behavior byte-identical across 16 patterns + clean text", () => {
+    // Build a payload that exercises every diagnostic pattern + a clean tail —
+    // running with a policy whose `localeFilter` is undefined MUST match the
+    // behavior of the no-policy default form across both `text` and `stripped`.
+    const input = [
+      "[tools] cron failed: scheduling",
+      'Envelope: {"status":"error","tool":"web_search","error":"timeout"}',
+      "[task-classifier] decision=internal",
+      "[planner] step=1",
+      "[provenance-guard] external→internal blocked",
+      "[subagent-aggregation] count=2",
+      "[intent-ledger] peek=0",
+      "[DEBUG agent.run] step=42",
+      "    at runAgentTurn (/app/dist/agents/run.js:42:15)",
+      "Boom at runAgent (file:///C:/openclaw/dist/run.js:10:3) tail",
+      '<tool_call>{"name":"a","arguments":{}}</tool_call>',
+      "<tool_use>x</tool_use>",
+      '<function_call>{"name":"b","arguments":{}}</function_call>',
+      'JSON: {"name":"web_search","arguments":{"q":"x"}}',
+      '<tool_use name="orphan">',
+      "trailing </function_call>",
+      "Финал — нормальный текст.",
+    ].join("\n");
+    const baseline = sanitizeOutboundForExternalChannel(input);
+    const withUndefined = sanitizeOutboundForExternalChannel(input, { reasoning: "strip" });
+    expect(withUndefined.text).toBe(baseline.text);
+    expect(withUndefined.stripped).toEqual(baseline.stripped);
+    // No locale_filter_block under the default policy.
+    expect(baseline.stripped.find((e) => e.patternId === "locale_filter_block")).toBeUndefined();
+  });
+});
