@@ -216,6 +216,29 @@ export type PolicyRoleDenialMarker = {
   readonly requiredRole: string;
 };
 
+/**
+ * Phase 6 — Stage 5 (Retry policies) trace marker. Mirrors the
+ * `policyApprovalDenial` / `policyBudgetDenial` / `policyRoleDenial`
+ * shape (one denial per turn at most). The `(attemptCount,
+ * maxAttempts)` pair carries the same numbers the
+ * `[policy-gate] event=retry_exhausted` log line emits so
+ * observability can join on the trace + log + episodic event without
+ * re-deriving them.
+ *
+ * The closed-string `reason` mirrors the frozen
+ * `RETRY_POLICY_REASONS = ['retry_limit_exceeded']` tuple (Phase 2
+ * deliverable). The Stage 6 sibling marker (`policyEscalation`)
+ * lands in Phase 7 following the same pattern; each extension is
+ * gated on its own sub-plan phase with maintainer signoff.
+ */
+export type PolicyRetryDenialMarker = {
+  readonly stage: "retry";
+  readonly reason: "retry_limit_exceeded";
+  readonly effectId: EffectId;
+  readonly attemptCount: number;
+  readonly maxAttempts: number;
+};
+
 export type DecisionTrace = {
   version: 1;
   classifier?: DecisionTraceClassifier;
@@ -234,6 +257,7 @@ export type DecisionTrace = {
   readonly policyApprovalDenial?: PolicyApprovalDenialMarker;
   readonly policyBudgetDenial?: PolicyBudgetDenialMarker;
   readonly policyRoleDenial?: PolicyRoleDenialMarker;
+  readonly policyRetryDenial?: PolicyRetryDenialMarker;
 };
 
 function sortUnique(values: readonly string[] | undefined): string[] {

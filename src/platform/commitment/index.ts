@@ -104,6 +104,26 @@ export type {
   RolePolicyConfigEntry,
   RoleResolver,
 } from "./role-policy.js";
+export {
+  RETRY_POLICY_DEFAULT_MAX_ATTEMPTS,
+  RETRY_POLICY_DEFAULT_MAX_BACKOFF_MS,
+  createRetryPolicy,
+} from "./retry-policy.js";
+export type {
+  CreateRetryPolicyOptions,
+  RetryPolicyConfigEntry,
+} from "./retry-policy.js";
+export {
+  RETRY_STATE_STORE_DEFAULT_MAX_KEYS,
+  buildRetryStateKey,
+  createInMemoryRetryStateStore,
+} from "./retry-state-store.js";
+export type {
+  BuildRetryStateKeyInput,
+  CreateInMemoryRetryStateStoreOptions,
+  RetryStateKey,
+  RetryStateStore,
+} from "./retry-state-store.js";
 export { buildBudgetWindowId } from "./budget-store.js";
 export type {
   BudgetDimension,
