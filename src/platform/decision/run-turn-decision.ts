@@ -10,6 +10,7 @@ import {
   defaultAffordanceRegistry,
   resolveIntentContractorConfig,
   type AffordanceRegistry,
+  type ApprovalPolicyReader,
   type ClarificationPolicyReader,
   type CutoverPolicy,
   type ExpectedDelta,
@@ -40,6 +41,7 @@ import type {
   DecisionTrace,
   KernelDerivedDecisionMarker,
   KernelFallbackReason,
+  PolicyApprovalDenialMarker,
 } from "./trace.js";
 
 declare const TraceIdBrand: unique symbol;
@@ -78,6 +80,27 @@ export type RunTurnDecisionInput = {
    * kernel-derived production decision (invariant #3).
    */
   readonly clarificationPolicy?: ClarificationPolicyReader;
+  /**
+   * Phase 3 — Stage 2 (Approvals) injection point per
+   * `commitment_kernel_policy_gate_full.plan.md`. When omitted, the
+   * approval gate is bypassed cleanly (default-allow) — Phases 4-7
+   * land their respective sibling injection points
+   * (`budgetPolicy`, `rolePolicy`, `retryPolicy`, `escalationHook`).
+   *
+   * Evaluation order (sub-plan §3 Phase 3 row d):
+   *   affordance allowlist (existing, inside `runShadowBranch`)
+   *   → approval (this)
+   *   → budget (Phase 4)
+   *   → role (Phase 5)
+   *   → retry (Phase 6)
+   *   → escalation hook (Phase 7, observability)
+   *
+   * Active only on the kernel-derived production-decision path; the
+   * legacy fallback path bypasses policy gates by design (the legacy
+   * classifier never reached an `EffectId`-typed commitment to gate
+   * against).
+   */
+  readonly approvalPolicy?: ApprovalPolicyReader;
   /**
    * Stage 1.5 injection point (`commitment_kernel_smart_orchestrator_roadmap.plan.md`
    * §3 row 3 — PR-H session-history-aware clarify). Last successful
@@ -281,13 +304,30 @@ export async function runTurnDecision(
         fallbackReason: resolveFallbackReason(shadowCommitment, cutover.gate),
       });
 
-  const productionDecision = isKernelDerived
+  const decisionAfterClarify = isKernelDerived
     ? baseProductionDecision
     : await maybeDowngradeClarification({
         input,
         productionDecision: baseProductionDecision,
         intent: shadowOutcome.intent,
       });
+
+  // Phase 3 — Stage 2 (Approvals). Active only on the kernel-derived
+  // path: the legacy fallback never reaches an `EffectId`-typed
+  // commitment, so there is nothing to gate. On denial, the helper
+  // returns a decision with `taskContract.primaryOutcome="answer"` +
+  // `interactionMode="respond_only"` (mirrors clarification downgrade
+  // shape) plus a `policyApprovalDenial` trace marker carrying the
+  // closed `requires_approval` reason and the sibling-reused
+  // `ExecApprovalManager` request id. Log + episodic emission happen
+  // INSIDE `approvalPolicy.evaluate(...)` — see `approval-policy.ts`.
+  const productionDecision = isKernelDerived
+    ? await maybeBlockOnApproval({
+        input,
+        productionDecision: decisionAfterClarify,
+        shadowCommitment,
+      })
+    : decisionAfterClarify;
 
   const fallbackReason = isKernelDerived
     ? undefined
@@ -632,6 +672,90 @@ async function maybeDowngradeClarification(params: {
       : {}),
   };
   return downgradeClarifyToAnswer(productionDecision, marker);
+}
+
+/**
+ * Phase 3 — Stage 2 (Approvals) wiring helper. Runs ONLY when the
+ * caller injected an `approvalPolicy` AND the shadow commitment
+ * resolved to a kernel-derived `ExecutionCommitment`. On
+ * `approved=false` the helper:
+ *
+ *   1. Attaches a `policyApprovalDenial` marker to the decision trace
+ *      so downstream callers (telemetry, eval, planner-trace dumps)
+ *      can join on `approvalRequestId` against the
+ *      `policy_approval` episodic event AND the
+ *      `ExecApprovalManager` record raised by the same denial.
+ *   2. Flips `taskContract.primaryOutcome` to `"answer"` and
+ *      `interactionMode` to `"respond_only"` so the downstream agent
+ *      surface delivers the "approval pending" message instead of
+ *      attempting the gated effect (mirrors the clarification
+ *      downgrade shape).
+ *
+ * The log line `[policy-gate] event=approval_checked …` and the
+ * `[policy-gate] event=approval_request_created …` line are emitted
+ * INSIDE `approvalPolicy.evaluate(...)` — see
+ * `src/platform/commitment/approval-policy.ts`. The episodic event
+ * emit + `ExecApprovalManager.create(...)` sibling-reuse also happen
+ * inside the policy reader; this wiring helper only translates the
+ * decision into the production-decision shape.
+ *
+ * @param params - Wiring input + the kernel-derived production decision
+ *   + the shadow build result (for the `ExecutionCommitment.effect`).
+ * @returns Possibly-downgraded production decision.
+ */
+async function maybeBlockOnApproval(params: {
+  readonly input: RunTurnDecisionInput;
+  readonly productionDecision: ClassifiedTaskResolution;
+  readonly shadowCommitment: ShadowBuildResult;
+}): Promise<ClassifiedTaskResolution> {
+  const { input, productionDecision, shadowCommitment } = params;
+  if (!input.approvalPolicy) {
+    return productionDecision;
+  }
+  if (shadowCommitment.kind !== "commitment") {
+    return productionDecision;
+  }
+  const effectId = shadowCommitment.value.effect;
+  const decision = await input.approvalPolicy.evaluate({
+    effectId,
+    ...(input.identityId ? { identityId: input.identityId } : {}),
+  });
+  if (decision.approved) {
+    return productionDecision;
+  }
+  const marker: PolicyApprovalDenialMarker = {
+    stage: "approval",
+    reason: decision.reason,
+    effectId,
+    approvalRequestId: String(decision.approvalRequestId),
+  };
+  return downgradeOnApprovalDenial(productionDecision, marker);
+}
+
+function downgradeOnApprovalDenial(
+  legacy: ClassifiedTaskResolution,
+  marker: PolicyApprovalDenialMarker,
+): ClassifiedTaskResolution {
+  const previousTrace = legacy.plannerInput.decisionTrace;
+  const decisionTrace: DecisionTrace = {
+    version: 1,
+    ...previousTrace,
+    policyApprovalDenial: marker,
+  };
+  const taskContract = {
+    ...legacy.taskContract,
+    primaryOutcome: "answer" as const,
+    interactionMode: "respond_only" as const,
+  };
+  const { lowConfidenceStrategy: _droppedStrategy, ...plannerInputRest } = legacy.plannerInput;
+  return {
+    ...legacy,
+    taskContract,
+    plannerInput: {
+      ...plannerInputRest,
+      decisionTrace,
+    },
+  };
 }
 
 /**

@@ -122,6 +122,23 @@ export type OpenClawConfig = {
   gateway?: GatewayConfig;
   memory?: MemoryConfig;
   mcp?: McpConfig;
+  /**
+   * Phase 3 — Stage 2 (Approvals) of
+   * `commitment_kernel_policy_gate_full.plan.md`. Each entry pins a
+   * specific `effectId` behind an explicit approval gate; the runtime
+   * implementation lives in
+   * `src/platform/commitment/approval-policy.ts`. Stages 3-6 land
+   * sibling sub-keys (`policy.budgets`, `policy.roles`, `policy.retry`,
+   * `policy.escalation`) additively in their respective phases without
+   * touching the already-shipped `policy.approvals` shape.
+   */
+  policy?: {
+    approvals?: Array<{
+      effectId: string;
+      requiredApprovals: number;
+      approvers?: string[];
+    }>;
+  };
 };
 
 export type ConfigValidationIssue = {
