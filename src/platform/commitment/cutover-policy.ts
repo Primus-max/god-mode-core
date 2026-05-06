@@ -1,5 +1,10 @@
 import {
+  ARTIFACT_EFFECT_FAMILY,
+  CODE_PATCH_APPLIED_EFFECT,
   COMMUNICATION_EFFECT_FAMILY,
+  DOCX_CREATED_EFFECT,
+  IMAGE_CREATED_EFFECT,
+  PDF_CREATED_EFFECT,
   PERSISTENT_SESSION_EFFECT_FAMILY,
 } from "./effect-family-registry.js";
 import type { EffectId } from "./ids.js";
@@ -27,6 +32,15 @@ export interface CutoverPolicy {
   list(): readonly CutoverEntry[];
 }
 
+// Cutover-3 Phase 7 extends `CUTOVER_2` ADDITIVELY with the four artifact
+// effect ids (`pdf.created`, `docx.created`, `code_patch.applied`,
+// `image.created`) per sub-plan §4 #5 ("all four"). The constant name is
+// retained per the audit's naming decision (`extensions/AUDIT-cutover3-artifacts.md`):
+// extending `CUTOVER_2` in place mirrors the cutover-2 PR-#104 precedent
+// (where Wave A's single effect was extended with three Wave B chat effects
+// inside the same array literal — no `CUTOVER_1` constant) and keeps the
+// public surface a single immutable allow-list. Cutover-4 will extend the
+// same array.
 const CUTOVER_2 = Object.freeze([
   Object.freeze({
     effect: "persistent_session.created" as EffectId,
@@ -43,6 +57,22 @@ const CUTOVER_2 = Object.freeze([
   Object.freeze({
     effect: "external_effect.performed" as EffectId,
     effectFamily: COMMUNICATION_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: PDF_CREATED_EFFECT,
+    effectFamily: ARTIFACT_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: DOCX_CREATED_EFFECT,
+    effectFamily: ARTIFACT_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: CODE_PATCH_APPLIED_EFFECT,
+    effectFamily: ARTIFACT_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: IMAGE_CREATED_EFFECT,
+    effectFamily: ARTIFACT_EFFECT_FAMILY,
   }),
 ] satisfies CutoverEntry[]);
 
