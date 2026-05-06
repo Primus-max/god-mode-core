@@ -16,6 +16,8 @@ import {
   type BudgetPolicyReader,
   type ClarificationPolicyReader,
   type CutoverPolicy,
+  type EscalationHook,
+  type EscalationHookFireInput,
   type ExpectedDelta,
   type InboundMediaSummary,
   type IntentContractorAdapter,
@@ -44,6 +46,7 @@ import type {
   KernelFallbackReason,
   PolicyApprovalDenialMarker,
   PolicyBudgetDenialMarker,
+  PolicyEscalationFiredMarker,
   PolicyRetryDenialMarker,
   PolicyRoleDenialMarker,
 } from "./trace.js";
@@ -223,6 +226,47 @@ export type RunTurnDecisionInput = {
     readonly attemptCount: number;
     readonly sessionId: string;
   };
+  /**
+   * Phase 7 — Stage 6 (Escalation hooks) injection point per
+   * `commitment_kernel_policy_gate_full.plan.md`. When omitted, no
+   * escalation fires — the production decision proceeds with the
+   * upstream policy denial trace marker (if any) untouched. Active
+   * only on the kernel-derived production-decision path; the legacy
+   * fallback path bypasses escalation by design (the legacy classifier
+   * never reached an `EffectId`-typed commitment that could carry a
+   * policy denial).
+   *
+   * Evaluation chain order (sub-plan §3 Phase 7 row d):
+   *   affordance allowlist (existing, inside `runShadowBranch`)
+   *   → approval (Phase 3)
+   *   → budget (Phase 4)
+   *   → role (Phase 5)
+   *   → retry (Phase 6)
+   *   → escalation hook (this — observability, not a gate)
+   *
+   * When ANY of the upstream policy gates denied (one of the
+   * `policy*Denial` trace markers is attached), the wiring helper:
+   *   1. Reads the denial reason off the trace marker.
+   *   2. Calls `escalationHook.fire(...)` with the denial reason
+   *      verbatim plus the canonical `(identityId, effectId, channel)`
+   *      triple and a `turnId` derived from `result.traceId`.
+   *   3. On `{fired: true, escalationId}` → attaches a
+   *      `policyEscalationFired` marker to the decision trace so
+   *      downstream callers (telemetry, eval, planner-trace dumps)
+   *      can join on the same `escalationId` against the
+   *      `policy_escalation` episodic event AND the
+   *      `ExecApprovalManager` record raised by the same denial.
+   *   4. On `{fired: false, ...}` → emits a warn log via
+   *      `defaultRuntime.log` and continues — escalation failure NEVER
+   *      gates the production decision (sub-plan §10 invariant #15;
+   *      escalation is observability, not a gate).
+   *
+   * The hook is consulted ONCE per turn at most (idempotency lives
+   * inside the hook impl per `(turnId, identityId, denialReason,
+   * effectId)`). The wiring helper does NOT inspect the hook return
+   * other than to read `escalationId` for the trace marker.
+   */
+  readonly escalationHook?: EscalationHook;
   /**
    * Stage 1.5 injection point (`commitment_kernel_smart_orchestrator_roadmap.plan.md`
    * §3 row 3 — PR-H session-history-aware clarify). Last successful
@@ -517,13 +561,28 @@ export async function runTurnDecision(input: RunTurnDecisionInput): Promise<RunT
   // per-attempt counter advance against the same
   // `RetryStateStore`; this seam is the pre-execution consultation
   // (sub-plan §3 Phase 6 row d).
-  const productionDecision = isKernelDerived
+  const decisionAfterRetry = isKernelDerived
     ? await maybeBlockOnRetry({
         input,
         productionDecision: decisionAfterRole,
         shadowCommitment,
       })
     : decisionAfterRole;
+
+  // Phase 7 — Stage 6 (Escalation hook). Runs only on the
+  // kernel-derived path AND only when at least one upstream policy
+  // gate already denied (the hook is observability for denials, not
+  // a denial source itself). Failure inside the hook NEVER alters
+  // the production decision — escalation is observability, not
+  // gating (sub-plan §10 invariant #3 footnote).
+  const productionDecision = isKernelDerived
+    ? await maybeFireEscalation({
+        input,
+        productionDecision: decisionAfterRetry,
+        shadowCommitment,
+        traceId,
+      })
+    : decisionAfterRetry;
 
   const fallbackReason = isKernelDerived
     ? undefined
@@ -1246,6 +1305,149 @@ function downgradeOnRetryDenial(
     taskContract,
     plannerInput: {
       ...plannerInputRest,
+      decisionTrace,
+    },
+  };
+}
+
+/**
+ * Phase 7 — Stage 6 (Escalation hooks) wiring helper. Runs ONLY when
+ * the caller injected an `escalationHook` AND the shadow commitment
+ * resolved to a kernel-derived `ExecutionCommitment` AND at least one
+ * upstream policy gate (approval / budget / role / retry) attached a
+ * denial trace marker.
+ *
+ * Reads the denial reason verbatim off the trace marker and forwards
+ * it to `escalationHook.fire(...)` together with `(identityId,
+ * effectId, channel, turnId)`. On `{fired: true, escalationId}` the
+ * helper attaches a `policyEscalationFired` marker to the decision
+ * trace so downstream telemetry can join on the same `escalationId`.
+ * On `{fired: false, ...}` the helper logs a warn line and returns
+ * the production decision UNCHANGED — escalation is observability,
+ * not gating (sub-plan §10 invariant #3 footnote).
+ *
+ * The hook NEVER throws — defense-in-depth lives inside
+ * `escalation-hook.ts`. The `try/catch` here is a belt-and-braces
+ * net for hand-rolled host hooks that bypass the factory.
+ */
+async function maybeFireEscalation(params: {
+  readonly input: RunTurnDecisionInput;
+  readonly productionDecision: ClassifiedTaskResolution;
+  readonly shadowCommitment: ShadowBuildResult;
+  readonly traceId: TraceId;
+}): Promise<ClassifiedTaskResolution> {
+  const { input, productionDecision, shadowCommitment, traceId } = params;
+  if (!input.escalationHook) {
+    return productionDecision;
+  }
+  if (shadowCommitment.kind !== "commitment") {
+    return productionDecision;
+  }
+  const trace = productionDecision.plannerInput.decisionTrace as
+    | {
+        readonly policyApprovalDenial?: PolicyApprovalDenialMarker;
+        readonly policyBudgetDenial?: PolicyBudgetDenialMarker;
+        readonly policyRoleDenial?: PolicyRoleDenialMarker;
+        readonly policyRetryDenial?: PolicyRetryDenialMarker;
+      }
+    | undefined;
+
+  const denialReason = readDenialReasonFromTrace(trace);
+  if (!denialReason) {
+    return productionDecision;
+  }
+  const effectId = shadowCommitment.value.effect;
+  const channel = resolveActiveChannelForBudget(input.cfg);
+
+  const fireInput: EscalationHookFireInput & { turnId: string } = {
+    identityId: (input.identityId ?? ("identity:anonymous" as IdentityId)) as IdentityId,
+    effectId,
+    denialReason,
+    channel,
+    turnId: String(traceId),
+  };
+
+  let decision;
+  try {
+    decision = await input.escalationHook.fire(fireInput);
+  } catch (error) {
+    defaultRuntime.log(
+      `[policy-gate] event=escalation_failed transport_error=` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    );
+    return productionDecision;
+  }
+
+  if (!decision.fired) {
+    // Failure already logged inside the hook impl
+    // (`escalation-hook.ts`). Decision passes through unchanged.
+    return productionDecision;
+  }
+
+  const marker: PolicyEscalationFiredMarker = {
+    stage: "escalation",
+    denialReason,
+    channel: denialReason === "requires_approval" ? "approval_request" : "memory",
+    escalationId: decision.escalationId,
+    effectId,
+  };
+  return attachEscalationFiredMarker(productionDecision, marker);
+}
+
+/**
+ * Pulls the upstream-most denial reason from the decision trace. The
+ * order mirrors the gate evaluation chain
+ * (`approval → budget → role → retry`); only the FIRST gate that
+ * fired writes a marker (each downstream helper short-circuits on a
+ * pre-existing marker), so reading them in order yields the canonical
+ * denial reason for this turn.
+ */
+function readDenialReasonFromTrace(
+  trace:
+    | {
+        readonly policyApprovalDenial?: PolicyApprovalDenialMarker;
+        readonly policyBudgetDenial?: PolicyBudgetDenialMarker;
+        readonly policyRoleDenial?: PolicyRoleDenialMarker;
+        readonly policyRetryDenial?: PolicyRetryDenialMarker;
+      }
+    | undefined,
+):
+  | "requires_approval"
+  | "budget_exceeded_user"
+  | "budget_exceeded_channel"
+  | "budget_exceeded_effect"
+  | "role_denied"
+  | "retry_limit_exceeded"
+  | undefined {
+  if (trace?.policyApprovalDenial) {
+    return trace.policyApprovalDenial.reason;
+  }
+  if (trace?.policyBudgetDenial) {
+    return trace.policyBudgetDenial.reason;
+  }
+  if (trace?.policyRoleDenial) {
+    return trace.policyRoleDenial.reason;
+  }
+  if (trace?.policyRetryDenial) {
+    return trace.policyRetryDenial.reason;
+  }
+  return undefined;
+}
+
+function attachEscalationFiredMarker(
+  decision: ClassifiedTaskResolution,
+  marker: PolicyEscalationFiredMarker,
+): ClassifiedTaskResolution {
+  const previousTrace = decision.plannerInput.decisionTrace;
+  const decisionTrace: DecisionTrace = {
+    version: 1,
+    ...previousTrace,
+    policyEscalationFired: marker,
+  };
+  return {
+    ...decision,
+    plannerInput: {
+      ...decision.plannerInput,
       decisionTrace,
     },
   };
