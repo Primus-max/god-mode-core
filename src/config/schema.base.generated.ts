@@ -129,6 +129,13 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                 additionalProperties: false,
               },
             },
+            roles: {
+              type: "array",
+              items: {
+                type: "string",
+                minLength: 1,
+              },
+            },
           },
           required: ["displayName", "mappings"],
           additionalProperties: false,
@@ -11800,6 +11807,31 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                 },
               },
               required: ["dimension", "limit", "windowMs"],
+              additionalProperties: false,
+            },
+          },
+          roles: {
+            type: "object",
+            propertyNames: {
+              type: "string",
+              minLength: 1,
+            },
+            additionalProperties: {
+              type: "object",
+              properties: {
+                allowedEffects: {
+                  type: "array",
+                  items: {
+                    type: "string",
+                    minLength: 1,
+                  },
+                },
+                description: {
+                  type: "string",
+                  minLength: 1,
+                },
+              },
+              required: ["allowedEffects"],
               additionalProperties: false,
             },
           },

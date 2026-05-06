@@ -4,7 +4,6 @@ import { parseDurationMs } from "../cli/parse-duration.js";
 import { ToolsSchema } from "./zod-schema.agent-runtime.js";
 import { AgentsSchema, AudioSchema, BindingsSchema, BroadcastSchema } from "./zod-schema.agents.js";
 import { ApprovalsSchema } from "./zod-schema.approvals.js";
-import { IdentitiesSchema } from "./zod-schema.identities.js";
 import {
   HexColorSchema,
   ModelsConfigSchema,
@@ -12,6 +11,7 @@ import {
   SecretsConfigSchema,
 } from "./zod-schema.core.js";
 import { HookMappingSchema, HooksGmailSchema, InternalHooksSchema } from "./zod-schema.hooks.js";
+import { IdentitiesSchema } from "./zod-schema.identities.js";
 import { PluginInstallRecordShape } from "./zod-schema.installs.js";
 import { ChannelsSchema } from "./zod-schema.providers.js";
 import { sensitive } from "./zod-schema.sensitive.js";
@@ -1001,6 +1001,29 @@ export const OpenClawSchema = z
                 identityId: z.string().min(1).optional(),
                 channel: z.string().min(1).optional(),
                 effectFamily: z.string().min(1).optional(),
+              })
+              .strict(),
+          )
+          .optional(),
+        /**
+         * Phase 5 — Stage 4 (Role-based access) of
+         * `commitment_kernel_policy_gate_full.plan.md`. Map keyed
+         * by role-key; each entry carries the `allowedEffects`
+         * allowlist (with `"*"` wildcard support for admin
+         * shorthand) plus an operator-facing `description`. The
+         * runtime impl lives in
+         * `src/platform/commitment/role-policy.ts`. Backward
+         * compatible: configs without `policy.roles` get an empty
+         * record (default fail-closed for any effect listed in
+         * `policy.approvals` / `policy.budgets` / `policy.roles`).
+         */
+        roles: z
+          .record(
+            z.string().min(1),
+            z
+              .object({
+                allowedEffects: z.array(z.string().min(1)),
+                description: z.string().min(1).optional(),
               })
               .strict(),
           )

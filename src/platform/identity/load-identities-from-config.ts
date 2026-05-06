@@ -1,5 +1,4 @@
 import type { IdentitiesConfig } from "../../config/zod-schema.identities.js";
-
 import { asIdentityId, type IdentityId } from "./identity-id.js";
 import type { IdentityRecord } from "./identity-registry.js";
 import { StaticIdentityRegistry } from "./static-identity-registry.js";
@@ -37,6 +36,11 @@ export function buildIdentityRecordsFromConfig(
       identityId,
       displayName: value.displayName,
       mappings: value.mappings,
+      // Phase 5 — Stage 4 (Role-based access). The schema defaults
+      // `roles` to `[]`, so this property is always present after
+      // Zod validation; threading it through keeps the
+      // `RolePolicyReader` `roleResolver` wiring unbroken.
+      roles: value.roles,
     });
   }
   return records;

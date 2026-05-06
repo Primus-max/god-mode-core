@@ -3,13 +3,11 @@ import type {
   RuntimeAcceptanceReason,
   RuntimeTerminalState,
 } from "../commitment/monitored-runtime.js";
-import type {
-  ShadowBuildResult,
-  ShadowUnsupportedReason,
-} from "../commitment/shadow-builder.js";
+import type { ShadowBuildResult, ShadowUnsupportedReason } from "../commitment/shadow-builder.js";
 import type { DeliverableSpec } from "../produce/registry.js";
 import type { ClassifierTelemetry, RoutingOutcome } from "../recipe/planner.js";
 import type { RecipeRoutingHints } from "../recipe/planner.js";
+import type { AmbiguityProfileEntry } from "./ambiguity-policy.js";
 import type { PlatformExecutionContextReadinessStatus } from "./contracts.js";
 import type {
   CandidateExecutionFamily,
@@ -21,7 +19,6 @@ import type {
 } from "./qualification-contract.js";
 import type { ResolutionContract, ResolutionRouting } from "./resolution-contract.js";
 import type { TaskClassifierDebugEvent, TaskContract } from "./task-classifier.js";
-import type { AmbiguityProfileEntry } from "./ambiguity-policy.js";
 
 export type DecisionTraceErrorTag =
   | "unnecessary_clarify"
@@ -191,14 +188,32 @@ export type PolicyApprovalDenialMarker = {
  */
 export type PolicyBudgetDenialMarker = {
   readonly stage: "budget";
-  readonly reason:
-    | "budget_exceeded_user"
-    | "budget_exceeded_channel"
-    | "budget_exceeded_effect";
+  readonly reason: "budget_exceeded_user" | "budget_exceeded_channel" | "budget_exceeded_effect";
   readonly effectId: EffectId;
   readonly windowId: string;
   readonly used: number;
   readonly limit: number;
+};
+
+/**
+ * Phase 5 — Stage 4 (Role-based access) trace marker. Mirrors the
+ * `policyApprovalDenial` / `policyBudgetDenial` shape (one denial
+ * per turn at most). The `requiredRole` carries the role-key the
+ * caller would need to be granted before retry, surfaced for
+ * escalation routing.
+ *
+ * The closed-string `reason` mirrors the frozen
+ * `ROLE_POLICY_REASONS = ['role_denied']` tuple (Phase 2
+ * deliverable). Stages 5-6 land sibling markers
+ * (`policyRetryDenial`, `policyEscalation`) following the same
+ * pattern; each extension is gated on its own sub-plan phase with
+ * maintainer signoff.
+ */
+export type PolicyRoleDenialMarker = {
+  readonly stage: "role";
+  readonly reason: "role_denied";
+  readonly effectId: EffectId;
+  readonly requiredRole: string;
 };
 
 export type DecisionTrace = {
@@ -218,6 +233,7 @@ export type DecisionTrace = {
   readonly clarificationPolicy?: ClarificationPolicyDowngradeMarker;
   readonly policyApprovalDenial?: PolicyApprovalDenialMarker;
   readonly policyBudgetDenial?: PolicyBudgetDenialMarker;
+  readonly policyRoleDenial?: PolicyRoleDenialMarker;
 };
 
 function sortUnique(values: readonly string[] | undefined): string[] {

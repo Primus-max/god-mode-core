@@ -155,6 +155,24 @@ export type OpenClawConfig = {
       channel?: string;
       effectFamily?: string;
     }>;
+    /**
+     * Phase 5 — Stage 4 (Role-based access) of
+     * `commitment_kernel_policy_gate_full.plan.md`. Map keyed by
+     * role-key; each entry carries the `allowedEffects` allowlist
+     * (with `"*"` wildcard support for admin shorthand) plus an
+     * operator-facing `description`. The runtime impl lives in
+     * `src/platform/commitment/role-policy.ts`. Backward compatible:
+     * configs without `policy.roles` get an empty record (default
+     * fail-closed for any effect listed in `policy.approvals` /
+     * `policy.budgets` / `policy.roles`).
+     */
+    roles?: Record<
+      string,
+      {
+        allowedEffects: string[];
+        description?: string;
+      }
+    >;
   };
 };
 

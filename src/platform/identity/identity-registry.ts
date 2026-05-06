@@ -1,6 +1,5 @@
 import type { ChatChannelId } from "../../channels/ids.js";
 import type { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
-
 import type { IdentityId } from "./identity-id.js";
 
 /**
@@ -37,11 +36,18 @@ export type IdentityMapping = {
  * One identity record: the operator (or future tenant), their display
  * name (used in UI / logs / agent-framing), and every channel-side
  * mapping that resolves to them.
+ *
+ * Phase 5 (PolicyGate Full Stage 4) added the optional `roles` slot
+ * — a list of role-keys validated against `policy.roles[<role>]` at
+ * the role-policy reader. Backward-compatible: existing records work
+ * unchanged with `roles: []` (no roles assigned → fail-closed for any
+ * effect listed in `policy.roles`).
  */
 export type IdentityRecord = {
   readonly identityId: IdentityId;
   readonly displayName: string;
   readonly mappings: readonly IdentityMapping[];
+  readonly roles?: readonly string[];
 };
 
 /**
