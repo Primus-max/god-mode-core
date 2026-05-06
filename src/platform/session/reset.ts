@@ -511,3 +511,245 @@ export const SessionResetSubscriberOutcomeSchema: z.ZodType<SessionResetSubscrib
         .strict(),
     ])
     .transform((value) => Object.freeze(value));
+
+// -----------------------------------------------------------------------------
+// SessionResetSubscriberRegistry — Phase 3
+// -----------------------------------------------------------------------------
+
+/**
+ * Registry of `SessionResetSubscriber` rows iterated by
+ * `resetTurnSession()` in insertion order. The contract is intentionally
+ * minimal — `register` and `list` only — so the bootstrap site
+ * (`session-reset-bootstrap.ts`, Phase 5) can wire subscribers in a
+ * deterministic order at process start and the call site
+ * (`resetTurnSession`, this module) can iterate without further
+ * coordination primitives.
+ *
+ * Insertion order is stable: `list()` returns subscribers in the order
+ * they were `register`ed. Re-registration of the SAME id REPLACES the
+ * prior row in place (preserving its slot's position) and emits a
+ * structured warn line through the optional `warnLogger` so duplicate
+ * registrations surface in audit trails. The `unregister` callback
+ * returned from the FIRST `register` call is rendered inert if a
+ * second registration replaced the row — this prevents the first
+ * caller from accidentally clearing a slot owned by a later caller.
+ *
+ * `list()` returns a frozen array — defense-in-depth alongside the
+ * `readonly` modifier on the property's TypeScript type.
+ */
+export interface SessionResetSubscriberRegistry {
+  /**
+   * Register a subscriber. If a subscriber with the same `id` is
+   * already registered, REPLACE it in place (last-wins) and emit a
+   * warn line through the registry's `warnLogger` (if provided).
+   * Returns an `unregister` function that removes THIS subscriber
+   * instance. The returned callback is a no-op if a later
+   * registration has already replaced the row.
+   */
+  register(subscriber: SessionResetSubscriber): () => void;
+  /**
+   * Snapshot of the current subscribers, in insertion order. Returns
+   * a frozen array — callers cannot mutate the registry through the
+   * returned snapshot.
+   */
+  list(): readonly SessionResetSubscriber[];
+}
+
+/**
+ * Construct a fresh `SessionResetSubscriberRegistry`. Each invocation
+ * returns an isolated instance so tests can construct private
+ * registries and the production-singleton bootstrap can construct
+ * one process-wide registry without coupling.
+ *
+ * The optional `warnLogger` is invoked exactly once per duplicate
+ * registration. Default is a no-op so non-test callers can omit it.
+ */
+export function createSessionResetSubscriberRegistry(
+  options: { readonly warnLogger?: (line: string) => void } = {},
+): SessionResetSubscriberRegistry {
+  const warnLogger = options.warnLogger ?? ((): void => {});
+  // Backing store: an array preserves insertion order (vs. Map's
+  // insertion order which is also stable but does not allow in-place
+  // replacement at the original index). Replacement on duplicate id
+  // overwrites at the existing slot to preserve position.
+  const subscribers: SessionResetSubscriber[] = [];
+  return {
+    register(subscriber: SessionResetSubscriber): () => void {
+      const existingIndex = subscribers.findIndex(
+        (entry) => entry.id === subscriber.id,
+      );
+      if (existingIndex >= 0) {
+        subscribers[existingIndex] = subscriber;
+        warnLogger(
+          `[session-reset] warn=duplicate_subscriber id=${subscriber.id} action=replaced`,
+        );
+      } else {
+        subscribers.push(subscriber);
+      }
+      // Capture the registered instance via closure; the unregister
+      // callback inspects identity (===) so a later replacement makes
+      // the first caller's unregister a no-op.
+      const registeredInstance = subscriber;
+      return (): void => {
+        const currentIndex = subscribers.findIndex(
+          (entry) => entry === registeredInstance,
+        );
+        if (currentIndex >= 0) {
+          subscribers.splice(currentIndex, 1);
+        }
+      };
+    },
+    list(): readonly SessionResetSubscriber[] {
+      return Object.freeze(subscribers.slice());
+    },
+  };
+}
+
+// -----------------------------------------------------------------------------
+// resetTurnSession — Phase 3
+// -----------------------------------------------------------------------------
+
+/**
+ * Per-subscriber result row inside a `SessionResetSummary`. The
+ * `outcome` is the value returned by the subscriber's `onReset(event)`
+ * call (validated through `SessionResetSubscriberOutcomeSchema`); a
+ * thrown error or a malformed return value is converted to
+ * `{ kind: 'failed', reason: <synthetic> }` per defense-in-depth.
+ */
+export type SessionResetSubscriberResult = {
+  readonly id: SessionResetSubscriberId;
+  readonly category: SessionResetSubscriberCategory;
+  readonly outcome: SessionResetSubscriberOutcome;
+};
+
+/**
+ * Aggregate result of one `resetTurnSession()` invocation. Caller can
+ * inspect per-subscriber outcomes (for assertions or for dashboards)
+ * and the rolled-up counts that appear on the structured log line.
+ *
+ * `durationMs` is end-minus-start of the iteration, computed via the
+ * injected `clockNow` (default: `performance.now`). Test code can
+ * inject a deterministic clock to assert the field is sourced from
+ * the right place.
+ */
+export type SessionResetSummary = {
+  readonly event: SessionResetEvent;
+  readonly subscribers: readonly SessionResetSubscriberResult[];
+  readonly clearedCount: number;
+  readonly skippedCount: number;
+  readonly failedCount: number;
+  readonly durationMs: number;
+};
+
+/**
+ * Re-validate the value returned from a subscriber. Subscribers are
+ * trusted callers (registered at bootstrap), but a defensive parse
+ * guards against future plugins / adapters that might return an
+ * unstructured value (e.g. drop the `kind` field after a refactor).
+ * On parse failure we coerce to `failed` with `reason: 'malformed_outcome'`
+ * — the exact synthetic reason asserted by the unit tests.
+ */
+function coerceOutcome(value: unknown): SessionResetSubscriberOutcome {
+  const parsed = SessionResetSubscriberOutcomeSchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  return { kind: "failed", reason: "malformed_outcome" };
+}
+
+/**
+ * Convert a thrown value into a `failed` outcome. `Error` instances
+ * surface their `.message`; non-Error throws (string, number, plain
+ * object) are stringified so the log line still has actionable text.
+ */
+function thrownToFailed(value: unknown): SessionResetSubscriberOutcome {
+  if (value instanceof Error) {
+    return { kind: "failed", reason: value.message };
+  }
+  if (typeof value === "string") {
+    return { kind: "failed", reason: value };
+  }
+  return {
+    kind: "failed",
+    reason: `non_error_throw:${String(value)}`,
+  };
+}
+
+/**
+ * Run every subscriber in `registry.list()` once, in insertion order,
+ * for the given `event`. Emits exactly ONE structured log line at the
+ * tail (`logger`, default `console.log`) so the operator-side grep
+ * anchor is stable. Returns a `SessionResetSummary` so callers can
+ * assert on counts and per-subscriber outcomes.
+ *
+ * Defense-in-depth (invariant #15): each subscriber's `onReset` is
+ * wrapped in try/catch. A throw, a rejected promise, or a malformed
+ * return value is converted to a `failed` outcome and iteration
+ * continues — a single misbehaving subscriber NEVER blocks the rest
+ * of the registry from clearing its state. Failures are still
+ * surfaced through the per-subscriber result and the rolled-up
+ * `failedCount`.
+ *
+ * Log line format (operator-grep anchor — see acceptance):
+ *
+ *     [session-reset] event=session_reset sessionId=<id> sessionKey=<k>
+ *       reason=<r> identityId=<id|anon> subscribers=<N> cleared=<n>
+ *       skipped=<s> failed=<f> durationMs=<ms>
+ *
+ * Anonymous events (`identityId === undefined`) render `identityId=anon`
+ * so post-mortem scripts can distinguish identity-resolved resets from
+ * pre-resolution resets without parsing the absence of a field.
+ */
+export async function resetTurnSession(params: {
+  readonly event: SessionResetEvent;
+  readonly registry: SessionResetSubscriberRegistry;
+  readonly logger?: (line: string) => void;
+  readonly clockNow?: () => number;
+}): Promise<SessionResetSummary> {
+  const log = params.logger ?? ((): void => {});
+  const clockNow = params.clockNow ?? ((): number => performance.now());
+  const start = clockNow();
+  const snapshot = params.registry.list();
+  const results: SessionResetSubscriberResult[] = [];
+  let clearedCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
+  for (const subscriber of snapshot) {
+    let outcome: SessionResetSubscriberOutcome;
+    try {
+      const raw = await subscriber.onReset(params.event);
+      outcome = coerceOutcome(raw);
+    } catch (error: unknown) {
+      outcome = thrownToFailed(error);
+    }
+    if (outcome.kind === "cleared") {
+      clearedCount += 1;
+    } else if (outcome.kind === "skipped") {
+      skippedCount += 1;
+    } else {
+      failedCount += 1;
+    }
+    results.push({
+      id: subscriber.id,
+      category: subscriber.category,
+      outcome,
+    });
+  }
+  const end = clockNow();
+  // Round to integer ms so the log line is stable for grep regression
+  // guards (no float jitter across hosts).
+  const durationMs = Math.max(0, Math.floor(end - start));
+  const identityForLog =
+    params.event.identityId === undefined ? "anon" : params.event.identityId;
+  log(
+    `[session-reset] event=session_reset sessionId=${params.event.sessionId} sessionKey=${params.event.sessionKey} reason=${params.event.reason} identityId=${identityForLog} subscribers=${snapshot.length.toString()} cleared=${clearedCount.toString()} skipped=${skippedCount.toString()} failed=${failedCount.toString()} durationMs=${durationMs.toString()}`,
+  );
+  return {
+    event: params.event,
+    subscribers: Object.freeze(results),
+    clearedCount,
+    skippedCount,
+    failedCount,
+    durationMs,
+  };
+}
