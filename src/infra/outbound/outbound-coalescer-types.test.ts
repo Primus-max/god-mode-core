@@ -162,11 +162,20 @@ describe("outbound-coalescer-types — module-init telemetry", () => {
   });
 });
 
-describe("outbound-coalescer factory stub (Phase 2)", () => {
-  it("throws OutboundCoalescerNotImplementedError once the DI shape validates", () => {
-    expect(() => createOutboundCoalescer(makeDeps())).toThrow(
-      OutboundCoalescerNotImplementedError,
-    );
+describe("outbound-coalescer factory (post-Phase-3)", () => {
+  // Phase 3 (PR-NEW-C-3) replaced the throw-stub with the real impl;
+  // the factory now returns a working `OutboundCoalescer`. The negative
+  // -coverage cases below still throw `OutboundCoalescerNotImplementedError`
+  // for malformed DI shapes — that error symbol is retained as the
+  // structured DI-validation guard.
+  it("returns a working OutboundCoalescer once the DI shape validates", () => {
+    const coalescer = createOutboundCoalescer(makeDeps());
+    expect(typeof coalescer.register).toBe("function");
+    expect(typeof coalescer.commit).toBe("function");
+    expect(typeof coalescer.commitAll).toBe("function");
+    expect(typeof coalescer.bypass).toBe("function");
+    expect(typeof coalescer.stats).toBe("function");
+    expect(coalescer.stats()).toEqual({ buffered: 0, turns: 0 });
   });
 
   it("rejects deps.deliver that is not a function (negative coverage)", () => {
@@ -197,10 +206,11 @@ describe("outbound-coalescer factory stub (Phase 2)", () => {
     );
   });
 
-  it("uses the structured error code so callers can branch without instanceof", () => {
+  it("DI-validation error retains its structured code so callers can branch", () => {
+    const deps = makeDeps({ maxBufferMs: -1 });
     let caught: unknown;
     try {
-      createOutboundCoalescer(makeDeps());
+      createOutboundCoalescer(deps);
     } catch (e) {
       caught = e;
     }
