@@ -16,9 +16,14 @@ export const PERSISTENT_SESSION_EFFECT_FAMILY = "persistent_session" as EffectFa
 export const COMMUNICATION_EFFECT_FAMILY = "communication" as EffectFamilyId;
 export const WEB_RESEARCH_EFFECT_FAMILY = "web_research" as EffectFamilyId;
 export const UNKNOWN_EFFECT_FAMILY = "unknown" as EffectFamilyId;
+export const ARTIFACT_EFFECT_FAMILY = "artifact" as EffectFamilyId;
 
 export const WEB_EVIDENCE_COLLECTED_EFFECT = "web_evidence.collected" as EffectId;
 export const WEB_RESEARCH_SUMMARIZED_EFFECT = "web_research.summarized" as EffectId;
+export const PDF_CREATED_EFFECT = "pdf.created" as EffectId;
+export const DOCX_CREATED_EFFECT = "docx.created" as EffectId;
+export const CODE_PATCH_APPLIED_EFFECT = "code_patch.applied" as EffectId;
+export const IMAGE_CREATED_EFFECT = "image.created" as EffectId;
 
 export const EFFECT_FAMILY_REGISTRY = Object.freeze([
   Object.freeze({
@@ -44,6 +49,17 @@ export const EFFECT_FAMILY_REGISTRY = Object.freeze([
     id: UNKNOWN_EFFECT_FAMILY,
     displayName: "Unknown intent",
     allowedOperationKinds: Object.freeze([] satisfies OperationHintKind[]),
+  }),
+  Object.freeze({
+    id: ARTIFACT_EFFECT_FAMILY,
+    displayName: "Artifact authoring",
+    // `update` covers code-patch (workspace mutation) + image-edit (img2img reference).
+    // `observe` covers "summarize this PDF" / "describe this image" turns.
+    allowedOperationKinds: Object.freeze([
+      "create",
+      "observe",
+      "update",
+    ] satisfies OperationHintKind[]),
   }),
 ] satisfies EffectFamilyDefinition[]);
 

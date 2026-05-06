@@ -22,12 +22,13 @@ import type { WorldStateSnapshot } from "../world-state.js";
 import type { ExpectedDelta } from "../expected-delta.js";
 
 describe("effect-family registry", () => {
-  it("includes persistent_session, communication (PR-4b), web_research (search-composer), and unknown families", () => {
+  it("includes persistent_session, communication (PR-4b), web_research (search-composer), unknown, and artifact (cutover-3 phase 2) families", () => {
     expect(EFFECT_FAMILY_REGISTRY.map((entry) => entry.id)).toEqual([
       "persistent_session",
       "communication",
       "web_research",
       "unknown",
+      "artifact",
     ]);
   });
 
