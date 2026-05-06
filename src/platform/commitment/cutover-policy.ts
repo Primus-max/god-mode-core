@@ -6,6 +6,11 @@ import {
   IMAGE_CREATED_EFFECT,
   PDF_CREATED_EFFECT,
   PERSISTENT_SESSION_EFFECT_FAMILY,
+  REPO_BRANCH_CREATED_EFFECT,
+  REPO_COMMIT_LANDED_EFFECT,
+  REPO_DIFF_OBSERVED_EFFECT,
+  REPO_EFFECT_FAMILY,
+  REPO_MERGE_COMPLETED_EFFECT,
 } from "./effect-family-registry.js";
 import type { EffectId } from "./ids.js";
 import type { EffectFamilyId } from "./ids.js";
@@ -32,15 +37,19 @@ export interface CutoverPolicy {
   list(): readonly CutoverEntry[];
 }
 
-// Cutover-3 Phase 7 extends `CUTOVER_2` ADDITIVELY with the four artifact
+// Cutover-3 Phase 7 extended `CUTOVER_2` ADDITIVELY with the four artifact
 // effect ids (`pdf.created`, `docx.created`, `code_patch.applied`,
-// `image.created`) per sub-plan §4 #5 ("all four"). The constant name is
-// retained per the audit's naming decision (`extensions/AUDIT-cutover3-artifacts.md`):
-// extending `CUTOVER_2` in place mirrors the cutover-2 PR-#104 precedent
-// (where Wave A's single effect was extended with three Wave B chat effects
-// inside the same array literal — no `CUTOVER_1` constant) and keeps the
-// public surface a single immutable allow-list. Cutover-4 will extend the
-// same array.
+// `image.created`) per cutover-3 sub-plan §4 #5 ("all four"). Cutover-4
+// Phase 7 (this slice) extends the SAME array ADDITIVELY with the four
+// repo effect ids (`repo.branch_created`, `repo.commit_landed`,
+// `repo.merge_completed`, `repo.diff_observed`) per cutover-4 sub-plan
+// §4 #5 ("all four") and the audit decision in
+// `extensions/AUDIT-cutover4-repo-operation.md` §d. The constant name
+// is retained: extending `CUTOVER_2` in place mirrors the cutover-2
+// PR-#104 precedent (where Wave A's single effect was extended with
+// three Wave B chat effects inside the same array literal — no
+// `CUTOVER_1` constant) and the cutover-3 PR-#202 precedent, keeping
+// the public surface a single immutable allow-list.
 const CUTOVER_2 = Object.freeze([
   Object.freeze({
     effect: "persistent_session.created" as EffectId,
@@ -73,6 +82,22 @@ const CUTOVER_2 = Object.freeze([
   Object.freeze({
     effect: IMAGE_CREATED_EFFECT,
     effectFamily: ARTIFACT_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: REPO_BRANCH_CREATED_EFFECT,
+    effectFamily: REPO_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: REPO_COMMIT_LANDED_EFFECT,
+    effectFamily: REPO_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: REPO_MERGE_COMPLETED_EFFECT,
+    effectFamily: REPO_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: REPO_DIFF_OBSERVED_EFFECT,
+    effectFamily: REPO_EFFECT_FAMILY,
   }),
 ] satisfies CutoverEntry[]);
 
