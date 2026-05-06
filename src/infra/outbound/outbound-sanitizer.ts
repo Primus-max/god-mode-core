@@ -223,6 +223,41 @@ export type OutboundSanitizerResult = {
 const DEFAULT_STRIP_POLICY: ReplySanitizerPolicy = Object.freeze({ reasoning: "strip" });
 
 /**
+ * Minimum-alphabetic-char threshold for the locale gate. Below this count the
+ * gate skips the verdict — `OK` (2), `5` (0), `👍` (0) MUST NOT be blocked
+ * (sub-plan §6 «threshold 8 chars»).
+ */
+const LOCALE_FILTER_MIN_ALPHABETIC_CHARS = 8;
+
+/**
+ * Predominant-locale detector for outbound text. Mirrors the arithmetic at
+ * `src/agents/pi-embedded-subscribe.handlers.messages.ts:350-354` byte-for-
+ * byte (Cyrillic via `/[Ѐ-ӿ]/g` count + Latin via `/[A-Za-z]/g` count +
+ * `cyrillic > latin ? 'ru' : latin > 0 ? 'en' : 'other'`). The shared
+ * arithmetic produced the literal `lang=en cyr=0` value in the L2392 evidence
+ * that motivates this slice (sub-plan §2.3).
+ *
+ * Co-located inside this module on purpose — the predominant-locale arithmetic
+ * is observational at the assistant-reply log site and structural here. NOT
+ * exported beyond test access (`__detectPredominantLocaleForTests`); call
+ * sites consume it implicitly via `sanitizeOutboundForExternalChannel`.
+ */
+function detectPredominantLocale(text: string): {
+  readonly locale: "ru" | "en" | "other";
+  readonly cyrillic: number;
+  readonly latin: number;
+  readonly ratio: number;
+} {
+  const cyrillic = (text.match(/[Ѐ-ӿ]/g) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  const total = cyrillic + latin;
+  const locale: "ru" | "en" | "other" =
+    cyrillic > latin ? "ru" : latin > 0 ? "en" : "other";
+  const ratio = total === 0 ? 0 : (locale === "ru" ? cyrillic : latin) / total;
+  return { locale, cyrillic, latin, ratio };
+}
+
+/**
  * Применяет curated leak-patterns к outbound payload-text. Вызывается ТОЛЬКО
  * для каналов из `REPLY_SANITIZER_SURFACES` (caller проверяет через
  * `isReplySanitizerSurface(channel)`).
@@ -254,11 +289,6 @@ export function sanitizeOutboundForExternalChannel(
   if (!text) {
     return { text, stripped: [] };
   }
-  // Slice I rollback: `policy` is intentionally inspected only for type-shape
-  // compatibility — every value branches identically until the future
-  // tag-based wrap consumer lands. Reference the parameter to avoid an
-  // unused-binding lint while keeping the signature stable.
-  void policy;
 
   let working = text;
   const events: OutboundSanitizerStripEvent[] = [];
@@ -272,6 +302,30 @@ export function sanitizeOutboundForExternalChannel(
     if (matchCount > 0) {
       events.push({ patternId: id, count: matchCount });
       working = replaced;
+    }
+  }
+
+  // NEW-D Phase 3 — locale gate (additive in-function branch). Runs ONLY when
+  // `policy.localeFilter` is defined; channels without an entry in
+  // `CHANNEL_LOCALE_DEFAULTS` resolve to `localeFilter === undefined` and
+  // skip this branch — behavior byte-identical to pre-Phase-3 sanitizer.
+  // See sub-plan §5 / phase 3 todo + audit deliverable
+  // `extensions/AUDIT-locale-aware-sanitizer.md` §c.
+  //
+  // Order matters: runs AFTER the 16-pattern strip path. The post-strip text
+  // is the locale-gate input — diagnostic-only payloads (e.g. a bare
+  // `[planner] ...` line) become empty before the locale check and the gate
+  // does NOT fire on empty text (regression case (f)).
+  if (policy.localeFilter && working.length > 0) {
+    const verdict = detectPredominantLocale(working);
+    const alphaCount = verdict.cyrillic + verdict.latin;
+    if (
+      alphaCount >= LOCALE_FILTER_MIN_ALPHABETIC_CHARS &&
+      verdict.ratio >= policy.localeFilter.minimumRatio &&
+      !policy.localeFilter.allowedLocales.includes(verdict.locale)
+    ) {
+      events.push({ patternId: "locale_filter_block", count: 1 });
+      working = "";
     }
   }
 
@@ -308,3 +362,11 @@ export function formatOutboundSanitizerLog(params: {
 export const __OUTBOUND_LEAK_PATTERN_IDS_FOR_TESTS: readonly string[] = OUTBOUND_LEAK_PATTERNS.map(
   (p) => p.id,
 );
+
+/**
+ * @internal Test-only: pure-function alias for the predominant-locale detector
+ * exercised by `detect-predominant-locale.test.ts`. The detector is otherwise
+ * private to this module; call sites consume it implicitly via the locale
+ * gate inside `sanitizeOutboundForExternalChannel`.
+ */
+export const __detectPredominantLocaleForTests = detectPredominantLocale;
