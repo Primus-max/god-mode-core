@@ -162,3 +162,77 @@ describe("resolveMemoryWiringForTurn — onAttestation never throws on store fai
     vi.spyOn(store, "storeSemantic").mockImplementation(original);
   });
 });
+
+describe("resolveMemoryWiringForTurn — slice F Phase 5 task ledger fan-out (Strategy A)", () => {
+  beforeEach(() => {
+    __resetMemoryRuntimeForTests();
+  });
+  afterEach(() => {
+    __resetMemoryRuntimeForTests();
+  });
+
+  it("exposes taskLedger when MemoryRuntime supplies one and identity resolves", async () => {
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      promptText: "hi",
+    });
+    // The bootstrap fallback path always supplies an InMemoryTaskLedger
+    // (mirrors slice E's InMemoryMemoryStore fallback discipline).
+    expect(wiring.taskLedger).toBeDefined();
+    expect(typeof wiring.taskLedger?.create).toBe("function");
+    expect(typeof wiring.taskLedger?.list).toBe("function");
+  });
+
+  it("the returned onAttestation does NOT fan out a task hook when no taskInput is supplied (default behaviour)", async () => {
+    // The wiring helper composes BOTH hooks behind the same callback,
+    // but the task hook only fires when the wiring carries a non-empty
+    // `taskInput` — the production demo path does not supply one in
+    // Phase 5 (cron / explicit task tools in slices J / G fill it).
+    // Reverse coverage: confirm the empty-input path produces zero
+    // ledger writes even when the attestation satisfies.
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      promptText: "remind me to drink water",
+    });
+    const ledger = wiring.taskLedger!;
+    const ledgerSpy = vi.spyOn(ledger, "create");
+
+    await wiring.onAttestation!(satisfied);
+
+    expect(ledgerSpy).not.toHaveBeenCalled();
+    const tasks = await ledger.list({ ownerIdentityId: wiring.identityId! });
+    expect(tasks.tasks).toEqual([]);
+  });
+
+  it("anonymous wiring (no sessionKey) does NOT expose taskLedger (parallel to memoryStore)", async () => {
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      promptText: "x",
+    });
+    expect(wiring.taskLedger).toBeUndefined();
+    expect(wiring.memoryStore).toBeUndefined();
+    expect(wiring.identityId).toBeUndefined();
+  });
+
+  it("byte-identical semantics when caller does NOT inject a taskLedger fanout — memory hook still writes", async () => {
+    // Slice E regression guard: the existing memory-hook write path
+    // must remain byte-identical. The task fan-out is additive; absent
+    // a task input it is a pure no-op alongside the existing memory
+    // write. The 9 prior memory-wiring tests already prove the memory
+    // happy path; this test re-asserts that adding the task fan-out
+    // surface did NOT regress the memory write contract.
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      sessionId: "session-regression",
+      promptText: "memory regression check",
+    });
+    await wiring.onAttestation!(satisfied);
+    const list = await wiring.memoryStore!.list({ identityId: wiring.identityId! });
+    // Same expectations as the slice E happy-path test on line 86.
+    expect(list.episodic.length).toBeGreaterThanOrEqual(1);
+    expect(list.semantic.length).toBeGreaterThanOrEqual(1);
+  });
+});

@@ -28,6 +28,7 @@ import type {
 } from "../commitment/shadow-builder.js";
 import type { IdentityId } from "../identity/identity-id.js";
 import type { MemoryStore } from "../memory/memory-store.js";
+import type { TaskLedger } from "../task/task-ledger.js";
 import type { BuildExecutionDecisionInputParams } from "./input.js";
 import {
   classifyTaskForDecision,
@@ -135,6 +136,16 @@ export type RunTurnDecisionInput = {
    * observability, not a hard fault).
    */
   readonly memoryLogger?: IntentContractorLogger;
+  /**
+   * Slice F Phase 5 — optional task ledger surface threaded through
+   * the production wiring helper (`memory-wiring.ts` Strategy A).
+   * Phase 5 ships the field as a thread-through: the wiring layer
+   * reads it from `MemoryRuntime`, and the contractor does NOT
+   * consume it yet (Phase 6 lights up the `<active_tasks>` block).
+   * When absent, the task hook stays inert; when present it is
+   * available for downstream phases that wire recall.
+   */
+  readonly taskLedger?: TaskLedger;
 };
 
 export type RunTurnDecisionResult = {

@@ -230,3 +230,87 @@ describe("memory-store-bootstrap — slice E gateway wiring bridge", () => {
     expect(identityRegistry.resolve("telegram", "anyone")).toBeUndefined();
   });
 });
+
+describe("memory-store-bootstrap — slice F Phase 5 taskLedger field", () => {
+  beforeEach(() => {
+    __resetMemoryRuntimeForTests();
+  });
+
+  afterEach(() => {
+    __resetMemoryRuntimeForTests();
+  });
+
+  it("exposes a non-null taskLedger on MemoryRuntime", async () => {
+    const deps: MemoryRuntimeDeps = {
+      resolveEmbedder: async () => null,
+    };
+    const { taskLedger } = await getMemoryRuntime(emptyCfg(), deps);
+    expect(taskLedger).toBeDefined();
+    // Round-trip a write to confirm it is a fully-functional ledger,
+    // not a stub or undefined sentinel.
+    const created = await taskLedger.create({
+      ownerIdentityId: asIdentityId("identity:vladimir"),
+      label: "smoke task",
+      summary: "Round-trip verification",
+    });
+    expect(created.status).toBe("open");
+    const listing = await taskLedger.list({
+      ownerIdentityId: asIdentityId("identity:vladimir"),
+    });
+    expect(listing.tasks).toHaveLength(1);
+    expect(listing.tasks[0]?.id).toBe(created.id);
+  });
+
+  it("memoizes the taskLedger across deep-cloned cfg objects with identical signature", async () => {
+    // Slice F mirrors slice E's memoization discipline — the per-turn
+    // cfg resolver deep-clones the config; the taskLedger must be
+    // shared across turns that have the same memoization signature.
+    const deps: MemoryRuntimeDeps = {
+      resolveEmbedder: async () => null,
+    };
+    const base = cfgWithIdentities();
+    const turn1 = await getMemoryRuntime(structuredClone(base), deps);
+    const turn2 = await getMemoryRuntime(structuredClone(base), deps);
+    expect(turn2.taskLedger).toBe(turn1.taskLedger);
+  });
+
+  it("rebuilds taskLedger when memorySearch signature changes (cfg-reload semantics)", async () => {
+    const deps: MemoryRuntimeDeps = {
+      resolveEmbedder: async () => null,
+    };
+    const cfgA = {
+      ...cfgWithIdentities(),
+      agents: { defaults: { memorySearch: { provider: "gemini" } } },
+    } as unknown as OpenClawConfig;
+    const cfgB = {
+      ...cfgWithIdentities(),
+      agents: { defaults: { memorySearch: { provider: "openai" } } },
+    } as unknown as OpenClawConfig;
+    const a = await getMemoryRuntime(cfgA, deps);
+    const b = await getMemoryRuntime(cfgB, deps);
+    expect(b.taskLedger).not.toBe(a.taskLedger);
+  });
+
+  it("falls back to InMemoryTaskLedger when no embedder is configured (parallel to InMemoryMemoryStore fallback)", async () => {
+    // Slice F decision A: when the bootstrap chooses
+    // `InMemoryMemoryStore`, also choose `InMemoryTaskLedger`. The
+    // sqlite-vs-in-memory choice is unified across both surfaces (audit
+    // §5 + sub-plan §6 line 14): the task ledger never out-runs the
+    // memory store's persistence tier.
+    const deps: MemoryRuntimeDeps = {
+      resolveEmbedder: async () => null,
+    };
+    const { memoryStore, taskLedger } = await getMemoryRuntime(emptyCfg(), deps);
+    expect(memoryStore).toBeInstanceOf(InMemoryMemoryStore);
+    // Smoke: create a task and confirm it round-trips. We do not
+    // import `InMemoryTaskLedger` directly here so the test stays
+    // resilient if the bootstrap ever swaps the fallback impl for a
+    // structurally-equivalent variant.
+    const created = await taskLedger.create({
+      ownerIdentityId: asIdentityId("identity:vladimir"),
+      label: "fallback task",
+      summary: "verifies in-memory fallback",
+    });
+    expect(created.status).toBe("open");
+  });
+});

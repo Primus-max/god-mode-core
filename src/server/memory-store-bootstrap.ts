@@ -51,19 +51,30 @@ import {
   type MemoryStore,
   type SqliteVecMemoryStoreLogger,
 } from "../platform/memory/index.js";
+import {
+  InMemoryTaskLedger,
+  SqliteTaskLedger,
+  defaultSqliteTaskLedgerPath,
+  type TaskLedger,
+} from "../platform/task/index.js";
 
 const log = createSubsystemLogger("memory");
 
 /**
- * Public surface of the bootstrap. Both fields are non-null — the
+ * Public surface of the bootstrap. All three fields are non-null — the
  * `IdentityRegistry` returns an empty registry when the config has no
- * `identities` section (anonymous-default), and `memoryStore` falls back to
- * `InMemoryMemoryStore` so the contractor recall + Phase-5 hook remain
- * callable end-to-end without a configured embedder.
+ * `identities` section (anonymous-default); `memoryStore` falls back to
+ * `InMemoryMemoryStore` so the contractor recall + slice E Phase-5 hook
+ * remain callable end-to-end without a configured embedder; `taskLedger`
+ * (slice F Phase 5) falls back to `InMemoryTaskLedger` on the same
+ * decision branch as the memory store, so the slice F task hook is
+ * never wired against a missing dep (paired-write contract — sub-plan
+ * §6 line 148).
  */
 export type MemoryRuntime = {
   readonly memoryStore: MemoryStore;
   readonly identityRegistry: IdentityRegistry;
+  readonly taskLedger: TaskLedger;
 };
 
 /**
@@ -206,7 +217,51 @@ async function buildMemoryRuntime(
     identityRegistry = loadIdentityRegistryFromConfig(undefined);
   }
   const memoryStore = await buildMemoryStore(cfg, deps);
-  return { memoryStore, identityRegistry };
+  const taskLedger = await buildTaskLedger(memoryStore, logger);
+  return { memoryStore, identityRegistry, taskLedger };
+}
+
+/**
+ * Construct the `TaskLedger` paired with the chosen `MemoryStore`
+ * persistence tier. Decision A (audit §5 + sub-plan §6 line 14):
+ * - `SqliteVecMemoryStore` selected → try `SqliteTaskLedger` on the
+ *   slice F DB path. Failure downgrades to `InMemoryTaskLedger`
+ *   (defense-in-depth #15 — task ledger MUST NOT block the gateway
+ *   boot when the memory store already booted).
+ * - `InMemoryMemoryStore` fallback → `InMemoryTaskLedger`.
+ *
+ * The decision is cheap to evaluate from the constructed
+ * `MemoryStore` instance — `instanceof SqliteVecMemoryStore` matches
+ * exactly the persistent path. This keeps the unified persistence
+ * tier the source of truth without re-running the embedder probe.
+ */
+async function buildTaskLedger(
+  memoryStore: MemoryStore,
+  logger: { warn(message: string): void; info?(message: string): void },
+): Promise<TaskLedger> {
+  if (!(memoryStore instanceof SqliteVecMemoryStore)) {
+    logger.info?.(
+      "slice-F task bootstrap: in-process taskLedger (memoryStore is in-memory)",
+    );
+    return new InMemoryTaskLedger();
+  }
+  try {
+    return await SqliteTaskLedger.open({
+      dbPath: defaultSqliteTaskLedgerPath(),
+      logger: {
+        warn: (m) => logger.warn(m),
+        info: (m) => logger.info?.(m),
+        debug: () => {
+          /* dropped at the production seam */
+        },
+      },
+    });
+  } catch (err) {
+    logger.warn(
+      `slice-F task bootstrap: SqliteTaskLedger.open failed (${describeError(err)}); using InMemoryTaskLedger`,
+    );
+    return new InMemoryTaskLedger();
+  }
 }
 
 async function buildMemoryStore(
