@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  artifactRecordSchema,
   webEvidenceRecordSchema,
+  type ArtifactRecord,
+  type ArtifactWorldState,
   type WebEvidenceRecord,
   type WebEvidenceWorldState,
   type WorldStateSnapshot,
@@ -128,5 +131,192 @@ describe("WebEvidenceSlice — Search-Composer Phase 3 (type + read-side)", () =
       "https://a.example.com",
       "https://b.example.com",
     ]);
+  });
+});
+
+describe("ArtifactsSlice — Cutover-3 Phase 3 (type + read-side)", () => {
+  it("WorldStateSnapshot accepts the optional artifacts slice with a frozen empty record list", () => {
+    const empty: ArtifactWorldState = Object.freeze({
+      records: Object.freeze([] as readonly ArtifactRecord[]),
+    });
+    const snapshot: WorldStateSnapshot = Object.freeze({ artifacts: empty });
+    expect(snapshot.artifacts?.records).toEqual([]);
+    expect(Object.isFrozen(snapshot.artifacts)).toBe(true);
+    expect(Object.isFrozen(snapshot.artifacts?.records)).toBe(true);
+  });
+
+  it("WorldStateSnapshot tolerates absence of the artifacts slice (existing snapshots remain valid)", () => {
+    const snapshot: WorldStateSnapshot = Object.freeze({});
+    expect(snapshot.artifacts).toBeUndefined();
+  });
+
+  it("ArtifactRecord carries artifactId + kind + path + mimeType + producedAt and optional sizeBytes / sourcePaths", () => {
+    const minimal: ArtifactRecord = Object.freeze({
+      artifactId: "art-1",
+      kind: "pdf",
+      path: "media/outbound/report.pdf",
+      mimeType: "application/pdf",
+      producedAt: ISO_NOW,
+    });
+    expect(minimal.artifactId).toBe("art-1");
+    expect(minimal.sizeBytes).toBeUndefined();
+    expect(minimal.sourcePaths).toBeUndefined();
+
+    const full: ArtifactRecord = Object.freeze({
+      artifactId: "art-2",
+      kind: "image",
+      path: "media/outbound/image.png",
+      mimeType: "image/png",
+      sizeBytes: 8192,
+      sourcePaths: Object.freeze(["media/inbound/sketch.jpg"]),
+      producedAt: ISO_NOW,
+    });
+    expect(full.kind).toBe("image");
+    expect(full.sizeBytes).toBe(8192);
+    expect(full.sourcePaths).toEqual(["media/inbound/sketch.jpg"]);
+  });
+
+  it("artifactRecordSchema accepts the canonical shape (with and without optional fields)", () => {
+    expect(
+      artifactRecordSchema.safeParse({
+        artifactId: "art-1",
+        kind: "pdf",
+        path: "media/outbound/report.pdf",
+        mimeType: "application/pdf",
+        producedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(true);
+    expect(
+      artifactRecordSchema.safeParse({
+        artifactId: "art-2",
+        kind: "image",
+        path: "media/outbound/img.png",
+        mimeType: "image/png",
+        sizeBytes: 8192,
+        sourcePaths: ["media/inbound/ref.jpg"],
+        producedAt: "2026-05-02T11:00:00Z",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("artifactRecordSchema accepts every supported kind (pdf, docx, code_patch, image)", () => {
+    for (const kind of ["pdf", "docx", "code_patch", "image"] as const) {
+      expect(
+        artifactRecordSchema.safeParse({
+          artifactId: `art-${kind}`,
+          kind,
+          path: `media/outbound/x.${kind}`,
+          mimeType: "application/octet-stream",
+          producedAt: "2026-05-02T11:00:00.000Z",
+        }).success,
+      ).toBe(true);
+    }
+  });
+
+  it("artifactRecordSchema rejects unknown kind", () => {
+    expect(
+      artifactRecordSchema.safeParse({
+        artifactId: "art-1",
+        kind: "spreadsheet",
+        path: "x",
+        mimeType: "application/octet-stream",
+        producedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("artifactRecordSchema rejects empty artifactId / path / mimeType", () => {
+    const base = {
+      artifactId: "art-1",
+      kind: "pdf" as const,
+      path: "media/outbound/x.pdf",
+      mimeType: "application/pdf",
+      producedAt: "2026-05-02T11:00:00.000Z",
+    };
+    expect(
+      artifactRecordSchema.safeParse({ ...base, artifactId: "" }).success,
+    ).toBe(false);
+    expect(
+      artifactRecordSchema.safeParse({ ...base, path: "" }).success,
+    ).toBe(false);
+    expect(
+      artifactRecordSchema.safeParse({ ...base, mimeType: "" }).success,
+    ).toBe(false);
+  });
+
+  it("artifactRecordSchema rejects malformed ISO-8601 producedAt", () => {
+    expect(
+      artifactRecordSchema.safeParse({
+        artifactId: "art-1",
+        kind: "pdf",
+        path: "x",
+        mimeType: "application/pdf",
+        producedAt: "May 2 2026",
+      }).success,
+    ).toBe(false);
+    expect(
+      artifactRecordSchema.safeParse({
+        artifactId: "art-1",
+        kind: "pdf",
+        path: "x",
+        mimeType: "application/pdf",
+        producedAt: "2026-05-02",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("artifactRecordSchema rejects missing required fields", () => {
+    expect(
+      artifactRecordSchema.safeParse({
+        kind: "pdf",
+        path: "x",
+        mimeType: "application/pdf",
+        producedAt: ISO_NOW,
+      }).success,
+    ).toBe(false);
+    expect(
+      artifactRecordSchema.safeParse({
+        artifactId: "art-1",
+        kind: "pdf",
+        mimeType: "application/pdf",
+        producedAt: ISO_NOW,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("artifactRecordSchema rejects extra fields (strict)", () => {
+    expect(
+      artifactRecordSchema.safeParse({
+        artifactId: "art-1",
+        kind: "pdf",
+        path: "x",
+        mimeType: "application/pdf",
+        producedAt: "2026-05-02T11:00:00.000Z",
+        extraField: "nope",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("ArtifactWorldState carries multiple records preserving insertion order", () => {
+    const slice: ArtifactWorldState = Object.freeze({
+      records: Object.freeze([
+        Object.freeze({
+          artifactId: "art-1",
+          kind: "pdf",
+          path: "media/outbound/report.pdf",
+          mimeType: "application/pdf",
+          producedAt: ISO_NOW,
+        }),
+        Object.freeze({
+          artifactId: "art-2",
+          kind: "docx",
+          path: "media/outbound/proposal.docx",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          producedAt: ISO_NOW,
+        }),
+      ] satisfies ArtifactRecord[]),
+    });
+    expect(slice.records.map((r) => r.artifactId)).toEqual(["art-1", "art-2"]);
   });
 });

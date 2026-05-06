@@ -4,6 +4,7 @@ import type {
   SatisfactionResult,
   ShadowTrace,
 } from "./affordance.js";
+import type { ArtifactWorldStateObserver } from "./artifact-world-state-observer.js";
 import type { DeliveryWorldStateObserver } from "./delivery-world-state-observer.js";
 import type { ExecutionCommitment } from "./execution-commitment.js";
 import type { ExpectedDelta } from "./expected-delta.js";
@@ -61,6 +62,7 @@ export function createMonitoredRuntime(deps: {
   readonly sessionObserver: SessionWorldStateObserver;
   readonly deliveryObserver?: DeliveryWorldStateObserver;
   readonly webEvidenceObserver?: WebEvidenceWorldStateObserver;
+  readonly artifactObserver?: ArtifactWorldStateObserver;
 }): MonitoredRuntime {
   return Object.freeze({
     async run(params: MonitoredRuntimeRunParams): Promise<RuntimeAttestation> {
@@ -72,12 +74,14 @@ export function createMonitoredRuntime(deps: {
           sessions: deps.sessionObserver.observe(),
           deliveries: deps.deliveryObserver?.observe(),
           webEvidence: deps.webEvidenceObserver?.observe(),
+          artifacts: deps.artifactObserver?.observe(),
         });
         await params.execute?.();
         stateAfter = freezeSnapshot({
           sessions: deps.sessionObserver.observe(),
           deliveries: deps.deliveryObserver?.observe(),
           webEvidence: deps.webEvidenceObserver?.observe(),
+          artifacts: deps.artifactObserver?.observe(),
         });
       } catch {
         return observerUnavailableAttestation();
@@ -125,6 +129,9 @@ function freezeSnapshot(snapshot: WorldStateSnapshot): WorldStateSnapshot {
   }
   if (snapshot.webEvidence) {
     out = { ...out, webEvidence: snapshot.webEvidence };
+  }
+  if (snapshot.artifacts) {
+    out = { ...out, artifacts: snapshot.artifacts };
   }
   return Object.freeze(out);
 }
