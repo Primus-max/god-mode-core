@@ -8,6 +8,7 @@ import {
   EpisodicMemoryEventSchema,
   PersistentSessionCreatedPayloadSchema,
   ReminderSetPayloadSchema,
+  RepoOperationCompletedPayloadSchema,
   SubagentCreatedPayloadSchema,
   TaskCancelledPayloadSchema,
   TaskCompletedPayloadSchema,
@@ -15,6 +16,7 @@ import {
   TaskFailedPayloadSchema,
   assertNeverEpisodic,
   type EpisodicMemoryEvent,
+  type RepoOperationCompletedPayload,
 } from "./episodic-memory-event.js";
 
 const VLADIMIR = asIdentityId("identity:vladimir");
@@ -433,6 +435,130 @@ describe("Per-payload schemas — direct round-trip", () => {
       }),
     ).toThrow();
   });
+
+  // Cutover-4 Phase 2 — repo.* payload schema (additive). Typed-but-INERT
+  // until cutover-4 Phase 5 wires the runtime adapter emit site.
+  it("RepoOperationCompletedPayloadSchema round-trips for branch_created", () => {
+    const payload: RepoOperationCompletedPayload = {
+      repoOperationId: "repo-op:0001",
+      kind: "branch_created",
+      branchName: "feature/cutover4-test",
+      occurredAt: VALID_ISO,
+    };
+    expect(RepoOperationCompletedPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("RepoOperationCompletedPayloadSchema round-trips for commit_landed (with commitSha)", () => {
+    const payload: RepoOperationCompletedPayload = {
+      repoOperationId: "repo-op:0002",
+      kind: "commit_landed",
+      branchName: "feature/cutover4-test",
+      commitSha: "abc123def456",
+      occurredAt: VALID_ISO,
+    };
+    expect(RepoOperationCompletedPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("RepoOperationCompletedPayloadSchema round-trips for merge_completed", () => {
+    const payload: RepoOperationCompletedPayload = {
+      repoOperationId: "repo-op:0003",
+      kind: "merge_completed",
+      branchName: "main",
+      commitSha: "fedcba987654",
+      occurredAt: VALID_ISO,
+    };
+    expect(RepoOperationCompletedPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("RepoOperationCompletedPayloadSchema round-trips for diff_observed (no branchName / commitSha)", () => {
+    const payload: RepoOperationCompletedPayload = {
+      repoOperationId: "repo-op:0004",
+      kind: "diff_observed",
+      occurredAt: VALID_ISO,
+    };
+    expect(RepoOperationCompletedPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("RepoOperationCompletedPayloadSchema rejects an unknown kind literal (closed Zod enum)", () => {
+    expect(() =>
+      RepoOperationCompletedPayloadSchema.parse({
+        repoOperationId: "repo-op:0005",
+        kind: "rebase_completed", // not in the closed set
+        occurredAt: VALID_ISO,
+      }),
+    ).toThrow();
+  });
+
+  it("RepoOperationCompletedPayloadSchema rejects missing required fields (repoOperationId / kind / occurredAt)", () => {
+    expect(() =>
+      RepoOperationCompletedPayloadSchema.parse({
+        // repoOperationId missing
+        kind: "branch_created",
+        occurredAt: VALID_ISO,
+      }),
+    ).toThrow();
+    expect(() =>
+      RepoOperationCompletedPayloadSchema.parse({
+        repoOperationId: "repo-op:0006",
+        // kind missing
+        occurredAt: VALID_ISO,
+      }),
+    ).toThrow();
+    expect(() =>
+      RepoOperationCompletedPayloadSchema.parse({
+        repoOperationId: "repo-op:0007",
+        kind: "branch_created",
+        // occurredAt missing
+      }),
+    ).toThrow();
+  });
+
+  it("RepoOperationCompletedPayloadSchema rejects a non-ISO occurredAt", () => {
+    expect(() =>
+      RepoOperationCompletedPayloadSchema.parse({
+        repoOperationId: "repo-op:0008",
+        kind: "branch_created",
+        occurredAt: "yesterday",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("EpisodicMemoryEventSchema — Cutover-4 repo discriminated-union arm", () => {
+  it("accepts a repo.branch_created event under effectFamily 'repo'", () => {
+    const event: EpisodicMemoryEvent = {
+      identityId: VLADIMIR,
+      effectFamily: "repo",
+      effectId: "repo.branch_created",
+      payload: {
+        repoOperationId: "repo-op:0001",
+        kind: "branch_created",
+        branchName: "feature/cutover4-test",
+        occurredAt: VALID_ISO,
+      },
+    };
+    const parsed = EpisodicMemoryEventSchema.parse(event);
+    expect(parsed.effectFamily).toBe("repo");
+    if (parsed.effectFamily === "repo") {
+      expect(parsed.payload.kind).toBe("branch_created");
+      expect(parsed.payload.branchName).toBe("feature/cutover4-test");
+    }
+  });
+
+  it("rejects a repo event whose payload kind is outside the closed enum", () => {
+    expect(() =>
+      EpisodicMemoryEventSchema.parse({
+        identityId: VLADIMIR,
+        effectFamily: "repo",
+        effectId: "repo.rebase_completed",
+        payload: {
+          repoOperationId: "repo-op:0009",
+          kind: "rebase_completed",
+          occurredAt: VALID_ISO,
+        },
+      }),
+    ).toThrow();
+  });
 });
 
 describe("EpisodicMemoryEvent — discriminated-union exhaustiveness compile-check", () => {
@@ -464,6 +590,8 @@ describe("EpisodicMemoryEvent — discriminated-union exhaustiveness compile-che
         return `policy_retry:${event.payload.reason}`;
       case "policy_escalation":
         return `policy_escalation:${event.payload.escalationId}`;
+      case "repo":
+        return `repo:${event.payload.kind}`;
       default:
         return assertNeverEpisodic(event);
     }
@@ -506,11 +634,23 @@ describe("EpisodicMemoryEvent — discriminated-union exhaustiveness compile-che
         occurredAt: VALID_ISO,
       },
     };
+    const repoEvent: EpisodicMemoryEvent = {
+      identityId: VLADIMIR,
+      effectFamily: "repo",
+      effectId: "repo.branch_created",
+      payload: {
+        repoOperationId: "repo-op:0001",
+        kind: "branch_created",
+        branchName: "feature/x",
+        occurredAt: VALID_ISO,
+      },
+    };
     expect(classify(sessionEvent)).toBe("session:user");
     expect(classify(subagentEvent)).toBe("subagent:s");
     expect(classify(reminderEvent)).toBe("reminder:r");
     expect(classify(artifactEvent)).toBe("artifact:a");
     expect(classify(taskEvent)).toBe("task:created");
+    expect(classify(repoEvent)).toBe("repo:branch_created");
   });
 
   it("assertNeverEpisodic throws at runtime when fed an impossible value (defensive)", () => {

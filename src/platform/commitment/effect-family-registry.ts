@@ -17,6 +17,7 @@ export const COMMUNICATION_EFFECT_FAMILY = "communication" as EffectFamilyId;
 export const WEB_RESEARCH_EFFECT_FAMILY = "web_research" as EffectFamilyId;
 export const UNKNOWN_EFFECT_FAMILY = "unknown" as EffectFamilyId;
 export const ARTIFACT_EFFECT_FAMILY = "artifact" as EffectFamilyId;
+export const REPO_EFFECT_FAMILY = "repo" as EffectFamilyId;
 
 export const WEB_EVIDENCE_COLLECTED_EFFECT = "web_evidence.collected" as EffectId;
 export const WEB_RESEARCH_SUMMARIZED_EFFECT = "web_research.summarized" as EffectId;
@@ -24,6 +25,10 @@ export const PDF_CREATED_EFFECT = "pdf.created" as EffectId;
 export const DOCX_CREATED_EFFECT = "docx.created" as EffectId;
 export const CODE_PATCH_APPLIED_EFFECT = "code_patch.applied" as EffectId;
 export const IMAGE_CREATED_EFFECT = "image.created" as EffectId;
+export const REPO_BRANCH_CREATED_EFFECT = "repo.branch_created" as EffectId;
+export const REPO_COMMIT_LANDED_EFFECT = "repo.commit_landed" as EffectId;
+export const REPO_MERGE_COMPLETED_EFFECT = "repo.merge_completed" as EffectId;
+export const REPO_DIFF_OBSERVED_EFFECT = "repo.diff_observed" as EffectId;
 
 export const EFFECT_FAMILY_REGISTRY = Object.freeze([
   Object.freeze({
@@ -59,6 +64,20 @@ export const EFFECT_FAMILY_REGISTRY = Object.freeze([
       "create",
       "observe",
       "update",
+    ] satisfies OperationHintKind[]),
+  }),
+  Object.freeze({
+    id: REPO_EFFECT_FAMILY,
+    displayName: "Repository operation",
+    // `cancel` reserved for forward-compat (e.g. "abort merge in progress")
+    // even though Phase 5 lights only create/observe/update emit sites —
+    // discriminated-union shape pre-allocates the slot so future cutovers
+    // do not have to widen `OperationHintKind` per family.
+    allowedOperationKinds: Object.freeze([
+      "create",
+      "observe",
+      "update",
+      "cancel",
     ] satisfies OperationHintKind[]),
   }),
 ] satisfies EffectFamilyDefinition[]);
