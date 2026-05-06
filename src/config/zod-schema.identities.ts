@@ -1,5 +1,4 @@
 import { z } from "zod";
-
 import { CHAT_CHANNEL_ORDER } from "../channels/ids.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../utils/message-channel.js";
 
@@ -16,6 +15,23 @@ const IdentityRecordSchema = z
   .object({
     displayName: z.string().min(1),
     mappings: z.array(IdentityMappingSchema).default([]),
+    /**
+     * Phase 5 — Stage 4 (Role-based access) of
+     * `commitment_kernel_policy_gate_full.plan.md`. Optional list of
+     * role-keys assigned to this identity. Each role-key resolves
+     * against `policy.roles[<role>].allowedEffects` (see
+     * `src/config/zod-schema.ts`) at evaluation time. Backward
+     * compatible: existing identity records work unchanged — when
+     * omitted, downstream consumers (`role-policy.ts`) treat the
+     * absence as the empty role list, which fail-closes the role
+     * gate for any effect listed in `policy.roles`.
+     *
+     * Schema-level: `optional` (not `default([])`) so existing
+     * config fixtures and `IdentityRecord` factory constructions
+     * across the codebase compile without a forced `roles: []`
+     * sentinel.
+     */
+    roles: z.array(z.string().min(1)).optional(),
   })
   .strict();
 

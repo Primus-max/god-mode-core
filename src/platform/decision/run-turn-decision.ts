@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { defaultRuntime } from "../../runtime.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import { defaultRuntime } from "../../runtime.js";
+import type { ExecutionCommitment } from "../commitment/execution-commitment.js";
+import type { EffectId } from "../commitment/ids.js";
 import {
   createClarificationPolicy,
   createIntentContractor,
@@ -19,15 +21,11 @@ import {
   type IntentContractorLogger,
   type MonitoredRuntime,
   type PolicyGateReader,
+  type RolePolicyReader,
   type RuntimeAttestation,
   type SemanticIntent,
 } from "../commitment/index.js";
-import type { ExecutionCommitment } from "../commitment/execution-commitment.js";
-import type { EffectId } from "../commitment/ids.js";
-import type {
-  ShadowBuildResult,
-  ShadowUnsupportedReason,
-} from "../commitment/shadow-builder.js";
+import type { ShadowBuildResult, ShadowUnsupportedReason } from "../commitment/shadow-builder.js";
 import type { IdentityId } from "../identity/identity-id.js";
 import type { MemoryStore } from "../memory/memory-store.js";
 import type { TaskLedger } from "../task/task-ledger.js";
@@ -44,6 +42,7 @@ import type {
   KernelFallbackReason,
   PolicyApprovalDenialMarker,
   PolicyBudgetDenialMarker,
+  PolicyRoleDenialMarker,
 } from "./trace.js";
 
 declare const TraceIdBrand: unique symbol;
@@ -136,6 +135,36 @@ export type RunTurnDecisionInput = {
    * entry — `'unknown'` will never match a real channel string.
    */
   readonly budgetPolicy?: BudgetPolicyReader;
+  /**
+   * Phase 5 — Stage 4 (Role-based access) injection point per
+   * `commitment_kernel_policy_gate_full.plan.md`. When omitted, the
+   * role gate is bypassed cleanly (default-allow). Active only on
+   * the kernel-derived production-decision path; the legacy fallback
+   * path bypasses policy gates by design.
+   *
+   * Evaluation chain order (sub-plan §3 Phase 5 row d):
+   *   affordance allowlist (existing, inside `runShadowBranch`)
+   *   → approval (Phase 3)
+   *   → budget (Phase 4)
+   *   → role (this)
+   *   → retry (Phase 6)
+   *   → escalation hook (Phase 7, observability)
+   *
+   * On `allowed=false` the wiring helper:
+   *   1. Attaches a `policyRoleDenial` marker to the decision
+   *      trace so downstream callers can join on the same
+   *      `requiredRole` against the `policy_role` episodic event.
+   *   2. Flips `taskContract.primaryOutcome` to `"answer"` and
+   *      `interactionMode` to `"respond_only"` so the downstream
+   *      agent surface delivers the "role required" message instead
+   *      of attempting the gated effect (mirrors clarification /
+   *      approval / budget downgrade shape).
+   *
+   * The role gate is skipped entirely when the upstream Approval OR
+   * Budget gate already denied (avoids double-emit of episodic
+   * events for an effect that will not execute).
+   */
+  readonly rolePolicy?: RolePolicyReader;
   /**
    * Stage 1.5 injection point (`commitment_kernel_smart_orchestrator_roadmap.plan.md`
    * §3 row 3 — PR-H session-history-aware clarify). Last successful
@@ -292,9 +321,7 @@ type ShadowBranchOutcome = {
  * @returns Both raw legacy decision and routed production decision, plus
  *   shadow commitment, cutover gate, and (when available) runtime attestation.
  */
-export async function runTurnDecision(
-  input: RunTurnDecisionInput,
-): Promise<RunTurnDecisionResult> {
+export async function runTurnDecision(input: RunTurnDecisionInput): Promise<RunTurnDecisionResult> {
   const traceId = newTraceId();
   const legacy = classifyTaskForDecision({
     prompt: input.prompt,
@@ -306,7 +333,9 @@ export async function runTurnDecision(
     cfg: input.cfg,
     ...(input.agentDir ? { agentDir: input.agentDir } : {}),
     ...(input.classifierInput ? { input: input.classifierInput } : {}),
-    ...(input.classifierAdapterRegistry ? { adapterRegistry: input.classifierAdapterRegistry } : {}),
+    ...(input.classifierAdapterRegistry
+      ? { adapterRegistry: input.classifierAdapterRegistry }
+      : {}),
   });
   const shadow = runShadowBranch(input);
 
@@ -373,13 +402,31 @@ export async function runTurnDecision(
   // `policyBudgetDenial` trace marker and downgrades the decision
   // to answer/respond_only. Log + episodic emission happen INSIDE
   // `budgetPolicy.evaluate(...)` — see `budget-policy.ts`.
-  const productionDecision = isKernelDerived
+  const decisionAfterBudget = isKernelDerived
     ? await maybeBlockOnBudget({
         input,
         productionDecision: decisionAfterApproval,
         shadowCommitment,
       })
     : decisionAfterApproval;
+
+  // Phase 5 — Stage 4 (Role-based access). Runs only on the
+  // kernel-derived path AND only when neither the prior Approval gate
+  // NOR the prior Budget gate already denied (`policyApprovalDenial`
+  // / `policyBudgetDenial` trace markers act as the
+  // already-denied signal — a role check on top of an
+  // already-denied turn would double-emit the episodic event for an
+  // effect that will not execute). On `allowed=false` the helper
+  // attaches a `policyRoleDenial` trace marker and downgrades the
+  // decision to answer/respond_only. Log + episodic emission happen
+  // INSIDE `rolePolicy.evaluate(...)` — see `role-policy.ts`.
+  const productionDecision = isKernelDerived
+    ? await maybeBlockOnRole({
+        input,
+        productionDecision: decisionAfterBudget,
+        shadowCommitment,
+      })
+    : decisionAfterBudget;
 
   const fallbackReason = isKernelDerived
     ? undefined
@@ -667,9 +714,7 @@ function resolveFallbackReason(
   }
   switch (gate.kind) {
     case "gate_out":
-      return gate.reason === "shadow_unsupported"
-        ? "shadow_runtime_error"
-        : gate.reason;
+      return gate.reason === "shadow_unsupported" ? "shadow_runtime_error" : gate.reason;
     case "gate_in_uncertain":
       return gate.reason;
     case "gate_in_fail":
@@ -884,6 +929,110 @@ function downgradeOnBudgetDenial(
 }
 
 /**
+ * Phase 5 — Stage 4 (Role-based access) wiring helper. Mirrors the
+ * structure of `maybeBlockOnApproval` / `maybeBlockOnBudget`. Runs
+ * ONLY when the caller injected a `rolePolicy` AND the shadow
+ * commitment resolved to a kernel-derived `ExecutionCommitment` AND
+ * neither the upstream Approval gate NOR the upstream Budget gate
+ * already denied (skipping role on an already-denied turn keeps the
+ * episodic stream and trace clean — only one denial reason per turn,
+ * carried by the gate that actually fired first).
+ *
+ * On `allowed=false` the helper:
+ *   1. Attaches a `policyRoleDenial` marker to the decision trace
+ *      so downstream callers (telemetry, eval, planner-trace dumps)
+ *      can join on `requiredRole` against the `policy_role`
+ *      episodic event.
+ *   2. Flips `taskContract.primaryOutcome` to `"answer"` and
+ *      `interactionMode` to `"respond_only"` so the downstream
+ *      agent surface delivers the "role required" message instead
+ *      of attempting the gated effect.
+ *
+ * Log + episodic emission happen INSIDE
+ * `rolePolicy.evaluate(...)` — see `role-policy.ts`. This wiring
+ * helper only translates the decision into the production-decision
+ * shape.
+ *
+ * Anonymous turns (no `identityId` threaded through
+ * `RunTurnDecisionInput`) flow through the gate — `role-policy.ts`
+ * fail-closes for anonymous identities AND the wiring helper still
+ * downgrades the decision (the gate is a denial gate, not an
+ * identification gate).
+ */
+async function maybeBlockOnRole(params: {
+  readonly input: RunTurnDecisionInput;
+  readonly productionDecision: ClassifiedTaskResolution;
+  readonly shadowCommitment: ShadowBuildResult;
+}): Promise<ClassifiedTaskResolution> {
+  const { input, productionDecision, shadowCommitment } = params;
+  if (!input.rolePolicy) {
+    return productionDecision;
+  }
+  if (shadowCommitment.kind !== "commitment") {
+    return productionDecision;
+  }
+  // Skip role gate when Approval OR Budget already denied — the turn
+  // will not execute the gated effect, so re-checking role would
+  // double-emit the policy episodic event without changing the
+  // outcome.
+  const trace = productionDecision.plannerInput.decisionTrace as
+    | {
+        readonly policyApprovalDenial?: PolicyApprovalDenialMarker;
+        readonly policyBudgetDenial?: PolicyBudgetDenialMarker;
+      }
+    | undefined;
+  if (trace?.policyApprovalDenial || trace?.policyBudgetDenial) {
+    return productionDecision;
+  }
+  const effectId = shadowCommitment.value.effect;
+  const decision = await input.rolePolicy.evaluate({
+    effectId,
+    // Cast through the structurally-optional shape the wiring layer
+    // uses — `RolePolicyEvaluateInput` formally requires `identityId`,
+    // but the production caller may thread an anonymous turn (no
+    // `identityId` on `RunTurnDecisionInput`). The reader's anonymous
+    // fail-closed path defends against the structural-undefined leak.
+    ...(input.identityId ? { identityId: input.identityId } : ({} as { identityId: IdentityId })),
+  });
+  if (decision.allowed) {
+    return productionDecision;
+  }
+  const marker: PolicyRoleDenialMarker = {
+    stage: "role",
+    reason: decision.reason,
+    effectId,
+    requiredRole: String(decision.requiredRole),
+  };
+  return downgradeOnRoleDenial(productionDecision, marker);
+}
+
+function downgradeOnRoleDenial(
+  legacy: ClassifiedTaskResolution,
+  marker: PolicyRoleDenialMarker,
+): ClassifiedTaskResolution {
+  const previousTrace = legacy.plannerInput.decisionTrace;
+  const decisionTrace: DecisionTrace = {
+    version: 1,
+    ...previousTrace,
+    policyRoleDenial: marker,
+  };
+  const taskContract = {
+    ...legacy.taskContract,
+    primaryOutcome: "answer" as const,
+    interactionMode: "respond_only" as const,
+  };
+  const { lowConfidenceStrategy: _droppedStrategy, ...plannerInputRest } = legacy.plannerInput;
+  return {
+    ...legacy,
+    taskContract,
+    plannerInput: {
+      ...plannerInputRest,
+      decisionTrace,
+    },
+  };
+}
+
+/**
  * Best-effort active-channel lookup for the budget gate. The
  * `OpenClawConfig.channels` shape is intentionally heterogeneous
  * across providers (slack, telegram, discord, …); for the budget
@@ -943,9 +1092,7 @@ function collectBlockingClarificationReasons(decision: ClassifiedTaskResolution)
   if (!profile || profile.length === 0) {
     return [];
   }
-  return profile
-    .filter((entry) => entry.blocksClarification)
-    .map((entry) => entry.reason);
+  return profile.filter((entry) => entry.blocksClarification).map((entry) => entry.reason);
 }
 
 /**

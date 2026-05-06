@@ -74,10 +74,7 @@ export {
   createShadowBuilder,
   pickAllowedConstraints,
 } from "./shadow-builder-impl.js";
-export {
-  POLICY_GATE_REASONS,
-  createPolicyGate,
-} from "./policy-gate.js";
+export { POLICY_GATE_REASONS, createPolicyGate } from "./policy-gate.js";
 export type { PolicyGateReason, RealPolicyGateContext } from "./policy-gate.js";
 export {
   CLARIFICATION_POLICY_REASONS,
@@ -100,10 +97,13 @@ export type {
   CreateApprovalPolicyOptions,
 } from "./approval-policy.js";
 export { createBudgetPolicy } from "./budget-policy.js";
+export type { BudgetPolicyConfigEntry, CreateBudgetPolicyOptions } from "./budget-policy.js";
+export { createRolePolicy } from "./role-policy.js";
 export type {
-  BudgetPolicyConfigEntry,
-  CreateBudgetPolicyOptions,
-} from "./budget-policy.js";
+  CreateRolePolicyOptions,
+  RolePolicyConfigEntry,
+  RoleResolver,
+} from "./role-policy.js";
 export { buildBudgetWindowId } from "./budget-store.js";
 export type {
   BudgetDimension,
