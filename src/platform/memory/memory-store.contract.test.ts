@@ -129,6 +129,16 @@ describe("EpisodicMemoryEvent — exhaustiveness compile-check", () => {
         return "artifact";
       case "task":
         return "task";
+      case "policy_approval":
+        return "policy_approval";
+      case "policy_budget":
+        return "policy_budget";
+      case "policy_role":
+        return "policy_role";
+      case "policy_retry":
+        return "policy_retry";
+      case "policy_escalation":
+        return "policy_escalation";
       default:
         return assertNeverEpisodic(event);
     }

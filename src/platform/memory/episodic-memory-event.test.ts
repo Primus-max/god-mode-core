@@ -454,6 +454,16 @@ describe("EpisodicMemoryEvent — discriminated-union exhaustiveness compile-che
         return `artifact:${event.payload.artifactId}`;
       case "task":
         return `task:${event.payload.kind}`;
+      case "policy_approval":
+        return `policy_approval:${event.payload.reason}`;
+      case "policy_budget":
+        return `policy_budget:${event.payload.reason}`;
+      case "policy_role":
+        return `policy_role:${event.payload.reason}`;
+      case "policy_retry":
+        return `policy_retry:${event.payload.reason}`;
+      case "policy_escalation":
+        return `policy_escalation:${event.payload.escalationId}`;
       default:
         return assertNeverEpisodic(event);
     }

@@ -1,5 +1,19 @@
 import { z } from "zod";
 
+import type { EffectId } from "../commitment/ids.js";
+import {
+  APPROVAL_POLICY_REASONS,
+  BUDGET_POLICY_REASONS,
+  RETRY_POLICY_REASONS,
+  ROLE_POLICY_REASONS,
+  type ApprovalPolicyReason,
+  type ApprovalRequestId,
+  type BudgetPolicyReason,
+  type BudgetWindowId,
+  type RetryPolicyReason,
+  type RolePolicyReason,
+  type RoleId,
+} from "../commitment/policy-gate-stages.js";
 import { asIdentityId, isIdentityId, type IdentityId } from "../identity/identity-id.js";
 import { asTaskId, isTaskId, type TaskId } from "../task/task-id.js";
 
@@ -33,7 +47,12 @@ export type EpisodicEffectFamily =
   | "subagent"
   | "reminder"
   | "artifact"
-  | "task";
+  | "task"
+  | "policy_approval"
+  | "policy_budget"
+  | "policy_role"
+  | "policy_retry"
+  | "policy_escalation";
 
 /**
  * `persistent_session.created` — emitted when a commitment-runtime turn
@@ -172,6 +191,87 @@ export type TaskLifecyclePayload =
   | TaskFailedPayload;
 
 /**
+ * `policy_approval` — sub-plan
+ * `commitment_kernel_policy_gate_full.plan.md` Phase 2 (Stage 2 scaffolding).
+ * Typed-but-INERT until Phase 3 wires the Stage 2 (Approvals) emit site.
+ *
+ * Recorded when the affordance allowlist requires an explicit approval
+ * before the gated effect proceeds. Reads `approvalRequestId` so the
+ * episodic record JOINs cleanly to the `ExecApprovalRequest` raised by
+ * the same denial event.
+ */
+export type PolicyApprovalPayload = {
+  readonly approvalRequestId: ApprovalRequestId;
+  readonly identityId: IdentityId;
+  readonly effectId: EffectId;
+  readonly reason: ApprovalPolicyReason;
+};
+
+/**
+ * `policy_budget` — Phase 2 (Stage 3 scaffolding). Typed-but-INERT
+ * until Phase 4 wires the Stage 3 (Budgets) emit site.
+ *
+ * Recorded on a budget window denial. The orthogonal three-reason
+ * surface (`budget_exceeded_user` / `budget_exceeded_channel` /
+ * `budget_exceeded_effect`) keeps the episodic stream filterable by
+ * dimension without re-parsing the payload.
+ */
+export type PolicyBudgetPayload = {
+  readonly windowId: BudgetWindowId;
+  readonly identityId: IdentityId;
+  readonly effectId: EffectId;
+  readonly reason: BudgetPolicyReason;
+  readonly used: number;
+  readonly limit: number;
+};
+
+/**
+ * `policy_role` — Phase 2 (Stage 4 scaffolding). Typed-but-INERT
+ * until Phase 5 wires the Stage 4 (Role-based) emit site. The
+ * `requiredRole` is carried in the payload (NOT in the reason enum)
+ * so closed-set discipline holds.
+ */
+export type PolicyRolePayload = {
+  readonly identityId: IdentityId;
+  readonly effectId: EffectId;
+  readonly reason: RolePolicyReason;
+  readonly requiredRole: RoleId;
+};
+
+/**
+ * `policy_retry` — Phase 2 (Stage 5 scaffolding). Typed-but-INERT
+ * until Phase 6 wires the Stage 5 (Retry) emit site. Carries the
+ * `(identityId × effectId × sessionId)` triple per-counter scoping —
+ * a different session does not inherit the count (Phase 6 enforces this
+ * in the in-memory LRU keying).
+ */
+export type PolicyRetryPayload = {
+  readonly identityId: IdentityId;
+  readonly effectId: EffectId;
+  readonly sessionId: string;
+  readonly reason: RetryPolicyReason;
+  readonly attemptCount: number;
+  readonly maxAttempts: number;
+};
+
+/**
+ * `policy_escalation` — Phase 2 (Stage 6 scaffolding).
+ * Typed-but-INERT until Phase 7 wires the Stage 6 (Escalation) emit
+ * site. The `denialReason` is the originating reason that triggered the
+ * escalation (one of `APPROVAL_/BUDGET_/ROLE_/RETRY_` reasons —
+ * carried as the underlying string so the episodic stream can be
+ * persisted/restored without dragging the cross-stage union shape into
+ * a Zod-decoded row).
+ */
+export type PolicyEscalationPayload = {
+  readonly denialReason: string;
+  readonly identityId: IdentityId;
+  readonly effectId: EffectId;
+  readonly channel: string;
+  readonly escalationId: string;
+};
+
+/**
  * Episodic memory event — the input shape for `MemoryStore.storeEpisodic`.
  *
  * Discriminated by `effectFamily`. The store is responsible for:
@@ -215,6 +315,36 @@ export type EpisodicMemoryEvent =
       readonly effectFamily: "task";
       readonly effectId: string;
       readonly payload: TaskLifecyclePayload;
+    }
+  | {
+      readonly identityId: IdentityId;
+      readonly effectFamily: "policy_approval";
+      readonly effectId: string;
+      readonly payload: PolicyApprovalPayload;
+    }
+  | {
+      readonly identityId: IdentityId;
+      readonly effectFamily: "policy_budget";
+      readonly effectId: string;
+      readonly payload: PolicyBudgetPayload;
+    }
+  | {
+      readonly identityId: IdentityId;
+      readonly effectFamily: "policy_role";
+      readonly effectId: string;
+      readonly payload: PolicyRolePayload;
+    }
+  | {
+      readonly identityId: IdentityId;
+      readonly effectFamily: "policy_retry";
+      readonly effectId: string;
+      readonly payload: PolicyRetryPayload;
+    }
+  | {
+      readonly identityId: IdentityId;
+      readonly effectFamily: "policy_escalation";
+      readonly effectId: string;
+      readonly payload: PolicyEscalationPayload;
     };
 
 const ISO8601_PATTERN =
@@ -353,6 +483,70 @@ export const TaskLifecyclePayloadSchema: z.ZodType<TaskLifecyclePayload> =
   ]);
 
 /**
+ * Branded-id Zod schemas for the policy-gate-stages ID brands. Phase 2
+ * accepts any non-empty string and re-brands at decode time; Phases 3-7
+ * tighten the format with a dedicated guard once finalised.
+ */
+const ApprovalRequestIdSchema = NonEmptyString.transform(
+  (value) => value as ApprovalRequestId,
+);
+const BudgetWindowIdSchema = NonEmptyString.transform(
+  (value) => value as BudgetWindowId,
+);
+const RoleIdSchema = NonEmptyString.transform((value) => value as RoleId);
+const EffectIdSchema = NonEmptyString.transform((value) => value as EffectId);
+
+/**
+ * Public, brand-typed schemas for the five `policy_*` payloads.
+ * Annotated as `z.ZodType<T>` so the emitted `.d.ts` does NOT inline
+ * the private brand symbols (TS4023). Phase 2 ships INERT — no
+ * production code path emits these events until Phases 3-7 light their
+ * respective stage hooks.
+ */
+export const PolicyApprovalPayloadSchema: z.ZodType<PolicyApprovalPayload> =
+  z.object({
+    approvalRequestId: ApprovalRequestIdSchema,
+    identityId: IdentityIdSchema,
+    effectId: EffectIdSchema,
+    reason: z.enum(APPROVAL_POLICY_REASONS),
+  });
+
+export const PolicyBudgetPayloadSchema: z.ZodType<PolicyBudgetPayload> =
+  z.object({
+    windowId: BudgetWindowIdSchema,
+    identityId: IdentityIdSchema,
+    effectId: EffectIdSchema,
+    reason: z.enum(BUDGET_POLICY_REASONS),
+    used: z.number().nonnegative(),
+    limit: z.number().nonnegative(),
+  });
+
+export const PolicyRolePayloadSchema: z.ZodType<PolicyRolePayload> = z.object({
+  identityId: IdentityIdSchema,
+  effectId: EffectIdSchema,
+  reason: z.enum(ROLE_POLICY_REASONS),
+  requiredRole: RoleIdSchema,
+});
+
+export const PolicyRetryPayloadSchema: z.ZodType<PolicyRetryPayload> = z.object({
+  identityId: IdentityIdSchema,
+  effectId: EffectIdSchema,
+  sessionId: NonEmptyString,
+  reason: z.enum(RETRY_POLICY_REASONS),
+  attemptCount: z.number().int().nonnegative(),
+  maxAttempts: z.number().int().positive(),
+});
+
+export const PolicyEscalationPayloadSchema: z.ZodType<PolicyEscalationPayload> =
+  z.object({
+    denialReason: NonEmptyString,
+    identityId: IdentityIdSchema,
+    effectId: EffectIdSchema,
+    channel: NonEmptyString,
+    escalationId: NonEmptyString,
+  });
+
+/**
  * Zod schema for an `EpisodicMemoryEvent`. Discriminated on
  * `effectFamily`. Use at decode boundaries (e.g. when a persistent
  * store row is read back from JSON) to assert the payload matches its
@@ -394,6 +588,36 @@ export const EpisodicMemoryEventSchema: z.ZodType<EpisodicMemoryEvent> =
       effectFamily: z.literal("task"),
       effectId: NonEmptyString,
       payload: TaskLifecyclePayloadSchema,
+    }),
+    z.object({
+      identityId: IdentityIdSchema,
+      effectFamily: z.literal("policy_approval"),
+      effectId: NonEmptyString,
+      payload: PolicyApprovalPayloadSchema,
+    }),
+    z.object({
+      identityId: IdentityIdSchema,
+      effectFamily: z.literal("policy_budget"),
+      effectId: NonEmptyString,
+      payload: PolicyBudgetPayloadSchema,
+    }),
+    z.object({
+      identityId: IdentityIdSchema,
+      effectFamily: z.literal("policy_role"),
+      effectId: NonEmptyString,
+      payload: PolicyRolePayloadSchema,
+    }),
+    z.object({
+      identityId: IdentityIdSchema,
+      effectFamily: z.literal("policy_retry"),
+      effectId: NonEmptyString,
+      payload: PolicyRetryPayloadSchema,
+    }),
+    z.object({
+      identityId: IdentityIdSchema,
+      effectFamily: z.literal("policy_escalation"),
+      effectId: NonEmptyString,
+      payload: PolicyEscalationPayloadSchema,
     }),
   ]);
 
