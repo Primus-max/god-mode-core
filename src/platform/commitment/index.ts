@@ -99,6 +99,25 @@ export type {
   ApprovalRequestCreator,
   CreateApprovalPolicyOptions,
 } from "./approval-policy.js";
+export { createBudgetPolicy } from "./budget-policy.js";
+export type {
+  BudgetPolicyConfigEntry,
+  CreateBudgetPolicyOptions,
+} from "./budget-policy.js";
+export { buildBudgetWindowId } from "./budget-store.js";
+export type {
+  BudgetDimension,
+  BudgetIncrementInput,
+  BudgetReadQuery,
+  BudgetStore,
+  BudgetWindow,
+} from "./budget-store.js";
+export {
+  SQLITE_BUDGET_STORE_SCHEMA_VERSION,
+  SqliteBudgetStore,
+  defaultSqliteBudgetStorePath,
+} from "./sqlite-budget-store.js";
+export type { SqliteBudgetStoreOpenOptions } from "./sqlite-budget-store.js";
 export {
   APPROVAL_POLICY_REASONS,
   ApprovalPolicyDecisionSchema,

@@ -969,6 +969,42 @@ export const OpenClawSchema = z
               .strict(),
           )
           .optional(),
+        /**
+         * Phase 4 — Stage 3 (Budgets) of
+         * `commitment_kernel_policy_gate_full.plan.md`. Each entry
+         * pins a budget on one of three orthogonal dimensions
+         * (`'user'` / `'channel'` / `'effect'`) with its own window
+         * duration (`windowMs`) and limit. The runtime impl lives
+         * in `src/platform/commitment/budget-policy.ts`. Backward
+         * compatible: configs without `policy.budgets` get an empty
+         * array (default-allow).
+         *
+         * Entry semantics:
+         *  - `dimension` — orthogonal axis. Determines the WHERE
+         *    clause on the persistent `budget_windows` row.
+         *  - `limit` — maximum charges within the window. The
+         *    reader denies on the (`limit + 1`)-th request.
+         *  - `windowMs` — window duration; the store rolls forward
+         *    when `Date.now() >= windowEnd`.
+         *  - `identityId` / `channel` / `effectFamily` — optional
+         *    filters on top of the dimension. A `'user'` rule with
+         *    `effectFamily='web_research'` scopes the per-user budget
+         *    to one effect family.
+         */
+        budgets: z
+          .array(
+            z
+              .object({
+                dimension: z.enum(["user", "channel", "effect"]),
+                limit: z.number().nonnegative(),
+                windowMs: z.number().positive(),
+                identityId: z.string().min(1).optional(),
+                channel: z.string().min(1).optional(),
+                effectFamily: z.string().min(1).optional(),
+              })
+              .strict(),
+          )
+          .optional(),
       })
       .strict()
       .optional(),

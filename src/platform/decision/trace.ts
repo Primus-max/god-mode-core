@@ -173,6 +173,34 @@ export type PolicyApprovalDenialMarker = {
   readonly approvalRequestId: string;
 };
 
+/**
+ * Phase 4 — Stage 3 (Budgets) trace marker. Mirrors the
+ * `policyApprovalDenial` shape (one denial per turn at most), but
+ * carries the orthogonal three-reason `BudgetPolicyReason` enum and
+ * the `(used, limit, windowId)` triple so observability can join on
+ * the same `windowId` against the `policy_budget` episodic event
+ * AND the `SqliteBudgetStore` row in one query.
+ *
+ * The closed-string `reason` mirrors the frozen
+ * `BUDGET_POLICY_REASONS = ['budget_exceeded_user',
+ * 'budget_exceeded_channel', 'budget_exceeded_effect']` tuple
+ * (Phase 2 deliverable). Stages 4-6 land sibling markers
+ * (`policyRoleDenial`, `policyRetryDenial`, …) following the same
+ * pattern; each extension is gated on its own sub-plan phase with
+ * maintainer signoff.
+ */
+export type PolicyBudgetDenialMarker = {
+  readonly stage: "budget";
+  readonly reason:
+    | "budget_exceeded_user"
+    | "budget_exceeded_channel"
+    | "budget_exceeded_effect";
+  readonly effectId: EffectId;
+  readonly windowId: string;
+  readonly used: number;
+  readonly limit: number;
+};
+
 export type DecisionTrace = {
   version: 1;
   classifier?: DecisionTraceClassifier;
@@ -189,6 +217,7 @@ export type DecisionTrace = {
   readonly fallbackReason?: KernelFallbackReason;
   readonly clarificationPolicy?: ClarificationPolicyDowngradeMarker;
   readonly policyApprovalDenial?: PolicyApprovalDenialMarker;
+  readonly policyBudgetDenial?: PolicyBudgetDenialMarker;
 };
 
 function sortUnique(values: readonly string[] | undefined): string[] {

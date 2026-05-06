@@ -11,6 +11,7 @@ import {
   resolveIntentContractorConfig,
   type AffordanceRegistry,
   type ApprovalPolicyReader,
+  type BudgetPolicyReader,
   type ClarificationPolicyReader,
   type CutoverPolicy,
   type ExpectedDelta,
@@ -42,6 +43,7 @@ import type {
   KernelDerivedDecisionMarker,
   KernelFallbackReason,
   PolicyApprovalDenialMarker,
+  PolicyBudgetDenialMarker,
 } from "./trace.js";
 
 declare const TraceIdBrand: unique symbol;
@@ -101,6 +103,39 @@ export type RunTurnDecisionInput = {
    * against).
    */
   readonly approvalPolicy?: ApprovalPolicyReader;
+  /**
+   * Phase 4 — Stage 3 (Budgets) injection point per
+   * `commitment_kernel_policy_gate_full.plan.md`. When omitted, the
+   * budget gate is bypassed cleanly (default-allow). Active only on
+   * the kernel-derived production-decision path; the legacy fallback
+   * path bypasses policy gates by design.
+   *
+   * Evaluation chain order (sub-plan §3 Phase 4 row d):
+   *   affordance allowlist (existing, inside `runShadowBranch`)
+   *   → approval (Phase 3)
+   *   → budget (this)
+   *   → role (Phase 5)
+   *   → retry (Phase 6)
+   *   → escalation hook (Phase 7, observability)
+   *
+   * On `within=false` the wiring helper:
+   *   1. Attaches a `policyBudgetDenial` marker to the decision
+   *      trace so downstream callers can join on the same `windowId`
+   *      against the `policy_budget` episodic event AND the
+   *      `SqliteBudgetStore` row.
+   *   2. Flips `taskContract.primaryOutcome` to `"answer"` and
+   *      `interactionMode` to `"respond_only"` so the downstream
+   *      agent surface delivers the "budget exhausted" message
+   *      instead of attempting the gated effect (mirrors clarification
+   *      / approval downgrade shape).
+   *
+   * `channel` for the evaluate input is read from
+   * `cfg.channels?._activeChannel` when present, falling back to the
+   * literal string `"unknown"`. Channel-dimension rules that require
+   * an exact match SHOULD set `channel` explicitly in their config
+   * entry — `'unknown'` will never match a real channel string.
+   */
+  readonly budgetPolicy?: BudgetPolicyReader;
   /**
    * Stage 1.5 injection point (`commitment_kernel_smart_orchestrator_roadmap.plan.md`
    * §3 row 3 — PR-H session-history-aware clarify). Last successful
@@ -321,13 +356,30 @@ export async function runTurnDecision(
   // closed `requires_approval` reason and the sibling-reused
   // `ExecApprovalManager` request id. Log + episodic emission happen
   // INSIDE `approvalPolicy.evaluate(...)` — see `approval-policy.ts`.
-  const productionDecision = isKernelDerived
+  const decisionAfterApproval = isKernelDerived
     ? await maybeBlockOnApproval({
         input,
         productionDecision: decisionAfterClarify,
         shadowCommitment,
       })
     : decisionAfterClarify;
+
+  // Phase 4 — Stage 3 (Budgets). Runs only on the kernel-derived path
+  // AND only when the prior Approval gate did NOT already deny (we
+  // detect a prior denial via the `policyApprovalDenial` trace
+  // marker — chaining a budget check on top of an already-denied
+  // turn would double-charge the per-user budget for a turn that
+  // never executes). On `within=false` the helper attaches a
+  // `policyBudgetDenial` trace marker and downgrades the decision
+  // to answer/respond_only. Log + episodic emission happen INSIDE
+  // `budgetPolicy.evaluate(...)` — see `budget-policy.ts`.
+  const productionDecision = isKernelDerived
+    ? await maybeBlockOnBudget({
+        input,
+        productionDecision: decisionAfterApproval,
+        shadowCommitment,
+      })
+    : decisionAfterApproval;
 
   const fallbackReason = isKernelDerived
     ? undefined
@@ -730,6 +782,126 @@ async function maybeBlockOnApproval(params: {
     approvalRequestId: String(decision.approvalRequestId),
   };
   return downgradeOnApprovalDenial(productionDecision, marker);
+}
+
+/**
+ * Phase 4 — Stage 3 (Budgets) wiring helper. Mirrors the structure
+ * of `maybeBlockOnApproval`. Runs ONLY when the caller injected a
+ * `budgetPolicy` AND the shadow commitment resolved to a
+ * kernel-derived `ExecutionCommitment` AND the upstream Approval
+ * gate did NOT already deny (skipping budget on an already-denied
+ * turn keeps the per-user counter aligned with actual execution
+ * intent).
+ *
+ * On `within=false` the helper:
+ *   1. Attaches a `policyBudgetDenial` marker to the decision trace
+ *      so downstream callers (telemetry, eval, planner-trace dumps)
+ *      can join on `windowId` against the `policy_budget` episodic
+ *      event AND the `SqliteBudgetStore` row.
+ *   2. Flips `taskContract.primaryOutcome` to `"answer"` and
+ *      `interactionMode` to `"respond_only"` so the downstream
+ *      agent surface delivers the "budget exhausted" message
+ *      instead of attempting the gated effect.
+ *
+ * Log + episodic emission happen INSIDE
+ * `budgetPolicy.evaluate(...)` — see `budget-policy.ts`. This
+ * wiring helper only translates the decision into the
+ * production-decision shape.
+ *
+ * The `channel` value passed to `evaluate` is taken from
+ * `cfg.channels?._activeChannel` when present, falling back to the
+ * literal string `"unknown"`. Channel-dimension rules that need an
+ * exact match SHOULD set the channel explicitly in their config
+ * entry; the `'unknown'` fallback is intentional — a config rule
+ * keyed on `'unknown'` would only match wiring paths that did not
+ * thread an active channel.
+ */
+async function maybeBlockOnBudget(params: {
+  readonly input: RunTurnDecisionInput;
+  readonly productionDecision: ClassifiedTaskResolution;
+  readonly shadowCommitment: ShadowBuildResult;
+}): Promise<ClassifiedTaskResolution> {
+  const { input, productionDecision, shadowCommitment } = params;
+  if (!input.budgetPolicy) {
+    return productionDecision;
+  }
+  if (shadowCommitment.kind !== "commitment") {
+    return productionDecision;
+  }
+  // Skip budget when Approval already denied — the turn will not
+  // execute the gated effect, so charging the budget would over-count.
+  const trace = productionDecision.plannerInput.decisionTrace as
+    | { readonly policyApprovalDenial?: PolicyApprovalDenialMarker }
+    | undefined;
+  if (trace?.policyApprovalDenial) {
+    return productionDecision;
+  }
+  const effectId = shadowCommitment.value.effect;
+  const channel = resolveActiveChannelForBudget(input.cfg);
+  const decision = await input.budgetPolicy.evaluate({
+    effectId,
+    channel,
+    ...(input.identityId ? { identityId: input.identityId } : {}),
+  });
+  if (decision.within) {
+    return productionDecision;
+  }
+  const marker: PolicyBudgetDenialMarker = {
+    stage: "budget",
+    reason: decision.reason,
+    effectId,
+    windowId: String(decision.windowId),
+    used: decision.used,
+    limit: decision.limit,
+  };
+  return downgradeOnBudgetDenial(productionDecision, marker);
+}
+
+function downgradeOnBudgetDenial(
+  legacy: ClassifiedTaskResolution,
+  marker: PolicyBudgetDenialMarker,
+): ClassifiedTaskResolution {
+  const previousTrace = legacy.plannerInput.decisionTrace;
+  const decisionTrace: DecisionTrace = {
+    version: 1,
+    ...previousTrace,
+    policyBudgetDenial: marker,
+  };
+  const taskContract = {
+    ...legacy.taskContract,
+    primaryOutcome: "answer" as const,
+    interactionMode: "respond_only" as const,
+  };
+  const { lowConfidenceStrategy: _droppedStrategy, ...plannerInputRest } = legacy.plannerInput;
+  return {
+    ...legacy,
+    taskContract,
+    plannerInput: {
+      ...plannerInputRest,
+      decisionTrace,
+    },
+  };
+}
+
+/**
+ * Best-effort active-channel lookup for the budget gate. The
+ * `OpenClawConfig.channels` shape is intentionally heterogeneous
+ * across providers (slack, telegram, discord, …); for the budget
+ * gate we only need a string discriminator. We probe known
+ * convention slots in priority order and fall back to `"unknown"`
+ * — a config-driven `dimension='channel'` rule keyed on
+ * `'unknown'` would only match wiring paths that did not thread
+ * an active channel.
+ */
+function resolveActiveChannelForBudget(cfg: OpenClawConfig): string {
+  const probe = (cfg as unknown as Record<string, unknown>)["channels"];
+  if (probe && typeof probe === "object") {
+    const active = (probe as Record<string, unknown>)["_activeChannel"];
+    if (typeof active === "string" && active.length > 0) {
+      return active;
+    }
+  }
+  return "unknown";
 }
 
 function downgradeOnApprovalDenial(
