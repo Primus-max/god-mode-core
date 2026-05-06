@@ -22,6 +22,7 @@ import {
   type IntentContractorLogger,
   type MonitoredRuntime,
   type PolicyGateReader,
+  type RetryPolicyReader,
   type RolePolicyReader,
   type RuntimeAttestation,
   type SemanticIntent,
@@ -43,6 +44,7 @@ import type {
   KernelFallbackReason,
   PolicyApprovalDenialMarker,
   PolicyBudgetDenialMarker,
+  PolicyRetryDenialMarker,
   PolicyRoleDenialMarker,
 } from "./trace.js";
 
@@ -166,6 +168,61 @@ export type RunTurnDecisionInput = {
    * events for an effect that will not execute).
    */
   readonly rolePolicy?: RolePolicyReader;
+  /**
+   * Phase 6 — Stage 5 (Retry policies) injection point per
+   * `commitment_kernel_policy_gate_full.plan.md`. When omitted, the
+   * retry gate is bypassed cleanly (default-allow). Active only on
+   * the kernel-derived production-decision path; the legacy fallback
+   * path bypasses policy gates by design.
+   *
+   * Evaluation chain order (sub-plan §3 Phase 6 row d):
+   *   affordance allowlist (existing, inside `runShadowBranch`)
+   *   → approval (Phase 3)
+   *   → budget (Phase 4)
+   *   → role (Phase 5)
+   *   → retry (this)
+   *   → escalation hook (Phase 7, observability)
+   *
+   * On `retry=false` the wiring helper:
+   *   1. Attaches a `policyRetryDenial` marker to the decision
+   *      trace so downstream callers can join on
+   *      `(attemptCount, maxAttempts)` against the
+   *      `policy_retry` episodic event.
+   *   2. Flips `taskContract.primaryOutcome` to `"answer"` and
+   *      `interactionMode` to `"respond_only"` so the downstream
+   *      agent surface delivers the "retry budget exhausted"
+   *      message instead of attempting the gated effect (mirrors
+   *      clarification / approval / budget / role downgrade shape).
+   *
+   * The retry gate is skipped entirely when the upstream Approval,
+   * Budget, OR Role gate already denied (avoids double-emit of
+   * episodic events for an effect that will not execute).
+   *
+   * `attemptCount` and `sessionId` are read from the optional
+   * `retryContext` field on this same input. When `retryContext` is
+   * absent, the gate uses `attemptCount=0` and a synthetic session
+   * id so the pre-execution consultation can still observe per-effect
+   * defaults — the runner-layer wrapper (sub-plan §3 Phase 6 row e)
+   * is responsible for the per-attempt counter advance.
+   */
+  readonly retryPolicy?: RetryPolicyReader;
+  /**
+   * Per-turn context for the Stage 5 retry gate. Threaded by the
+   * runner-layer wrapper (`src/agents/pi-embedded-runner/run/`) when
+   * the same turn is being re-driven after a `terminalState=
+   * transient_failure`; absent on the first attempt of a turn.
+   *
+   * `attemptCount` is the number of failures observed so far for
+   * this `(identityId, effectId, sessionId)` triple. `sessionId` is
+   * the session anchor — typically the same id the
+   * `persistent_session.created` effect family uses, but the gate
+   * accepts any non-empty string so non-session-bound effects can
+   * still be gated.
+   */
+  readonly retryContext?: {
+    readonly attemptCount: number;
+    readonly sessionId: string;
+  };
   /**
    * Stage 1.5 injection point (`commitment_kernel_smart_orchestrator_roadmap.plan.md`
    * §3 row 3 — PR-H session-history-aware clarify). Last successful
@@ -440,13 +497,33 @@ export async function runTurnDecision(input: RunTurnDecisionInput): Promise<RunT
   // attaches a `policyRoleDenial` trace marker and downgrades the
   // decision to answer/respond_only. Log + episodic emission happen
   // INSIDE `rolePolicy.evaluate(...)` — see `role-policy.ts`.
-  const productionDecision = isKernelDerived
+  const decisionAfterRole = isKernelDerived
     ? await maybeBlockOnRole({
         input,
         productionDecision: decisionAfterBudget,
         shadowCommitment,
       })
     : decisionAfterBudget;
+
+  // Phase 6 — Stage 5 (Retry policies). Runs only on the
+  // kernel-derived path AND only when none of the prior Approval /
+  // Budget / Role gates already denied (any `policy*Denial` trace
+  // marker acts as the already-denied signal). On `retry=false`
+  // the helper attaches a `policyRetryDenial` trace marker and
+  // downgrades the decision to answer/respond_only. Log + episodic
+  // emission happen INSIDE `retryPolicy.evaluate(...)` — see
+  // `retry-policy.ts`. The runner-layer wrapper
+  // (`src/agents/pi-embedded-runner/run/`) is responsible for the
+  // per-attempt counter advance against the same
+  // `RetryStateStore`; this seam is the pre-execution consultation
+  // (sub-plan §3 Phase 6 row d).
+  const productionDecision = isKernelDerived
+    ? await maybeBlockOnRetry({
+        input,
+        productionDecision: decisionAfterRole,
+        shadowCommitment,
+      })
+    : decisionAfterRole;
 
   const fallbackReason = isKernelDerived
     ? undefined
@@ -1043,6 +1120,120 @@ function downgradeOnRoleDenial(
     version: 1,
     ...previousTrace,
     policyRoleDenial: marker,
+  };
+  const taskContract = {
+    ...legacy.taskContract,
+    primaryOutcome: "answer" as const,
+    interactionMode: "respond_only" as const,
+  };
+  const { lowConfidenceStrategy: _droppedStrategy, ...plannerInputRest } = legacy.plannerInput;
+  return {
+    ...legacy,
+    taskContract,
+    plannerInput: {
+      ...plannerInputRest,
+      decisionTrace,
+    },
+  };
+}
+
+/**
+ * Phase 6 — Stage 5 (Retry policies) wiring helper. Mirrors the
+ * structure of `maybeBlockOnApproval` / `maybeBlockOnBudget` /
+ * `maybeBlockOnRole`. Runs ONLY when the caller injected a
+ * `retryPolicy` AND the shadow commitment resolved to a
+ * kernel-derived `ExecutionCommitment` AND none of the upstream
+ * Approval / Budget / Role gates already denied (skipping retry on
+ * an already-denied turn keeps the episodic stream and trace clean
+ * — only one denial reason per turn, carried by the gate that
+ * actually fired first).
+ *
+ * On `retry=false` the helper:
+ *   1. Attaches a `policyRetryDenial` marker to the decision trace
+ *      so downstream callers (telemetry, eval, planner-trace dumps)
+ *      can join on `(attemptCount, maxAttempts)` against the
+ *      `policy_retry` episodic event.
+ *   2. Flips `taskContract.primaryOutcome` to `"answer"` and
+ *      `interactionMode` to `"respond_only"` so the downstream
+ *      agent surface delivers the "retry budget exhausted" message
+ *      instead of attempting the gated effect.
+ *
+ * Log + episodic emission happen INSIDE
+ * `retryPolicy.evaluate(...)` — see `retry-policy.ts`. This wiring
+ * helper only translates the decision into the production-decision
+ * shape.
+ *
+ * `attemptCount` and `sessionId` are read from
+ * `RunTurnDecisionInput.retryContext`. When the field is absent the
+ * pre-execution consultation runs with `attemptCount=0` and a
+ * synthetic session id derived from the trace id — the gate then
+ * always returns `retry: true` for an unconfigured turn (0 < any
+ * `maxAttempts >= 1`); the runner-layer wrapper drives the actual
+ * per-attempt advance separately.
+ */
+async function maybeBlockOnRetry(params: {
+  readonly input: RunTurnDecisionInput;
+  readonly productionDecision: ClassifiedTaskResolution;
+  readonly shadowCommitment: ShadowBuildResult;
+}): Promise<ClassifiedTaskResolution> {
+  const { input, productionDecision, shadowCommitment } = params;
+  if (!input.retryPolicy) {
+    return productionDecision;
+  }
+  if (shadowCommitment.kind !== "commitment") {
+    return productionDecision;
+  }
+  // Skip retry gate when an upstream gate already denied — the turn
+  // will not execute the gated effect, so re-checking retry would
+  // double-emit the policy episodic event without changing the
+  // outcome.
+  const trace = productionDecision.plannerInput.decisionTrace as
+    | {
+        readonly policyApprovalDenial?: PolicyApprovalDenialMarker;
+        readonly policyBudgetDenial?: PolicyBudgetDenialMarker;
+        readonly policyRoleDenial?: PolicyRoleDenialMarker;
+      }
+    | undefined;
+  if (trace?.policyApprovalDenial || trace?.policyBudgetDenial || trace?.policyRoleDenial) {
+    return productionDecision;
+  }
+  const effectId = shadowCommitment.value.effect;
+  const attemptCount = input.retryContext?.attemptCount ?? 0;
+  const sessionId = input.retryContext?.sessionId ?? "session:none";
+  const decision = await input.retryPolicy.evaluate({
+    effectId,
+    sessionId,
+    attemptCount,
+    // Cast through the structurally-optional shape the wiring layer
+    // uses — `RetryPolicyEvaluateInput` formally requires
+    // `identityId`, but the production caller may thread an
+    // anonymous turn (no `identityId` on `RunTurnDecisionInput`).
+    // The reader's anonymous fail-closed/pass-through path defends
+    // against the structural-undefined leak (see `retry-policy.ts`).
+    ...(input.identityId ? { identityId: input.identityId } : ({} as { identityId: IdentityId })),
+  });
+  if (decision.retry) {
+    return productionDecision;
+  }
+  const marker: PolicyRetryDenialMarker = {
+    stage: "retry",
+    reason: decision.reason,
+    effectId,
+    attemptCount: decision.attemptCount,
+    maxAttempts: decision.maxAttempts,
+  };
+  return downgradeOnRetryDenial(productionDecision, marker);
+}
+
+function downgradeOnRetryDenial(
+  legacy: ClassifiedTaskResolution,
+  marker: PolicyRetryDenialMarker,
+): ClassifiedTaskResolution {
+  const previousTrace = legacy.plannerInput.decisionTrace;
+  const decisionTrace: DecisionTrace = {
+    version: 1,
+    ...previousTrace,
+    policyRetryDenial: marker,
   };
   const taskContract = {
     ...legacy.taskContract,
