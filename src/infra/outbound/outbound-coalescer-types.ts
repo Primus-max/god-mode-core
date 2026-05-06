@@ -52,6 +52,66 @@ import type { BlockReplyDeliver } from "../../auto-reply/reply/block-external-bu
 export type OutboundMessageKind = "ack" | "preamble" | "intermediate" | "final";
 
 /**
+ * NEW-C Phase 6 — closed `BypassReason` union (sub-plan §6 (a) + audit
+ * §e). Each entry corresponds to an emit-site that lacks a
+ * `(turnId, channelKey)` context OR operates outside the
+ * `runReplyAgent` user-turn boundary.
+ *
+ * Non-additivity: per sub-plan §6 (e), this set MUST NOT widen without
+ * a sub-plan amendment. Each new bypass entry is a potential
+ * `Single_final_user_facing_message_per_user_turn` regression. The
+ * runtime guard in `bypass()` rejects any reason outside this set —
+ * see Phase 6 acceptance test
+ * `outbound-coalescer-bypass.test.ts` (B1 negative coverage cases).
+ *
+ * Per invariant #5 (no user-prompt-derived reasons), the union is
+ * closed at compile-time AND the runtime validation re-checks against
+ * `BYPASS_REASONS` so a bug elsewhere in the codebase that tries to
+ * pass an attacker-supplied string through the bypass surface fails
+ * fast with a structured error.
+ *
+ * Mapping to Phase 1 audit §e candidates:
+ * - `system_init`           — boot announcements (no `turnId`).
+ * - `cron_persistent_worker` — Bug F future cron-driven dispatcher.
+ * - `internal_canvas`       — operator-side canvas surface.
+ * - `internal_stdout`       — operator-side stdout surface.
+ * - `internal_log`          — operator-side log surface.
+ * - `standalone_command`    — `/help` / `/status` synchronous replies.
+ * - `internal_acp_lane`     — ACP dispatch path (Phase 4 wiring noted
+ *                             this as a string reason; Phase 6 promotes
+ *                             it to the typed enum).
+ *
+ * Sliced into 7 entries (vs 6 in audit §e) because Phase 4 already
+ * carved out `internal_acp_lane` as a distinct reason — collapsing it
+ * into one of the `internal_*` channel variants would lose the
+ * dispatcher-vs-channel distinction in telemetry.
+ */
+export const BYPASS_REASONS = [
+  "system_init",
+  "cron_persistent_worker",
+  "internal_canvas",
+  "internal_stdout",
+  "internal_log",
+  "standalone_command",
+  "internal_acp_lane",
+] as const;
+
+export type BypassReason = (typeof BYPASS_REASONS)[number];
+
+/**
+ * Closed-set membership check; consumed by the `bypass()` runtime
+ * guard. Returns true ONLY for the 7 enumerated entries above. Any
+ * other input — even a structurally-valid string — falls through. Pure
+ * function; no side effects.
+ */
+export function isBypassReason(value: unknown): value is BypassReason {
+  return (
+    typeof value === "string" &&
+    (BYPASS_REASONS as ReadonlyArray<string>).includes(value)
+  );
+}
+
+/**
  * One register'd outbound message. `channelKey` is serialised via the
  * structural `${channel}:${accountId}:${target}` идиома used at
  * `src/infra/outbound/target-resolver.ts:106` (Phase 1 audit §c
@@ -109,7 +169,7 @@ export type OutboundCoalescer = {
   register(msg: OutboundMessage): void;
   commit(turnId: string, channelKey: string): Promise<void>;
   commitAll(turnId: string): Promise<void>;
-  bypass(reason: string, body: ReplyPayload, deliver: BlockReplyDeliver): Promise<void>;
+  bypass(reason: BypassReason, body: ReplyPayload, deliver: BlockReplyDeliver): Promise<void>;
   stats(): { buffered: number; turns: number };
 };
 
