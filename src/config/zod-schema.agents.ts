@@ -7,6 +7,14 @@ export const AgentsSchema = z
   .object({
     defaults: z.lazy(() => AgentDefaultsSchema).optional(),
     list: z.array(AgentEntrySchema).optional(),
+    requireAgentId: z.boolean().optional(),
+    /**
+     * Embedded pi runner override for the `sessions_yield`-triggered abort
+     * settle grace window (milliseconds). See `AgentsConfig` for full doc.
+     * Bounds chosen to mirror `agents.defaults.subagents.runTimeoutSeconds`
+     * style sanity range adapted to ms: [1000, 120000].
+     */
+    sessionsYieldAbortSettleTimeoutMs: z.number().int().min(1000).max(120000).optional(),
   })
   .strict()
   .optional();

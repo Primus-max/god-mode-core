@@ -103,4 +103,18 @@ export type AgentsConfig = {
    * request and a resolvable requester agentId. Default off.
    */
   requireAgentId?: boolean;
+  /**
+   * Override for the embedded pi runner's `sessions_yield`-triggered abort
+   * settle grace window (milliseconds). When unset the runner uses
+   * `DEFAULT_SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS` (60 000 ms).
+   *
+   * Operator-tunable for environments where subagent renderings (PDF, OCR,
+   * heavy artifact emit) commonly take 30 s or more — the historical 2 000 ms
+   * default was too aggressive and caused premature `sessions_yield abort
+   * settle timed out` warnings (PolicyGate Full audit, bug #3).
+   *
+   * Clamped to `[1000, 120000]` ms. Honors `OPENCLAW_TEST_FAST=1` (250 ms
+   * short-circuit) ahead of any override.
+   */
+  sessionsYieldAbortSettleTimeoutMs?: number;
 };

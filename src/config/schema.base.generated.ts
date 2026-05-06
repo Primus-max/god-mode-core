@@ -5058,6 +5058,14 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
               additionalProperties: false,
             },
           },
+          requireAgentId: {
+            type: "boolean",
+          },
+          sessionsYieldAbortSettleTimeoutMs: {
+            type: "integer",
+            minimum: 1000,
+            maximum: 120000,
+          },
         },
         additionalProperties: false,
       },
