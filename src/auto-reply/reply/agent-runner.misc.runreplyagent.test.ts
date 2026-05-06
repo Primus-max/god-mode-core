@@ -2432,3 +2432,108 @@ describe("runReplyAgent billing error classification", () => {
     expect(payload?.text).not.toContain("Context overflow");
   });
 });
+
+// NEW-A Phase 5 — runner-side wiring contract.
+// Verifies that `runAgentTurnWithFallback` derives `turnModalityRequirements`
+// from `params.opts?.images` and passes it into `runWithModelFallback`. Two
+// cases:
+//  (1) inbound image → ['image','text'] (live NEW-A reproducer path);
+//  (2) no inbound image AND no needsVision → ['text'] only (legacy path).
+// The mock for `runWithModelFallback` captures the params object, so we can
+// assert the wired field reaches the boundary without exercising the real
+// catalog/preflight machinery (those are covered by
+// `model-fallback.modality-wiring.test.ts`).
+describe("runReplyAgent NEW-A modality-aware wiring", () => {
+  function createRun(params?: {
+    images?: Array<{ data: string; mimeType: string }>;
+  }) {
+    const provider = "anthropic";
+    const model = "claude";
+    const typing = createMockTypingController();
+    const sessionCtx = {
+      Provider: "telegram",
+      MessageSid: "msg",
+    } as unknown as TemplateContext;
+    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
+    const followupRun = {
+      prompt: "hello",
+      summaryLine: "hello",
+      enqueuedAt: Date.now(),
+      run: {
+        sessionId: "session",
+        sessionKey: "main",
+        messageProvider: "telegram",
+        sessionFile: "/tmp/session.jsonl",
+        workspaceDir: "/tmp",
+        config: {},
+        skillsSnapshot: {},
+        provider,
+        model,
+        thinkLevel: "low",
+        verboseLevel: "off",
+        elevatedLevel: "off",
+        bashElevated: {
+          enabled: false,
+          allowed: false,
+          defaultLevel: "off",
+        },
+        timeoutMs: 1_000,
+        blockReplyBreak: "message_end",
+      },
+    } as unknown as FollowupRun;
+
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "ok" }],
+      meta: {},
+    });
+
+    return runReplyAgent({
+      commandBody: "hello",
+      followupRun,
+      queueKey: "main",
+      resolvedQueue,
+      shouldSteer: false,
+      shouldFollowup: false,
+      isActive: false,
+      isStreaming: false,
+      typing,
+      sessionCtx,
+      defaultModel: `${provider}/${model}`,
+      resolvedVerboseLevel: "off",
+      isNewSession: false,
+      blockStreamingEnabled: false,
+      resolvedBlockStreamingBreak: "message_end",
+      shouldInjectGroupIntro: false,
+      typingMode: "instant",
+      // oxlint-disable-next-line typescript/no-explicit-any
+      opts: params?.images ? ({ images: params.images } as any) : undefined,
+    });
+  }
+
+  it("derives turnModalityRequirements=['image','text'] when opts.images has 1+ entries (live NEW-A reproducer path)", async () => {
+    await createRun({
+      images: [{ data: "fake-base64", mimeType: "image/jpeg" }],
+    });
+
+    const fallbackCall = runWithModelFallbackMock.mock.calls.find(
+      (call) => (call[0] as { turnModalityRequirements?: unknown })?.turnModalityRequirements,
+    );
+    expect(fallbackCall).toBeDefined();
+    const params = fallbackCall?.[0] as {
+      turnModalityRequirements?: readonly string[];
+    };
+    // Sorted output: ['image','text'].
+    expect(params.turnModalityRequirements).toEqual(["image", "text"]);
+  });
+
+  it("derives turnModalityRequirements=['text'] when opts.images is omitted AND needsVision is undefined (legacy text-only path — byte-identical filter behaviour, zero drops)", async () => {
+    await createRun();
+
+    const fallbackCalls = runWithModelFallbackMock.mock.calls;
+    expect(fallbackCalls.length).toBeGreaterThan(0);
+    const params = fallbackCalls[0]?.[0] as {
+      turnModalityRequirements?: readonly string[];
+    };
+    expect(params.turnModalityRequirements).toEqual(["text"]);
+  });
+});

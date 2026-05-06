@@ -33,6 +33,10 @@ import {
   shouldUseTransientCooldownProbeSlot,
 } from "./failover-policy.js";
 import { loadModelCatalog } from "./model-catalog.js";
+import {
+  filterCandidatesByModality,
+  type ModalityRequirement,
+} from "./model-fallback-modality.js";
 import { logModelFallbackDecision } from "./model-fallback-observation.js";
 import type { FallbackAttempt, ModelCandidate } from "./model-fallback.types.js";
 import {
@@ -685,6 +689,17 @@ export async function runWithModelFallback<T>(params: {
    * the primary from config/session stays first. Failover order is unchanged.
    */
   skipRoutePreflight?: boolean;
+  /**
+   * NEW-A Phase 5 — modality requirements derived for the current turn (e.g. `['text','image']`
+   * when the inbound message carries an image attachment). When provided, the candidate list is
+   * filtered AFTER preflight via {@link filterCandidatesByModality} so that text-only models
+   * are dropped from image-bearing turns before the `route candidates ordered:` log emits.
+   *
+   * Backwards-compatible: when omitted (or empty), no filter runs and no `modality_filter` log
+   * line is emitted — legacy callers behave byte-identical (regression guard).
+   * Audit anchor: `extensions/AUDIT-modality-aware-routing.md` §a / §i.
+   */
+  turnModalityRequirements?: readonly ModalityRequirement[];
   run: ModelFallbackRunFn<T>;
   onError?: ModelFallbackErrorHandler;
 }): Promise<ModelFallbackRunResult<T>> {
@@ -713,7 +728,7 @@ export async function runWithModelFallback<T>(params: {
         mode: params.preflightMode,
         catalog: modelCatalog,
       });
-  const candidates = preflight.candidates;
+  let candidates = preflight.candidates;
   const routePreflight = preflight.decision;
   // Operator grep anchor: one stable `preflightMode:` line when preflight returned a decision.
   // When there is no preflight prompt/planner input, `applyModelRoutePreflight` yields decision=null;
@@ -729,6 +744,38 @@ export async function runWithModelFallback<T>(params: {
   log.info(
     `route preflight: decision=${routePreflight?.reasonCode ?? "none"} eligible=${routePreflight?.localRoutingEligible ?? "n/a"} reordered=${routePreflight?.reordered ?? false} first=${sanitizeForLog(routePreflight?.chosenProvider ?? candidates[0]?.provider)}/${sanitizeForLog(routePreflight?.chosenModel ?? candidates[0]?.model)}`,
   );
+  // NEW-A Phase 5 — modality-aware filter. Runs AFTER preflight (so preflight's
+  // reordering decision is honoured for the survivor set) and BEFORE the
+  // `route candidates ordered:` log (so operators see the FINAL ordered list).
+  // Legacy callers (no `turnModalityRequirements` or empty array) skip the
+  // filter entirely AND emit zero `modality_filter` log lines — byte-identical
+  // regression guard. See `extensions/AUDIT-modality-aware-routing.md` §a / §i.
+  if (params.turnModalityRequirements && params.turnModalityRequirements.length > 0) {
+    const requirements = params.turnModalityRequirements;
+    const filterResult = filterCandidatesByModality({
+      candidates,
+      requirements,
+      catalog: modelCatalog,
+    });
+    const requiredLabel = requirements.join(",");
+    if (filterResult.failedOpen) {
+      // Survivor-set non-empty invariant tripped — restoring unfiltered list.
+      // The `dropped` list is still populated for observability (audit §i).
+      logOperatorFacingLine(
+        `[model-fallback] modality_filter fail_open required=${sanitizeForLog(requiredLabel)} reason=zero-survivors-after-filter restoring=${candidates.length}`,
+      );
+    } else {
+      // Filter applied normally. Emit even when zero candidates were dropped
+      // (operator can grep for the `applied` line to confirm the wiring fired
+      // at all on this turn — silence is ambiguous between "wired but inert"
+      // and "not wired"; see audit §h decision 7 — the explicit log resolves
+      // that ambiguity at zero runtime cost).
+      logOperatorFacingLine(
+        `[model-fallback] modality_filter applied required=${sanitizeForLog(requiredLabel)} survivors=${filterResult.filtered.length} dropped=${filterResult.dropped.length}`,
+      );
+      candidates = filterResult.filtered.slice();
+    }
+  }
   log.info(
     `route candidates ordered: ${candidates.map((candidate) => `${sanitizeForLog(candidate.provider)}/${sanitizeForLog(candidate.model)}`).join(" -> ")}`,
   );

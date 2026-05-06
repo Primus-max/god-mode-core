@@ -5,6 +5,7 @@ import { resolveBootstrapWarningSignaturesSeen } from "../../agents/bootstrap-bu
 import { runCliAgent } from "../../agents/cli-runner.js";
 import { getCliSessionId } from "../../agents/cli-session.js";
 import { runWithModelFallback } from "../../agents/model-fallback.js";
+import { deriveTurnModalityRequirements } from "../../agents/model-fallback-modality.js";
 import { isCliProvider } from "../../agents/model-selection.js";
 import {
   BILLING_ERROR_USER_MESSAGE,
@@ -310,11 +311,34 @@ export async function runAgentTurnWithFallback(params: {
           })
         : undefined;
       const onToolResult = params.opts?.onToolResult;
+      // NEW-A Phase 5 — derive modality requirements for the current turn from
+      // the structural inbound-images surface (`params.opts?.images`) plus the
+      // planner's `needsVision` defense-in-depth flag. The audit
+      // (`extensions/AUDIT-modality-aware-routing.md` §e/§f) confirms this is
+      // the only inbound-image data reachable at this call site without
+      // crossing into `src/platform/commitment/`. Each entry is mapped to a
+      // structural `kind: 'image'` attachment and consumed by
+      // `deriveTurnModalityRequirements` (which never reads raw user text —
+      // invariant #5).
+      const inboundImages = params.opts?.images ?? [];
+      const inboundMediaSummary =
+        inboundImages.length > 0
+          ? {
+              attachments: inboundImages.map(() => ({ kind: "image" as const })),
+            }
+          : undefined;
+      const turnModalityRequirements = deriveTurnModalityRequirements({
+        ...(inboundMediaSummary ? { inboundMediaSummary } : {}),
+        ...(routingSnapshot.plannerInput.routing?.needsVision === true
+          ? { needsVision: true }
+          : {}),
+      });
       const fallbackResult = await runWithModelFallback({
         ...resolveModelFallbackOptions(params.followupRun.run, {
           preflightPrompt: effectiveCommandBody,
         }),
         preflightPlannerInput: routingSnapshot.plannerInput,
+        turnModalityRequirements,
         runId,
         run: (provider, model, runOptions) => {
           // Notify that model selection is complete (including after fallback).
