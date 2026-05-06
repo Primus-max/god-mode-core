@@ -157,6 +157,8 @@ import {
   selectCompactionTimeoutSnapshot,
   shouldFlagCompactionTimeout,
 } from "./compaction-timeout.js";
+import type { SessionId } from "../../../platform/commitment/ids.js";
+import { setAmbientArtifactTurn } from "./artifact-ambient-turn.js";
 import { pruneProcessedHistoryImages } from "./history-image-prune.js";
 import { detectAndLoadPromptImages } from "./images.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
@@ -1840,6 +1842,17 @@ export async function runEmbeddedAttempt(
 
   let restoreSkillEnv: (() => void) | undefined;
   process.chdir(effectiveWorkspace);
+  // Cutover-3 Phase 8 — set the process-scoped ambient artifact turn key so
+  // the four artifact-producing tools (pdf-tool, docx-tool,
+  // image-generate-tool, apply-patch) can record their successful emits
+  // into the WorldState `artifacts` slice via `emitArtifactFromTool`. The
+  // singleton is cleared in the outer `finally` regardless of success /
+  // failure so a thrown turn never leaks an ambient key into the next run.
+  // `runId` is the per-turn id; `sessionId` is the long-lived session.
+  setAmbientArtifactTurn({
+    sessionId: params.sessionId as SessionId,
+    turnId: params.runId,
+  });
   try {
     const { shouldLoadSkillEntries, skillEntries } = resolveEmbeddedRunSkillEntries({
       workspaceDir: effectiveWorkspace,
@@ -3499,6 +3512,11 @@ export async function runEmbeddedAttempt(
       await sessionLock.release();
     }
   } finally {
+    // Cutover-3 Phase 8 — clear the ambient artifact turn key. Always
+    // unconditionally cleared so a thrown turn never leaks state into
+    // the next run sharing the same process. Mirrors `restoreSkillEnv`
+    // discipline above.
+    setAmbientArtifactTurn(undefined);
     restoreSkillEnv?.();
     process.chdir(prevCwd);
   }

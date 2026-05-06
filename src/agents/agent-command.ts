@@ -462,6 +462,81 @@ function sanitizeInboundAttachmentFileName(fileName: string, index: number): str
 }
 
 /**
+ * Cutover-3 Phase 8 — closed-loop MIME-to-kind classifier for the
+ * `inboundMediaResolver` factory. Maps the four families the affordance
+ * registry recognises onto the closed `InboundMediaAttachmentKind` enum
+ * (`image | pdf | docx | other`); unknown/blank MIMEs degrade to
+ * `"other"` so the contractor still sees a structurally-valid
+ * attachment entry instead of failing closed.
+ *
+ * @param mimeType - Document MIME type as supplied by the caller.
+ * @returns Closed-shape `InboundMediaAttachmentKind`.
+ */
+function inferInboundAttachmentKind(
+  mimeType: string,
+): "image" | "pdf" | "docx" | "other" {
+  const normalized = mimeType.trim().toLowerCase();
+  if (normalized.startsWith("image/")) {
+    return "image";
+  }
+  if (normalized === "application/pdf") {
+    return "pdf";
+  }
+  if (
+    normalized ===
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    return "docx";
+  }
+  return "other";
+}
+
+/**
+ * Cutover-3 Phase 8 — gateway-side `inboundMediaResolver` factory. Builds
+ * a closure that returns an `InboundMediaSummary` for the current turn
+ * from the caller-supplied `opts.documents` list. The resolver is read
+ * by `IntentContractor` to inject the structural `<inbound_attachments>`
+ * block before the classifier LLM runs (Phase 6 seam).
+ *
+ * Path layout MIRRORS `stageInboundDocuments` so downstream callers (the
+ * Phase 6 `INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION` resolver and
+ * the future runtime adapter that injects `image:` into the
+ * `image_generate` tool) see the same structural shape the staged
+ * documents end up at on disk. The `Date.now()` suffix used by
+ * `stageInboundDocuments` is omitted at classify time (the contractor
+ * only reads the structural metadata) — a future phase that wires the
+ * runtime adapter end-to-end will reconcile the two paths via a shared
+ * staging step.
+ *
+ * Per invariants #5/#6 this resolver routes STRUCTURAL metadata only
+ * (path + MIME + closed kind). It NEVER reads raw user text — the
+ * contractor stays the only sanctioned reader of `RawUserTurn`.
+ *
+ * Returns `undefined` when no documents are present so the contractor
+ * elides the `<inbound_attachments>` block (zero whitespace pollution
+ * for prompts without attachments).
+ *
+ * @param documents - Optional list of inbound document attachments.
+ * @returns Resolver callable (or `undefined` when no documents).
+ */
+export function buildInboundMediaResolverFromDocuments(
+  documents: AgentCommandOpts["documents"],
+): (() => InboundMediaSummary | undefined) | undefined {
+  if (!documents || documents.length === 0) {
+    return undefined;
+  }
+  const attachments = documents.map((document, index) => {
+    const safeFileName = sanitizeInboundAttachmentFileName(document.fileName, index);
+    return {
+      path: path.posix.join("media", "inbound", safeFileName),
+      mimeType: document.mimeType,
+      kind: inferInboundAttachmentKind(document.mimeType),
+    };
+  });
+  return () => ({ attachments });
+}
+
+/**
  * Appends a compact note so the agent can discover staged inbound files via tools.
  *
  * @param {string} message - Original user-visible prompt text.
@@ -1304,6 +1379,15 @@ async function prepareAgentCommandExecution(
     persistedThinking,
     persistedVerbose,
   } = sessionResolution;
+  // Cutover-3 Phase 8 — gateway-side `inboundMediaResolver` factory. The
+  // Phase 6 sub-plan left this seam structural; Phase 8 lights it up by
+  // surfacing each inbound document attachment as STRUCTURAL metadata
+  // (path + MIME + closed `kind`) to the IntentContractor's
+  // `<inbound_attachments>` block. Per invariants #5/#6 the resolver
+  // never routes raw user text — the contractor stays the only reader of
+  // `RawUserTurn`. Returns `undefined` when no documents are present so
+  // the contractor elides the block byte-identical to pre-Phase-8.
+  const inboundMediaResolver = buildInboundMediaResolverFromDocuments(opts.documents);
   const platformPlannerInput = await buildClassifiedPlatformPlannerInput({
     prompt: body,
     fileNames: opts.documents?.map((document) => document.fileName),
@@ -1313,6 +1397,7 @@ async function prepareAgentCommandExecution(
     cfg,
     ...(opts.inputProvenance ? { inputProvenance: opts.inputProvenance } : {}),
     ...(sessionKey ? { sessionKey } : {}),
+    ...(inboundMediaResolver ? { inboundMediaResolver } : {}),
   });
   const platformRuntimePlan = resolvePlatformRuntimePlan(
     { ...platformPlannerInput, callerTag: "agent-command-main" },
