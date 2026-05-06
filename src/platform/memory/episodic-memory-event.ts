@@ -52,7 +52,8 @@ export type EpisodicEffectFamily =
   | "policy_budget"
   | "policy_role"
   | "policy_retry"
-  | "policy_escalation";
+  | "policy_escalation"
+  | "repo";
 
 /**
  * `persistent_session.created` — emitted when a commitment-runtime turn
@@ -272,6 +273,38 @@ export type PolicyEscalationPayload = {
 };
 
 /**
+ * `repo.*` — Cutover-4 Phase 2 (additive). Typed-but-INERT until
+ * Cutover-4 Phase 5 wires the `repo-runtime-adapter.ts` emit site.
+ *
+ * Multiplexes the four repo-operation lifecycle effects (`branch_created` /
+ * `commit_landed` / `merge_completed` / `diff_observed`) under a single
+ * `effectFamily: "repo"` slot via the closed payload-level `kind`
+ * discriminator — same compaction strategy as `task.*` so the discriminated
+ * union surface stays narrow and slices that filter on `effectFamily`
+ * see one symbol per family rather than four.
+ *
+ * Fields:
+ * - `repoOperationId` — opaque correlation id assigned by the runtime
+ *   adapter; used by Cutover-4 Phase 4 done-predicates to JOIN the
+ *   episodic event back to the matching `WorldStateSnapshot.repo` record.
+ * - `kind` — closed enum (Zod-validated). `branch_created` and
+ *   `commit_landed` are `create` ops, `merge_completed` is `update`,
+ *   `diff_observed` is `observe`.
+ * - `branchName` — optional; populated for `branch_created` / `commit_landed`
+ *   / `merge_completed`; absent for `diff_observed` when no branch context.
+ * - `commitSha` — optional; populated for `commit_landed` / `merge_completed`;
+ *   absent for `branch_created` / `diff_observed`.
+ * - `occurredAt` — ISO-8601 timestamp captured at write time.
+ */
+export type RepoOperationCompletedPayload = {
+  readonly repoOperationId: string;
+  readonly kind: "branch_created" | "commit_landed" | "merge_completed" | "diff_observed";
+  readonly branchName?: string;
+  readonly commitSha?: string;
+  readonly occurredAt: string;
+};
+
+/**
  * Episodic memory event — the input shape for `MemoryStore.storeEpisodic`.
  *
  * Discriminated by `effectFamily`. The store is responsible for:
@@ -345,6 +378,12 @@ export type EpisodicMemoryEvent =
       readonly effectFamily: "policy_escalation";
       readonly effectId: string;
       readonly payload: PolicyEscalationPayload;
+    }
+  | {
+      readonly identityId: IdentityId;
+      readonly effectFamily: "repo";
+      readonly effectId: string;
+      readonly payload: RepoOperationCompletedPayload;
     };
 
 const ISO8601_PATTERN =
@@ -547,6 +586,27 @@ export const PolicyEscalationPayloadSchema: z.ZodType<PolicyEscalationPayload> =
   });
 
 /**
+ * Cutover-4 Phase 2 — `RepoOperationCompletedPayload` Zod schema.
+ * Closed `kind` enum (4 lifecycle literals) validated at decode time.
+ * Optional `branchName` / `commitSha` carry per-kind context. Annotated
+ * as `z.ZodType<T>` to keep the emitted `.d.ts` free of inlined brand
+ * symbols (mirrors the `Task*PayloadSchema` discipline above).
+ */
+export const RepoOperationCompletedPayloadSchema: z.ZodType<RepoOperationCompletedPayload> =
+  z.object({
+    repoOperationId: NonEmptyString,
+    kind: z.enum([
+      "branch_created",
+      "commit_landed",
+      "merge_completed",
+      "diff_observed",
+    ]),
+    branchName: NonEmptyString.optional(),
+    commitSha: NonEmptyString.optional(),
+    occurredAt: IsoTimestampSchema,
+  });
+
+/**
  * Zod schema for an `EpisodicMemoryEvent`. Discriminated on
  * `effectFamily`. Use at decode boundaries (e.g. when a persistent
  * store row is read back from JSON) to assert the payload matches its
@@ -618,6 +678,12 @@ export const EpisodicMemoryEventSchema: z.ZodType<EpisodicMemoryEvent> =
       effectFamily: z.literal("policy_escalation"),
       effectId: NonEmptyString,
       payload: PolicyEscalationPayloadSchema,
+    }),
+    z.object({
+      identityId: IdentityIdSchema,
+      effectFamily: z.literal("repo"),
+      effectId: NonEmptyString,
+      payload: RepoOperationCompletedPayloadSchema,
     }),
   ]);
 

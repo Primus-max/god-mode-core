@@ -8,6 +8,11 @@ import {
   IMAGE_CREATED_EFFECT,
   PDF_CREATED_EFFECT,
   PERSISTENT_SESSION_EFFECT_FAMILY,
+  REPO_BRANCH_CREATED_EFFECT,
+  REPO_COMMIT_LANDED_EFFECT,
+  REPO_DIFF_OBSERVED_EFFECT,
+  REPO_EFFECT_FAMILY,
+  REPO_MERGE_COMPLETED_EFFECT,
   UNKNOWN_EFFECT_FAMILY,
   WEB_EVIDENCE_COLLECTED_EFFECT,
   WEB_RESEARCH_EFFECT_FAMILY,
@@ -105,9 +110,12 @@ describe("effect-family registry — Cutover-3 Artifacts Phase 2 (artifact famil
     expect(definition?.branchingHints).toBeUndefined();
   });
 
-  it("registry length grows from 4 to 5; existing 4 family ids preserved in order", () => {
-    expect(EFFECT_FAMILY_REGISTRY).toHaveLength(5);
-    expect(EFFECT_FAMILY_REGISTRY.map((entry) => entry.id)).toEqual([
+  it("registry length grows from 4 to 5; existing 4 family ids preserved in order (legacy)", () => {
+    // NOTE: Cutover-4 Phase 2 grew the registry to 6 entries by appending
+    // `repo` last; the first 5 ids remain byte-identical and in order so
+    // this assertion still checks the Cutover-3 prefix preservation.
+    expect(EFFECT_FAMILY_REGISTRY.length).toBeGreaterThanOrEqual(5);
+    expect(EFFECT_FAMILY_REGISTRY.slice(0, 5).map((entry) => entry.id)).toEqual([
       PERSISTENT_SESSION_EFFECT_FAMILY,
       COMMUNICATION_EFFECT_FAMILY,
       WEB_RESEARCH_EFFECT_FAMILY,
@@ -164,6 +172,108 @@ describe("effect-family registry — Cutover-3 Artifacts Phase 2 (artifact famil
     );
     expect((IMAGE_CREATED_EFFECT as unknown as string)).not.toBe(
       ARTIFACT_EFFECT_FAMILY as unknown as string,
+    );
+  });
+});
+
+describe("effect-family registry — Cutover-4 Phase 2 (repo family)", () => {
+  it("preserves freeze + push-throw guard with the repo entry appended", () => {
+    expect(Object.isFrozen(EFFECT_FAMILY_REGISTRY)).toBe(true);
+    expect(() =>
+      (EFFECT_FAMILY_REGISTRY as unknown as EffectFamilyDefinition[]).push(
+        {} as EffectFamilyDefinition,
+      ),
+    ).toThrow();
+  });
+
+  it("registers repo family exactly once with id 'repo' and displayName 'Repository operation'", () => {
+    const matches = EFFECT_FAMILY_REGISTRY.filter(
+      (entry) => entry.id === REPO_EFFECT_FAMILY,
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.id).toBe("repo");
+    expect(matches[0]?.displayName).toBe("Repository operation");
+    expect(Object.isFrozen(matches[0])).toBe(true);
+    expect(Object.isFrozen(matches[0]?.allowedOperationKinds)).toBe(true);
+  });
+
+  it("repo allowedOperationKinds set === {create, observe, update, cancel} (set-equality, order-independent)", () => {
+    const definition = getEffectFamilyDefinition(REPO_EFFECT_FAMILY);
+    expect(definition).toBeDefined();
+    expect(new Set(definition?.allowedOperationKinds ?? [])).toEqual(
+      new Set(["create", "observe", "update", "cancel"]),
+    );
+    expect(definition?.allowedOperationKinds).toHaveLength(4);
+  });
+
+  it("repo family does NOT carry branchingHints (only web_research does — Cutover-3 precedent)", () => {
+    const definition = getEffectFamilyDefinition(REPO_EFFECT_FAMILY);
+    expect(definition?.branchingHints).toBeUndefined();
+  });
+
+  it("registry length grows from 5 to 6; existing 5 family ids preserved in order; repo appended last", () => {
+    expect(EFFECT_FAMILY_REGISTRY).toHaveLength(6);
+    expect(EFFECT_FAMILY_REGISTRY.map((entry) => entry.id)).toEqual([
+      PERSISTENT_SESSION_EFFECT_FAMILY,
+      COMMUNICATION_EFFECT_FAMILY,
+      WEB_RESEARCH_EFFECT_FAMILY,
+      UNKNOWN_EFFECT_FAMILY,
+      ARTIFACT_EFFECT_FAMILY,
+      REPO_EFFECT_FAMILY,
+    ]);
+  });
+
+  it("brands repo as a known family id", () => {
+    expect(isKnownEffectFamilyId("repo")).toBe(true);
+    expect(isKnownEffectFamilyId(REPO_EFFECT_FAMILY)).toBe(true);
+  });
+
+  it("declares 4 new repo EffectId constants distinct from each other AND from existing effect ids", () => {
+    const newEffects = [
+      REPO_BRANCH_CREATED_EFFECT,
+      REPO_COMMIT_LANDED_EFFECT,
+      REPO_MERGE_COMPLETED_EFFECT,
+      REPO_DIFF_OBSERVED_EFFECT,
+    ];
+
+    // Distinct from each other (no accidental dedup).
+    expect(new Set(newEffects).size).toBe(newEffects.length);
+
+    // Concrete string values match Phase 2 spec verbatim.
+    expect(REPO_BRANCH_CREATED_EFFECT).toBe("repo.branch_created");
+    expect(REPO_COMMIT_LANDED_EFFECT).toBe("repo.commit_landed");
+    expect(REPO_MERGE_COMPLETED_EFFECT).toBe("repo.merge_completed");
+    expect(REPO_DIFF_OBSERVED_EFFECT).toBe("repo.diff_observed");
+
+    // Distinct from existing effect ids exported from the registry.
+    const existing = [
+      WEB_EVIDENCE_COLLECTED_EFFECT,
+      WEB_RESEARCH_SUMMARIZED_EFFECT,
+      PDF_CREATED_EFFECT,
+      DOCX_CREATED_EFFECT,
+      CODE_PATCH_APPLIED_EFFECT,
+      IMAGE_CREATED_EFFECT,
+    ];
+    for (const eff of newEffects) {
+      for (const old of existing) {
+        expect(eff).not.toBe(old);
+      }
+    }
+  });
+
+  it("invariant #16 sentinel: REPO_EFFECT_FAMILY (EffectFamilyId) and the four repo EffectIds remain distinct phantom-typed strings", () => {
+    expect((REPO_EFFECT_FAMILY as unknown as string)).toBe("repo");
+    expect((REPO_BRANCH_CREATED_EFFECT as unknown as string)).not.toBe(
+      REPO_EFFECT_FAMILY as unknown as string,
+    );
+    expect((REPO_COMMIT_LANDED_EFFECT as unknown as string)).not.toBe(
+      REPO_EFFECT_FAMILY as unknown as string,
+    );
+    expect((REPO_MERGE_COMPLETED_EFFECT as unknown as string)).not.toBe(
+      REPO_EFFECT_FAMILY as unknown as string,
+    );
+    expect((REPO_DIFF_OBSERVED_EFFECT as unknown as string)).not.toBe(
+      REPO_EFFECT_FAMILY as unknown as string,
     );
   });
 });

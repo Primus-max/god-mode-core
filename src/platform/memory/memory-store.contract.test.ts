@@ -139,6 +139,8 @@ describe("EpisodicMemoryEvent — exhaustiveness compile-check", () => {
         return "policy_retry";
       case "policy_escalation":
         return "policy_escalation";
+      case "repo":
+        return "repo";
       default:
         return assertNeverEpisodic(event);
     }

@@ -38,6 +38,7 @@ import type {
   EpisodicEffectFamily,
   PersistentSessionCreatedPayload,
   ReminderSetPayload,
+  RepoOperationCompletedPayload,
   SubagentCreatedPayload,
 } from "../../../platform/memory/episodic-memory-event.js";
 import type { MemoryEntryId } from "../../../platform/memory/memory-entry-id.js";
@@ -91,6 +92,11 @@ export type EpisodicEventInput =
       readonly effectFamily: "artifact";
       readonly effectId: string;
       readonly payload: ArtifactCreatedPayload;
+    }
+  | {
+      readonly effectFamily: "repo";
+      readonly effectId: string;
+      readonly payload: RepoOperationCompletedPayload;
     };
 
 /**
@@ -223,13 +229,15 @@ export async function recordMemoryOnCommitmentSatisfied(
     }
     case "subagent":
     case "reminder":
-    case "artifact": {
+    case "artifact":
+    case "repo": {
       // Slice E ships ONLY `persistent_session.created` as a
       // payload-emitting event. The other typed variants exist so the
       // discriminated union compiles end-to-end and slices F / G / J /
-      // K can light their emit sites WITHOUT modifying this hook's
-      // surface — they just start passing the matching
-      // `episodicEvent.effectFamily` from the call site.
+      // K (+ Cutover-3 artifact / Cutover-4 repo) can light their emit
+      // sites WITHOUT modifying this hook's surface — they just start
+      // passing the matching `episodicEvent.effectFamily` from the call
+      // site. Cutover-4 Phase 2 added the `repo` arm; Phase 5 lights it.
       logger.debug("memory-write-on-satisfied skipped (effect_family_inert)", {
         effectFamily: episodicEvent.effectFamily,
       });
