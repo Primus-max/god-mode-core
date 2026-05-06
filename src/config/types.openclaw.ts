@@ -138,6 +138,23 @@ export type OpenClawConfig = {
       requiredApprovals: number;
       approvers?: string[];
     }>;
+    /**
+     * Phase 4 — Stage 3 (Budgets). Each entry pins a budget on one
+     * of three orthogonal dimensions (`'user'` / `'channel'` /
+     * `'effect'`) with its own window duration (`windowMs`) and
+     * limit. The runtime impl lives in
+     * `src/platform/commitment/budget-policy.ts`. Stages 4-6 land
+     * sibling sub-keys (`policy.roles`, `policy.retry`,
+     * `policy.escalation`) additively in their respective phases.
+     */
+    budgets?: Array<{
+      dimension: "user" | "channel" | "effect";
+      limit: number;
+      windowMs: number;
+      identityId?: string;
+      channel?: string;
+      effectFamily?: string;
+    }>;
   };
 };
 

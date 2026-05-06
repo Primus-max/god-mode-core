@@ -253,9 +253,18 @@ export interface ApprovalPolicyReader {
 /**
  * Stage 3 — Budgets reader. Phase 4 supplies the SQLite-backed
  * implementation (`createBudgetPolicy({cfg, budgetStore})`).
+ *
+ * Phase 4 amendment: `identityId` is optional. An undefined identity
+ * marks an anonymous turn — the gate fail-closes when a `dimension:
+ * 'user'` rule applies (no identity → cannot pin per-user accounting),
+ * passes for `dimension: 'channel'` rules (channel-level limits are
+ * agnostic to operator), and applies `dimension: 'effect'` rules
+ * unconditionally (per-effect limits gate everyone). Mirrors the
+ * Phase 3 approval-policy anonymous-handling discipline (a denial
+ * gate, not an identification gate).
  */
 export type BudgetPolicyEvaluateInput = {
-  readonly identityId: IdentityId;
+  readonly identityId?: IdentityId;
   readonly effectId: EffectId;
   readonly channel: string;
 };
@@ -375,7 +384,7 @@ export const ApprovalPolicyDecisionSchema: z.ZodType<ApprovalPolicyDecision> =
 
 export const BudgetPolicyEvaluateInputSchema: z.ZodType<BudgetPolicyEvaluateInput> =
   z.object({
-    identityId: IdentityIdSchema,
+    identityId: IdentityIdSchema.optional(),
     effectId: EffectIdSchema,
     channel: z.string().min(1),
   });

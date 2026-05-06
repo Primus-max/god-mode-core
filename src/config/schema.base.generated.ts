@@ -11769,6 +11769,40 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
               additionalProperties: false,
             },
           },
+          budgets: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                dimension: {
+                  type: "string",
+                  enum: ["user", "channel", "effect"],
+                },
+                limit: {
+                  type: "number",
+                  minimum: 0,
+                },
+                windowMs: {
+                  type: "number",
+                  exclusiveMinimum: 0,
+                },
+                identityId: {
+                  type: "string",
+                  minLength: 1,
+                },
+                channel: {
+                  type: "string",
+                  minLength: 1,
+                },
+                effectFamily: {
+                  type: "string",
+                  minLength: 1,
+                },
+              },
+              required: ["dimension", "limit", "windowMs"],
+              additionalProperties: false,
+            },
+          },
         },
         additionalProperties: false,
       },
@@ -16432,5 +16466,5 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
     },
   },
   version: "2026.3.22-beta.1",
-  generatedAt: "2026-03-22T21:17:33.302Z",
+  generatedAt: "2026-05-06T12:41:11.684Z",
 } as const satisfies BaseConfigSchemaResponse;
