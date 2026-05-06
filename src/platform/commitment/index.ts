@@ -34,14 +34,25 @@ export {
 export {
   ANSWER_DELIVERED_AFFORDANCE_ENTRY,
   CLARIFICATION_REQUESTED_AFFORDANCE_ENTRY,
+  CODE_PATCH_APPLIED_AFFORDANCE_ENTRY,
   COMPOSER_AFTER_SEARCH_AFFORDANCE_ENTRY,
+  DOCX_CREATED_AFFORDANCE_ENTRY,
   EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY,
+  IMAGE_CREATED_AFFORDANCE_ENTRY,
+  IMAGE_GENERATION_PROVIDER_AVAILABLE_PRECONDITION,
+  INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION,
+  PDF_CREATED_AFFORDANCE_ENTRY,
+  PDF_RENDERER_AVAILABLE_PRECONDITION,
   PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
   WEB_EVIDENCE_PRESENT_PRECONDITION,
   createAffordanceRegistry,
   defaultAffordanceRegistry,
 } from "./affordance-registry.js";
+export { codePatchAppliedPredicate } from "./done-predicate-code-patch-applied.js";
+export { docxCreatedPredicate } from "./done-predicate-docx-created.js";
+export { imageCreatedPredicate } from "./done-predicate-image-created.js";
+export { pdfCreatedPredicate } from "./done-predicate-pdf-created.js";
 export { webEvidenceCollectedPredicate } from "./done-predicate-web-evidence-collected.js";
 export { webResearchSummarizedPredicate } from "./done-predicate-web-research-summarized.js";
 export {
