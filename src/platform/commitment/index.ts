@@ -95,6 +95,18 @@ export type {
   DeliveryReceiptRegistry,
   CreateDeliveryReceiptRegistryOptions,
 } from "./delivery-receipt-registry.js";
+export {
+  createArtifactWorldStateCollector,
+  createArtifactWorldStateObserver,
+  getProcessArtifactWorldStateCollector,
+  setProcessArtifactWorldStateCollectorForTests,
+} from "./artifact-world-state-observer.js";
+export type {
+  ArtifactTurnKey,
+  ArtifactWorldStateCollector,
+  ArtifactWorldStateObserver,
+  CreateArtifactWorldStateCollectorOptions,
+} from "./artifact-world-state-observer.js";
 export { createDeliveryWorldStateObserver } from "./delivery-world-state-observer.js";
 export {
   answerDeliveredPredicate,

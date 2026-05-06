@@ -8,6 +8,10 @@ import {
   type DeliveryContext,
 } from "../../utils/delivery-context.js";
 import {
+  createArtifactWorldStateObserver,
+  getProcessArtifactWorldStateCollector,
+} from "./artifact-world-state-observer.js";
+import {
   getProcessDeliveryReceiptRegistry,
   type DeliveryReceiptRegistry,
 } from "./delivery-receipt-registry.js";
@@ -97,7 +101,15 @@ export function createDefaultMonitoredRuntime(options: {
   const webEvidenceObserver = createWebEvidenceWorldStateObserver(
     getProcessWebEvidenceCollector(),
   );
-  return createMonitoredRuntime({ sessionObserver, deliveryObserver, webEvidenceObserver });
+  const artifactObserver = createArtifactWorldStateObserver(
+    getProcessArtifactWorldStateCollector(),
+  );
+  return createMonitoredRuntime({
+    sessionObserver,
+    deliveryObserver,
+    webEvidenceObserver,
+    artifactObserver,
+  });
 }
 
 /**
