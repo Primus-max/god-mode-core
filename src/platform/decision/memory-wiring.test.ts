@@ -3,6 +3,7 @@ import {
   __resetMemoryRuntimeForTests,
 } from "../../server/memory-store-bootstrap.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { OutboundCoalescer } from "../../infra/outbound/outbound-coalescer-types.js";
 import type { RuntimeAttestation } from "../commitment/index.js";
 import { resolveMemoryWiringForTurn } from "./memory-wiring.js";
 
@@ -348,5 +349,91 @@ describe("resolveMemoryWiringForTurn — cutover-3 Phase 5 artifact hook fan-out
     });
     await expect(wiring.onAttestation!(satisfied)).resolves.toBeUndefined();
     vi.spyOn(store, "storeEpisodic").mockImplementation(original);
+  });
+});
+
+describe("resolveMemoryWiringForTurn — NEW-C Phase 5 outbound-coalescer commit hook fan-out", () => {
+  beforeEach(() => {
+    __resetMemoryRuntimeForTests();
+  });
+  afterEach(() => {
+    __resetMemoryRuntimeForTests();
+  });
+
+  function makeStubCoalescer(): OutboundCoalescer & {
+    readonly commitAllCalls: ReadonlyArray<string>;
+  } {
+    const commitAllCalls: string[] = [];
+    return {
+      register: () => {},
+      commit: async () => {},
+      commitAll: async (turnId: string) => {
+        commitAllCalls.push(turnId);
+      },
+      bypass: async () => {},
+      stats: () => ({ buffered: 0, turns: 0 }),
+      commitAllCalls,
+    };
+  }
+
+  it("the returned onAttestation does NOT call coalescer.commitAll when outboundCoalescer is omitted (default decision-layer wiring)", async () => {
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      promptText: "hi",
+    });
+    // No coalescer plumbed → primary trigger is wired but inert.
+    await expect(wiring.onAttestation!(satisfied)).resolves.toBeUndefined();
+    // No assertion target other than "no throw"; the coalescer surface
+    // simply isn't reachable from this branch.
+  });
+
+  it("the returned onAttestation calls coalescer.commitAll(turnId) on commitmentSatisfied=true when both deps are supplied", async () => {
+    const stubCoalescer = makeStubCoalescer();
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      sessionId: "session-coalescer-1",
+      promptText: "hello",
+      outboundCoalescer: stubCoalescer,
+      outboundTurnId: "run-coalescer-1",
+    });
+    await wiring.onAttestation!(satisfied);
+    expect(stubCoalescer.commitAllCalls).toEqual(["run-coalescer-1"]);
+  });
+
+  it("the returned onAttestation does NOT call coalescer.commitAll on commitmentSatisfied=false (reverse coverage)", async () => {
+    const stubCoalescer = makeStubCoalescer();
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      sessionId: "session-coalescer-rev",
+      promptText: "denied",
+      outboundCoalescer: stubCoalescer,
+      outboundTurnId: "run-coalescer-rev",
+    });
+    await wiring.onAttestation!(unsatisfied);
+    expect(stubCoalescer.commitAllCalls).toEqual([]);
+  });
+
+  it("absorbs a thrown coalescer.commitAll so the calling turn is unaffected (invariant #15)", async () => {
+    const throwing: OutboundCoalescer = {
+      register: () => {},
+      commit: async () => {},
+      commitAll: async () => {
+        throw new Error("coalescer detonated");
+      },
+      bypass: async () => {},
+      stats: () => ({ buffered: 0, turns: 0 }),
+    };
+    const wiring = await resolveMemoryWiringForTurn({
+      cfg: cfgWithIdentities(),
+      sessionKey: "agent:worker:telegram:direct:123",
+      sessionId: "session-coalescer-throw",
+      promptText: "hi",
+      outboundCoalescer: throwing,
+      outboundTurnId: "run-coalescer-throw",
+    });
+    await expect(wiring.onAttestation!(satisfied)).resolves.toBeUndefined();
   });
 });

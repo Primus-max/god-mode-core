@@ -352,6 +352,18 @@ export function createOutboundCoalescer(deps: OutboundCoalescerDeps): OutboundCo
     }
 
     if (source === "watchdog") {
+      // NEW-C Phase 5 — distinguish commit source via the
+      // `commit_signal` event for telemetry parity with the primary
+      // (`commit-outbound-on-satisfied` hook) and fallback
+      // (`agent-runner.ts` finalizeAfterRun finally block) edges. The
+      // pre-existing `timeout_committed` event is kept so operators
+      // already grepping for it stay green.
+      deps.logTelemetry(
+        formatOutboundCoalescerLog("commit_signal", {
+          turnId,
+          source: "watchdog",
+        }),
+      );
       deps.logTelemetry(
         formatOutboundCoalescerLog("timeout_committed", {
           turnId,
