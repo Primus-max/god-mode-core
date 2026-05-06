@@ -239,6 +239,39 @@ export type PolicyRetryDenialMarker = {
   readonly maxAttempts: number;
 };
 
+/**
+ * Phase 7 — Stage 6 (Escalation hooks) trace marker. Observability-only
+ * — escalation is NOT a gate (sub-plan §10 invariant #3 footnote:
+ * "escalation = observability, не gating"). The marker fires when
+ * `escalationHook.fire(...)` returns `{fired: true, escalationId}`
+ * AFTER any of the upstream policy gates (approval / budget / role /
+ * retry) denied. The `denialReason` carries the originating denial
+ * reason verbatim (one of `APPROVAL_/BUDGET_/ROLE_/RETRY_POLICY_REASONS`)
+ * so the same string can join the trace marker, the
+ * `policy_escalation` episodic event payload, and the
+ * `[policy-gate] event=escalation_fired …` log line.
+ *
+ * Failed escalation (the hook returns `{fired: false}`) does NOT
+ * attach this marker — the upstream policy denial trace marker
+ * (`policyApprovalDenial`, etc.) already carries the production
+ * decision shape; escalation failure is purely observability and is
+ * surfaced via the warn log line emitted inside the hook impl
+ * (`escalation-hook.ts`).
+ */
+export type PolicyEscalationFiredMarker = {
+  readonly stage: "escalation";
+  readonly denialReason:
+    | "requires_approval"
+    | "budget_exceeded_user"
+    | "budget_exceeded_channel"
+    | "budget_exceeded_effect"
+    | "role_denied"
+    | "retry_limit_exceeded";
+  readonly channel: "memory" | "approval_request";
+  readonly escalationId: string;
+  readonly effectId: EffectId;
+};
+
 export type DecisionTrace = {
   version: 1;
   classifier?: DecisionTraceClassifier;
@@ -258,6 +291,7 @@ export type DecisionTrace = {
   readonly policyBudgetDenial?: PolicyBudgetDenialMarker;
   readonly policyRoleDenial?: PolicyRoleDenialMarker;
   readonly policyRetryDenial?: PolicyRetryDenialMarker;
+  readonly policyEscalationFired?: PolicyEscalationFiredMarker;
 };
 
 function sortUnique(values: readonly string[] | undefined): string[] {

@@ -109,10 +109,7 @@ export {
   RETRY_POLICY_DEFAULT_MAX_BACKOFF_MS,
   createRetryPolicy,
 } from "./retry-policy.js";
-export type {
-  CreateRetryPolicyOptions,
-  RetryPolicyConfigEntry,
-} from "./retry-policy.js";
+export type { CreateRetryPolicyOptions, RetryPolicyConfigEntry } from "./retry-policy.js";
 export {
   RETRY_STATE_STORE_DEFAULT_MAX_KEYS,
   buildRetryStateKey,
@@ -124,6 +121,12 @@ export type {
   RetryStateKey,
   RetryStateStore,
 } from "./retry-state-store.js";
+export { createEscalationHook } from "./escalation-hook.js";
+export type {
+  CreateEscalationHookOptions,
+  EscalationHookFireInputExtended,
+  EscalationHookLogger,
+} from "./escalation-hook.js";
 export { buildBudgetWindowId } from "./budget-store.js";
 export type {
   BudgetDimension,
