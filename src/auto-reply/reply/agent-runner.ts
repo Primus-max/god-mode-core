@@ -66,6 +66,7 @@ import {
 } from "./agent-runner-reminder-guard.js";
 import { appendUsageLine, formatResponseUsageLine } from "./agent-runner-usage-line.js";
 import { createExternalBlockReplyDeferral } from "./block-external-buffer.js";
+import { createOutboundCoalescer } from "../../infra/outbound/outbound-coalescer.js";
 import { createAudioAsVoiceBuffer, createBlockReplyPipeline } from "./block-reply-pipeline.js";
 import { resolveEffectiveBlockStreamingConfig } from "./block-streaming.js";
 import { createFollowupRunner } from "./followup-runner.js";
@@ -602,9 +603,75 @@ export async function runReplyAgent(params: {
           sessionId: progressSessionId.trim() ? progressSessionId : undefined,
         })
       : null;
+  // NEW-C Phase 4 — outbound coalescer per (turnId, channelKey).
+  // Keyed on `progressTurnId` (= `runId`, audit §b) and a structural
+  // channelKey `${channel}:${accountId}:${target}` (audit §c). Lifecycle
+  // matches `externalBlockDeferral` — one instance per `runReplyAgent`
+  // invocation, never global. The composition layered here:
+  //   streamingAwareBlockReply (= originalOnBlockReply, channel adapter)
+  //     ← deps.deliver of coalescer (committed payload sink)
+  //     ← block-buffer's `inner` callback wraps coalescer.register({kind:'final',...})
+  //     ← block-buffer's wrapDeliver/finalizeAfterRun stack
+  //
+  // Block-buffer (Bug A.2) consolidates streaming chunks INSIDE one
+  // emit-site; the coalescer aggregates ACROSS emit-sites (ack from
+  // `agent-runner.ts:885-892`, compaction notice intermediate from
+  // `agent-runner.ts:1432-1452`, plus the merged final from block-buffer)
+  // and ships ONE `kind=final` payload per turn per channel.
+  // Phase 4 commit trigger is the post-`finalizeAfterRun` seam below;
+  // Phase 5 will add the primary `commitmentSatisfied===true` edge hook.
+  const outboundCoalescerChannelKey = (() => {
+    if (!externalBlockDeferral || !streamingAwareBlockReply) {
+      return undefined;
+    }
+    const channelPart = (sessionCtx.OriginatingChannel ?? sessionCtx.Provider ?? "")
+      .toString()
+      .trim()
+      .toLowerCase();
+    const accountPart = (sessionCtx.AccountId ?? "").toString().trim() || "default";
+    const targetPart = originatingToForBuffer ? originatingToForBuffer.toString() : "default";
+    return `${channelPart || "unknown"}:${accountPart}:${targetPart}`;
+  })();
+  const outboundCoalescer =
+    externalBlockDeferral && streamingAwareBlockReply && outboundCoalescerChannelKey
+      ? createOutboundCoalescer({
+          deliver: streamingAwareBlockReply,
+          mergeStrategy: "drop_intermediates",
+          maxBufferMs: 60_000,
+          logTelemetry: (line) => defaultRuntime.log(line),
+          clockNow: () => Date.now(),
+        })
+      : null;
+  // Phase 4 composition: when coalescer is active, block-buffer's
+  // inner (= the function it calls with the consolidated merged
+  // payload at finalize time) is replaced with a coalescer-register
+  // shim. Block-buffer still consolidates its chunks first; the
+  // merged payload arrives at the coalescer as ONE `kind=final`
+  // register call. Without coalescer (no channelKey resolved) we
+  // fall back to the legacy direct-deliver path so behavior remains
+  // byte-identical for surfaces outside the coalescer scope.
+  // Hoisted out of the wrapDeliver branch so the same shim is passed
+  // to `finalizeAfterRun(...)` at line ~1012 — both wrapDeliver's
+  // post-finalize passthrough and finalizeAfterRun's merged-payload
+  // branch must hit the SAME register sink so the coalescer commits
+  // a single bucket.
+  const blockBufferInner: NonNullable<GetReplyOptions["onBlockReply"]> | undefined =
+    streamingAwareBlockReply &&
+    outboundCoalescer &&
+    outboundCoalescerChannelKey
+      ? (payload) => {
+          outboundCoalescer.register({
+            turnId: progressTurnId,
+            channelKey: outboundCoalescerChannelKey,
+            kind: "final",
+            body: payload,
+            ts: Date.now(),
+          });
+        }
+      : streamingAwareBlockReply;
   let deliveredBlockReply = streamingAwareBlockReply;
-  if (externalBlockDeferral && streamingAwareBlockReply) {
-    const wrapped = externalBlockDeferral.wrapDeliver(streamingAwareBlockReply);
+  if (externalBlockDeferral && blockBufferInner) {
+    const wrapped = externalBlockDeferral.wrapDeliver(blockBufferInner);
     deliveredBlockReply = (payload, options) => {
       if (turnProgressEmitter && !progressStreamingEmitted) {
         progressStreamingEmitted = true;
@@ -1008,8 +1075,16 @@ export async function runReplyAgent(params: {
       if (blockReplyPipeline) {
         await blockReplyPipeline.flush({ force: true });
       }
-      if (externalBlockDeferral && streamingAwareBlockReply) {
-        await externalBlockDeferral.finalizeAfterRun(streamingAwareBlockReply);
+      if (externalBlockDeferral && blockBufferInner) {
+        // NEW-C Phase 4: pass the same coalescer-register shim used by
+        // `wrapDeliver` so the merged consolidated payload arrives at
+        // the coalescer as ONE `kind=final` register call (not at the
+        // channel adapter directly). Phase 5 will move the commit
+        // trigger to the `commitmentSatisfied===true` edge — for
+        // Phase 4 the commit fires from the function-level `finally`
+        // block at the bottom of `runReplyAgent`, AFTER the compaction
+        // notice (intermediate) and any other late emit-site registers.
+        await externalBlockDeferral.finalizeAfterRun(blockBufferInner);
       }
       if (blockReplyPipeline) {
         blockReplyPipeline.stop();
@@ -1441,14 +1516,37 @@ export async function runReplyAgent(params: {
             replyToCurrent: true,
             isCompactionNotice: true,
           });
-          void Promise.race([
-            opts.onBlockReply(noticePayload),
-            new Promise<void>((_, reject) =>
-              setTimeout(() => reject(new Error("compaction notice timeout")), blockReplyTimeoutMs),
-            ),
-          ]).catch(() => {
-            // Intentionally swallowed — the notice is informational only.
-          });
+          if (outboundCoalescer && outboundCoalescerChannelKey) {
+            // NEW-C Phase 4 emit-site #4 (audit row 4): compaction
+            // completion notice in block-streaming branch. Pre-Phase-4
+            // path was a fire-and-forget direct `opts.onBlockReply`
+            // bypassing block-buffer and the would-be coalescer; here we
+            // register `kind=intermediate` so default `drop_intermediates`
+            // strategy drops it on the next commit (the merged final
+            // already covers user-visible content). The bucket is fresh
+            // because the prior `commitAll` at the post-`finalizeAfterRun`
+            // seam emptied it — watchdog (60s) or the `finally`-block
+            // commit will flush this bucket.
+            outboundCoalescer.register({
+              turnId: progressTurnId,
+              channelKey: outboundCoalescerChannelKey,
+              kind: "intermediate",
+              body: noticePayload,
+              ts: Date.now(),
+            });
+          } else {
+            void Promise.race([
+              opts.onBlockReply(noticePayload),
+              new Promise<void>((_, reject) =>
+                setTimeout(
+                  () => reject(new Error("compaction notice timeout")),
+                  blockReplyTimeoutMs,
+                ),
+              ),
+            ]).catch(() => {
+              // Intentionally swallowed — the notice is informational only.
+            });
+          }
         } else {
           // Non-streaming: push into verboseNotices with full compaction metadata
           // so threading exemptions apply and replyToMode=first does not thread
@@ -1680,6 +1778,26 @@ export async function runReplyAgent(params: {
       throw error;
     } finally {
       blockReplyPipeline?.stop();
+      // NEW-C Phase 4 — fallback commit trigger (audit §d third line).
+      // Primary commit edge (`commitmentSatisfied===true`) lands in
+      // Phase 5; for Phase 4 we commit here so every registered
+      // message (final from block-buffer, ack from no-deferral
+      // fallback when wired, intermediate from compaction notice)
+      // flushes through the channel adapter before the function
+      // returns. Empty-bucket commits are silent noops, so this is
+      // safe across early-return paths (queuedSemanticRetry,
+      // acceptance fallback, error catch). Failure isolation is
+      // built-in (`deps.deliver` throws → bucket cleared, warn log,
+      // no propagation).
+      if (outboundCoalescer) {
+        try {
+          await outboundCoalescer.commitAll(progressTurnId);
+        } catch {
+          // commitAll is failure-isolated internally; surfacing here
+          // would break the `finally` cleanup chain. Swallow per
+          // invariant #15.
+        }
+      }
       typing.markRunComplete();
       // Safety net: the dispatcher's onIdle callback normally fires
       // markDispatchIdle(), but if the dispatcher exits early, errors,
