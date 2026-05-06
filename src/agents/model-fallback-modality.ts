@@ -1,15 +1,20 @@
 // NEW-A Phase 2 — types + derivation helper for modality-aware routing.
 // NEW-A Phase 3 — `modelCoversModalityRequirement` capability check helper.
+// NEW-A Phase 4 — `filterCandidatesByModality` survivor-set filter with
+// fail-open invariant.
 // Lives under `src/agents/` (orchestration layer) per master invariant #11 — frozen
 // `src/platform/commitment/` is NOT touched. The local `InboundMediaSummaryLike` is
 // a structural duck-type, NOT an import from `src/platform/commitment/` (defense-in-depth
 // for invariant #8).
 //
 // Sub-plan: .cursor/plans/commitment_kernel_modality_aware_routing.plan.md (todos
-// `ma-phase-2-types-and-derivation`, `ma-phase-3-model-registry-surface-confirmation`).
-// Audit anchor: extensions/AUDIT-modality-aware-routing.md §c, §e, §f.
+// `ma-phase-2-types-and-derivation`, `ma-phase-3-model-registry-surface-confirmation`,
+// `ma-phase-4-candidate-filter`).
+// Audit anchor: extensions/AUDIT-modality-aware-routing.md §c, §e, §f, §i (fail-open).
 
 import type { ModelCatalogEntry } from "./model-catalog.js";
+import type { ModelCandidate } from "./model-fallback.types.js";
+import { modelKey } from "./model-selection.js";
 
 /**
  * Closed union of modality requirements a turn may impose on the candidate
@@ -135,4 +140,134 @@ export function modelCoversModalityRequirement(
   // 'audio' | 'video' — typed-but-inert. No `ModelInputType` member maps.
   // Fails-closed; reverse-tested.
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// NEW-A Phase 4 — `filterCandidatesByModality` survivor-set filter.
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-candidate drop record — enumerates which `ModalityRequirement` values
+ * the candidate's catalog entry FAILED to cover. Surfaced for both real drops
+ * AND fail-open survivors (telemetry stays accurate even when filtering is
+ * suppressed by the survivor-set non-empty invariant).
+ */
+export type FilterCandidatesByModalityDropped = {
+  readonly candidate: ModelCandidate;
+  readonly missingModalities: readonly ModalityRequirement[];
+};
+
+/**
+ * Result shape for `filterCandidatesByModality`. `failedOpen === true` means
+ * filtering would have produced ZERO survivors against a non-empty input —
+ * the unfiltered candidates were restored, but `dropped` still records every
+ * incompatibility for observability (Phase 5 wiring will emit a
+ * `modality_filter fail_open` log line).
+ */
+export type FilterCandidatesByModalityResult = {
+  readonly filtered: readonly ModelCandidate[];
+  readonly dropped: readonly FilterCandidatesByModalityDropped[];
+  readonly failedOpen: boolean;
+};
+
+/**
+ * Pure capability-driven filter. Does NOT branch on provider/id — only on
+ * catalog-declared `ModelInputType[]` capabilities (per master §0.5.6 NEW-A
+ * "per-provider blocklists are EXPLICITLY forbidden").
+ *
+ * Behaviour rules (sub-plan §Phase 4 / audit §i):
+ * 1. Empty `requirements` → structural identity: `{ filtered: candidates,
+ *    dropped: [], failedOpen: false }`. No filtering performed.
+ * 2. Empty `candidates` → empty result. No filtering performed.
+ * 3. Per-candidate, the catalog is consulted by `modelKey(provider, model)`
+ *    case-INSENSITIVE lookup. Catalogs in the wild use mixed casing
+ *    (`Hydra/Claude-Opus-4.6` vs `hydra/claude-opus-4.6`); we normalise
+ *    aggressively rather than lose a match.
+ * 4. Catalog miss → KEEP candidate (conservative — unknown !== incompatible).
+ *    No drop record emitted.
+ * 5. Catalog hit + ALL requirements covered (Phase 3 helper) → KEEP.
+ * 6. Catalog hit + SOME requirement uncovered → DROP, with the missing
+ *    requirements enumerated.
+ * 7. **Survivor-set non-empty invariant (CRITICAL — slice-implementer MUST
+ *    NOT remove)**: if rule (6) would empty the survivor set against a
+ *    non-empty input, return the UNFILTERED `candidates` and set
+ *    `failedOpen: true`. The `dropped` list is still populated so the Phase
+ *    5 log line surfaces every incompatibility — observability is preserved
+ *    even though routing carries on. Rationale: silently routing to zero
+ *    candidates would surface as `lastError: "no candidates"` downstream
+ *    (audit §i) which is strictly worse than letting the incompatible
+ *    candidate try and fail loudly.
+ *
+ * Returned arrays are NOT frozen — caller in Phase 5 may concat / reorder.
+ */
+export function filterCandidatesByModality(params: {
+  readonly candidates: readonly ModelCandidate[];
+  readonly requirements: readonly ModalityRequirement[];
+  readonly catalog: readonly ModelCatalogEntry[];
+}): FilterCandidatesByModalityResult {
+  const { candidates, requirements, catalog } = params;
+
+  // Rule (1) — structural identity for zero-requirement turns. The Phase 5
+  // wiring emits no log line in this branch (deriveTurnModalityRequirements
+  // always returns at least `['text']`, so this branch is mostly defensive
+  // for direct callers passing `[]`).
+  if (requirements.length === 0) {
+    return { filtered: candidates, dropped: [], failedOpen: false };
+  }
+
+  // Rule (2) — empty input.
+  if (candidates.length === 0) {
+    return { filtered: [], dropped: [], failedOpen: false };
+  }
+
+  // Rule (3) — case-insensitive catalog index. `modelKey()` canonicalises the
+  // `provider/model` form but does NOT lowercase the result; we lowercase the
+  // key on insert AND lookup to absorb upstream casing drift.
+  const catalogIndex = new Map<string, ModelCatalogEntry>();
+  for (const entry of catalog) {
+    const key = modelKey(entry.provider, entry.id).toLowerCase();
+    // First write wins — duplicate-id catalogs are upstream's bug; do not
+    // mask by overwriting silently here.
+    if (!catalogIndex.has(key)) {
+      catalogIndex.set(key, entry);
+    }
+  }
+
+  const filtered: ModelCandidate[] = [];
+  const dropped: FilterCandidatesByModalityDropped[] = [];
+
+  for (const candidate of candidates) {
+    const key = modelKey(candidate.provider, candidate.model).toLowerCase();
+    const entry = catalogIndex.get(key);
+    if (entry === undefined) {
+      // Rule (4) — unknown candidate retained.
+      filtered.push(candidate);
+      continue;
+    }
+    const missing: ModalityRequirement[] = [];
+    for (const requirement of requirements) {
+      if (!modelCoversModalityRequirement(entry, requirement)) {
+        missing.push(requirement);
+      }
+    }
+    if (missing.length === 0) {
+      // Rule (5) — fully covered.
+      filtered.push(candidate);
+    } else {
+      // Rule (6) — incompatible; record drop.
+      dropped.push({ candidate, missingModalities: missing });
+    }
+  }
+
+  // Rule (7) — fail-open. `candidates.length > 0` is implied by rule (2)
+  // having short-circuited the empty-input case earlier.
+  if (filtered.length === 0) {
+    return {
+      filtered: candidates,
+      dropped,
+      failedOpen: true,
+    };
+  }
+
+  return { filtered, dropped, failedOpen: false };
 }

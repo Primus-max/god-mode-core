@@ -9,9 +9,11 @@
 
 import { describe, expect, it } from "vitest";
 import type { ModelCatalogEntry } from "./model-catalog.js";
+import type { ModelCandidate } from "./model-fallback.types.js";
 import {
   type ModalityRequirement,
   deriveTurnModalityRequirements,
+  filterCandidatesByModality,
   modelCoversModalityRequirement,
 } from "./model-fallback-modality.js";
 
@@ -368,5 +370,306 @@ describe("modelCoversModalityRequirement — Phase 3 brand discipline", () => {
       expect(answers[0]).toBe(answers[1]);
       expect(answers[1]).toBe(answers[2]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4 — `filterCandidatesByModality` survivor-set filter + fail-open
+// invariant. Audit anchor: extensions/AUDIT-modality-aware-routing.md §i.
+// ---------------------------------------------------------------------------
+
+/** Catalog-entry factory parameterised by `(provider, id, input)`. */
+function makeCatalogEntry(
+  provider: string,
+  id: string,
+  input: ModelCatalogEntry["input"],
+): ModelCatalogEntry {
+  return { id, name: id, provider, input };
+}
+
+/** Candidate factory. */
+function makeCandidate(provider: string, model: string): ModelCandidate {
+  return { provider, model };
+}
+
+describe("filterCandidatesByModality — Phase 4 happy paths", () => {
+  it("image+text requirement against [opus(text-only), gpt-5.4(text+image)] → keeps gpt-5.4, drops opus, no fail-open", () => {
+    const opus = makeCandidate("hydra", "claude-opus-4.6");
+    const gpt = makeCandidate("hydra", "gpt-5.4");
+    const catalog = [
+      makeCatalogEntry("hydra", "claude-opus-4.6", ["text"]),
+      makeCatalogEntry("hydra", "gpt-5.4", ["text", "image"]),
+    ];
+    const result = filterCandidatesByModality({
+      candidates: [opus, gpt],
+      requirements: ["image", "text"],
+      catalog,
+    });
+    expect(result.filtered).toEqual([gpt]);
+    expect(result.dropped).toHaveLength(1);
+    expect(result.dropped[0]?.candidate).toBe(opus);
+    expect(result.dropped[0]?.missingModalities).toEqual(["image"]);
+    expect(result.failedOpen).toBe(false);
+  });
+
+  it("multi-survivor: 3 candidates, 1 incompatible → keeps 2, drops 1", () => {
+    const opus = makeCandidate("hydra", "claude-opus-4.6");
+    const gpt = makeCandidate("hydra", "gpt-5.4");
+    const sonnet = makeCandidate("hydra", "claude-sonnet-4.6");
+    const catalog = [
+      makeCatalogEntry("hydra", "claude-opus-4.6", ["text"]),
+      makeCatalogEntry("hydra", "gpt-5.4", ["text", "image"]),
+      makeCatalogEntry("hydra", "claude-sonnet-4.6", ["text", "image"]),
+    ];
+    const result = filterCandidatesByModality({
+      candidates: [opus, gpt, sonnet],
+      requirements: ["image", "text"],
+      catalog,
+    });
+    expect(result.filtered).toEqual([gpt, sonnet]);
+    expect(result.dropped).toHaveLength(1);
+    expect(result.dropped[0]?.candidate).toBe(opus);
+    expect(result.failedOpen).toBe(false);
+  });
+
+  it("preserves candidate order on filtered survivors (no reordering)", () => {
+    // Phase 5 wiring depends on the filter being order-stable.
+    const a = makeCandidate("hydra", "a");
+    const b = makeCandidate("hydra", "b");
+    const c = makeCandidate("hydra", "c");
+    const catalog = [
+      makeCatalogEntry("hydra", "a", ["text", "image"]),
+      makeCatalogEntry("hydra", "b", ["text", "image"]),
+      makeCatalogEntry("hydra", "c", ["text", "image"]),
+    ];
+    const result = filterCandidatesByModality({
+      candidates: [a, b, c],
+      requirements: ["image"],
+      catalog,
+    });
+    expect(result.filtered).toEqual([a, b, c]);
+  });
+});
+
+describe("filterCandidatesByModality — Phase 4 fail-open invariant (CRITICAL)", () => {
+  // The survivor-set non-empty invariant: filtering MUST NOT route to zero
+  // candidates. Audit §i — fail-open keeps `dropped` populated for telemetry
+  // while restoring the unfiltered candidate list to keep the run alive.
+
+  it("single text-only candidate vs image requirement → fail-open: keeps candidate AND records drop", () => {
+    const opus = makeCandidate("hydra", "claude-opus-4.6");
+    const catalog = [makeCatalogEntry("hydra", "claude-opus-4.6", ["text"])];
+    const result = filterCandidatesByModality({
+      candidates: [opus],
+      requirements: ["image", "text"],
+      catalog,
+    });
+    expect(result.filtered).toEqual([opus]);
+    expect(result.failedOpen).toBe(true);
+    expect(result.dropped).toHaveLength(1);
+    expect(result.dropped[0]?.candidate).toBe(opus);
+    expect(result.dropped[0]?.missingModalities).toEqual(["image"]);
+  });
+
+  it("multiple text-only candidates vs image requirement → fail-open: keeps ALL, drops ALL", () => {
+    const opus = makeCandidate("hydra", "claude-opus-4.6");
+    const llama = makeCandidate("ollama", "llama-3.1");
+    const catalog = [
+      makeCatalogEntry("hydra", "claude-opus-4.6", ["text"]),
+      makeCatalogEntry("ollama", "llama-3.1", ["text"]),
+    ];
+    const result = filterCandidatesByModality({
+      candidates: [opus, llama],
+      requirements: ["image"],
+      catalog,
+    });
+    expect(result.filtered).toEqual([opus, llama]);
+    expect(result.failedOpen).toBe(true);
+    expect(result.dropped).toHaveLength(2);
+    expect(result.dropped.map((d) => d.candidate)).toEqual([opus, llama]);
+    for (const drop of result.dropped) {
+      expect(drop.missingModalities).toEqual(["image"]);
+    }
+  });
+
+  it("audio requirement (typed-but-inert) drops every candidate then fail-opens to keep all", () => {
+    // 'audio' is currently inert against every catalog entry → 100% drop
+    // candidate. Fail-open invariant restores the original list.
+    const a = makeCandidate("hydra", "claude-opus-4.6");
+    const b = makeCandidate("hydra", "gpt-5.4");
+    const catalog = [
+      makeCatalogEntry("hydra", "claude-opus-4.6", ["text"]),
+      makeCatalogEntry("hydra", "gpt-5.4", ["text", "image"]),
+    ];
+    const result = filterCandidatesByModality({
+      candidates: [a, b],
+      requirements: ["audio", "text"],
+      catalog,
+    });
+    expect(result.filtered).toEqual([a, b]);
+    expect(result.failedOpen).toBe(true);
+    expect(result.dropped).toHaveLength(2);
+    for (const drop of result.dropped) {
+      expect(drop.missingModalities).toContain("audio");
+      expect(drop.missingModalities).not.toContain("text");
+    }
+  });
+});
+
+describe("filterCandidatesByModality — Phase 4 conservative rules", () => {
+  it("unknown candidate not in catalog → KEPT (conservative)", () => {
+    const known = makeCandidate("hydra", "gpt-5.4");
+    const unknown = makeCandidate("hydra", "mystery-model");
+    const catalog = [makeCatalogEntry("hydra", "gpt-5.4", ["text", "image"])];
+    const result = filterCandidatesByModality({
+      candidates: [known, unknown],
+      requirements: ["image"],
+      catalog,
+    });
+    expect(result.filtered).toEqual([known, unknown]);
+    expect(result.dropped).toEqual([]);
+    expect(result.failedOpen).toBe(false);
+  });
+
+  it("mixed: known+covers, known+missing, unknown → first kept, second dropped, third kept", () => {
+    const covers = makeCandidate("hydra", "gpt-5.4");
+    const missing = makeCandidate("hydra", "claude-opus-4.6");
+    const unknown = makeCandidate("hydra", "mystery");
+    const catalog = [
+      makeCatalogEntry("hydra", "gpt-5.4", ["text", "image"]),
+      makeCatalogEntry("hydra", "claude-opus-4.6", ["text"]),
+    ];
+    const result = filterCandidatesByModality({
+      candidates: [covers, missing, unknown],
+      requirements: ["image"],
+      catalog,
+    });
+    expect(result.filtered).toEqual([covers, unknown]);
+    expect(result.dropped).toHaveLength(1);
+    expect(result.dropped[0]?.candidate).toBe(missing);
+    expect(result.failedOpen).toBe(false);
+  });
+
+  it("empty requirements → structural identity (no filtering)", () => {
+    const a = makeCandidate("hydra", "claude-opus-4.6");
+    const b = makeCandidate("hydra", "gpt-5.4");
+    const catalog = [
+      makeCatalogEntry("hydra", "claude-opus-4.6", ["text"]),
+      makeCatalogEntry("hydra", "gpt-5.4", ["text", "image"]),
+    ];
+    const result = filterCandidatesByModality({
+      candidates: [a, b],
+      requirements: [],
+      catalog,
+    });
+    expect(result.filtered).toBe(/* same reference */ result.filtered);
+    expect(result.filtered).toEqual([a, b]);
+    expect(result.dropped).toEqual([]);
+    expect(result.failedOpen).toBe(false);
+  });
+
+  it("empty candidates → empty result (no fail-open)", () => {
+    const result = filterCandidatesByModality({
+      candidates: [],
+      requirements: ["image"],
+      catalog: [makeCatalogEntry("hydra", "gpt-5.4", ["text", "image"])],
+    });
+    expect(result.filtered).toEqual([]);
+    expect(result.dropped).toEqual([]);
+    expect(result.failedOpen).toBe(false);
+  });
+
+  it("missing modalities enumerate ALL uncovered requirements (not just first)", () => {
+    // Confirms the helper builds the full missing-modality list — important
+    // for Phase 5 log line readability.
+    const opus = makeCandidate("hydra", "claude-opus-4.6");
+    const catalog = [makeCatalogEntry("hydra", "claude-opus-4.6", ["text"])];
+    const result = filterCandidatesByModality({
+      candidates: [opus],
+      requirements: ["image", "audio"],
+      catalog,
+    });
+    // Both 'image' and 'audio' miss → fail-open kicks in; survivor preserved
+    // and BOTH missing requirements recorded.
+    expect(result.failedOpen).toBe(true);
+    expect(result.filtered).toEqual([opus]);
+    expect(result.dropped).toHaveLength(1);
+    expect(result.dropped[0]?.missingModalities).toEqual(["image", "audio"]);
+  });
+});
+
+describe("filterCandidatesByModality — Phase 4 case-insensitivity", () => {
+  // Catalogs in the wild use mixed casing; the lookup MUST normalise both
+  // sides aggressively.
+
+  it("catalog stores Mixed-Case provider/id, candidate is lowercase → matched as compatible", () => {
+    const candidate = makeCandidate("hydra", "claude-opus-4.6");
+    const catalog = [
+      makeCatalogEntry("Hydra", "Claude-Opus-4.6", ["text", "image"]),
+    ];
+    const result = filterCandidatesByModality({
+      candidates: [candidate],
+      requirements: ["image"],
+      catalog,
+    });
+    // Match path → covers image → KEEP, no drop, no fail-open.
+    expect(result.filtered).toEqual([candidate]);
+    expect(result.dropped).toEqual([]);
+    expect(result.failedOpen).toBe(false);
+  });
+
+  it("candidate has Mixed-Case provider/model, catalog stores lowercase → matched and dropped on incompatibility", () => {
+    const candidate = makeCandidate("Hydra", "Claude-Opus-4.6");
+    const otherCompatible = makeCandidate("hydra", "gpt-5.4");
+    const catalog = [
+      makeCatalogEntry("hydra", "claude-opus-4.6", ["text"]),
+      makeCatalogEntry("hydra", "gpt-5.4", ["text", "image"]),
+    ];
+    const result = filterCandidatesByModality({
+      candidates: [candidate, otherCompatible],
+      requirements: ["image"],
+      catalog,
+    });
+    // The mixed-case candidate matches the lowercase entry → text-only →
+    // dropped. Other candidate covers → kept. No fail-open (1 survivor).
+    expect(result.filtered).toEqual([otherCompatible]);
+    expect(result.dropped).toHaveLength(1);
+    expect(result.dropped[0]?.candidate).toBe(candidate);
+    expect(result.failedOpen).toBe(false);
+  });
+});
+
+describe("filterCandidatesByModality — Phase 4 brand discipline", () => {
+  it("filter does NOT branch on provider name (capability-driven only)", () => {
+    // Two candidates with the SAME `input` capabilities but wildly different
+    // providers must yield identical drop/keep verdicts — the filter must not
+    // hardcode `provider === 'hydra'` style logic anywhere.
+    const a = makeCandidate("hydra", "x");
+    const b = makeCandidate("ollama", "x");
+    const catalog = [
+      makeCatalogEntry("hydra", "x", ["text", "image"]),
+      makeCatalogEntry("ollama", "x", ["text", "image"]),
+    ];
+    const result = filterCandidatesByModality({
+      candidates: [a, b],
+      requirements: ["image"],
+      catalog,
+    });
+    expect(result.filtered).toEqual([a, b]);
+
+    const aTextOnly = makeCandidate("hydra", "y");
+    const bTextOnly = makeCandidate("ollama", "y");
+    const catalog2 = [
+      makeCatalogEntry("hydra", "y", ["text"]),
+      makeCatalogEntry("ollama", "y", ["text"]),
+    ];
+    const result2 = filterCandidatesByModality({
+      candidates: [aTextOnly, bTextOnly],
+      requirements: ["image"],
+      catalog: catalog2,
+    });
+    // Both drop → fail-open restores both.
+    expect(result2.failedOpen).toBe(true);
+    expect(result2.filtered).toEqual([aTextOnly, bTextOnly]);
   });
 });
