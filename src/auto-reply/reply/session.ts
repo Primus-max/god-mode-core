@@ -33,8 +33,17 @@ import { archiveSessionTranscripts } from "../../gateway/session-archive.fs.js";
 import { resolveConversationIdFromTargets } from "../../infra/outbound/conversation-id.js";
 import { deliverSessionMaintenanceWarning } from "../../infra/session-maintenance-warning.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { normalizeMainKey } from "../../routing/session-key.js";
+import type { SessionId } from "../../platform/commitment/ids.js";
+import {
+  resetTurnSession,
+  type SessionResetEvent,
+} from "../../platform/session/reset.js";
+import { defaultRuntime } from "../../runtime.js";
+import {
+  getSessionResetRegistry,
+  setSessionResetActiveCfg,
+} from "../../server/session-reset-bootstrap.js";
 import { normalizeSessionDeliveryFields } from "../../utils/delivery-context.js";
 import { resolveCommandAuthorization } from "../command-auth.js";
 import type { MsgContext, TemplateContext } from "../templating.js";
@@ -48,7 +57,6 @@ import {
   resolveLastToRaw,
 } from "./session-delivery.js";
 import { forkSessionFromParent, resolveParentForkMaxTokens } from "./session-fork.js";
-import { buildSessionEndHookPayload, buildSessionStartHookPayload } from "./session-hooks.js";
 
 const log = createSubsystemLogger("session-init");
 
@@ -596,33 +604,40 @@ export async function initSessionState(params: {
     IsNewSession: isNewSession ? "true" : "false",
   };
 
-  // Run session plugin hooks (fire-and-forget)
-  const hookRunner = getGlobalHookRunner();
-  if (hookRunner && isNewSession) {
+  // NEW-B Phase 5 — unified session-reset bus.
+  //
+  // Replaces the previous inline plugin-hook block (session_end /
+  // session_start) AND closes the FOLLOWUP_QUEUES leak reproduced
+  // 2026-05-06 18:25-18:27 (gateway-pr211.log line 120). The single
+  // call site iterates the 8-subscriber registry from
+  // `session-reset-bootstrap.ts`; per invariant #15 a misbehaving
+  // subscriber NEVER blocks the others. The `resetTriggered` flag
+  // discriminates operator-typed `/new` (`reason=reset_trigger`) from
+  // daily-staleness rotation (`reason=daily_reset`); both routes
+  // converge on the same call site per audit §a row 1 + sub-plan §6.
+  //
+  // ACP-bound bypass (`shouldUseAcpInPlaceReset` at session.ts:258) is
+  // preserved upstream — when it fires `isNewSession` stays `false` and
+  // this block is skipped entirely.
+  if (isNewSession) {
+    setSessionResetActiveCfg(cfg);
     const effectiveSessionId = sessionId ?? "";
-
-    // If replacing an existing session, fire session_end for the old one
-    if (previousSessionEntry?.sessionId && previousSessionEntry.sessionId !== effectiveSessionId) {
-      if (hookRunner.hasHooks("session_end")) {
-        const payload = buildSessionEndHookPayload({
-          sessionId: previousSessionEntry.sessionId,
-          sessionKey,
-          cfg,
-        });
-        void hookRunner.runSessionEnd(payload.event, payload.context).catch(() => {});
-      }
-    }
-
-    // Fire session_start for the new session
-    if (hookRunner.hasHooks("session_start")) {
-      const payload = buildSessionStartHookPayload({
-        sessionId: effectiveSessionId,
-        sessionKey,
-        cfg,
-        resumedFrom: previousSessionEntry?.sessionId,
-      });
-      void hookRunner.runSessionStart(payload.event, payload.context).catch(() => {});
-    }
+    const previousSessionId = previousSessionEntry?.sessionId;
+    const event: SessionResetEvent = {
+      sessionId: effectiveSessionId as SessionId,
+      sessionKey,
+      ...(previousSessionId !== undefined &&
+      previousSessionId !== effectiveSessionId
+        ? { previousSessionId: previousSessionId as SessionId }
+        : {}),
+      reason: resetTriggered ? "reset_trigger" : "daily_reset",
+      occurredAt: new Date().toISOString(),
+    };
+    await resetTurnSession({
+      event,
+      registry: getSessionResetRegistry(),
+      logger: (line) => defaultRuntime.log(line),
+    });
   }
 
   return {
