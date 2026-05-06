@@ -913,7 +913,7 @@ function buildIntentContractorPrompt(params: {
       "DO NOT flatten to `targetKind`/`operationKind`. `constraints` and `uncertainty` are required " +
       "(use `{}` and `[]` if empty). Pick `desiredEffectFamily` from `familyDirectory[].id` only.",
     responseShape: {
-      desiredEffectFamily: '"persistent_session" | "communication" | "unknown"',
+      desiredEffectFamily: '"persistent_session" | "communication" | "artifact" | "unknown"',
       target: {
         kind: '"session" | "artifact" | "workspace" | "external_channel" | "unspecified"',
         sessionId: "(optional, when kind=session)",
