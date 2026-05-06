@@ -1,340 +1,420 @@
 ---
-name: PolicyGate Full — staged decomposition (Stage 1 = Bug D ambiguity over-blocking)
+slice: PolicyGate Full — Stages 2-6 + 2 co-scheduled orchestration bug-fixes (Stage 1 closed PR-#110)
+status: in_progress
+signoff: GRANTED via blanket authorization 2026-05-05 (memory feedback_signoff_blanket_authorization.md)
 overview: |
-  Этот sub-plan покрывает **полный PolicyGate** master §8.5.1: approvals, budgets per-user/per-channel/per-effect, role-based access, retry policies, escalation hooks, plus orthogonal **clarification policy** для downgrade-а ложных blocking-ambiguities.
+  Полный PolicyGate per master §8.5.1: approvals, budgets, role-based access, retry policies, escalation hooks. Обязателен **до cutover-4** (`repo_operation.completed`). Stage 1 (Bug D — clarification policy) уже закрыт PR-#110 (merge `caca87a634`, см §11 Stage 1 history). Этот sub-plan покрывает Stages 2-6 ПЛЮС две co-scheduled orchestration-layer bug-fix фазы, всплывшие 2026-05-06 live test:
 
-  PR-4b закрыл minimum PolicyGate (G6.b): `POLICY_GATE_REASONS = ['channel_disabled','no_credentials']` с frozen reverse-test. Полный PolicyGate обязателен **до cutover-4** (`repo_operation.completed`). До тех пор gate-методы вводятся **поэтапно** — каждая стадия = отдельный PR с явным maintainer signoff (invariant #15) и явным reverse-test расширения allowlist-а.
+    - Bug #1 — `closure-outcome-dispatcher` false-positive «bootstrap pending» когда capability already verified (`src/auto-reply/reply/closure-outcome-dispatcher.ts:863`). НЕ inside frozen `src/platform/commitment/` — orchestration-layer fix, отдельная Phase 8.
+    - Bug #3 — PDF subagent hardcoded timeoutMs=2000 (live log: `sessions_yield abort settle timed out`). НЕ inside frozen layer; emit-site обнаруживается в Phase 1 audit (likely `agents.defaults.subagents.runTimeoutSeconds` config default OR recipe-driven default OR subagent-announce). Отдельная Phase 9.
 
-  **Stage 1 в этом PR (Bug D — clarification policy)** — единственная стадия БЕЗ обязательного signoff (focused bug-fix slice). Текущий классификатор помечает `primaryOutcome=clarification_needed` + `ambiguities=["…publish target is not specified"]` даже когда `SemanticIntent.target.kind === 'workspace'` или `constraints.hosting === 'local'` (юзер явно сказал "локально"/"local"). Оркестратор тратит turn на ненужный clarify, юзер воспринимает агента как тупого.
+  PolicyGate stages (Stages 2-6) расширяют либо `POLICY_GATE_REASONS` (frozen reverse-test обновляется в том же PR), либо вводят новый orthogonal `*POLICY_REASONS` set со своим reverse-test — choice per stage, фиксируется в Phase 1 audit. **Frozen layer (`src/platform/commitment/`) трогать только additively** — constructor extension по slice E P6 / slice F P6 паттерну. Новые effect-families расширяют `EFFECT_FAMILY_REGISTRY` + `EpisodicEffectFamily` discriminated union (slice E P2 шаблон).
 
-  Fix: **orthogonal** `ClarificationPolicyReader` (sibling к `PolicyGateReader`) с собственным замороженным reasons-set `CLARIFICATION_POLICY_REASONS = ['ambiguity_resolved_by_intent']`. Решение принимает структурный matcher по `SemanticIntent.target` / `intent.constraints` (ни одного phrase-rule по `UserPrompt`/`RawUserTurn`, invariants #5/#6). `runTurnDecision.ts` (НЕ frozen) consult-ит новый gate после legacy classifier; при positive downgrade — модифицирует производную production decision (`primaryOutcome=answer`, `interactionMode=respond_only`, `lowConfidenceStrategy=undefined`) и пишет marker в `DecisionTrace`.
+  Acceptance proof = log-line evidence (e.g. `[policy-gate] event=approval_checked`, `[policy-gate] event=budget_exceeded`, `[closure-outcome] event=bootstrap_skip_already_verified`, `[pdf-subagent] event=run_timeout_ms=<N>`), не unit-test greening alone.
 
-  Existing `POLICY_GATE_REASONS` (affordance gate) **не трогается** — orthogonality: clarification ≠ affordance selection. Существующий reverse-test (`policy-gate.test.ts`) остаётся frozen на 2 кодах. Новый reverse-test (`clarification-policy.test.ts`) фиксирует exact set `['ambiguity_resolved_by_intent']` для Stage 1.
-
-  Stages 2+ (approvals, budgets, role-based, retry, escalation) — каждая отдельным PR-ом с phase-gate signoff, как master plan §8.4 / §8.5 (PR-1..PR-3 / PR-4*).
-
-audit_gaps_closed: []  # Bug D — UX-bug, не G1..G6.c gap; Stages 2-6 будут привязаны к G6.c кусочно по PR.
+audit_gaps_closed: []  # Stages 2-6 закрывают G6.c кусочно по PR; Stage 1 — UX-bug, не G1..G6.c gap.
 
 todos:
-  # ===== Stage 1 — Bug D narrow PR (NO signoff required, focused bug-fix slice) =====
+  # ===== Stage 1 — CLOSED PR-#110 caca87a634 (preserved for audit trail) =====
 
-  - id: stage1-bootstrap
+  - id: stage1-bug-d-clarification-policy
     stage: 1
     signoff: not_required
     content: |
-      Ветка `fix/orchestrator-policy-gate-clarification` от свежего `origin/dev`. HARD RULE: NO maintainer Q1-Q5; план существует — execute strictly per plan. Начинаем со sub-plan-а (этот файл), затем код.
+      Stage 1 closed PR-#110 merge `caca87a634`. Touched: `clarification-policy.ts` (NEW + reverse-test 9/9), `index.ts`, `run-turn-decision.ts`, `run-turn-decision.clarification-downgrade.test.ts` (NEW 8/8), `trace.ts` (FROZEN — `- [x] bug-fix` checkbox). Master §0 row added 2026-04-29. Detailed history → §11.
     status: completed
 
-  - id: stage1-clarification-gate-impl
-    stage: 1
-    signoff: not_required
-    content: |
-      Создать `src/platform/commitment/clarification-policy.ts`:
-      (1) `CLARIFICATION_POLICY_REASONS = Object.freeze(['ambiguity_resolved_by_intent'] as const)` — closed set, frozen reverse-test enforced;
-      (2) `ClarificationPolicyReason = (typeof CLARIFICATION_POLICY_REASONS)[number]`;
-      (3) `ClarificationPolicyDecision = { shouldClarify: true } | { shouldClarify: false; downgradeReason: ClarificationPolicyReason }`;
-      (4) `ClarificationPolicyReader.evaluate({ intent, blockingReasons }) → ClarificationPolicyDecision | Promise<ClarificationPolicyDecision>` (signature mirror `PolicyGateReader.canUseAffordance`);
-      (5) `createClarificationPolicy({ cfg })` factory — Wave Stage-1 implementation: matcher проверяет `SemanticIntent.target.kind === 'workspace'` ИЛИ `intent.constraints[<curated structural keys>]` несёт local-маркер (`hosting`, `deploymentTarget`, `executionTarget` ∈ {`local`,`localhost`,`local_machine`}) AND `blockingReasons` содержит хотя бы один reason из curated structural set (`'publish target' | 'deployment target' | 'production target'` substrings — это уже classifier OUTPUT, НЕ user input). Если оба условия выполнены → `{ shouldClarify: false, downgradeReason: 'ambiguity_resolved_by_intent' }`; иначе `{ shouldClarify: true }`.
-      Экспорт через `src/platform/commitment/index.ts` (новые символы рядом с `POLICY_GATE_REASONS`/`createPolicyGate`).
-    status: completed
+  # ===== Phase 1 — Audit (read-only) =====
 
-  - id: stage1-runtime-wiring
-    stage: 1
-    signoff: not_required
+  - id: phase-1-audit
+    phase: 1
+    signoff: GRANTED (blanket)
     content: |
-      В `src/platform/decision/run-turn-decision.ts` (НЕ frozen):
-      (1) Добавить optional injection point `clarificationPolicy?: ClarificationPolicyReader` в `RunTurnDecisionInput` (mirror existing `policyGate?` slot);
-      (2) Refactor `runShadowBranch` чтобы возвращать `{ result: ShadowBuildResult; intent?: SemanticIntent }` — intent вытаскивается из IntentContractor.classify() результата (раньше discarded). Внешний API `runTurnDecision` остаётся неизменным;
-      (3) После `legacyDecision` готов: если `legacyDecision.plannerInput.lowConfidenceStrategy === 'clarify'` И есть intent (с confidence ≥ threshold) И есть blocking-ambiguity reasons из `legacyDecision.plannerInput.decisionTrace?.contracts?.ambiguityProfile` (filter `blocksClarification === true`), то consult `input.clarificationPolicy ?? createClarificationPolicy({ cfg: input.cfg })`. Если `decision.shouldClarify === false` — построить downgraded `productionDecision` (`taskContract.primaryOutcome='answer'`, `interactionMode='respond_only'`, `lowConfidenceStrategy=undefined` или ровный `undefined` при отсутствии); записать marker в `DecisionTrace.clarificationPolicy = { downgradeReason }`.
-      (4) Downgrade имеет приоритет над commitment-derived production decision только когда commitment kernel-derived path НЕ сработал (то есть legacy fallback path). Когда `productionDecision === kernel-derived` (cutover-eligible + commitmentSatisfied), clarification gate не вмешивается — kernel sourceOfTruth уже принял решение. Это сохраняет invariant #3.
-    status: completed
-
-  - id: stage1-trace-marker
-    stage: 1
-    signoff: not_required
-    content: |
-      В `src/platform/decision/trace.ts` (FROZEN — требует PR label `compatibility`):
-      добавить optional поле `clarificationPolicy?: { readonly downgradeReason: 'ambiguity_resolved_by_intent' }` в `DecisionTrace`. Это observability-only; не вводит новой orchestration-семантики (тип downgradeReason = closed string-literal). Не задевает 5 frozen contracts (TaskContract / OutcomeContract / QualificationExecutionContract / ResolutionContract / RecipeRoutingHints).
-    status: completed
-
-  - id: stage1-tests
-    stage: 1
-    signoff: not_required
-    content: |
-      (a) `src/platform/commitment/__tests__/clarification-policy.test.ts`: reverse-test `CLARIFICATION_POLICY_REASONS === ['ambiguity_resolved_by_intent']` + `Object.isFrozen` + push-throws; positive cases: target=workspace + blocking publish-target reason → `shouldClarify=false; downgradeReason='ambiguity_resolved_by_intent'`; constraints.hosting='local' + same reason → ditto; explicit signal but без blocking reason → `shouldClarify=true`; blocking reason без explicit signal → `shouldClarify=true`; non-deployment blocking reason (например `credentials missing`) — gate НЕ срабатывает даже при local intent.
-      (b) `src/platform/decision/run-turn-decision.clarification-downgrade.test.ts`: end-to-end. Legacy classifier emits clarify_first + "publish target is not specified" ambiguity; SemanticIntent имеет `target.kind='workspace'` (или constraints с hosting='local'); production decision должен иметь `primaryOutcome='answer'`, `interactionMode='respond_only'`, `decisionTrace.clarificationPolicy.downgradeReason='ambiguity_resolved_by_intent'`. Negative case: тот же legacy + intent без local signal → production decision остаётся clarify (legacy preserved).
-      (c) Bit-identical regression: `pnpm vitest run src/platform/decision/task-classifier.test.ts src/platform/decision/qualification-confidence.test.ts` — frozen layer behavior unchanged.
-    status: completed
-
-  - id: stage1-tsgo-and-lint
-    stage: 1
-    signoff: not_required
-    content: |
-      `pnpm tsgo` clean; ReadLints clean на затронутых файлах; targeted `pnpm test -- src/platform/commitment src/platform/decision` green; `pnpm run lint:commitment:no-raw-user-text-import`, `lint:commitment:no-decision-imports`, `lint:commitment:no-classifier-imports` — все green; `node scripts/check-frozen-layer-label.mjs` с `BASE_REF=origin/dev` + `PR_BODY="- [x] bug-fix"` → exit 0 (т.к. `trace.ts` затронут; PR использовал checkbox `bug-fix`).
-    status: completed
-
-  - id: stage1-commit-and-pr
-    stage: 1
-    signoff: not_required
-    content: |
-      Коммит на русском, без Co-authored-by; `scripts/committer "<msg>" <files...>` (если доступно) или `git commit -F <file>`. PR в `dev` с frozen-layer checkbox в body (per `scripts/check-frozen-layer-label.mjs` — это PR-body checkbox, не GitHub-label). PR body explicitly disclaim: "approvals/budgets/role-based PolicyGate **не** в scope этого PR — Stages 2+ см. в этом sub-plan-е, требуют отдельный PR + invariant #15 signoff". Merged: PR #110, merge SHA `caca87a634`.
-    status: completed
-
-  - id: stage1-handoff-and-master-row
-    stage: 1
-    signoff: not_required
-    content: |
-      Post-merge: отдельный `docs(plan)` коммит (1) добавит строку в master §0 PR Progress Log (template Bug A row); (2) обновит frontmatter этого sub-plan-а — Stage 1 todos → `completed`, Stage 2+ остаются `pending` с `signoff: required`; (3) добавит датированную запись в Handoff Log §7.
-    status: completed
-
-  # ===== Stage 2 — Approvals (signoff REQUIRED, отдельный PR) =====
-
-  - id: stage2-approvals
-    stage: 2
-    signoff: required
-    content: |
-      Расширить `POLICY_GATE_REASONS` на `'requires_approval'` (или ввести orthogonal `APPROVAL_POLICY_REASONS` set — choice TBD на момент старта Stage 2). Добавить approval lookup hook (e.g. config-driven role-policy registry или explicit per-effect approval list). Frozen reverse-test обновляется в этом же PR. Обязателен maintainer signoff (invariant #15) до merge. Обязателен до cutover-4 (`repo_operation.completed`).
+      Read-only audit. Output `extensions/AUDIT-policy-gate-full.md`. Map:
+      (a) текущий `POLICY_GATE_REASONS` shape + frozen reverse-test (`src/platform/commitment/policy-gate.ts` + `__tests__/policy-gate.test.ts`); подтвердить `Object.freeze` + push-throws; зафиксировать current allowlist `['channel_disabled','no_credentials']`.
+      (b) Stage-2..Stage-6 orthogonal-vs-extend decision per stage (extend `POLICY_GATE_REASONS` ИЛИ ввести новый `APPROVAL_POLICY_REASONS`/`BUDGET_POLICY_REASONS`/`ROLE_POLICY_REASONS`/`RETRY_POLICY_REASONS`/`ESCALATION_POLICY_REASONS` set). Зафиксировать выбор + обоснование per stage в audit.md. Slice E P6 / Stage 1 (Bug D) precedent strongly favors orthogonal sets.
+      (c) `EpisodicEffectFamily` discriminated union (slice E `src/platform/memory/episodic-memory-event.ts`) + `EFFECT_FAMILY_REGISTRY` — новые семантические события для approvals/budgets/role-denials/retry-exhaustion/escalation требуют additive extension; зафиксировать payload shape per stage.
+      (d) Bug #1 site (`src/auto-reply/reply/closure-outcome-dispatcher.ts:820-888`): подтвердить — `markClosureRecoveryCheckpointFailed` triggers всегда когда `bootstrapNoOp=true`, но capability-verified path (`Capability '<plugin>' was installed and verified` log) должен НЕ заходить в `isBootstrapRemediation` ветку вообще, либо early-return ДО `markClosureRecoveryCheckpointFailed`. Зафиксировать exact condition predicate (по `decision.reasons` / `executionIntent` / capability state).
+      (e) Bug #3 site: grep-find spawn-сайт PDF subagent с `timeoutMs=2000` или `runTimeoutSeconds=2`. Кандидаты для проверки: `agents.defaults.subagents.runTimeoutSeconds` config default, recipe layer (`src/platform/recipe/`), `subagent-announce.ts` defaults, PDF tool wiring (`src/agents/tools/pdf-tool.ts`), `~/.openclaw-dev/openclaw.json`. Если default-config-driven — fix = config schema bump + override at recipe; если hardcoded — fix = enlarge constant + add config-overridable.
+      (f) Frozen-layer touch matrix per stage — `src/platform/commitment/policy-gate.ts` для extend-stages, либо new files для orthogonal-stages. `MonitoredRuntime` остаётся untouched. Каждое расширение `POLICY_GATE_REASONS` → frozen reverse-test обновление в том же PR.
+      (g) `RuntimeAttestation` — есть ли структурное поле для policy-denial reasons? Если нет — добавить optional `policyDenialReasons?: readonly PolicyGateReason[]` (additive, observability-only) либо carry в `terminalState` (preferred — не задевает frozen contract).
     status: pending
 
-  # ===== Stage 3 — Budgets (signoff REQUIRED, отдельный PR) =====
+  # ===== Phase 2 — Types + scaffolding =====
 
-  - id: stage3-budgets
-    stage: 3
-    signoff: required
+  - id: phase-2-types-and-scaffolding
+    phase: 2
+    signoff: GRANTED (blanket)
     content: |
-      Budgets per-user / per-channel / per-effect. Reasons: `'budget_exceeded_user'`, `'budget_exceeded_channel'`, `'budget_exceeded_effect'` (или единый `'budget_exceeded'` с structured reason payload — TBD). Storage layer (где живут квоты + reset windows) — отдельный design step. Maintainer signoff обязателен.
+      Pure types + scaffolding. NEW file `src/platform/commitment/policy-gate-stages.ts` (либо несколько файлов per stage если orthogonal sets) с типами для Stages 2-6: `ApprovalPolicyReader`, `BudgetPolicyReader`, `RolePolicyReader`, `RetryPolicyReader`, `EscalationHook` interfaces. Discriminated union `PolicyGateStageDecision` per stage с frozen reasons set. Zod schemas. Brand discipline: `ApprovalRequestId` / `BudgetWindowId` / `RoleId` distinct branded types per invariant #16. Test: brand non-assignability + Zod round-trip + frozen-set reverse-test (push throws, `Object.isFrozen` true).
+      Episodic event extension (additive): расширить `EpisodicEffectFamily` discriminated union (`src/platform/memory/episodic-memory-event.ts`) с новыми членами `policy_approval`, `policy_budget`, `policy_role`, `policy_retry`, `policy_escalation` + per-payload types. Switch в `memory-write-on-satisfied.ts` exhaustiveness guard fires — это desired, lock-step extension.
+      EFFECT_FAMILY_REGISTRY extension: добавить `policy.*` family entries по slice E P2 шаблону.
+      **Frozen layer touch**: `policy-gate.ts` (если extend path выбран per Phase 1 audit) — additive constructor extension only, mirror slice E P6 pattern. Reverse-test для новых reasons обновляется в этом же PR. **Not** в этой phase: реальные runtime-impl-ы (Stages 3-7) и orchestration wiring (Phases 8-9).
+      Log-line evidence: `[policy-gate-stages] event=types_loaded stage_count=5` на module init.
     status: pending
 
-  # ===== Stage 4 — Role-based access (signoff REQUIRED, отдельный PR) =====
+  # ===== Phase 3 — Stage 2 Approvals =====
 
-  - id: stage4-role-based
-    stage: 4
-    signoff: required
+  - id: phase-3-stage2-approvals
+    phase: 3
+    signoff: GRANTED (blanket)
     content: |
-      Role-based access control: per-user roles, role→effect allowlist. Reason `'role_denied'`. Интеграция с identity layer (где user-id resolved → role lookup). Maintainer signoff обязателен. Обязателен до cutover-4.
+      Stage 2 — Approvals impl. Реализовать `createApprovalPolicy({cfg, approvalLookup})` factory в `src/platform/commitment/approval-policy.ts`. `ApprovalPolicyReader.evaluate({intent, affordance, identityId})` → `{approved: true} | {approved: false, reason: 'requires_approval', approvalRequestId}`. Approval lookup hook: config-driven role-policy registry в `openclaw.json` (`policy.approvals[]` array, schema через `src/config/zod-schema.ts` extension — NOT frozen). На `approved=false` → emit episodic event `policy_approval` + создать `ApprovalRequest` в существующий `getSharedExecApprovalManager()` (sibling reuse, не дублировать).
+      Wiring: на `runTurnDecision` (НЕ frozen) → consume `approvalPolicy?: ApprovalPolicyReader` injection. PolicyGate evaluation chain: `affordance allowlist (existing) → approval (new) → budget (Phase 4) → role (Phase 5) → retry (Phase 6)`.
+      Tests: positive (config-listed effect requires approval → blocks); negative (effect not in approval list → passes); missing-identity (anonymous session) → fail-closed (block + warn). Frozen reverse-test для `POLICY_GATE_REASONS` ОБНОВЛЁН (если extend-path) ИЛИ новый reverse-test для `APPROVAL_POLICY_REASONS` (если orthogonal-path) — choice per Phase 1 audit.
+      Log-line evidence (acceptance proof, не unit test alone): `[policy-gate] event=approval_checked stage=2 effect=<id> approved=<bool> reason=<r>` в production turn run; `[policy-gate] event=approval_request_created approval_id=<id>` на denial.
     status: pending
 
-  # ===== Stage 5 — Retry policies (signoff REQUIRED, отдельный PR) =====
+  # ===== Phase 4 — Stage 3 Budgets =====
 
-  - id: stage5-retry
-    stage: 5
-    signoff: required
+  - id: phase-4-stage3-budgets
+    phase: 4
+    signoff: GRANTED (blanket)
     content: |
-      Per-effect retry budgets и backoff policies. Reason `'retry_limit_exceeded'`. Интеграция с MonitoredRuntime. Maintainer signoff обязателен.
+      Stage 3 — Budgets impl. NEW `src/platform/commitment/budget-policy.ts`. `createBudgetPolicy({cfg, budgetStore})` factory; `BudgetPolicyReader.evaluate({intent, affordance, identityId, channel})` → `{within: true, remaining} | {within: false, reason: 'budget_exceeded_user' | 'budget_exceeded_channel' | 'budget_exceeded_effect', windowId}`. Single `'budget_exceeded'` reason с structured payload OR three orthogonal reasons — choice per Phase 1 audit.
+      Storage layer: NEW `src/platform/commitment/budget-store.ts` интерфейс + `SqliteBudgetStore` impl на тех же лекалах что `SqliteVecMemoryStore` (slice E P3) — `node:sqlite` `DatabaseSync`, `CREATE TABLE IF NOT EXISTS budget_windows(identity_id, channel, effect_family, window_start, window_end, used, limit_value, ...)` + `schema_version` row. Per-`IdentityId` predicates на каждом read. Reset windows: cron-driven через slice K reminder hook (если slice K landed) ИЛИ inline `Date.now() > window_end` check. DB path: `~/.openclaw-dev/policy/budget.sqlite`.
+      Tests: per-user budget exceeded → block + reason; per-channel budget exceeded → block + reason; per-effect budget exceeded → block + reason; window reset (mock clock) → counter resets; concurrent writes (transaction) → atomic increment.
+      Log-line evidence: `[policy-gate] event=budget_checked stage=3 dimension=<user|channel|effect> within=<bool> used=<n>/<limit>`; `[policy-gate] event=budget_exceeded window_id=<id> reset_at=<ts>`.
     status: pending
 
-  # ===== Stage 6 — Escalation hooks (signoff REQUIRED, отдельный PR) =====
+  # ===== Phase 5 — Stage 4 Role-based =====
 
-  - id: stage6-escalation
-    stage: 6
-    signoff: required
+  - id: phase-5-stage4-role-based
+    phase: 5
+    signoff: GRANTED (blanket)
     content: |
-      Escalation hooks: после policy denial с определённым reason → trigger escalation channel (e.g. notify maintainer, raise approval request). Reason payload расширяется с escalation-id. Maintainer signoff обязателен.
+      Stage 4 — Role-based access impl. NEW `src/platform/commitment/role-policy.ts`. `createRolePolicy({cfg, roleResolver})` factory. `RolePolicyReader.evaluate({intent, affordance, identityId})` → `{allowed: true, role} | {allowed: false, reason: 'role_denied', requiredRole}`. Identity → role resolution: extend `IdentityRecord` schema (`src/config/zod-schema.identities.ts`, NOT frozen) с `roles?: readonly string[]`. Role → effect allowlist: config-driven `policy.roles[<role>].allowedEffects: string[]` в `openclaw.json`.
+      Tests: identity with `admin` role → all effects allowed; identity with `user` role + restricted effect → block + `role_denied`; missing identity (anonymous) → fail-closed (default-deny).
+      Log-line evidence: `[policy-gate] event=role_checked stage=4 identity=<id> role=<r> allowed=<bool>`; `[policy-gate] event=role_denied required=<r>`.
+    status: pending
+
+  # ===== Phase 6 — Stage 5 Retry =====
+
+  - id: phase-6-stage5-retry
+    phase: 6
+    signoff: GRANTED (blanket)
+    content: |
+      Stage 5 — Retry policies impl. NEW `src/platform/commitment/retry-policy.ts`. Per-effect retry budgets + exponential backoff. `RetryPolicyReader.evaluate({intent, affordance, attemptCount})` → `{retry: true, backoffMs} | {retry: false, reason: 'retry_limit_exceeded'}`. Storage: in-memory LRU keyed `(identityId, effectId, sessionId)` — НЕ persistent (retry counters reset across `/new` by design — это слой-выше задача).
+      Wiring: `MonitoredRuntime` уже видит attempt count через `RuntimeAttestation`; интеграция через wrapper в `src/agents/pi-embedded-runner/run/` (НЕ trogать MonitoredRuntime). На `terminalState=transient_failure` consult retry policy → either retry (backoff sleep + re-invoke) либо emit `policy.retry` episodic event с `reason='retry_limit_exceeded'` и блокировать.
+      Tests: 3 attempts → 3 retries (with backoff); 4th attempt → block + reason; backoff growth `100/200/400ms`; retry counter scoped per `(identityId, effectId, sessionId)` — другая session не наследует count.
+      Log-line evidence: `[policy-gate] event=retry_checked stage=5 attempt=<n>/<max> backoff_ms=<n>`; `[policy-gate] event=retry_exhausted effect=<id>`.
+    status: pending
+
+  # ===== Phase 7 — Stage 6 Escalation =====
+
+  - id: phase-7-stage6-escalation
+    phase: 7
+    signoff: GRANTED (blanket)
+    content: |
+      Stage 6 — Escalation hooks impl. NEW `src/platform/commitment/escalation-hook.ts`. `EscalationHook.fire({denialReason, identityId, intent, affordance})` → trigger escalation channel. v1 channels: (a) maintainer notification (slice E `MemoryStore` write of family `policy_escalation` + log warn), (b) approval request raise (sibling reuse `getSharedExecApprovalManager().create()` с escalation-id и `escalationOrigin: 'policy-denial'` flag в payload).
+      Wiring: после policy-denial с reason ∈ `{requires_approval, budget_exceeded_*, role_denied}` → `escalationHook.fire(...)`. Defense-in-depth: escalation failure does NOT downgrade commitment satisfaction — escalation = observability, не gating (slice E precedent).
+      Tests: positive escalation fired on each denial reason; failure isolation (escalation throws → commitment still satisfies); escalation payload shape (Zod-validated); idempotency (repeated denial same turn → single escalation per `(identityId, denialReason, effectId)`).
+      Log-line evidence: `[policy-gate] event=escalation_fired reason=<r> channel=<c> escalation_id=<id>`.
+    status: pending
+
+  # ===== Phase 8 — Bug #1 closure-outcome-dispatcher (orchestration-layer) =====
+
+  - id: phase-8-closure-outcome-dispatcher-fix
+    phase: 8
+    signoff: GRANTED (blanket)
+    content: |
+      **Bug #1 fix — co-scheduled orchestration-layer phase (NOT inside frozen layer).** Site: `src/auto-reply/reply/closure-outcome-dispatcher.ts:820-888` (`finalizeRetryAndApprovalsForClosure` function).
+      Symptom: `decision.remediation === "bootstrap"` && `bootstrapRequestIds.length === 0` → `bootstrapNoOp=true` → `markClosureRecoveryCheckpointFailed({error: 'bootstrap_noop: ...'})` fires даже когда capability already verified (live log: `Capability '<plugin>' was installed and verified` precedes the false bootstrap_noop). User-visible result: «Your task is paused while a capability install is pending».
+      Fix (per Phase 1 audit findings): early-return ДО `bootstrapNoOp` block если `executionIntent` (or сигнал-equivalent) carries `capabilityAlreadyVerified=true` flag. Source-of-truth для верификации — добавить optional поле в `PlatformRuntimeExecutionIntent` (НЕ frozen) или прочитать из существующего `ensureBootstrapRequests` return shape (`bootstrapRequestIds.length === 0 && reason === 'already_verified'` отдельно от `length === 0 && reason === 'no_capabilities_advertised'`).
+      Tests: positive (capability verified → no bootstrap_noop, no `markClosureRecoveryCheckpointFailed` call, response continues normally); negative (capability NOT verified, no requests → bootstrap_noop fires as before, regression preserved); reverse (multiple capabilities, mixed verified/unverified → only unverified trigger bootstrap_noop).
+      Log-line evidence: `[closure-outcome] event=bootstrap_skip_already_verified capability=<id>`; existing `[closure-outcome] event=recovery_checkpoint_terminal` MUST NOT fire on the verified path.
+      **Frozen layer untouched** — fix entirely в `src/auto-reply/reply/`.
+    status: pending
+
+  # ===== Phase 9 — Bug #3 PDF subagent timeout (orchestration-layer) =====
+
+  - id: phase-9-pdf-subagent-timeout-fix
+    phase: 9
+    signoff: GRANTED (blanket)
+    content: |
+      **Bug #3 fix — co-scheduled orchestration-layer phase (NOT inside frozen layer).** Site: discovered in Phase 1 audit (likely `agents.defaults.subagents.runTimeoutSeconds` config default OR recipe-layer hardcoded constant OR `src/agents/subagent-announce.ts` default). Live log evidence: `sessions_yield abort settle timed out: timeoutMs=2000`.
+      Symptom: PDF subagent (rendering pipeline) aborted at 2000ms — actual rendering нужен 10-30s+ для нетривиальных PDF.
+      Fix: (a) bump default to 60_000ms (60s) для PDF subagent specifically через recipe-driven override (recipe layer — `src/platform/recipe/`, NOT frozen); либо (b) make config-overridable если уже config-driven но default слишком мал — bump в `src/config/zod-schema.core.ts` (`agents.defaults.subagents.runTimeoutSeconds` default) после Phase 1 audit подтвердит exact site.
+      **Decision rule per audit findings**: если site === config default → bump в schema; если site === hardcoded constant → выделить именованную константу `DEFAULT_PDF_SUBAGENT_RUN_TIMEOUT_MS = 60_000` + accept config override; если site === recipe layer → recipe-specific override.
+      Tests: positive (PDF subagent run with 30s real rendering → completes, не aborts); negative (PDF subagent run > 60s → aborts с structured `terminalState=timeout_exceeded`, не `unknown`); config override works (test-injected config с timeoutMs=120000 → раскрывается).
+      Log-line evidence: `[pdf-subagent] event=run_timeout_ms=60000` (новый default); `[pdf-subagent] event=run_completed elapsed_ms=<n>`. Negative: на abort `[pdf-subagent] event=run_timeout terminal_state=timeout_exceeded`.
+      **Frozen layer untouched** — fix в config schema / recipe / subagent-announce.
+    status: pending
+
+  # ===== Phase 10 — Acceptance + live-verify =====
+
+  - id: phase-10-acceptance-and-live-verify
+    phase: 10
+    signoff: GRANTED (blanket)
+    content: |
+      End-to-end acceptance + live-verify. Acceptance fixture per stage (`src/platform/commitment/__tests__/policy-gate-full.acceptance.test.ts`):
+      (a) Stage 2 acceptance — config с required-approval effect → turn запускает effect → policy gate denies + creates ApprovalRequest + logs `event=approval_checked approved=false`.
+      (b) Stage 3 — config с budget per-channel limit=2 → 3rd attempt в этом канале gets blocked + logs `event=budget_exceeded`.
+      (c) Stage 4 — config с user-role + restricted effect → user blocked + logs `event=role_denied`.
+      (d) Stage 5 — 4 sequential transient failures → 4th gets blocked + logs `event=retry_exhausted`.
+      (e) Stage 6 — denial of any reason → escalation fires + logs `event=escalation_fired`.
+      (f) Bug #1 — fixture с capability already verified + bootstrap-remediation request → `bootstrap_noop` НЕ fires + log `event=bootstrap_skip_already_verified`.
+      (g) Bug #3 — fixture с PDF subagent simulating 30s render → completes, не aborts.
+      Live-verify: после merge всех phases — рестарт gateway, Vladimir шлёт в TG: «привет», «запомни X» / /new / «что я запомнил?», (JPG) «сделай PDF», (DOCX) «сделай КП». live-verifier парсит `C:\tmp\openclaw\openclaw-<date>.log` против log-line acceptance criteria каждого phase. **B1 + B7 регрессионно держим** (slice E/F closure не должен сломаться).
+      Frozen-layer integrity check: `pnpm exec lint:commitment:frozen-reverse-tests` green; 5 frozen contracts byte-identical; `policy-gate.ts` reverse-test обновлён с новыми reasons (если extend-path) либо новые reverse-tests для orthogonal sets.
+      Master plan §0 row updated by handoff-writer (НЕ в этом sub-plan-е — отдельный `docs(plan)` PR после merge).
     status: pending
 
 isProject: false
 ---
 
-# PolicyGate Full — staged decomposition (Stage 1 = Bug D)
+# PolicyGate Full — Stages 2-6 + 2 co-scheduled orchestration bug-fixes
 
 ## 0. Provenance
 
 | Field | Value |
 | --- | --- |
-| Sub-plan of | `commitment_kernel_v1_master.plan.md` (§8.5.1 PolicyGate split, §16 next gate, §0.5.2 G6.c) |
-| Inherits | 16 hard invariants + 6 flexible (без изменений) |
-| Stage 1 trigger | Master §0 PR Progress Log: `2026-04-29 \| Bug A merged 7f56fbd9ab → next gate: Bug A.2 / Bug B / Bug D / Bug F sub-plan kickoff`. Bug D = clarification over-blocking. |
-| Source | Master plan §8.5.1: "PolicyGate реализуется в два уровня — Minimum (PR-4b, merged 1e6231dd60) + **Full** (этот sub-plan, до cutover-4)". |
-| Target branch (Stage 1) | `fix/orchestrator-policy-gate-clarification` off `origin/dev` (HEAD `ca8a00f6fa` на момент создания плана). |
-| Merge target (Stage 1) | `dev`, single PR с label **compatibility** (touches frozen `trace.ts`). |
-| Signoff (Stage 1) | **Не требуется** — narrow bug-fix slice, не вводит новой orchestration-семантики (orthogonal observability-only поле в trace). |
-| Signoff (Stage 2+) | **Требуется** — каждая стадия отдельным PR-ом с invariant #15 maintainer signoff. До cutover-4 (`repo_operation.completed`) **обязательно** закрыть Stages 2-6. |
+| Sub-plan of | `commitment_kernel_v1_master.plan.md` (§8.5.1 PolicyGate split, §0 row 2026-05-06 forward queue) |
+| Predecessors | Stage 1 (Bug D — clarification policy) closed PR-#110 merge `caca87a634`. Slice D (`IdentityId`), Slice E (`MemoryStore` + episodic events), Slice F (`TaskLedger`) all CLOSED on `dev` (post-PR-#191 SHA `0c71dd8e36`). Frozen reverse-test для текущего `POLICY_GATE_REASONS = ['channel_disabled','no_credentials']` остаётся authoritative. |
+| Trigger | Master §0 row 2026-05-06: 4 production bugs surfaced via live test. Bug #1 + Bug #3 mapped to this sub-plan; Bug #2 → `commitment_kernel_cutover3_artifacts.plan.md`; Bug #4 → minor outbound follow-up. |
+| Acceptance criteria | (1) Каждая Phase 3-7 (Stages 2-6) ships log-line evidence + reverse-test для своего policy-reasons set. (2) Bug #1 (Phase 8) — capability-verified path не triggers `bootstrap_noop`. (3) Bug #3 (Phase 9) — PDF subagent default timeout enlarged + config-overridable. (4) Frozen layer additively touched only (`policy-gate.ts` constructor extension OR new orthogonal files); 5 frozen contracts byte-identical. (5) `EpisodicEffectFamily` discriminated union + `EFFECT_FAMILY_REGISTRY` extended via slice E P2 паттерну. (6) Live-verify в TG validates все log-lines per phase. |
+| Maintainer signoff | **GRANTED via blanket authorization 2026-05-05** (memory: `feedback_signoff_blanket_authorization.md`). Per-phase signoff gates skipped — agent loop autonomous per Vladimir's standing delegation. |
+| Out of scope | Bug #2 (image_generate img2img) — separate `commitment_kernel_cutover3_artifacts.plan.md`. Bug #4 (streaming partials past `streaming: "off"`) — slice I Phase 7 OR standalone. cutover-4 itself — отдельный sub-plan, blocked на этот. |
 
-## 1. Hard invariants this sub-plan MUST keep (across all stages)
+## 1. Phases
 
-См. `.cursor/rules/commitment-kernel-invariants.mdc` (16 hard invariants — always-applied rule). Точечно для Stage 1:
+| # | Phase | Status | Frozen-layer touch |
+|---|---|---|---|
+| 1 | Audit (`extensions/AUDIT-policy-gate-full.md`) | pending | none (read-only) |
+| 2 | Types + scaffolding (`policy-gate-stages.ts` + episodic extension) | pending | additive — `policy-gate.ts` constructor + `episodic-memory-event.ts` discriminated union extension |
+| 3 | Stage 2 — Approvals impl | pending | conditional — `policy-gate.ts` reverse-test update if extend-path |
+| 4 | Stage 3 — Budgets impl + `SqliteBudgetStore` | pending | conditional |
+| 5 | Stage 4 — Role-based access impl | pending | conditional |
+| 6 | Stage 5 — Retry policies impl | pending | none (in-memory LRU) |
+| 7 | Stage 6 — Escalation hooks impl | pending | none |
+| 8 | Bug #1 fix — `closure-outcome-dispatcher` capability-verified early-return | pending | none (orchestration-layer) |
+| 9 | Bug #3 fix — PDF subagent timeoutMs enlargement + config override | pending | none (config / recipe / subagent-announce) |
+| 10 | Acceptance + live-verify | pending | reverse-test integrity check |
+
+## 2. File inventory
+
+| Layer | File | Touch | Frozen? |
+|---|---|---|---|
+| Audit deliverable | `extensions/AUDIT-policy-gate-full.md` | NEW | — |
+| Commitment policy types | `src/platform/commitment/policy-gate-stages.ts` | NEW | NO |
+| Commitment policy impl | `src/platform/commitment/approval-policy.ts` | NEW | NO |
+| Commitment policy impl | `src/platform/commitment/budget-policy.ts` | NEW | NO |
+| Commitment policy storage | `src/platform/commitment/budget-store.ts` | NEW | NO |
+| Commitment policy storage impl | `src/platform/commitment/sqlite-budget-store.ts` | NEW | NO |
+| Commitment policy impl | `src/platform/commitment/role-policy.ts` | NEW | NO |
+| Commitment policy impl | `src/platform/commitment/retry-policy.ts` | NEW | NO |
+| Commitment policy hook | `src/platform/commitment/escalation-hook.ts` | NEW | NO |
+| Commitment frozen ext | `src/platform/commitment/policy-gate.ts` | MODIFIED (additive constructor + reverse-test update if extend-path) | **YES** — frozen reverse-test enforced; **must stay intact OR be updated in same PR per invariant #11** |
+| Commitment frozen reverse-test | `src/platform/commitment/__tests__/policy-gate.test.ts` | MODIFIED (frozen reverse-test reflects new reasons set if extend-path; otherwise untouched) | **YES** |
+| Commitment public surface | `src/platform/commitment/index.ts` | MODIFIED (additive exports) | NO |
+| Memory layer extension | `src/platform/memory/episodic-memory-event.ts` | MODIFIED (additive discriminated union extension — `policy_*` variants) | NO (slice E module) |
+| Memory layer registry | (effect-family registry — Phase 1 audit confirms exact path) | MODIFIED (additive `policy.*` family entries) | NO |
+| Decision wiring | `src/platform/decision/run-turn-decision.ts` | MODIFIED (inject policy readers) | NO |
+| Orchestration bug #1 | `src/auto-reply/reply/closure-outcome-dispatcher.ts` | MODIFIED (early-return on capability-verified path) | NO |
+| Orchestration bug #3 | `src/config/zod-schema.core.ts` OR recipe layer OR `src/agents/subagent-announce.ts` (per Phase 1 audit) | MODIFIED (timeout enlargement + config override) | NO |
+| Tests | `src/platform/commitment/__tests__/policy-gate-stages.test.ts` | NEW | — |
+| Tests | `src/platform/commitment/__tests__/approval-policy.test.ts` | NEW | — |
+| Tests | `src/platform/commitment/__tests__/budget-policy.test.ts` | NEW | — |
+| Tests | `src/platform/commitment/__tests__/role-policy.test.ts` | NEW | — |
+| Tests | `src/platform/commitment/__tests__/retry-policy.test.ts` | NEW | — |
+| Tests | `src/platform/commitment/__tests__/escalation-hook.test.ts` | NEW | — |
+| Tests | `src/platform/commitment/__tests__/policy-gate-full.acceptance.test.ts` | NEW | — |
+| Tests | `src/auto-reply/reply/closure-outcome-dispatcher.bug1.test.ts` | NEW | — |
+| Tests | (PDF subagent timeout test — exact path per Phase 1 audit) | NEW | — |
+
+**Frozen-layer reverse-test integrity:** `POLICY_GATE_REASONS` frozen reverse-test (`Object.isFrozen`, push-throws, exact-set assertion) MUST stay intact OR be updated in the SAME PR that extends the set per invariant #11. Phase 1 audit fixes the choice (extend vs orthogonal) per stage.
+
+## 3. Acceptance criteria per phase (log-line evidence required)
+
+| Phase | Log-line evidence (production turn run) | Test gate |
+|---|---|---|
+| 1 | `extensions/AUDIT-policy-gate-full.md` exists with §a-§g sections filled | read-only |
+| 2 | `[policy-gate-stages] event=types_loaded stage_count=5` on module init | brand-discipline + Zod tests + frozen-set reverse-test |
+| 3 | `[policy-gate] event=approval_checked stage=2 effect=<id> approved=<bool>` + `event=approval_request_created` on denial | unit + integration |
+| 4 | `[policy-gate] event=budget_checked stage=3 dimension=<user|channel|effect> within=<bool> used=<n>/<limit>` + `event=budget_exceeded` | unit + integration |
+| 5 | `[policy-gate] event=role_checked stage=4 identity=<id> role=<r> allowed=<bool>` + `event=role_denied` | unit + integration |
+| 6 | `[policy-gate] event=retry_checked stage=5 attempt=<n>/<max>` + `event=retry_exhausted` | unit + mock-clock backoff |
+| 7 | `[policy-gate] event=escalation_fired reason=<r> channel=<c>` | unit + idempotency |
+| 8 | `[closure-outcome] event=bootstrap_skip_already_verified capability=<id>` AND absence of `event=recovery_checkpoint_terminal` on verified path | unit + replay fixture against live-log line |
+| 9 | `[pdf-subagent] event=run_timeout_ms=60000` (new default) + `event=run_completed elapsed_ms=<n>` | unit + simulated-render fixture |
+| 10 | All Phase 3-9 log-lines observed in `C:\tmp\openclaw\openclaw-<date>.log` after live verify | live-verifier agent parse |
+
+## 4. Risks
+
+1. **Frozen reverse-test scope creep** — extending `POLICY_GATE_REASONS` from 2 to 5+ codes risks blast radius если orthogonal-vs-extend choice неудачен. Mitigation: Phase 1 audit fixes choice per stage с обоснованием; orthogonal sets предпочтительны для разных concerns (approvals ≠ budgets ≠ role).
+2. **PDF subagent timeout site discovery** — current grep не показывает obvious hardcoded `timeoutMs=2000` в PDF tool. Possible site is config-default или recipe-layer. Phase 1 audit обязан зафиксировать exact site до Phase 9 commit.
+3. **Bug #1 root-cause precision** — fix predicate (`capabilityAlreadyVerified`) должен readable из existing structures (`executionIntent`, `decision.reasons`, или `ensureBootstrapRequests` return shape). Phase 1 audit fixes precise predicate; не угадывать.
+4. **Episodic event extension lock-step** — `assertNeverEpisodic` exhaustiveness guard fires на extension; consumers (slice E `memory-write-on-satisfied.ts` + slice F `task-write-on-satisfied.ts`) обязаны update switch в том же PR.
+5. **Live-verify dependency** — Phase 10 acceptance ссылается на `C:\tmp\openclaw\openclaw-<date>.log` which existing only after gateway restart. Slice-implementer Phase 10 spawns gateway restart explicitly, не предполагает существование лога.
+6. **Budget store schema migration** — `SqliteBudgetStore` schema_version=1 baseline; future migrations gated on version row (slice E P3 паттерн). Reset windows via cron — slice K (если landed) ИЛИ inline check.
+7. **Anonymous session fail-closed** — Stage 2/4 (approvals, role) с anonymous identity → fail-closed (default-deny). Это safety, не bug. Reverse-test обязан зафиксировать.
+
+## 5. Commit / PR convention
+
+- Branch naming: `feat/policy-gate-full-phase-<N>-<slug>` per phase. Phase 1 audit может быть on `audit/policy-gate-full-phase-1`.
+- Commit messages: на русском, без `Co-authored-by`. Use `scripts/committer "<msg>" <files...>` if available, else `git commit -F <file>`.
+- PR body MUST include:
+  - Phase reference (`Phase 3 — Stage 2 Approvals`).
+  - Log-line evidence quoted (e.g. `[policy-gate] event=approval_checked ...`).
+  - Frozen-layer touch declaration (`- [x] compatibility` if `policy-gate.ts` modified, OR `- [x] bug-fix` for orchestration-layer phases).
+  - Reverse-test integrity statement (e.g. «`POLICY_GATE_REASONS` extended to 3 codes; reverse-test updated in same PR» OR «orthogonal `APPROVAL_POLICY_REASONS` introduced; existing `POLICY_GATE_REASONS` reverse-test untouched»).
+- Admin-merge via `gh pr merge <N> --admin --squash --delete-branch` per blanket signoff (2026-05-05).
+- Post-merge: handoff-writer agent (separate process) updates master §0 row + flips this sub-plan's todo to `completed` + adds Handoff Log row in §6.
+
+## 6. Handoff Log (Phases 1-10 — empty rows filled by handoff-writer post-merge)
+
+### Phase 1 — Audit landed
+
+- Branch: `<TBD>`
+- PR: `<TBD>`
+- Squash-merge SHA on `dev`: `<TBD>`
+- Files added/modified: `<TBD>`
+- Acceptance proof (log-line / test count): `<TBD>`
+- Frozen-layer integrity statement: `<TBD>`
+- Notes: `<TBD>`
+
+### Phase 2 — Types + scaffolding landed
+
+- Branch: `<TBD>`
+- PR: `<TBD>`
+- Squash-merge SHA on `dev`: `<TBD>`
+- Files added/modified: `<TBD>`
+- Acceptance proof: `<TBD>`
+- Frozen-layer integrity statement: `<TBD>`
+- Notes: `<TBD>`
+
+### Phase 3 — Stage 2 Approvals landed
+
+- Branch: `<TBD>`
+- PR: `<TBD>`
+- Squash-merge SHA on `dev`: `<TBD>`
+- Files added/modified: `<TBD>`
+- Acceptance proof: `<TBD>`
+- Frozen-layer integrity statement: `<TBD>`
+- Notes: `<TBD>`
+
+### Phase 4 — Stage 3 Budgets landed
+
+- Branch: `<TBD>`
+- PR: `<TBD>`
+- Squash-merge SHA on `dev`: `<TBD>`
+- Files added/modified: `<TBD>`
+- Acceptance proof: `<TBD>`
+- Frozen-layer integrity statement: `<TBD>`
+- Notes: `<TBD>`
+
+### Phase 5 — Stage 4 Role-based landed
+
+- Branch: `<TBD>`
+- PR: `<TBD>`
+- Squash-merge SHA on `dev`: `<TBD>`
+- Files added/modified: `<TBD>`
+- Acceptance proof: `<TBD>`
+- Frozen-layer integrity statement: `<TBD>`
+- Notes: `<TBD>`
+
+### Phase 6 — Stage 5 Retry landed
+
+- Branch: `<TBD>`
+- PR: `<TBD>`
+- Squash-merge SHA on `dev`: `<TBD>`
+- Files added/modified: `<TBD>`
+- Acceptance proof: `<TBD>`
+- Frozen-layer integrity statement: `<TBD>`
+- Notes: `<TBD>`
+
+### Phase 7 — Stage 6 Escalation landed
+
+- Branch: `<TBD>`
+- PR: `<TBD>`
+- Squash-merge SHA on `dev`: `<TBD>`
+- Files added/modified: `<TBD>`
+- Acceptance proof: `<TBD>`
+- Frozen-layer integrity statement: `<TBD>`
+- Notes: `<TBD>`
+
+### Phase 8 — Bug #1 closure-outcome-dispatcher fix landed
+
+- Branch: `<TBD>`
+- PR: `<TBD>`
+- Squash-merge SHA on `dev`: `<TBD>`
+- Files added/modified: `<TBD>`
+- Acceptance proof: `<TBD>`
+- Frozen-layer integrity statement (none — orchestration-layer): `<TBD>`
+- Notes: `<TBD>`
+
+### Phase 9 — Bug #3 PDF subagent timeoutMs fix landed
+
+- Branch: `<TBD>`
+- PR: `<TBD>`
+- Squash-merge SHA on `dev`: `<TBD>`
+- Files added/modified: `<TBD>`
+- Acceptance proof: `<TBD>`
+- Frozen-layer integrity statement (none — config / recipe / subagent-announce): `<TBD>`
+- Notes: `<TBD>`
+
+### Phase 10 — Acceptance + live-verify landed; **PolicyGate Full COMPLETE**
+
+- Branch: `<TBD>`
+- PR: `<TBD>`
+- Squash-merge SHA on `dev`: `<TBD>`
+- Files added/modified: `<TBD>`
+- Live-verify log evidence (per phase): `<TBD>`
+- Frozen-layer reverse-test integrity check: `<TBD>`
+- Master plan §0 row added by handoff-writer: `<TBD>`
+- Notes: cutover-4 unblocked. `<TBD>`
+
+## 7. Maintainer signoff
+
+**GRANTED via blanket authorization 2026-05-05** (memory: `feedback_signoff_blanket_authorization.md`). Per-phase signoff gates skipped per Vladimir's standing delegation для v1 commitment-kernel slices. Slice-implementer agent loop is autonomous; handoff-writer drift-fix runs after each merge.
+
+## 8. Deferred-work table
+
+| Order | Item | Why deferred / status | Future sub-plan |
+|---|---|---|---|
+| 1 | **Bug A.2 — Block-streaming buffering при tool_call в turn'е** | medium priority; non-regression of slice E/F/I; `Single_final_user_facing_message_per_user_turn` invariant НЕ обеспечивает буферизацию для случаев без `sessions_spawn` | `commitment_kernel_streaming_leak_buffering.plan.md` (TBD) |
+| 2 | **Bug F — Persistent worker subsequent push** | medium priority; cron-driven daily push'ы из persistent_worker'а в внешний канал | `commitment_kernel_persistent_worker_push.plan.md` (TBD) |
+| 3 | **Bug #2 — image_generate reference image (img2img)** | mapped to **separate sub-plan** per master §0 row 2026-05-06 | `commitment_kernel_cutover3_artifacts.plan.md` |
+| 4 | **Bug #4 — `streaming: "off"` partial chunks через `stripBlockTags`** | minor outbound follow-up | Slice I Phase 7 OR standalone |
+| 5 | **cutover-4 (`repo_operation.completed`)** | blocked на этот sub-plan COMPLETE; запускается после Phase 10 merge | TBD master §16 |
+| 6 | **Search-Composer Phase 4c** | flip `intent-contractor-impl.ts:472` 3-family allowlist на `web_research`; запускается после этот sub-plan + cutover-3 sub-plan COMPLETE | inline в master §0 row 2026-05-02 |
+
+## 9. References
+
+- Master: `.cursor/plans/commitment_kernel_v1_master.plan.md` (§0 PR log row 2026-05-06; §8.5.1 PolicyGate split; §16 next gate).
+- Stage 1 (Bug D) baseline: this sub-plan §11 history; PR-#110 merge `caca87a634`.
+- Slice templates: `commitment_kernel_memory_layer.plan.md` (slice E — phase structure, frontmatter, §6 handoff, §8 deferred); `commitment_kernel_task_ledger.plan.md` (slice F).
+- Hard invariants: `.cursor/rules/commitment-kernel-invariants.mdc` (16 hard).
+- Existing PolicyGate impl: `src/platform/commitment/policy-gate.ts` (frozen reverse-test on 2 codes).
+- Bug #1 site: `src/auto-reply/reply/closure-outcome-dispatcher.ts:820-888`.
+- Bug #3 site: discovery deferred to Phase 1 audit (likely config / recipe / subagent-announce).
+- Slice E episodic-event surface: `src/platform/memory/episodic-memory-event.ts` (additive extension target).
+- HANDOFF: `.cursor/plans/HANDOFF-2026-05-06-policy-gate-cutover3.md`.
+
+## 10. Hard invariants — Stages 2-6 + bug-fix Phases 8-9
+
+См. `.cursor/rules/commitment-kernel-invariants.mdc` (16 hard invariants — always-applied rule). Точечно для этого sub-plan:
 
 | # | Invariant | Как держим |
 | --- | --- | --- |
-| 1 | `ExecutionCommitment` tool-free | Не трогаем `execution-commitment.ts`. |
-| 2 | Affordance selected by (effect + target + preconditions + policy + budgets) | Не трогаем affordance selection — clarification gate **orthogonal** к affordance gate (не путать с `canUseAffordance`). |
-| 3 | Production success requires `commitmentSatisfied(...) === true` | Stage 1 модифицирует только legacy fallback path, не kernel-derived path. Когда `productionDecision === kernel-derived`, clarification gate не вмешивается. |
-| 4 | Success requires observed state-after | Stage 1 не вводит success/failure decisions — только `clarification_needed → answer` downgrade на legacy. |
-| 5 | No phrase/text-rule matching на `UserPrompt`/`RawUserTurn` вне whitelist | Все matchers Stage 1 работают на (а) `SemanticIntent` структурных полях (`target.kind`, `constraints[<key>]`), (б) classifier OUTPUT-ах (`legacyDecision.plannerInput.decisionTrace.contracts.ambiguityProfile[].reason` — это classifier-emitted строки, не user prompt). НИ ОДНОГО regex по prompt/RawUserTurn. |
-| 6 | `IntentContractor` — единственный reader сырого user text | Stage 1 не читает `RawUserTurn`/`UserPrompt`; consume-ит только готовый `SemanticIntent` от существующего `createIntentContractor`. |
+| 1 | `ExecutionCommitment` tool-free | Не трогаем `execution-commitment.ts` ни в одной Phase. |
+| 2 | Affordance selected by (effect + target + preconditions + policy + budgets) | Phases 3-7 расширяют policy/budget оси; affordance selection остаётся orthogonal. |
+| 3 | Production success requires `commitmentSatisfied(...) === true` | Policy gates НЕ перезаписывают success/failure decisions; они блокируют ДО execution. |
+| 4 | Success requires observed state-after | Не вводим success/failure decisions — только pre-execution gates. |
+| 5 | No phrase/text-rule matching на `UserPrompt`/`RawUserTurn` вне whitelist | Все matchers работают на (а) `SemanticIntent` + `Affordance` + `IdentityRecord` структурных полях, (б) classifier OUTPUT-ах. НИ ОДНОГО regex по prompt. |
+| 6 | `IntentContractor` — единственный reader сырого user text | Не трогаем. |
 | 7 | `ShadowBuilder` принимает только `SemanticIntent` | Не трогаем shadow-builder. |
-| 8 | `commitment/` ↛ `decision/` | Новый `clarification-policy.ts` живёт в `commitment/` и НЕ импортирует из `decision/`. Связь идёт от `decision/run-turn-decision.ts` к `commitment/clarification-policy.ts` — это разрешённое направление. |
+| 8 | `commitment/` ↛ `decision/` | Новые policy-gate impl-ы живут в `commitment/`; `runTurnDecision` → policy gates direction разрешена. |
 | 9 | `DonePredicate` видит только state/delta/receipts/trace | Не трогаем done-predicates. |
 | 10 | `DonePredicate` живёт на `Affordance` | Не трогаем. |
-| 11 | Five legacy contracts frozen (TaskContract/OutcomeContract/QualificationExecutionContract/ResolutionContract/RecipeRoutingHints) | Не вводим новые orchestration-semantic поля в эти типы. `DecisionTrace.clarificationPolicy` — observability-only marker (closed string-literal, не enum в TaskContract). |
-| 12 | Emergency phrase patches → ticket + retire deadline | Не emergency. Структурный gate с frozen reasons-set. |
+| 11 | Five legacy contracts frozen (TaskContract/OutcomeContract/QualificationExecutionContract/ResolutionContract/RecipeRoutingHints) | Не вводим новые orchestration-semantic поля в эти типы. `RuntimeAttestation.policyDenialReasons` (если добавляется в Phase 2) — observability-only, additive optional field. |
+| 12 | Emergency phrase patches → ticket + retire deadline | Не emergency. Структурные gates с frozen reasons-sets. |
 | 13 | `terminalState` ⊥ `acceptanceReason` | Не трогаем. |
-| 14 | `ShadowBuildResult` typed, never null/throw | Не трогаем shape. Stage 1 переиспользует `ShadowBuildResult` без расширений. |
-| 15 | PR-1/1.5/2/3 require human signoff regardless of CI | **Stage 1 — focused bug-fix slice, signoff не требуется** (master §0.5.5 категория). Stages 2-6 требуют signoff explicitly. |
-| 16 | `EffectFamilyId` ⊥ `EffectId` | Не трогаем. |
+| 14 | `ShadowBuildResult` typed, never null/throw | Не трогаем shape. |
+| 15 | PR-1/1.5/2/3 require human signoff regardless of CI | **GRANTED via blanket authorization 2026-05-05** для всех Phases 1-10. |
+| 16 | `EffectFamilyId` ⊥ `EffectId` | Brand discipline сохраняется в новых `ApprovalRequestId` / `BudgetWindowId` / `RoleId` ID types per Phase 2. |
 
-## 2. Repro & evidence (Stage 1 — Bug D)
-
-### 2.1. Симптом
-
-Юзер: «Поправь код в репозитории и прогони нужные проверки **локально** перед завершением.» (из `src/platform/recipe/planner.test.ts:764` — реальный prompt в golden-set).
-
-Текущая legacy-classifier цепочка:
-
-1. `classifyTaskForDecision` → `taskContract.primaryOutcome = clarification_needed` (или эквивалент) с `ambiguities = ["external operation is inferred without an explicit publish target"]` или `"blocking: publish target is not specified"`.
-2. `ambiguity-policy.ts::buildAmbiguityProfile` → kind=`blocking` (regex `BLOCKING_DETAIL_RE` matches `\bpublish target\b`).
-3. `qualification-confidence.ts::resolveLowConfidenceStrategy` → `'clarify'`.
-4. Production decision → `lowConfidenceStrategy='clarify'` → reply: «Куда опубликовать/задеплоить?»
-
-Юзер уже сказал «локально» — IntentContractor парсит это в `SemanticIntent.target.kind = 'workspace'` (или `constraints.hosting = 'local'`, в зависимости от LLM-конкретики). Но frozen classifier pipeline эту структурную информацию не консьюмит.
-
-### 2.2. Codepath trace (clarify over-blocking)
-
-1. **`src/platform/decision/run-turn-decision.ts::runTurnDecision`** запускает `legacy = classifyTaskForDecision(...)` и `shadow = runShadowBranch(input)` параллельно.
-2. **`runShadowBranch`** (`src/platform/decision/run-turn-decision.ts:188`) запускает `IntentContractor` → `SemanticIntent` (содержит target/constraints), затем `ShadowBuilder.build(intent)` → `ShadowBuildResult`. **Intent отбрасывается** после построения commitment-а — не доступен на верхнем уровне `runTurnDecision`.
-3. **`legacyDecision.plannerInput.decisionTrace.contracts.ambiguityProfile`** содержит `[{ reason: "...publish target...", kind: "blocking", blocksClarification: true }]`.
-4. **Production decision**: т.к. `effect_not_eligible` (cutover-2 включает только chat-effects + persistent_session.created, не workspace_change), gate возвращает `gate_out` → `productionDecision = legacyDecision` (с `kernelFallback=true`). Legacy clarify сохраняется.
-5. **Юзер видит ненужный clarify**.
-
-### 2.3. Что уже покрыто и почему недостаточно
-
-| Source | Покрыто чем | Не покрывает |
-| --- | --- | --- |
-| Affordance allowlist gate | `createPolicyGate({cfg})` (PR-4b, `policy-gate.ts`) | Decision-level clarification downgrade — другая ось |
-| Repeated-clarify suppression | `task-classifier.ts::suppressRepeatedClarification` (frozen) | Только повторные туркi той же темы; не работает на первом turn-е |
-| Classifier downgrade rules | `task-classifier.ts::normalizeTaskContract` (frozen) | Не читает `SemanticIntent` (он живёт на kernel-стороне; classifier — frozen layer) |
-
-Bug D — это прямое следствие архитектурной decoupling-и: classifier изолирован от kernel intent. Решение — НЕ модифицировать classifier (frozen), а **post-process** legacy decision на уровне `runTurnDecision` через policy-driven gate.
-
-## 3. Hypothesis
-
-**H1 (основная)**: Когда `SemanticIntent` несёт явный local-deployment signal (структурно: `target.kind === 'workspace'` ИЛИ `constraints[<curated key>]` ∈ {`local`, `localhost`, `local_machine`}) И legacy classifier emit-ит blocking ambiguity по publish/deployment target, downgrade clarify → answer **безопасен** и устраняет ненужный turn. Никакого riskа выполнить деструктивный effect — Stage 1 НЕ меняет execution mode (только interactionMode + primaryOutcome для answer-формирования).
-
-**H2**: Решение через orthogonal gate (`createClarificationPolicy` ≠ `createPolicyGate`) **архитектурно чище**, чем расширение `POLICY_GATE_REASONS` третьим кодом. Аргумент: existing `canUseAffordance` operates на pair `(intent, affordance)` для affordance selection; clarification operates на `(intent, blockingReasons)` для legacy classifier post-processing. Разные оси concerns. Frozen reverse-test PR-4b (`POLICY_GATE_REASONS === ['channel_disabled','no_credentials']`) остаётся неизменным — invariant scope-creep guard работает.
-
-**H3 (deferred)**: Stages 2-6 (approvals/budgets/role-based/retry/escalation) расширят `POLICY_GATE_REASONS` (или introducе новые orthogonal sets — TBD per stage). Каждая стадия — отдельный PR с maintainer signoff (invariant #15) — это master §8.5.1 architectural baseline.
-
-## 4. Scope-of-fix matrix (Stage 1)
-
-| # | Слой | Файл | Изменение | LOC оценка | Frozen? | Invariant |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | Commitment policy (orthogonal gate) | `src/platform/commitment/clarification-policy.ts` | NEW: `CLARIFICATION_POLICY_REASONS`, `ClarificationPolicyReader`, `createClarificationPolicy` | ~120 | НЕТ | #5, #8 |
-| 2 | Commitment public surface | `src/platform/commitment/index.ts` | export новых символов | ~10 | НЕТ | — |
-| 3 | Decision wiring | `src/platform/decision/run-turn-decision.ts` | inject ClarificationPolicyReader; refactor `runShadowBranch` чтобы возвращать `intent`; downgrade на legacy fallback path | ~60 | НЕТ | #5, #6, #8 |
-| 4 | Decision trace marker | `src/platform/decision/trace.ts` | optional `clarificationPolicy?: { downgradeReason }` поле | ~5 | **ДА (frozen)** | #11 (label `compatibility` mandatory; observability-only — не новая orchestration-семантика) |
-| 5 | Tests — gate unit | `src/platform/commitment/__tests__/clarification-policy.test.ts` | NEW: reverse-test + 5-7 cases | ~150 | НЕТ | — |
-| 6 | Tests — runtime integration | `src/platform/decision/run-turn-decision.clarification-downgrade.test.ts` | NEW: end-to-end downgrade + negative cases | ~200 | НЕТ | — |
-
-**Итого:** ~545 LOC. Один frozen-layer файл (`trace.ts`), label `compatibility` обязателен в PR body. Out-of-scope для Stage 1 — все остальные `commitment/` файлы (`policy-gate.ts`, `affordance-registry.ts`, `monitored-runtime.ts` etc), 4 frozen production call-sites, 5 frozen decision contracts.
-
-## 5. Acceptance criteria (Stage 1)
-
-1. `CLARIFICATION_POLICY_REASONS` — frozen array `['ambiguity_resolved_by_intent']`. Reverse-test ассертит exact set + `Object.isFrozen` + push-throws.
-2. `createClarificationPolicy({cfg})` возвращает `ClarificationPolicyReader` совместимый с инъекцией в `runTurnDecision`.
-3. Positive case (target=workspace + blocking publish-target reason): `evaluate()` → `{ shouldClarify: false, downgradeReason: 'ambiguity_resolved_by_intent' }`.
-4. Positive case (constraints.hosting='local' + blocking publish-target reason): то же.
-5. Negative case (только intent signal, без blocking reason): `shouldClarify: true`.
-6. Negative case (только blocking reason, без intent signal): `shouldClarify: true`.
-7. Negative case (blocking reason — credentials/approval/permission, не deployment): `shouldClarify: true` даже при local intent (gate — strictly deployment-ambiguity scope).
-8. End-to-end: при downgrade — `productionDecision.taskContract.primaryOutcome === 'answer'`, `interactionMode === 'respond_only'`, `lowConfidenceStrategy !== 'clarify'`. Trace содержит `clarificationPolicy.downgradeReason === 'ambiguity_resolved_by_intent'`.
-9. End-to-end negative: legacy clarify + intent без local signal → production decision identical to legacy (downgrade off). Никакого silent change.
-10. **Kernel-derived path priority**: если `productionDecision === kernel-derived` (cutover-eligible + commitmentSatisfied), clarification gate не вмешивается — kernel sourceOfTruth не перезаписывается.
-11. Никакого нового phrase-matching на `UserPrompt`/`RawUserTurn` (invariant #5). Все checks работают на `SemanticIntent` (структура) и `AmbiguityProfileEntry.reason` (classifier output, не user input).
-12. `pnpm tsgo` clean; targeted vitest green; `lint:commitment:no-raw-user-text-import` / `lint:commitment:no-decision-imports` / `lint:commitment:no-classifier-imports` — все green.
-13. `node scripts/check-frozen-layer-label.mjs` (BASE_REF=origin/dev, PR_BODY="- [x] compatibility") → exit 0.
-14. PR body содержит explicit disclaimer: "approvals/budgets/role-based PolicyGate **не** в scope этого PR — Stages 2+ см. в `commitment_kernel_policy_gate_full.plan.md`, требуют отдельный PR + invariant #15 signoff".
-15. **Bit-identical regression на frozen layer**: `pnpm vitest run src/platform/decision/task-classifier.test.ts src/platform/decision/qualification-confidence.test.ts src/platform/decision/ambiguity-policy.test.ts` — все green без изменений.
-
-## 6. Implementation notes (Stage 1)
-
-### 6.1. Curated structural keys (intent constraints)
-
-```ts
-// src/platform/commitment/clarification-policy.ts
-const LOCAL_DEPLOYMENT_KEYS = ["hosting", "deploymentTarget", "executionTarget"] as const;
-const LOCAL_DEPLOYMENT_VALUES = new Set(["local", "localhost", "local_machine"]);
-```
-
-Эти ключи — closed allowlist. Расширение требует отдельного review (commit-level, не silent). НЕ regex-pattern: жёсткий equality на trimmed lowercase value.
-
-### 6.2. Curated blocking-reason matchers (classifier output)
-
-```ts
-const DEPLOYMENT_BLOCKING_REASON_PATTERNS = [
-  "publish target",
-  "deployment target",
-  "production target",
-  "without an explicit publish target",
-] as const;
-```
-
-Эти строки уже emit-ятся `qualification-confidence.ts::inferQualificationAmbiguityReasons` и подмножеством `BLOCKING_DETAIL_RE` (`ambiguity-policy.ts`). Это classifier OUTPUT — мы matche-имся на структурно стабильном тексте, не на user input. Invariant #5 не нарушен.
-
-### 6.3. Decision shape (orthogonal к PolicyGateDecision)
-
-```ts
-export type ClarificationPolicyDecision =
-  | { readonly shouldClarify: true }
-  | { readonly shouldClarify: false; readonly downgradeReason: ClarificationPolicyReason };
-
-export interface ClarificationPolicyReader {
-  evaluate(params: {
-    readonly intent: SemanticIntent;
-    readonly blockingReasons: readonly string[];
-  }): ClarificationPolicyDecision | Promise<ClarificationPolicyDecision>;
-}
-```
-
-Sync/async — mirror existing `PolicyGateReader.canUseAffordance`. Stage 1 implementation полностью sync.
-
-### 6.4. Downgrade transformation (run-turn-decision.ts)
-
-```ts
-function downgradeClarifyToAnswer(
-  legacy: ClassifiedTaskResolution,
-  downgradeReason: ClarificationPolicyReason,
-): ClassifiedTaskResolution {
-  const previousTrace = legacy.plannerInput.decisionTrace;
-  const decisionTrace: DecisionTrace = {
-    version: 1,
-    ...previousTrace,
-    clarificationPolicy: { downgradeReason },
-  };
-  const taskContract = legacy.plannerInput.taskContract && {
-    ...legacy.plannerInput.taskContract,
-    primaryOutcome: "answer",
-    interactionMode: "respond_only",
-  };
-  const plannerInput = {
-    ...legacy.plannerInput,
-    ...(taskContract ? { taskContract } : {}),
-    lowConfidenceStrategy: undefined,
-    decisionTrace,
-  };
-  return { ...legacy, plannerInput };
-}
-```
-
-NB. Точная shape `plannerInput` зависит от `ClassifiedTaskResolution` — в имплементации читать прямо из типа, не угадывать. Если `lowConfidenceStrategy` обязательно, использовать literal-undefined аккуратно.
-
-### 6.5. Non-disruption на kernel-derived path
-
-```ts
-// runTurnDecision (после legacy + shadow готовы):
-const isKernelDerived = isCutoverGatePassed(...);
-let productionDecision = isKernelDerived
-  ? deriveDecisionFromCommitment(...)
-  : attachLegacyFallbackTrace(...);
-
-// Clarification downgrade применяется ТОЛЬКО на legacy fallback path.
-if (!isKernelDerived && shouldDowngrade(...)) {
-  productionDecision = downgradeClarifyToAnswer(productionDecision, ...);
-}
-```
-
-Это сохраняет invariant #3 (kernel-derived success — kernel sourceOfTruth, не post-processed).
-
-## 7. Handoff Log
+## 11. Stage 1 history (Bug D — clarification policy, CLOSED PR-#110)
 
 ### 2026-04-29 — Bug D merged (Stage 1 closed)
 
@@ -344,70 +424,14 @@ if (!isKernelDerived && shouldDowngrade(...)) {
 - Touched: `src/platform/commitment/clarification-policy.ts` (NEW), `src/platform/commitment/__tests__/clarification-policy.test.ts` (NEW), `src/platform/commitment/index.ts`, `src/platform/decision/run-turn-decision.ts`, `src/platform/decision/run-turn-decision.clarification-downgrade.test.ts` (NEW), `src/platform/decision/trace.ts` (FROZEN — PR-body checkbox `- [x] bug-fix`).
 - Tests: `clarification-policy.test.ts` 9/9 green; `run-turn-decision.clarification-downgrade.test.ts` 8/8 green; адъюнктная регрессия `decision/**` + `commitment/**` 127/127 green; `pnpm tsgo` clean; `lint:commitment:imports`/`invariants`/`tools` clean; `check-frozen-layer-label.mjs` (BASE_REF=origin/dev, PR_BODY с `- [x] bug-fix`) → exit 0.
 - Master §0 PR Progress Log row added: `2026-04-29 | Bug D — clarification policy gate (PolicyGate Stage 1) | caca87a634 | PolicyGate Stages 2-6 (approvals/budgets/role-based/retry/escalation) — signoff required`.
-- Next gate (per master §16 + §8.5.1): либо адъюнктные баги (Bug A.2 buffering / Bug B / Bug F), либо PolicyGate Stage 2 (approvals) — Stages 2-6 каждая отдельным PR-ом с **maintainer signoff обязательным** (invariant #15). Все Stages 2-6 должны быть закрыты до cutover-4 (`repo_operation.completed`).
 - Stage 1 архитектурное наследие для Stages 2-6: orthogonal-policy паттерн зафиксирован — каждая новая ось (approvals / budgets / role-based) может быть либо отдельным `*POLICY_REASONS` set'ом со своим reverse-test, либо расширением существующего `POLICY_GATE_REASONS` (с обновлением frozen reverse-test в том же PR). Choice per stage TBD на момент старта.
 
-### 2026-04-29 — Bootstrap audit (Stage 1)
+### 2026-04-29 — Stage 1 implementation summary
 
-Прочитано:
+`createClarificationPolicy({cfg})` factory + `CLARIFICATION_POLICY_REASONS = ['ambiguity_resolved_by_intent']` (orthogonal к `POLICY_GATE_REASONS`). Matcher проверяет `SemanticIntent.target.kind === 'workspace'` ИЛИ `intent.constraints[<curated structural keys>]` несёт local-маркер AND `blockingReasons` содержит deployment-target-related reason. Downgrade transformation: `taskContract.primaryOutcome='answer'`, `interactionMode='respond_only'`, `lowConfidenceStrategy=undefined`. Trace marker `clarificationPolicy.downgradeReason='ambiguity_resolved_by_intent'`. Kernel-derived path priority: clarification gate НЕ вмешивается когда `productionDecision === kernel-derived`.
 
-- Master §0 PR Progress Log (Bug A merged `7f56fbd9ab` 2026-04-29, next gate включает Bug D), §0.5.3 G-table (G6.c остаётся open до full PolicyGate), §8.5.1 PolicyGate split (minimum vs full), §16 final direction lock.
-- `commitment_kernel_pr4_chat_effects_cutover.plan.md` Wave B baseline (`createPolicyGate({cfg})`, frozen reverse-test, current `POLICY_GATE_REASONS=['channel_disabled','no_credentials']`).
-- `.cursor/rules/commitment-kernel-invariants.mdc` (16 hard invariants — особенно #2, #5, #6, #11, #15).
-- `commitment_kernel_streaming_leak.plan.md` (template для provenance/scope/handoff).
-- Code (read-only): `src/platform/commitment/policy-gate.ts` (208 LOC, current shape), `src/platform/commitment/shadow-builder-impl.ts` (`PolicyGateReader` interface + decision shape), `src/platform/commitment/intent-contractor-impl.ts` (`SemanticIntent` shape + constraints structural keys), `src/platform/commitment/semantic-intent.ts` (TargetRef union), `src/platform/decision/ambiguity-policy.ts` (`AmbiguityProfileEntry`, `BLOCKING_DETAIL_RE`), `src/platform/decision/qualification-confidence.ts` (`inferQualificationAmbiguityReasons` emits "publish target" string), `src/platform/decision/task-classifier.ts` (frozen — `clarification_needed` flow line ~736), `src/platform/decision/run-turn-decision.ts` (`runShadowBranch` discards intent, `runTurnDecision` doesn't post-process legacy clarify), `src/platform/decision/trace.ts` (frozen `DecisionTrace` shape), `scripts/check-frozen-layer-label.mjs` (`FROZEN_LAYER_PATTERNS`).
-
-Findings:
-
-1. `POLICY_GATE_REASONS` (PR-4b, frozen reverse-test) — ровно 2 кода. Расширение третьим кодом сломает reverse-test и потенциально вводит scope creep в affordance-gate. → Решение: orthogonal `CLARIFICATION_POLICY_REASONS` set с собственным reverse-test.
-2. `runShadowBranch` теряет `SemanticIntent` после построения commitment-а. → Stage 1 refactors internal API чтобы возвращать `{ result, intent }` без изменения внешнего API `runTurnDecision`.
-3. `legacyDecision.plannerInput.decisionTrace.contracts.ambiguityProfile` уже содержит `AmbiguityProfileEntry[]` с `kind: 'blocking' | 'preference' | 'missing_optional_detail'` + `blocksClarification: boolean`. → Source-of-truth для `blockingReasons` extraction.
-4. `trace.ts` находится в `FROZEN_LAYER_PATTERNS` (`scripts/check-frozen-layer-label.mjs:11`). → PR обязан содержать `- [x] compatibility` в body.
-5. `ambiguity-policy.ts` НЕ в `FROZEN_LAYER_PATTERNS`, но `decision-layer-frozen.mdc` рекомендует не добавлять "новые phrase guards" — Stage 1 не меняет ambiguity-policy regex; matching на blocking reasons происходит в новом `clarification-policy.ts` файле через separate curated list (`DEPLOYMENT_BLOCKING_REASON_PATTERNS`).
-6. Adjacent bugs (A.2 buffering, B, F): scope-creep предотвращён — каждый получит свой sub-plan.
-
-Scope check (Stage 1):
-
-- Frozen layer: затронут ОДИН файл — `trace.ts` (observability-only field). Label `compatibility` обязателен в PR body.
-- 4 frozen call-sites: НЕ затронуты.
-- 5 frozen decision contracts: НЕ затронуты (TaskContract/OutcomeContract/QualificationExecutionContract/ResolutionContract/RecipeRoutingHints не получают новых полей; `clarificationPolicy` живёт в `DecisionTrace`, не в TaskContract).
-- `src/platform/commitment/policy-gate.ts`: НЕ модифицируется (`POLICY_GATE_REASONS` остаётся frozen на 2 кодах).
-
-Hard invariants check (Stage 1, 16 hard):
-
-- #5 (no phrase-rule on UserPrompt outside whitelist): matchers Stage 1 работают на (а) структурных полях `SemanticIntent`, (б) classifier-OUTPUT строках. Никакого regex по prompt/RawUserTurn.
-- #6 (IntentContractor sole reader of raw user text): не трогаем; consume-им готовый `SemanticIntent`.
-- #8 (commitment ↛ decision): новый `clarification-policy.ts` живёт в commitment/, импортирует только из commitment/ (semantic-intent, ids). Зависимость идёт от `decision/run-turn-decision.ts` к `commitment/clarification-policy.ts` — это разрешённое направление.
-- #11 (5 frozen contracts): не вводим новых orchestration-semantic полей в frozen contracts.
-- #15 (human signoff): Stage 1 — focused bug-fix slice, signoff не требуется (master §0.5.5 категория). Stages 2-6 — signoff обязателен.
-
-Дальнейший order (Stage 1): stage1-clarification-gate-impl → stage1-runtime-wiring → stage1-trace-marker → stage1-tests → stage1-tsgo-and-lint → stage1-commit-and-pr → stage1-handoff-and-master-row.
-
-## 8. Adjacent bugs (NOT in scope; tracked for future sub-plans)
-
-| Order | Bug | Симптом | Приоритет | Будущий sub-plan |
-| --- | --- | --- | --- | --- |
-| 1 | **A.2 — Block-streaming buffering при tool_call в turn'е** | Когда `blockStreamingEnabled=on` и LLM делает tool_call посреди turn'а, intermediate assistant chunks утекают как separate messages в external. Single_final_user_facing_message_per_user_turn invariant НЕ обеспечивает буферизацию для случаев без `sessions_spawn`. | medium | `commitment_kernel_streaming_leak_buffering.plan.md` (TBD) |
-| 2 | **B — TBD** | (master §0 PR log queue) | medium | TBD |
-| 3 | **F — Persistent worker subsequent push** | Cron-driven daily push'ы из persistent_worker'а в внешний канал | medium | `commitment_kernel_persistent_worker_push.plan.md` (TBD) |
-| 4 | **PolicyGate Stages 2-6** | approvals / budgets / role-based / retry / escalation | high (до cutover-4) | этот же sub-plan, todos `stage2-*` … `stage6-*`, каждая стадия = отдельный PR + signoff |
-
-## 9. References
-
-- Master: `.cursor/plans/commitment_kernel_v1_master.plan.md` (§0 PR log, §0.5.3 G-table, §3 invariants, §6 freeze, §8.5.1 PolicyGate split, §16 next gate)
-- PR-4b sub-plan: `.cursor/plans/commitment_kernel_pr4_chat_effects_cutover.plan.md` (Wave B baseline — minimum PolicyGate)
-- Bug A (template): `.cursor/plans/commitment_kernel_streaming_leak.plan.md` (provenance/scope-of-fix matrix/handoff log skeleton)
-- Bug E (outbound sanitizer baseline): merge `15ccd4455d`
-- Bug C (recipe routing publish): merge `9f6f8d8d3d`
-- Hard invariants: master §3 (16 hard); rule `.cursor/rules/commitment-kernel-invariants.mdc` (always-applied)
-- Decision-layer freeze: `.cursor/rules/decision-layer-frozen.mdc`
-- Frozen layer pattern: `scripts/check-frozen-layer-label.mjs` (`FROZEN_LAYER_PATTERNS = ['src/platform/decision/task-classifier.ts','src/platform/decision/input.ts','src/platform/decision/trace.ts','src/platform/recipe/','src/platform/plugin.ts']`)
-- Bootstrap rule: `.cursor/rules/pr-session-bootstrap.mdc`
-- Scope guard rule: `.cursor/rules/commitment-kernel-scope.mdc`
-- Existing PolicyGate impl: `src/platform/commitment/policy-gate.ts` (PR-4b, NOT touched in Stage 1)
-- Existing PolicyGateReader interface: `src/platform/commitment/shadow-builder-impl.ts:13`
-- Existing AmbiguityProfileEntry: `src/platform/decision/ambiguity-policy.ts` + emitted reasons in `src/platform/decision/qualification-confidence.ts:48`
+Curated keys: `LOCAL_DEPLOYMENT_KEYS = ["hosting","deploymentTarget","executionTarget"]`; `LOCAL_DEPLOYMENT_VALUES = {"local","localhost","local_machine"}`; `DEPLOYMENT_BLOCKING_REASON_PATTERNS = ["publish target","deployment target","production target","without an explicit publish target"]` (classifier output, не user input — invariant #5 не нарушен).
 
 ---
 
-**Stop gate (Stage 1):** signoff не требуется (focused bug-fix slice). Stages 2-6 — signoff invariant #15 обязателен per master plan §8.5.1. Каждая стадия — отдельный PR.
+**Stop gate:** GRANTED via blanket authorization 2026-05-05. Slice-implementer loop runs autonomously. Phase 10 acceptance gates production deployment + cutover-4 unblock.
