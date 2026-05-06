@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   ANSWER_DELIVERED_AFFORDANCE_ENTRY,
+  ARTIFACT_EFFECT_FAMILY,
   CLARIFICATION_REQUESTED_AFFORDANCE_ENTRY,
+  CODE_PATCH_APPLIED_AFFORDANCE_ENTRY,
   COMMUNICATION_EFFECT_FAMILY,
   COMPOSER_AFTER_SEARCH_AFFORDANCE_ENTRY,
+  DOCX_CREATED_AFFORDANCE_ENTRY,
   EFFECT_FAMILY_REGISTRY,
   EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY,
+  IMAGE_CREATED_AFFORDANCE_ENTRY,
+  IMAGE_GENERATION_PROVIDER_AVAILABLE_PRECONDITION,
+  INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION,
+  PDF_CREATED_AFFORDANCE_ENTRY,
+  PDF_RENDERER_AVAILABLE_PRECONDITION,
   PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_EFFECT_FAMILY,
@@ -54,7 +62,7 @@ describe("effect-family registry", () => {
 });
 
 describe("affordance registry", () => {
-  it("registers Wave A persistent-session + Wave B chat-effect + Search-Composer Phase 2 web_research affordances", () => {
+  it("registers Wave A persistent-session + Wave B chat-effect + Search-Composer Phase 2 web_research + cutover-3 Phase 4 artifact affordances", () => {
     const registry = createAffordanceRegistry();
     expect(registry.all()).toEqual([
       PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
@@ -63,6 +71,10 @@ describe("affordance registry", () => {
       EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY,
       PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY,
       COMPOSER_AFTER_SEARCH_AFFORDANCE_ENTRY,
+      PDF_CREATED_AFFORDANCE_ENTRY,
+      DOCX_CREATED_AFFORDANCE_ENTRY,
+      CODE_PATCH_APPLIED_AFFORDANCE_ENTRY,
+      IMAGE_CREATED_AFFORDANCE_ENTRY,
     ]);
   });
 
@@ -144,7 +156,7 @@ describe("affordance registry", () => {
 
     expect(registry.all()).toEqual([]);
     expect(registry.findByFamily(unknown, { kind: "unspecified" })).toEqual([]);
-    expect(createAffordanceRegistry().all()).toHaveLength(6);
+    expect(createAffordanceRegistry().all()).toHaveLength(10);
   });
 });
 
@@ -265,5 +277,222 @@ describe("affordance registry — web_research family (Search-Composer Phase 2)"
       .map((c) => c.id);
     expect(persistentCreate).not.toContain(PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY.id);
     expect(persistentCreate).not.toContain(COMPOSER_AFTER_SEARCH_AFFORDANCE_ENTRY.id);
+  });
+});
+
+describe("affordance registry — artifact family (cutover-3 Phase 4)", () => {
+  it("registers all four cutover-3 affordances under the artifact effect-family", () => {
+    expect(PDF_CREATED_AFFORDANCE_ENTRY.effectFamily).toBe(ARTIFACT_EFFECT_FAMILY);
+    expect(DOCX_CREATED_AFFORDANCE_ENTRY.effectFamily).toBe(ARTIFACT_EFFECT_FAMILY);
+    expect(CODE_PATCH_APPLIED_AFFORDANCE_ENTRY.effectFamily).toBe(ARTIFACT_EFFECT_FAMILY);
+    expect(IMAGE_CREATED_AFFORDANCE_ENTRY.effectFamily).toBe(ARTIFACT_EFFECT_FAMILY);
+
+    expect(PDF_CREATED_AFFORDANCE_ENTRY.effect).toBe("pdf.created");
+    expect(DOCX_CREATED_AFFORDANCE_ENTRY.effect).toBe("docx.created");
+    expect(CODE_PATCH_APPLIED_AFFORDANCE_ENTRY.effect).toBe("code_patch.applied");
+    expect(IMAGE_CREATED_AFFORDANCE_ENTRY.effect).toBe("image.created");
+  });
+
+  it("declares three new precondition ids that are pairwise distinct and distinct from web_evidence_present", () => {
+    const ids = new Set<string>([
+      PDF_RENDERER_AVAILABLE_PRECONDITION,
+      IMAGE_GENERATION_PROVIDER_AVAILABLE_PRECONDITION,
+      INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION,
+      WEB_EVIDENCE_PRESENT_PRECONDITION,
+    ]);
+    expect(ids.size).toBe(4);
+
+    expect(PDF_RENDERER_AVAILABLE_PRECONDITION).toBe("pdf_renderer_available");
+    expect(IMAGE_GENERATION_PROVIDER_AVAILABLE_PRECONDITION).toBe(
+      "image_generation_provider_available",
+    );
+    expect(INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION).toBe(
+      "inbound_image_reference_available",
+    );
+  });
+
+  it("attaches preconditions per affordance per cutover-3 spec (pdf has renderer; image has provider; docx and code-patch have none)", () => {
+    expect(PDF_CREATED_AFFORDANCE_ENTRY.requiredPreconditions).toEqual([
+      PDF_RENDERER_AVAILABLE_PRECONDITION,
+    ]);
+    expect(DOCX_CREATED_AFFORDANCE_ENTRY.requiredPreconditions).toEqual([]);
+    expect(CODE_PATCH_APPLIED_AFFORDANCE_ENTRY.requiredPreconditions).toEqual([]);
+    expect(IMAGE_CREATED_AFFORDANCE_ENTRY.requiredPreconditions).toEqual([
+      IMAGE_GENERATION_PROVIDER_AVAILABLE_PRECONDITION,
+    ]);
+    // INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION is OPTIONAL — selected
+    // at Phase 6 when img2img is detected; not declared on the static
+    // affordance so from-scratch generation still resolves.
+    expect(IMAGE_CREATED_AFFORDANCE_ENTRY.requiredPreconditions).not.toContain(
+      INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION,
+    );
+  });
+
+  it("declares the per-spec budget envelopes per affordance", () => {
+    expect(PDF_CREATED_AFFORDANCE_ENTRY.defaultBudgets).toEqual({
+      maxLatencyMs: 120_000,
+      maxRetries: 1,
+    });
+    expect(DOCX_CREATED_AFFORDANCE_ENTRY.defaultBudgets).toEqual({
+      maxLatencyMs: 90_000,
+      maxRetries: 1,
+    });
+    expect(CODE_PATCH_APPLIED_AFFORDANCE_ENTRY.defaultBudgets).toEqual({
+      maxLatencyMs: 60_000,
+      maxRetries: 0,
+    });
+    expect(IMAGE_CREATED_AFFORDANCE_ENTRY.defaultBudgets).toEqual({
+      maxLatencyMs: 60_000,
+      maxRetries: 1,
+    });
+  });
+
+  it("flags code_patch as medium risk-tier (workspace mutation); pdf/docx/image stay low", () => {
+    expect(PDF_CREATED_AFFORDANCE_ENTRY.riskTier).toBe("low");
+    expect(DOCX_CREATED_AFFORDANCE_ENTRY.riskTier).toBe("low");
+    expect(IMAGE_CREATED_AFFORDANCE_ENTRY.riskTier).toBe("low");
+    expect(CODE_PATCH_APPLIED_AFFORDANCE_ENTRY.riskTier).toBe("medium");
+  });
+
+  it("declares the per-spec allowedConstraintKeys per affordance", () => {
+    expect([...PDF_CREATED_AFFORDANCE_ENTRY.allowedConstraintKeys]).toEqual([
+      "sourcePaths",
+      "templatePath",
+      "language",
+      "pageCount",
+    ]);
+    expect([...DOCX_CREATED_AFFORDANCE_ENTRY.allowedConstraintKeys]).toEqual([
+      "templatePath",
+      "variables",
+      "language",
+    ]);
+    expect([...CODE_PATCH_APPLIED_AFFORDANCE_ENTRY.allowedConstraintKeys]).toEqual([
+      "workspaceId",
+      "patchSizeLimit",
+    ]);
+    expect([...IMAGE_CREATED_AFFORDANCE_ENTRY.allowedConstraintKeys]).toEqual([
+      "sourcePaths",
+      "size",
+      "aspectRatio",
+      "resolution",
+      "style",
+      "count",
+      "referenceMode",
+    ]);
+  });
+
+  it("routes all four artifact affordances through the artifact_world_state observer", () => {
+    expect(PDF_CREATED_AFFORDANCE_ENTRY.observerHandle.id).toBe("artifact_world_state");
+    expect(DOCX_CREATED_AFFORDANCE_ENTRY.observerHandle.id).toBe("artifact_world_state");
+    expect(CODE_PATCH_APPLIED_AFFORDANCE_ENTRY.observerHandle.id).toBe(
+      "artifact_world_state",
+    );
+    expect(IMAGE_CREATED_AFFORDANCE_ENTRY.observerHandle.id).toBe("artifact_world_state");
+  });
+
+  it("findByFamily(artifact, {kind:'workspace'}, 'update') returns the code-patch affordance only", () => {
+    const registry = createAffordanceRegistry();
+    const candidates = registry.findByFamily(
+      ARTIFACT_EFFECT_FAMILY,
+      { kind: "workspace" },
+      { kind: "update" },
+    );
+    expect(candidates.map((c) => c.id)).toEqual([CODE_PATCH_APPLIED_AFFORDANCE_ENTRY.id]);
+  });
+
+  it("findByFamily(artifact, {kind:'artifact'}, 'create') returns pdf, docx, and image candidates", () => {
+    const registry = createAffordanceRegistry();
+    const candidates = registry.findByFamily(
+      ARTIFACT_EFFECT_FAMILY,
+      { kind: "artifact", artifactId: "art-1" },
+      { kind: "create" },
+    );
+    const ids = candidates.map((c) => c.id);
+    expect(ids).toEqual([
+      PDF_CREATED_AFFORDANCE_ENTRY.id,
+      DOCX_CREATED_AFFORDANCE_ENTRY.id,
+      IMAGE_CREATED_AFFORDANCE_ENTRY.id,
+    ]);
+    // Code-patch only matches workspace target; must NOT appear here.
+    expect(ids).not.toContain(CODE_PATCH_APPLIED_AFFORDANCE_ENTRY.id);
+  });
+
+  it("findByFamily(artifact, {kind:'workspace'}, 'create') returns pdf, docx, and image (workspace-staged authoring)", () => {
+    const registry = createAffordanceRegistry();
+    const candidates = registry.findByFamily(
+      ARTIFACT_EFFECT_FAMILY,
+      { kind: "workspace" },
+      { kind: "create" },
+    );
+    const ids = candidates.map((c) => c.id);
+    expect(ids).toEqual([
+      PDF_CREATED_AFFORDANCE_ENTRY.id,
+      DOCX_CREATED_AFFORDANCE_ENTRY.id,
+      IMAGE_CREATED_AFFORDANCE_ENTRY.id,
+    ]);
+  });
+
+  it("findByFamily(artifact, {kind:'external_channel'}, 'create') returns image only (e.g. Telegram sendPhoto)", () => {
+    const registry = createAffordanceRegistry();
+    const candidates = registry.findByFamily(
+      ARTIFACT_EFFECT_FAMILY,
+      { kind: "external_channel", channelId: "telegram" as ChannelId },
+      { kind: "create" },
+    );
+    expect(candidates.map((c) => c.id)).toEqual([IMAGE_CREATED_AFFORDANCE_ENTRY.id]);
+  });
+
+  it("findByFamily(artifact, {kind:'session'}, 'create') resolves nothing (artifact family rejects session targets)", () => {
+    const registry = createAffordanceRegistry();
+    expect(
+      registry.findByFamily(
+        ARTIFACT_EFFECT_FAMILY,
+        { kind: "session" },
+        { kind: "create" },
+      ),
+    ).toEqual([]);
+  });
+
+  it("preserves the cutover-2 G6.a structural canary — branching factor on artifact family > 1", () => {
+    const registry = createAffordanceRegistry();
+    const allArtifactCandidates = registry
+      .all()
+      .filter((entry) => entry.effectFamily === ARTIFACT_EFFECT_FAMILY);
+    expect(allArtifactCandidates.length).toBeGreaterThan(1);
+    expect(allArtifactCandidates.length).toBe(4);
+  });
+
+  it("does not contaminate other family lookups (artifact entries do not appear under communication or persistent_session)", () => {
+    const registry = createAffordanceRegistry();
+    const channelTarget = {
+      kind: "external_channel",
+      channelId: "telegram" as ChannelId,
+    } as const;
+
+    const communicationCreate = registry
+      .findByFamily(COMMUNICATION_EFFECT_FAMILY, channelTarget, { kind: "create" })
+      .map((c) => c.id);
+    expect(communicationCreate).not.toContain(PDF_CREATED_AFFORDANCE_ENTRY.id);
+    expect(communicationCreate).not.toContain(DOCX_CREATED_AFFORDANCE_ENTRY.id);
+    expect(communicationCreate).not.toContain(IMAGE_CREATED_AFFORDANCE_ENTRY.id);
+    expect(communicationCreate).not.toContain(CODE_PATCH_APPLIED_AFFORDANCE_ENTRY.id);
+
+    const persistentCreate = registry
+      .findByFamily(PERSISTENT_SESSION_EFFECT_FAMILY, { kind: "session" }, { kind: "create" })
+      .map((c) => c.id);
+    expect(persistentCreate).not.toContain(PDF_CREATED_AFFORDANCE_ENTRY.id);
+    expect(persistentCreate).not.toContain(DOCX_CREATED_AFFORDANCE_ENTRY.id);
+    expect(persistentCreate).not.toContain(IMAGE_CREATED_AFFORDANCE_ENTRY.id);
+    expect(persistentCreate).not.toContain(CODE_PATCH_APPLIED_AFFORDANCE_ENTRY.id);
+  });
+
+  it("does not resolve update operation on pdf/docx/image (only code_patch supports update)", () => {
+    const registry = createAffordanceRegistry();
+    const candidates = registry.findByFamily(
+      ARTIFACT_EFFECT_FAMILY,
+      { kind: "artifact", artifactId: "art-1" },
+      { kind: "update" },
+    );
+    expect(candidates).toEqual([]);
   });
 });
