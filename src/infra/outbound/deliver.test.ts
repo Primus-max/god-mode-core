@@ -313,12 +313,15 @@ describe("deliverOutboundPayloads", () => {
       cfg: {
         channels: { telegram: { botToken: "tok-1", textChunkLimit: 100 } },
       },
-      payload: { text: "323", btw: { question: "what is 17 * 19?" } },
+      // NEW-D Phase 4: telegram has `CHANNEL_LOCALE_DEFAULTS` =['ru'], so the
+      // BTW formatting fixture uses Russian content. The test asserts the
+      // BTW prepend formatting (orthogonal to the locale gate).
+      payload: { text: "323", btw: { question: "сколько будет 17 * 19?" } },
     });
 
     expect(sendTelegram).toHaveBeenCalledWith(
       "123",
-      "BTW\nQuestion: what is 17 * 19?\n\n323",
+      "BTW\nQuestion: сколько будет 17 * 19?\n\n323",
       expect.objectContaining({ verbose: false, textMode: "html" }),
     );
   });
