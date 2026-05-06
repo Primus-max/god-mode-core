@@ -49,7 +49,10 @@
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import type { BlockReplyDeliver } from "../../auto-reply/reply/block-external-buffer.js";
 import {
+  BYPASS_REASONS,
   formatOutboundCoalescerLog,
+  isBypassReason,
+  type BypassReason,
   type OutboundCoalescer,
   type OutboundCoalescerDeps,
   type OutboundMessage,
@@ -57,12 +60,15 @@ import {
 } from "./outbound-coalescer-types.js";
 
 export type {
+  BypassReason,
   OutboundCoalescer,
   OutboundCoalescerDeps,
   OutboundMessage,
   OutboundMessageKind,
   OutboundCoalescerLogEvent,
 } from "./outbound-coalescer-types.js";
+
+export { BYPASS_REASONS, isBypassReason } from "./outbound-coalescer-types.js";
 
 /**
  * Phase 2 throw-stub error retained for one-import-cycle to keep the
@@ -468,10 +474,20 @@ export function createOutboundCoalescer(deps: OutboundCoalescerDeps): OutboundCo
   }
 
   async function bypass(
-    reason: string,
+    reason: BypassReason,
     body: ReplyPayload,
     deliver: BlockReplyDeliver,
   ): Promise<void> {
+    // Phase 6 runtime guard — the closed `BypassReason` union is
+    // re-checked at runtime so a downstream caller that ignores the
+    // type-level closed-set discipline still fails fast. Per invariant
+    // #5, bypass reasons MUST come from the audit-curated allowlist
+    // and NEVER from user-prompt content.
+    if (!isBypassReason(reason)) {
+      throw new Error(
+        `outbound-coalescer: unknown bypass reason=${typeof reason === "string" ? reason : String(reason)}; allowed=${BYPASS_REASONS.join(",")}`,
+      );
+    }
     deps.logTelemetry(
       formatOutboundCoalescerLog("bypassed", {
         reason,
