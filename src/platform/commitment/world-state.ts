@@ -55,6 +55,41 @@ export type ArtifactWorldState = {
 
 export type WorkspaceWorldState = Record<string, never>;
 
+/**
+ * Read-only repo-operation record exposed via `WorldStateSnapshot.repo` for
+ * cutover-4 done-predicates (`repo.branch_created`, `repo.commit_landed`,
+ * `repo.merge_completed`, `repo.diff_observed`). Populated by the runtime
+ * adapter (Phase 5) after a sanctioned `runRepoCommand(...)` returns
+ * successfully; consumed by per-affordance predicates that match a record's
+ * `repoOperationId` against the commitment's expected delta.
+ *
+ * Sibling slice to `ArtifactWorldState`: kept orthogonal to the empty
+ * `WorkspaceWorldState` stub which is reserved for the future Slice K
+ * workspace-tooling consumer (audit `extensions/AUDIT-cutover4-repo-operation.md`
+ * §c). Cutover-3 added `artifacts` as a sibling at the same precedent.
+ */
+export type RepoOperationRecord = {
+  readonly repoOperationId: string;
+  readonly kind:
+    | "branch_created"
+    | "commit_landed"
+    | "merge_completed"
+    | "diff_observed";
+  readonly branchName?: string;
+  readonly commitSha?: string;
+  readonly baseSha?: string;
+  readonly mergeBaseSha?: string;
+  readonly filesChanged?: number;
+  readonly insertions?: number;
+  readonly deletions?: number;
+  readonly repoRoot?: string;
+  readonly observedAt: ISO8601;
+};
+
+export type RepoWorldState = {
+  readonly records: readonly RepoOperationRecord[];
+};
+
 export type WebEvidenceRecord = {
   readonly url: string;
   readonly snippet: string;
@@ -67,6 +102,15 @@ export type WebEvidenceWorldState = {
 };
 
 const ISO8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u;
+
+/**
+ * Closed-shape regex matching git short-sha (7 hex) or full-sha (40 hex)
+ * lower-case object names. Used by `repoOperationRecordSchema` to validate
+ * `commitSha` / `baseSha` / `mergeBaseSha` when present. Upper-case is rejected
+ * because git itself canonicalizes object names lower-case; rejecting upper-
+ * case prevents accidental case-aliased duplicates in the WorldState bucket.
+ */
+const GIT_SHA_PATTERN = /^(?:[0-9a-f]{7}|[0-9a-f]{40})$/u;
 
 /**
  * Closed-shape schema for a single `WebEvidenceRecord` parsed from the search
@@ -106,10 +150,41 @@ export const artifactRecordSchema = z
   })
   .strict();
 
+/**
+ * Closed-shape schema for a single `RepoOperationRecord` written by the
+ * cutover-4 runtime adapter on tool-emit (Phase 5). Validation rejects empty
+ * `repoOperationId`, `kind` outside the closed set, malformed sha fields
+ * (`commitSha` / `baseSha` / `mergeBaseSha` must match `GIT_SHA_PATTERN` when
+ * present), and malformed ISO-8601 `observedAt`; the in-memory collector's
+ * `record(...)` method calls `parse(...)` on each call so observer reads stay
+ * total.
+ */
+export const repoOperationRecordSchema = z
+  .object({
+    repoOperationId: z.string().min(1),
+    kind: z.enum([
+      "branch_created",
+      "commit_landed",
+      "merge_completed",
+      "diff_observed",
+    ]),
+    branchName: z.string().min(1).optional(),
+    commitSha: z.string().regex(GIT_SHA_PATTERN).optional(),
+    baseSha: z.string().regex(GIT_SHA_PATTERN).optional(),
+    mergeBaseSha: z.string().regex(GIT_SHA_PATTERN).optional(),
+    filesChanged: z.number().int().nonnegative().optional(),
+    insertions: z.number().int().nonnegative().optional(),
+    deletions: z.number().int().nonnegative().optional(),
+    repoRoot: z.string().min(1).optional(),
+    observedAt: z.string().regex(ISO8601_PATTERN),
+  })
+  .strict();
+
 export type WorldStateSnapshot = {
   readonly sessions?: SessionWorldState;
   readonly artifacts?: ArtifactWorldState;
   readonly workspace?: WorkspaceWorldState;
+  readonly repo?: RepoWorldState;
   readonly deliveries?: DeliveryWorldState;
   readonly webEvidence?: WebEvidenceWorldState;
 };
