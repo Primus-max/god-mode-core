@@ -8,6 +8,7 @@ import { writeFileWithinRoot } from "../infra/fs-safe.js";
 import { PATH_ALIAS_POLICIES, type PathAliasPolicy } from "../infra/path-alias-guards.js";
 import { applyUpdateHunk } from "./apply-patch-update.js";
 import { toRelativeSandboxPath, resolvePathFromInput } from "./path-policy.js";
+import { emitArtifactFromTool } from "./pi-embedded-runner/run/emit-artifact-from-tool.js";
 import { assertSandboxPath } from "./sandbox-paths.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 
@@ -113,6 +114,28 @@ export function createApplyPatchTool(
         workspaceOnly,
         signal,
       });
+
+      // Cutover-3 Phase 5 emit site — record this code-patch
+      // workspace mutation in the commitment-runtime WorldState slice
+      // so the Phase 4 `codePatchAppliedPredicate` resolves on
+      // commitmentSatisfied. The "path" reflects the workspace root
+      // (the patch may touch many files; the artifact represents the
+      // patch application as a whole). `sourcePaths` carries the
+      // touched-file display paths for downstream auditability. No-op
+      // when no ambient turn key is set.
+      const touchedPaths: readonly string[] = [
+        ...result.summary.added,
+        ...result.summary.modified,
+        ...result.summary.deleted,
+      ];
+      if (touchedPaths.length > 0) {
+        emitArtifactFromTool({
+          kind: "code_patch",
+          path: cwd,
+          mimeType: "text/x-patch",
+          sourcePaths: touchedPaths,
+        });
+      }
 
       return {
         content: [{ type: "text", text: result.text }],

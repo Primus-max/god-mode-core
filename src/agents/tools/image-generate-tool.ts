@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
 import { loadConfig } from "../../config/config.js";
+import { emitArtifactFromTool } from "../pi-embedded-runner/run/emit-artifact-from-tool.js";
 import {
   buildNoImageGenerationModelConfiguredMessage,
   generateImage,
@@ -741,6 +742,35 @@ export function createImageGenerateTool(options?: {
             ),
           ),
         );
+        // Cutover-3 Phase 5 emit site — record each generated image in
+        // the commitment-runtime WorldState slice so the Phase 4
+        // `imageCreatedPredicate` resolves on commitmentSatisfied. The
+        // `sourcePaths` carry the loaded reference images on the img2img
+        // path (bug #2 audit trail per sub-plan §c). No-op when no
+        // ambient turn key is set.
+        const inboundSourcePaths = loadedReferenceImages
+          .map((entry) => entry.rewrittenFrom ?? entry.resolvedImage)
+          .filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+        for (let imageIndex = 0; imageIndex < savedImages.length; imageIndex += 1) {
+          const savedImage = savedImages[imageIndex];
+          if (!savedImage) {
+            continue;
+          }
+          const reference = result.images[imageIndex];
+          const mimeType =
+            savedImage.contentType ??
+            reference?.mimeType ??
+            "image/png";
+          emitArtifactFromTool({
+            kind: "image",
+            path: savedImage.path,
+            mimeType,
+            sizeBytes: savedImage.size,
+            ...(inboundSourcePaths.length > 0
+              ? { sourcePaths: inboundSourcePaths }
+              : {}),
+          });
+        }
 
         const revisedPrompts = result.images
           .map((image) => image.revisedPrompt?.trim())

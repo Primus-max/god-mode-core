@@ -2,18 +2,6 @@ import type { DonePredicate, EvidenceFact } from "./affordance.js";
 import type { ArtifactRecord } from "./world-state.js";
 
 /**
- * Phase 5 widens `ExpectedDelta.artifacts` from `Record<string, never>` to
- * `{ readonly added?: readonly string[] }`. Until that lands, the predicate
- * accepts the future shape via a structural cast and returns the
- * `artifacts.delta_empty` sentinel when the field is absent — slice E
- * forward-compat precedent (`web_evidence.slice_absent`). The predicate
- * MUST never throw, even on the empty (cutover-3 Phase 4) shape.
- */
-type ArtifactExpectedDeltaForPhase4 = {
-  readonly added?: readonly string[];
-};
-
-/**
  * Verifies that the runtime adapter (Phase 5) recorded a `pdf` artifact
  * whose `artifactId` was emitted via the commitment's
  * `expectedDelta.artifacts.added` list. The predicate observes only
@@ -53,9 +41,7 @@ export const pdfCreatedPredicate: DonePredicate = (ctx) => {
     };
   }
 
-  const expectedAdded =
-    (ctx.expectedDelta.artifacts as ArtifactExpectedDeltaForPhase4 | undefined)
-      ?.added ?? [];
+  const expectedAdded = ctx.expectedDelta.artifacts?.added ?? [];
   if (expectedAdded.length === 0) {
     return {
       satisfied: false,
