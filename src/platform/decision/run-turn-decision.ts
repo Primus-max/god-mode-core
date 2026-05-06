@@ -349,6 +349,12 @@ async function runShadowBranch(input: RunTurnDecisionInput): Promise<ShadowBranc
           // Phase-6 recall surface stays inert at runtime even though
           // its tests pass in isolation.
           ...(input.memoryStore ? { memoryStore: input.memoryStore } : {}),
+          // Slice F Phase 6 — thread the optional task ledger through the
+          // same recall seam the memory store rides on. The contractor
+          // self-elides the `<active_tasks>` block when either the
+          // ledger OR `identityId` is missing (anonymous session or
+          // pre-Phase-6 caller). Mirrors the memory-store wiring above.
+          ...(input.taskLedger ? { taskLedger: input.taskLedger } : {}),
           ...(input.identityId ? { identityId: input.identityId } : {}),
           ...(input.memoryLogger ? { logger: input.memoryLogger } : {}),
           onDebugEvent: (event) => {

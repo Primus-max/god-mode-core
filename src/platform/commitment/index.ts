@@ -47,6 +47,7 @@ export {
   DEFAULT_INTENT_CONTRACTOR_MODEL,
   DEFAULT_INTENT_CONTRACTOR_TIMEOUT_MS,
   MEMORY_RECALL_FAILED_UNCERTAINTY,
+  TASK_RECALL_FAILED_UNCERTAINTY,
   createIntentContractor,
   parseSemanticIntentResponse,
   resolveIntentContractorAdapter,
