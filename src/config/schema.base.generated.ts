@@ -11843,6 +11843,44 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
               additionalProperties: false,
             },
           },
+          retry: {
+            type: "object",
+            properties: {
+              defaultMaxAttempts: {
+                type: "integer",
+                minimum: 0,
+                maximum: 9007199254740991,
+              },
+              defaultMaxBackoffMs: {
+                type: "number",
+                exclusiveMinimum: 0,
+              },
+              perEffect: {
+                type: "object",
+                propertyNames: {
+                  type: "string",
+                  minLength: 1,
+                },
+                additionalProperties: {
+                  type: "object",
+                  properties: {
+                    maxAttempts: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 9007199254740991,
+                    },
+                    maxBackoffMs: {
+                      type: "number",
+                      exclusiveMinimum: 0,
+                    },
+                  },
+                  required: ["maxAttempts"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            additionalProperties: false,
+          },
         },
         additionalProperties: false,
       },
