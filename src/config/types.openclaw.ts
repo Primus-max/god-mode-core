@@ -173,6 +173,30 @@ export type OpenClawConfig = {
         description?: string;
       }
     >;
+    /**
+     * Cutover-4 Phase 6 — Stage 5 (Retry policy) config slot.
+     *
+     * Mirrors the runtime reader's
+     * `RetryPolicyConfigShape` (`src/platform/commitment/retry-policy.ts`).
+     * Per-effect entries override the top-level defaults; mutation
+     * repo effects (`repo.branch_created`, `repo.commit_landed`,
+     * `repo.merge_completed`) are LOCKED to `maxAttempts === 0` by
+     * the Zod schema's `superRefine` (re-running a partially-applied
+     * git mutation is unsafe). Read-only `repo.diff_observed` may
+     * carry any nonneg `maxAttempts` (sub-plan §3 row Phase 6
+     * default = 2).
+     */
+    retry?: {
+      defaultMaxAttempts?: number;
+      defaultMaxBackoffMs?: number;
+      perEffect?: Record<
+        string,
+        {
+          maxAttempts: number;
+          maxBackoffMs?: number;
+        }
+      >;
+    };
   };
 };
 

@@ -1028,8 +1028,82 @@ export const OpenClawSchema = z
               .strict(),
           )
           .optional(),
+        /**
+         * Cutover-4 Phase 6 — Stage 5 (Retry policy) config slot.
+         *
+         * The runtime reader (`createRetryPolicy`,
+         * `src/platform/commitment/retry-policy.ts`) already consumes
+         * this exact shape via its private `RetryPolicyConfigShape`
+         * typedef. Phase 6 of cutover-4 closes the loop by accepting
+         * the shape at the public Zod boundary so callers no longer
+         * need `as unknown as OpenClawConfig` casts.
+         *
+         * Mutation-effect lock (`policy.retry.perEffect`):
+         *  - `repo.branch_created`, `repo.commit_landed`,
+         *    `repo.merge_completed` MUST have `maxAttempts === 0`.
+         *    Re-running a partially-applied git mutation produces
+         *    duplicate branches, partial-merge state, or over-commits
+         *    — the failure mode is unrecoverable, so the schema
+         *    rejects any non-zero override at validation time. The
+         *    lock is enforced via `superRefine` on the parent
+         *    `policy` block (mirrors the existing `broadcast`
+         *    cross-field validator) so the closed list of locked
+         *    effect ids stays in one place.
+         *  - `repo.diff_observed` is read-only and may carry any
+         *    nonneg `maxAttempts` (sub-plan §3 row Phase 6 default
+         *    = 2).
+         */
+        retry: z
+          .object({
+            defaultMaxAttempts: z.number().int().nonnegative().optional(),
+            defaultMaxBackoffMs: z.number().positive().optional(),
+            perEffect: z
+              .record(
+                z.string().min(1),
+                z
+                  .object({
+                    maxAttempts: z.number().int().nonnegative(),
+                    maxBackoffMs: z.number().positive().optional(),
+                  })
+                  .strict(),
+              )
+              .optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
+      .superRefine((policy, ctx) => {
+        // Cutover-4 Phase 6 — mutation-effect retry lock. The closed
+        // list mirrors `effect-family-registry.ts` REPO_*_EFFECT
+        // constants (excluding the read-only `repo.diff_observed`
+        // which is permitted any nonneg `maxAttempts`).
+        const REPO_MUTATION_EFFECT_IDS_LOCKED_TO_ZERO = [
+          "repo.branch_created",
+          "repo.commit_landed",
+          "repo.merge_completed",
+        ] as const;
+        const perEffect = policy.retry?.perEffect;
+        if (!perEffect) {
+          return;
+        }
+        for (const effectId of REPO_MUTATION_EFFECT_IDS_LOCKED_TO_ZERO) {
+          const entry = perEffect[effectId];
+          if (entry === undefined) {
+            continue;
+          }
+          if (entry.maxAttempts !== 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["retry", "perEffect", effectId, "maxAttempts"],
+              message:
+                `policy.retry.perEffect["${effectId}"].maxAttempts must be 0 ` +
+                `(repo mutation effects are NOT idempotent — re-running ` +
+                `produces duplicate branches / partial-merge / over-commits).`,
+            });
+          }
+        }
+      })
       .optional(),
   })
   .strict()
