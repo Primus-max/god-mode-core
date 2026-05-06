@@ -7,6 +7,9 @@ import { prepareModelForSimpleCompletion } from "../../agents/simple-completion-
 import type { OpenClawConfig } from "../../config/config.js";
 import type { IdentityId } from "../identity/identity-id.js";
 import type { MemoryStore, SemanticMemoryEntry } from "../memory/index.js";
+import { buildActiveTasksBlock } from "../task/active-tasks-block.js";
+import type { TaskLedger } from "../task/task-ledger.js";
+import type { TaskListQuery } from "../task/task-record.js";
 import {
   EFFECT_FAMILY_REGISTRY,
   getEffectFamilyDefinition,
@@ -39,6 +42,26 @@ export const DEFAULT_INTENT_CONTRACTOR_MEMORY_RECALL_LIMIT = 5;
  * + this tag on the returned intent" (sub-plan §5 Phase 6).
  */
 export const MEMORY_RECALL_FAILED_UNCERTAINTY = "memory_recall_failed";
+
+/**
+ * Slice F Phase 6 sibling of `MEMORY_RECALL_FAILED_UNCERTAINTY`.
+ * Appended to a returned `SemanticIntent` when `taskLedger.list`
+ * rejects (e.g. sqlite locked, ledger backend down). Per invariant
+ * #15 the recall failure must NEVER throw into the contractor flow —
+ * it degrades to "no `<active_tasks>` block + warning log + this tag
+ * on the returned intent" (sub-plan §6 + slice E precedent).
+ */
+export const TASK_RECALL_FAILED_UNCERTAINTY = "task_recall_failed";
+
+/**
+ * Active-task statuses surfaced to the contractor recall (sub-plan §6).
+ * Terminal states (`completed`, `cancelled`, `failed`) are not part of
+ * the in-flight set, so the ledger query narrows on these two values.
+ * The formatter (`buildActiveTasksBlock`) ALSO filters defensively so
+ * that a backend that ignores the status filter still produces a
+ * well-shaped block.
+ */
+const ACTIVE_TASK_RECALL_STATUSES: TaskListQuery["statuses"] = ["open", "in_progress"];
 
 /**
  * Minimal logger seam used by the IntentContractor for memory-recall
@@ -182,10 +205,23 @@ export function resolveIntentContractorAdapter(
  * (invariant #15) and are surfaced via `logger.warn` plus a
  * `memory_recall_failed` tag on the returned intent's uncertainty.
  *
+ * Slice-F Phase-6 additive: when both `taskLedger` and `identityId`
+ * are provided, `classify` ALSO performs a per-`IdentityId` active-
+ * tasks list keyed on the identity (status filter narrows to
+ * `open` + `in_progress` — terminal states are dropped) before calling
+ * the adapter; non-empty results are formatted into an
+ * `<active_tasks>{JSON}</active_tasks>` block. Block ordering when both
+ * recall paths fire: `<active_tasks><memory>{prompt}` — the
+ * `<active_tasks>` block precedes `<memory>` so the LLM sees the
+ * "what's still in flight" surface before the "what was previously
+ * said" surface. Recall failure mirrors the memory path: warn log +
+ * `task_recall_failed` uncertainty tag + NEVER throws (invariant #15).
+ *
  * @param deps - Runtime config, optional adapter registry, and the
  *   slice-E Phase-6 optional `memoryStore` / `identityId` / `logger`
  *   recall seam (all three default to undefined for byte-identical
- *   regression behaviour with pre-Phase-6 callers).
+ *   regression behaviour with pre-Phase-6 callers). Slice-F Phase-6
+ *   adds the optional `taskLedger` seam alongside `memoryStore`.
  * @returns IntentContractor that never throws for classification failures.
  */
 export function createIntentContractor(deps: {
@@ -203,11 +239,23 @@ export function createIntentContractor(deps: {
    */
   readonly memoryStore?: MemoryStore;
   /**
+   * Slice-F Phase-6 additive: optional task ledger used to list
+   * active tasks (status `open` / `in_progress`) keyed on
+   * `identityId`. Omitting this seam (or omitting `identityId`)
+   * disables the `<active_tasks>` recall path entirely — behaviour is
+   * byte-identical to slice-E Phase-6 callers. The ledger NEVER
+   * receives raw user text on the query path (invariant #5/#6 — the
+   * recall query carries `ownerIdentityId` + structured `statuses`
+   * filter only).
+   */
+  readonly taskLedger?: TaskLedger;
+  /**
    * Slice-E Phase-6 additive: resolved operator identity for the
    * current turn. When undefined, the recall hook is a no-op (per
    * sub-plan §5 — anonymous sessions do NOT leak memory across
    * operators). Resolved upstream via
-   * `src/platform/identity/resolve-identity.ts`.
+   * `src/platform/identity/resolve-identity.ts`. Slice-F Phase-6
+   * shares the same field — both recall paths gate on `identityId`.
    */
   readonly identityId?: IdentityId;
   /**
@@ -254,14 +302,28 @@ export function createIntentContractor(deps: {
       // only sanctioned reader of `RawUserTurn` / `UserPrompt`).
       // Recall failure NEVER throws into the contractor flow per
       // invariant #15 — it degrades to no block + warn + uncertainty tag.
-      const recall = await maybeRecallMemory({
+      const memoryRecall = await maybeRecallMemory({
         memoryStore: deps.memoryStore,
         identityId: deps.identityId,
         prompt,
         limit: deps.memoryRecallLimit ?? DEFAULT_INTENT_CONTRACTOR_MEMORY_RECALL_LIMIT,
         logger: deps.logger,
       });
-      const promptForAdapter = recall.block ? `${recall.block}${prompt}` : prompt;
+      // Slice-F Phase-6: parallel active-tasks recall. The query carries
+      // ONLY `ownerIdentityId` + structured `statuses` filter — no raw
+      // user text on the ledger path (invariant #5/#6: text routing
+      // stays inside the contractor, not the ledger seam).
+      const taskRecall = await maybeRecallActiveTasks({
+        taskLedger: deps.taskLedger,
+        identityId: deps.identityId,
+        logger: deps.logger,
+      });
+      // Block order: <active_tasks> precedes <memory> precedes the raw
+      // prompt. The contractor surfaces "what's still in flight" before
+      // "what was previously said". Both blocks self-elide when their
+      // recall returns nothing or fails (zero whitespace pollution).
+      const blockPrefix = `${taskRecall.block ?? ""}${memoryRecall.block ?? ""}`;
+      const promptForAdapter = blockPrefix.length > 0 ? `${blockPrefix}${prompt}` : prompt;
 
       try {
         const raw = await adapter.classify({
@@ -286,7 +348,8 @@ export function createIntentContractor(deps: {
             message: `normalize_forced_low_confidence reason=${introduced ?? "unknown"} rawConfidence=${raw.confidence.toFixed(2)} rawFamily=${String(raw.desiredEffectFamily)}`,
           });
         }
-        return appendRecallFailureTag(normalized, recall.failed);
+        const withMemoryTag = appendRecallFailureTag(normalized, memoryRecall.failed);
+        return appendTaskRecallFailureTag(withMemoryTag, taskRecall.failed);
       } catch (error) {
         const reason = isAbortError(error) ? "llm_timeout" : "llm_error";
         emitDebugEvent(deps.onDebugEvent, {
@@ -295,7 +358,8 @@ export function createIntentContractor(deps: {
           configuredModel: config.model,
           message: error instanceof Error ? error.message : String(error),
         });
-        return appendRecallFailureTag(lowConfidenceIntent(reason), recall.failed);
+        const fallback = appendRecallFailureTag(lowConfidenceIntent(reason), memoryRecall.failed);
+        return appendTaskRecallFailureTag(fallback, taskRecall.failed);
       }
     },
   };
@@ -378,6 +442,74 @@ function appendRecallFailureTag(intent: SemanticIntent, failed: boolean): Semant
   return {
     ...intent,
     uncertainty: [...intent.uncertainty, MEMORY_RECALL_FAILED_UNCERTAINTY],
+  };
+}
+
+/**
+ * Slice-F Phase-6 sibling of `maybeRecallMemory`. Performs the optional
+ * active-tasks list and returns either an
+ * `<active_tasks>{JSON}</active_tasks>` block (non-empty result) or
+ * `null` (no ledger, no identity, empty/all-terminal result, or recall
+ * failure). Recall errors are caught and surfaced via the injected
+ * logger plus the `failed` flag — they do NOT throw into the contractor.
+ *
+ * The query passes ONLY structured filters (`ownerIdentityId` +
+ * `statuses`) — raw user text is never routed onto the ledger path
+ * (invariant #5/#6). Block formatting + status filter live in
+ * `buildActiveTasksBlock`.
+ */
+async function maybeRecallActiveTasks(params: {
+  readonly taskLedger?: TaskLedger;
+  readonly identityId?: IdentityId;
+  readonly logger?: IntentContractorLogger;
+}): Promise<TaskRecallOutcome> {
+  if (!params.taskLedger || !params.identityId) {
+    // Anonymous session OR no taskLedger wired — recall is a clean no-op.
+    return { block: null, failed: false };
+  }
+  try {
+    const result = await params.taskLedger.list({
+      ownerIdentityId: params.identityId,
+      statuses: ACTIVE_TASK_RECALL_STATUSES,
+    });
+    if (result.tasks.length === 0) {
+      return { block: null, failed: false };
+    }
+    const block = buildActiveTasksBlock(result.tasks);
+    // `buildActiveTasksBlock` filters defensively to active statuses and
+    // returns "" when nothing survives — collapse that branch onto the
+    // empty-result no-op so callers see one shape.
+    if (block.length === 0) {
+      return { block: null, failed: false };
+    }
+    return { block, failed: false };
+  } catch (error) {
+    params.logger?.warn(TASK_RECALL_FAILED_UNCERTAINTY, {
+      identityId: String(params.identityId),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { block: null, failed: true };
+  }
+}
+
+type TaskRecallOutcome = {
+  readonly block: string | null;
+  readonly failed: boolean;
+};
+
+/**
+ * Slice-F Phase-6 sibling of `appendRecallFailureTag`. Appends the
+ * `task_recall_failed` uncertainty tag to a normalised intent if the
+ * task recall step rejected. Same observability-only discipline as
+ * the memory recall path — the intent stays valid and confidence is
+ * unchanged.
+ */
+function appendTaskRecallFailureTag(intent: SemanticIntent, failed: boolean): SemanticIntent {
+  if (!failed) return intent;
+  if (intent.uncertainty.includes(TASK_RECALL_FAILED_UNCERTAINTY)) return intent;
+  return {
+    ...intent,
+    uncertainty: [...intent.uncertainty, TASK_RECALL_FAILED_UNCERTAINTY],
   };
 }
 
