@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "name": "new-c-double-emit",
+  "version": 1,
+  "description": "NEW-C Phase 7 acceptance fixture. Reconstructs the 2026-05-06 18:26+18:27 double-emit reproduction (one user prompt → ack-style preamble + final reply on the SAME (turnId, channelKey) bucket). Replayed against the real OutboundCoalescer (`createOutboundCoalescer`) to assert A1..A7 acceptance criteria from sub-plan §7.",
+  "subplan": ".cursor/plans/commitment_kernel_outbound_coalescer.plan.md",
+  "audit": "extensions/AUDIT-outbound-coalescer.md",
+  "evidence": {
+    "log": "C:/tmp/openclaw/openclaw-2026-05-06.log",
+    "lines": [
+      "L2392 (`[assistant-reply] runId=4407441e lang=en cyr=0 head=...`)",
+      "L2626 (`[diagnostic] lane wait exceeded: lane=session:agent:dev:main waitedMs=79565 queueAhead=0`)"
+    ],
+    "wallClock": [
+      {
+        "wallClock": "2026-05-06T18:26:55.711+03:00",
+        "kind": "assistant-reply",
+        "runId": "084350d5",
+        "headSnippet": "Я запомнил ваш рецепт борща с ингредиентами"
+      },
+      {
+        "wallClock": "2026-05-06T18:26:56.265+03:00",
+        "kind": "diagnostic.lane-wait",
+        "lane": "session:agent:dev:main",
+        "waitedMs": 79565
+      },
+      {
+        "wallClock": "2026-05-06T18:27:04.541+03:00",
+        "kind": "assistant-reply",
+        "runId": "cba3e8c9",
+        "headSnippet": "Я не нашёл в памяти ничего про борщ"
+      }
+    ],
+    "interpretation": "Audit §g establishes both runIds are DIFFERENT (queue-drain artefact closed by NEW-B). Phase 7 fixture reconstructs an in-runId collision SYNTHETICALLY (ack + intermediate + final on the same runId) — the LIKELY-EXISTING-BUT-UNDETECTED bug class NEW-C defends against. With the coalescer wired (Phases 2-6), the synthetic collision must collapse to ONE committed message."
+  },
+  "turn": {
+    "turnId": "4407441e-NEW-C-Phase-7-replay",
+    "channelKey": "telegram:6533456892:6533456892",
+    "userPromptHint": "(opaque — coalescer never reads user text per invariants #5/#6)",
+    "messages": [
+      {
+        "kind": "ack",
+        "tsOffsetMs": 0,
+        "body": {
+          "text": "Принял запрос про борщ, ищу в памяти..."
+        },
+        "_audit_emit_site": "agent-runner.ts:866-885 (direct onBlockReply ack — slice H P3 ACK_SENTINEL parity)"
+      },
+      {
+        "kind": "intermediate",
+        "tsOffsetMs": 1200,
+        "body": {
+          "text": "(intermediate compaction notice — must be DROPPED by drop_intermediates)",
+          "isCompactionNotice": true
+        },
+        "_audit_emit_site": "agent-runner.ts:1432-1445 (compaction notice — drop on commit)"
+      },
+      {
+        "kind": "final",
+        "tsOffsetMs": 8830,
+        "body": {
+          "text": "Я запомнил ваш рецепт борща с ингредиентами: свекла, капуста, картошка, морковь, томат. Если хотите, могу также помочь с пропорциями.",
+          "replyToId": "tg-msg-1742"
+        },
+        "_audit_emit_site": "agent-runner.ts:584-628 (streamingAwareBlockReply finalize — primary final body)"
+      }
+    ]
+  },
+  "expectedAfterCoalescer": {
+    "channelDeliveryCount": 1,
+    "finalText": "Принял запрос про борщ, ищу в памяти...\n\nЯ запомнил ваш рецепт борща с ингредиентами: свекла, капуста, картошка, морковь, томат. Если хотите, могу также помочь с пропорциями.",
+    "finalReplyToId": "tg-msg-1742",
+    "telemetry": {
+      "committedEvents": 1,
+      "messagesMerged": 3,
+      "finalKind": "final"
+    },
+    "regressionGuards": {
+      "intermediateMustNotAppear": "(intermediate compaction notice — must be DROPPED by drop_intermediates)",
+      "ackMustPrefixFinal": true,
+      "finalBodyVerbatim": true
+    }
+  },
+  "compositionAssertions": {
+    "A5_writeOnSatisfiedHooksFire": "Slice F recordTaskOnCommitmentSatisfied + Slice E recordMemoryOnCommitmentSatisfied STILL fire on commitmentSatisfied=true edge — NEW-C must NOT double-subscribe.",
+    "A6_sanitizerStripsDiagnostics": "Slice I sanitizer strips [planner]/[provenance-guard] diagnostics from committed payload (composition: coalescer commits ONE → sanitizer sees ONE → channel receives sanitized).",
+    "A7_invariantReverseTests": "16 hard invariants reverse-test: (a) no UserPrompt text-rule (#5/#6); (b) no commitment ↛ decision import (#8); (c) 5 frozen contracts byte-identical (#11)."
+  }
+}
