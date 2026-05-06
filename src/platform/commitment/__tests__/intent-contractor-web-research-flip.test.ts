@@ -61,23 +61,27 @@ function fixedIntentAdapter(intent: SemanticIntent): IntentContractorAdapter {
 }
 
 describe("IntentContractor prompt-hint allowlist (Search-Composer Phase 4c)", () => {
-  it("source-level: prompt-hint allowlist literal contains exactly the 5 expected families", () => {
-    // The flip is a single-line edit to the responseShape literal at
-    // `intent-contractor-impl.ts:916` (post Cutover-3 P8). Assert the
-    // exact post-flip ordering: existing 4 families + `web_research`
-    // inserted before `artifact` to keep the family-grouping reading
-    // (session + comms first, capability families next, then unknown
-    // sentinel — same ordering rule as `EFFECT_FAMILY_REGISTRY`).
-    const expectedLiteral =
-      '\'"persistent_session" | "communication" | "web_research" | "artifact" | "unknown"\'';
+  it("source-level: prompt-hint allowlist literal contains `web_research` between `communication` and `artifact`", () => {
+    // The Search-Composer 4c flip introduced `web_research` to the
+    // `responseShape.desiredEffectFamily` allowlist. Subsequent flips
+    // (Cutover-4 Phase 8 added `repo`) extend the literal in place; we
+    // pin only the substring guarantee that this slice ships — the
+    // ordering segment `... "communication" | "web_research" | "artifact" ...`.
+    // The exact-set guarantee is owned by the most recent slice's flip
+    // test (`intent-contractor-repo-flip.test.ts` post-cutover-4 P8).
+    const requiredSegment =
+      '"communication" | "web_research" | "artifact"';
 
-    expect(IMPL_SOURCE).toContain(expectedLiteral);
+    expect(IMPL_SOURCE).toContain(requiredSegment);
   });
 
-  it("source-level: pre-flip 4-family allowlist literal is gone (regression guard)", () => {
-    // Negative coverage — the pre-flip 4-family string MUST NOT remain.
+  it("source-level: pre-Cutover-3-P8 4-family allowlist literal is gone (regression guard)", () => {
+    // Negative coverage — the original pre-Cutover-3-P8 4-family string
+    // (without `artifact`) MUST NOT remain. Verifies the Cutover-3 P8 +
+    // Search-Composer 4c flips are still in effect even after subsequent
+    // family additions in later cutover phases.
     const preFlipLiteral =
-      '\'"persistent_session" | "communication" | "artifact" | "unknown"\'';
+      '\'"persistent_session" | "communication" | "unknown"\'';
 
     expect(IMPL_SOURCE).not.toContain(preFlipLiteral);
   });

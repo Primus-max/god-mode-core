@@ -914,7 +914,7 @@ function buildIntentContractorPrompt(params: {
       "(use `{}` and `[]` if empty). Pick `desiredEffectFamily` from `familyDirectory[].id` only.",
     responseShape: {
       desiredEffectFamily:
-        '"persistent_session" | "communication" | "web_research" | "artifact" | "unknown"',
+        '"persistent_session" | "communication" | "web_research" | "artifact" | "repo" | "unknown"',
       target: {
         kind: '"session" | "artifact" | "workspace" | "external_channel" | "unspecified"',
         sessionId: "(optional, when kind=session)",
