@@ -52,6 +52,7 @@ import {
   buildSessionBackedExecutionDecisionInput,
   shouldUseLightweightBootstrapContext,
 } from "../platform/decision/input.js";
+import type { InboundMediaSummary } from "../platform/commitment/index.js";
 import {
   filterWebSearchFromTools,
   hasWebSearchSignal,
@@ -709,6 +710,19 @@ export async function buildClassifiedPlatformPlannerInput(params: {
    * `undefined` and skip cleanly per invariant #16.
    */
   sessionKey?: string;
+  /**
+   * Cutover-3 Phase 6 gateway-wiring bridge — optional inbound-media
+   * resolver forwarded to the IntentContractor's
+   * `<inbound_attachments>` block hook. Production callers (gateway /
+   * agent-command staging path) supply a resolver that surfaces
+   * STRUCTURAL metadata (path + MIME + closed `kind` enumeration)
+   * derived from the same data `appendInboundFilesContext` consumes.
+   * Phase 6 ships this as a passthrough seam; the downstream
+   * precondition resolver + runtime adapter that close bug #2
+   * structurally read from the same source. Per invariants #5/#6 the
+   * resolver MUST NOT route raw user text through this surface.
+   */
+  inboundMediaResolver?: () => InboundMediaSummary | undefined;
 }): Promise<Parameters<typeof resolvePlatformRuntimePlan>[0]> {
   return buildClassifiedExecutionDecisionInput({
     prompt: params.prompt,
@@ -721,6 +735,9 @@ export async function buildClassifiedPlatformPlannerInput(params: {
     adapterRegistry: params.adapterRegistry,
     ...(params.inputProvenance ? { inputProvenance: params.inputProvenance } : {}),
     ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+    ...(params.inboundMediaResolver
+      ? { inboundMediaResolver: params.inboundMediaResolver }
+      : {}),
   });
 }
 

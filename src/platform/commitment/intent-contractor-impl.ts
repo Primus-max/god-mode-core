@@ -54,6 +54,46 @@ export const MEMORY_RECALL_FAILED_UNCERTAINTY = "memory_recall_failed";
 export const TASK_RECALL_FAILED_UNCERTAINTY = "task_recall_failed";
 
 /**
+ * Cutover-3 Phase 6 — closed-shape attachment kind enumeration. The
+ * resolver-supplied attachment surface stays narrow; widening this
+ * union requires explicit master-plan amendment so the contractor
+ * never grows a textual classification surface (invariant #5).
+ */
+export type InboundMediaAttachmentKind = "image" | "pdf" | "docx" | "other";
+
+/**
+ * Cutover-3 Phase 6 — single inbound attachment descriptor surfaced to
+ * the IntentContractor through the optional `inboundMediaResolver`
+ * seam. STRUCTURAL metadata only (path + MIME type + closed `kind`
+ * enumeration). Per invariants #5/#6 the resolver MUST NOT route raw
+ * user text through this surface — the contractor stays the ONLY
+ * sanctioned reader of `RawUserTurn` text.
+ *
+ * `sourceTurnId` is optional and propagates the upstream turn id when
+ * the producer (gateway / agent-command) tracks it; predicates and
+ * downstream observers can JOIN on this id without re-reading the
+ * raw text.
+ */
+export type InboundMediaAttachment = {
+  readonly path: string;
+  readonly mimeType: string;
+  readonly kind: InboundMediaAttachmentKind;
+  readonly sourceTurnId?: string;
+};
+
+/**
+ * Cutover-3 Phase 6 — closed-shape summary of inbound media for the
+ * current turn. Returned by the optional `inboundMediaResolver`
+ * supplied to `createIntentContractor(...)`. When the resolver is
+ * absent OR returns `undefined` OR returns an empty `attachments`
+ * array, the `<inbound_attachments>` block is elided (zero whitespace
+ * pollution). Mirrors the `<memory>` recall pattern from slice E P6.
+ */
+export type InboundMediaSummary = {
+  readonly attachments: readonly InboundMediaAttachment[];
+};
+
+/**
  * Active-task statuses surfaced to the contractor recall (sub-plan §6).
  * Terminal states (`completed`, `cancelled`, `failed`) are not part of
  * the in-flight set, so the ledger query narrows on these two values.
@@ -272,6 +312,21 @@ export function createIntentContractor(deps: {
    * §0/§5.
    */
   readonly memoryRecallLimit?: number;
+  /**
+   * Cutover-3 Phase 6 additive: optional resolver that surfaces the
+   * structural inbound-media metadata for the current turn. When
+   * provided AND the resolver returns a non-empty `attachments`
+   * array, `classify` injects an `<inbound_attachments>` block
+   * (XML-like, mirrors `<memory>` / `<active_tasks>` precedents) AFTER
+   * the `<memory>` block and BEFORE the raw user prompt. Omitting the
+   * dep (or returning `undefined` / empty) disables the injection
+   * cleanly — behaviour is byte-identical to pre-Phase-6 callers
+   * (frozen-layer ADDITIVE constraint, cutover-2 PR-#104 / slice E P6
+   * / slice F P6 precedent). Per invariants #5/#6 the resolver MUST
+   * route STRUCTURED metadata only (path + MIME type + closed `kind`
+   * enumeration), never raw user text.
+   */
+  readonly inboundMediaResolver?: () => InboundMediaSummary | undefined;
 }): IntentContractor {
   return {
     async classify(prompt: string): Promise<SemanticIntent> {
@@ -318,11 +373,24 @@ export function createIntentContractor(deps: {
         identityId: deps.identityId,
         logger: deps.logger,
       });
-      // Block order: <active_tasks> precedes <memory> precedes the raw
-      // prompt. The contractor surfaces "what's still in flight" before
-      // "what was previously said". Both blocks self-elide when their
-      // recall returns nothing or fails (zero whitespace pollution).
-      const blockPrefix = `${taskRecall.block ?? ""}${memoryRecall.block ?? ""}`;
+      // Cutover-3 Phase 6: structural inbound-media block. Surfaced AFTER
+      // the `<memory>` block and BEFORE the raw user prompt so the
+      // classifier can pre-bind `desiredEffectFamily=artifact` /
+      // `referenceMode=img2img` when an inbound image is present
+      // (invariant #2 — structural precondition, not phrase matching).
+      // Resolver throws are absorbed (invariant #15) — observability,
+      // not gating.
+      const inboundMediaBlock = buildInboundAttachmentsBlock({
+        resolver: deps.inboundMediaResolver,
+        logger: deps.logger,
+      });
+      // Block order: <active_tasks> precedes <memory> precedes
+      // <inbound_attachments> precedes the raw prompt. The contractor
+      // surfaces "what's still in flight" → "what was previously said" →
+      // "what files arrived this turn" → "the user's text". All blocks
+      // self-elide when their recall returns nothing (zero whitespace
+      // pollution).
+      const blockPrefix = `${taskRecall.block ?? ""}${memoryRecall.block ?? ""}${inboundMediaBlock ?? ""}`;
       const promptForAdapter = blockPrefix.length > 0 ? `${blockPrefix}${prompt}` : prompt;
 
       try {
@@ -511,6 +579,83 @@ function appendTaskRecallFailureTag(intent: SemanticIntent, failed: boolean): Se
     ...intent,
     uncertainty: [...intent.uncertainty, TASK_RECALL_FAILED_UNCERTAINTY],
   };
+}
+
+/**
+ * Cutover-3 Phase 6 — `<inbound_attachments>` block builder. Mirrors
+ * the slice-E `<memory>` block + slice-F `<active_tasks>` block
+ * pattern. Returns a closed-shape XML-like block when the resolver
+ * surfaces a non-empty list, `null` otherwise (no attachments
+ * → block elided, zero whitespace pollution).
+ *
+ * Block shape (intentionally XML-like, mirrors `<web_evidence>` and
+ * `<memory>` precedents in the same file):
+ *   `<inbound_attachments>
+ *     <attachment path="..." mime="..." kind="..." sourceTurnId="..." />
+ *   </inbound_attachments>\n`
+ *
+ * The trailing newline keeps the prompt readable when concatenated
+ * with the user text. The block content is STRUCTURAL only — no raw
+ * user text routed through this surface (invariants #5/#6). Resolver
+ * throws are absorbed (invariant #15) — observability, not gating.
+ */
+function buildInboundAttachmentsBlock(params: {
+  readonly resolver?: () => InboundMediaSummary | undefined;
+  readonly logger?: IntentContractorLogger;
+}): string | null {
+  if (!params.resolver) {
+    return null;
+  }
+  let summary: InboundMediaSummary | undefined;
+  try {
+    summary = params.resolver();
+  } catch (error) {
+    params.logger?.warn("inbound_media_resolver_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+  if (!summary || summary.attachments.length === 0) {
+    return null;
+  }
+  const entries = summary.attachments.map((attachment) => {
+    const sourceTurnAttribute =
+      attachment.sourceTurnId !== undefined && attachment.sourceTurnId.length > 0
+        ? ` sourceTurnId="${escapeXmlAttribute(attachment.sourceTurnId)}"`
+        : "";
+    return (
+      `  <attachment path="${escapeXmlAttribute(attachment.path)}"` +
+      ` mime="${escapeXmlAttribute(attachment.mimeType)}"` +
+      ` kind="${escapeXmlAttribute(attachment.kind)}"` +
+      `${sourceTurnAttribute} />`
+    );
+  });
+  const block = `<inbound_attachments>\n${entries.join("\n")}\n</inbound_attachments>\n`;
+  // Telemetry on the structural-logger seam — info-level (warn channel
+  // is the only structural log surface in this file; we ride that
+  // without changing the logger contract). Message format mirrors
+  // slice-E `[intent-contractor] memory_block_injected entries=N`.
+  params.logger?.warn(
+    `[intent-contractor] inbound_attachments_block injected paths=${String(summary.attachments.length)}`,
+    { paths: summary.attachments.length },
+  );
+  return block;
+}
+
+/**
+ * Minimal XML-attribute escape. Inbound attachment fields are
+ * structural metadata produced upstream (path, MIME, closed `kind`
+ * enumeration) but defensive escaping keeps malformed paths from
+ * corrupting the block. Mirrors the level of escaping the existing
+ * `<web_evidence>` / `<memory>` blocks use (none — they JSON-encode
+ * inside the block; this block is XML-like so we attribute-escape).
+ */
+function escapeXmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 class PiIntentContractorAdapter implements IntentContractorAdapter {

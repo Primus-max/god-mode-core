@@ -14,6 +14,7 @@ import {
   type ClarificationPolicyReader,
   type CutoverPolicy,
   type ExpectedDelta,
+  type InboundMediaSummary,
   type IntentContractorAdapter,
   type IntentContractorLogger,
   type MonitoredRuntime,
@@ -169,6 +170,25 @@ export type RunTurnDecisionInput = {
    * available for downstream phases that wire recall.
    */
   readonly taskLedger?: TaskLedger;
+  /**
+   * Cutover-3 Phase 6 — optional inbound-media resolver threaded into
+   * `createIntentContractor` so the contractor's `<inbound_attachments>`
+   * block fires when an inbound TG attachment arrives this turn. The
+   * resolver returns STRUCTURAL metadata only (path + MIME type +
+   * closed `kind` enumeration) — never raw user text (invariants
+   * #5/#6). When the field is absent OR the resolver returns
+   * `undefined` / empty, the block is elided cleanly (zero whitespace
+   * pollution; pre-Phase-6 byte-identical behaviour for all existing
+   * callers — frozen-layer ADDITIVE constraint, cutover-2 PR-#104 /
+   * slice E P6 / slice F P6 precedent).
+   *
+   * Production wiring (gateway / agent-command bridge) supplies a
+   * resolver that reads from the same upstream source
+   * `appendInboundFilesContext` consumes (`agent-command.ts:471-492`).
+   * The plain-text injection at that site is preserved (LLM-readable
+   * surface); the new resolver is the contractor-readable surface.
+   */
+  readonly inboundMediaResolver?: () => InboundMediaSummary | undefined;
 };
 
 export type RunTurnDecisionResult = {
@@ -397,6 +417,14 @@ async function runShadowBranch(input: RunTurnDecisionInput): Promise<ShadowBranc
           ...(input.taskLedger ? { taskLedger: input.taskLedger } : {}),
           ...(input.identityId ? { identityId: input.identityId } : {}),
           ...(input.memoryLogger ? { logger: input.memoryLogger } : {}),
+          // Cutover-3 Phase 6 — thread the optional inbound-media
+          // resolver through to the contractor's `<inbound_attachments>`
+          // block hook. Absent resolver = block elided cleanly
+          // (pre-Phase-6 byte-identical behaviour for callers that
+          // have not yet threaded the seam).
+          ...(input.inboundMediaResolver
+            ? { inboundMediaResolver: input.inboundMediaResolver }
+            : {}),
           onDebugEvent: (event) => {
             const parts: string[] = [
               `[intent-contractor] stage=${event.stage}`,

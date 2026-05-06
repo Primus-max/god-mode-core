@@ -183,12 +183,20 @@ export {
 } from "./production-runtime-defaults.js";
 export type { DefaultExpectedDeltaResolverOptions } from "./production-runtime-defaults.js";
 export type {
+  InboundMediaAttachment,
+  InboundMediaAttachmentKind,
+  InboundMediaSummary,
   IntentContractorAdapter,
   IntentContractorAdapterRegistry,
   IntentContractorDebugEvent,
   IntentContractorLogger,
   ResolvedIntentContractorConfig,
 } from "./intent-contractor-impl.js";
+export {
+  createInboundImageReferencePreconditionResolver,
+  resolveInboundImageReferencePrecondition,
+} from "./inbound-image-reference-precondition-resolver.js";
+export type { InboundImageReferencePreconditionValue } from "./inbound-image-reference-precondition-resolver.js";
 export type {
   PolicyGateDecision,
   PolicyGateReader,
