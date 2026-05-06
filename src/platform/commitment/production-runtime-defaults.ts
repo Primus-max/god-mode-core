@@ -12,6 +12,10 @@ import {
   getProcessArtifactWorldStateCollector,
 } from "./artifact-world-state-observer.js";
 import {
+  createRepoWorldStateObserver,
+  getProcessRepoWorldStateCollector,
+} from "./repo-world-state-observer.js";
+import {
   getProcessDeliveryReceiptRegistry,
   type DeliveryReceiptRegistry,
 } from "./delivery-receipt-registry.js";
@@ -104,11 +108,15 @@ export function createDefaultMonitoredRuntime(options: {
   const artifactObserver = createArtifactWorldStateObserver(
     getProcessArtifactWorldStateCollector(),
   );
+  const repoObserver = createRepoWorldStateObserver(
+    getProcessRepoWorldStateCollector(),
+  );
   return createMonitoredRuntime({
     sessionObserver,
     deliveryObserver,
     webEvidenceObserver,
     artifactObserver,
+    repoObserver,
   });
 }
 

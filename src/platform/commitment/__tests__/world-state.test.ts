@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   artifactRecordSchema,
+  repoOperationRecordSchema,
   webEvidenceRecordSchema,
   type ArtifactRecord,
   type ArtifactWorldState,
+  type RepoOperationRecord,
+  type RepoWorldState,
   type WebEvidenceRecord,
   type WebEvidenceWorldState,
   type WorldStateSnapshot,
@@ -318,5 +321,217 @@ describe("ArtifactsSlice — Cutover-3 Phase 3 (type + read-side)", () => {
       ] satisfies ArtifactRecord[]),
     });
     expect(slice.records.map((r) => r.artifactId)).toEqual(["art-1", "art-2"]);
+  });
+});
+
+describe("RepoSlice — Cutover-4 Phase 3 (type + read-side)", () => {
+  it("WorldStateSnapshot accepts the optional repo slice with a frozen empty record list", () => {
+    const empty: RepoWorldState = Object.freeze({
+      records: Object.freeze([] as readonly RepoOperationRecord[]),
+    });
+    const snapshot: WorldStateSnapshot = Object.freeze({ repo: empty });
+    expect(snapshot.repo?.records).toEqual([]);
+    expect(Object.isFrozen(snapshot.repo)).toBe(true);
+    expect(Object.isFrozen(snapshot.repo?.records)).toBe(true);
+  });
+
+  it("WorldStateSnapshot tolerates absence of the repo slice (existing snapshots remain valid)", () => {
+    const snapshot: WorldStateSnapshot = Object.freeze({});
+    expect(snapshot.repo).toBeUndefined();
+  });
+
+  it("RepoOperationRecord carries minimal required fields and accepts every supported kind", () => {
+    for (const kind of [
+      "branch_created",
+      "commit_landed",
+      "merge_completed",
+      "diff_observed",
+    ] as const) {
+      const minimal: RepoOperationRecord = Object.freeze({
+        repoOperationId: `repo-op-${kind}`,
+        kind,
+        observedAt: ISO_NOW,
+      });
+      expect(minimal.repoOperationId).toBe(`repo-op-${kind}`);
+      expect(minimal.kind).toBe(kind);
+      expect(minimal.branchName).toBeUndefined();
+      expect(minimal.commitSha).toBeUndefined();
+    }
+  });
+
+  it("RepoOperationRecord accepts every optional structural field", () => {
+    const full: RepoOperationRecord = Object.freeze({
+      repoOperationId: "repo-op-1",
+      kind: "merge_completed",
+      branchName: "feature/cutover4-test",
+      commitSha: "abcdef1234567890abcdef1234567890abcdef12",
+      baseSha: "0123456",
+      mergeBaseSha: "fedcba9876543210fedcba9876543210fedcba98",
+      filesChanged: 3,
+      insertions: 42,
+      deletions: 7,
+      repoRoot: "/tmp/repo",
+      observedAt: ISO_NOW,
+    });
+    expect(full.commitSha).toBe("abcdef1234567890abcdef1234567890abcdef12");
+    expect(full.baseSha).toBe("0123456");
+    expect(full.mergeBaseSha).toBe(
+      "fedcba9876543210fedcba9876543210fedcba98",
+    );
+    expect(full.filesChanged).toBe(3);
+    expect(full.repoRoot).toBe("/tmp/repo");
+  });
+
+  it("repoOperationRecordSchema accepts the canonical minimal shape", () => {
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "repo-op-1",
+        kind: "branch_created",
+        observedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(true);
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "repo-op-1",
+        kind: "branch_created",
+        observedAt: "2026-05-02T11:00:00Z",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("repoOperationRecordSchema accepts every supported kind", () => {
+    for (const kind of [
+      "branch_created",
+      "commit_landed",
+      "merge_completed",
+      "diff_observed",
+    ] as const) {
+      expect(
+        repoOperationRecordSchema.safeParse({
+          repoOperationId: `repo-op-${kind}`,
+          kind,
+          observedAt: "2026-05-02T11:00:00.000Z",
+        }).success,
+      ).toBe(true);
+    }
+  });
+
+  it("repoOperationRecordSchema accepts canonical 7-hex and 40-hex sha fields", () => {
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "repo-op-1",
+        kind: "commit_landed",
+        commitSha: "abcdef1",
+        observedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(true);
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "repo-op-1",
+        kind: "commit_landed",
+        commitSha: "abcdef1234567890abcdef1234567890abcdef12",
+        baseSha: "0123456",
+        mergeBaseSha: "fedcba9876543210fedcba9876543210fedcba98",
+        observedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("repoOperationRecordSchema rejects unknown kind", () => {
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "repo-op-1",
+        kind: "rebased",
+        observedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("repoOperationRecordSchema rejects empty repoOperationId", () => {
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "",
+        kind: "branch_created",
+        observedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("repoOperationRecordSchema rejects malformed sha (wrong length / non-hex)", () => {
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "repo-op-1",
+        kind: "commit_landed",
+        commitSha: "deadbe",
+        observedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(false);
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "repo-op-1",
+        kind: "commit_landed",
+        commitSha: "ZZZZZZZ",
+        observedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(false);
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "repo-op-1",
+        kind: "commit_landed",
+        baseSha: "deadbeefdeadbeefdeadbeefdeadbeefdead",
+        observedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("repoOperationRecordSchema rejects malformed ISO-8601 observedAt", () => {
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "repo-op-1",
+        kind: "branch_created",
+        observedAt: "May 2 2026",
+      }).success,
+    ).toBe(false);
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "repo-op-1",
+        kind: "branch_created",
+        observedAt: "2026-05-02",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("repoOperationRecordSchema rejects extra fields (strict)", () => {
+    expect(
+      repoOperationRecordSchema.safeParse({
+        repoOperationId: "repo-op-1",
+        kind: "branch_created",
+        observedAt: "2026-05-02T11:00:00.000Z",
+        extraField: "nope",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("RepoWorldState carries multiple records preserving insertion order", () => {
+    const slice: RepoWorldState = Object.freeze({
+      records: Object.freeze([
+        Object.freeze({
+          repoOperationId: "repo-op-1",
+          kind: "branch_created",
+          branchName: "feature/x",
+          observedAt: ISO_NOW,
+        }),
+        Object.freeze({
+          repoOperationId: "repo-op-2",
+          kind: "commit_landed",
+          commitSha: "abcdef1",
+          observedAt: ISO_NOW,
+        }),
+      ] satisfies RepoOperationRecord[]),
+    });
+    expect(slice.records.map((r) => r.repoOperationId)).toEqual([
+      "repo-op-1",
+      "repo-op-2",
+    ]);
   });
 });
