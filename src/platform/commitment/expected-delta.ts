@@ -44,9 +44,29 @@ export type ArtifactExpectedDelta = {
 };
 export type WorkspaceExpectedDelta = Record<string, never>;
 
+/**
+ * Cutover-4 Phase 5 — additive widening of the repo slice. Phase 4
+ * shipped done-predicates that read `delta.repo.added` via a forward-
+ * compat structural cast (returning the closed sentinel
+ * `repo.delta_empty` until this widening lands); Phase 5 lights it up
+ * by extending the type itself. `added` is the closed list of
+ * `repoOperationId` values the runtime adapter
+ * (`repo-runtime-adapter.ts`) emitted during the turn — the predicates
+ * JOIN against `WorldStateSnapshot.repo.records[*].repoOperationId`.
+ *
+ * Pure additive extension (Cutover-3 P5 / slice E P6 precedent): existing
+ * consumers do not populate `repo`, so pre-Phase-5 callers stay byte-
+ * identical and the Phase 4 forward-compat shim continues to surface
+ * `repo.delta_empty` until the runtime adapter populates `added`.
+ */
+export type RepoExpectedDelta = {
+  readonly added?: readonly string[];
+};
+
 export type ExpectedDelta = {
   readonly sessions?: SessionExpectedDelta;
   readonly artifacts?: ArtifactExpectedDelta;
   readonly workspace?: WorkspaceExpectedDelta;
+  readonly repo?: RepoExpectedDelta;
   readonly deliveries?: DeliveryExpectedDelta;
 };

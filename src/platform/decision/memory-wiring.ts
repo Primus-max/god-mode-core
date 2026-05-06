@@ -31,6 +31,10 @@ import {
   type ArtifactWriteInput,
 } from "../../agents/pi-embedded-runner/run/recordArtifactOnCommitmentSatisfied.js";
 import {
+  recordRepoOperationOnCommitmentSatisfied,
+  type RepoWriteInput,
+} from "../../agents/pi-embedded-runner/run/recordRepoOperationOnCommitmentSatisfied.js";
+import {
   recordTaskOnCommitmentSatisfied,
   type TaskWriteInput,
 } from "../../agents/pi-embedded-runner/run/task-write-on-satisfied.js";
@@ -81,9 +85,24 @@ export type ResolveMemoryWiringForTurnParams = {
    */
   readonly artifactWriteInput?: ArtifactWriteInput;
   /**
-   * Cutover-3 Phase 5 — optional `effectFamily` of the satisfying
-   * commitment. The artifact hook self-filters on
-   * `effectFamily === "artifact"` so non-artifact families
+   * Cutover-4 Phase 5 — optional caller-side `RepoWriteInput`. When set
+   * AND the satisfying commitment's `effectFamily === "repo"`, the
+   * fanned-out `onAttestation` callback emits a typed
+   * `EpisodicMemoryEvent { effectFamily: "repo", payload:
+   * RepoOperationCompletedPayload }` against the operator's
+   * `IdentityId`. This is the FIRST emit site for the slice E `repo`
+   * slot on `dev`.
+   *
+   * When absent (the default until `repo-tool.ts` lights its emit site
+   * via the runtime adapter + caller plumbing), the hook is wired but
+   * inert.
+   */
+  readonly repoWriteInput?: RepoWriteInput;
+  /**
+   * Cutover-3 Phase 5 / Cutover-4 Phase 5 — optional `effectFamily` of
+   * the satisfying commitment. The artifact hook self-filters on
+   * `effectFamily === "artifact"` and the repo hook on
+   * `effectFamily === "repo"` so non-matching families
    * (`persistent_session`, `task`, `web_research`, etc.) stay routed
    * through their own family-specific hooks at this fan-out seam.
    */
@@ -253,6 +272,41 @@ export async function resolveMemoryWiringForTurn(
       } catch (err) {
         defaultRuntime.log(
           `[artifact-write] fan-out failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      // Cutover-4 Phase 5 repo hook fan-out. Self-filters on
+      // `commitmentSatisfied`, `effectFamily === "repo"`, identity,
+      // store presence, and `repoInput` presence — so calling it here
+      // unconditionally is safe (returns `{ kind: "skipped", ... }` when
+      // any precondition misses). When it DOES write, it emits the
+      // LIVE log line
+      // `[memory-write-on-satisfied] effectFamily=repo wrote=true` —
+      // slice E typed-but-inert `repo` slot now LIT for the first time
+      // on `dev`.
+      try {
+        const repoOutcome = await recordRepoOperationOnCommitmentSatisfied({
+          attestation,
+          identityId,
+          memoryStore: runtime.memoryStore,
+          repoInput: params.repoWriteInput,
+          effectFamily: params.effectFamily,
+          logger: {
+            warn: (message: string) =>
+              defaultRuntime.log(`[repo-write] ${message}`),
+            debug: () => {
+              /* trace volume — drop debug events at the production seam */
+            },
+          },
+        });
+        if (repoOutcome.kind === "written") {
+          defaultRuntime.log(
+            `[memory-write-on-satisfied] effectFamily=repo wrote=true entryId=${repoOutcome.entryId}`,
+          );
+        }
+      } catch (err) {
+        defaultRuntime.log(
+          `[repo-write] fan-out failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
 
