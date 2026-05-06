@@ -25,6 +25,7 @@ import {
 } from "../../../infra/net/undici-global-dispatcher.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
 import { getMemorySearchManager } from "../../../memory/index.js";
+import type { SessionId } from "../../../platform/commitment/ids.js";
 import { toPluginHookPlatformExecutionContext } from "../../../platform/recipe/runtime-adapter.js";
 import { resolveSignalReactionLevel } from "../../../plugin-sdk/signal.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
@@ -39,11 +40,6 @@ import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
 import { resolveUserPath } from "../../../utils.js";
 import { normalizeMessageChannel } from "../../../utils/message-channel.js";
 import { isReasoningTagProvider } from "../../../utils/provider-utils.js";
-import {
-  INTERNAL_REASONING_HINT_TEXT,
-  isInternalReasoningHintApplicable,
-} from "../internal-reasoning-hint.js";
-import { createAnthropicThinkingWrapper } from "../anthropic-thinking-wrapper.js";
 import { resolveOpenClawAgentDir } from "../../agent-paths.js";
 import { resolveSessionAgentIds } from "../../agent-scope.js";
 import { createAnthropicPayloadLogger } from "../../anthropic-payload-log.js";
@@ -113,6 +109,7 @@ import type { TranscriptPolicy } from "../../transcript-policy.js";
 import { resolveTranscriptPolicy } from "../../transcript-policy.js";
 import { DEFAULT_BOOTSTRAP_FILENAME } from "../../workspace.js";
 import { isRunnerAbortError } from "../abort.js";
+import { createAnthropicThinkingWrapper } from "../anthropic-thinking-wrapper.js";
 import { appendCacheTtlTimestamp, isCacheTtlEligibleProvider } from "../cache-ttl.js";
 import type { CompactEmbeddedPiSessionParams } from "../compact.js";
 import { buildEmbeddedCompactionRuntimeContext } from "../compaction-runtime-context.js";
@@ -126,6 +123,10 @@ import {
   sanitizeToolsForGoogle,
 } from "../google.js";
 import { getDmHistoryLimitFromSessionKey, limitHistoryTurns } from "../history.js";
+import {
+  INTERNAL_REASONING_HINT_TEXT,
+  isInternalReasoningHintApplicable,
+} from "../internal-reasoning-hint.js";
 import { log } from "../logger.js";
 import { buildEmbeddedMessageActionDiscoveryInput } from "../message-action-discovery-input.js";
 import { buildModelAliasLines } from "../model.js";
@@ -150,6 +151,7 @@ import { installToolResultContextGuard } from "../tool-result-context-guard.js";
 import { splitSdkTools } from "../tool-split.js";
 import { describeUnknownError, mapThinkingLevel } from "../utils.js";
 import { flushPendingToolResultsAfterIdle } from "../wait-for-idle-before-flush.js";
+import { setAmbientArtifactTurn } from "./artifact-ambient-turn.js";
 import { waitForCompactionRetryWithAggregateTimeout } from "./compaction-retry-aggregate-timeout.js";
 import {
   resolveRunTimeoutDuringCompaction,
@@ -157,8 +159,6 @@ import {
   selectCompactionTimeoutSnapshot,
   shouldFlagCompactionTimeout,
 } from "./compaction-timeout.js";
-import type { SessionId } from "../../../platform/commitment/ids.js";
-import { setAmbientArtifactTurn } from "./artifact-ambient-turn.js";
 import { pruneProcessedHistoryImages } from "./history-image-prune.js";
 import { detectAndLoadPromptImages } from "./images.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
@@ -177,7 +177,52 @@ type PromptBuildHookRunner = {
 
 const SESSIONS_YIELD_INTERRUPT_CUSTOM_TYPE = "openclaw.sessions_yield_interrupt";
 const SESSIONS_YIELD_CONTEXT_CUSTOM_TYPE = "openclaw.sessions_yield";
-const SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS = process.env.OPENCLAW_TEST_FAST === "1" ? 250 : 2_000;
+
+/**
+ * Default upper bound for the runner's grace window between issuing a
+ * `sessions_yield`-triggered abort and confirming the underlying pi session
+ * has stopped. Bumped from the historical 2 000 ms (which was too small for
+ * non-trivial subagent renderings — bug #3 from the PolicyGate Full audit).
+ *
+ * The constant is **not** subagent- or PDF-specific: it applies to any
+ * `sessions_yield` settle wait. Operators can override via
+ * `agents.sessionsYieldAbortSettleTimeoutMs` in `openclaw.json`.
+ */
+export const DEFAULT_SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS = 60_000;
+const TEST_FAST_SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS = 250;
+const SESSIONS_YIELD_ABORT_SETTLE_MIN_MS = 1_000;
+const SESSIONS_YIELD_ABORT_SETTLE_MAX_MS = 120_000;
+
+/**
+ * Resolves the runner's `sessions_yield` abort-settle timeout in ms. Reads
+ * `agents.sessionsYieldAbortSettleTimeoutMs` from the supplied config when
+ * present and finite; otherwise falls back to
+ * `DEFAULT_SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS` (60 000 ms).
+ *
+ * Honors the existing `OPENCLAW_TEST_FAST=1` shortcut so the embedded test
+ * suite remains fast: when set, returns 250 ms and ignores config.
+ *
+ * Override values are clamped to the same `[1000, 120000]` ms bounds used
+ * elsewhere in the agent timeout schema for consistency.
+ */
+export function resolveSessionsYieldAbortSettleTimeoutMs(
+  config: OpenClawConfig | undefined,
+): number {
+  if (process.env.OPENCLAW_TEST_FAST === "1") {
+    return TEST_FAST_SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS;
+  }
+  const override = config?.agents?.sessionsYieldAbortSettleTimeoutMs;
+  if (typeof override === "number" && Number.isFinite(override) && override > 0) {
+    if (override < SESSIONS_YIELD_ABORT_SETTLE_MIN_MS) {
+      return SESSIONS_YIELD_ABORT_SETTLE_MIN_MS;
+    }
+    if (override > SESSIONS_YIELD_ABORT_SETTLE_MAX_MS) {
+      return SESSIONS_YIELD_ABORT_SETTLE_MAX_MS;
+    }
+    return override;
+  }
+  return DEFAULT_SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS;
+}
 
 type NamedToolLike = { name: string };
 type NamedClientToolLike = { function: { name: string } };
@@ -288,15 +333,34 @@ export function buildSessionsYieldContextMessage(message: string): string {
   return `${message}\n\n[Context: The previous turn ended intentionally via sessions_yield while waiting for a follow-up event.]`;
 }
 
-async function waitForSessionsYieldAbortSettle(params: {
+export async function waitForSessionsYieldAbortSettle(params: {
   settlePromise: Promise<void> | null;
   runId: string;
   sessionId: string;
+  /**
+   * Optional override for the abort-settle grace window. When omitted the
+   * default 60 000 ms is used. Callers should typically pass the resolved
+   * value from `resolveSessionsYieldAbortSettleTimeoutMs(config)` so operator
+   * config wins over the default.
+   */
+  timeoutMs?: number;
 }): Promise<void> {
   if (!params.settlePromise) {
     return;
   }
 
+  const timeoutMs =
+    typeof params.timeoutMs === "number" &&
+    Number.isFinite(params.timeoutMs) &&
+    params.timeoutMs > 0
+      ? params.timeoutMs
+      : DEFAULT_SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS;
+
+  log.debug(
+    `[pi-runner] event=sessions_yield_abort_settle_start runId=${params.runId} sessionId=${params.sessionId} timeoutMs=${timeoutMs}`,
+  );
+
+  const startedAt = Date.now();
   let timeout: NodeJS.Timeout | undefined;
   const outcome = await Promise.race([
     params.settlePromise
@@ -308,15 +372,20 @@ async function waitForSessionsYieldAbortSettle(params: {
         return "errored" as const;
       }),
     new Promise<"timed_out">((resolve) => {
-      timeout = setTimeout(() => resolve("timed_out"), SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS);
+      timeout = setTimeout(() => resolve("timed_out"), timeoutMs);
     }),
   ]);
   if (timeout) {
     clearTimeout(timeout);
   }
+  const elapsedMs = Date.now() - startedAt;
   if (outcome === "timed_out") {
     log.warn(
-      `sessions_yield abort settle timed out: runId=${params.runId} sessionId=${params.sessionId} timeoutMs=${SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS}`,
+      `[pi-runner] event=sessions_yield_abort_settle_timed_out runId=${params.runId} sessionId=${params.sessionId} timeoutMs=${timeoutMs} elapsed_ms=${elapsedMs}`,
+    );
+  } else {
+    log.debug(
+      `[pi-runner] event=sessions_yield_abort_settled runId=${params.runId} sessionId=${params.sessionId} elapsed_ms=${elapsedMs}`,
     );
   }
 }
@@ -2088,10 +2157,7 @@ export async function runEmbeddedAttempt(
     // the strict `<think>+<final>` block above; defense-in-depth pair with
     // the Phase 3 post-filter `english_meta_*` family in
     // `outbound-sanitizer.ts`. Sub-plan §6.4.
-    const internalReasoningHint = isInternalReasoningHintApplicable(
-      params.provider,
-      runtimeChannel,
-    )
+    const internalReasoningHint = isInternalReasoningHintApplicable(params.provider, runtimeChannel)
       ? INTERNAL_REASONING_HINT_TEXT
       : undefined;
     // Resolve channel-specific message actions for system prompt
@@ -3158,6 +3224,7 @@ export async function runEmbeddedAttempt(
               settlePromise: yieldAbortSettled,
               runId: params.runId,
               sessionId: params.sessionId,
+              timeoutMs: resolveSessionsYieldAbortSettleTimeoutMs(params.config),
             });
             stripSessionsYieldArtifacts(activeSession);
             if (yieldMessage) {
