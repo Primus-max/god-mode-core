@@ -52,7 +52,7 @@ import {
 } from "./outbound-sanitizer.js";
 import {
   isReplySanitizerSurface,
-  resolveReplySanitizerPolicy,
+  resolveReplySanitizerPolicyWithLocale,
 } from "./reply-sanitizer-policy.js";
 import { isPlainTextSurface, sanitizeForPlainText } from "./sanitize-text.js";
 import { resolveOutboundSendDep, type OutboundSendDeps } from "./send-deps.js";
@@ -416,7 +416,16 @@ function normalizePayloadsForChannelDelivery(
     // (telegram/etc → strip, webchat → structured, slack/discord → deferred).
     if (isReplySanitizerSurface(channel) && sanitizedPayload.text) {
       const beforeText = sanitizedPayload.text;
-      const policy = resolveReplySanitizerPolicy(channel);
+      // NEW-D Phase 4 (`commitment_kernel_locale_aware_sanitizer.plan.md` §5
+      // / phase 4 todo): swap the resolver to the locale-aware variant.
+      // For channels in `CHANNEL_LOCALE_DEFAULTS` (telegram → ['ru'],
+      // webchat → ['ru','en']) the resolved policy carries
+      // `policy.localeFilter`; the sanitizer runs the Phase 3 locale gate
+      // and emits a `locale_filter_block` strip event when the predominant
+      // locale of the post-strip text is absent from `allowedLocales`. For
+      // every other channel `localeFilter` is `undefined` and the locale
+      // gate is skipped — behavior byte-identical to pre-Phase-4 sanitizer.
+      const policy = resolveReplySanitizerPolicyWithLocale(channel);
       const sanitizationResult = sanitizeOutboundForExternalChannel(beforeText, policy);
       if (sanitizationResult.stripped.length > 0) {
         const finalText = sanitizationResult.text || EMPTY_AFTER_SANITIZATION_FALLBACK_TEXT;

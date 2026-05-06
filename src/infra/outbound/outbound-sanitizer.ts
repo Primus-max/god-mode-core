@@ -211,6 +211,26 @@ const OUTBOUND_LEAK_PATTERNS: readonly LeakPattern[] = [
 export type OutboundSanitizerStripEvent = {
   readonly patternId: string;
   readonly count: number;
+  /**
+   * Optional structured detail attached by the locale-filter branch (NEW-D
+   * Phase 4). Absent on the 16 diagnostic-pattern strip events (their shape
+   * stays byte-identical to pre-NEW-D). Present on `locale_filter_block`
+   * events so `formatOutboundSanitizerLog` can render the
+   * `[outbound-sanitizer] locale_filter applied locale=… reason=…` line
+   * without re-running the detector.
+   */
+  readonly detail?: OutboundSanitizerStripEventDetail;
+};
+
+/**
+ * Structured metadata for non-diagnostic strip events. `detected` is the
+ * predominant-locale verdict from `detectPredominantLocale`; `reason` records
+ * which locale was missing (e.g. `no_cyrillic` when `allowedLocales=['ru']`
+ * and the verdict is `en`).
+ */
+export type OutboundSanitizerStripEventDetail = {
+  readonly detected: "ru" | "en" | "other";
+  readonly reason: "no_cyrillic" | "no_latin" | "no_match";
 };
 
 export type OutboundSanitizerResult = {
@@ -324,7 +344,26 @@ export function sanitizeOutboundForExternalChannel(
       verdict.ratio >= policy.localeFilter.minimumRatio &&
       !policy.localeFilter.allowedLocales.includes(verdict.locale)
     ) {
-      events.push({ patternId: "locale_filter_block", count: 1 });
+      // NEW-D Phase 4 — structured detail surfaces detected locale + the
+      // reason the gate fired so `formatOutboundSanitizerLog` can render
+      // the `[outbound-sanitizer] locale_filter applied locale=…
+      // reason=…` line without re-running the detector. `reason` derives
+      // from which locale is missing from `allowedLocales`:
+      //   - `allowedLocales=['ru']` → `no_cyrillic`
+      //   - `allowedLocales=['en']` → `no_latin`
+      //   - any other configuration → `no_match`
+      const allowed = policy.localeFilter.allowedLocales;
+      const reason: OutboundSanitizerStripEventDetail["reason"] =
+        allowed.length === 1 && allowed[0] === "ru"
+          ? "no_cyrillic"
+          : allowed.length === 1 && allowed[0] === "en"
+            ? "no_latin"
+            : "no_match";
+      events.push({
+        patternId: "locale_filter_block",
+        count: 1,
+        detail: { detected: verdict.locale, reason },
+      });
       working = "";
     }
   }
@@ -340,6 +379,15 @@ export function sanitizeOutboundForExternalChannel(
 /**
  * Telemetry-event для `[outbound-sanitizer]`. Caller log'ает это в gateway log
  * на каждый strip (по одной строке per delivery, summary всех patterns).
+ *
+ * NEW-D Phase 4 — when one of the strip events is `locale_filter_block`
+ * (locale-gate fired; populated by the Phase 3 branch above with structured
+ * detail), the formatter PREPENDS an additional line of shape
+ * `[outbound-sanitizer] locale_filter applied locale=<detected>
+ * blocked=true reason=<no_cyrillic|no_latin|no_match> channel=<c>`
+ * separated by `\n` — `log.warn` handles multi-line strings as-is. The
+ * existing `event=stripped` line shape stays byte-identical so existing
+ * fixtures continue to match.
  */
 export function formatOutboundSanitizerLog(params: {
   readonly channel: string;
@@ -352,7 +400,17 @@ export function formatOutboundSanitizerLog(params: {
     .map(({ patternId, count }) => (count > 1 ? `${patternId}*${count}` : patternId))
     .join(",");
   const sessionPart = params.sessionKey ? ` session=${params.sessionKey}` : "";
-  return `[outbound-sanitizer] event=stripped channel=${params.channel} patterns=[${patterns}]${sessionPart} bytes_before=${params.bytesBefore} bytes_after=${params.bytesAfter}`;
+  const strippedLine = `[outbound-sanitizer] event=stripped channel=${params.channel} patterns=[${patterns}]${sessionPart} bytes_before=${params.bytesBefore} bytes_after=${params.bytesAfter}`;
+  const localeEvent = params.stripped.find(
+    (event): event is OutboundSanitizerStripEvent & {
+      readonly detail: OutboundSanitizerStripEventDetail;
+    } => event.patternId === "locale_filter_block" && event.detail !== undefined,
+  );
+  if (!localeEvent) {
+    return strippedLine;
+  }
+  const localeLine = `[outbound-sanitizer] locale_filter applied locale=${localeEvent.detail.detected} blocked=true reason=${localeEvent.detail.reason} channel=${params.channel}`;
+  return `${localeLine}\n${strippedLine}`;
 }
 
 /**

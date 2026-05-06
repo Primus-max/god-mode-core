@@ -270,4 +270,111 @@ describe("deliverOutboundPayloads / outbound sanitizer integration", () => {
     const overrides = sendTelegram.mock.calls[0]?.[2];
     expect(overrides).toEqual(expect.objectContaining({ replyToMessageId: 555 }));
   });
+
+  // NEW-D Phase 4 — locale gate wired through deliver.ts. Sub-plan:
+  // `.cursor/plans/commitment_kernel_locale_aware_sanitizer.plan.md` §5 / phase
+  // 4 todo. Live evidence L2392 in
+  // `C:/tmp/openclaw/openclaw-2026-05-06.log` —
+  // `[assistant-reply] runId=4407441e lang=en cyr=0 head="ALERT: Vladimir is
+  // waiting f..."` reached telegram (audience locale=ru). The four cases
+  // below close the regression and lock in backward-compat for channels
+  // without an entry in `CHANNEL_LOCALE_DEFAULTS`.
+
+  it(
+    "blocks ALERT-style English payload on telegram (locale=ru) and emits locale_filter telemetry",
+    async () => {
+      const sendTelegram = vi.fn().mockResolvedValue({ messageId: "m4", chatId: "c4" });
+      await deliverOutboundPayloads({
+        cfg: telegramCfg,
+        channel: "telegram",
+        to: "123",
+        payloads: [
+          {
+            text: "ALERT: Vladimir is waiting for confirmation",
+          },
+        ],
+        deps: { sendTelegram },
+        session: { key: "tg:alert" },
+      });
+
+      expect(sendTelegram).toHaveBeenCalledTimes(1);
+      const sentText = sendTelegram.mock.calls[0]?.[1];
+      // Empty-substituted with the existing fallback (block path).
+      expect(sentText).toBe("Запрос не удалось выполнить.");
+      const sanitizerLines = logMocks.warn.mock.calls
+        .map((call) => String(call[0]))
+        .filter((line) => line.startsWith("[outbound-sanitizer]"));
+      // Locale-filter telemetry must appear (separate from the existing
+      // `event=stripped` line). Shape per sub-plan §5.
+      const localeLine = sanitizerLines.find((line) => line.includes("locale_filter applied"));
+      expect(localeLine).toBeDefined();
+      expect(localeLine).toContain("locale=en");
+      expect(localeLine).toContain("blocked=true");
+      expect(localeLine).toContain("reason=no_cyrillic");
+      expect(localeLine).toContain("channel=telegram");
+    },
+  );
+
+  it("does not modify Russian payload on telegram (locale=ru) and emits no locale telemetry", async () => {
+    const sendTelegram = vi.fn().mockResolvedValue({ messageId: "m5", chatId: "c5" });
+    await deliverOutboundPayloads({
+      cfg: telegramCfg,
+      channel: "telegram",
+      to: "123",
+      payloads: [{ text: "Готово, всё выполнено успешно." }],
+      deps: { sendTelegram },
+    });
+
+    expect(sendTelegram).toHaveBeenCalledTimes(1);
+    const sentText = sendTelegram.mock.calls[0]?.[1];
+    expect(sentText).toBe("Готово, всё выполнено успешно.");
+    const sanitizerLines = logMocks.warn.mock.calls
+      .map((call) => String(call[0]))
+      .filter((line) => line.startsWith("[outbound-sanitizer]"));
+    expect(sanitizerLines).toHaveLength(0);
+  });
+
+  it("does not enforce locale on slack (no entry in CHANNEL_LOCALE_DEFAULTS) for Russian payload", async () => {
+    const sendSlack = vi.fn().mockResolvedValue({ messageId: "sl2", channel: "C2" });
+    await deliverOutboundPayloads({
+      cfg: slackCfg,
+      channel: "slack",
+      to: "C2",
+      payloads: [{ text: "Готово, всё выполнено успешно." }],
+      deps: { sendSlack },
+    });
+
+    expect(sendSlack).toHaveBeenCalledTimes(1);
+    const sentText = sendSlack.mock.calls[0]?.[1];
+    // Slack absent from CHANNEL_LOCALE_DEFAULTS v1 → policy.localeFilter
+    // undefined → Phase 3 branch skipped → byte-identical passthrough.
+    expect(sentText).toBe("Готово, всё выполнено успешно.");
+    const sanitizerLines = logMocks.warn.mock.calls
+      .map((call) => String(call[0]))
+      .filter((line) => line.startsWith("[outbound-sanitizer]"));
+    expect(sanitizerLines).toHaveLength(0);
+  });
+
+  it("preserves pre-Phase-4 behavior on signal (no locale default) for English payload", async () => {
+    // Regression: signal is in REPLY_SANITIZER_SURFACES (sanitizer runs) but
+    // NOT in CHANNEL_LOCALE_DEFAULTS (no locale gate). English text without
+    // any diagnostic markers must pass byte-identical, with no locale
+    // telemetry — pre-Phase-4 behavior preserved.
+    const sendSignal = vi.fn().mockResolvedValue({ messageId: "sg1" });
+    await deliverOutboundPayloads({
+      cfg: signalCfg,
+      channel: "signal",
+      to: "+1555",
+      payloads: [{ text: "Hello, this is a clean English reply with no markers." }],
+      deps: { sendSignal },
+    });
+
+    expect(sendSignal).toHaveBeenCalledTimes(1);
+    const sentText = sendSignal.mock.calls[0]?.[1];
+    expect(sentText).toBe("Hello, this is a clean English reply with no markers.");
+    const sanitizerLines = logMocks.warn.mock.calls
+      .map((call) => String(call[0]))
+      .filter((line) => line.startsWith("[outbound-sanitizer]"));
+    expect(sanitizerLines).toHaveLength(0);
+  });
 });
