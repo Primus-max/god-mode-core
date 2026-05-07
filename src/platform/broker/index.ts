@@ -45,3 +45,11 @@ export type {
   DecideQueuePlacementParams,
   DispatchDecision,
 } from "./decide-queue-placement.js";
+
+export { createConcurrentTurnBroker } from "./concurrent-turn-broker.js";
+
+export type {
+  BrokerSubmitResult,
+  ConcurrentTurnBroker,
+  ConcurrentTurnBrokerDeps,
+} from "./concurrent-turn-broker.js";
