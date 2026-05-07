@@ -19,6 +19,7 @@ import {
   PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_EFFECT_FAMILY,
+  PERSISTENT_WORKER_SUBSEQUENT_PUSH_AFFORDANCE_ENTRY,
   REMINDER_DELIVERED_AFFORDANCE_ENTRY,
   REMINDER_DELIVERED_EFFECT,
   REMINDER_EFFECT_FAMILY,
@@ -77,7 +78,7 @@ describe("effect-family registry", () => {
 });
 
 describe("affordance registry", () => {
-  it("registers Wave A persistent-session + Wave B chat-effect + Search-Composer Phase 2 web_research + cutover-3 Phase 4 artifact + cutover-4 Phase 4 repo + slice K Phase 3 reminder.delivered + Cron/Scheduler Phase 4 reminder.set affordances", () => {
+  it("registers Wave A persistent-session + Wave B chat-effect + Search-Composer Phase 2 web_research + cutover-3 Phase 4 artifact + cutover-4 Phase 4 repo + slice K Phase 3 reminder.delivered + Cron/Scheduler Phase 4 reminder.set + Bug F Phase 3 persistent_worker.subsequent_push affordances", () => {
     const registry = createAffordanceRegistry();
     expect(registry.all()).toEqual([
       PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
@@ -96,6 +97,7 @@ describe("affordance registry", () => {
       REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY,
       REMINDER_DELIVERED_AFFORDANCE_ENTRY,
       REMINDER_SET_AFFORDANCE_ENTRY,
+      PERSISTENT_WORKER_SUBSEQUENT_PUSH_AFFORDANCE_ENTRY,
     ]);
   });
 
@@ -124,21 +126,38 @@ describe("affordance registry", () => {
       channelId: "telegram" as ChannelId,
     } as const;
 
+    // Bug F Phase 3 widened the (communication, external_channel, create)
+    // slot to BOTH `answer.delivered` (in-turn user-facing reply, no
+    // preconditions) AND `persistent_worker.subsequent_push` (cron-fire
+    // boundary, dual-precondition gate). PolicyGate Stage 0/1 disambiguates
+    // at runtime via `requiredPreconditions`; the `findByFamily` selector is
+    // a structural-shape matcher and intentionally returns both candidates.
     const answerCreate = registry.findByFamily(
       COMMUNICATION_EFFECT_FAMILY,
       channelTarget,
       { kind: "create" },
     );
-    expect(answerCreate).toHaveLength(1);
-    expect(answerCreate[0]?.effect).toBe("answer.delivered");
+    expect(answerCreate).toHaveLength(2);
+    expect(answerCreate.map((c) => c.effect)).toEqual([
+      "answer.delivered",
+      "persistent_worker.subsequent_push",
+    ]);
 
+    // Bug F Phase 3 also widened the (communication, unspecified, create)
+    // slot — `persistent_worker.subsequent_push` accepts `unspecified` so
+    // affordance resolution at the cron-fire boundary works before the
+    // channel id is bound on the dispatch payload (Phase 4 runtime adapter
+    // resolves the channel from the persisted `WorkerRunRecord`).
     const clarificationCreate = registry.findByFamily(
       COMMUNICATION_EFFECT_FAMILY,
       { kind: "unspecified" },
       { kind: "create" },
     );
-    expect(clarificationCreate).toHaveLength(1);
-    expect(clarificationCreate[0]?.effect).toBe("clarification_requested");
+    expect(clarificationCreate).toHaveLength(2);
+    expect(clarificationCreate.map((c) => c.effect)).toEqual([
+      "clarification_requested",
+      "persistent_worker.subsequent_push",
+    ]);
 
     const externalObserve = registry.findByFamily(
       COMMUNICATION_EFFECT_FAMILY,
@@ -177,7 +196,9 @@ describe("affordance registry", () => {
 
     expect(registry.all()).toEqual([]);
     expect(registry.findByFamily(unknown, { kind: "unspecified" })).toEqual([]);
-    expect(createAffordanceRegistry().all()).toHaveLength(16);
+    // Bug F Phase 3: 16 pre-Bug-F entries + 1 new
+    // `persistent_worker.subsequent_push` entry = 17.
+    expect(createAffordanceRegistry().all()).toHaveLength(17);
   });
 });
 

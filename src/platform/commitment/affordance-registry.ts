@@ -8,6 +8,7 @@ import {
 import { docxCreatedPredicate } from "./done-predicate-docx-created.js";
 import { imageCreatedPredicate } from "./done-predicate-image-created.js";
 import { pdfCreatedPredicate } from "./done-predicate-pdf-created.js";
+import { persistentWorkerPushDeliveredPredicate } from "./done-predicate-persistent-worker-push.js";
 import { reminderDeliveredPredicate } from "./done-predicate-reminder-delivered.js";
 import { reminderSetPredicate } from "./done-predicate-reminder-set.js";
 import { repoBranchCreatedPredicate } from "./done-predicate-repo-branch-created.js";
@@ -16,6 +17,10 @@ import { repoDiffObservedPredicate } from "./done-predicate-repo-diff-observed.j
 import { repoMergeCompletedPredicate } from "./done-predicate-repo-merge-completed.js";
 import type { CommitmentTarget } from "./execution-commitment.js";
 import type { AffordanceId, EffectFamilyId, EffectId, PreconditionId } from "./ids.js";
+import {
+  PERSISTENT_WORKER_SUBSEQUENT_PUSH_EFFECT,
+  WORKER_REPORT_AVAILABLE_PRECONDITION,
+} from "../persistent-worker/persistent-worker-push-types.js";
 import {
   ARTIFACT_EFFECT_FAMILY,
   CODE_PATCH_APPLIED_EFFECT,
@@ -788,6 +793,122 @@ export const REMINDER_SET_AFFORDANCE_ENTRY = Object.freeze({
   donePredicate: reminderSetPredicate,
 } satisfies RegisteredAffordance);
 
+// ─── Bug F Phase 3 — persistent-worker subsequent-push affordance ──────────
+//
+// Additive registry extension under the existing `COMMUNICATION_EFFECT_FAMILY`
+// (sub-plan §3.1: REUSE; no new family registered — slice K P4 / Cutover-4 P4
+// precedent for additive frozen-layer touches). Sibling of
+// `ANSWER_DELIVERED_AFFORDANCE_ENTRY` (in-turn user-facing reply) and
+// `EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY` under the same family;
+// disambiguated structurally on the dual-precondition pair
+// `[IDENTITY_RESOLVED_PRECONDITION, WORKER_REPORT_AVAILABLE_PRECONDITION]`
+// — `answer.delivered` does NOT carry preconditions, so an in-turn reply
+// turn never resolves to this affordance, and a cron-fire boundary never
+// resolves to `answer.delivered` because `WORKER_REPORT_AVAILABLE_PRECONDITION`
+// is gated structurally on the persisted `WorkerRunRecord` (Phase 5).
+//
+// `operationKinds: ['create']` — sub-plan §1 todo Phase 3 / audit §h Phase 3:
+// the `OperationHint["kind"]` union (`semantic-intent.ts:15-20`) ships only
+// `'create' | 'update' | 'cancel' | 'observe' | 'custom'`. There is no
+// `'push'` literal; widening the union is a frozen-layer touch out of scope
+// for Phase 3. `'create'` matches the cron-fire boundary semantics
+// («new outbound push for the worker run completion» — first-time emit
+// per worker run, idempotent on retry via the Phase 5
+// `subsequentPushStatus='pushed'` mark-before-dispatch).
+//
+// `target: matchesPersistentWorkerSubsequentPushTarget` — accepts
+// `external_channel` and `unspecified` per sub-plan §3.1. `unspecified`
+// supports the cron-fire boundary where the affordance resolution happens
+// BEFORE the channel id is bound on the dispatch payload (Phase 4 runtime
+// adapter resolves the channel via the existing channel-resolver from
+// the persisted `WorkerRunRecord`).
+//
+// `riskTier: 'medium'` — state crosses the `/new` boundary (the worker-run
+// record lives in a Phase 5 persistent store, so `/new` does NOT clear it)
+// AND triggers an outbound push at fire-time (cron-fire callback dispatches
+// via the existing `delivery-dispatch.ts`). The risk is asymmetric vs
+// `answer.delivered` (low — same family, but in-turn reply, no
+// cross-turn idempotency surface).
+//
+// `defaultBudgets: {maxLatencyMs: 15_000, maxRetries: 0}` — mutation
+// idempotency unsafe (Cutover-4 P4 precedent — repo branch/commit/merge
+// + Cron-Scheduler P4 reminder.set all carry `maxRetries: 0`). A retry on
+// a transient persist or transport failure could double-push the worker
+// report to the operator at fire-time. Phase 5's mark-before-dispatch
+// (`subsequentPushStatus='pushed'` BEFORE the dispatch transition)
+// closes this gap one layer up; the retry-policy default is the second
+// belt-and-braces line.
+
+const PERSISTENT_WORKER_SUBSEQUENT_PUSH_AFFORDANCE =
+  "persistent_worker.subsequent_push" as AffordanceId;
+
+/**
+ * Matches the target shape produced by Phase 5 cron-fire callback
+ * resolution of persistent-worker subsequent-push turns. The callback
+ * ultimately dispatches via the existing `delivery-dispatch.ts`
+ * (REUSED — sub-plan §3.3) over a bound external channel
+ * (Telegram / Slack / etc.); accepting `unspecified` handles the
+ * cron-fire boundary where affordance resolution happens before the
+ * channel id is bound on the dispatch payload (Phase 4 runtime adapter
+ * resolves the channel via the existing channel-resolver from the
+ * persisted `WorkerRunRecord`).
+ *
+ * @param target - Commitment target candidate.
+ * @returns True for `external_channel` or `unspecified` only.
+ */
+function matchesPersistentWorkerSubsequentPushTarget(
+  target: CommitmentTarget,
+): boolean {
+  return target.kind === "external_channel" || target.kind === "unspecified";
+}
+
+export const PERSISTENT_WORKER_SUBSEQUENT_PUSH_AFFORDANCE_ENTRY = Object.freeze({
+  id: PERSISTENT_WORKER_SUBSEQUENT_PUSH_AFFORDANCE,
+  effectFamily: COMMUNICATION_EFFECT_FAMILY,
+  effect: PERSISTENT_WORKER_SUBSEQUENT_PUSH_EFFECT,
+  operationKinds: Object.freeze(["create"] satisfies OperationHint["kind"][]),
+  target: matchesPersistentWorkerSubsequentPushTarget,
+  // Anonymous fail-closed (slice K precedent + sub-plan §1 invariant #15 +
+  // audit §i NEW invariant). The Phase 5 cron-fire callback re-injects
+  // `wrappedScopeIdentityId = record.ownerIdentityId` from the persisted
+  // `WorkerRunRecord`, NEVER caller-supplied — but the affordance
+  // precondition prevents resolution when the resolver couldn't bind the
+  // identity at all (e.g. anonymous spawn). The
+  // `WORKER_REPORT_AVAILABLE_PRECONDITION` adds a second structural gate:
+  // the cron-fire callback must have located the persisted
+  // `WorkerRunRecord` and minted a `WorkerReportRef` Zod-validated payload
+  // (Phase 2 deliverable) before dispatch — an empty or malformed report
+  // resolves no affordance candidate.
+  requiredPreconditions: Object.freeze([
+    IDENTITY_RESOLVED_PRECONDITION,
+    WORKER_REPORT_AVAILABLE_PRECONDITION,
+  ]),
+  requiredEvidence: Object.freeze([
+    Object.freeze({
+      kind: "persistent_worker.subsequent_push",
+      mandatory: true,
+    }),
+  ]),
+  allowedConstraintKeys: Object.freeze([
+    "workerRunId",
+    "completedAt",
+    "deliveryChannel",
+    "deliveryTo",
+  ]),
+  riskTier: "medium",
+  // mutation idempotency unsafe — Cutover-4 P4 / Cron-Scheduler P4
+  // mutation precedent. The Phase 5 cron-fire callback marks
+  // `subsequentPushStatus='pushed'` BEFORE dispatch (idempotent-on-retry
+  // parity with reminder-fire-callback `markFired`); the retry-policy
+  // default is the second belt-and-braces line.
+  defaultBudgets: Object.freeze({
+    maxLatencyMs: 15_000,
+    maxRetries: 0,
+  }),
+  observerHandle: Object.freeze({ id: "persistent_worker_report_world_state" }),
+  donePredicate: persistentWorkerPushDeliveredPredicate,
+} satisfies RegisteredAffordance);
+
 const DEFAULT_AFFORDANCES = Object.freeze([
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
   ANSWER_DELIVERED_AFFORDANCE_ENTRY,
@@ -805,6 +926,7 @@ const DEFAULT_AFFORDANCES = Object.freeze([
   REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY,
   REMINDER_DELIVERED_AFFORDANCE_ENTRY,
   REMINDER_SET_AFFORDANCE_ENTRY,
+  PERSISTENT_WORKER_SUBSEQUENT_PUSH_AFFORDANCE_ENTRY,
 ] satisfies RegisteredAffordance[]);
 
 class StaticAffordanceRegistry implements AffordanceRegistry {
