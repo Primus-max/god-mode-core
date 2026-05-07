@@ -101,6 +101,35 @@ export type WebEvidenceWorldState = {
   readonly records: readonly WebEvidenceRecord[];
 };
 
+/**
+ * Slice K Phase 4 — `reminder` WorldState slice.
+ *
+ * Read-only descriptor of the most recent reminder query observed on
+ * the active turn. Populated by the Phase 4 `ReminderWorldStateObserver`
+ * (sibling of `ArtifactWorldStateObserver` / `RepoWorldStateObserver`
+ * from Cutover-3 / Cutover-4 P3); consumed by `reminderDeliveredPredicate`
+ * (Phase 3) which checks `lastQuery.queryId` against
+ * `expectedDelta.reminder.queryId`.
+ *
+ * Per-turn limit is 1 (single-shot query per turn) — slice K is a pure
+ * read-only consumer; multiple reminder queries on the same turn would
+ * either be redundant (same operator question) or constitute a separate
+ * commitment turn.
+ *
+ * `resultCount === 0` SATISFIES the predicate — operator was answered
+ * with structurally correct «no entries in window» (sub-plan §3
+ * acceptance #3).
+ */
+export type ReminderQueryRecord = {
+  readonly queryId: string;
+  readonly resultCount: number;
+  readonly observedAt: ISO8601;
+};
+
+export type ReminderWorldState = {
+  readonly lastQuery?: ReminderQueryRecord;
+};
+
 const ISO8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u;
 
 /**
@@ -180,11 +209,29 @@ export const repoOperationRecordSchema = z
   })
   .strict();
 
+/**
+ * Closed-shape schema for a single `ReminderQueryRecord` written by the
+ * slice K Phase 4 reminder runtime adapter on tool-emit. Validation
+ * rejects empty `queryId`, negative `resultCount`, and malformed
+ * ISO-8601 `observedAt`; the in-memory collector's `record(...)` method
+ * calls `parse(...)` so observer reads stay total. `resultCount` is a
+ * non-negative integer — zero IS a valid (and successful) outcome
+ * (sub-plan §3 acceptance #3).
+ */
+export const reminderQueryRecordSchema = z
+  .object({
+    queryId: z.string().min(1),
+    resultCount: z.number().int().nonnegative(),
+    observedAt: z.string().regex(ISO8601_PATTERN),
+  })
+  .strict();
+
 export type WorldStateSnapshot = {
   readonly sessions?: SessionWorldState;
   readonly artifacts?: ArtifactWorldState;
   readonly workspace?: WorkspaceWorldState;
   readonly repo?: RepoWorldState;
+  readonly reminder?: ReminderWorldState;
   readonly deliveries?: DeliveryWorldState;
   readonly webEvidence?: WebEvidenceWorldState;
 };

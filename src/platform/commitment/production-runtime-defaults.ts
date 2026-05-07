@@ -12,6 +12,10 @@ import {
   getProcessArtifactWorldStateCollector,
 } from "./artifact-world-state-observer.js";
 import {
+  createReminderWorldStateObserver,
+  getProcessReminderWorldStateCollector,
+} from "./reminder-world-state-observer.js";
+import {
   createRepoWorldStateObserver,
   getProcessRepoWorldStateCollector,
 } from "./repo-world-state-observer.js";
@@ -111,12 +115,16 @@ export function createDefaultMonitoredRuntime(options: {
   const repoObserver = createRepoWorldStateObserver(
     getProcessRepoWorldStateCollector(),
   );
+  const reminderObserver = createReminderWorldStateObserver(
+    getProcessReminderWorldStateCollector(),
+  );
   return createMonitoredRuntime({
     sessionObserver,
     deliveryObserver,
     webEvidenceObserver,
     artifactObserver,
     repoObserver,
+    reminderObserver,
   });
 }
 

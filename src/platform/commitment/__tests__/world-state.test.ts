@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   artifactRecordSchema,
+  reminderQueryRecordSchema,
   repoOperationRecordSchema,
   webEvidenceRecordSchema,
   type ArtifactRecord,
   type ArtifactWorldState,
+  type ReminderQueryRecord,
+  type ReminderWorldState,
   type RepoOperationRecord,
   type RepoWorldState,
   type WebEvidenceRecord,
@@ -533,5 +536,102 @@ describe("RepoSlice — Cutover-4 Phase 3 (type + read-side)", () => {
       "repo-op-1",
       "repo-op-2",
     ]);
+  });
+});
+
+describe("ReminderSlice — Slice K Phase 4 (type + read-side)", () => {
+  it("WorldStateSnapshot accepts the optional reminder slice with no lastQuery", () => {
+    const empty: ReminderWorldState = Object.freeze({});
+    const snapshot: WorldStateSnapshot = Object.freeze({ reminder: empty });
+    expect(snapshot.reminder).toBeDefined();
+    expect(snapshot.reminder?.lastQuery).toBeUndefined();
+    expect(Object.isFrozen(snapshot.reminder)).toBe(true);
+  });
+
+  it("WorldStateSnapshot tolerates absence of the reminder slice (existing snapshots remain valid)", () => {
+    const snapshot: WorldStateSnapshot = Object.freeze({});
+    expect(snapshot.reminder).toBeUndefined();
+  });
+
+  it("ReminderQueryRecord carries queryId + resultCount + observedAt", () => {
+    const record: ReminderQueryRecord = Object.freeze({
+      queryId: "rem:q-1",
+      resultCount: 5,
+      observedAt: ISO_NOW,
+    });
+    expect(record.queryId).toBe("rem:q-1");
+    expect(record.resultCount).toBe(5);
+    expect(record.observedAt).toBe(ISO_NOW);
+  });
+
+  it("ReminderWorldState carries an optional lastQuery record", () => {
+    const slice: ReminderWorldState = Object.freeze({
+      lastQuery: Object.freeze({
+        queryId: "rem:q-1",
+        resultCount: 3,
+        observedAt: ISO_NOW,
+      }),
+    });
+    const snapshot: WorldStateSnapshot = Object.freeze({ reminder: slice });
+    expect(snapshot.reminder?.lastQuery?.queryId).toBe("rem:q-1");
+    expect(snapshot.reminder?.lastQuery?.resultCount).toBe(3);
+  });
+
+  it("reminderQueryRecordSchema accepts the canonical shape (resultCount = 0 IS valid — empty result IS success)", () => {
+    expect(
+      reminderQueryRecordSchema.safeParse({
+        queryId: "rem:q-1",
+        resultCount: 0,
+        observedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(true);
+    expect(
+      reminderQueryRecordSchema.safeParse({
+        queryId: "rem:q-1",
+        resultCount: 42,
+        observedAt: "2026-05-02T11:00:00Z",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("reminderQueryRecordSchema rejects empty queryId", () => {
+    expect(
+      reminderQueryRecordSchema.safeParse({
+        queryId: "",
+        resultCount: 1,
+        observedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("reminderQueryRecordSchema rejects negative resultCount", () => {
+    expect(
+      reminderQueryRecordSchema.safeParse({
+        queryId: "rem:q-1",
+        resultCount: -1,
+        observedAt: "2026-05-02T11:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("reminderQueryRecordSchema rejects malformed ISO-8601 observedAt", () => {
+    expect(
+      reminderQueryRecordSchema.safeParse({
+        queryId: "rem:q-1",
+        resultCount: 0,
+        observedAt: "not-a-date",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("reminderQueryRecordSchema rejects extra fields (strict)", () => {
+    expect(
+      reminderQueryRecordSchema.safeParse({
+        queryId: "rem:q-1",
+        resultCount: 0,
+        observedAt: "2026-05-02T11:00:00.000Z",
+        extra: "nope",
+      }).success,
+    ).toBe(false);
   });
 });
