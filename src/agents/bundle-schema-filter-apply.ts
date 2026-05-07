@@ -55,6 +55,55 @@
 // NOT clone the tool objects themselves) so downstream identity-sensitive
 // checks (e.g. `applyModelProviderToolPolicy` already-filtered detection,
 // future telemetry hashing) keep working.
+//
+// ─── Phase 5 — architectural decision: reverse-defense vs `applyModelProviderToolPolicy` ───
+//
+// The reverse-defense layer is SYMMETRIC to `applyModelProviderToolPolicy`
+// (`src/agents/pi-tools.ts:94-104`):
+//
+//   - `applyModelProviderToolPolicy`: removes DDG `web_search` from models
+//     that DO have a native web-search tool (`nativeWebSearchTool === true`).
+//     This is the FORWARD direction — preventing a collision between two
+//     `web_search`-shaped tools in the same request.
+//   - `filterToolSchemaByBundle` reverse-defense: removes DDG `web_search`
+//     from models that do NOT have a native web-search tool
+//     (`nativeWebSearchTool !== true`) UNLESS the turn carries a
+//     `public_web_lookup` bundle (the legitimate authorising signal). This
+//     is the REVERSE direction — preventing a non-native model from
+//     autonomously invoking DDG when no contract authorised it (the exact
+//     `gateway-grok-route.log` 2026-05-02 turn `355ae135` failure mode).
+//
+// `applyModelProviderToolPolicy` is INTENTIONALLY NOT MODIFIED by this slice
+// (sub-plan §5 out-of-scope row 6 — "Modifying `applyModelProviderToolPolicy`
+// (`pi-tools.ts:94-104`) — Phase 5 is SYMMETRIC defense, NOT refactor of the
+// existing filter."). Its native-search-removes-DDG semantics are retained
+// verbatim. The reverse-defense is added AS A SEPARATE LAYER inside the new
+// bundle-filter rather than amending the sister filter, so:
+//
+//   - Each filter's diff stays minimal, simplifying review and rollback.
+//   - The semantic boundary stays clear: capability-driven (sister filter)
+//     vs contract-driven (this filter).
+//   - Failure modes do not fan in: a regression in one direction does not
+//     undo the other.
+//
+// Filter chain ordering at the schema-construction site
+// (`src/agents/pi-embedded-runner/run/attempt.ts:2074-2080`, Phase 4 wiring):
+//
+//   1. `createOpenClawCodingTools(...)` — full catalog construction. Calls
+//      `applyMessageProviderToolPolicy` and `applyModelProviderToolPolicy`
+//      INTERNALLY. Untouched by this slice.
+//   2. `applyBundleSchemaFilterAtAttempt(...)` — bundle allowlist (layer 1)
+//      + reverse-defense (layer 2). Defense-in-depth atop chain step 1.
+//   3. `disableWebSearchTool` post-filter and `sanitizeToolsForGoogle` —
+//      untouched by this slice.
+//
+// Defense-in-depth: a tool can only reach the LLM if it survives BOTH the
+// existing filter chain AND the new bundle filter. Reverse-defense fires
+// INDEPENDENT of the bundle allowlist (Phase 5 integration test
+// `bundle-filter-reverse-defense-integration.test.ts` Case 1b proves this:
+// even if a future drift widens the bundle allowlist to include
+// `web_search`, reverse-defense still removes it for non-native-search
+// models that lack a `public_web_lookup` bundle).
 
 import {
   type BundleId,
