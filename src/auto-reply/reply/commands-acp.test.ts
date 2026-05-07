@@ -1,9 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AcpRuntimeError } from "../../acp/runtime/errors.js";
-import { setDefaultChannelPluginRegistryForTests } from "../../commands/channel-test-helpers.js";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AcpRuntimeError as AcpRuntimeErrorType } from "../../acp/runtime/errors.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionBindingRecord } from "../../infra/outbound/session-binding-service.js";
-import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
 
 const hoisted = vi.hoisted(() => {
   const callGatewayMock = vi.fn();
@@ -111,9 +109,33 @@ vi.mock("../../../extensions/discord/src/monitor/gateway-plugin.js", () => ({
   createDiscordGatewayPlugin: () => ({}),
 }));
 
-const { handleAcpCommand } = await import("./commands-acp.js");
-const { buildCommandTestParams } = await import("./commands-spawn.test-harness.js");
-const { __testing: acpManagerTesting } = await import("../../acp/control-plane/manager.js");
+// `test/setup.ts` transitively pre-loads `acp/control-plane/manager.types.ts`
+// (via `context.ts` -> `model-selection.ts` -> ... and via test-time channel
+// plugin wiring), which captures `requireAcpRuntimeBackend` into
+// `DEFAULT_DEPS.requireRuntimeBackend` BEFORE this file's
+// `vi.mock("../../acp/runtime/registry.js")` factory registers. Without
+// `vi.resetModules()` the manager keeps the REAL `requireAcpRuntimeBackend`
+// reference (the registry has no backend in tests, so `/acp spawn` etc. fail
+// with `ACP_BACKEND_MISSING` instead of routing through the test mock).
+// Same root cause as PR #303 / #304 / #305.
+let handleAcpCommand: (typeof import("./commands-acp.js"))["handleAcpCommand"];
+let buildCommandTestParams: (typeof import("./commands-spawn.test-harness.js"))["buildCommandTestParams"];
+let acpManagerTesting: (typeof import("../../acp/control-plane/manager.js"))["__testing"];
+let AcpRuntimeError: typeof AcpRuntimeErrorType;
+let setDefaultChannelPluginRegistryForTests: (typeof import("../../commands/channel-test-helpers.js"))["setDefaultChannelPluginRegistryForTests"];
+let INTERNAL_MESSAGE_CHANNEL: (typeof import("../../utils/message-channel.js"))["INTERNAL_MESSAGE_CHANNEL"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  ({ handleAcpCommand } = await import("./commands-acp.js"));
+  ({ buildCommandTestParams } = await import("./commands-spawn.test-harness.js"));
+  ({ __testing: acpManagerTesting } = await import("../../acp/control-plane/manager.js"));
+  ({ AcpRuntimeError } = await import("../../acp/runtime/errors.js"));
+  ({ setDefaultChannelPluginRegistryForTests } = await import(
+    "../../commands/channel-test-helpers.js"
+  ));
+  ({ INTERNAL_MESSAGE_CHANNEL } = await import("../../utils/message-channel.js"));
+});
 
 type FakeBinding = {
   bindingId: string;

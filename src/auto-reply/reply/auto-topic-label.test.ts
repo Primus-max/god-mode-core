@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const completeSimple = vi.hoisted(() => vi.fn());
 const getApiKeyForModel = vi.hoisted(() => vi.fn());
@@ -32,7 +32,20 @@ vi.mock("../../agents/simple-completion-transport.js", () => ({
   prepareModelForSimpleCompletion,
 }));
 
-import { generateTopicLabel, resolveAutoTopicLabelConfig } from "./auto-topic-label.js";
+// `test/setup.ts` transitively pre-loads `agents/model-auth.js` and
+// `agents/model-selection.js` (via `context.ts` -> `model-selection.ts` chain)
+// BEFORE this file's `vi.mock` factories register. Without `vi.resetModules()`
+// the subject-under-test (`auto-topic-label.ts`) keeps its bound references to
+// the REAL `getApiKeyForModel` / `resolveDefaultModelForAgent`, which then hit
+// the real auth-store on disk and throw "No API key found for provider …".
+// Same root cause as PR #303 / #304 / #305.
+let generateTopicLabel: (typeof import("./auto-topic-label.js"))["generateTopicLabel"];
+let resolveAutoTopicLabelConfig: (typeof import("./auto-topic-label.js"))["resolveAutoTopicLabelConfig"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  ({ generateTopicLabel, resolveAutoTopicLabelConfig } = await import("./auto-topic-label.js"));
+});
 
 describe("resolveAutoTopicLabelConfig", () => {
   const DEFAULT_PROMPT_SUBSTRING = "Generate a very short topic label";

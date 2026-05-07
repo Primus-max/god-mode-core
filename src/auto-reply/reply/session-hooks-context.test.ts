@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import type { HookRunner } from "../../plugins/hooks.js";
@@ -21,7 +21,18 @@ vi.mock("../../plugins/hook-runner-global.js", () => ({
     }) as unknown as HookRunner,
 }));
 
-const { initSessionState } = await import("./session.js");
+// `test/setup.ts` transitively pre-loads `auto-reply/reply/session.js` and
+// its hook-runner-global dependency BEFORE this file's
+// `vi.mock("../../plugins/hook-runner-global.js")` factory registers, so
+// `initSessionState` keeps the REAL `getGlobalHookRunner` reference and
+// `hookRunnerMocks.runSessionStart` is never called. Same root cause as
+// PR #303 / #304 / #305 — fix is `vi.resetModules()` + dynamic re-import.
+let initSessionState: (typeof import("./session.js"))["initSessionState"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  ({ initSessionState } = await import("./session.js"));
+});
 
 async function createStorePath(prefix: string): Promise<string> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), `${prefix}-`));

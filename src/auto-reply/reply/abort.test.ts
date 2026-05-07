@@ -1,24 +1,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { SubagentRunRecord } from "../../agents/subagent-registry.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import {
-  getAbortMemory,
-  getAbortMemorySizeForTest,
-  isAbortRequestText,
-  isAbortTrigger,
-  resetAbortMemoryForTest,
-  resolveAbortCutoffFromContext,
-  resolveSessionEntryForKey,
-  setAbortMemory,
-  shouldSkipMessageByAbortCutoff,
-  tryFastAbortFromMessage,
-} from "./abort.js";
-import { enqueueFollowupRun, getFollowupQueueDepth, type FollowupRun } from "./queue.js";
-import { initSessionState } from "./session.js";
-import { buildTestCtx } from "./test-ctx.js";
+import type { FollowupRun } from "./queue.js";
 
 vi.mock("../../agents/pi-embedded.js", () => ({
   abortEmbeddedPiRun: vi.fn().mockReturnValue(true),
@@ -63,6 +49,49 @@ vi.mock("../../acp/control-plane/manager.js", () => ({
     cancelSession: acpManagerMocks.cancelSession,
   }),
 }));
+
+// `test/setup.ts` transitively pre-loads `auto-reply/reply/abort.js`'s
+// dependency chain (via `context.ts` -> `model-selection.ts` and via shared
+// session-state helpers), which captures the REAL `clearCommandLane`,
+// `markSubagentRunTerminated` and ACP-manager references BEFORE this file's
+// `vi.mock` factories register. Without `vi.resetModules()` the SUT keeps the
+// real bindings and the test mocks (`commandQueueMocks.clearCommandLane`,
+// `subagentRegistryMocks.markSubagentRunTerminated`, `acpManagerMocks.cancelSession`)
+// are never invoked — assertions like `expect(...).toHaveBeenCalledWith(...)`
+// see "Number of calls: 0". Same root cause as PR #303 / #304 / #305.
+let getAbortMemory: (typeof import("./abort.js"))["getAbortMemory"];
+let getAbortMemorySizeForTest: (typeof import("./abort.js"))["getAbortMemorySizeForTest"];
+let isAbortRequestText: (typeof import("./abort.js"))["isAbortRequestText"];
+let isAbortTrigger: (typeof import("./abort.js"))["isAbortTrigger"];
+let resetAbortMemoryForTest: (typeof import("./abort.js"))["resetAbortMemoryForTest"];
+let resolveAbortCutoffFromContext: (typeof import("./abort.js"))["resolveAbortCutoffFromContext"];
+let resolveSessionEntryForKey: (typeof import("./abort.js"))["resolveSessionEntryForKey"];
+let setAbortMemory: (typeof import("./abort.js"))["setAbortMemory"];
+let shouldSkipMessageByAbortCutoff: (typeof import("./abort.js"))["shouldSkipMessageByAbortCutoff"];
+let tryFastAbortFromMessage: (typeof import("./abort.js"))["tryFastAbortFromMessage"];
+let enqueueFollowupRun: (typeof import("./queue.js"))["enqueueFollowupRun"];
+let getFollowupQueueDepth: (typeof import("./queue.js"))["getFollowupQueueDepth"];
+let initSessionState: (typeof import("./session.js"))["initSessionState"];
+let buildTestCtx: (typeof import("./test-ctx.js"))["buildTestCtx"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  ({
+    getAbortMemory,
+    getAbortMemorySizeForTest,
+    isAbortRequestText,
+    isAbortTrigger,
+    resetAbortMemoryForTest,
+    resolveAbortCutoffFromContext,
+    resolveSessionEntryForKey,
+    setAbortMemory,
+    shouldSkipMessageByAbortCutoff,
+    tryFastAbortFromMessage,
+  } = await import("./abort.js"));
+  ({ enqueueFollowupRun, getFollowupQueueDepth } = await import("./queue.js"));
+  ({ initSessionState } = await import("./session.js"));
+  ({ buildTestCtx } = await import("./test-ctx.js"));
+});
 
 describe("abort detection", () => {
   async function writeSessionStore(

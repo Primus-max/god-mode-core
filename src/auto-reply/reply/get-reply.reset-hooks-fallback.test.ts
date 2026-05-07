@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MsgContext } from "../templating.js";
 import { registerGetReplyCommonMocks } from "./get-reply.test-mocks.js";
 
@@ -30,7 +30,19 @@ vi.mock("./session.js", () => ({
   initSessionState: (...args: unknown[]) => mocks.initSessionState(...args),
 }));
 
-const { getReplyFromConfig } = await import("./get-reply.js");
+// `test/setup.ts` transitively pre-loads `get-reply.js`'s deep dependency
+// chain BEFORE this file's `vi.mock` factories register, so the SUT keeps
+// the REAL `handleInlineActions` reference. The real implementation does a
+// dynamic `await import("./commands.runtime.js")` which then fails with
+// `TypeError: handleCommands is not a function` because the runtime barrel
+// is not present in the test module cache. Same root cause as PR #303 /
+// #304 / #305 — fix is `vi.resetModules()` + dynamic re-import of the SUT.
+let getReplyFromConfig: (typeof import("./get-reply.js"))["getReplyFromConfig"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  ({ getReplyFromConfig } = await import("./get-reply.js"));
+});
 
 function buildNativeResetContext(): MsgContext {
   return {
