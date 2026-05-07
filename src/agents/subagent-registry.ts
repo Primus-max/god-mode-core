@@ -1235,6 +1235,32 @@ export function markSubagentRunForSteerRestart(runId: string) {
 }
 
 /**
+ * Bug F (persistent-worker subsequent push) Phase 5c — read accessor used
+ * by the production bootstrap to construct the
+ * `PersistentWorkerSubagentStore` closure handed to the cron-fire
+ * callback. Returns the run record by `runId` (in-memory map lookup;
+ * trims `runId` so empty / whitespace surfaces as `undefined`); returns
+ * `undefined` when the run is unknown.
+ *
+ * Cross-identity defense lives at the callback layer (the callback
+ * fail-closes when `record.ownerIdentityId` is missing / unbranded AND
+ * every dispatch payload re-uses `record.ownerIdentityId` — never
+ * caller-supplied; sub-plan §1 audit §i NEW invariant). This accessor
+ * intentionally predicates on `runId` ONLY so the closure shape matches
+ * the `PersistentWorkerSubagentStore.get(workerRunId)` contract from
+ * `persistent-worker-push-fire-callback.ts`.
+ */
+export function getSubagentRunRecord(
+  runId: string,
+): SubagentRunRecord | undefined {
+  const key = runId.trim();
+  if (!key) {
+    return undefined;
+  }
+  return subagentRuns.get(key);
+}
+
+/**
  * Bug F (persistent-worker subsequent push) Phase 5 — mark the run's
  * `subsequentPushStatus` to one of `pending` | `pushed` | `failed`.
  *
