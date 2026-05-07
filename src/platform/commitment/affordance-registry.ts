@@ -9,6 +9,7 @@ import { docxCreatedPredicate } from "./done-predicate-docx-created.js";
 import { imageCreatedPredicate } from "./done-predicate-image-created.js";
 import { pdfCreatedPredicate } from "./done-predicate-pdf-created.js";
 import { reminderDeliveredPredicate } from "./done-predicate-reminder-delivered.js";
+import { reminderSetPredicate } from "./done-predicate-reminder-set.js";
 import { repoBranchCreatedPredicate } from "./done-predicate-repo-branch-created.js";
 import { repoCommitLandedPredicate } from "./done-predicate-repo-commit-landed.js";
 import { repoDiffObservedPredicate } from "./done-predicate-repo-diff-observed.js";
@@ -25,6 +26,7 @@ import {
   PERSISTENT_SESSION_EFFECT_FAMILY,
   REMINDER_DELIVERED_EFFECT,
   REMINDER_EFFECT_FAMILY,
+  REMINDER_SET_EFFECT,
   REPO_BRANCH_CREATED_EFFECT,
   REPO_COMMIT_LANDED_EFFECT,
   REPO_DIFF_OBSERVED_EFFECT,
@@ -685,6 +687,107 @@ export const REMINDER_DELIVERED_AFFORDANCE_ENTRY = Object.freeze({
   donePredicate: reminderDeliveredPredicate,
 } satisfies RegisteredAffordance);
 
+// ─── Cron/Scheduler Phase 4 — reminder.set affordance (write-side) ─────────
+//
+// Sibling of `REMINDER_DELIVERED_AFFORDANCE_ENTRY` (slice K — read-side
+// recall) under the SAME `REMINDER_EFFECT_FAMILY`. Phase 2 (PR-#257) widened
+// the family allowlist from `['observe']` to `['observe','create']`; Phase 4
+// adds the create-side affordance entry. Branching factor on the reminder
+// family becomes 2: `findByFamily('reminder', target, op={kind:'observe'})`
+// resolves to slice K's affordance; `findByFamily('reminder', target,
+// op={kind:'create'})` resolves to this entry. The two affordances have
+// disjoint `operationKinds` arrays so no collision under target overlap.
+//
+// `riskTier: 'medium'` — state crosses `/new` boundary (the reminder lives
+// in a Phase 6 SqliteReminderStore identity-scoped persistent store, so
+// `/new` does NOT clear it) AND triggers an outbound push at fire-time
+// (Cron-fire callback dispatches via existing `delivery-dispatch.ts`). The
+// risk is asymmetric vs slice K (low — read-only, identity-scoped, no
+// outbound network).
+//
+// `defaultBudgets.maxRetries: 0` — mutation idempotency is unsafe (Cutover-4
+// P4 mutation precedent — repo branch/commit/merge all carry `maxRetries: 0`).
+// Duplicate reminder = double-ping disasters: a maxRetries=1 retry on a
+// transient persist failure could create two `(reminderId, fireAt)` records
+// that BOTH fire to the operator at fireAt. The Phase 6 SqliteReminderStore
+// keys on `reminder_id` PRIMARY KEY so a duplicate INSERT is rejected at
+// SQL, but the retry-policy default closes the gap one layer up.
+//
+// `IDENTITY_RESOLVED_PRECONDITION` — anonymous fail-closed (slice K precedent
+// + sub-plan §1 invariant #15 + audit §i NEW invariant). The Phase 5
+// `RecordReminderTool` rejects empty `ownerIdentityId` via
+// `identity_unavailable` failure code; the affordance precondition prevents
+// the tool from being invoked at all when the resolver couldn't bind the
+// identity.
+//
+// `requiredEvidence: [{kind: 'reminder.scheduled', mandatory: true}]` — the
+// done-predicate emits this evidence kind on satisfy with the matched
+// record's identity-scoped fields (NOT the content — content is reflected
+// only at fire-time delivery, not in the evidence trail).
+//
+// `donePredicate: reminderSetPredicate` — reads
+// `state.scheduledReminders?.records` for record matching `reminderId` from
+// `expectedDelta.scheduledReminders?.added[]`. Satisfies on
+// `status === 'pending'` (reminder scheduled, cron callback registered;
+// firing is downstream — Phase 5 cron-fire callback transitions to `fired`
+// AFTER the predicate runs). Closed missing-key set in
+// `done-predicate-reminder-set.ts`. NEVER throws (#9).
+
+const REMINDER_SET_AFFORDANCE = "reminder.set" as AffordanceId;
+
+/**
+ * Matches the target shape produced by Phase 7 IntentContractor classification
+ * of "set reminder" turns. Per sub-plan §1 todo Phase 4: target matcher
+ * accepts `kind === 'session_state' || kind === 'unspecified'`. The frozen
+ * `TargetRef` union (`semantic-intent.ts:8-13`) does NOT carry the
+ * `session_state` variant — slice K Phase 3 `matchesReminderDeliveredTarget`
+ * documented this same gap (out-of-scope frozen-layer widening). For
+ * forward-compat without widening the frozen contract we compare the literal
+ * via a structural cast; today the contractor emits `target.kind=unspecified`
+ * for «напомни мне через 30 минут позвонить клиенту X» turns, and a future
+ * `TargetRef` widening that adds `session_state` (e.g. when the contractor
+ * binds the active session-state surface explicitly) resolves to this
+ * affordance without registry churn.
+ *
+ * @param target - Commitment target candidate.
+ * @returns True for `unspecified` or the forward-compat `session_state` kind.
+ */
+function matchesReminderSetTarget(target: CommitmentTarget): boolean {
+  const kind = (target as { kind: string }).kind;
+  return kind === "session_state" || kind === "unspecified";
+}
+
+export const REMINDER_SET_AFFORDANCE_ENTRY = Object.freeze({
+  id: REMINDER_SET_AFFORDANCE,
+  effectFamily: REMINDER_EFFECT_FAMILY,
+  effect: REMINDER_SET_EFFECT,
+  operationKinds: Object.freeze(["create"] satisfies OperationHint["kind"][]),
+  target: matchesReminderSetTarget,
+  // Anonymous fail-closed — slice K precedent. The Phase 5 runtime adapter
+  // additionally enforces `ownerIdentityId.trim().length > 0` at the tool
+  // boundary; this precondition prevents affordance resolution when the
+  // session-context resolver hasn't bound an identity at all.
+  requiredPreconditions: Object.freeze([IDENTITY_RESOLVED_PRECONDITION]),
+  requiredEvidence: Object.freeze([
+    Object.freeze({ kind: "reminder.scheduled", mandatory: true }),
+  ]),
+  allowedConstraintKeys: Object.freeze([
+    "fireAt",
+    "content",
+    "deliveryChannel",
+    "deliveryTo",
+    "recurrence",
+  ]),
+  riskTier: "medium",
+  // mutation idempotency unsafe — Cutover-4 P4 mutation precedent.
+  defaultBudgets: Object.freeze({
+    maxLatencyMs: 10_000,
+    maxRetries: 0,
+  }),
+  observerHandle: Object.freeze({ id: "scheduled_reminder_world_state" }),
+  donePredicate: reminderSetPredicate,
+} satisfies RegisteredAffordance);
+
 const DEFAULT_AFFORDANCES = Object.freeze([
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
   ANSWER_DELIVERED_AFFORDANCE_ENTRY,
@@ -701,6 +804,7 @@ const DEFAULT_AFFORDANCES = Object.freeze([
   REPO_MERGE_COMPLETED_AFFORDANCE_ENTRY,
   REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY,
   REMINDER_DELIVERED_AFFORDANCE_ENTRY,
+  REMINDER_SET_AFFORDANCE_ENTRY,
 ] satisfies RegisteredAffordance[]);
 
 class StaticAffordanceRegistry implements AffordanceRegistry {

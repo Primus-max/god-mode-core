@@ -22,6 +22,8 @@ import {
   REMINDER_DELIVERED_AFFORDANCE_ENTRY,
   REMINDER_DELIVERED_EFFECT,
   REMINDER_EFFECT_FAMILY,
+  REMINDER_SET_AFFORDANCE_ENTRY,
+  REMINDER_SET_EFFECT,
   REPO_BRANCH_CREATED_AFFORDANCE_ENTRY,
   REPO_COMMIT_LANDED_AFFORDANCE_ENTRY,
   REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY,
@@ -75,7 +77,7 @@ describe("effect-family registry", () => {
 });
 
 describe("affordance registry", () => {
-  it("registers Wave A persistent-session + Wave B chat-effect + Search-Composer Phase 2 web_research + cutover-3 Phase 4 artifact + cutover-4 Phase 4 repo + slice K Phase 3 reminder affordances", () => {
+  it("registers Wave A persistent-session + Wave B chat-effect + Search-Composer Phase 2 web_research + cutover-3 Phase 4 artifact + cutover-4 Phase 4 repo + slice K Phase 3 reminder.delivered + Cron/Scheduler Phase 4 reminder.set affordances", () => {
     const registry = createAffordanceRegistry();
     expect(registry.all()).toEqual([
       PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
@@ -93,6 +95,7 @@ describe("affordance registry", () => {
       REPO_MERGE_COMPLETED_AFFORDANCE_ENTRY,
       REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY,
       REMINDER_DELIVERED_AFFORDANCE_ENTRY,
+      REMINDER_SET_AFFORDANCE_ENTRY,
     ]);
   });
 
@@ -174,7 +177,7 @@ describe("affordance registry", () => {
 
     expect(registry.all()).toEqual([]);
     expect(registry.findByFamily(unknown, { kind: "unspecified" })).toEqual([]);
-    expect(createAffordanceRegistry().all()).toHaveLength(15);
+    expect(createAffordanceRegistry().all()).toHaveLength(16);
   });
 });
 
@@ -829,9 +832,9 @@ describe("affordance registry — reminder family (slice K Phase 3)", () => {
     ).toEqual([]);
   });
 
-  it("does not resolve create/update/cancel operations on the reminder affordance (observe-only invariant #11)", () => {
+  it("does not resolve update/cancel operations on the reminder family (Phase 2 widened to ['observe','create'] only — branching factor=2, not 4)", () => {
     const registry = createAffordanceRegistry();
-    for (const opKind of ["create", "update", "cancel"] as const) {
+    for (const opKind of ["update", "cancel"] as const) {
       expect(
         registry.findByFamily(
           REMINDER_EFFECT_FAMILY,
@@ -840,6 +843,35 @@ describe("affordance registry — reminder family (slice K Phase 3)", () => {
         ),
       ).toEqual([]);
     }
+  });
+
+  it("Cron/Scheduler Phase 4: findByFamily(reminder, {kind:'unspecified'}, 'create') resolves only the reminder.set affordance (NOT slice K's reminder.delivered)", () => {
+    const registry = createAffordanceRegistry();
+    const candidates = registry.findByFamily(
+      REMINDER_EFFECT_FAMILY,
+      { kind: "unspecified" },
+      { kind: "create" },
+    );
+    expect(candidates.map((c) => c.id)).toEqual([REMINDER_SET_AFFORDANCE_ENTRY.id]);
+    // Disjoint from slice K observe-affordance.
+    expect(candidates.map((c) => c.id)).not.toContain(
+      REMINDER_DELIVERED_AFFORDANCE_ENTRY.id,
+    );
+  });
+
+  it("Cron/Scheduler Phase 4: findByFamily(reminder, {kind:'unspecified'}, 'observe') still resolves only slice K's reminder.delivered (branching factor=2 verified)", () => {
+    const registry = createAffordanceRegistry();
+    const candidates = registry.findByFamily(
+      REMINDER_EFFECT_FAMILY,
+      { kind: "unspecified" },
+      { kind: "observe" },
+    );
+    expect(candidates.map((c) => c.id)).toEqual([
+      REMINDER_DELIVERED_AFFORDANCE_ENTRY.id,
+    ]);
+    expect(candidates.map((c) => c.id)).not.toContain(
+      REMINDER_SET_AFFORDANCE_ENTRY.id,
+    );
   });
 
   it("declares IDENTITY_RESOLVED_PRECONDITION as a unique branded id, anonymous-fail-closed (sub-plan acceptance #8)", () => {
@@ -940,6 +972,168 @@ describe("affordance registry — reminder family (slice K Phase 3)", () => {
     expect(result.satisfied).toBe(false);
     expect(result.satisfied === false ? result.missing : []).toEqual([
       "reminder.slice_absent",
+    ]);
+  });
+});
+
+describe("affordance registry — reminder.set (Cron/Scheduler Phase 4)", () => {
+  it("registers REMINDER_SET_AFFORDANCE_ENTRY under REMINDER_EFFECT_FAMILY with effect REMINDER_SET_EFFECT", () => {
+    expect(REMINDER_SET_AFFORDANCE_ENTRY.effectFamily).toBe(REMINDER_EFFECT_FAMILY);
+    expect(REMINDER_SET_AFFORDANCE_ENTRY.effect).toBe(REMINDER_SET_EFFECT);
+    expect(REMINDER_SET_AFFORDANCE_ENTRY.id).toBe("reminder.set");
+    expect(Object.isFrozen(REMINDER_SET_AFFORDANCE_ENTRY)).toBe(true);
+  });
+
+  it("declares operationKinds=['create'] only (disjoint from slice K observe-affordance)", () => {
+    expect([...REMINDER_SET_AFFORDANCE_ENTRY.operationKinds]).toEqual(["create"]);
+    // Cross-check disjointness.
+    expect([...REMINDER_DELIVERED_AFFORDANCE_ENTRY.operationKinds]).toEqual([
+      "observe",
+    ]);
+  });
+
+  it("declares IDENTITY_RESOLVED_PRECONDITION (anonymous fail-closed — slice K precedent)", () => {
+    expect(REMINDER_SET_AFFORDANCE_ENTRY.requiredPreconditions).toEqual([
+      IDENTITY_RESOLVED_PRECONDITION,
+    ]);
+  });
+
+  it("declares the per-spec budget envelope (10s latency / ZERO retries — mutation idempotency unsafe per Cutover-4 P4 precedent)", () => {
+    expect(REMINDER_SET_AFFORDANCE_ENTRY.defaultBudgets).toEqual({
+      maxLatencyMs: 10_000,
+      maxRetries: 0,
+    });
+  });
+
+  it("flags reminder.set as medium risk-tier (state crosses /new + outbound push at fire-time)", () => {
+    expect(REMINDER_SET_AFFORDANCE_ENTRY.riskTier).toBe("medium");
+  });
+
+  it("declares the per-spec allowedConstraintKeys (fireAt, content, deliveryChannel, deliveryTo, recurrence)", () => {
+    expect([...REMINDER_SET_AFFORDANCE_ENTRY.allowedConstraintKeys]).toEqual([
+      "fireAt",
+      "content",
+      "deliveryChannel",
+      "deliveryTo",
+      "recurrence",
+    ]);
+  });
+
+  it("routes reminder.set through the scheduled_reminder_world_state observer", () => {
+    expect(REMINDER_SET_AFFORDANCE_ENTRY.observerHandle.id).toBe(
+      "scheduled_reminder_world_state",
+    );
+  });
+
+  it("declares 'reminder.scheduled' as the mandatory required evidence kind", () => {
+    expect(REMINDER_SET_AFFORDANCE_ENTRY.requiredEvidence).toEqual([
+      { kind: "reminder.scheduled", mandatory: true },
+    ]);
+  });
+
+  it("findByFamily(reminder, {kind:'unspecified'}, 'create') resolves only this affordance (branching factor=2 — observe→slice K, create→cron-scheduler)", () => {
+    const registry = createAffordanceRegistry();
+    const candidates = registry.findByFamily(
+      REMINDER_EFFECT_FAMILY,
+      { kind: "unspecified" },
+      { kind: "create" },
+    );
+    expect(candidates.map((c) => c.id)).toEqual([REMINDER_SET_AFFORDANCE_ENTRY.id]);
+  });
+
+  it("findByFamily(reminder, {kind:'session'|'workspace'|'artifact'|'external_channel'}, 'create') resolves nothing (target rejection)", () => {
+    const registry = createAffordanceRegistry();
+    const channelTarget = {
+      kind: "external_channel",
+      channelId: "telegram" as ChannelId,
+    } as const;
+
+    expect(
+      registry.findByFamily(REMINDER_EFFECT_FAMILY, { kind: "session" }, {
+        kind: "create",
+      }),
+    ).toEqual([]);
+    expect(
+      registry.findByFamily(REMINDER_EFFECT_FAMILY, { kind: "workspace" }, {
+        kind: "create",
+      }),
+    ).toEqual([]);
+    expect(
+      registry.findByFamily(
+        REMINDER_EFFECT_FAMILY,
+        { kind: "artifact", artifactId: "art-1" },
+        { kind: "create" },
+      ),
+    ).toEqual([]);
+    expect(
+      registry.findByFamily(REMINDER_EFFECT_FAMILY, channelTarget, {
+        kind: "create",
+      }),
+    ).toEqual([]);
+  });
+
+  it("preserves the cutover-2 G6.a structural canary — branching factor on reminder family = 2 after Phase 4 widen", () => {
+    const registry = createAffordanceRegistry();
+    const allReminderEntries = registry
+      .all()
+      .filter((entry) => entry.effectFamily === REMINDER_EFFECT_FAMILY);
+    expect(allReminderEntries.length).toBe(2);
+    const ids = allReminderEntries.map((entry) => entry.id);
+    expect(ids).toEqual([
+      REMINDER_DELIVERED_AFFORDANCE_ENTRY.id,
+      REMINDER_SET_AFFORDANCE_ENTRY.id,
+    ]);
+  });
+
+  it("does not contaminate other family lookups (reminder.set entry does not appear under communication / persistent_session / artifact / repo)", () => {
+    const registry = createAffordanceRegistry();
+    const channelTarget = {
+      kind: "external_channel",
+      channelId: "telegram" as ChannelId,
+    } as const;
+
+    const communicationCreate = registry
+      .findByFamily(COMMUNICATION_EFFECT_FAMILY, channelTarget, { kind: "create" })
+      .map((c) => c.id);
+    expect(communicationCreate).not.toContain(REMINDER_SET_AFFORDANCE_ENTRY.id);
+
+    const persistentCreate = registry
+      .findByFamily(PERSISTENT_SESSION_EFFECT_FAMILY, { kind: "session" }, {
+        kind: "create",
+      })
+      .map((c) => c.id);
+    expect(persistentCreate).not.toContain(REMINDER_SET_AFFORDANCE_ENTRY.id);
+
+    const artifactCreate = registry
+      .findByFamily(
+        ARTIFACT_EFFECT_FAMILY,
+        { kind: "artifact", artifactId: "art-1" },
+        { kind: "create" },
+      )
+      .map((c) => c.id);
+    expect(artifactCreate).not.toContain(REMINDER_SET_AFFORDANCE_ENTRY.id);
+
+    const repoCreate = registry
+      .findByFamily(REPO_EFFECT_FAMILY, { kind: "workspace" }, { kind: "create" })
+      .map((c) => c.id);
+    expect(repoCreate).not.toContain(REMINDER_SET_AFFORDANCE_ENTRY.id);
+  });
+
+  it("Phase 4 forward-compat shim: done-predicate reads state-after; empty state yields scheduled_reminders.slice_absent (sub-plan §1 todo Phase 4 missing-key set)", () => {
+    const emptyState: WorldStateSnapshot = Object.freeze({});
+    const emptyDelta: ExpectedDelta = Object.freeze({});
+    const ctx = {
+      stateBefore: emptyState,
+      stateAfter: emptyState,
+      expectedDelta: emptyDelta,
+      receipts: { entries: [] },
+      trace: { steps: [] },
+    } as const;
+
+    const result = REMINDER_SET_AFFORDANCE_ENTRY.donePredicate(ctx);
+    expect(result.satisfied).toBe(false);
+    expect(result.satisfied === false ? result.missing : []).toEqual([
+      "scheduled_reminders.slice_absent",
     ]);
   });
 });
