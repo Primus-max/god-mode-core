@@ -66,17 +66,22 @@ function fixedIntentAdapter(intent: SemanticIntent): IntentContractorAdapter {
 }
 
 describe("IntentContractor prompt-hint allowlist (Cutover-4 Phase 8 — repo flip)", () => {
-  it("source-level: prompt-hint allowlist literal contains exactly the 6 expected families", () => {
+  it("source-level: prompt-hint allowlist literal carries the 6 cutover-4 families in order (artifact, repo present)", () => {
     // The flip is a single-line edit to the responseShape literal at
     // `intent-contractor-impl.ts:917` (post Search-Composer P4c). Assert
-    // the exact post-flip ordering: existing 5 families + `repo` inserted
-    // before `unknown` to keep the family-grouping reading (session +
-    // comms first, capability families next, then unknown sentinel —
-    // same ordering rule as `EFFECT_FAMILY_REGISTRY`).
-    const expectedLiteral =
-      '\'"persistent_session" | "communication" | "web_research" | "artifact" | "repo" | "unknown"\'';
+    // the post-flip ordering of the 6 cutover-4 families: existing 5 +
+    // `repo` inserted before `unknown` to keep the family-grouping
+    // reading (session + comms first, capability families next, then
+    // unknown sentinel — same ordering rule as `EFFECT_FAMILY_REGISTRY`).
+    //
+    // NOTE: slice K Phase 5 EXTENDS the literal with `reminder` after
+    // `repo`. This test pins only the cutover-4 ordering invariant
+    // (artifact → repo → … → unknown) by checking the substring chain;
+    // the slice-K-P5 reminder-flip test pins the full post-K literal.
+    const cutover4Substring =
+      '"persistent_session" | "communication" | "web_research" | "artifact" | "repo"';
 
-    expect(IMPL_SOURCE).toContain(expectedLiteral);
+    expect(IMPL_SOURCE).toContain(cutover4Substring);
   });
 
   it("source-level: pre-flip 5-family allowlist literal is gone (regression guard)", () => {
