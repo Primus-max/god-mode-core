@@ -911,10 +911,20 @@ function buildIntentContractorPrompt(params: {
       'Return ONLY one JSON object matching responseShape exactly. No prose, no code fences. ' +
       'Use the nested object form `target: { "kind": "<X>" }` and `operation: { "kind": "<Y>" }` — ' +
       "DO NOT flatten to `targetKind`/`operationKind`. `constraints` and `uncertainty` are required " +
-      "(use `{}` and `[]` if empty). Pick `desiredEffectFamily` from `familyDirectory[].id` only.",
+      "(use `{}` and `[]` if empty). Pick `desiredEffectFamily` from `familyDirectory[].id` only. " +
+      // Slice K Phase 5 — reminder query consumer. The LLM is the sole
+      // sanctioned reader of raw user text (invariants #5/#6). When the
+      // turn is a reminder query («какой PDF я делал на прошлой неделе?»
+      // / «yesterday» / «last 7 days») the LLM populates the structured
+      // <recall_window> + <effect_family_filter> slots inside
+      // `constraints` — temporal-expression resolution + family
+      // inference happen INSIDE the contractor, never via regex in slice
+      // K modules.
+      "When `desiredEffectFamily=reminder` populate `constraints.recallWindow` (ISO-8601 strings; see <recall_window> slot) " +
+      "and `constraints.effectFamilyFilter` (closed-set member ids from familyDirectory[].id; see <effect_family_filter> slot).",
     responseShape: {
       desiredEffectFamily:
-        '"persistent_session" | "communication" | "web_research" | "artifact" | "repo" | "unknown"',
+        '"persistent_session" | "communication" | "web_research" | "artifact" | "repo" | "reminder" | "unknown"',
       target: {
         kind: '"session" | "artifact" | "workspace" | "external_channel" | "unspecified"',
         sessionId: "(optional, when kind=session)",
@@ -926,6 +936,14 @@ function buildIntentContractorPrompt(params: {
         verb: "(required string when kind=custom)",
       },
       constraints: "object (use {} if none)",
+      // Slice K Phase 5 — structured reminder slots documented IN the
+      // response shape. Mirrors the <memory> / <active_tasks> /
+      // <inbound_attachments> XML-tag style. The LLM populates these by
+      // emitting `constraints.recallWindow` + `constraints.effectFamilyFilter`
+      // — the XML tags are documentation hints showing the expected
+      // shape, not a different output channel.
+      "constraints.recallWindow": buildRecallWindowBlock(),
+      "constraints.effectFamilyFilter": buildEffectFamilyFilterBlock(),
       uncertainty: "string[] (use [] if none)",
       confidence: "number in [0,1]",
     },
@@ -951,6 +969,27 @@ function buildIntentContractorPrompt(params: {
           confidence: 0.3,
         },
       },
+      {
+        // Slice K Phase 5 — reminder query exemplar. The LLM resolves
+        // the temporal expression («на прошлой неделе» → 7-day ISO range)
+        // and infers the family («PDF» → ['artifact']) — both happen
+        // INSIDE this contractor (invariants #5/#6 sanctioned reader).
+        when: "user asks about past activity (reminder query — «какой PDF я делал на прошлой неделе?» / «what did I do yesterday?»)",
+        response: {
+          desiredEffectFamily: "reminder",
+          target: { kind: "unspecified" },
+          operation: { kind: "observe" },
+          constraints: {
+            recallWindow: {
+              from: "<ISO-8601 lower bound resolved from the user's temporal expression>",
+              until: "<ISO-8601 upper bound, typically 'now' when the user said 'last N days'>",
+            },
+            effectFamilyFilter: ["artifact"],
+          },
+          uncertainty: [],
+          confidence: 0.85,
+        },
+      },
     ],
     familyDirectory,
     context: {
@@ -962,6 +1001,58 @@ function buildIntentContractorPrompt(params: {
       ...(params.ledgerContext ? { ledgerContext: params.ledgerContext } : {}),
     },
   });
+}
+
+/**
+ * Slice K Phase 5 — structured `<recall_window>` schema-hint block.
+ * Mirrors the slice-E `<memory>` / slice-F `<active_tasks>` / cutover-3
+ * `<inbound_attachments>` block-builder pattern. Produces an XML-tagged
+ * documentation fragment the LLM sees inside the prompt's responseShape;
+ * the tag describes the structural shape (`{from?:ISO8601, until?:ISO8601}`)
+ * the LLM should write into `constraints.recallWindow` when classifying
+ * a reminder query turn («yesterday» / «на прошлой неделе» / «last 7
+ * days»).
+ *
+ * The optional `window` argument lets a future caller pre-populate
+ * server-clock-derived hints (e.g. `until = now`) without changing the
+ * call shape — Phase 5 ships the schema-only variant. When `window` is
+ * omitted the block carries the schema template only; when populated,
+ * the block carries both the template and the hint values for the LLM
+ * to use as anchors.
+ *
+ * Per invariants #5/#6 this block carries NO raw user text — it is a
+ * structural schema-hint string emitted only into the prompt the
+ * contractor builds. Slice K modules outside the contractor never read
+ * raw text; the LLM (inside this contractor) is the sole resolver.
+ */
+function buildRecallWindowBlock(window?: {
+  readonly from?: string;
+  readonly until?: string;
+}): string {
+  const fromHint = window?.from ?? "<ISO-8601 from>";
+  const untilHint = window?.until ?? "<ISO-8601 until>";
+  return `<recall_window>{"from":"${fromHint}","until":"${untilHint}"}</recall_window>`;
+}
+
+/**
+ * Slice K Phase 5 — structured `<effect_family_filter>` schema-hint
+ * block. Sibling of `buildRecallWindowBlock`. Produces the XML-tagged
+ * documentation fragment for `constraints.effectFamilyFilter`. The LLM
+ * populates this with closed-set episodic-family ids (e.g. `['artifact']`
+ * for «PDF», `['repo']` for «ветка», `['task']` for «задача») drawn
+ * exclusively from `familyDirectory[].id` — never free-form text.
+ *
+ * Optional `families` lets a future caller pre-populate hint values
+ * (e.g. resolver-supplied default filter). Phase 5 ships the
+ * schema-only variant; the block always renders so the LLM always sees
+ * the slot regardless of pre-population.
+ */
+function buildEffectFamilyFilterBlock(families?: readonly string[]): string {
+  const hint =
+    families && families.length > 0
+      ? families.map((family) => JSON.stringify(family)).join(",")
+      : '"<EpisodicEffectFamily id>"';
+  return `<effect_family_filter>[${hint}]</effect_family_filter>`;
 }
 
 /**
