@@ -8,6 +8,8 @@ import {
   IMAGE_CREATED_EFFECT,
   PDF_CREATED_EFFECT,
   PERSISTENT_SESSION_EFFECT_FAMILY,
+  REMINDER_DELIVERED_EFFECT,
+  REMINDER_EFFECT_FAMILY,
   REPO_BRANCH_CREATED_EFFECT,
   REPO_COMMIT_LANDED_EFFECT,
   REPO_DIFF_OBSERVED_EFFECT,
@@ -211,9 +213,12 @@ describe("effect-family registry — Cutover-4 Phase 2 (repo family)", () => {
     expect(definition?.branchingHints).toBeUndefined();
   });
 
-  it("registry length grows from 5 to 6; existing 5 family ids preserved in order; repo appended last", () => {
-    expect(EFFECT_FAMILY_REGISTRY).toHaveLength(6);
-    expect(EFFECT_FAMILY_REGISTRY.map((entry) => entry.id)).toEqual([
+  it("registry length grows from 5 to 6; existing 5 family ids preserved in order; repo appended last (Cutover-4 prefix preservation)", () => {
+    // NOTE: Slice K Phase 3 grew the registry to 7 by appending `reminder`
+    // last; the first 6 ids remain byte-identical and in order so this
+    // assertion still checks the Cutover-4 prefix preservation.
+    expect(EFFECT_FAMILY_REGISTRY.length).toBeGreaterThanOrEqual(6);
+    expect(EFFECT_FAMILY_REGISTRY.slice(0, 6).map((entry) => entry.id)).toEqual([
       PERSISTENT_SESSION_EFFECT_FAMILY,
       COMMUNICATION_EFFECT_FAMILY,
       WEB_RESEARCH_EFFECT_FAMILY,
@@ -274,6 +279,94 @@ describe("effect-family registry — Cutover-4 Phase 2 (repo family)", () => {
     );
     expect((REPO_DIFF_OBSERVED_EFFECT as unknown as string)).not.toBe(
       REPO_EFFECT_FAMILY as unknown as string,
+    );
+  });
+});
+
+describe("effect-family registry — Slice K Phase 3 (reminder family)", () => {
+  it("preserves freeze + push-throw guard with the reminder entry appended", () => {
+    expect(Object.isFrozen(EFFECT_FAMILY_REGISTRY)).toBe(true);
+    expect(() =>
+      (EFFECT_FAMILY_REGISTRY as unknown as EffectFamilyDefinition[]).push(
+        {} as EffectFamilyDefinition,
+      ),
+    ).toThrow();
+  });
+
+  it("registers reminder family exactly once with id 'reminder' and displayName 'Reminder query'", () => {
+    const matches = EFFECT_FAMILY_REGISTRY.filter(
+      (entry) => entry.id === REMINDER_EFFECT_FAMILY,
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.id).toBe("reminder");
+    expect(matches[0]?.displayName).toBe("Reminder query");
+    expect(Object.isFrozen(matches[0])).toBe(true);
+    expect(Object.isFrozen(matches[0]?.allowedOperationKinds)).toBe(true);
+  });
+
+  it("reminder allowedOperationKinds === ['observe'] EXACTLY (read-only invariant #11 — slice K never mutates state)", () => {
+    const definition = getEffectFamilyDefinition(REMINDER_EFFECT_FAMILY);
+    expect(definition).toBeDefined();
+    expect(definition?.allowedOperationKinds).toEqual(["observe"]);
+    expect(definition?.allowedOperationKinds).toHaveLength(1);
+  });
+
+  it("reminder family does NOT carry branchingHints (only web_research does — Cutover-3/4 precedent)", () => {
+    const definition = getEffectFamilyDefinition(REMINDER_EFFECT_FAMILY);
+    expect(definition?.branchingHints).toBeUndefined();
+  });
+
+  it("registry length grows from 6 to 7; existing 6 family ids preserved in order; reminder appended last", () => {
+    expect(EFFECT_FAMILY_REGISTRY).toHaveLength(7);
+    expect(EFFECT_FAMILY_REGISTRY.map((entry) => entry.id)).toEqual([
+      PERSISTENT_SESSION_EFFECT_FAMILY,
+      COMMUNICATION_EFFECT_FAMILY,
+      WEB_RESEARCH_EFFECT_FAMILY,
+      UNKNOWN_EFFECT_FAMILY,
+      ARTIFACT_EFFECT_FAMILY,
+      REPO_EFFECT_FAMILY,
+      REMINDER_EFFECT_FAMILY,
+    ]);
+  });
+
+  it("brands reminder as a known family id", () => {
+    expect(isKnownEffectFamilyId("reminder")).toBe(true);
+    expect(isKnownEffectFamilyId(REMINDER_EFFECT_FAMILY)).toBe(true);
+  });
+
+  it("declares REMINDER_DELIVERED_EFFECT as a branded EffectId distinct from REMINDER_EFFECT_FAMILY and from existing effect ids", () => {
+    expect(REMINDER_DELIVERED_EFFECT).toBe("reminder.delivered");
+
+    // Distinct from the family-id phantom string.
+    expect((REMINDER_DELIVERED_EFFECT as unknown as string)).not.toBe(
+      REMINDER_EFFECT_FAMILY as unknown as string,
+    );
+
+    // Distinct from every previously-declared EffectId constant.
+    const existing = [
+      WEB_EVIDENCE_COLLECTED_EFFECT,
+      WEB_RESEARCH_SUMMARIZED_EFFECT,
+      PDF_CREATED_EFFECT,
+      DOCX_CREATED_EFFECT,
+      CODE_PATCH_APPLIED_EFFECT,
+      IMAGE_CREATED_EFFECT,
+      REPO_BRANCH_CREATED_EFFECT,
+      REPO_COMMIT_LANDED_EFFECT,
+      REPO_MERGE_COMPLETED_EFFECT,
+      REPO_DIFF_OBSERVED_EFFECT,
+    ];
+    for (const old of existing) {
+      expect(REMINDER_DELIVERED_EFFECT).not.toBe(old);
+    }
+  });
+
+  it("invariant #16 sentinel: REMINDER_EFFECT_FAMILY (EffectFamilyId) and REMINDER_DELIVERED_EFFECT (EffectId) remain distinct phantom-typed strings", () => {
+    expect((REMINDER_EFFECT_FAMILY as unknown as string)).toBe("reminder");
+    expect((REMINDER_DELIVERED_EFFECT as unknown as string)).toBe(
+      "reminder.delivered",
+    );
+    expect((REMINDER_EFFECT_FAMILY as unknown as string)).not.toBe(
+      REMINDER_DELIVERED_EFFECT as unknown as string,
     );
   });
 });
