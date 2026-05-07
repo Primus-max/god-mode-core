@@ -430,7 +430,15 @@ let runEmbeddedAttemptPromise:
   | undefined;
 
 async function loadRunEmbeddedAttempt() {
-  runEmbeddedAttemptPromise ??= import("./attempt.js").then((mod) => mod.runEmbeddedAttempt);
+  if (!runEmbeddedAttemptPromise) {
+    // test/setup.ts transitively loads attempt.ts (via run.ts -> ...) before this test file's
+    // vi.mock factories register, which leaves `createAgentSession` bound to the real export
+    // and causes AgentSession.prompt to throw `_modelRegistry.getApiKey is not a function`.
+    // resetModules() flushes the module-runner cache so the dynamic import below re-evaluates
+    // attempt.ts AFTER the mocks are wired up, restoring the intended in-test behavior.
+    vi.resetModules();
+    runEmbeddedAttemptPromise = import("./attempt.js").then((mod) => mod.runEmbeddedAttempt);
+  }
   return await runEmbeddedAttemptPromise;
 }
 
@@ -455,10 +463,13 @@ function createSubscriptionMock() {
     toolMetas: [] as Array<{ toolName: string; meta?: string }>,
     unsubscribe: () => {},
     waitForCompactionRetry: async () => {},
+    isCompactionInFlight: () => false,
     getMessagingToolSentTexts: () => [] as string[],
     getMessagingToolSentMediaUrls: () => [] as string[],
+    getToolResultMediaUrls: () => [] as string[],
     getMessagingToolSentTargets: () => [] as unknown[],
     getSuccessfulCronAdds: () => 0,
+    getExecutionReceipts: () => [] as unknown[],
     didSendViaMessagingTool: () => false,
     didSendDeterministicApprovalPrompt: () => false,
     getLastToolError: () => undefined,
