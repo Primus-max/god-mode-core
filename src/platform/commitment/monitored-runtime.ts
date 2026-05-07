@@ -8,6 +8,7 @@ import type { ArtifactWorldStateObserver } from "./artifact-world-state-observer
 import type { DeliveryWorldStateObserver } from "./delivery-world-state-observer.js";
 import type { ExecutionCommitment } from "./execution-commitment.js";
 import type { ExpectedDelta } from "./expected-delta.js";
+import type { ReminderWorldStateObserver } from "./reminder-world-state-observer.js";
 import type { RepoWorldStateObserver } from "./repo-world-state-observer.js";
 import type { SessionWorldStateObserver } from "./session-world-state-observer.js";
 import type { WebEvidenceWorldStateObserver } from "./web-evidence-world-state-observer.js";
@@ -65,6 +66,7 @@ export function createMonitoredRuntime(deps: {
   readonly webEvidenceObserver?: WebEvidenceWorldStateObserver;
   readonly artifactObserver?: ArtifactWorldStateObserver;
   readonly repoObserver?: RepoWorldStateObserver;
+  readonly reminderObserver?: ReminderWorldStateObserver;
 }): MonitoredRuntime {
   return Object.freeze({
     async run(params: MonitoredRuntimeRunParams): Promise<RuntimeAttestation> {
@@ -78,6 +80,7 @@ export function createMonitoredRuntime(deps: {
           webEvidence: deps.webEvidenceObserver?.observe(),
           artifacts: deps.artifactObserver?.observe(),
           repo: deps.repoObserver?.observe(),
+          reminder: deps.reminderObserver?.observe(),
         });
         await params.execute?.();
         stateAfter = freezeSnapshot({
@@ -86,6 +89,7 @@ export function createMonitoredRuntime(deps: {
           webEvidence: deps.webEvidenceObserver?.observe(),
           artifacts: deps.artifactObserver?.observe(),
           repo: deps.repoObserver?.observe(),
+          reminder: deps.reminderObserver?.observe(),
         });
       } catch {
         return observerUnavailableAttestation();
@@ -139,6 +143,9 @@ function freezeSnapshot(snapshot: WorldStateSnapshot): WorldStateSnapshot {
   }
   if (snapshot.repo) {
     out = { ...out, repo: snapshot.repo };
+  }
+  if (snapshot.reminder) {
+    out = { ...out, reminder: snapshot.reminder };
   }
   return Object.freeze(out);
 }
