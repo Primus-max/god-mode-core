@@ -921,7 +921,20 @@ function buildIntentContractorPrompt(params: {
       // inference happen INSIDE the contractor, never via regex in slice
       // K modules.
       "When `desiredEffectFamily=reminder` populate `constraints.recallWindow` (ISO-8601 strings; see <recall_window> slot) " +
-      "and `constraints.effectFamilyFilter` (closed-set member ids from familyDirectory[].id; see <effect_family_filter> slot).",
+      "and `constraints.effectFamilyFilter` (closed-set member ids from familyDirectory[].id; see <effect_family_filter> slot). " +
+      // Cron/Scheduler Phase 7 — reminder write-side. Distinguishes
+      // create from observe inside the same `reminder` family. When
+      // the turn is a reminder-set request («напомни мне через 30
+      // минут позвонить клиенту X» / «remind me in 2 hours to call Y»)
+      // the LLM picks `operation.kind=create` AND populates the
+      // structured `<reminder_set_intent>` slot inside `constraints` —
+      // temporal-expression resolution («через 30 минут» → ISO-8601)
+      // + content extraction («позвонить клиенту X») happen INSIDE
+      // this contractor, the SOLE sanctioned reader of raw user text
+      // (invariants #5/#6). NEVER regex-match raw text downstream.
+      "When `desiredEffectFamily=reminder` AND `operation.kind=create` populate " +
+      "`constraints.reminderSet` (ISO-8601 `fireAt`, extracted `content`, optional `deliveryChannel` + `deliveryTo`; " +
+      "see <reminder_set_intent> slot).",
     responseShape: {
       desiredEffectFamily:
         '"persistent_session" | "communication" | "web_research" | "artifact" | "repo" | "reminder" | "unknown"',
@@ -944,6 +957,11 @@ function buildIntentContractorPrompt(params: {
       // shape, not a different output channel.
       "constraints.recallWindow": buildRecallWindowBlock(),
       "constraints.effectFamilyFilter": buildEffectFamilyFilterBlock(),
+      // Cron/Scheduler Phase 7 — reminder-set write-side schema-hint
+      // slot. Mirrors the slice K <recall_window> / <effect_family_filter>
+      // pattern. The LLM populates `constraints.reminderSet` when
+      // `operation.kind=create` AND `desiredEffectFamily=reminder`.
+      "constraints.reminderSet": buildReminderSetIntentBlock(),
       uncertainty: "string[] (use [] if none)",
       confidence: "number in [0,1]",
     },
@@ -988,6 +1006,35 @@ function buildIntentContractorPrompt(params: {
           },
           uncertainty: [],
           confidence: 0.85,
+        },
+      },
+      {
+        // Cron/Scheduler Phase 7 — reminder-set (write-side) exemplar.
+        // The LLM resolves the relative temporal expression
+        // («через 30 минут» / «in 2 hours» / «через неделю» / «tomorrow
+        // at 09:00») into an absolute ISO-8601 string anchored to the
+        // server clock and extracts the content payload. Operation
+        // kind is `create` — distinguishes from the observe-side
+        // exemplar above. `deliveryChannel` + `deliveryTo` are
+        // OPTIONAL: callers may inject defaults from session context
+        // when omitted (Phase 5 `RecordReminderTool` schema is closed
+        // — invariant #5/#6 — so the contractor surfaces only the
+        // structured fields, never raw text).
+        when: "user requests a future reminder («напомни мне через 30 минут позвонить клиенту X» / «remind me in 2 hours to call Y» / «через неделю отправь предложение»)",
+        response: {
+          desiredEffectFamily: "reminder",
+          target: { kind: "unspecified" },
+          operation: { kind: "create" },
+          constraints: {
+            reminderSet: {
+              fireAt: "<ISO-8601 absolute timestamp resolved from the user's relative expression — e.g. now+30min>",
+              content: "<extracted content describing what to remind about — e.g. «позвонить клиенту X»>",
+              deliveryChannel: "<optional ChannelId — omit when session-context default applies>",
+              deliveryTo: "<optional delivery target — omit when session-context default applies>",
+            },
+          },
+          uncertainty: [],
+          confidence: 0.9,
         },
       },
     ],
@@ -1053,6 +1100,52 @@ function buildEffectFamilyFilterBlock(families?: readonly string[]): string {
       ? families.map((family) => JSON.stringify(family)).join(",")
       : '"<EpisodicEffectFamily id>"';
   return `<effect_family_filter>[${hint}]</effect_family_filter>`;
+}
+
+/**
+ * Cron/Scheduler Phase 7 — structured `<reminder_set_intent>` schema-hint
+ * block. Sibling of `buildRecallWindowBlock` / `buildEffectFamilyFilterBlock`.
+ * Produces an XML-tagged documentation fragment the LLM sees inside the
+ * prompt's responseShape; the tag describes the structural shape
+ * (`{fireAt:ISO8601, content:string, deliveryChannel?:ChannelId,
+ * deliveryTo?:string}`) the LLM should write into
+ * `constraints.reminderSet` when classifying a reminder-set request
+ * («напомни мне через 30 минут позвонить клиенту X» / «remind me in 2
+ * hours to call Y»).
+ *
+ * Per invariants #5/#6 this block carries NO raw user text — it is a
+ * structural schema-hint string emitted only into the prompt the
+ * contractor builds. Cron/Scheduler modules outside the contractor
+ * (`RecordReminderTool` Phase 5, `ScheduledReminderObserver` Phase 3,
+ * `ReminderStore` Phase 6) consume the LLM-resolved structured output
+ * but never re-read raw text. The LLM (inside this contractor) is the
+ * sole resolver of the relative temporal expression → ISO-8601 mapping
+ * and the content extraction.
+ *
+ * The optional `intent` argument lets a future caller pre-populate
+ * server-clock-derived defaults (e.g. resolver-supplied default channel)
+ * without changing the call shape — Phase 7 ships the schema-only
+ * variant. When `intent` is omitted the block carries the schema
+ * template only.
+ */
+function buildReminderSetIntentBlock(intent?: {
+  readonly fireAt?: string;
+  readonly content?: string;
+  readonly deliveryChannel?: string;
+  readonly deliveryTo?: string;
+}): string {
+  const fireAt = intent?.fireAt ?? "<ISO-8601 fireAt>";
+  const content = intent?.content ?? "<extracted reminder content>";
+  const deliveryChannel = intent?.deliveryChannel ?? "<optional ChannelId>";
+  const deliveryTo = intent?.deliveryTo ?? "<optional delivery target>";
+  return (
+    `<reminder_set_intent>` +
+    `<fireAt>${fireAt}</fireAt>` +
+    `<content>${content}</content>` +
+    `<deliveryChannel>${deliveryChannel}</deliveryChannel>` +
+    `<deliveryTo>${deliveryTo}</deliveryTo>` +
+    `</reminder_set_intent>`
+  );
 }
 
 /**
