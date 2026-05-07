@@ -105,9 +105,14 @@ describe("runReplyAgent media path normalization", () => {
       typingMode: "instant",
     });
 
+    // Use path.resolve to match production behavior: on Windows path.resolve
+    // prepends the current drive letter (e.g. "C:\tmp\..."), so a raw path.join
+    // expectation diverges from the actual normalized output. resolveSandboxInputPath
+    // delegates to path.resolve(cwd, expanded), so the assertion must mirror that.
+    const expectedMediaPath = path.resolve("/tmp/workspace", "out", "generated.png");
     expect(result).toMatchObject({
-      mediaUrl: path.join("/tmp/workspace", "out", "generated.png"),
-      mediaUrls: [path.join("/tmp/workspace", "out", "generated.png")],
+      mediaUrl: expectedMediaPath,
+      mediaUrls: [expectedMediaPath],
     });
   });
 });
