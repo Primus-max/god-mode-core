@@ -1,11 +1,15 @@
 /**
- * Slice "PR-MT concurrent broker" — Phase 2 barrel.
+ * Slice "PR-MT concurrent broker" — Phase 2 + Phase 3 barrel.
  *
- * Re-exports the Phase 2 type surface so callers (Phase 3 placement
- * helper, Phase 4 broker runtime, Phase 5 wiring at
- * `agent-runner-execution.ts`) can import from a single entrypoint:
+ * Re-exports the broker surface that Phase 4 broker runtime and Phase 5
+ * wiring at `agent-runner-execution.ts` consume:
  *
- *   import { buildBrokerQueueKey, type BrokerEntry } from "src/platform/broker/index.js";
+ *   import {
+ *     buildBrokerQueueKey,
+ *     decideQueuePlacement,
+ *     type BrokerEntry,
+ *     type BrokerPlacement,
+ *   } from "src/platform/broker/index.js";
  *
  * No impl lives at the barrel — it is a re-export only.
  */
@@ -28,3 +32,16 @@ export type {
   BrokerQueueKey,
   ResolvedBrokerCapacityConfig,
 } from "./broker-types.js";
+
+export {
+  decideNextDispatch,
+  decideQueuePlacement,
+} from "./decide-queue-placement.js";
+
+export type {
+  BrokerPlacement,
+  BrokerState,
+  DecideNextDispatchParams,
+  DecideQueuePlacementParams,
+  DispatchDecision,
+} from "./decide-queue-placement.js";
