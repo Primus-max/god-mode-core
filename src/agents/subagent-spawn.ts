@@ -44,6 +44,9 @@ import {
   resolveInternalSessionKey,
   resolveMainSessionAlias,
 } from "./tools/sessions-helpers.js";
+import type { IdentityId } from "../platform/identity/identity-id.js";
+import { loadIdentityRegistryFromConfig } from "../platform/identity/load-identities-from-config.js";
+import { resolveIdentityFromSessionKey } from "../platform/identity/resolve-identity.js";
 
 export const SUBAGENT_SPAWN_MODES = ["run", "session"] as const;
 export type SpawnSubagentMode = (typeof SUBAGENT_SPAWN_MODES)[number];
@@ -925,6 +928,35 @@ export async function spawnSubagentDirect(
     };
   }
 
+  // Bug F (persistent-worker subsequent push) Phase 5b — resolve the
+  // operator's branded `IdentityId` at the spawn boundary so the Phase 5
+  // cron-fire callback can re-read it from the persisted record at the
+  // worker-completion seam (sub-plan §1 audit §i NEW invariant —
+  // `wrappedScopeIdentityId = record.ownerIdentityId`, NEVER caller-
+  // supplied at the dispatch boundary). Resolution rules:
+  //  - Use the SAME `requesterInternalKey` already plumbed through to the
+  //    registry — no parallel resolution path (avoids identity-leak surface).
+  //  - System / cron / subagent-wrapped session keys → `undefined`
+  //    (NON_IDENTITY_SCOPE_MARKERS handling lives in `resolveIdentityFromSessionKey`).
+  //  - Anonymous spawns → `undefined`. Phase 5 callback fail-closes with
+  //    `identity_unavailable` when the field is absent (defense-in-depth).
+  //  - Best-effort: any throw from the registry build (malformed
+  //    `identities` block in `openclaw.json`) is swallowed; the worker
+  //    still spawns, just with `ownerIdentityId === undefined` — the
+  //    push callback then fail-closes, identical to the pre-Phase-5
+  //    branch.
+  let ownerIdentityId: IdentityId | undefined;
+  try {
+    const identitiesCfg = (cfg as unknown as { identities?: Parameters<typeof loadIdentityRegistryFromConfig>[0] }).identities;
+    const identityRegistry = loadIdentityRegistryFromConfig(identitiesCfg);
+    ownerIdentityId = resolveIdentityFromSessionKey(
+      requesterInternalKey,
+      identityRegistry,
+    );
+  } catch {
+    ownerIdentityId = undefined;
+  }
+
   try {
     registerSubagentRun({
       runId: childRunId,
@@ -944,6 +976,7 @@ export async function spawnSubagentDirect(
       attachmentsDir: attachmentAbsDir,
       attachmentsRootDir: attachmentRootDir,
       retainAttachmentsOnKeep: retainOnSessionKeep,
+      ownerIdentityId,
     });
   } catch (err) {
     if (attachmentAbsDir) {
