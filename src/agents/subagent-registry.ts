@@ -37,9 +37,11 @@ import {
   resolveDeferredCleanupDecision,
 } from "./subagent-registry-cleanup.js";
 import {
+  emitPersistentWorkerSubsequentPushIfApplicable,
   emitSubagentEndedHookOnce,
   resolveLifecycleOutcomeFromRunOutcome,
   runOutcomesEqual,
+  type PersistentWorkerPushFireCallbackFn,
 } from "./subagent-registry-completion.js";
 import {
   countActiveDescendantRunsFromRuns,
@@ -452,6 +454,37 @@ async function emitSubagentEndedHookForRun(params: {
   });
 }
 
+/**
+ * Bug F (persistent-worker subsequent push) Phase 5b — process-scoped
+ * binder for the persistent-worker push fire-callback. Production wires
+ * a closure carrying:
+ *  - `subagentStore` (predicates `get(workerRunId)` +
+ *    `markSubsequentPushStatus(...)` against this registry's accessors),
+ *  - `runPersistentWorkerSubsequentPush` adapter (Phase 4),
+ *  - `getProcessPersistentWorkerReportCollector()` singleton (Phase 5
+ *    observer),
+ *  - `deliveryDispatch` (REUSED transport via `dispatchCronDelivery`),
+ *  - `defaultRuntime.log` for structured-line emission.
+ *
+ * When the binder is unset (default — pre-flip, byte-identical to dev
+ * HEAD), `completeSubagentRun` short-circuits the push fan-out so the
+ * cleanup flow stays unchanged. Tests inject a deterministic fixture
+ * via `setProcessPersistentWorkerPushFireCallbackForTests`.
+ */
+let processPersistentWorkerPushFireCallback: PersistentWorkerPushFireCallbackFn | undefined;
+
+export function setProcessPersistentWorkerPushFireCallback(
+  callback: PersistentWorkerPushFireCallbackFn | undefined,
+): void {
+  processPersistentWorkerPushFireCallback = callback;
+}
+
+export function getProcessPersistentWorkerPushFireCallback():
+  | PersistentWorkerPushFireCallbackFn
+  | undefined {
+  return processPersistentWorkerPushFireCallback;
+}
+
 async function freezeRunResultAtCompletion(entry: SubagentRunRecord): Promise<boolean> {
   if (entry.frozenResultText !== undefined) {
     return false;
@@ -619,6 +652,23 @@ async function completeSubagentRun(params: {
       reason: params.reason,
       sendFarewell: params.sendFarewell,
       accountId: params.accountId,
+    });
+  }
+
+  // Bug F (persistent-worker subsequent push) Phase 5b — companion
+  // emitter to `emitSubagentEndedHookForRun`. Fires the cron-fire push
+  // callback for `spawnMode === 'session'` runs (persistent-worker)
+  // when the gating predicates pass. Independent of the
+  // `subagent_ended` announce hook gate (`shouldEmitEndedHookForRun`)
+  // because persistent-worker pushes are observability + delivery, not
+  // a parent-reply slot. Pre-flip (binder unset) this is a no-op.
+  if (!suppressedForSteerRestart) {
+    await emitPersistentWorkerSubsequentPushIfApplicable({
+      entry,
+      sessionId: entry.requesterSessionKey,
+      turnId: entry.runId,
+      callback: processPersistentWorkerPushFireCallback,
+      logger: { log: (line) => defaultRuntime.log(line) },
     });
   }
 
