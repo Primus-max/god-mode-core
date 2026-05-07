@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SUBAGENT_ENDED_REASON_COMPLETE } from "./subagent-lifecycle-events.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 
@@ -11,7 +11,20 @@ vi.mock("../plugins/hook-runner-global.js", () => ({
   getGlobalHookRunner: () => lifecycleMocks.getGlobalHookRunner(),
 }));
 
-import { emitSubagentEndedHookOnce } from "./subagent-registry-completion.js";
+// test/setup.ts transitively loads `subagent-registry-completion.ts` (via the
+// `subagent-registry` chain pulled in through context.ts / session-write-lock
+// helpers) BEFORE this file's `vi.mock("../plugins/hook-runner-global.js")`
+// factory registers. Without `vi.resetModules()` the module under test stays
+// bound to the real `getGlobalHookRunner` export (which returns `null` in test
+// because no plugins are loaded), the mock's `hasHooks: () => true` predicate
+// is bypassed, and the `runSubagentEnded` / throw-path branches never execute.
+// Same root cause as PR #303 (`attempt.spawn-workspace.test.ts`).
+let emitSubagentEndedHookOnce: typeof import("./subagent-registry-completion.js")["emitSubagentEndedHookOnce"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  ({ emitSubagentEndedHookOnce } = await import("./subagent-registry-completion.js"));
+});
 
 function createRunEntry(): SubagentRunRecord {
   return {
