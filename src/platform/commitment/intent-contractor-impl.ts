@@ -5,6 +5,13 @@ import { parseModelRef } from "../../agents/model-selection.js";
 import { resolveModelAsync } from "../../agents/pi-embedded-runner/model.js";
 import { prepareModelForSimpleCompletion } from "../../agents/simple-completion-transport.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import {
+  type FreshnessConfig,
+  type RecencyScored,
+  resolveFreshnessConfig,
+  type ResolvedFreshnessConfig,
+} from "../freshness/freshness-config.js";
+import { scoreByRecency } from "../freshness/score-by-recency.js";
 import type { IdentityId } from "../identity/identity-id.js";
 import type { MemoryStore, SemanticMemoryEntry } from "../memory/index.js";
 import { buildActiveTasksBlock } from "../task/active-tasks-block.js";
@@ -327,6 +334,25 @@ export function createIntentContractor(deps: {
    * enumeration), never raw user text.
    */
   readonly inboundMediaResolver?: () => InboundMediaSummary | undefined;
+  /**
+   * Slice "intent-contractor freshness/recency" Phase 4 — additive
+   * dep. Operator-tunable parameters that drive the recency reorder
+   * applied to `<memory>` and `<active_tasks>` blocks. When omitted,
+   * defaults are applied (`decayHalfLifeMs=7d`, `defaultWindowMs=30d`,
+   * `missingTimestampPolicy='penalize_to_floor'`). Per audit §c.3 the
+   * resolution happens once per `classify` call so all reorder paths
+   * see lock-step parameters.
+   */
+  readonly freshnessConfig?: FreshnessConfig;
+  /**
+   * Slice "intent-contractor freshness/recency" Phase 4 — additive
+   * clock seam. Defaults to `Date.now`. Tests inject a pinned closure
+   * so freshness output is deterministic. The clock value is sampled
+   * exactly once per `classify` call (sub-plan §6) so memory
+   * reorder, active-tasks reorder, and the `<freshness_hints>` block
+   * see the same `clockNowMs`.
+   */
+  readonly now?: () => number;
 }): IntentContractor {
   return {
     async classify(prompt: string): Promise<SemanticIntent> {
@@ -351,27 +377,42 @@ export function createIntentContractor(deps: {
         return lowConfidenceIntent("unknown_backend");
       }
 
+      // Slice "intent-contractor freshness/recency" Phase 4 — sample
+      // the clock + resolve the freshness config exactly once per
+      // classify call (audit §c.3). Lock-step: every reorder path
+      // and the `<freshness_hints>` block see identical parameters.
+      const clockNowMs = (deps.now ?? Date.now)();
+      const resolvedFreshness = resolveFreshnessConfig(deps.freshnessConfig);
+
       // Slice-E Phase-6: top-K memory recall before adapter dispatch.
       // The recall query uses raw user text — this is exactly what
       // invariant #6 sanctions at this site (the contractor is the
       // only sanctioned reader of `RawUserTurn` / `UserPrompt`).
       // Recall failure NEVER throws into the contractor flow per
       // invariant #15 — it degrades to no block + warn + uncertainty tag.
+      // Phase 4: results are reordered by `score * recencyDecay`
+      // before block construction (sub-plan §6).
       const memoryRecall = await maybeRecallMemory({
         memoryStore: deps.memoryStore,
         identityId: deps.identityId,
         prompt,
         limit: deps.memoryRecallLimit ?? DEFAULT_INTENT_CONTRACTOR_MEMORY_RECALL_LIMIT,
         logger: deps.logger,
+        clockNowMs,
+        freshnessConfig: resolvedFreshness,
       });
       // Slice-F Phase-6: parallel active-tasks recall. The query carries
       // ONLY `ownerIdentityId` + structured `statuses` filter — no raw
       // user text on the ledger path (invariant #5/#6: text routing
-      // stays inside the contractor, not the ledger seam).
+      // stays inside the contractor, not the ledger seam). Phase 4
+      // wires the freshness reorder onto the formatter so the LLM
+      // sees most-recently-touched tasks first (sub-plan §6).
       const taskRecall = await maybeRecallActiveTasks({
         taskLedger: deps.taskLedger,
         identityId: deps.identityId,
         logger: deps.logger,
+        clockNowMs,
+        freshnessConfig: resolvedFreshness,
       });
       // Cutover-3 Phase 6: structural inbound-media block. Surfaced AFTER
       // the `<memory>` block and BEFORE the raw user prompt so the
@@ -384,13 +425,28 @@ export function createIntentContractor(deps: {
         resolver: deps.inboundMediaResolver,
         logger: deps.logger,
       });
+      // Slice "intent-contractor freshness/recency" Phase 4 / Change
+      // 5 — `<freshness_hints>` block. Self-elides when neither
+      // recall path fired (sub-plan §6 + audit §a.6). Carries the
+      // resolved decay parameters so the LLM sees the temporal
+      // frame the freshness reorder operated under.
+      const freshnessHintsBlock = buildFreshnessHintsBlock({
+        config: resolvedFreshness,
+        clockNowMs,
+        anyRecallFired: memoryRecall.block !== null || taskRecall.block !== null,
+      });
       // Block order: <active_tasks> precedes <memory> precedes
-      // <inbound_attachments> precedes the raw prompt. The contractor
-      // surfaces "what's still in flight" → "what was previously said" →
-      // "what files arrived this turn" → "the user's text". All blocks
-      // self-elide when their recall returns nothing (zero whitespace
-      // pollution).
-      const blockPrefix = `${taskRecall.block ?? ""}${memoryRecall.block ?? ""}${inboundMediaBlock ?? ""}`;
+      // <inbound_attachments> precedes <freshness_hints> precedes the
+      // raw prompt. The contractor surfaces "what's still in flight" →
+      // "what was previously said" → "what files arrived this turn" →
+      // "how the freshness reorder was tuned" → "the user's text".
+      // All blocks self-elide when their recall returns nothing
+      // (zero whitespace pollution).
+      const blockPrefix =
+        `${taskRecall.block ?? ""}` +
+        `${memoryRecall.block ?? ""}` +
+        `${inboundMediaBlock ?? ""}` +
+        `${freshnessHintsBlock ?? ""}`;
       const promptForAdapter = blockPrefix.length > 0 ? `${blockPrefix}${prompt}` : prompt;
 
       try {
@@ -455,6 +511,8 @@ async function maybeRecallMemory(params: {
   readonly prompt: string;
   readonly limit: number;
   readonly logger?: IntentContractorLogger;
+  readonly clockNowMs: number;
+  readonly freshnessConfig: ResolvedFreshnessConfig;
 }): Promise<MemoryRecallOutcome> {
   if (!params.memoryStore || !params.identityId) {
     // Anonymous session OR no memoryStore wired — recall is a clean no-op.
@@ -470,7 +528,19 @@ async function maybeRecallMemory(params: {
       // Empty result must NOT inject a block — zero whitespace pollution.
       return { block: null, failed: false };
     }
-    return { block: buildMemoryBlock(result.entries), failed: false };
+    // Slice "intent-contractor freshness/recency" Phase 4 / Change 3
+    // — apply recency reorder via `combinedScore = score * recencyDecay`.
+    // The `<memory>` payload gains an additive `recencyDecay: number`
+    // per entry (sub-plan §6 — LLM is loose-schema consumer, no strict
+    // downstream parser).
+    const scored = scoreByRecency<SemanticMemoryEntry>({
+      items: result.entries,
+      getTimestamp: extractMemoryRecordedAt,
+      nowMs: params.clockNowMs,
+      config: params.freshnessConfig,
+    });
+    const reordered = sortByCombinedScore(scored);
+    return { block: buildMemoryBlock(reordered), failed: false };
   } catch (error) {
     params.logger?.warn(MEMORY_RECALL_FAILED_UNCERTAINTY, {
       identityId: String(params.identityId),
@@ -481,18 +551,71 @@ async function maybeRecallMemory(params: {
 }
 
 /**
+ * Slice "intent-contractor freshness/recency" Phase 4 / Change 3 —
+ * extract the producer-side `metadata.recordedAt` from a recalled
+ * entry. The producer-side write (Change 1 in
+ * `LlmExtractorMemoryStore.storeSemantic`) stamps the value as
+ * `number` epoch ms; the helper also tolerates legacy entries that
+ * may carry an ISO-8601 string (defensive — `Date.parse` returns
+ * NaN on garbage which the freshness helper coerces into the
+ * `missingTimestampPolicy` branch).
+ *
+ * Per invariant #5/#6 the helper reads ONLY structured metadata
+ * (no raw user text).
+ */
+function extractMemoryRecordedAt(entry: SemanticMemoryEntry): number | null {
+  const raw = entry.metadata?.recordedAt;
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) ? raw : null;
+  }
+  if (typeof raw === "string") {
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+/**
+ * Sort scored memory entries by `combinedScore = entry.score *
+ * recencyDecay` descending. Stable on equal `combinedScore` —
+ * preserves the original recall order so the freshness reorder is
+ * deterministic across runs.
+ */
+function sortByCombinedScore(
+  scored: ReadonlyArray<RecencyScored<SemanticMemoryEntry>>,
+): ReadonlyArray<RecencyScored<SemanticMemoryEntry>> {
+  return scored
+    .map((s, idx) => ({ s, idx, combined: s.item.score * s.recencyDecay }))
+    .toSorted((a, b) => {
+      if (b.combined !== a.combined) {
+        return b.combined - a.combined;
+      }
+      return a.idx - b.idx;
+    })
+    .map(({ s }) => s);
+}
+
+/**
  * Closed-shape JSON encoding of recalled entries. Mirrors the
  * `<web_evidence>` pattern; the wrapper tags are static literals so
  * the downstream LLM can parse them cheaply. Per invariant #5 the
  * inner payload is structured JSON, NOT raw user text.
+ *
+ * Phase 4 / Change 3: each entry carries an additive `recencyDecay`
+ * payload field (number in `[DECAY_FLOOR, 1.0]`). The downstream
+ * consumer is the LLM; the strict `<memory>` payload schema is
+ * loose-shape so this addition is non-breaking (sub-plan §6).
  */
-function buildMemoryBlock(entries: readonly SemanticMemoryEntry[]): string {
+function buildMemoryBlock(
+  scored: ReadonlyArray<RecencyScored<SemanticMemoryEntry>>,
+): string {
   const payload = {
-    entries: entries.map((entry) => ({
-      id: String(entry.id),
-      content: entry.content,
-      score: entry.score,
-      metadata: entry.metadata,
+    entries: scored.map(({ item, recencyDecay }) => ({
+      id: String(item.id),
+      content: item.content,
+      score: item.score,
+      recencyDecay,
+      metadata: item.metadata,
     })),
   };
   return `<memory>${JSON.stringify(payload)}</memory>`;
@@ -530,6 +653,8 @@ async function maybeRecallActiveTasks(params: {
   readonly taskLedger?: TaskLedger;
   readonly identityId?: IdentityId;
   readonly logger?: IntentContractorLogger;
+  readonly clockNowMs: number;
+  readonly freshnessConfig: ResolvedFreshnessConfig;
 }): Promise<TaskRecallOutcome> {
   if (!params.taskLedger || !params.identityId) {
     // Anonymous session OR no taskLedger wired — recall is a clean no-op.
@@ -543,7 +668,14 @@ async function maybeRecallActiveTasks(params: {
     if (result.tasks.length === 0) {
       return { block: null, failed: false };
     }
-    const block = buildActiveTasksBlock(result.tasks);
+    // Slice "intent-contractor freshness/recency" Phase 4 / Change 4
+    // — pass the freshness option down so the formatter reorders by
+    // `updatedAt ?? createdAt` recency BEFORE its existing defensive
+    // sort (sub-plan §6 + audit §a.2).
+    const block = buildActiveTasksBlock(result.tasks, {
+      now: params.clockNowMs,
+      freshnessConfig: params.freshnessConfig,
+    });
     // `buildActiveTasksBlock` filters defensively to active statuses and
     // returns "" when nothing survives — collapse that branch onto the
     // empty-result no-op so callers see one shape.
@@ -640,6 +772,47 @@ function buildInboundAttachmentsBlock(params: {
     { paths: summary.attachments.length },
   );
   return block;
+}
+
+/**
+ * Slice "intent-contractor freshness/recency" Phase 4 / Change 5 —
+ * `<freshness_hints>` block builder. Mirrors the slice-E `<memory>` /
+ * slice-F `<active_tasks>` / cutover-3 `<inbound_attachments>` block
+ * pattern. Returns a closed-shape XML-tagged block carrying the
+ * resolved decay parameters so the LLM observes the same temporal
+ * frame the contractor's freshness reorder operated under (sub-plan
+ * §6 + acceptance #4).
+ *
+ * Self-elides (`null`) when neither memory recall nor active-tasks
+ * recall fired this turn — zero whitespace pollution, mirrors the
+ * `<inbound_attachments>` self-elide rule (Cutover-3 P6 precedent).
+ *
+ * Per invariants #5/#6 the block content is STRUCTURAL only — no
+ * raw user text routed through this surface. The block carries
+ * exactly four numeric / closed-set scalars (`half_life_ms`,
+ * `floor`, `now_ms`, `missing_ts_policy`).
+ */
+function buildFreshnessHintsBlock(params: {
+  readonly config: ResolvedFreshnessConfig;
+  readonly clockNowMs: number;
+  readonly anyRecallFired: boolean;
+}): string | null {
+  if (!params.anyRecallFired) {
+    return null;
+  }
+  // DECAY_FLOOR is the same constant the helper uses; surface its
+  // numeric value here so the LLM sees the floor without re-importing
+  // the freshness module (sub-plan §6 — block self-describes the
+  // decay frame).
+  const floor = 0.05;
+  return (
+    `<freshness_hints>` +
+    `<half_life_ms>${String(params.config.decayHalfLifeMs)}</half_life_ms>` +
+    `<floor>${String(floor)}</floor>` +
+    `<now_ms>${String(params.clockNowMs)}</now_ms>` +
+    `<missing_ts_policy>${params.config.missingTimestampPolicy}</missing_ts_policy>` +
+    `</freshness_hints>`
+  );
 }
 
 /**

@@ -121,12 +121,26 @@ export type LlmExtractorMemoryStoreLogger = {
 /**
  * Construction options. `delegate` and `extractor` are required;
  * `logger` defaults to a no-op so production callers can wire the
- * project logger explicitly.
+ * project logger explicitly. `now` defaults to `Date.now` and is the
+ * sole source of the producer-side `metadata.recordedAt` stamp the
+ * Phase 4 freshness slice depends on (sub-plan §6 + audit §b.2 / §c.3).
+ * Tests inject a pinned closure so the stamped value is deterministic.
  */
 export type LlmExtractorMemoryStoreOptions = {
   readonly delegate: MemoryStore;
   readonly extractor: LlmExtractor;
   readonly logger?: LlmExtractorMemoryStoreLogger;
+  /**
+   * Slice "intent-contractor freshness/recency" Phase 4 / Change 1 —
+   * additive clock seam used to stamp `metadata.recordedAt` on every
+   * persisted SEMANTIC entry (epoch ms). Defaults to `Date.now`.
+   * Mirrors the `now?: () => number` precedent on the IntentContractor
+   * (audit §c.3). Producer-side write keeps the Phase 4 reorder
+   * keyed on a dependable timestamp; legacy rows without the key
+   * survive at `recencyDecay = DECAY_FLOOR` per
+   * `missingTimestampPolicy = 'penalize_to_floor'`.
+   */
+  readonly now?: () => number;
 };
 
 const NO_OP_LOGGER: LlmExtractorMemoryStoreLogger = {
@@ -157,11 +171,13 @@ export class LlmExtractorMemoryStore implements MemoryStore {
   private readonly delegate: MemoryStore;
   private readonly extractor: LlmExtractor;
   private readonly logger: LlmExtractorMemoryStoreLogger;
+  private readonly now: () => number;
 
   constructor(opts: LlmExtractorMemoryStoreOptions) {
     this.delegate = opts.delegate;
     this.extractor = opts.extractor;
     this.logger = opts.logger ?? NO_OP_LOGGER;
+    this.now = opts.now ?? Date.now;
   }
 
   /**
@@ -192,6 +208,15 @@ export class LlmExtractorMemoryStore implements MemoryStore {
     // impls. Rejection here precedes the LLM call by design.
     const parsed = SemanticMemoryWriteSchema.parse(write);
 
+    // Slice "intent-contractor freshness/recency" Phase 4 / Change 1:
+    // sample the clock ONCE per write so the same epoch ms value
+    // stamps both the passthrough fallback (extractor crash) and the
+    // happy path. Audit §b.2 + sub-plan §6: producer-side timestamp
+    // is the only dependable source the contractor's freshness
+    // reorder can rely on (the persistent backend's `created_at`
+    // column is not projected back through `recall`).
+    const recordedAt = this.now();
+
     let decision: LlmExtractorDecision;
     try {
       decision = await this.extractor.extract({
@@ -204,11 +229,13 @@ export class LlmExtractorMemoryStore implements MemoryStore {
         `LlmExtractorMemoryStore: extractor_error — falling back to passthrough write: ${message}`,
       );
       // Defense-in-depth: a crashing extractor MUST NOT lose the
-      // candidate write. Persist verbatim with no extractor tags.
+      // candidate write. Persist verbatim with no extractor tags but
+      // still stamp `recordedAt` so the freshness reorder can
+      // surface this row.
       return this.delegate.storeSemantic({
         identityId: parsed.identityId,
         content: parsed.content,
-        metadata: parsed.metadata,
+        metadata: stampRecordedAt(parsed.metadata, recordedAt),
       });
     }
 
@@ -219,7 +246,7 @@ export class LlmExtractorMemoryStore implements MemoryStore {
       return mintDroppedId();
     }
 
-    const mergedMetadata = mergeMetadata(parsed.metadata, decision.tags);
+    const mergedMetadata = mergeMetadata(parsed.metadata, decision.tags, recordedAt);
     return this.delegate.storeSemantic({
       identityId: parsed.identityId,
       content: decision.normalized,
@@ -271,26 +298,54 @@ function mintDroppedId(): MemoryEntryId {
 
 /**
  * Merge extractor `tags` into the original metadata under the
- * `extractor_tags` key. The Phase-1 `SemanticMemoryMetadata` schema
- * forbids non-scalar values (no arrays, no nested objects) so we
- * encode the tag list as a CSV string. Empty tag list → no key added,
- * keeping the metadata shape minimal for downstream readers.
+ * `extractor_tags` key AND stamp the producer-side `recordedAt`
+ * (epoch ms). The Phase-1 `SemanticMemoryMetadata` schema forbids
+ * non-scalar values (no arrays, no nested objects) so we encode the
+ * tag list as a CSV string. Empty tag list → no `extractor_tags` key
+ * added; the `recordedAt` stamp is ALWAYS applied so the Phase 4
+ * freshness reorder (sub-plan §6) has a dependable timestamp on
+ * every persisted row.
  *
  * Existing metadata keys are preserved verbatim; the extractor tags
  * never overwrite caller-supplied keys (the wrapper's contract is
- * additive).
+ * additive). A caller-supplied `recordedAt` is overwritten by the
+ * producer-side stamp so the value reflects when the row was
+ * actually persisted, not when the upstream caller happened to set
+ * it (audit §b.2 — producer-side write is the canonical source).
  */
 function mergeMetadata(
   base: SemanticMemoryMetadata | undefined,
   tags: readonly string[],
-): SemanticMemoryMetadata | undefined {
-  if (tags.length === 0) {
-    return base;
+  recordedAt: number,
+): SemanticMemoryMetadata {
+  const merged: Record<string, string | number | boolean | null> = {};
+  if (base !== undefined) {
+    Object.assign(merged, base);
   }
-  const csv = tags.join(",");
+  if (tags.length > 0) {
+    merged.extractor_tags = tags.join(",");
+  }
+  merged.recordedAt = recordedAt;
+  return merged;
+}
+
+/**
+ * Slice "intent-contractor freshness/recency" Phase 4 / Change 1 —
+ * stamp the producer-side `recordedAt` on the passthrough-write
+ * fallback (extractor crash). Mirrors the happy-path branch of
+ * `mergeMetadata` minus the extractor-tag merge (a crashed extractor
+ * has no tags to attach).
+ */
+function stampRecordedAt(
+  base: SemanticMemoryMetadata | undefined,
+  recordedAt: number,
+): SemanticMemoryMetadata {
+  if (base === undefined) {
+    return { recordedAt };
+  }
   return {
-    ...(base ?? {}),
-    extractor_tags: csv,
+    ...base,
+    recordedAt,
   };
 }
 
@@ -300,6 +355,16 @@ function mergeMetadata(
  * so the encoding contract is in one place.
  */
 export const EXTRACTOR_TAGS_METADATA_KEY = "extractor_tags";
+
+/**
+ * Slice "intent-contractor freshness/recency" Phase 4 / Change 1 —
+ * canonical key under which the producer-side write timestamp (epoch
+ * ms) is stamped on every persisted SEMANTIC entry. Consumers (the
+ * Phase 4 contractor freshness reorder, audit §b.2) read this key to
+ * extract the timestamp; legacy rows without the key fall through
+ * `missingTimestampPolicy = 'penalize_to_floor'` per audit §d.
+ */
+export const RECORDED_AT_METADATA_KEY = "recordedAt";
 
 // Type re-exports kept beside the impl so a single import covers the
 // public surface of this module.
