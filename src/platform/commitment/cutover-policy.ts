@@ -6,6 +6,8 @@ import {
   IMAGE_CREATED_EFFECT,
   PDF_CREATED_EFFECT,
   PERSISTENT_SESSION_EFFECT_FAMILY,
+  REMINDER_DELIVERED_EFFECT,
+  REMINDER_EFFECT_FAMILY,
   REPO_BRANCH_CREATED_EFFECT,
   REPO_COMMIT_LANDED_EFFECT,
   REPO_DIFF_OBSERVED_EFFECT,
@@ -40,16 +42,21 @@ export interface CutoverPolicy {
 // Cutover-3 Phase 7 extended `CUTOVER_2` ADDITIVELY with the four artifact
 // effect ids (`pdf.created`, `docx.created`, `code_patch.applied`,
 // `image.created`) per cutover-3 sub-plan §4 #5 ("all four"). Cutover-4
-// Phase 7 (this slice) extends the SAME array ADDITIVELY with the four
-// repo effect ids (`repo.branch_created`, `repo.commit_landed`,
+// Phase 7 extended the SAME array ADDITIVELY with the four repo effect
+// ids (`repo.branch_created`, `repo.commit_landed`,
 // `repo.merge_completed`, `repo.diff_observed`) per cutover-4 sub-plan
-// §4 #5 ("all four") and the audit decision in
-// `extensions/AUDIT-cutover4-repo-operation.md` §d. The constant name
-// is retained: extending `CUTOVER_2` in place mirrors the cutover-2
+// §4 #5 ("all four"). Slice K Phase 6 (this slice) extends the SAME
+// array ADDITIVELY with `reminder.delivered` per slice K sub-plan §1
+// todo Phase 6: the reminder query consumer routes operator reminder
+// turns («какой PDF я делал?», «какие ветки я создавал?») through the
+// kernel-derived production decision — `cutoverGate.kind ===
+// 'gate_in_success'` for `reminder.delivered`. The constant name is
+// retained: extending `CUTOVER_2` in place mirrors the cutover-2
 // PR-#104 precedent (where Wave A's single effect was extended with
 // three Wave B chat effects inside the same array literal — no
-// `CUTOVER_1` constant) and the cutover-3 PR-#202 precedent, keeping
-// the public surface a single immutable allow-list.
+// `CUTOVER_1` constant), the cutover-3 PR-#202 precedent, and the
+// cutover-4 PR-#244 precedent, keeping the public surface a single
+// immutable allow-list.
 const CUTOVER_2 = Object.freeze([
   Object.freeze({
     effect: "persistent_session.created" as EffectId,
@@ -98,6 +105,10 @@ const CUTOVER_2 = Object.freeze([
   Object.freeze({
     effect: REPO_DIFF_OBSERVED_EFFECT,
     effectFamily: REPO_EFFECT_FAMILY,
+  }),
+  Object.freeze({
+    effect: REMINDER_DELIVERED_EFFECT,
+    effectFamily: REMINDER_EFFECT_FAMILY,
   }),
 ] satisfies CutoverEntry[]);
 

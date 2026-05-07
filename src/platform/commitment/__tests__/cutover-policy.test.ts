@@ -3,12 +3,13 @@ import { createCutoverPolicy, defaultCutoverPolicy } from "../cutover-policy.js"
 import type { EffectFamilyId, EffectId } from "../ids.js";
 
 describe("cutover policy", () => {
-  it("includes Wave A + Wave B chat effects PLUS the 4 cutover-3 artifact effects PLUS the 4 cutover-4 repo effects by default", () => {
-    // Cutover-4 Phase 7 (sub-plan §4 #5 — "all four"): the allow-list grows
-    // additively from 8 entries (cutover-3 PR-#202) to 12 entries. Existing
-    // 8 entries stay byte-identical and in the same leading slots; the 4
-    // new repo effect ids land in append-order per the audit
-    // recommendation in `extensions/AUDIT-cutover4-repo-operation.md` §d.
+  it("includes Wave A + Wave B chat effects PLUS the 4 cutover-3 artifact effects PLUS the 4 cutover-4 repo effects PLUS the slice-K reminder.delivered effect by default", () => {
+    // Slice K Phase 6 (sub-plan §1 todo Phase 6 — "extend `CUTOVER_2`
+    // ADDITIVELY"): the allow-list grows additively from 12 entries
+    // (cutover-4 PR-#244) to 13 entries. Existing 12 entries stay byte-
+    // identical and in the same leading slots; the new
+    // `reminder.delivered` effect id lands in append-order per the
+    // cutover-3/4 precedent.
     expect(defaultCutoverPolicy.list()).toEqual([
       // ── Wave A (PR-#103, cutover-1) ────────────────────────────────────
       { effect: "persistent_session.created", effectFamily: "persistent_session" },
@@ -21,11 +22,13 @@ describe("cutover policy", () => {
       { effect: "docx.created", effectFamily: "artifact" },
       { effect: "code_patch.applied", effectFamily: "artifact" },
       { effect: "image.created", effectFamily: "artifact" },
-      // ── Cutover-4 Phase 7 (this PR — repo operation) ─────────────────
+      // ── Cutover-4 Phase 7 (PR-#244, repo operation) ──────────────────
       { effect: "repo.branch_created", effectFamily: "repo" },
       { effect: "repo.commit_landed", effectFamily: "repo" },
       { effect: "repo.merge_completed", effectFamily: "repo" },
       { effect: "repo.diff_observed", effectFamily: "repo" },
+      // ── Slice K Phase 6 (this PR — reminder query consumer) ──────────
+      { effect: "reminder.delivered", effectFamily: "reminder" },
     ]);
 
     // Wave A + B preserved (additive-extension regression guard).
@@ -43,6 +46,9 @@ describe("cutover policy", () => {
     expect(defaultCutoverPolicy.isEligible("repo.commit_landed" as EffectId)).toBe(true);
     expect(defaultCutoverPolicy.isEligible("repo.merge_completed" as EffectId)).toBe(true);
     expect(defaultCutoverPolicy.isEligible("repo.diff_observed" as EffectId)).toBe(true);
+    // Slice K Phase 6 — reminder.delivered eligible (the operator
+    // reminder query — «какой PDF я делал?», «какие ветки?»).
+    expect(defaultCutoverPolicy.isEligible("reminder.delivered" as EffectId)).toBe(true);
     // Sister-effect under the same family but NOT in the explicit allow-list
     // remains ineligible (closed-allow-list canary — guards against an
     // accidental "any-artifact-effect" widening regression).
@@ -52,12 +58,17 @@ describe("cutover policy", () => {
     // routed through the kernel — guards against a hypothetical
     // "any-repo-effect" widening regression).
     expect(defaultCutoverPolicy.isEligible("repo_operation.completed" as EffectId)).toBe(false);
+    // Slice K placeholder reminder effect explicitly out of scope —
+    // `reminder.set` (cron) is a STUB never lit by slice K (sub-plan
+    // §2.2). Guards against a hypothetical "any-reminder-effect"
+    // widening regression.
+    expect(defaultCutoverPolicy.isEligible("reminder.set" as EffectId)).toBe(false);
   });
 
   it("default cutover-policy entries are deeply frozen (push throws, length stable)", () => {
     const list = defaultCutoverPolicy.list();
     expect(Object.isFrozen(list)).toBe(true);
-    expect(list).toHaveLength(12);
+    expect(list).toHaveLength(13);
     expect(() => {
       (list as unknown as { push: (item: unknown) => void }).push({
         effect: "rogue.effect" as EffectId,
