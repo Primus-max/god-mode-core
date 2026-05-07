@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../plugins/provider-runtime.js", () => ({
   resolveProviderCacheTtlEligibility: (params: {
@@ -19,7 +19,22 @@ vi.mock("../../plugins/provider-runtime.js", () => ({
   },
 }));
 
-import { isCacheTtlEligibleProvider } from "./cache-ttl.js";
+// `test/setup.ts` (and other test files in the same vitest --no-isolate worker)
+// transitively pre-loads `cache-ttl.js`'s dependency chain via
+// `../../plugins/provider-runtime.js`, capturing the REAL
+// `resolveProviderCacheTtlEligibility` reference BEFORE this file's `vi.mock`
+// factory registers. Without `vi.resetModules()` the SUT keeps the real
+// binding (which returns `undefined` because no plugins are registered in
+// the test worker), so `isCacheTtlEligibleProvider` falls through to `false`
+// for providers that should be eligible. Same root cause as PR #303 / #304 /
+// #305 / #308.
+let isCacheTtlEligibleProvider: (typeof import("./cache-ttl.js"))["isCacheTtlEligibleProvider"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  const cacheTtl = await import("./cache-ttl.js");
+  isCacheTtlEligibleProvider = cacheTtl.isCacheTtlEligibleProvider;
+});
 
 describe("isCacheTtlEligibleProvider", () => {
   it("allows anthropic", () => {

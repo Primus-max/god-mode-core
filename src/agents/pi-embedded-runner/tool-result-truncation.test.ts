@@ -1,8 +1,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage, UserMessage } from "@mariozechner/pi-ai";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { onSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeAgentAssistantMessage } from "../test-helpers/agent-message-fixtures.js";
 
 const acquireSessionWriteLockReleaseMock = vi.hoisted(() => vi.fn(async () => {}));
@@ -14,17 +13,47 @@ vi.mock("../session-write-lock.js", () => ({
   acquireSessionWriteLock: (params: unknown) => acquireSessionWriteLockMock(params),
 }));
 
-import {
-  truncateToolResultText,
-  truncateToolResultMessage,
-  calculateMaxToolResultChars,
-  getToolResultTextLength,
-  truncateOversizedToolResultsInMessages,
-  truncateOversizedToolResultsInSession,
-  isOversizedToolResult,
-  sessionLikelyHasOversizedToolResults,
-  HARD_MAX_TOOL_RESULT_CHARS,
-} from "./tool-result-truncation.js";
+// `test/setup.ts` (and other test files in the same vitest --no-isolate worker)
+// transitively pre-loads `tool-result-truncation.js`'s dependency chain via
+// `../session-write-lock.js` BEFORE this file's `vi.mock` factory registers.
+// Without `vi.resetModules()` the SUT keeps the real `acquireSessionWriteLock`
+// reference and the `acquireSessionWriteLockMock` is never invoked
+// (`Number of calls: 0`). Same root cause as PR #303 / #304 / #305 / #308.
+type ToolResultTruncationModule = typeof import("./tool-result-truncation.js");
+let truncateToolResultText: ToolResultTruncationModule["truncateToolResultText"];
+let truncateToolResultMessage: ToolResultTruncationModule["truncateToolResultMessage"];
+let calculateMaxToolResultChars: ToolResultTruncationModule["calculateMaxToolResultChars"];
+let getToolResultTextLength: ToolResultTruncationModule["getToolResultTextLength"];
+let truncateOversizedToolResultsInMessages: ToolResultTruncationModule[
+  "truncateOversizedToolResultsInMessages"
+];
+let truncateOversizedToolResultsInSession: ToolResultTruncationModule[
+  "truncateOversizedToolResultsInSession"
+];
+let isOversizedToolResult: ToolResultTruncationModule["isOversizedToolResult"];
+let sessionLikelyHasOversizedToolResults: ToolResultTruncationModule[
+  "sessionLikelyHasOversizedToolResults"
+];
+let HARD_MAX_TOOL_RESULT_CHARS: ToolResultTruncationModule["HARD_MAX_TOOL_RESULT_CHARS"];
+let onSessionTranscriptUpdate: (typeof import(
+  "../../sessions/transcript-events.js"
+))["onSessionTranscriptUpdate"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  const mod = await import("./tool-result-truncation.js");
+  truncateToolResultText = mod.truncateToolResultText;
+  truncateToolResultMessage = mod.truncateToolResultMessage;
+  calculateMaxToolResultChars = mod.calculateMaxToolResultChars;
+  getToolResultTextLength = mod.getToolResultTextLength;
+  truncateOversizedToolResultsInMessages = mod.truncateOversizedToolResultsInMessages;
+  truncateOversizedToolResultsInSession = mod.truncateOversizedToolResultsInSession;
+  isOversizedToolResult = mod.isOversizedToolResult;
+  sessionLikelyHasOversizedToolResults = mod.sessionLikelyHasOversizedToolResults;
+  HARD_MAX_TOOL_RESULT_CHARS = mod.HARD_MAX_TOOL_RESULT_CHARS;
+  const transcriptEvents = await import("../../sessions/transcript-events.js");
+  onSessionTranscriptUpdate = transcriptEvents.onSessionTranscriptUpdate;
+});
 
 let testTimestamp = 1;
 const nextTimestamp = () => testTimestamp++;

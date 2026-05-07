@@ -1,8 +1,6 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { onSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
-import { installSessionToolResultGuard } from "../session-tool-result-guard.js";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const acquireSessionWriteLockReleaseMock = vi.hoisted(() => vi.fn(async () => {}));
 const acquireSessionWriteLockMock = vi.hoisted(() =>
@@ -13,10 +11,39 @@ vi.mock("../session-write-lock.js", () => ({
   acquireSessionWriteLock: (params: unknown) => acquireSessionWriteLockMock(params),
 }));
 
-import {
-  rewriteTranscriptEntriesInSessionFile,
-  rewriteTranscriptEntriesInSessionManager,
-} from "./transcript-rewrite.js";
+// `test/setup.ts` (and other test files in the same vitest --no-isolate worker)
+// transitively pre-loads `transcript-rewrite.js`'s dependency chain via
+// `../session-write-lock.js` BEFORE this file's `vi.mock` factory registers.
+// Without `vi.resetModules()` the SUT keeps the real `acquireSessionWriteLock`
+// reference and the mock is never invoked. We must also re-import the
+// `transcript-events.js` and `session-tool-result-guard.js` modules from the
+// NEW module graph: `rewriteTranscriptEntriesInSessionFile` calls into the
+// fresh `emitSessionTranscriptUpdate`, and `installSessionToolResultGuard`
+// must register hooks against the same fresh transcript-events module so
+// subscribers fire. Same root cause as PR #303 / #304 / #305 / #308.
+let rewriteTranscriptEntriesInSessionFile: (typeof import(
+  "./transcript-rewrite.js"
+))["rewriteTranscriptEntriesInSessionFile"];
+let rewriteTranscriptEntriesInSessionManager: (typeof import(
+  "./transcript-rewrite.js"
+))["rewriteTranscriptEntriesInSessionManager"];
+let onSessionTranscriptUpdate: (typeof import(
+  "../../sessions/transcript-events.js"
+))["onSessionTranscriptUpdate"];
+let installSessionToolResultGuard: (typeof import(
+  "../session-tool-result-guard.js"
+))["installSessionToolResultGuard"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  const mod = await import("./transcript-rewrite.js");
+  rewriteTranscriptEntriesInSessionFile = mod.rewriteTranscriptEntriesInSessionFile;
+  rewriteTranscriptEntriesInSessionManager = mod.rewriteTranscriptEntriesInSessionManager;
+  const transcriptEvents = await import("../../sessions/transcript-events.js");
+  onSessionTranscriptUpdate = transcriptEvents.onSessionTranscriptUpdate;
+  const guard = await import("../session-tool-result-guard.js");
+  installSessionToolResultGuard = guard.installSessionToolResultGuard;
+});
 
 type AppendMessage = Parameters<SessionManager["appendMessage"]>[0];
 

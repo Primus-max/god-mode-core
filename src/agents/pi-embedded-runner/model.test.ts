@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProviderRuntimeTestMock } from "./model.provider-runtime.test-support.js";
 
 vi.mock("../pi-model-discovery.js", () => ({
@@ -21,19 +21,44 @@ vi.mock("./openrouter-model-capabilities.js", () => ({
 }));
 
 import type { OpenClawConfig } from "../../config/config.js";
-import {
-  buildInlineProviderModels,
-  isLikelyControlPlaneLocalProvider,
-  resolveModel,
-  resolveModelAsync,
-} from "./model.js";
-import {
-  buildOpenAICodexForwardCompatExpectation,
-  makeModel,
-  mockDiscoveredModel,
-  mockOpenAICodexTemplateModel,
-  resetMockDiscoverModels,
-} from "./model.test-harness.js";
+
+// `test/setup.ts` (and other test files in the same vitest --no-isolate worker)
+// transitively pre-loads `model.js`'s dependency chain via
+// `../pi-model-discovery.js` and `./openrouter-model-capabilities.js` BEFORE
+// this file's `vi.mock` factories register. Without `vi.resetModules()` the
+// SUT keeps the REAL `discoverModels` / `loadOpenRouterModelCapabilities`
+// references (which return empty registries / never persist mock state),
+// so `mockDiscoveredModel(...)` in `beforeEach` mutates a stale `vi.mocked`
+// reference that the SUT never reads. Same root cause as PR #303 / #304 /
+// #305 / #308.
+type ModelModule = typeof import("./model.js");
+type HarnessModule = typeof import("./model.test-harness.js");
+let buildInlineProviderModels: ModelModule["buildInlineProviderModels"];
+let isLikelyControlPlaneLocalProvider: ModelModule["isLikelyControlPlaneLocalProvider"];
+let resolveModel: ModelModule["resolveModel"];
+let resolveModelAsync: ModelModule["resolveModelAsync"];
+let buildOpenAICodexForwardCompatExpectation: HarnessModule[
+  "buildOpenAICodexForwardCompatExpectation"
+];
+let makeModel: HarnessModule["makeModel"];
+let mockDiscoveredModel: HarnessModule["mockDiscoveredModel"];
+let mockOpenAICodexTemplateModel: HarnessModule["mockOpenAICodexTemplateModel"];
+let resetMockDiscoverModels: HarnessModule["resetMockDiscoverModels"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  const modelMod = await import("./model.js");
+  buildInlineProviderModels = modelMod.buildInlineProviderModels;
+  isLikelyControlPlaneLocalProvider = modelMod.isLikelyControlPlaneLocalProvider;
+  resolveModel = modelMod.resolveModel;
+  resolveModelAsync = modelMod.resolveModelAsync;
+  const harnessMod = await import("./model.test-harness.js");
+  buildOpenAICodexForwardCompatExpectation = harnessMod.buildOpenAICodexForwardCompatExpectation;
+  makeModel = harnessMod.makeModel;
+  mockDiscoveredModel = harnessMod.mockDiscoveredModel;
+  mockOpenAICodexTemplateModel = harnessMod.mockOpenAICodexTemplateModel;
+  resetMockDiscoverModels = harnessMod.resetMockDiscoverModels;
+});
 
 beforeEach(() => {
   resetMockDiscoverModels();

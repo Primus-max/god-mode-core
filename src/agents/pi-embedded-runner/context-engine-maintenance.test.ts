@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const rewriteTranscriptEntriesInSessionManagerMock = vi.fn((_params?: unknown) => ({
   changed: true,
@@ -18,10 +18,24 @@ vi.mock("./transcript-rewrite.js", () => ({
     rewriteTranscriptEntriesInSessionFileMock(params),
 }));
 
-import {
-  buildContextEngineMaintenanceRuntimeContext,
-  runContextEngineMaintenance,
-} from "./context-engine-maintenance.js";
+// `test/setup.ts` (and other test files in the same vitest --no-isolate worker)
+// transitively pre-loads `context-engine-maintenance.js`'s dependency chain via
+// `./transcript-rewrite.js` BEFORE this file's `vi.mock` factory registers.
+// Without `vi.resetModules()` the SUT keeps the real bindings and the mocks
+// are never invoked. Same root cause as PR #303 / #304 / #305 / #308.
+let buildContextEngineMaintenanceRuntimeContext: (typeof import(
+  "./context-engine-maintenance.js"
+))["buildContextEngineMaintenanceRuntimeContext"];
+let runContextEngineMaintenance: (typeof import(
+  "./context-engine-maintenance.js"
+))["runContextEngineMaintenance"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  const ctxEngine = await import("./context-engine-maintenance.js");
+  buildContextEngineMaintenanceRuntimeContext = ctxEngine.buildContextEngineMaintenanceRuntimeContext;
+  runContextEngineMaintenance = ctxEngine.runContextEngineMaintenance;
+});
 
 describe("buildContextEngineMaintenanceRuntimeContext", () => {
   beforeEach(() => {
