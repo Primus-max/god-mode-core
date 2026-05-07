@@ -1,3 +1,4 @@
+import type { IdentityId } from "../platform/identity/identity-id.js";
 import type { DeliveryContext } from "../utils/delivery-context.js";
 import type { SubagentRunOutcome } from "./subagent-announce.js";
 import type { SubagentLifecycleEndedReason } from "./subagent-lifecycle-events.js";
@@ -60,4 +61,30 @@ export type SubagentRunRecord = {
   attachmentsDir?: string;
   attachmentsRootDir?: string;
   retainAttachmentsOnKeep?: boolean;
+  /**
+   * Bug F (persistent-worker subsequent push) Phase 5 — ADDITIVE optional
+   * field carrying the operator's branded `IdentityId`. Resolved from
+   * `requesterOrigin` at spawn time (via the existing identity resolver
+   * that already gates the cron-fire boundary; sub-plan §1 audit §i NEW
+   * invariant). The Phase 5 cron-fire callback re-reads this from the
+   * persisted record at the worker-completion boundary so
+   * `wrappedScopeIdentityId` is NEVER caller-supplied (slice K precedent).
+   *
+   * Optional preserves backward-compat invariant #11 — pre-Phase-5 code
+   * paths that registered runs without identity resolution still work; the
+   * cron-fire callback fail-closes with `identity_unavailable` when the
+   * field is missing.
+   */
+  ownerIdentityId?: IdentityId;
+  /**
+   * Bug F Phase 5 — ADDITIVE closed-set lifecycle marker for the daily
+   * push state machine: `pending` (run ended, push not yet attempted),
+   * `pushed` (cron-fire callback marked the record before invoking the
+   * adapter — idempotent on retry; mark-before-dispatch parity with the
+   * slice K reminder-fire `markFired` order), `failed` (adapter returned
+   * `kind:'fail'`; record stays `failed` so the cron driver does not
+   * replay infinitely — operator re-issues manually). Optional preserves
+   * backward-compat invariant #11.
+   */
+  subsequentPushStatus?: "pending" | "pushed" | "failed";
 };

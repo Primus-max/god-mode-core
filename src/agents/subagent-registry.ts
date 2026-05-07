@@ -1184,6 +1184,43 @@ export function markSubagentRunForSteerRestart(runId: string) {
   return true;
 }
 
+/**
+ * Bug F (persistent-worker subsequent push) Phase 5 — mark the run's
+ * `subsequentPushStatus` to one of `pending` | `pushed` | `failed`.
+ *
+ * The Phase 5 cron-fire callback calls this BEFORE invoking the runtime
+ * adapter (mark-`pushed`-before-dispatch — slice K reminder-fire callback
+ * `markFired` parity at `:149-157`); on adapter `kind:'fail'` the callback
+ * marks `failed` so the cron driver does not replay infinitely (operator
+ * re-issues manually). Returns `true` on a successful update or when the
+ * record is already in the requested status (idempotent on retry); returns
+ * `false` when the run is unknown or `runId` is empty.
+ *
+ * Persists to disk on success — the disk-persisted shape is the
+ * `SubagentRunRecord` JSON, which the Phase 5 ADDITIVE optional field
+ * already covers (backward-compat invariant #11 — pre-Phase-5 records
+ * round-trip without the field).
+ */
+export function markSubagentRunSubsequentPushStatus(
+  runId: string,
+  status: "pending" | "pushed" | "failed",
+): boolean {
+  const key = runId.trim();
+  if (!key) {
+    return false;
+  }
+  const entry = subagentRuns.get(key);
+  if (!entry) {
+    return false;
+  }
+  if (entry.subsequentPushStatus === status) {
+    return true;
+  }
+  entry.subsequentPushStatus = status;
+  persistSubagentRuns();
+  return true;
+}
+
 export function clearSubagentRunSteerRestart(runId: string) {
   const key = runId.trim();
   if (!key) {
@@ -1353,6 +1390,15 @@ export function registerSubagentRun(params: {
   attachmentsDir?: string;
   attachmentsRootDir?: string;
   retainAttachmentsOnKeep?: boolean;
+  /**
+   * Bug F Phase 5 — ADDITIVE optional carry-through of the operator's
+   * branded `IdentityId`. When present, persisted on the
+   * `SubagentRunRecord` so the cron-fire callback can re-read it at the
+   * worker-completion boundary (sub-plan §1 audit §i NEW invariant —
+   * `wrappedScopeIdentityId = record.ownerIdentityId`, NEVER
+   * caller-supplied at the dispatch boundary).
+   */
+  ownerIdentityId?: import("../platform/identity/identity-id.js").IdentityId;
 }) {
   const now = Date.now();
   const cfg = loadConfig();
@@ -1392,6 +1438,13 @@ export function registerSubagentRun(params: {
     attachmentsDir: params.attachmentsDir,
     attachmentsRootDir: params.attachmentsRootDir,
     retainAttachmentsOnKeep: params.retainAttachmentsOnKeep,
+    // Bug F Phase 5 — ADDITIVE: persist branded identity + initial push
+    // status when the caller supplied them. Pre-Phase-5 callers omit
+    // both; the cron-fire callback fail-closes with
+    // `identity_unavailable` when the field is missing (defense in depth
+    // — sub-plan §1 audit §i NEW invariant).
+    ownerIdentityId: params.ownerIdentityId,
+    subsequentPushStatus: params.ownerIdentityId ? "pending" : undefined,
   });
   ensureListener();
   persistSubagentRuns();

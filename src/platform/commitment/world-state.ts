@@ -178,6 +178,57 @@ export type ScheduledRemindersSlice = {
   readonly records: readonly ScheduledReminderRecord[];
 };
 
+/**
+ * Bug F (persistent-worker subsequent push) Phase 5 — `persistentWorkerReports`
+ * WorldState slice.
+ *
+ * Read-only descriptor of a persistent-worker daily-push delivery event
+ * dispatched at the cron-fire boundary. Sibling of `ScheduledRemindersSlice`
+ * (Cron/Scheduler P3) and `ArtifactRecord` (Cutover-3 P3); orthogonal to
+ * `reminder?.lastQuery` (slice K recall surface). Populated by the Phase 5
+ * `PersistentWorkerReportObserver` from records appended by the Phase 4
+ * runtime adapter on dispatch success/failure; consumed by the Phase 3
+ * `persistentWorkerPushDeliveredPredicate` which matches a delivered
+ * record's `workerRunId` against the commitment's expected delta.
+ *
+ * Two record sub-shapes — `delivered` and `failed` — share the structural
+ * fields (`workerRunId`, `ownerIdentityId`, `channel`, `to`, `recordedAt`)
+ * but diverge on `status` (`pushed` vs `failed`) + whether `messageId` /
+ * `reason` is carried. The slice is OPTIONAL — when no persistent-worker
+ * push has run on the active turn the slice is `undefined` and the
+ * predicate reports `persistent_worker_reports.slice_absent` (Cutover-3 /
+ * Cutover-4 / slice K precedent for backward-compat invariant #11).
+ *
+ * `ownerIdentityId` is the identity scope under which the worker run was
+ * spawned — sub-plan §1 audit §i NEW invariant. The cron-fire callback
+ * (Phase 5) injects this into the wrapped scope on dispatch so identity
+ * NEVER cross-leaks even from the non-interactive cron context.
+ */
+export type DeliveredWorkerReportRecord = {
+  readonly workerRunId: string;
+  readonly ownerIdentityId: IdentityId;
+  readonly channel: ChannelId;
+  readonly to: string;
+  readonly status: "pushed";
+  readonly recordedAt: ISO8601;
+  readonly messageId?: string;
+};
+
+export type FailedWorkerReportRecord = {
+  readonly workerRunId: string;
+  readonly ownerIdentityId: IdentityId;
+  readonly channel: ChannelId;
+  readonly to: string;
+  readonly status: "failed";
+  readonly recordedAt: ISO8601;
+  readonly reason: string;
+};
+
+export type PersistentWorkerReportsSlice = {
+  readonly delivered: readonly DeliveredWorkerReportRecord[];
+  readonly failed: readonly FailedWorkerReportRecord[];
+};
+
 const ISO8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u;
 
 /**
@@ -311,6 +362,58 @@ export const scheduledReminderRecordSchema = z
   })
   .strict();
 
+/**
+ * Closed-shape schema for a single `DeliveredWorkerReportRecord` written by
+ * the Bug F Phase 4 runtime adapter on dispatch success. Validation rejects
+ * empty `workerRunId` / `channel` / `to`, unbranded `ownerIdentityId`
+ * (delegated to `isIdentityId`), and malformed ISO-8601 `recordedAt`; the
+ * in-memory observer's `record(...)` method calls `parse(...)` on each call
+ * so observer reads stay total. `messageId` is OPTIONAL — present on
+ * dispatch success, absent when the runtime adapter could not mint one.
+ */
+export const deliveredWorkerReportRecordSchema = z
+  .object({
+    workerRunId: z.string().min(1),
+    ownerIdentityId: z
+      .string()
+      .refine((v) => isIdentityId(v), {
+        message: "ownerIdentityId must be a branded IdentityId (identity:<slug>)",
+      }),
+    channel: z.string().min(1),
+    to: z.string().min(1),
+    status: z.literal("pushed"),
+    recordedAt: z.string().regex(ISO8601_PATTERN),
+    messageId: z.string().min(1).optional(),
+  })
+  .strict();
+
+/**
+ * Closed-shape schema for a single `FailedWorkerReportRecord` written by
+ * the Phase 5 cron-fire callback when the runtime adapter returns
+ * `kind:'fail'`. The callback records the failure on the observer slice so
+ * the done-predicate can surface a structural absence-of-delivery rather
+ * than silently leave the slice empty (sub-plan §3.2 last-writer-wins
+ * semantics on `workerRunId`). `reason` is the closed-shape
+ * `PersistentWorkerPushFailReason` literal from the runtime adapter — the
+ * schema accepts any non-empty string so future failure-reason additions
+ * do not require a schema bump.
+ */
+export const failedWorkerReportRecordSchema = z
+  .object({
+    workerRunId: z.string().min(1),
+    ownerIdentityId: z
+      .string()
+      .refine((v) => isIdentityId(v), {
+        message: "ownerIdentityId must be a branded IdentityId (identity:<slug>)",
+      }),
+    channel: z.string().min(1),
+    to: z.string().min(1),
+    status: z.literal("failed"),
+    recordedAt: z.string().regex(ISO8601_PATTERN),
+    reason: z.string().min(1),
+  })
+  .strict();
+
 export type WorldStateSnapshot = {
   readonly sessions?: SessionWorldState;
   readonly artifacts?: ArtifactWorldState;
@@ -324,6 +427,16 @@ export type WorldStateSnapshot = {
    * by the Phase 4 `done-predicate-reminder-set` predicate.
    */
   readonly scheduledReminders?: ScheduledRemindersSlice;
+  /**
+   * Bug F Phase 5 — `persistentWorkerReports` slice. ADDITIVE optional
+   * slot — backward-compat invariant #11 preserved (slice K precedent;
+   * Cutover-3 / Cutover-4 also added optional slots). Populated by the
+   * Phase 5 `PersistentWorkerReportObserver` from records written at the
+   * cron-fire boundary by the Phase 4 runtime adapter (success path) +
+   * Phase 5 cron-fire callback (failure path); consumed by the Phase 3
+   * `persistentWorkerPushDeliveredPredicate`.
+   */
+  readonly persistentWorkerReports?: PersistentWorkerReportsSlice;
   readonly deliveries?: DeliveryWorldState;
   readonly webEvidence?: WebEvidenceWorldState;
 };
