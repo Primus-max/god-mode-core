@@ -20,6 +20,10 @@ import {
   getProcessRepoWorldStateCollector,
 } from "./repo-world-state-observer.js";
 import {
+  createScheduledReminderWorldStateObserver,
+  getProcessScheduledReminderWorldStateCollector,
+} from "./scheduled-reminder-world-state-observer.js";
+import {
   getProcessDeliveryReceiptRegistry,
   type DeliveryReceiptRegistry,
 } from "./delivery-receipt-registry.js";
@@ -118,6 +122,9 @@ export function createDefaultMonitoredRuntime(options: {
   const reminderObserver = createReminderWorldStateObserver(
     getProcessReminderWorldStateCollector(),
   );
+  const scheduledReminderObserver = createScheduledReminderWorldStateObserver(
+    getProcessScheduledReminderWorldStateCollector(),
+  );
   return createMonitoredRuntime({
     sessionObserver,
     deliveryObserver,
@@ -125,6 +132,7 @@ export function createDefaultMonitoredRuntime(options: {
     artifactObserver,
     repoObserver,
     reminderObserver,
+    scheduledReminderObserver,
   });
 }
 

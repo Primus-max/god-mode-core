@@ -10,6 +10,7 @@ import type { ExecutionCommitment } from "./execution-commitment.js";
 import type { ExpectedDelta } from "./expected-delta.js";
 import type { ReminderWorldStateObserver } from "./reminder-world-state-observer.js";
 import type { RepoWorldStateObserver } from "./repo-world-state-observer.js";
+import type { ScheduledReminderWorldStateObserver } from "./scheduled-reminder-world-state-observer.js";
 import type { SessionWorldStateObserver } from "./session-world-state-observer.js";
 import type { WebEvidenceWorldStateObserver } from "./web-evidence-world-state-observer.js";
 import type { WorldStateSnapshot } from "./world-state.js";
@@ -67,6 +68,7 @@ export function createMonitoredRuntime(deps: {
   readonly artifactObserver?: ArtifactWorldStateObserver;
   readonly repoObserver?: RepoWorldStateObserver;
   readonly reminderObserver?: ReminderWorldStateObserver;
+  readonly scheduledReminderObserver?: ScheduledReminderWorldStateObserver;
 }): MonitoredRuntime {
   return Object.freeze({
     async run(params: MonitoredRuntimeRunParams): Promise<RuntimeAttestation> {
@@ -81,6 +83,7 @@ export function createMonitoredRuntime(deps: {
           artifacts: deps.artifactObserver?.observe(),
           repo: deps.repoObserver?.observe(),
           reminder: deps.reminderObserver?.observe(),
+          scheduledReminders: deps.scheduledReminderObserver?.observe(),
         });
         await params.execute?.();
         stateAfter = freezeSnapshot({
@@ -90,6 +93,7 @@ export function createMonitoredRuntime(deps: {
           artifacts: deps.artifactObserver?.observe(),
           repo: deps.repoObserver?.observe(),
           reminder: deps.reminderObserver?.observe(),
+          scheduledReminders: deps.scheduledReminderObserver?.observe(),
         });
       } catch {
         return observerUnavailableAttestation();
@@ -146,6 +150,9 @@ function freezeSnapshot(snapshot: WorldStateSnapshot): WorldStateSnapshot {
   }
   if (snapshot.reminder) {
     out = { ...out, reminder: snapshot.reminder };
+  }
+  if (snapshot.scheduledReminders) {
+    out = { ...out, scheduledReminders: snapshot.scheduledReminders };
   }
   return Object.freeze(out);
 }
