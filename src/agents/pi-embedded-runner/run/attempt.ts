@@ -2076,6 +2076,13 @@ export async function runEmbeddedAttempt(
         tools: toolsRaw,
         platformExecutionContext: params.platformExecutionContext,
         modelCompat: params.model.compat,
+        // Phase 6 — telemetry: use the existing per-turn `runId` as `turnId`
+        // (matches the `setAmbientArtifactTurn` / log-correlation convention
+        // already used elsewhere in this attempt) and route through the
+        // shared `agent/embedded` subsystem logger so the line lands in the
+        // same stream as the rest of the runner.
+        turnId: params.runId,
+        logger: log,
       }).kept,
     ];
     const toolsAfterWebSearchFilter = params.disableWebSearchTool

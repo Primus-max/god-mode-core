@@ -1,4 +1,4 @@
-// Bundle-as-contract Phase 4 — wiring adapter for `attempt.ts:2004`.
+// Bundle-as-contract Phase 4 / Phase 6 — wiring adapter for `attempt.ts:2004`.
 //
 // Lives next to `attempt.ts` (`src/agents/pi-embedded-runner/run/`) so the
 // schema-construction site can call it inline without crossing additional
@@ -20,12 +20,23 @@
 //     verbatim (the same field `applyModelProviderToolPolicy` reads), so the
 //     two filters share a single source of truth for capability detection.
 //
-// Phase 4 does NOT emit telemetry (Phase 6 will add `[bundle-filter]` log
-// line). Phase 4 does NOT modify `applyModelProviderToolPolicy`. Phase 4
-// does NOT widen the bundle id enum or the default allowlist.
+// Phase 6 ADDS the `[bundle-filter]` telemetry log line. The line is emitted
+// at filter exit and follows the spec from sub-plan §3.5:
+//   `[bundle-filter] turnId=<...> bundles=[<...>] removed_tools=[<name>:<reason>,...] kept_tools=[<...>]`
+// `info` level when removals > 0; `debug` level when zero removals.
+// Telemetry NEVER throws — emission is wrapped in try/catch (#15) and a
+// missing logger is treated as a noop. The log line is for operator runbook
+// debugging; assertion-grade tests use the optional `logger` param and a
+// capture array.
+//
+// Phase 6 does NOT modify `applyModelProviderToolPolicy`. Phase 6 does NOT
+// widen the bundle id enum or the default allowlist. Phase 6 does NOT change
+// any of the existing return semantics — the `kept` / `removed` shape is
+// unchanged.
 //
 // Sub-plan: .cursor/plans/commitment_kernel_bundle_as_contract.plan.md
-// (todo `bundle-contract-phase-4-attempt-wiring`).
+// (todos `bundle-contract-phase-4-attempt-wiring`,
+// `bundle-contract-phase-6-telemetry-and-acceptance`).
 
 import type { ModelCompatConfig } from "../../../config/types.models.js";
 import type { RecipeRuntimePlan } from "../../../platform/recipe/runtime-adapter.js";
@@ -37,6 +48,21 @@ import {
   filterToolSchemaByBundle,
   type BundleSchemaFilterResult,
 } from "../../bundle-schema-filter-apply.js";
+
+/**
+ * Minimal logger surface for `[bundle-filter]` telemetry. Compatible with the
+ * production `SubsystemLogger` (see `src/logging/subsystem.ts`) — both
+ * `info` and `debug` accept `(message: string, meta?: Record<string, unknown>)`,
+ * so production callers can pass the existing `log` instance directly. Tests
+ * pass a thin capture stub. Defined locally so the wiring file does not
+ * pull a logging-subsystem import (keeps the import graph minimal and the
+ * filter pure-by-default — invariant #15 demands the filter never throws,
+ * and a defensive logger surface is the smallest contract that supports it).
+ */
+export type BundleFilterTelemetryLogger = {
+  readonly info: (message: string, meta?: Record<string, unknown>) => void;
+  readonly debug: (message: string, meta?: Record<string, unknown>) => void;
+};
 
 /**
  * Read the structural `BundleId[]` carried by the turn's
@@ -65,8 +91,15 @@ export function readToolBundlesFromPlatformExecutionContext(
  * passes `AnyAgentTool[]`; tests pass minimal `{ name }` fixtures.
  *
  * Result: `{ kept, removed }`. The `kept` array is what feeds the LLM call.
- * `removed` is currently unused at the call site (Phase 4 keeps the diff
- * minimal); Phase 6 will pipe it into the `[bundle-filter]` telemetry line.
+ * Phase 6 also emits the `[bundle-filter]` telemetry log line at exit when
+ * a `logger` is supplied; the return shape is unchanged.
+ *
+ * Telemetry (Phase 6):
+ *   `[bundle-filter] turnId=<...> bundles=[<...>] removed_tools=[<name>:<reason>,...] kept_tools=[<...>]`
+ * Emitted at `info` when removals > 0; at `debug` otherwise. Telemetry is
+ * defensive: a missing `logger` is treated as a noop, and the emission is
+ * wrapped in try/catch so a logger throwing CANNOT propagate into the
+ * filter-result path (invariant #15).
  *
  * Pure — never throws (#15), never mutates inputs. When `bundles` is empty
  * the result is byte-identical pass-through (audit §6.2 / §7.3 risk row 1).
@@ -77,11 +110,13 @@ export function applyBundleSchemaFilterAtAttempt<
   readonly tools: readonly TTool[];
   readonly platformExecutionContext: RecipeRuntimePlan | undefined;
   readonly modelCompat: ModelCompatConfig | undefined;
+  readonly turnId?: string;
+  readonly logger?: BundleFilterTelemetryLogger;
 }): BundleSchemaFilterResult<TTool> {
   const bundles = readToolBundlesFromPlatformExecutionContext(
     input.platformExecutionContext,
   );
-  return filterToolSchemaByBundle({
+  const result = filterToolSchemaByBundle({
     tools: input.tools,
     bundles,
     modelCapabilities: {
@@ -92,4 +127,59 @@ export function applyBundleSchemaFilterAtAttempt<
       missingBundlePolicy: "allow_all",
     },
   });
+  emitBundleFilterTelemetry({
+    logger: input.logger,
+    turnId: input.turnId,
+    bundles,
+    result,
+  });
+  return result;
+}
+
+/**
+ * Emit the `[bundle-filter]` telemetry log line. Defensive: never throws,
+ * never propagates a logger error into the filter result. When `logger` is
+ * `undefined` this is a noop (Phase 4 wiring sites that have not adopted
+ * Phase 6 yet keep working with byte-identical behaviour).
+ *
+ * Format spec (sub-plan §3.5):
+ *   `[bundle-filter] turnId=<id> bundles=[<b1>,<b2>] removed_tools=[<name>:<reason>,...] kept_tools=[<n1>,<n2>,...]`
+ *
+ * `info` level when `result.removed.length > 0`; `debug` otherwise. The
+ * level split lets operators search for the actionable cases (some tool was
+ * removed) at `info` while the full audit trail is still recorded at
+ * `debug`.
+ */
+function emitBundleFilterTelemetry<
+  TTool extends { readonly name?: string },
+>(args: {
+  readonly logger: BundleFilterTelemetryLogger | undefined;
+  readonly turnId: string | undefined;
+  readonly bundles: readonly BundleId[];
+  readonly result: BundleSchemaFilterResult<TTool>;
+}): void {
+  if (args.logger === undefined) {
+    return;
+  }
+  try {
+    const removedDescriptors = args.result.removed
+      .map((r) => `${r.tool}:${r.reason}`)
+      .join(",");
+    const keptNames = args.result.kept
+      .map((t) => t.name)
+      .filter((n): n is string => typeof n === "string" && n.length > 0)
+      .join(",");
+    const bundlesList = args.bundles.join(",");
+    const turnIdSegment = args.turnId ?? "<unknown>";
+    const message = `[bundle-filter] turnId=${turnIdSegment} bundles=[${bundlesList}] removed_tools=[${removedDescriptors}] kept_tools=[${keptNames}]`;
+    if (args.result.removed.length > 0) {
+      args.logger.info(message);
+    } else {
+      args.logger.debug(message);
+    }
+  } catch {
+    // Invariant #15 — telemetry MUST NOT propagate. A logger that throws
+    // (e.g. transient file-write failure during a runbook-restart race)
+    // cannot break the filter result that the LLM call site depends on.
+  }
 }
