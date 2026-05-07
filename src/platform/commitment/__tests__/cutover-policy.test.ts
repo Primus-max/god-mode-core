@@ -3,13 +3,13 @@ import { createCutoverPolicy, defaultCutoverPolicy } from "../cutover-policy.js"
 import type { EffectFamilyId, EffectId } from "../ids.js";
 
 describe("cutover policy", () => {
-  it("includes Wave A + Wave B chat effects PLUS the 4 cutover-3 artifact effects PLUS the 4 cutover-4 repo effects PLUS the slice-K reminder.delivered effect by default", () => {
-    // Slice K Phase 6 (sub-plan §1 todo Phase 6 — "extend `CUTOVER_2`
-    // ADDITIVELY"): the allow-list grows additively from 12 entries
-    // (cutover-4 PR-#244) to 13 entries. Existing 12 entries stay byte-
-    // identical and in the same leading slots; the new
-    // `reminder.delivered` effect id lands in append-order per the
-    // cutover-3/4 precedent.
+  it("includes Wave A + Wave B chat effects PLUS the 4 cutover-3 artifact effects PLUS the 4 cutover-4 repo effects PLUS the slice-K reminder.delivered effect PLUS the cron-scheduler reminder.set effect by default", () => {
+    // Cron/Scheduler Phase 8 (sub-plan §1 todo Phase 8 — "extend
+    // `CUTOVER_2` ADDITIVELY"): the allow-list grows additively from 13
+    // entries (slice K PR-#254) to 14 entries. Existing 13 entries stay
+    // byte-identical and in the same leading slots; the new
+    // `reminder.set` effect id lands in append-order per the cutover-3 /
+    // cutover-4 / slice K precedents.
     expect(defaultCutoverPolicy.list()).toEqual([
       // ── Wave A (PR-#103, cutover-1) ────────────────────────────────────
       { effect: "persistent_session.created", effectFamily: "persistent_session" },
@@ -27,8 +27,10 @@ describe("cutover policy", () => {
       { effect: "repo.commit_landed", effectFamily: "repo" },
       { effect: "repo.merge_completed", effectFamily: "repo" },
       { effect: "repo.diff_observed", effectFamily: "repo" },
-      // ── Slice K Phase 6 (this PR — reminder query consumer) ──────────
+      // ── Slice K Phase 6 (PR-#254, reminder query consumer) ───────────
       { effect: "reminder.delivered", effectFamily: "reminder" },
+      // ── Cron/Scheduler Phase 8 (this PR — reminder write/fire UX) ────
+      { effect: "reminder.set", effectFamily: "reminder" },
     ]);
 
     // Wave A + B preserved (additive-extension regression guard).
@@ -49,6 +51,11 @@ describe("cutover policy", () => {
     // Slice K Phase 6 — reminder.delivered eligible (the operator
     // reminder query — «какой PDF я делал?», «какие ветки?»).
     expect(defaultCutoverPolicy.isEligible("reminder.delivered" as EffectId)).toBe(true);
+    // Cron/Scheduler Phase 8 — reminder.set NOW eligible (the operator
+    // reminder write — «напомни мне через 30 минут позвонить клиенту X»).
+    // This is the FLIP that lights the slice E `reminder.set` STUB on
+    // dev for the first time when `commitmentSatisfied=true`.
+    expect(defaultCutoverPolicy.isEligible("reminder.set" as EffectId)).toBe(true);
     // Sister-effect under the same family but NOT in the explicit allow-list
     // remains ineligible (closed-allow-list canary — guards against an
     // accidental "any-artifact-effect" widening regression).
@@ -58,17 +65,19 @@ describe("cutover policy", () => {
     // routed through the kernel — guards against a hypothetical
     // "any-repo-effect" widening regression).
     expect(defaultCutoverPolicy.isEligible("repo_operation.completed" as EffectId)).toBe(false);
-    // Slice K placeholder reminder effect explicitly out of scope —
-    // `reminder.set` (cron) is a STUB never lit by slice K (sub-plan
-    // §2.2). Guards against a hypothetical "any-reminder-effect"
-    // widening regression.
-    expect(defaultCutoverPolicy.isEligible("reminder.set" as EffectId)).toBe(false);
+    // Reminder placeholder family-effects NOT in the explicit allow-list
+    // remain ineligible (closed-allow-list canary — guards against a
+    // hypothetical "any-reminder-effect" widening regression). The two
+    // entries `reminder.delivered` and `reminder.set` above are the
+    // only reminder effects routed through the kernel.
+    expect(defaultCutoverPolicy.isEligible("reminder.cancelled" as EffectId)).toBe(false);
+    expect(defaultCutoverPolicy.isEligible("reminder.snoozed" as EffectId)).toBe(false);
   });
 
   it("default cutover-policy entries are deeply frozen (push throws, length stable)", () => {
     const list = defaultCutoverPolicy.list();
     expect(Object.isFrozen(list)).toBe(true);
-    expect(list).toHaveLength(13);
+    expect(list).toHaveLength(14);
     expect(() => {
       (list as unknown as { push: (item: unknown) => void }).push({
         effect: "rogue.effect" as EffectId,
