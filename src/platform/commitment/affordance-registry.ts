@@ -8,6 +8,7 @@ import {
 import { docxCreatedPredicate } from "./done-predicate-docx-created.js";
 import { imageCreatedPredicate } from "./done-predicate-image-created.js";
 import { pdfCreatedPredicate } from "./done-predicate-pdf-created.js";
+import { reminderDeliveredPredicate } from "./done-predicate-reminder-delivered.js";
 import { repoBranchCreatedPredicate } from "./done-predicate-repo-branch-created.js";
 import { repoCommitLandedPredicate } from "./done-predicate-repo-commit-landed.js";
 import { repoDiffObservedPredicate } from "./done-predicate-repo-diff-observed.js";
@@ -22,6 +23,8 @@ import {
   IMAGE_CREATED_EFFECT,
   PDF_CREATED_EFFECT,
   PERSISTENT_SESSION_EFFECT_FAMILY,
+  REMINDER_DELIVERED_EFFECT,
+  REMINDER_EFFECT_FAMILY,
   REPO_BRANCH_CREATED_EFFECT,
   REPO_COMMIT_LANDED_EFFECT,
   REPO_DIFF_OBSERVED_EFFECT,
@@ -611,6 +614,77 @@ export const REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY = Object.freeze({
   donePredicate: repoDiffObservedPredicate,
 } satisfies RegisteredAffordance);
 
+// ─── Slice K Phase 3 — reminder-family affordance + precondition ──────────
+//
+// Additive registry extension under the `reminder` effect-family registered
+// in Phase 3 (`REMINDER_EFFECT_FAMILY`, observe-only — sub-plan §0.5.6).
+// Slice K is a pure CONSUMER over LIT episodic slots; the affordance carries
+// `riskTier: 'low'` because every read is identity-scoped + read-only +
+// in-process (no outbound network, no mutation). The done-predicate reads
+// `ctx.stateAfter.reminder?.lastQuery` (Phase 4 slice — accessed via
+// structural cast in Phase 3) — no raw user text, no `TaskContract` (#9).
+//
+// `IDENTITY_RESOLVED_PRECONDITION` enforces the anonymous-fail-closed rule
+// (sub-plan §1 #15 + acceptance #8): a reminder turn from an unbound
+// session resolves no affordance candidate, so the runtime never issues a
+// `MemoryStore` call without `identityId`.
+
+export const IDENTITY_RESOLVED_PRECONDITION =
+  "identity_resolved" as PreconditionId;
+
+const REMINDER_DELIVERED_AFFORDANCE = "reminder.delivered" as AffordanceId;
+
+/**
+ * Matches the target shape produced by Phase 5 IntentContractor
+ * classification of reminder turns. The contractor emits
+ * `target.kind=unspecified` for «какой PDF я делал на прошлой неделе?» —
+ * the operator did not bind a specific session/channel. The affordance
+ * additionally accepts `kind: 'session'` so a future contractor refinement
+ * that binds the active session id (e.g. «какие задачи в текущей сессии?»)
+ * resolves to the same affordance without registry churn.
+ *
+ * NOTE — the slice K sub-plan §11 mentions a hypothetical
+ * `kind: 'session_state'` `TargetRef` variant; the frozen `TargetRef`
+ * union (`semantic-intent.ts:8-13`) does NOT carry that variant and
+ * widening it is out-of-scope for slice K (acceptance #11 — frozen-layer
+ * additive only, never widening). The effective coverage of `unspecified`
+ * + `session` matches the intended contractor surface.
+ *
+ * @param target - Commitment target candidate.
+ * @returns True for `unspecified` or `session` only.
+ */
+function matchesReminderDeliveredTarget(target: CommitmentTarget): boolean {
+  return target.kind === "unspecified" || target.kind === "session";
+}
+
+export const REMINDER_DELIVERED_AFFORDANCE_ENTRY = Object.freeze({
+  id: REMINDER_DELIVERED_AFFORDANCE,
+  effectFamily: REMINDER_EFFECT_FAMILY,
+  effect: REMINDER_DELIVERED_EFFECT,
+  operationKinds: Object.freeze(["observe"] satisfies OperationHint["kind"][]),
+  target: matchesReminderDeliveredTarget,
+  // Anonymous fail-closed (sub-plan acceptance #8) — slice D resolver must
+  // bind an `IdentityId` BEFORE the affordance resolves. Phase 4's
+  // precondition resolver short-circuits the tool execution otherwise.
+  requiredPreconditions: Object.freeze([IDENTITY_RESOLVED_PRECONDITION]),
+  requiredEvidence: Object.freeze([
+    Object.freeze({ kind: "reminder.queried", mandatory: true }),
+  ]),
+  allowedConstraintKeys: Object.freeze([
+    "recallWindow",
+    "effectFamilyFilter",
+    "textHint",
+    "limit",
+  ]),
+  riskTier: "low",
+  defaultBudgets: Object.freeze({
+    maxLatencyMs: 8_000,
+    maxRetries: 1,
+  }),
+  observerHandle: Object.freeze({ id: "reminder_world_state" }),
+  donePredicate: reminderDeliveredPredicate,
+} satisfies RegisteredAffordance);
+
 const DEFAULT_AFFORDANCES = Object.freeze([
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
   ANSWER_DELIVERED_AFFORDANCE_ENTRY,
@@ -626,6 +700,7 @@ const DEFAULT_AFFORDANCES = Object.freeze([
   REPO_COMMIT_LANDED_AFFORDANCE_ENTRY,
   REPO_MERGE_COMPLETED_AFFORDANCE_ENTRY,
   REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY,
+  REMINDER_DELIVERED_AFFORDANCE_ENTRY,
 ] satisfies RegisteredAffordance[]);
 
 class StaticAffordanceRegistry implements AffordanceRegistry {

@@ -18,6 +18,7 @@ export const WEB_RESEARCH_EFFECT_FAMILY = "web_research" as EffectFamilyId;
 export const UNKNOWN_EFFECT_FAMILY = "unknown" as EffectFamilyId;
 export const ARTIFACT_EFFECT_FAMILY = "artifact" as EffectFamilyId;
 export const REPO_EFFECT_FAMILY = "repo" as EffectFamilyId;
+export const REMINDER_EFFECT_FAMILY = "reminder" as EffectFamilyId;
 
 export const WEB_EVIDENCE_COLLECTED_EFFECT = "web_evidence.collected" as EffectId;
 export const WEB_RESEARCH_SUMMARIZED_EFFECT = "web_research.summarized" as EffectId;
@@ -29,6 +30,7 @@ export const REPO_BRANCH_CREATED_EFFECT = "repo.branch_created" as EffectId;
 export const REPO_COMMIT_LANDED_EFFECT = "repo.commit_landed" as EffectId;
 export const REPO_MERGE_COMPLETED_EFFECT = "repo.merge_completed" as EffectId;
 export const REPO_DIFF_OBSERVED_EFFECT = "repo.diff_observed" as EffectId;
+export const REMINDER_DELIVERED_EFFECT = "reminder.delivered" as EffectId;
 
 export const EFFECT_FAMILY_REGISTRY = Object.freeze([
   Object.freeze({
@@ -79,6 +81,17 @@ export const EFFECT_FAMILY_REGISTRY = Object.freeze([
       "update",
       "cancel",
     ] satisfies OperationHintKind[]),
+  }),
+  Object.freeze({
+    id: REMINDER_EFFECT_FAMILY,
+    displayName: "Reminder query",
+    // Read-only `observe` only — slice K is a pure CONSUMER over LIT
+    // episodic slots (slice E P5 / F P5 / cutover-3 P5 / cutover-4 P5)
+    // and NEVER mutates state (#11). Phase 4 `RecallReminderTool`
+    // issues N parallel `MemoryStore.list({identityId, effectFamily})`
+    // reads + optional `MemoryStore.recall({identityId, query})` —
+    // both observation-only.
+    allowedOperationKinds: Object.freeze(["observe"] satisfies OperationHintKind[]),
   }),
 ] satisfies EffectFamilyDefinition[]);
 

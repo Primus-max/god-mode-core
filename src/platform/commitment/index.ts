@@ -22,6 +22,8 @@ export {
   IMAGE_CREATED_EFFECT,
   PDF_CREATED_EFFECT,
   PERSISTENT_SESSION_EFFECT_FAMILY,
+  REMINDER_DELIVERED_EFFECT,
+  REMINDER_EFFECT_FAMILY,
   REPO_BRANCH_CREATED_EFFECT,
   REPO_COMMIT_LANDED_EFFECT,
   REPO_DIFF_OBSERVED_EFFECT,
@@ -44,6 +46,7 @@ export {
   COMPOSER_AFTER_SEARCH_AFFORDANCE_ENTRY,
   DOCX_CREATED_AFFORDANCE_ENTRY,
   EXTERNAL_EFFECT_PERFORMED_AFFORDANCE_ENTRY,
+  IDENTITY_RESOLVED_PRECONDITION,
   IMAGE_CREATED_AFFORDANCE_ENTRY,
   IMAGE_GENERATION_PROVIDER_AVAILABLE_PRECONDITION,
   INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION,
@@ -51,6 +54,7 @@ export {
   PDF_RENDERER_AVAILABLE_PRECONDITION,
   PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
+  REMINDER_DELIVERED_AFFORDANCE_ENTRY,
   REPO_BRANCH_CREATED_AFFORDANCE_ENTRY,
   REPO_COMMIT_LANDED_AFFORDANCE_ENTRY,
   REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY,
@@ -64,6 +68,7 @@ export { codePatchAppliedPredicate } from "./done-predicate-code-patch-applied.j
 export { docxCreatedPredicate } from "./done-predicate-docx-created.js";
 export { imageCreatedPredicate } from "./done-predicate-image-created.js";
 export { pdfCreatedPredicate } from "./done-predicate-pdf-created.js";
+export { reminderDeliveredPredicate } from "./done-predicate-reminder-delivered.js";
 export { repoBranchCreatedPredicate } from "./done-predicate-repo-branch-created.js";
 export { repoCommitLandedPredicate } from "./done-predicate-repo-commit-landed.js";
 export { repoDiffObservedPredicate } from "./done-predicate-repo-diff-observed.js";
