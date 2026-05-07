@@ -24,6 +24,10 @@ import {
   getProcessScheduledReminderWorldStateCollector,
 } from "./scheduled-reminder-world-state-observer.js";
 import {
+  createPersistentWorkerReportObserver,
+  getProcessPersistentWorkerReportCollector,
+} from "./persistent-worker-report-observer.js";
+import {
   getProcessDeliveryReceiptRegistry,
   type DeliveryReceiptRegistry,
 } from "./delivery-receipt-registry.js";
@@ -125,6 +129,9 @@ export function createDefaultMonitoredRuntime(options: {
   const scheduledReminderObserver = createScheduledReminderWorldStateObserver(
     getProcessScheduledReminderWorldStateCollector(),
   );
+  const persistentWorkerReportObserver = createPersistentWorkerReportObserver(
+    getProcessPersistentWorkerReportCollector(),
+  );
   return createMonitoredRuntime({
     sessionObserver,
     deliveryObserver,
@@ -133,6 +140,7 @@ export function createDefaultMonitoredRuntime(options: {
     repoObserver,
     reminderObserver,
     scheduledReminderObserver,
+    persistentWorkerReportObserver,
   });
 }
 
