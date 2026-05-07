@@ -16,7 +16,7 @@ import type { IdentityId } from "../identity/identity-id.js";
 import type { MemoryStore, SemanticMemoryEntry } from "../memory/index.js";
 import { buildActiveTasksBlock } from "../task/active-tasks-block.js";
 import type { TaskLedger } from "../task/task-ledger.js";
-import type { TaskListQuery } from "../task/task-record.js";
+import type { TaskListQuery, TaskRecord } from "../task/task-record.js";
 import {
   EFFECT_FAMILY_REGISTRY,
   getEffectFamilyDefinition,
@@ -435,6 +435,23 @@ export function createIntentContractor(deps: {
         clockNowMs,
         anyRecallFired: memoryRecall.block !== null || taskRecall.block !== null,
       });
+
+      // Slice "intent-contractor freshness/recency" Phase 5 — emit
+      // the four structured log lines documenting the per-classify
+      // freshness behaviour. Channel re-uses the existing `logger.warn`
+      // surface (the only structural log seam in this file; the
+      // pre-existing `<inbound_attachments>` injected line rides the
+      // same channel — sub-plan §5 + audit §f). All four lines are
+      // observability-only (invariant #15) and never throw into the
+      // contractor flow because `logger?.warn` is short-circuited.
+      emitFreshnessLogLines({
+        logger: deps.logger,
+        config: resolvedFreshness,
+        clockNowMs,
+        memoryRecall,
+        taskRecall,
+        freshnessHintsBlock,
+      });
       // Block order: <active_tasks> precedes <memory> precedes
       // <inbound_attachments> precedes <freshness_hints> precedes the
       // raw prompt. The contractor surfaces "what's still in flight" →
@@ -492,6 +509,17 @@ export function createIntentContractor(deps: {
 type MemoryRecallOutcome = {
   readonly block: string | null;
   readonly failed: boolean;
+  /**
+   * Slice "intent-contractor freshness/recency" Phase 5 telemetry
+   * surface. `items` is the raw recall count; `scored` is the count
+   * after the freshness reorder (equal to `items` today; reserved for
+   * future filtering). `topDecay` / `bottomDecay` reflect the
+   * post-reorder envelope (`null` when no entries surfaced).
+   */
+  readonly items: number;
+  readonly scored: number;
+  readonly topDecay: number | null;
+  readonly bottomDecay: number | null;
 };
 
 /**
@@ -516,7 +544,7 @@ async function maybeRecallMemory(params: {
 }): Promise<MemoryRecallOutcome> {
   if (!params.memoryStore || !params.identityId) {
     // Anonymous session OR no memoryStore wired — recall is a clean no-op.
-    return { block: null, failed: false };
+    return EMPTY_MEMORY_RECALL;
   }
   try {
     const result = await params.memoryStore.recall({
@@ -526,7 +554,7 @@ async function maybeRecallMemory(params: {
     });
     if (result.entries.length === 0) {
       // Empty result must NOT inject a block — zero whitespace pollution.
-      return { block: null, failed: false };
+      return EMPTY_MEMORY_RECALL;
     }
     // Slice "intent-contractor freshness/recency" Phase 4 / Change 3
     // — apply recency reorder via `combinedScore = score * recencyDecay`.
@@ -540,15 +568,32 @@ async function maybeRecallMemory(params: {
       config: params.freshnessConfig,
     });
     const reordered = sortByCombinedScore(scored);
-    return { block: buildMemoryBlock(reordered), failed: false };
+    const decays = reordered.map((s) => s.recencyDecay);
+    return {
+      block: buildMemoryBlock(reordered),
+      failed: false,
+      items: result.entries.length,
+      scored: reordered.length,
+      topDecay: decays[0] ?? null,
+      bottomDecay: decays[decays.length - 1] ?? null,
+    };
   } catch (error) {
     params.logger?.warn(MEMORY_RECALL_FAILED_UNCERTAINTY, {
       identityId: String(params.identityId),
       error: error instanceof Error ? error.message : String(error),
     });
-    return { block: null, failed: true };
+    return { ...EMPTY_MEMORY_RECALL, failed: true };
   }
 }
+
+const EMPTY_MEMORY_RECALL: MemoryRecallOutcome = {
+  block: null,
+  failed: false,
+  items: 0,
+  scored: 0,
+  topDecay: null,
+  bottomDecay: null,
+};
 
 /**
  * Slice "intent-contractor freshness/recency" Phase 4 / Change 3 —
@@ -658,7 +703,7 @@ async function maybeRecallActiveTasks(params: {
 }): Promise<TaskRecallOutcome> {
   if (!params.taskLedger || !params.identityId) {
     // Anonymous session OR no taskLedger wired — recall is a clean no-op.
-    return { block: null, failed: false };
+    return EMPTY_TASK_RECALL;
   }
   try {
     const result = await params.taskLedger.list({
@@ -666,7 +711,7 @@ async function maybeRecallActiveTasks(params: {
       statuses: ACTIVE_TASK_RECALL_STATUSES,
     });
     if (result.tasks.length === 0) {
-      return { block: null, failed: false };
+      return EMPTY_TASK_RECALL;
     }
     // Slice "intent-contractor freshness/recency" Phase 4 / Change 4
     // — pass the freshness option down so the formatter reorders by
@@ -680,21 +725,86 @@ async function maybeRecallActiveTasks(params: {
     // returns "" when nothing survives — collapse that branch onto the
     // empty-result no-op so callers see one shape.
     if (block.length === 0) {
-      return { block: null, failed: false };
+      return EMPTY_TASK_RECALL;
     }
-    return { block, failed: false };
+    // Slice "intent-contractor freshness/recency" Phase 5 — recompute
+    // the recency-decay envelope for telemetry only. The formatter
+    // applies the same `scoreByRecency` over the active-status subset,
+    // but does not surface the per-row decays. Mirror the active-
+    // status filter (sub-plan §6) so the count matches the block's
+    // emitted `tasks[]` length, then score the surviving rows once
+    // for `topDecay` / `bottomDecay`.
+    const activeTasks = result.tasks.filter(
+      (task) =>
+        task.status === "open" || task.status === "in_progress",
+    );
+    const scoredTasks = scoreByRecency({
+      items: activeTasks,
+      getTimestamp: extractTaskRecency,
+      nowMs: params.clockNowMs,
+      config: params.freshnessConfig,
+    });
+    const taskDecays = scoredTasks.map((s) => s.recencyDecay);
+    return {
+      block,
+      failed: false,
+      items: result.tasks.length,
+      scored: activeTasks.length,
+      topDecay: taskDecays[0] ?? null,
+      bottomDecay: taskDecays[taskDecays.length - 1] ?? null,
+    };
   } catch (error) {
     params.logger?.warn(TASK_RECALL_FAILED_UNCERTAINTY, {
       identityId: String(params.identityId),
       error: error instanceof Error ? error.message : String(error),
     });
-    return { block: null, failed: true };
+    return { ...EMPTY_TASK_RECALL, failed: true };
   }
+}
+
+/**
+ * Slice "intent-contractor freshness/recency" Phase 5 — extract the
+ * `updatedAt ?? createdAt` epoch-ms recency anchor for an active
+ * task. Mirrors `active-tasks-block.ts` but lives here because the
+ * formatter does not surface per-row decays. Used only for telemetry
+ * (the formatter still owns the canonical reorder).
+ */
+function extractTaskRecency(task: TaskRecord): number | null {
+  const upd = parseIsoEpoch(task.updatedAt);
+  if (upd !== null) return upd;
+  return parseIsoEpoch(task.createdAt);
+}
+
+function parseIsoEpoch(value: string | undefined): number | null {
+  if (value === undefined) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 type TaskRecallOutcome = {
   readonly block: string | null;
   readonly failed: boolean;
+  /**
+   * Slice "intent-contractor freshness/recency" Phase 5 telemetry
+   * surface. `items` is the raw `taskLedger.list` count; `scored` is
+   * the count of the active subset that survived the formatter's
+   * status filter (and therefore the freshness reorder). `topDecay` /
+   * `bottomDecay` reflect the post-reorder envelope (`null` when no
+   * tasks surfaced).
+   */
+  readonly items: number;
+  readonly scored: number;
+  readonly topDecay: number | null;
+  readonly bottomDecay: number | null;
+};
+
+const EMPTY_TASK_RECALL: TaskRecallOutcome = {
+  block: null,
+  failed: false,
+  items: 0,
+  scored: 0,
+  topDecay: null,
+  bottomDecay: null,
 };
 
 /**
@@ -792,6 +902,94 @@ function buildInboundAttachmentsBlock(params: {
  * exactly four numeric / closed-set scalars (`half_life_ms`,
  * `floor`, `now_ms`, `missing_ts_policy`).
  */
+/**
+ * Slice "intent-contractor freshness/recency" Phase 5 — structured
+ * log-line emission. Four one-line records per `classify` call:
+ *
+ *   `[intent-contractor] freshness.applied half_life_ms=<N> floor=<f>
+ *      now_ms=<N> policy=<missingTimestampPolicy>`
+ *   `[intent-contractor] memory.block items=<N> scored=<N>
+ *      top_decay=<f> bottom_decay=<f>`            // only when memory > 0
+ *   `[intent-contractor] active_tasks.block items=<N> scored=<N>
+ *      top_decay=<f> bottom_decay=<f>`            // only when tasks > 0
+ *   `[intent-contractor] freshness_hints.block emitted=<bool>`
+ *
+ * The `freshness.applied` and `freshness_hints.block` lines fire
+ * unconditionally so a deployed log scraper can reason about the
+ * freshness configuration even when no recall path fired. The
+ * memory-block / active_tasks-block lines fire only when the
+ * corresponding recall surface returned a non-empty list (sub-plan
+ * §5).
+ *
+ * Channel: rides the existing `logger.warn` seam (same channel as the
+ * pre-existing `<inbound_attachments>` injected line at the bottom of
+ * `buildInboundAttachmentsBlock`). The contract is observability-only
+ * (invariant #15) — `logger?.warn` is null-safe.
+ */
+function emitFreshnessLogLines(params: {
+  readonly logger?: IntentContractorLogger;
+  readonly config: ResolvedFreshnessConfig;
+  readonly clockNowMs: number;
+  readonly memoryRecall: MemoryRecallOutcome;
+  readonly taskRecall: TaskRecallOutcome;
+  readonly freshnessHintsBlock: string | null;
+}): void {
+  const logger = params.logger;
+  if (!logger) return;
+
+  const floor = 0.05;
+  logger.warn(
+    `[intent-contractor] freshness.applied half_life_ms=${String(params.config.decayHalfLifeMs)} floor=${String(floor)} now_ms=${String(params.clockNowMs)} policy=${params.config.missingTimestampPolicy}`,
+    {
+      half_life_ms: params.config.decayHalfLifeMs,
+      floor,
+      now_ms: params.clockNowMs,
+      policy: params.config.missingTimestampPolicy,
+    },
+  );
+
+  if (params.memoryRecall.items > 0) {
+    logger.warn(
+      `[intent-contractor] memory.block items=${String(params.memoryRecall.items)} scored=${String(params.memoryRecall.scored)} top_decay=${formatDecay(params.memoryRecall.topDecay)} bottom_decay=${formatDecay(params.memoryRecall.bottomDecay)}`,
+      {
+        items: params.memoryRecall.items,
+        scored: params.memoryRecall.scored,
+        top_decay: params.memoryRecall.topDecay,
+        bottom_decay: params.memoryRecall.bottomDecay,
+      },
+    );
+  }
+
+  if (params.taskRecall.items > 0) {
+    logger.warn(
+      `[intent-contractor] active_tasks.block items=${String(params.taskRecall.items)} scored=${String(params.taskRecall.scored)} top_decay=${formatDecay(params.taskRecall.topDecay)} bottom_decay=${formatDecay(params.taskRecall.bottomDecay)}`,
+      {
+        items: params.taskRecall.items,
+        scored: params.taskRecall.scored,
+        top_decay: params.taskRecall.topDecay,
+        bottom_decay: params.taskRecall.bottomDecay,
+      },
+    );
+  }
+
+  const emitted = params.freshnessHintsBlock !== null;
+  logger.warn(
+    `[intent-contractor] freshness_hints.block emitted=${String(emitted)}`,
+    { emitted },
+  );
+}
+
+/**
+ * Phase 5 — format a nullable decay number into the structured log
+ * line. `null` (no entries) renders as `null`, finite numbers render
+ * fixed-precision so log greps can compare across runs without parsing
+ * scientific notation.
+ */
+function formatDecay(value: number | null): string {
+  if (value === null) return "null";
+  return value.toFixed(4);
+}
+
 function buildFreshnessHintsBlock(params: {
   readonly config: ResolvedFreshnessConfig;
   readonly clockNowMs: number;
