@@ -28,6 +28,7 @@ import { isTruthyEnvValue } from "../infra/env.js";
 import type { loadOpenClawPlugins } from "../plugins/loader.js";
 import { type PluginServicesHandle, startPluginServices } from "../plugins/services.js";
 import { getMemoryRuntime } from "../server/memory-store-bootstrap.js";
+import { bindProcessPersistentWorkerPushFireCallback } from "../server/persistent-worker-push-bootstrap.js";
 import { startBrowserControlServerIfEnabled } from "./server-browser.js";
 import {
   scheduleRestartSentinelWake,
@@ -239,6 +240,33 @@ export async function startGatewaySidecars(params: {
   void getMemoryRuntime(params.cfg).catch((err) => {
     params.log.warn(`slice-E memory runtime warmup failed: ${String(err)}`);
   });
+
+  // Bug F (persistent-worker subsequent push) Phase 5c — bind the
+  // process-scoped persistent_worker push fire callback so persistent-
+  // worker completions fan out to the operator's external channel via
+  // the sanctioned codepath. Idempotent (the bootstrap singleton
+  // returns `alreadyBound: true` on the second call). Pre-Phase-5c the
+  // binder is unset and the `subagent_ended` companion emitter
+  // short-circuits — no push at all. From Phase 5c onwards the binder
+  // is LIVE and a `deliveryDispatch` failure surfaces as a structured
+  // `dispatch_failed` envelope without throwing (#15). The transport
+  // closure threaded here is the fail-closed default until the
+  // follow-up slice supplies the production transport (sub-plan §3.4
+  // — gateway transport wiring is staged separately so the binder
+  // surface can ship green ahead of the channel-resolver glue). See
+  // PR #281 for the disclosure.
+  try {
+    bindProcessPersistentWorkerPushFireCallback({
+      deliveryDispatch: async () => ({
+        ok: false,
+        reason: "transport_not_wired",
+      }),
+    });
+  } catch (err) {
+    params.log.warn(
+      `persistent-worker push bootstrap bind failed: ${String(err)}`,
+    );
+  }
 
   if (shouldWakeFromRestartSentinel()) {
     setTimeout(() => {
