@@ -10,6 +10,7 @@ import {
   PERSISTENT_SESSION_EFFECT_FAMILY,
   REMINDER_DELIVERED_EFFECT,
   REMINDER_EFFECT_FAMILY,
+  REMINDER_SET_EFFECT,
   REPO_BRANCH_CREATED_EFFECT,
   REPO_COMMIT_LANDED_EFFECT,
   REPO_DIFF_OBSERVED_EFFECT,
@@ -304,11 +305,16 @@ describe("effect-family registry — Slice K Phase 3 (reminder family)", () => {
     expect(Object.isFrozen(matches[0]?.allowedOperationKinds)).toBe(true);
   });
 
-  it("reminder allowedOperationKinds === ['observe'] EXACTLY (read-only invariant #11 — slice K never mutates state)", () => {
+  it("reminder allowedOperationKinds includes 'observe' (slice K read-side preserved after Cron/Scheduler Phase 2 widen)", () => {
+    // Slice K originally registered `reminder` with `['observe']` only. Cron/
+    // Scheduler Phase 2 ADDITIVELY widens to `['observe', 'create']` for the
+    // write-side reminder.set affordance. The set-equality assertion in the
+    // dedicated "Cron/Scheduler Phase 2" describe block below pins the exact
+    // post-widen contents; this assertion preserves the slice K read-side
+    // guarantee (observe MUST still be present).
     const definition = getEffectFamilyDefinition(REMINDER_EFFECT_FAMILY);
     expect(definition).toBeDefined();
-    expect(definition?.allowedOperationKinds).toEqual(["observe"]);
-    expect(definition?.allowedOperationKinds).toHaveLength(1);
+    expect(definition?.allowedOperationKinds).toContain("observe");
   });
 
   it("reminder family does NOT carry branchingHints (only web_research does — Cutover-3/4 precedent)", () => {
@@ -368,5 +374,99 @@ describe("effect-family registry — Slice K Phase 3 (reminder family)", () => {
     expect((REMINDER_EFFECT_FAMILY as unknown as string)).not.toBe(
       REMINDER_DELIVERED_EFFECT as unknown as string,
     );
+  });
+});
+
+describe("effect-family registry — Cron/Scheduler Phase 2 (reminder allowlist widen + REMINDER_SET_EFFECT)", () => {
+  it("preserves freeze + push-throw guard with the reminder entry widened in place", () => {
+    expect(Object.isFrozen(EFFECT_FAMILY_REGISTRY)).toBe(true);
+    expect(() =>
+      (EFFECT_FAMILY_REGISTRY as unknown as EffectFamilyDefinition[]).push(
+        {} as EffectFamilyDefinition,
+      ),
+    ).toThrow();
+  });
+
+  it("registers reminder family exactly once (no new family added — slice K registration REUSED)", () => {
+    const matches = EFFECT_FAMILY_REGISTRY.filter(
+      (entry) => entry.id === REMINDER_EFFECT_FAMILY,
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.id).toBe("reminder");
+    expect(matches[0]?.displayName).toBe("Reminder query");
+  });
+
+  it("reminder allowedOperationKinds set === {observe, create} EXACTLY (order-independent set-equality)", () => {
+    const definition = getEffectFamilyDefinition(REMINDER_EFFECT_FAMILY);
+    expect(definition).toBeDefined();
+    expect(new Set(definition?.allowedOperationKinds ?? [])).toEqual(
+      new Set(["observe", "create"]),
+    );
+    expect(definition?.allowedOperationKinds).toHaveLength(2);
+  });
+
+  it("reminder allowedOperationKinds remains a frozen readonly tuple after the widen", () => {
+    const definition = getEffectFamilyDefinition(REMINDER_EFFECT_FAMILY);
+    expect(definition).toBeDefined();
+    expect(Object.isFrozen(definition?.allowedOperationKinds)).toBe(true);
+  });
+
+  it("declares REMINDER_SET_EFFECT === 'reminder.set' as a branded EffectId distinct from every prior EffectId", () => {
+    expect(REMINDER_SET_EFFECT).toBe("reminder.set");
+
+    // Distinct from every previously-declared EffectId constant
+    // (Cutover-3 P2 / Cutover-4 P2 / Slice K P3 precedent).
+    const existing = [
+      WEB_EVIDENCE_COLLECTED_EFFECT,
+      WEB_RESEARCH_SUMMARIZED_EFFECT,
+      PDF_CREATED_EFFECT,
+      DOCX_CREATED_EFFECT,
+      CODE_PATCH_APPLIED_EFFECT,
+      IMAGE_CREATED_EFFECT,
+      REPO_BRANCH_CREATED_EFFECT,
+      REPO_COMMIT_LANDED_EFFECT,
+      REPO_MERGE_COMPLETED_EFFECT,
+      REPO_DIFF_OBSERVED_EFFECT,
+      REMINDER_DELIVERED_EFFECT,
+    ];
+    for (const old of existing) {
+      expect(REMINDER_SET_EFFECT).not.toBe(old);
+    }
+  });
+
+  it("invariant #16 sentinel: REMINDER_EFFECT_FAMILY (EffectFamilyId) and REMINDER_SET_EFFECT (EffectId) remain distinct phantom-typed strings", () => {
+    // The brand is a phantom type; underlying primitives are plain strings.
+    // Cross-domain equality between an EffectFamilyId and an EffectId is a
+    // structural canary — if a refactor accidentally collapsed brands to
+    // share a value, this test would catch it.
+    expect((REMINDER_EFFECT_FAMILY as unknown as string)).toBe("reminder");
+    expect((REMINDER_SET_EFFECT as unknown as string)).toBe("reminder.set");
+    expect((REMINDER_EFFECT_FAMILY as unknown as string)).not.toBe(
+      REMINDER_SET_EFFECT as unknown as string,
+    );
+    // Also distinct from the slice K observe-side EffectId.
+    expect((REMINDER_SET_EFFECT as unknown as string)).not.toBe(
+      REMINDER_DELIVERED_EFFECT as unknown as string,
+    );
+  });
+
+  it("invariant #16 reverse-test: EffectFamilyId is NOT assignable to EffectId at the type level (compile-time canary)", () => {
+    // This test exists to fail TypeScript compilation if a future refactor
+    // collapses `EffectFamilyId` and `EffectId` brands. The `@ts-expect-error`
+    // annotation must remain — its absence (i.e. the cross-brand assignment
+    // typechecks) is what would constitute the regression.
+    const familyId = REMINDER_EFFECT_FAMILY;
+    // @ts-expect-error invariant #16: EffectFamilyId is NOT assignable to EffectId
+    const asEffectId: typeof REMINDER_SET_EFFECT = familyId;
+    // Runtime assertion is incidental — the compile-time check is the point.
+    expect(typeof asEffectId).toBe("string");
+  });
+
+  it("registry length unchanged — Phase 2 widens in place; registry stays at 7 entries", () => {
+    // Slice K Phase 3 grew the registry to 7 (last family added: reminder).
+    // Cron/Scheduler Phase 2 ADDITIVELY widens the existing reminder entry's
+    // allowedOperationKinds tuple WITHOUT appending a new family. Length must
+    // stay 7.
+    expect(EFFECT_FAMILY_REGISTRY).toHaveLength(7);
   });
 });

@@ -31,6 +31,7 @@ export const REPO_COMMIT_LANDED_EFFECT = "repo.commit_landed" as EffectId;
 export const REPO_MERGE_COMPLETED_EFFECT = "repo.merge_completed" as EffectId;
 export const REPO_DIFF_OBSERVED_EFFECT = "repo.diff_observed" as EffectId;
 export const REMINDER_DELIVERED_EFFECT = "reminder.delivered" as EffectId;
+export const REMINDER_SET_EFFECT = "reminder.set" as EffectId;
 
 export const EFFECT_FAMILY_REGISTRY = Object.freeze([
   Object.freeze({
@@ -85,13 +86,15 @@ export const EFFECT_FAMILY_REGISTRY = Object.freeze([
   Object.freeze({
     id: REMINDER_EFFECT_FAMILY,
     displayName: "Reminder query",
-    // Read-only `observe` only — slice K is a pure CONSUMER over LIT
-    // episodic slots (slice E P5 / F P5 / cutover-3 P5 / cutover-4 P5)
-    // and NEVER mutates state (#11). Phase 4 `RecallReminderTool`
-    // issues N parallel `MemoryStore.list({identityId, effectFamily})`
-    // reads + optional `MemoryStore.recall({identityId, query})` —
-    // both observation-only.
-    allowedOperationKinds: Object.freeze(["observe"] satisfies OperationHintKind[]),
+    // `observe` — slice K read-side: `RecallReminderTool` issues N parallel
+    // `MemoryStore.list({identityId, effectFamily})` reads + optional
+    // `MemoryStore.recall({identityId, query})`, both observation-only.
+    // `create` — Cron/Scheduler write-side (Phase 2 additive widen, Cutover-3/4
+    // P2 precedent): `RecordReminderTool` (Phase 5) records a future `at`-fire
+    // via `CronService.add(...)` and persists `ScheduledReminderRecord` —
+    // mutation lifecycle `pending → fired | cancelled`. The two affordances
+    // are disjoint on `operationKind`; branching factor=2 after Phase 4.
+    allowedOperationKinds: Object.freeze(["observe", "create"] satisfies OperationHintKind[]),
   }),
 ] satisfies EffectFamilyDefinition[]);
 
