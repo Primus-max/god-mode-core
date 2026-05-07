@@ -1052,6 +1052,13 @@ export const OpenClawSchema = z
          *  - `repo.diff_observed` is read-only and may carry any
          *    nonneg `maxAttempts` (sub-plan §3 row Phase 6 default
          *    = 2).
+         *  - Cron/Scheduler Phase 7 — `reminder.set` is also
+         *    mutation-locked (`maxAttempts === 0`). Re-running the
+         *    `RecordReminderTool` registers a duplicate
+         *    `CronService.add({schedule:{kind:'at', at:fireAt}, ...})`
+         *    callback — the operator would receive double-pushes at
+         *    fire-time. The lock list below carries the same closed
+         *    discipline as the three repo mutation effects.
          */
         retry: z
           .object({
@@ -1074,20 +1081,26 @@ export const OpenClawSchema = z
       })
       .strict()
       .superRefine((policy, ctx) => {
-        // Cutover-4 Phase 6 — mutation-effect retry lock. The closed
-        // list mirrors `effect-family-registry.ts` REPO_*_EFFECT
-        // constants (excluding the read-only `repo.diff_observed`
-        // which is permitted any nonneg `maxAttempts`).
-        const REPO_MUTATION_EFFECT_IDS_LOCKED_TO_ZERO = [
+        // Cutover-4 Phase 6 + Cron/Scheduler Phase 7 — mutation-effect
+        // retry lock. The closed list mirrors `effect-family-registry.ts`
+        // REPO_*_EFFECT constants (excluding the read-only
+        // `repo.diff_observed` which is permitted any nonneg
+        // `maxAttempts`) PLUS the Cron/Scheduler `reminder.set` write
+        // effect. Re-running `RecordReminderTool` would register a
+        // duplicate `at`-fire CronService callback — the operator
+        // receives double-pushes at fire-time. Mutation idempotency
+        // unsafe ⇒ `maxAttempts=0` enforced at config-load.
+        const MUTATION_EFFECT_IDS_LOCKED_TO_ZERO = [
           "repo.branch_created",
           "repo.commit_landed",
           "repo.merge_completed",
+          "reminder.set",
         ] as const;
         const perEffect = policy.retry?.perEffect;
         if (!perEffect) {
           return;
         }
-        for (const effectId of REPO_MUTATION_EFFECT_IDS_LOCKED_TO_ZERO) {
+        for (const effectId of MUTATION_EFFECT_IDS_LOCKED_TO_ZERO) {
           const entry = perEffect[effectId];
           if (entry === undefined) {
             continue;
@@ -1098,8 +1111,10 @@ export const OpenClawSchema = z
               path: ["retry", "perEffect", effectId, "maxAttempts"],
               message:
                 `policy.retry.perEffect["${effectId}"].maxAttempts must be 0 ` +
-                `(repo mutation effects are NOT idempotent — re-running ` +
-                `produces duplicate branches / partial-merge / over-commits).`,
+                `(mutation effect — re-running is NOT idempotent: repo ` +
+                `mutations produce duplicate branches / partial-merge / ` +
+                `over-commits; reminder.set produces duplicate cron ` +
+                `callbacks ⇒ double-pushes at fire-time).`,
             });
           }
         }
