@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SkillSnapshot } from "../skills.js";
 
@@ -17,7 +17,21 @@ vi.mock("../skills.js", async (importOriginal) => {
   };
 });
 
-const { resolveEmbeddedRunSkillEntries } = await import("./skills-runtime.js");
+// `test/setup.ts` transitively pre-loads `skills-runtime.js`'s dependency
+// chain via `../skills.js` BEFORE this file's `vi.mock` factory registers.
+// Without `vi.resetModules()` the SUT keeps the real `loadWorkspaceSkillEntries`
+// binding and `hoisted.loadWorkspaceSkillEntries` is never invoked
+// (assertion sees `Number of calls: 0`). Same root cause as PR #303 / #304 /
+// #305 / #308.
+let resolveEmbeddedRunSkillEntries: (typeof import("./skills-runtime.js"))[
+  "resolveEmbeddedRunSkillEntries"
+];
+
+beforeAll(async () => {
+  vi.resetModules();
+  const skillsRuntime = await import("./skills-runtime.js");
+  resolveEmbeddedRunSkillEntries = skillsRuntime.resolveEmbeddedRunSkillEntries;
+});
 
 describe("resolveEmbeddedRunSkillEntries", () => {
   beforeEach(() => {
