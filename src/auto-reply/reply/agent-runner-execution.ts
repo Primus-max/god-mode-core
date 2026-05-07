@@ -27,6 +27,8 @@ import {
 } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
+import type { ConcurrentTurnBroker } from "../../platform/broker/index.js";
+import { asIdentityId, type IdentityId } from "../../platform/identity/identity-id.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { defaultRuntime } from "../../runtime.js";
 import {
@@ -55,6 +57,7 @@ import {
   resolveModelFallbackOptions,
 } from "./agent-runner-utils.js";
 import { type BlockReplyPipeline } from "./block-reply-pipeline.js";
+import { dispatchTurnViaBroker } from "./dispatch-turn-via-broker.js";
 import type { FollowupRun } from "./queue.js";
 import { createBlockReplyDeliveryHandler } from "./reply-delivery.js";
 import { createReplyMediaPathNormalizer } from "./reply-media-paths.runtime.js";
@@ -130,6 +133,135 @@ export async function runAgentTurnWithFallback(params: {
     requiredCapabilities?: string[];
     requestedToolNames?: string[];
   }) => Promise<void> | void;
+  /**
+   * Slice "PR-MT concurrent broker" — Phase 5 wiring.
+   *
+   * Optional process-scoped `ConcurrentTurnBroker` instance. When supplied
+   * (Phase 5b/6 will bind a default at bootstrap), the entire turn body is
+   * routed through `dispatchTurnViaBroker(...)` so per-`(identityId,
+   * channelKey)` FIFO + cross-key concurrency apply. When undefined, the
+   * helper bypasses to a direct invocation that is byte-identical to the
+   * pre-broker dispatch path — no behavior change for existing callers
+   * and tests. See `extensions/AUDIT-pr-mt-concurrent-broker.md` §8.3 for
+   * the wiring rationale.
+   */
+  concurrentBroker?: ConcurrentTurnBroker;
+  /**
+   * Optional identity brand resolved by the caller via
+   * `resolveIdentityFromSessionKey(...)`. Required when `concurrentBroker`
+   * is supplied — composes the `BrokerQueueKey` with the channel tuple.
+   * When `concurrentBroker` is undefined this field is ignored (broker
+   * bypass path does not need it). When `concurrentBroker` is supplied
+   * but `identityId` is undefined, the helper still bypasses (the
+   * regression guard) — Phase 5b/6 wiring sites MUST supply both fields
+   * together.
+   */
+  identityId?: IdentityId;
+}): Promise<AgentRunLoopResult> {
+  // Slice "PR-MT concurrent broker" — Phase 5 wiring entry. Routes the
+  // whole turn body through `dispatchTurnViaBroker(...)` so per-(identity,
+  // channel) FIFO + cross-key concurrency can apply once Phase 5b/6 binds
+  // a default broker at bootstrap. Today (Phase 5) every caller passes
+  // `concurrentBroker: undefined` (or omits it) and the helper falls back
+  // to direct invocation — byte-identical to the pre-broker path.
+  //
+  // The broker requires a routing tuple at submit time; we read it from
+  // `params.followupRun` (populated upstream at `get-reply-run.ts:529-532`)
+  // and the `params.identityId` brand (resolved by the caller via
+  // `resolveIdentityFromSessionKey(...)`). When either the broker or the
+  // identityId is missing we explicitly bypass — see `dispatch-turn-via-
+  // broker.ts` for the regression-guard contract.
+  const broker = params.concurrentBroker;
+  const identityId = params.identityId;
+  const followupRun = params.followupRun;
+  const turnId =
+    params.opts?.runId ??
+    params.followupRun.requestRunId ??
+    crypto.randomUUID();
+  let outerResult: AgentRunLoopResult | undefined;
+  // When either broker or identityId is missing we bypass the broker and the
+  // routing-tuple fields are ignored by the helper — see
+  // `dispatch-turn-via-broker.ts`. `identityId` is brand-validated upstream;
+  // the bypass-only fallback uses a syntactically valid placeholder that is
+  // never actually read on the bypass path (broker undefined → direct
+  // invocation of runTurn).
+  const placeholderIdentity = asIdentityId("identity:bypass");
+  const dispatchResult = await dispatchTurnViaBroker({
+    broker: broker !== undefined && identityId !== undefined ? broker : undefined,
+    turnId,
+    identityId: identityId ?? placeholderIdentity,
+    originatingChannel: followupRun.originatingChannel ?? "",
+    originatingTo: followupRun.originatingTo ?? "",
+    originatingAccountId: followupRun.originatingAccountId,
+    originatingThreadId:
+      followupRun.originatingThreadId == null
+        ? undefined
+        : String(followupRun.originatingThreadId),
+    runTurn: async () => {
+      outerResult = await runAgentTurnBody(params);
+    },
+  });
+
+  if (dispatchResult.kind === "rejected") {
+    // Phase 6 will translate this to a user-facing structured reply with
+    // retry hint; for Phase 5 we surface as a `final` payload so the
+    // caller's existing `kind === 'final'` branch handles it without new
+    // plumbing. Telemetry (including queueKey) is emitted by the broker
+    // itself via the `[broker] rejected ...` log line.
+    defaultRuntime.log(
+      `[broker] dispatch_rejected_at_runner queueKey=${dispatchResult.queueKey} reason=${dispatchResult.reason} turnId=${turnId}`,
+    );
+    return {
+      kind: "final",
+      payload: {
+        text: "⚠️ Server is at capacity right now. Please retry in a moment.",
+      },
+    };
+  }
+
+  if (outerResult === undefined) {
+    // Defensive — runTurn always sets outerResult before resolving.
+    throw new Error("dispatchTurnViaBroker resolved without setting outerResult");
+  }
+  return outerResult;
+}
+
+async function runAgentTurnBody(params: {
+  commandBody: string;
+  followupRun: FollowupRun;
+  sessionCtx: TemplateContext;
+  opts?: GetReplyOptions;
+  typingSignals: TypingSignaler;
+  blockReplyPipeline: BlockReplyPipeline | null;
+  blockStreamingEnabled: boolean;
+  blockReplyChunking?: {
+    minChars: number;
+    maxChars: number;
+    breakPreference: "paragraph" | "newline" | "sentence";
+    flushOnParagraph?: boolean;
+  };
+  resolvedBlockStreamingBreak: "text_end" | "message_end";
+  applyReplyToMode: (payload: ReplyPayload) => ReplyPayload;
+  shouldEmitToolResult: () => boolean;
+  shouldEmitToolOutput: () => boolean;
+  pendingToolTasks: Set<Promise<void>>;
+  resetSessionAfterCompactionFailure: (reason: string) => Promise<boolean>;
+  resetSessionAfterRoleOrderingConflict: (reason: string) => Promise<boolean>;
+  isHeartbeat: boolean;
+  sessionKey?: string;
+  getActiveSessionEntry: () => SessionEntry | undefined;
+  activeSessionStore?: Record<string, SessionEntry>;
+  storePath?: string;
+  resolvedVerboseLevel: VerboseLevel;
+  onStructuralToolExecutionStarting?: () => void | Promise<void>;
+  onAckThenDefer?: (context: {
+    runId: string;
+    estimatedDurationMs?: number;
+    requiredCapabilities?: string[];
+    requestedToolNames?: string[];
+  }) => Promise<void> | void;
+  concurrentBroker?: ConcurrentTurnBroker;
+  identityId?: IdentityId;
 }): Promise<AgentRunLoopResult> {
   const TRANSIENT_HTTP_RETRY_DELAY_MS = 2_500;
   let didLogHeartbeatStrip = false;
