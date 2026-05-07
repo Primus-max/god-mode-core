@@ -152,6 +152,7 @@ import { splitSdkTools } from "../tool-split.js";
 import { describeUnknownError, mapThinkingLevel } from "../utils.js";
 import { flushPendingToolResultsAfterIdle } from "../wait-for-idle-before-flush.js";
 import { setAmbientArtifactTurn } from "./artifact-ambient-turn.js";
+import { applyBundleSchemaFilterAtAttempt } from "./bundle-filter-wiring.js";
 import { waitForCompactionRetryWithAggregateTimeout } from "./compaction-retry-aggregate-timeout.js";
 import {
   resolveRunTimeoutDuringCompaction,
@@ -2057,12 +2058,32 @@ export async function runEmbeddedAttempt(
           },
         });
     const toolsEnabled = supportsModelTools(params.model);
+    // Bundle-as-contract Phase 4 wiring — apply structural bundle allowlist +
+    // reverse-defense filter AFTER `applyModelProviderToolPolicy` (which runs
+    // inside `createOpenClawCodingTools`) and BEFORE `disableWebSearchTool` /
+    // `sanitizeToolsForGoogle` post-processing. Closes the schema-side gap
+    // exposed by `gateway-grok-route.log` 2026-05-02 turn 355ae135 (classifier
+    // mis-emit `bundles=[respond_only]` exposed full catalog to a non-native
+    // search model). Empty / undefined `toolBundles` → byte-identical
+    // pass-through via `missingBundlePolicy: 'allow_all'`. Sub-plan:
+    // `.cursor/plans/commitment_kernel_bundle_as_contract.plan.md` (Phase 4).
+    // Spread back into a mutable array so downstream `sanitizeToolsForGoogle`
+    // and friends (which expect `AgentTool[]`, not `readonly AgentTool[]`)
+    // continue to type-check unchanged. The pure helper itself preserves
+    // reference equality of kept items.
+    const toolsAfterBundleFilter = [
+      ...applyBundleSchemaFilterAtAttempt({
+        tools: toolsRaw,
+        platformExecutionContext: params.platformExecutionContext,
+        modelCompat: params.model.compat,
+      }).kept,
+    ];
     const toolsAfterWebSearchFilter = params.disableWebSearchTool
-      ? toolsRaw.filter(
+      ? toolsAfterBundleFilter.filter(
           (tool) =>
             tool.name !== "web_search" && tool.name !== "web_fetch" && tool.name !== "browser",
         )
-      : toolsRaw;
+      : toolsAfterBundleFilter;
     const tools = sanitizeToolsForGoogle({
       tools: toolsEnabled ? toolsAfterWebSearchFilter : [],
       provider: params.provider,
