@@ -228,7 +228,7 @@ gate. They are candidates for `coalescer.bypass(reason, body, directDeliver)`
 | # | Site | Reason for bypass |
 |---|---|---|
 | E1 | gateway boot announcements | No `runId` (boot event, no inbound user turn). Bypass reason `system_init_announcement`. |
-| E2 | persistent-worker push (Bug F future) | Owns its own dispatcher, not a per-turn user-facing path. Bypass reason `persistent_worker_push` (deferred — emits today via cron). |
+| E2 | persistent-worker push (Bug F) | **LIT (Bug F slice CLOSED)** — sanctioned cron-fire dispatch through `runPersistentWorkerSubsequentPush` adapter; persistent-worker pushes now flow through `OutboundCoalescer.register({turnId, channelKey, kind:'final'})` like every per-turn user-facing path. Bypass slot `cron_persistent_worker` REMOVED at slice `persistent-worker-push` Phase 6 (`BYPASS_REASONS` tuple narrowed 7→6). |
 | E3 | `dispatch-acp.ts:367` `acp-dispatch:` info log lines | Internal log, not user-facing. Already gated by slice I sanitizer's `EXTERNAL_DELIVERY_SURFACES` allowlist; coalescer never sees them. |
 | E4 | operator-side internal channels: `canvas`, `stdout`, `log` | Slice I sanitizer's `EXTERNAL_DELIVERY_SURFACES` allowlist already filters — these channels deliver via projector / `defaultRuntime.log`, not via `onBlockReply`. Bypass reason `internal_surface_passthrough`. |
 | E5 | standalone `/help` / `/status` synchronous replies | Synchronous one-shot reply; no aggregation possible. Bypass reason `synchronous_command_reply`. |

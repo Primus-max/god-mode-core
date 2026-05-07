@@ -72,7 +72,6 @@ export type OutboundMessageKind = "ack" | "preamble" | "intermediate" | "final";
  *
  * Mapping to Phase 1 audit §e candidates:
  * - `system_init`           — boot announcements (no `turnId`).
- * - `cron_persistent_worker` — Bug F future cron-driven dispatcher.
  * - `internal_canvas`       — operator-side canvas surface.
  * - `internal_stdout`       — operator-side stdout surface.
  * - `internal_log`          — operator-side log surface.
@@ -81,14 +80,22 @@ export type OutboundMessageKind = "ack" | "preamble" | "intermediate" | "final";
  *                             this as a string reason; Phase 6 promotes
  *                             it to the typed enum).
  *
- * Sliced into 7 entries (vs 6 in audit §e) because Phase 4 already
- * carved out `internal_acp_lane` as a distinct reason — collapsing it
- * into one of the `internal_*` channel variants would lose the
- * dispatcher-vs-channel distinction in telemetry.
+ * - `cron_persistent_worker`: REMOVED at Bug F slice (lit by
+ *   `persistent_worker.subsequent_push` affordance); persistent-worker
+ *   pushes now flow through
+ *   `OutboundCoalescer.register({ turnId, channelKey, kind: 'final' })`
+ *   like every per-turn user-facing path. Tuple narrowed 7→6 at slice
+ *   `persistent-worker-push` Phase 6.
+ *
+ * Sliced into 6 entries (matches audit §e, post-Bug-F): the historical
+ * 7th `cron_persistent_worker` slot has been retired through the
+ * sanctioned cron-fire dispatch adapter. `internal_acp_lane` remains a
+ * distinct reason — collapsing it into one of the `internal_*` channel
+ * variants would lose the dispatcher-vs-channel distinction in
+ * telemetry.
  */
 export const BYPASS_REASONS = [
   "system_init",
-  "cron_persistent_worker",
   "internal_canvas",
   "internal_stdout",
   "internal_log",
@@ -100,7 +107,7 @@ export type BypassReason = (typeof BYPASS_REASONS)[number];
 
 /**
  * Closed-set membership check; consumed by the `bypass()` runtime
- * guard. Returns true ONLY for the 7 enumerated entries above. Any
+ * guard. Returns true ONLY for the 6 enumerated entries above. Any
  * other input — even a structurally-valid string — falls through. Pure
  * function; no side effects.
  */

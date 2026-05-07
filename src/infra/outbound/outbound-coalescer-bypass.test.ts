@@ -70,13 +70,15 @@ function makeHarness(
 }
 
 describe("outbound-coalescer Phase 6 — BypassReason closed union", () => {
-  it("exports the 7 bypass reasons enumerated in the Phase 6 spec", () => {
-    // Audit §e + Phase 4 ACP precedent → 7-entry union. The closed set
-    // is the structural source-of-truth; runtime validation in
-    // `bypass()` keys on it.
+  it("exports the 6 bypass reasons enumerated in the Phase 6 spec (Bug F lit cron_persistent_worker)", () => {
+    // Bug F (slice persistent-worker-push) Phase 6: the
+    // `cron_persistent_worker` slot is REMOVED — persistent-worker
+    // pushes now flow through the sanctioned
+    // `OutboundCoalescer.register({turnId, channelKey, kind:'final'})`
+    // codepath via `runPersistentWorkerSubsequentPush`. Tuple narrows
+    // 7→6.
     expect(BYPASS_REASONS).toEqual([
       "system_init",
-      "cron_persistent_worker",
       "internal_canvas",
       "internal_stdout",
       "internal_log",
@@ -94,6 +96,20 @@ describe("outbound-coalescer Phase 6 — BypassReason closed union", () => {
       const r: BypassReason = reason;
       expect(typeof r).toBe("string");
     }
+  });
+
+  it("BypassReason union does NOT include 'cron_persistent_worker' at compile-time (Bug F Phase 6 reverse)", () => {
+    // Compile-time narrowing reverse: the union no longer admits the
+    // removed reason. The `@ts-expect-error` directive will FAIL the
+    // build if the union is ever widened back. Pairs with the runtime
+    // reverse below.
+    // @ts-expect-error — Bug F Phase 6 removed `cron_persistent_worker` from BypassReason union.
+    const removed: BypassReason = "cron_persistent_worker";
+    // Runtime sanity: the literal is still a string at runtime, but
+    // the membership predicate REJECTS it (asserted in B1 reverse
+    // section below). The assertion here keeps `removed` referenced so
+    // the cast is not dead code.
+    expect(typeof removed).toBe("string");
   });
 });
 
@@ -172,6 +188,83 @@ describe("outbound-coalescer Phase 6 — B1: bypass delivers immediately, never 
         () => undefined,
       ),
     ).rejects.toThrow(/unknown bypass reason/u);
+  });
+
+  it("rejects 'cron_persistent_worker' at runtime (Bug F Phase 6 closed-set narrowing)", async () => {
+    // Reverse coverage: the historical Bug F bypass slot was REMOVED at
+    // Phase 6. A caller that ignores compile-time narrowing and forces
+    // the cast must still fail-fast at the runtime closed-set check.
+    // Parity with the existing `user_supplied_text` reject case at
+    // §B1 above (invariant #5: no user-prompt-derived reasons).
+    const h = makeHarness();
+    let caught: unknown;
+    try {
+      await h.coalescer.bypass(
+        "cron_persistent_worker" as unknown as BypassReason,
+        { text: "[persistent_worker] daily push" },
+        () => undefined,
+      );
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/unknown bypass reason/u);
+    expect((caught as Error).message).toContain("cron_persistent_worker");
+    // Reject must precede deliver — telemetry MUST NOT show
+    // `event=bypassed reason=cron_persistent_worker`. This is the grep
+    // anchor referenced in sub-plan §6 acceptance.
+    expect(
+      h.logs.some(
+        (l) =>
+          l.includes("event=bypassed") &&
+          l.includes("reason=cron_persistent_worker"),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("outbound-coalescer Phase 6 — Bug F sanctioned path: persistent-worker push via register → committed", () => {
+  it("a persistent-worker push via register({kind:'final'}) emits event=committed (NOT event=bypassed)", async () => {
+    // Bug F Phase 6 architectural assertion: persistent-worker
+    // subsequent_push pushes are now sanctioned through the
+    // `OutboundCoalescer.register({turnId, channelKey, kind:'final'})`
+    // codepath — same as every per-turn user-facing reply. The
+    // `cron_persistent_worker` bypass slot is REMOVED. Telemetry MUST
+    // emit `event=committed` for the cron-fire-derived turnId.
+    const h = makeHarness();
+    const TURN = "cron:persistent_worker:open-models-daily:run-001";
+    const CH = "telegram:6533456892:6533456892";
+    h.coalescer.register({
+      turnId: TURN,
+      channelKey: CH,
+      kind: "final",
+      body: { text: "[persistent_worker] daily push body", replyToId: "rt-1" },
+      ts: 1_000,
+    });
+    expect(h.coalescer.stats()).toEqual({ buffered: 1, turns: 1 });
+
+    await h.coalescer.commit(TURN, CH);
+
+    // The sanctioned push was committed through the deliver sink.
+    expect(h.delivered).toHaveLength(1);
+    expect(h.delivered[0]?.payload.text).toBe(
+      "[persistent_worker] daily push body",
+    );
+    expect(h.delivered[0]?.payload.replyToId).toBe("rt-1");
+    expect(h.coalescer.stats()).toEqual({ buffered: 0, turns: 0 });
+
+    // Telemetry: exactly one committed line for the cron turnId; ZERO
+    // bypassed lines, and ZERO bypassed lines tied to the removed
+    // reason. This is the Phase 6 acceptance grep anchor.
+    const committed = h.logs.filter(
+      (l) => l.includes("event=committed") && l.includes(`turnId=${TURN}`),
+    );
+    expect(committed).toHaveLength(1);
+    const bypassed = h.logs.filter((l) => l.includes("event=bypassed"));
+    expect(bypassed).toHaveLength(0);
+    expect(
+      h.logs.some((l) => l.includes("reason=cron_persistent_worker")),
+    ).toBe(false);
   });
 });
 
