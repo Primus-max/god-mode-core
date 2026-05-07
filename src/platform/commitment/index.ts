@@ -56,6 +56,7 @@ export {
   PERPLEXITY_SEARCH_SPECIALIST_AFFORDANCE_ENTRY,
   PERSISTENT_SESSION_CREATED_AFFORDANCE_ENTRY,
   REMINDER_DELIVERED_AFFORDANCE_ENTRY,
+  REMINDER_SET_AFFORDANCE_ENTRY,
   REPO_BRANCH_CREATED_AFFORDANCE_ENTRY,
   REPO_COMMIT_LANDED_AFFORDANCE_ENTRY,
   REPO_DIFF_OBSERVED_AFFORDANCE_ENTRY,
@@ -70,6 +71,7 @@ export { docxCreatedPredicate } from "./done-predicate-docx-created.js";
 export { imageCreatedPredicate } from "./done-predicate-image-created.js";
 export { pdfCreatedPredicate } from "./done-predicate-pdf-created.js";
 export { reminderDeliveredPredicate } from "./done-predicate-reminder-delivered.js";
+export { reminderSetPredicate } from "./done-predicate-reminder-set.js";
 export { repoBranchCreatedPredicate } from "./done-predicate-repo-branch-created.js";
 export { repoCommitLandedPredicate } from "./done-predicate-repo-commit-landed.js";
 export { repoDiffObservedPredicate } from "./done-predicate-repo-diff-observed.js";
