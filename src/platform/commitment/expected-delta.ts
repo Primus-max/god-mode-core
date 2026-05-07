@@ -63,10 +63,32 @@ export type RepoExpectedDelta = {
   readonly added?: readonly string[];
 };
 
+/**
+ * Cron/Scheduler Phase 5 — additive widening of the scheduled-reminder
+ * slice. Phase 4 shipped the `reminderSetPredicate` reading
+ * `delta.scheduledReminders.added` via a forward-compat structural cast
+ * (returning the closed sentinel `scheduled_reminders.delta_empty` until
+ * this widening lands); Phase 5 lights it up by extending the type
+ * itself. `added` is the closed list of `reminderId` values the runtime
+ * adapter (`scheduled-reminder-runtime-adapter.ts`) emitted during the
+ * turn — the predicate JOINs against
+ * `WorldStateSnapshot.scheduledReminders.records[*].reminderId`.
+ *
+ * Pure additive extension (Cutover-3 P5 / Cutover-4 P5 / slice E P6
+ * precedent): existing consumers do not populate `scheduledReminders`,
+ * so pre-Phase-5 callers stay byte-identical and the Phase 4 forward-
+ * compat shim continues to surface `scheduled_reminders.delta_empty`
+ * until the runtime adapter populates `added`.
+ */
+export type ScheduledRemindersExpectedDelta = {
+  readonly added?: readonly string[];
+};
+
 export type ExpectedDelta = {
   readonly sessions?: SessionExpectedDelta;
   readonly artifacts?: ArtifactExpectedDelta;
   readonly workspace?: WorkspaceExpectedDelta;
   readonly repo?: RepoExpectedDelta;
+  readonly scheduledReminders?: ScheduledRemindersExpectedDelta;
   readonly deliveries?: DeliveryExpectedDelta;
 };

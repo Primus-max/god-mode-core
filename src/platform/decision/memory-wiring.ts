@@ -35,6 +35,10 @@ import {
   type RepoWriteInput,
 } from "../../agents/pi-embedded-runner/run/recordRepoOperationOnCommitmentSatisfied.js";
 import {
+  recordReminderOnCommitmentSatisfied,
+  type ReminderWriteInput,
+} from "../../agents/pi-embedded-runner/run/recordReminderOnCommitmentSatisfied.js";
+import {
   recordTaskOnCommitmentSatisfied,
   type TaskWriteInput,
 } from "../../agents/pi-embedded-runner/run/task-write-on-satisfied.js";
@@ -99,7 +103,22 @@ export type ResolveMemoryWiringForTurnParams = {
    */
   readonly repoWriteInput?: RepoWriteInput;
   /**
-   * Cutover-3 Phase 5 / Cutover-4 Phase 5 — optional `effectFamily` of
+   * Cron/Scheduler Phase 5 — optional caller-side `ReminderWriteInput`.
+   * When set AND the satisfying commitment's `effectFamily === "reminder"`,
+   * the fanned-out `onAttestation` callback emits a typed
+   * `EpisodicMemoryEvent { effectFamily: "reminder", payload:
+   * ReminderSetPayload }` against the operator's `IdentityId`. This is
+   * the FIRST emit site for the slice E `reminder.set` STUB on `dev`
+   * (sub-plan §4 acceptance #8).
+   *
+   * When absent (the default until `record-reminder-tool.ts` lights its
+   * emit site via the runtime adapter + caller plumbing in Phase 7
+   * IntentContractor wiring), the hook is wired but inert.
+   */
+  readonly reminderWriteInput?: ReminderWriteInput;
+  /**
+   * Cutover-3 Phase 5 / Cutover-4 Phase 5 / Cron/Scheduler Phase 5 —
+   * optional `effectFamily` of
    * the satisfying commitment. The artifact hook self-filters on
    * `effectFamily === "artifact"` and the repo hook on
    * `effectFamily === "repo"` so non-matching families
@@ -307,6 +326,41 @@ export async function resolveMemoryWiringForTurn(
       } catch (err) {
         defaultRuntime.log(
           `[repo-write] fan-out failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      // Cron/Scheduler Phase 5 reminder hook fan-out. Self-filters on
+      // `commitmentSatisfied`, `effectFamily === "reminder"`, identity,
+      // store presence, and `reminderInput` presence — so calling it
+      // here unconditionally is safe (returns `{ kind: "skipped", ... }`
+      // when any precondition misses). When it DOES write, it emits the
+      // LIVE log line
+      // `[memory-write-on-satisfied] effectFamily=reminder wrote=true`
+      // — slice E typed-but-inert `reminder.set` STUB now LIT for the
+      // FIRST time on `dev` (sub-plan §4 acceptance #8).
+      try {
+        const reminderOutcome = await recordReminderOnCommitmentSatisfied({
+          attestation,
+          identityId,
+          memoryStore: runtime.memoryStore,
+          reminderInput: params.reminderWriteInput,
+          effectFamily: params.effectFamily,
+          logger: {
+            warn: (message: string) =>
+              defaultRuntime.log(`[reminder-write] ${message}`),
+            debug: () => {
+              /* trace volume — drop debug events at the production seam */
+            },
+          },
+        });
+        if (reminderOutcome.kind === "written") {
+          defaultRuntime.log(
+            `[memory-write-on-satisfied] effectFamily=reminder wrote=true entryId=${reminderOutcome.entryId}`,
+          );
+        }
+      } catch (err) {
+        defaultRuntime.log(
+          `[reminder-write] fan-out failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
 
