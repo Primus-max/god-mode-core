@@ -249,10 +249,15 @@ describe("IntentContractor memory recall (slice E Phase 6)", () => {
     // Failure must NOT inject a <memory> block — the adapter must see the original prompt unchanged.
     expect(captures[0].prompt).toBe(RAW_PROMPT);
     expect(captures[0].prompt).not.toContain("<memory>");
-    // Warning must be logged.
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    const warnArgs = warnSpy.mock.calls[0];
-    const warnPayload = `${String(warnArgs[0] ?? "")} ${JSON.stringify(warnArgs[1] ?? {})}`;
+    // Warning must be logged. The contractor also emits the Phase 5
+    // freshness telemetry log lines on the same `logger.warn` seam, so
+    // we filter to the recall-failure record specifically rather than
+    // asserting an exact call count.
+    const failureCall = warnSpy.mock.calls.find((args) =>
+      String(args[0] ?? "").includes("memory_recall_failed"),
+    );
+    expect(failureCall).toBeDefined();
+    const warnPayload = `${String(failureCall![0] ?? "")} ${JSON.stringify(failureCall![1] ?? {})}`;
     expect(warnPayload).toContain("memory_recall_failed");
     // Contractor must still return a valid SemanticIntent (NEVER throws into the contractor flow).
     expect(result.desiredEffectFamily).toBe(COMMUNICATION_EFFECT_FAMILY);

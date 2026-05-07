@@ -294,10 +294,15 @@ describe("IntentContractor active-tasks recall (slice F Phase 6)", () => {
     // Failure must NOT inject a block.
     expect(captures[0]!.prompt).toBe(RAW_PROMPT);
     expect(captures[0]!.prompt).not.toContain("<active_tasks>");
-    // Warning must be logged.
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    const warnArgs = warnSpy.mock.calls[0]!;
-    const warnPayload = `${String(warnArgs[0] ?? "")} ${JSON.stringify(warnArgs[1] ?? {})}`;
+    // Warning must be logged. The contractor also emits the Phase 5
+    // freshness telemetry log lines on the same `logger.warn` seam, so
+    // we filter to the recall-failure record specifically rather than
+    // asserting an exact call count.
+    const failureCall = warnSpy.mock.calls.find((args) =>
+      String(args[0] ?? "").includes(TASK_RECALL_FAILED_UNCERTAINTY),
+    );
+    expect(failureCall).toBeDefined();
+    const warnPayload = `${String(failureCall![0] ?? "")} ${JSON.stringify(failureCall![1] ?? {})}`;
     expect(warnPayload).toContain(TASK_RECALL_FAILED_UNCERTAINTY);
     // Contractor must still return a valid SemanticIntent (NEVER throws).
     expect(result.desiredEffectFamily).toBe(COMMUNICATION_EFFECT_FAMILY);
