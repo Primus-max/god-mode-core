@@ -1,5 +1,13 @@
 import { z } from "zod";
-import type { AgentId, EffectId, ISO8601, SessionId, SessionKey } from "./ids.js";
+import { isIdentityId, type IdentityId } from "../identity/identity-id.js";
+import type {
+  AgentId,
+  ChannelId,
+  EffectId,
+  ISO8601,
+  SessionId,
+  SessionKey,
+} from "./ids.js";
 
 export type SessionRecord = {
   readonly sessionId: SessionId;
@@ -130,7 +138,57 @@ export type ReminderWorldState = {
   readonly lastQuery?: ReminderQueryRecord;
 };
 
+/**
+ * Cron/Scheduler Phase 3 — `scheduledReminders` WorldState slice.
+ *
+ * Read-only descriptor of a reminder scheduled for future delivery via the
+ * existing `CronService`. Sibling of `ArtifactRecord` (Cutover-3 P3) and
+ * `RepoOperationRecord` (Cutover-4 P3); orthogonal to slice K's
+ * `WorldStateSnapshot.reminder?.lastQuery` (recall-side query result —
+ * different shape, different lifecycle, different writer). Populated by the
+ * Phase 5 `ScheduledReminderRuntimeAdapter`; consumed by the Phase 4
+ * done-predicate which matches a record's `reminderId` against the
+ * commitment's `expectedDelta.scheduledReminders.added`.
+ *
+ * `status` is a closed three-value lifecycle: `pending` (just scheduled, cron
+ * callback registered), `fired` (cron callback ran + delivery attempted),
+ * `cancelled` (operator cancelled before fire). The transition graph is
+ * one-way pending → fired | cancelled (enforced at the SqliteReminderStore
+ * Phase 6 schema-CHECK; the WorldState slice is read-only).
+ *
+ * `ownerIdentityId` is the identity scope under which the reminder was
+ * scheduled — slice K precedent for identity-isolated reads. The cron-fire
+ * callback (Phase 5) injects this into the wrapped scope on dispatch so
+ * identity NEVER cross-leaks even from the non-interactive scheduler turn.
+ */
+export type ReminderStatus = "pending" | "fired" | "cancelled";
+
+export type ScheduledReminderRecord = {
+  readonly reminderId: string;
+  readonly ownerIdentityId: IdentityId;
+  readonly fireAt: ISO8601;
+  readonly content: string;
+  readonly deliveryChannel: ChannelId;
+  readonly deliveryTo: string;
+  readonly createdAt: ISO8601;
+  readonly status: ReminderStatus;
+};
+
+export type ScheduledRemindersSlice = {
+  readonly records: readonly ScheduledReminderRecord[];
+};
+
 const ISO8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u;
+
+/**
+ * Soft cap on `ScheduledReminderRecord.content` length. Prevents a malformed
+ * or adversarial input from inflating the WorldState slice into a
+ * prompt-injection vector — the content is reflected back to the operator on
+ * fire so an oversize body could carry instructions for downstream LLM
+ * turns. 4096 chars matches the cron `agentTurn` payload `message` ceiling
+ * (slice F task ledger length-cap precedent).
+ */
+const SCHEDULED_REMINDER_CONTENT_MAX_LENGTH = 4096;
 
 /**
  * Closed-shape regex matching git short-sha (7 hex) or full-sha (40 hex)
@@ -226,12 +284,46 @@ export const reminderQueryRecordSchema = z
   })
   .strict();
 
+/**
+ * Closed-shape schema for a single `ScheduledReminderRecord` written by the
+ * Cron/Scheduler Phase 5 runtime adapter on `RecordReminderTool` invocation.
+ * Validation rejects empty `reminderId` / `deliveryChannel` / `deliveryTo`,
+ * unbranded `ownerIdentityId` (delegated to `isIdentityId`), malformed
+ * ISO-8601 timestamps, content exceeding the 4096-char cap, and `status`
+ * outside the closed `pending | fired | cancelled` set; the in-memory
+ * collector's `record(...)` method calls `parse(...)` on each call so
+ * observer reads stay total.
+ */
+export const scheduledReminderRecordSchema = z
+  .object({
+    reminderId: z.string().min(1),
+    ownerIdentityId: z
+      .string()
+      .refine((v) => isIdentityId(v), {
+        message: "ownerIdentityId must be a branded IdentityId (identity:<slug>)",
+      }),
+    fireAt: z.string().regex(ISO8601_PATTERN),
+    content: z.string().max(SCHEDULED_REMINDER_CONTENT_MAX_LENGTH),
+    deliveryChannel: z.string().min(1),
+    deliveryTo: z.string().min(1),
+    createdAt: z.string().regex(ISO8601_PATTERN),
+    status: z.enum(["pending", "fired", "cancelled"]),
+  })
+  .strict();
+
 export type WorldStateSnapshot = {
   readonly sessions?: SessionWorldState;
   readonly artifacts?: ArtifactWorldState;
   readonly workspace?: WorkspaceWorldState;
   readonly repo?: RepoWorldState;
   readonly reminder?: ReminderWorldState;
+  /**
+   * Cron/Scheduler Phase 3 — write-side reminder slice. Orthogonal to
+   * `reminder?.lastQuery` (slice K recall surface). Populated by the
+   * Phase 5 runtime adapter on `RecordReminderTool` invocation; consumed
+   * by the Phase 4 `done-predicate-reminder-set` predicate.
+   */
+  readonly scheduledReminders?: ScheduledRemindersSlice;
   readonly deliveries?: DeliveryWorldState;
   readonly webEvidence?: WebEvidenceWorldState;
 };

@@ -3,6 +3,7 @@ import {
   artifactRecordSchema,
   reminderQueryRecordSchema,
   repoOperationRecordSchema,
+  scheduledReminderRecordSchema,
   webEvidenceRecordSchema,
   type ArtifactRecord,
   type ArtifactWorldState,
@@ -10,11 +11,14 @@ import {
   type ReminderWorldState,
   type RepoOperationRecord,
   type RepoWorldState,
+  type ScheduledReminderRecord,
+  type ScheduledRemindersSlice,
   type WebEvidenceRecord,
   type WebEvidenceWorldState,
   type WorldStateSnapshot,
 } from "../world-state.js";
-import type { ISO8601 } from "../ids.js";
+import { asIdentityId } from "../../identity/identity-id.js";
+import type { ChannelId, ISO8601 } from "../ids.js";
 
 const ISO_NOW = "2026-05-02T11:00:00.000Z" as ISO8601;
 
@@ -631,6 +635,207 @@ describe("ReminderSlice — Slice K Phase 4 (type + read-side)", () => {
         resultCount: 0,
         observedAt: "2026-05-02T11:00:00.000Z",
         extra: "nope",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("ScheduledRemindersSlice — Cron/Scheduler Phase 3 (type + read-side)", () => {
+  const TELEGRAM = "telegram" as ChannelId;
+  const OWNER = asIdentityId("identity:operator-a");
+
+  it("WorldStateSnapshot accepts the optional scheduledReminders slice with a frozen empty record list", () => {
+    const empty: ScheduledRemindersSlice = Object.freeze({
+      records: Object.freeze([] as readonly ScheduledReminderRecord[]),
+    });
+    const snapshot: WorldStateSnapshot = Object.freeze({ scheduledReminders: empty });
+    expect(snapshot.scheduledReminders?.records).toEqual([]);
+    expect(Object.isFrozen(snapshot.scheduledReminders)).toBe(true);
+    expect(Object.isFrozen(snapshot.scheduledReminders?.records)).toBe(true);
+  });
+
+  it("WorldStateSnapshot tolerates absence of the scheduledReminders slice (existing snapshots remain valid)", () => {
+    const snapshot: WorldStateSnapshot = Object.freeze({});
+    expect(snapshot.scheduledReminders).toBeUndefined();
+  });
+
+  it("WorldStateSnapshot.scheduledReminders is orthogonal to WorldStateSnapshot.reminder (slice K's lastQuery slot)", () => {
+    const reminderSlice: ReminderWorldState = Object.freeze({
+      lastQuery: Object.freeze({
+        queryId: "rem:q-1",
+        resultCount: 1,
+        observedAt: ISO_NOW,
+      }),
+    });
+    const scheduled: ScheduledRemindersSlice = Object.freeze({
+      records: Object.freeze([
+        Object.freeze({
+          reminderId: "rem-1",
+          ownerIdentityId: OWNER,
+          fireAt: "2026-05-07T12:00:00.000Z" as ISO8601,
+          content: "позвонить клиенту X",
+          deliveryChannel: TELEGRAM,
+          deliveryTo: "6533456892",
+          createdAt: ISO_NOW,
+          status: "pending",
+        }),
+      ] satisfies ScheduledReminderRecord[]),
+    });
+    const snapshot: WorldStateSnapshot = Object.freeze({
+      reminder: reminderSlice,
+      scheduledReminders: scheduled,
+    });
+    expect(snapshot.reminder?.lastQuery?.queryId).toBe("rem:q-1");
+    expect(snapshot.scheduledReminders?.records[0]?.reminderId).toBe("rem-1");
+  });
+
+  it("ScheduledReminderRecord carries every required structural field", () => {
+    const r: ScheduledReminderRecord = Object.freeze({
+      reminderId: "rem-1",
+      ownerIdentityId: OWNER,
+      fireAt: "2026-05-07T12:00:00.000Z" as ISO8601,
+      content: "позвонить клиенту X",
+      deliveryChannel: TELEGRAM,
+      deliveryTo: "6533456892",
+      createdAt: ISO_NOW,
+      status: "pending",
+    });
+    expect(r.reminderId).toBe("rem-1");
+    expect(r.ownerIdentityId).toBe(OWNER);
+    expect(r.status).toBe("pending");
+    expect(r.deliveryChannel).toBe(TELEGRAM);
+  });
+
+  it("scheduledReminderRecordSchema accepts the canonical shape for every status", () => {
+    for (const status of ["pending", "fired", "cancelled"] as const) {
+      expect(
+        scheduledReminderRecordSchema.safeParse({
+          reminderId: `rem-${status}`,
+          ownerIdentityId: "identity:operator-a",
+          fireAt: "2026-05-07T12:00:00.000Z",
+          content: "позвонить клиенту X",
+          deliveryChannel: "telegram",
+          deliveryTo: "6533456892",
+          createdAt: "2026-05-07T11:00:00.000Z",
+          status,
+        }).success,
+      ).toBe(true);
+    }
+  });
+
+  it("scheduledReminderRecordSchema rejects unknown status", () => {
+    expect(
+      scheduledReminderRecordSchema.safeParse({
+        reminderId: "rem-1",
+        ownerIdentityId: "identity:operator-a",
+        fireAt: "2026-05-07T12:00:00.000Z",
+        content: "x",
+        deliveryChannel: "telegram",
+        deliveryTo: "6533456892",
+        createdAt: "2026-05-07T11:00:00.000Z",
+        status: "expired",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("scheduledReminderRecordSchema rejects malformed ISO-8601 fireAt / createdAt", () => {
+    const base = {
+      reminderId: "rem-1",
+      ownerIdentityId: "identity:operator-a",
+      content: "x",
+      deliveryChannel: "telegram",
+      deliveryTo: "6533456892",
+      status: "pending" as const,
+    };
+    expect(
+      scheduledReminderRecordSchema.safeParse({
+        ...base,
+        fireAt: "May 7 2026",
+        createdAt: "2026-05-07T11:00:00.000Z",
+      }).success,
+    ).toBe(false);
+    expect(
+      scheduledReminderRecordSchema.safeParse({
+        ...base,
+        fireAt: "2026-05-07T12:00:00.000Z",
+        createdAt: "2026-05-07",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("scheduledReminderRecordSchema rejects empty reminderId / unbranded ownerIdentityId / empty deliveryTo", () => {
+    const base = {
+      ownerIdentityId: "identity:operator-a",
+      fireAt: "2026-05-07T12:00:00.000Z",
+      content: "x",
+      deliveryChannel: "telegram",
+      deliveryTo: "6533456892",
+      createdAt: "2026-05-07T11:00:00.000Z",
+      status: "pending" as const,
+    };
+    expect(
+      scheduledReminderRecordSchema.safeParse({ ...base, reminderId: "" })
+        .success,
+    ).toBe(false);
+    expect(
+      scheduledReminderRecordSchema.safeParse({
+        ...base,
+        reminderId: "rem-1",
+        ownerIdentityId: "no-prefix",
+      }).success,
+    ).toBe(false);
+    expect(
+      scheduledReminderRecordSchema.safeParse({
+        ...base,
+        reminderId: "rem-1",
+        deliveryTo: "",
+      }).success,
+    ).toBe(false);
+    expect(
+      scheduledReminderRecordSchema.safeParse({
+        ...base,
+        reminderId: "rem-1",
+        deliveryChannel: "",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("scheduledReminderRecordSchema rejects content exceeding 4096 chars (prompt-injection bloat guard)", () => {
+    const base = {
+      reminderId: "rem-1",
+      ownerIdentityId: "identity:operator-a",
+      fireAt: "2026-05-07T12:00:00.000Z",
+      deliveryChannel: "telegram",
+      deliveryTo: "6533456892",
+      createdAt: "2026-05-07T11:00:00.000Z",
+      status: "pending" as const,
+    };
+    expect(
+      scheduledReminderRecordSchema.safeParse({
+        ...base,
+        content: "a".repeat(4097),
+      }).success,
+    ).toBe(false);
+    expect(
+      scheduledReminderRecordSchema.safeParse({
+        ...base,
+        content: "a".repeat(4096),
+      }).success,
+    ).toBe(true);
+  });
+
+  it("scheduledReminderRecordSchema rejects extra fields (strict)", () => {
+    expect(
+      scheduledReminderRecordSchema.safeParse({
+        reminderId: "rem-1",
+        ownerIdentityId: "identity:operator-a",
+        fireAt: "2026-05-07T12:00:00.000Z",
+        content: "x",
+        deliveryChannel: "telegram",
+        deliveryTo: "6533456892",
+        createdAt: "2026-05-07T11:00:00.000Z",
+        status: "pending",
+        extraField: "nope",
       }).success,
     ).toBe(false);
   });
