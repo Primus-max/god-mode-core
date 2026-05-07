@@ -28,6 +28,7 @@ import {
 import { logVerbose } from "../../globals.js";
 import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import type { ConcurrentTurnBroker } from "../../platform/broker/index.js";
+import { getProcessConcurrentTurnBroker } from "../../server/concurrent-turn-broker-bootstrap.js";
 import { asIdentityId, type IdentityId } from "../../platform/identity/identity-id.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -58,6 +59,10 @@ import {
 } from "./agent-runner-utils.js";
 import { type BlockReplyPipeline } from "./block-reply-pipeline.js";
 import { dispatchTurnViaBroker } from "./dispatch-turn-via-broker.js";
+import {
+  deriveBrokerRetryAfterMs,
+  formatBrokerOverflowReply,
+} from "./format-broker-overflow-reply.js";
 import type { FollowupRun } from "./queue.js";
 import { createBlockReplyDeliveryHandler } from "./reply-delivery.js";
 import { createReplyMediaPathNormalizer } from "./reply-media-paths.runtime.js";
@@ -171,7 +176,14 @@ export async function runAgentTurnWithFallback(params: {
   // `resolveIdentityFromSessionKey(...)`). When either the broker or the
   // identityId is missing we explicitly bypass — see `dispatch-turn-via-
   // broker.ts` for the regression-guard contract.
-  const broker = params.concurrentBroker;
+  //
+  // Phase 6 — when `params.concurrentBroker` is undefined we consult the
+  // process-scoped bootstrap (`getProcessConcurrentTurnBroker()`). Once
+  // gateway startup calls `bindProcessConcurrentTurnBroker(...)` (see
+  // `src/server/concurrent-turn-broker-bootstrap.ts`), production turns
+  // route through the broker by default. Tests still override via
+  // `params.concurrentBroker` so they observe deterministic behaviour.
+  const broker = params.concurrentBroker ?? getProcessConcurrentTurnBroker();
   const identityId = params.identityId;
   const followupRun = params.followupRun;
   const turnId =
@@ -203,18 +215,28 @@ export async function runAgentTurnWithFallback(params: {
   });
 
   if (dispatchResult.kind === "rejected") {
-    // Phase 6 will translate this to a user-facing structured reply with
-    // retry hint; for Phase 5 we surface as a `final` payload so the
-    // caller's existing `kind === 'final'` branch handles it without new
-    // plumbing. Telemetry (including queueKey) is emitted by the broker
-    // itself via the `[broker] rejected ...` log line.
+    // Phase 6 — translate the structured rejection envelope into a
+    // user-facing Russian-locale reply with a deterministic retry hint.
+    // The retry-after derivation walks the broker's introspection
+    // surface (`getActiveKeys()` + `getQueueDepth(...)`); for the bypass
+    // branch the helper falls back to a static default per reason. The
+    // `[broker] rejected ...` telemetry was already emitted by the broker
+    // itself; here we log the user-notification step so ops can correlate.
+    const retryAfterMs =
+      broker !== undefined
+        ? deriveBrokerRetryAfterMs(broker, dispatchResult.reason)
+        : undefined;
+    const userReplyText = formatBrokerOverflowReply(
+      dispatchResult.reason,
+      retryAfterMs,
+    );
     defaultRuntime.log(
-      `[broker] dispatch_rejected_at_runner queueKey=${dispatchResult.queueKey} reason=${dispatchResult.reason} turnId=${turnId}`,
+      `[broker] user_notified queueKey=${dispatchResult.queueKey} reason=${dispatchResult.reason} retryAfterMs=${retryAfterMs ?? "none"} turnId=${turnId}`,
     );
     return {
       kind: "final",
       payload: {
-        text: "⚠️ Server is at capacity right now. Please retry in a moment.",
+        text: userReplyText,
       },
     };
   }
