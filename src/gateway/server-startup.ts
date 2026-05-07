@@ -27,6 +27,8 @@ import { loadInternalHooks } from "../hooks/loader.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import type { loadOpenClawPlugins } from "../plugins/loader.js";
 import { type PluginServicesHandle, startPluginServices } from "../plugins/services.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+import { bindProcessConcurrentTurnBroker } from "../server/concurrent-turn-broker-bootstrap.js";
 import { getMemoryRuntime } from "../server/memory-store-bootstrap.js";
 import {
   bindProcessPersistentWorkerPushFireCallback,
@@ -269,6 +271,35 @@ export async function startGatewaySidecars(params: {
   } catch (err) {
     params.log.warn(
       `persistent-worker push bootstrap bind failed: ${String(err)}`,
+    );
+  }
+
+  // Slice "PR-MT concurrent broker" — Phase 6 bootstrap binder.
+  // Pre-Phase-6: the binder is unset, so `agent-runner-execution.ts`
+  // routed every dispatch through the byte-identical pre-broker direct-
+  // invocation path. Post-Phase-6: binding here flips the broker LIVE
+  // for every production turn — per-`(identityId, channelKey)` FIFO and
+  // cross-key concurrency apply, capacity caps + structured Russian-
+  // locale backpressure reply (`format-broker-overflow-reply.ts`) bound
+  // the worst case. Idempotent (the bootstrap singleton returns
+  // `kind:'alreadyBound'` on the second call) so the gateway boot path
+  // can call this every restart without leaking an extra binding.
+  try {
+    const brokerLog = createSubsystemLogger("concurrent-turn-broker");
+    bindProcessConcurrentTurnBroker({
+      logger: {
+        log: (message, level) => {
+          if (level === "debug") {
+            brokerLog.debug(message);
+            return;
+          }
+          brokerLog.info(message);
+        },
+      },
+    });
+  } catch (err) {
+    params.log.warn(
+      `concurrent-turn-broker bootstrap bind failed: ${String(err)}`,
     );
   }
 
