@@ -62,6 +62,15 @@
  *     unbranded record reaching the dispatch boundary.
  */
 
+import type { CliDeps } from "../cli/deps.js";
+import { createOutboundSendDeps } from "../cli/outbound-send-deps.js";
+import type { OpenClawConfig } from "../config/config.js";
+import {
+  deliverOutboundPayloads as deliverOutboundPayloadsImpl,
+  type DeliverOutboundPayloadsParams,
+  type OutboundDeliveryResult,
+} from "../infra/outbound/deliver.js";
+import { isDeliverableMessageChannel } from "../utils/message-channel.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
   getSubagentRunRecord,
@@ -77,7 +86,12 @@ import {
   type PersistentWorkerSubagentRecord,
   type PersistentWorkerSubagentStore,
 } from "../cron/isolated-agent/persistent-worker-push-fire-callback.js";
+import type { DeliveryDispatchResult } from "../cron/isolated-agent/reminder-fire-callback.js";
 import { runPersistentWorkerSubsequentPush } from "../platform/persistent-worker/persistent-worker-push-runtime-adapter.js";
+import type {
+  DeliveryDispatchFn as PersistentWorkerDeliveryDispatchFn,
+  PersistentWorkerPushDispatchPayload,
+} from "../platform/persistent-worker/persistent-worker-push-runtime-adapter.js";
 import {
   getProcessPersistentWorkerReportCollector,
   type PersistentWorkerReportCollector,
@@ -261,6 +275,169 @@ export function bindProcessPersistentWorkerPushFireCallback(
     "[persistent-worker-push-bootstrap] bound process-scoped persistent_worker push fire callback",
   );
   return { bound: true, alreadyBound: false };
+}
+
+/**
+ * Phase 5d — production `deliveryDispatch` transport closure factory.
+ *
+ * Phase 5c (PR #281) wired `setProcessPersistentWorkerPushFireCallback`
+ * but the `deliveryDispatch` parameter shipped with a
+ * `transport_not_wired` stub that returned a structured `dispatch_failed`
+ * envelope without throwing. Phase 5d closes this gap so production
+ * push'ы actually arrive in Telegram/Slack.
+ *
+ * Wiring choice (sub-plan §3.3 — REUSE, no fork):
+ *   The closure adapts `PersistentWorkerPushDispatchPayload` →
+ *   `deliverOutboundPayloads` (the lower-level outbound primitive that
+ *   `dispatchCronDelivery` itself sits on top of). Calling
+ *   `deliverOutboundPayloads` directly here is the minimum-surface
+ *   wiring: the cron-fire callback already supplies the resolved
+ *   `channel` + `to` from the persisted `SubagentRunRecord.requesterOrigin`
+ *   (Phase 5b discipline), and the runtime adapter performs the closed-
+ *   shape Zod validation upstream. Nothing in this closure constructs
+ *   a `CronJob` (the upstream cron-fire boundary is structural — there
+ *   is no job to attach).
+ *
+ * Failure mapping (audit §h Phase 4 — closed 8-entry surface preserved):
+ *   - empty/non-deliverable `payload.channel`           → `channel_invalid`
+ *   - deliverer returns `[]` (no channel accepted send) → `dispatch_failed`
+ *   - deliverer throws (paranoia)                       → `dispatch_failed`
+ *   - everything else                                   → `{ ok: true }`
+ *   The runtime adapter (Phase 4) maps `{ ok: false, reason }` into the
+ *   same closed-set 8-entry failure surface so #15 holds end-to-end.
+ *
+ * Behaviour change disclosure:
+ *   Pre-Phase-5d: persistent-worker completions surface a structured
+ *   `dispatch_failed` (reason=`transport_not_wired`) and the operator
+ *   never receives a push.
+ *   Post-Phase-5d: persistent-worker completions LIVE-PUSH back to the
+ *   operator's external channel via `deliverOutboundPayloads`. The
+ *   Phase 5b gating predicates (spawnMode === 'session', branded
+ *   ownerIdentityId, non-empty frozenResultText, resolvable channel/to)
+ *   AND the callback's anonymous-fail-closed defence-in-depth still
+ *   apply at the upstream `subagent_ended` seam.
+ */
+export type ProductionDeliveryDispatchDeps = {
+  /** Gateway config — opaque pass-through to `deliverOutboundPayloads`. */
+  readonly cfg: OpenClawConfig;
+  /** Lazy-loaded channel sender map — opaque pass-through. */
+  readonly deps: CliDeps;
+  /**
+   * DI seam for the outbound delivery primitive. Production wires the
+   * real `deliverOutboundPayloads` from `infra/outbound/deliver.ts`;
+   * tests inject a fixture that returns a deterministic results array.
+   */
+  readonly deliverOutboundPayloads?: (
+    params: DeliverOutboundPayloadsParams,
+  ) => Promise<OutboundDeliveryResult[]>;
+  /**
+   * Optional structured-line emitter for ops follow-up. Defaults to a
+   * no-op so the closure stays silent in unit tests; production wiring
+   * threads the gateway logger.
+   */
+  readonly logger?: { readonly log: (message: string) => void };
+};
+
+export function createProductionPersistentWorkerPushDeliveryDispatch(
+  deps: ProductionDeliveryDispatchDeps,
+): PersistentWorkerDeliveryDispatchFn {
+  if (!deps || typeof deps !== "object") {
+    throw new TypeError(
+      "createProductionPersistentWorkerPushDeliveryDispatch: deps required",
+    );
+  }
+  const deliverer =
+    typeof deps.deliverOutboundPayloads === "function"
+      ? deps.deliverOutboundPayloads
+      : deliverOutboundPayloadsImpl;
+
+  return async (
+    payload: PersistentWorkerPushDispatchPayload,
+  ): Promise<DeliveryDispatchResult> => {
+    try {
+      // Closed-shape channel guard. The runtime adapter's Phase 2 schema
+      // rejects empty `channel` upstream (fans into `channel_invalid`),
+      // but this is defense-in-depth so the outbound adapter never sees
+      // a malformed channel that would synthesize an "unknown channel"
+      // error message. We accept any non-empty deliverable channel id;
+      // the outbound adapter resolves the concrete plugin downstream.
+      const channelRaw =
+        typeof payload?.channel === "string" ? payload.channel.trim() : "";
+      if (channelRaw.length === 0) {
+        return { ok: false, reason: "channel_invalid" };
+      }
+      const toRaw =
+        typeof payload?.to === "string" ? payload.to.trim() : "";
+      if (toRaw.length === 0) {
+        return { ok: false, reason: "channel_invalid" };
+      }
+      const contentRaw =
+        typeof payload?.content === "string" ? payload.content : "";
+      // Deliverable check is best-effort — plugin channels register
+      // dynamically. If the channel id is in the static list we narrow
+      // the type; otherwise we still attempt delivery (the outbound
+      // adapter's plugin loader is the source of truth).
+      const isStaticDeliverable = isDeliverableMessageChannel(channelRaw);
+
+      // Cast through `unknown` — `OutboundChannel` is a union of branded
+      // channel ids; this closure cannot enumerate plugin channels at
+      // module-load time so we trust the outbound adapter to validate
+      // the resolved channel plugin downstream.
+      const channelForOutbound = channelRaw as unknown as DeliverOutboundPayloadsParams["channel"];
+
+      let results: OutboundDeliveryResult[];
+      try {
+        results = await deliverer({
+          cfg: deps.cfg,
+          channel: channelForOutbound,
+          to: toRaw,
+          payloads: [{ text: contentRaw }],
+          deps: createOutboundSendDeps(deps.deps),
+          // Best-effort: the cron-fire callback's mark-before-dispatch
+          // already records `subsequentPushStatus='pushed'` (idempotent
+          // on retry). A best-effort send mirrors `dispatchCronDelivery`'s
+          // direct-cron path so a transient channel error does not bubble
+          // out as a thrown exception.
+          bestEffort: true,
+          // Skip write-ahead delivery queue: the cron-fire callback owns
+          // its own retry semantics (the failure record + the run record's
+          // `subsequentPushStatus='failed'` flag prevent infinite replay).
+          skipQueue: true,
+        });
+      } catch (err) {
+        // #15 — never throw out of the closure. Surface
+        // `dispatch_failed` so the runtime adapter maps it into the
+        // closed-set surface; the underlying error message is logged
+        // but never propagated.
+        deps.logger?.log?.(
+          `[persistent-worker-push-bootstrap] deliverOutboundPayloads threw — workerRunId=${payload.workerRunId} channel=${channelRaw} reason=${err instanceof Error ? err.message : String(err)}`,
+        );
+        return { ok: false, reason: "dispatch_failed" };
+      }
+
+      if (!Array.isArray(results) || results.length === 0) {
+        // Empty results array: no channel adapter accepted the send.
+        // Either the channel is unknown (best-effort suppression) or
+        // the outbound queue suppressed the send. Map to
+        // `dispatch_failed` so the runtime adapter records the failure.
+        deps.logger?.log?.(
+          `[persistent-worker-push-bootstrap] deliverOutboundPayloads returned empty results — workerRunId=${payload.workerRunId} channel=${channelRaw} isStaticDeliverable=${isStaticDeliverable}`,
+        );
+        return { ok: false, reason: "dispatch_failed" };
+      }
+
+      return { ok: true };
+    } catch (err) {
+      // Catch-all #15 — every failure path returns the closed-shape
+      // envelope. A thrown exception from a deeply-malformed payload
+      // (e.g. a getter that throws) should never bubble out of the
+      // dispatch boundary.
+      deps.logger?.log?.(
+        `[persistent-worker-push-bootstrap] dispatch closure caught unexpected error — reason=${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { ok: false, reason: "dispatch_failed" };
+    }
+  };
 }
 
 /**
