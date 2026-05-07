@@ -1,15 +1,26 @@
 import { vi } from "vitest";
 
 export function registerGetReplyCommonMocks(): void {
-  vi.mock("../../agents/agent-scope.js", () => ({
-    resolveAgentDir: vi.fn(() => "/tmp/agent"),
-    resolveAgentWorkspaceDir: vi.fn(() => "/tmp/workspace"),
-    resolveSessionAgentId: vi.fn(() => "main"),
-    resolveAgentSkillsFilter: vi.fn(() => undefined),
-  }));
-  vi.mock("../../agents/model-selection.js", () => ({
-    resolveModelRefFromString: vi.fn(() => null),
-  }));
+  vi.mock("../../agents/agent-scope.js", async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import("../../agents/agent-scope.js")>();
+    return {
+      ...actual,
+      resolveAgentDir: vi.fn(() => "/tmp/agent"),
+      resolveAgentWorkspaceDir: vi.fn(() => "/tmp/workspace"),
+      resolveSessionAgentId: vi.fn(() => "main"),
+      resolveAgentSkillsFilter: vi.fn(() => undefined),
+    };
+  });
+  vi.mock("../../agents/model-selection.js", async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import("../../agents/model-selection.js")>();
+    return {
+      ...actual,
+      resolveModelRefFromString: vi.fn(() => null),
+      isCliProvider: vi.fn(() => false),
+    };
+  });
   vi.mock("../../agents/timeout.js", () => ({
     resolveAgentTimeoutMs: vi.fn(() => 60000),
   }));

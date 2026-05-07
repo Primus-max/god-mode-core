@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MsgContext } from "../templating.js";
 import { registerGetReplyCommonMocks } from "./get-reply.test-mocks.js";
 
@@ -45,7 +45,22 @@ vi.mock("./session.js", () => ({
   initSessionState: mocks.initSessionState,
 }));
 
-const { getReplyFromConfig } = await import("./get-reply.js");
+// `test/setup.ts` transitively pre-loads `get-reply.js`'s deep dependency
+// chain (via `context.ts` -> `model-selection.ts`, plus shared session-state
+// modules), which means the SUT captures the REAL `handleInlineActions`,
+// `isCliProvider`, etc. BEFORE this file's `vi.mock` factories register.
+// Without `vi.resetModules()` the mocks above never replace those bindings,
+// so `runReplyAgent` is hit with the real `isCliProvider` (mock missing
+// `isCliProvider` was the first symptom) and the real `handleInlineActions`
+// runs (which then tries to dynamic-import `commands.runtime.js` and fails
+// with `handleCommands is not a function`). Same root cause as PR #303 /
+// #304 / #305.
+let getReplyFromConfig: (typeof import("./get-reply.js"))["getReplyFromConfig"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  ({ getReplyFromConfig } = await import("./get-reply.js"));
+});
 
 function buildCtx(overrides: Partial<MsgContext> = {}): MsgContext {
   return {
