@@ -26,8 +26,8 @@ describe("createReplyMediaPathNormalizer", () => {
     });
 
     expect(result).toMatchObject({
-      mediaUrl: path.join("/tmp/agent-workspace", "out", "photo.png"),
-      mediaUrls: [path.join("/tmp/agent-workspace", "out", "photo.png")],
+      mediaUrl: path.resolve("/tmp/agent-workspace", "out", "photo.png"),
+      mediaUrls: [path.resolve("/tmp/agent-workspace", "out", "photo.png")],
     });
   });
 
@@ -47,10 +47,10 @@ describe("createReplyMediaPathNormalizer", () => {
     });
 
     expect(result).toMatchObject({
-      mediaUrl: path.join("/tmp/sandboxes/session-1", "out", "photo.png"),
+      mediaUrl: path.resolve("/tmp/sandboxes/session-1", "out", "photo.png"),
       mediaUrls: [
-        path.join("/tmp/sandboxes/session-1", "out", "photo.png"),
-        path.join("/tmp/sandboxes/session-1", "screens", "final.png"),
+        path.resolve("/tmp/sandboxes/session-1", "out", "photo.png"),
+        path.resolve("/tmp/sandboxes/session-1", "screens", "final.png"),
       ],
     });
   });
