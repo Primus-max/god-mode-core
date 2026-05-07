@@ -86,6 +86,7 @@ export {
 export {
   EXTRACTOR_TAGS_METADATA_KEY,
   LlmExtractorMemoryStore,
+  RECORDED_AT_METADATA_KEY,
   type LlmExtractor,
   type LlmExtractorDecision,
   type LlmExtractorInput,
