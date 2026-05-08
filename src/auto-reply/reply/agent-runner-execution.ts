@@ -4,8 +4,8 @@ import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-pay
 import { resolveBootstrapWarningSignaturesSeen } from "../../agents/bootstrap-budget.js";
 import { runCliAgent } from "../../agents/cli-runner.js";
 import { getCliSessionId } from "../../agents/cli-session.js";
-import { runWithModelFallback } from "../../agents/model-fallback.js";
 import { deriveTurnModalityRequirements } from "../../agents/model-fallback-modality.js";
+import { runWithModelFallback } from "../../agents/model-fallback.js";
 import { isCliProvider } from "../../agents/model-selection.js";
 import {
   BILLING_ERROR_USER_MESSAGE,
@@ -28,10 +28,15 @@ import {
 import { logVerbose } from "../../globals.js";
 import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import type { ConcurrentTurnBroker } from "../../platform/broker/index.js";
-import { getProcessConcurrentTurnBroker } from "../../server/concurrent-turn-broker-bootstrap.js";
+import {
+  filterWebSearchFromTools,
+  hasWebSearchSignal,
+  maybeFetchWebEvidence,
+} from "../../platform/decision/web-evidence-prefetch.js";
 import { asIdentityId, type IdentityId } from "../../platform/identity/identity-id.js";
 import { toPluginHookPlatformExecutionContext } from "../../platform/recipe/runtime-adapter.js";
 import { defaultRuntime } from "../../runtime.js";
+import { getProcessConcurrentTurnBroker } from "../../server/concurrent-turn-broker-bootstrap.js";
 import {
   isMarkdownCapableMessageChannel,
   resolveMessageChannel,
@@ -47,11 +52,6 @@ import {
   SILENT_REPLY_TOKEN,
 } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
-import {
-  filterWebSearchFromTools,
-  hasWebSearchSignal,
-  maybeFetchWebEvidence,
-} from "../../platform/decision/web-evidence-prefetch.js";
 import {
   buildEmbeddedRunExecutionParams,
   resolveRoutingSnapshotForTemplateRun,
@@ -95,6 +95,178 @@ export type AgentRunLoopResult =
       directlySentBlockKeys?: Set<string>;
     }
   | { kind: "final"; payload: ReplyPayload };
+
+/**
+ * Slice E — closed-shape attachment kind. Mirrors the frozen-layer
+ * `InboundMediaAttachmentKind` from
+ * `src/platform/commitment/intent-contractor-impl.ts`. Declared locally
+ * so the auto-reply construction site does not import from the frozen
+ * layer (invariant #8 defense-in-depth).
+ */
+export type InboundMediaAttachmentKind = "image" | "pdf" | "docx" | "other";
+
+/**
+ * Slice E — structural inbound-media summary. Byte-compatible with the
+ * frozen-layer `InboundMediaSummary` so the same value can be fed to
+ * `deriveTurnModalityRequirements` AND the
+ * `INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION` resolver. The resolver
+ * skips entries where `path.length === 0` (webchat base64 entries),
+ * the modality filter only branches on `kind`.
+ */
+export type InboundMediaSummary = {
+  readonly attachments: readonly {
+    readonly kind: InboundMediaAttachmentKind;
+    readonly path: string;
+    readonly mimeType: string;
+  }[];
+};
+
+/**
+ * Slice E — closed-loop MIME / extension classifier. Mirrors
+ * `inferInboundAttachmentKind` from `src/agents/agent-command.ts` so
+ * non-webchat channel media (Telegram `MediaPath`, Signal/WhatsApp
+ * forwarded media, etc.) maps onto the same closed enum the affordance
+ * registry consumes. Lookup order: per-entry MIME → filename extension
+ * → `'other'`.
+ */
+function inferInboundAttachmentKindFromMimeOrPath(
+  mimeType: string | undefined,
+  filePath: string | undefined,
+): InboundMediaAttachmentKind {
+  const normalized = mimeType?.trim().toLowerCase() ?? "";
+  if (normalized.startsWith("image/")) {
+    return "image";
+  }
+  if (normalized === "application/pdf") {
+    return "pdf";
+  }
+  if (normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+    return "docx";
+  }
+  const lowerPath = filePath?.trim().toLowerCase() ?? "";
+  if (/\.(jpg|jpeg|png|gif|webp|bmp|svg|heic|heif|tif|tiff)$/i.test(lowerPath)) {
+    return "image";
+  }
+  if (lowerPath.endsWith(".pdf")) {
+    return "pdf";
+  }
+  if (lowerPath.endsWith(".docx")) {
+    return "docx";
+  }
+  return "other";
+}
+
+/**
+ * Slice E — Telegram (and other non-webchat channels) inbound-media
+ * wiring.
+ *
+ * Production trace `gateway-pr313.log` turn `ef694af9-…` — Vladimir's
+ * hand-drawn ventilation sketch arrived via Telegram with a real disk
+ * `MediaPath` set on `MsgContext`, but `opts.images` was `undefined`
+ * (the `images` field is webchat-only — `src/auto-reply/types.ts:30`).
+ * Pre-Slice-E the construction at this call site produced
+ * `inboundMediaSummary === undefined`, which starved both
+ * `deriveTurnModalityRequirements` (no `image` requirement) AND the
+ * `INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION` resolver (no
+ * `paths[]` to pre-bind onto `image_generate.image`) — so the bot ran
+ * in text-to-image mode instead of img2img against the source sketch.
+ *
+ * This helper unifies BOTH inbound media sources into a single
+ * `InboundMediaSummary`:
+ *   - webchat: `opts.images: ImageContent[]` (base64 inline; no disk
+ *     path — entries carry `path: ""` so the resolver's
+ *     `path.length > 0` guard auto-skips them while the modality
+ *     filter still sees `kind: "image"`).
+ *   - non-webchat: `MsgContext.MediaPaths` (preferred) or
+ *     `MsgContext.MediaPath` (single-entry fallback), with optional
+ *     MIME hints from `MediaTypes` / `MediaType`.
+ *
+ * Heartbeat turns return `undefined` — no inbound user media.
+ *
+ * Dedupe: non-empty paths are deduped (first-seen wins, order
+ * preserved). Empty-path webchat entries are not deduped against each
+ * other so the modality filter still sees one per inbound image.
+ *
+ * Invariants:
+ *   #5 / #6: structural reads only (paths + MIME). `MsgContext.Body` /
+ *   `RawBody` are NOT consulted.
+ *   #8: no imports from `src/platform/commitment/`.
+ */
+export function buildInboundMediaSummaryForTurn(input: {
+  readonly opts?: { readonly images?: ReadonlyArray<{ readonly mimeType?: string }> };
+  readonly sessionCtx?: {
+    readonly MediaPath?: string;
+    readonly MediaPaths?: readonly string[];
+    readonly MediaType?: string;
+    readonly MediaTypes?: readonly string[];
+  };
+  readonly isHeartbeat?: boolean;
+}): InboundMediaSummary | undefined {
+  if (input.isHeartbeat === true) {
+    return undefined;
+  }
+  const attachments: {
+    kind: InboundMediaAttachmentKind;
+    path: string;
+    mimeType: string;
+  }[] = [];
+  const seenPaths = new Set<string>();
+
+  // Source 1 — webchat structural images (`opts.images`). No disk
+  // path; emit `path: ""` so the resolver's `path.length > 0` guard
+  // skips these entries while the modality filter still observes
+  // `kind: "image"`.
+  const webchatImages = input.opts?.images;
+  if (Array.isArray(webchatImages)) {
+    for (const image of webchatImages) {
+      const mimeType = image?.mimeType?.trim() ?? "";
+      attachments.push({
+        kind: "image",
+        path: "",
+        mimeType: mimeType || "image/*",
+      });
+    }
+  }
+
+  // Source 2 — non-webchat inbound media via MsgContext (Telegram,
+  // Signal, WhatsApp, Discord, etc). `MediaPaths` (list) wins over
+  // `MediaPath` (single-entry); per-entry MIME via `MediaTypes` is
+  // aligned by index when lengths match.
+  const ctx = input.sessionCtx;
+  if (ctx) {
+    const pathsFromArray = Array.isArray(ctx.MediaPaths) ? ctx.MediaPaths : undefined;
+    const paths =
+      pathsFromArray && pathsFromArray.length > 0
+        ? pathsFromArray
+        : ctx.MediaPath?.trim()
+          ? [ctx.MediaPath.trim()]
+          : [];
+    const types =
+      Array.isArray(ctx.MediaTypes) && ctx.MediaTypes.length === paths.length
+        ? ctx.MediaTypes
+        : undefined;
+    for (let i = 0; i < paths.length; i += 1) {
+      const rawPath = paths[i]?.trim() ?? "";
+      if (!rawPath || seenPaths.has(rawPath)) {
+        continue;
+      }
+      seenPaths.add(rawPath);
+      const perEntryMime = types?.[i]?.trim();
+      const mimeType = (perEntryMime || ctx.MediaType?.trim() || "").toString();
+      const kind = inferInboundAttachmentKindFromMimeOrPath(mimeType, rawPath);
+      attachments.push({
+        kind,
+        path: rawPath,
+        mimeType: mimeType || "application/octet-stream",
+      });
+    }
+  }
+
+  if (attachments.length === 0) {
+    return undefined;
+  }
+  return { attachments };
+}
 
 export async function runAgentTurnWithFallback(params: {
   commandBody: string;
@@ -190,10 +362,7 @@ export async function runAgentTurnWithFallback(params: {
   const broker = params.concurrentBroker ?? getProcessConcurrentTurnBroker();
   const identityId = params.identityId;
   const followupRun = params.followupRun;
-  const turnId =
-    params.opts?.runId ??
-    params.followupRun.requestRunId ??
-    crypto.randomUUID();
+  const turnId = params.opts?.runId ?? params.followupRun.requestRunId ?? crypto.randomUUID();
   let outerResult: AgentRunLoopResult | undefined;
   // When either broker or identityId is missing we bypass the broker and the
   // routing-tuple fields are ignored by the helper — see
@@ -210,9 +379,7 @@ export async function runAgentTurnWithFallback(params: {
     originatingTo: followupRun.originatingTo ?? "",
     originatingAccountId: followupRun.originatingAccountId,
     originatingThreadId:
-      followupRun.originatingThreadId == null
-        ? undefined
-        : String(followupRun.originatingThreadId),
+      followupRun.originatingThreadId == null ? undefined : String(followupRun.originatingThreadId),
     runTurn: async () => {
       outerResult = await runAgentTurnBody(params);
     },
@@ -227,13 +394,8 @@ export async function runAgentTurnWithFallback(params: {
     // `[broker] rejected ...` telemetry was already emitted by the broker
     // itself; here we log the user-notification step so ops can correlate.
     const retryAfterMs =
-      broker !== undefined
-        ? deriveBrokerRetryAfterMs(broker, dispatchResult.reason)
-        : undefined;
-    const userReplyText = formatBrokerOverflowReply(
-      dispatchResult.reason,
-      retryAfterMs,
-    );
+      broker !== undefined ? deriveBrokerRetryAfterMs(broker, dispatchResult.reason) : undefined;
+    const userReplyText = formatBrokerOverflowReply(dispatchResult.reason, retryAfterMs);
     defaultRuntime.log(
       `[broker] user_notified queueKey=${dispatchResult.queueKey} reason=${dispatchResult.reason} retryAfterMs=${retryAfterMs ?? "none"} turnId=${turnId}`,
     );
@@ -367,7 +529,9 @@ async function runAgentTurnBody(params: {
     effectiveCommandBody = webEvidencePrefetch.enrichedPrompt;
     const filtered = filterWebSearchFromTools(routingSnapshot.plannerInput.requestedTools);
     if (filtered) {
-      (routingSnapshot.plannerInput as { requestedTools?: string[] }).requestedTools = [...filtered];
+      (routingSnapshot.plannerInput as { requestedTools?: string[] }).requestedTools = [
+        ...filtered,
+      ];
     }
     defaultRuntime.log(
       `[web-evidence-prefetch] applied recordCount=${webEvidencePrefetch.recordCount} runId=${runId} promptDeltaChars=${webEvidencePrefetch.enrichedPrompt.length - params.commandBody.length}`,
@@ -376,7 +540,11 @@ async function runAgentTurnBody(params: {
     defaultRuntime.log(`[web-evidence-prefetch] not_applied runId=${runId}`);
   }
   const platformExecutionContext = routingSnapshot.runtimePlan;
-  if (platformExecutionContext.ackThenDefer === true && params.onAckThenDefer && !params.isHeartbeat) {
+  if (
+    platformExecutionContext.ackThenDefer === true &&
+    params.onAckThenDefer &&
+    !params.isHeartbeat
+  ) {
     try {
       await params.onAckThenDefer({
         runId,
@@ -509,22 +677,24 @@ async function runAgentTurnBody(params: {
           })
         : undefined;
       const onToolResult = params.opts?.onToolResult;
-      // NEW-A Phase 5 — derive modality requirements for the current turn from
-      // the structural inbound-images surface (`params.opts?.images`) plus the
-      // planner's `needsVision` defense-in-depth flag. The audit
-      // (`extensions/AUDIT-modality-aware-routing.md` §e/§f) confirms this is
-      // the only inbound-image data reachable at this call site without
-      // crossing into `src/platform/commitment/`. Each entry is mapped to a
-      // structural `kind: 'image'` attachment and consumed by
-      // `deriveTurnModalityRequirements` (which never reads raw user text —
-      // invariant #5).
-      const inboundImages = params.opts?.images ?? [];
-      const inboundMediaSummary =
-        inboundImages.length > 0
-          ? {
-              attachments: inboundImages.map(() => ({ kind: "image" as const })),
-            }
-          : undefined;
+      // Slice E — derive a single `inboundMediaSummary` that unifies the
+      // webchat `opts.images` source AND the non-webchat MsgContext
+      // (`MediaPath` / `MediaPaths`) source. Pre-Slice-E this site only
+      // mapped `opts.images`, so Telegram inbound photos surfaced the
+      // `[media attached: <path>]` text bracket via `buildInboundMediaNote`
+      // but never reached `attachments[].path` — leaving both the modality
+      // filter (NEW-A) AND the
+      // `INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION` resolver
+      // (cutover-3 P6) starved of the source-image path needed to pre-bind
+      // `image_generate.image` for img2img turns (production trace
+      // `gateway-pr313.log` turn `ef694af9-…`). The helper enforces
+      // invariants #5/#6 (no raw user text reads) and #8 (no imports from
+      // `src/platform/commitment/`).
+      const inboundMediaSummary = buildInboundMediaSummaryForTurn({
+        opts: params.opts,
+        sessionCtx: params.sessionCtx,
+        isHeartbeat: params.isHeartbeat,
+      });
       const turnModalityRequirements = deriveTurnModalityRequirements({
         ...(inboundMediaSummary ? { inboundMediaSummary } : {}),
         ...(routingSnapshot.plannerInput.routing?.needsVision === true
@@ -994,8 +1164,7 @@ async function runAgentTurnBody(params: {
       defaultRuntime.error(`Embedded agent failed before reply: ${message}`);
       const policyOrTransientCopy = userFacingToolPolicyOrTransientMessage(message);
       const safeMessage =
-        policyOrTransientCopy ??
-        sanitizeUserFacingText(message, { errorContext: true });
+        policyOrTransientCopy ?? sanitizeUserFacingText(message, { errorContext: true });
       const trimmedMessage = safeMessage.replace(/\.\s*$/, "");
       const fallbackText = isBilling
         ? BILLING_ERROR_USER_MESSAGE
