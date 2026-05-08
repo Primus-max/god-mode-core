@@ -272,6 +272,7 @@ Stability examples:
 - "Прогнать тесты в проекте" or "run the test suite" -> workspace_change + tool_execution + needs_repo_execution + needs_local_runtime, deliverable={kind:"repo_operation", acceptedFormats:["test-report","exec"], preferredFormat:"test-report", constraints:{operation:"run_tests"}}.
 - "Отрефактори модуль Y, покажи diff и прогоняй тесты" or "Refactor module Y, show diff and run tests" -> workspace_change + tool_execution + needs_workspace_mutation + needs_repo_execution + needs_local_runtime, deliverable={kind:"code_change", acceptedFormats:["patch","edit"], preferredFormat:"patch", constraints:{operation:"refactor"}}.
 - "Создай сабагента Валера, чтобы он каждый день слал отчёт" / "Create a persistent subagent Valera for daily reports" / "start a background worker session" -> persistent_worker + tool_execution + needs_session_orchestration, deliverable={kind:"session", acceptedFormats:["receipt"], preferredFormat:"receipt", constraints:{continuation:"followup"}}, executionMode="persistent_worker", target="persistent_session", schedule="daily", evidence=["spawn_receipt"].
+- "создай persistent worker daily-test-pwpush-<date>, который раз в 2 минуты пишет «push fixture: <ts>» в этот чат" / "сделай persistent worker, чтобы каждые 5 минут слал в чат текущее время" / "подними persistent worker который раз в час пишет в этот чат отчёт" -> persistent_worker + tool_execution + needs_session_orchestration, deliverable={kind:"session", acceptedFormats:["receipt"], preferredFormat:"receipt", constraints:{continuation:"followup"}}, executionMode="persistent_worker", target="persistent_session", schedule="cron-like", evidence=["spawn_receipt"]. Minute-level recurrence ("раз в N минут", "каждые N минут") + direct chat-write intent ("пишет в этот чат", "слал в чат") + the literal "persistent worker" term ALL map to persistent_worker, NEVER to session_orchestration/sessions_spawn/workspace_change/cron-only routing.
 - Reminder requests — phrases asking the bot to say something later in the SAME chat (Russian "напомни ...", English "reminder ..." or "remind me ..."), an explicit future timestamp plus a deferred-message intent — are \`tool_execution\` with \`requestedTools=["cron"]\` (deferred message back to the CURRENT channel via the built-in cron-tool), NEVER \`external_delivery\`. \`external_delivery\` is reserved for integrations with an external provider (Bybit, OpenAI, telegram_userbot, etc.), not for a deferred message back to the current channel. Emit primaryOutcome="answer", interactionMode="tool_execution", deliverable={kind:"answer", acceptedFormats:["text"], constraints:{tool:"cron"}}. Do NOT add needs_external_delivery for these. Examples: "Напомни завтра в 12:00 пообедать", "Напомни через 30 секунд тестовое сообщение", "Remind me in 5 minutes to drink water".
 
 Deliverable rules:
@@ -360,6 +361,15 @@ function buildContextBlockInjection(tag: "workspace" | "identity", body?: string
     return "";
   }
   return `\n<${tag}>\n${normalized}\n</${tag}>`;
+}
+
+/**
+ * Returns the literal `TASK_CLASSIFIER_USER_TEMPLATE` so unit tests can verify
+ * which in-context examples ship to the LLM. Exported for test gating only —
+ * production callers go through the adapter at line ~1432.
+ */
+export function getTaskClassifierUserTemplateForTest(): string {
+  return TASK_CLASSIFIER_USER_TEMPLATE;
 }
 
 /**
