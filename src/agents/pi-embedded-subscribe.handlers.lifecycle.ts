@@ -103,7 +103,11 @@ export function handleAgentEnd(ctx: EmbeddedPiSubscribeContext) {
   ctx.flushBlockReplyBuffer();
   const pendingToolMediaReply = consumePendingToolMediaReply(ctx.state);
   if (pendingToolMediaReply && hasAssistantVisibleReply(pendingToolMediaReply)) {
-    ctx.emitBlockReply(pendingToolMediaReply);
+    // V1-CLOSE T9 — agent_end is the terminal lifecycle signal; any
+    // pending tool-media reply flushed here is the last user-facing
+    // payload of the run, so the coalescer wrapper must register it
+    // as `kind=final` (gate read in `outbound-coalescer-wiring.ts`).
+    ctx.emitBlockReply({ ...pendingToolMediaReply, isFinal: true });
   }
   // Flush the reply pipeline so the response reaches the channel before
   // compaction wait blocks the run.  This mirrors the pattern used by

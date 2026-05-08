@@ -54,9 +54,7 @@ describe("wrapStreamingOutboundWithCoalescer", () => {
 
     // Only ONE outbound delivery — the LAST registered body.
     expect(delivered).toHaveLength(1);
-    expect(delivered[0]?.text).toBe(
-      "Here is the final answer text the user actually requested.",
-    );
+    expect(delivered[0]?.text).toBe("Here is the final answer text the user actually requested.");
     // Preambles are dropped, not concatenated.
     expect(delivered[0]?.text).not.toContain("ser is asking");
     expect(delivered[0]?.text).not.toContain("Actually, I think");
@@ -164,7 +162,11 @@ describe("wrapStreamingOutboundWithCoalescer", () => {
       logTelemetry: (line) => logLines.push(line),
       maxBufferMs: 5_000,
     });
-    await wiring.onBlockReply({ text: "anything" });
+    // V1-CLOSE T9 — `isFinal: true` opt-in marks the terminal block
+    // emission so the coalescer registers it as `kind=final`. Pre-T9
+    // every emission hardcoded to `final` regardless; the gate now
+    // requires the caller (subscribe layer) to declare finality.
+    await wiring.onBlockReply({ text: "anything", isFinal: true });
     await wiring.commit();
 
     const registered = logLines.find((l) => l.includes("event=registered"));

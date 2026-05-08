@@ -1,10 +1,10 @@
 import type { AgentEvent, AgentMessage } from "@mariozechner/pi-agent-core";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
-import { defaultRuntime } from "../runtime.js";
 import { parseReplyDirectives } from "../auto-reply/reply/reply-directives.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { emitAgentEvent } from "../infra/agent-events.js";
 import { createInlineCodeState } from "../markdown/code-spans.js";
+import { defaultRuntime } from "../runtime.js";
 import {
   isMessagingToolDuplicateNormalized,
   normalizeTextForComparison,
@@ -456,6 +456,14 @@ export function handleMessageEnd(
         replyToId,
         replyToTag,
         replyToCurrent,
+        // V1-CLOSE T9 — terminal block emission for the assistant
+        // message (`message_end` / `text_end` finalize lane). The
+        // coalescer wrapper gates `kind=final` on this flag; without
+        // it the streaming lane defaults to `kind=intermediate`, so
+        // the bucket would commit with the last intermediate as
+        // canonical (still functional, but masks the per-turn final
+        // signal in `[outbound-coalescer]` telemetry).
+        isFinal: true,
       });
     }
   };

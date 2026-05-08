@@ -1,3 +1,4 @@
+import type { OutboundCoalescerLogEvent } from "../../../infra/outbound/outbound-coalescer-types.js";
 /**
  * Wraps the streaming-pipeline `onBlockReply` (and only that callback)
  * with an OutboundCoalescer so per-message-end emissions during a
@@ -35,16 +36,13 @@
  */
 import type { OutboundCoalescer } from "../../../infra/outbound/outbound-coalescer.js";
 import { createOutboundCoalescer } from "../../../infra/outbound/outbound-coalescer.js";
-import type { OutboundCoalescerLogEvent } from "../../../infra/outbound/outbound-coalescer-types.js";
 import type { BlockReplyPayload } from "../../pi-embedded-payloads.js";
 
 /**
  * Function shape matching `RunEmbeddedPiAgentParams.onBlockReply`.
  * Re-declared locally to avoid a cycle through `params.ts`.
  */
-export type StreamingBlockReplyCallback = (
-  payload: BlockReplyPayload,
-) => void | Promise<void>;
+export type StreamingBlockReplyCallback = (payload: BlockReplyPayload) => void | Promise<void>;
 
 /**
  * Inputs for `wrapStreamingOutboundWithCoalescer`. All explicit DI —
@@ -146,10 +144,25 @@ export function wrapStreamingOutboundWithCoalescer(
       await inputs.onBlockReply(payload);
       return;
     }
+    // V1-CLOSE T9 — terminal-vs-intermediate gate. The streaming
+    // `onBlockReply` lane fires once per block-chunker break during a
+    // long turn AND once at terminal `message_end` / post-run flush.
+    // Pre-T9, every register() call hardcoded `kind: "final"`, so the
+    // coalescer dedup'd in-flight intermediates and the user only ever
+    // saw a single non-streamed message — see charter §6 turn
+    // `d6e5e41c-256d-4824-81be-8699f682df89` (15,675-char essay, zero
+    // `kind=intermediate` events). The caller (subscribe layer) now
+    // populates `payload.isFinal` based on the LLM event boundary;
+    // anything not explicitly final maps to `intermediate`. The
+    // `drop_intermediates` merge strategy (line 131) still keeps the
+    // last `final` body as canonical, so user-visible behaviour after
+    // commit is unchanged for short turns — long turns gain visible
+    // partial-emission telemetry on the hot path.
+    const isFinal = payload?.isFinal === true;
     coalescer.register({
       turnId: inputs.turnId,
       channelKey: inputs.channelKey,
-      kind: "final",
+      kind: isFinal ? "final" : "intermediate",
       body: payload,
       ts: clockNow(),
     });

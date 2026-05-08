@@ -553,6 +553,14 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
       replyToId,
       replyToTag,
       replyToCurrent,
+      // V1-CLOSE T9 — every block-chunker emit on the streaming
+      // text-delta lane is an intermediate break (`text_end` cadence).
+      // Terminal block emissions ride `handleMessageEnd` /
+      // `handleAgentEnd` paths and explicitly set `isFinal: true`.
+      // Without this `false`, the coalescer wrapper hardcoded every
+      // emission to `kind=final` (charter §6 turn `d6e5e41c…`,
+      // 15,675-char essay, zero `kind=intermediate` events).
+      isFinal: false,
     });
   };
 
