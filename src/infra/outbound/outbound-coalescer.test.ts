@@ -18,21 +18,18 @@
  * blocks — keeps `--isolate=false` green.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { ReplyPayload } from "../../auto-reply/types.js";
 import type { BlockReplyDeliver } from "../../auto-reply/reply/block-external-buffer.js";
-import { createOutboundCoalescer } from "./outbound-coalescer.js";
+import type { ReplyPayload } from "../../auto-reply/types.js";
 import type {
   OutboundCoalescer,
   OutboundCoalescerDeps,
   OutboundMessage,
 } from "./outbound-coalescer-types.js";
+import { createOutboundCoalescer } from "./outbound-coalescer.js";
 
 type CapturedDelivery = { payload: ReplyPayload; ts: number };
 
-function makeHarness(
-  overrides: Partial<OutboundCoalescerDeps> = {},
-): {
+function makeHarness(overrides: Partial<OutboundCoalescerDeps> = {}): {
   coalescer: OutboundCoalescer;
   delivered: CapturedDelivery[];
   logs: string[];
@@ -85,9 +82,7 @@ function msg(
 describe("outbound-coalescer (Phase 3) — register + commit happy path (T1)", () => {
   it("register one final → commit → deliver called once with that body", async () => {
     const h = makeHarness();
-    h.coalescer.register(
-      msg({ kind: "final", body: { text: "final body" }, ts: 1_001 }),
-    );
+    h.coalescer.register(msg({ kind: "final", body: { text: "final body" }, ts: 1_001 }));
     await h.coalescer.commit("run-A", "telegram:6533456892:6533456892");
     expect(h.delivered).toHaveLength(1);
     expect(h.delivered[0]?.payload.text).toBe("final body");
@@ -108,9 +103,7 @@ describe("outbound-coalescer — drop_intermediates merge (T2, T3)", () => {
   it("ack + intermediate + final → deliver final body with ack text prefixed (T2)", async () => {
     const h = makeHarness();
     h.coalescer.register(msg({ kind: "ack", body: { text: "ack-text" }, ts: 1_000 }));
-    h.coalescer.register(
-      msg({ kind: "intermediate", body: { text: "thinking..." }, ts: 1_001 }),
-    );
+    h.coalescer.register(msg({ kind: "intermediate", body: { text: "thinking..." }, ts: 1_001 }));
     h.coalescer.register(
       msg({
         kind: "final",
@@ -138,12 +131,8 @@ describe("outbound-coalescer — drop_intermediates merge (T2, T3)", () => {
   it("ack + intermediate (no final) → deliver latest intermediate with ack prefix (T3)", async () => {
     const h = makeHarness();
     h.coalescer.register(msg({ kind: "ack", body: { text: "ack-prefix" }, ts: 1_000 }));
-    h.coalescer.register(
-      msg({ kind: "intermediate", body: { text: "older" }, ts: 1_001 }),
-    );
-    h.coalescer.register(
-      msg({ kind: "intermediate", body: { text: "latest" }, ts: 1_002 }),
-    );
+    h.coalescer.register(msg({ kind: "intermediate", body: { text: "older" }, ts: 1_001 }));
+    h.coalescer.register(msg({ kind: "intermediate", body: { text: "latest" }, ts: 1_002 }));
     await h.coalescer.commit("run-A", "telegram:6533456892:6533456892");
     expect(h.delivered).toHaveLength(1);
     expect(h.delivered[0]?.payload.text).toBe("ack-prefix\n\nlatest");
@@ -190,9 +179,7 @@ describe("outbound-coalescer — watchdog timeout commit (T6, T7)", () => {
   it("watchdog fires after maxBufferMs → forced commit with timeout telemetry (T6)", async () => {
     const h = makeHarness({ maxBufferMs: 5_000 });
     h.setNow(1_000);
-    h.coalescer.register(
-      msg({ kind: "final", body: { text: "auto-committed" }, ts: 1_000 }),
-    );
+    h.coalescer.register(msg({ kind: "final", body: { text: "auto-committed" }, ts: 1_000 }));
     expect(h.delivered).toHaveLength(0);
     // advance fake timer past watchdog window AND advance the injected
     // clock so the `waited_ms` telemetry reads the real elapsed time
@@ -201,9 +188,7 @@ describe("outbound-coalescer — watchdog timeout commit (T6, T7)", () => {
     expect(h.delivered).toHaveLength(1);
     expect(h.delivered[0]?.payload.text).toBe("auto-committed");
     expect(
-      h.logs.some(
-        (l) => l.includes("event=timeout_committed") && l.includes("waited_ms=5000"),
-      ),
+      h.logs.some((l) => l.includes("event=timeout_committed") && l.includes("waited_ms=5000")),
     ).toBe(true);
   });
 
@@ -281,9 +266,7 @@ describe("outbound-coalescer — bypass route (T10)", () => {
   it("bypass routes around coalescer; bucket unaffected", async () => {
     const h = makeHarness();
     // pre-populate bucket
-    h.coalescer.register(
-      msg({ kind: "final", body: { text: "buffered" }, ts: 1_000 }),
-    );
+    h.coalescer.register(msg({ kind: "final", body: { text: "buffered" }, ts: 1_000 }));
     let bypassCalled = 0;
     let bypassedText: string | undefined;
     const bypassDeliver: BlockReplyDeliver = (payload) => {
@@ -296,9 +279,7 @@ describe("outbound-coalescer — bypass route (T10)", () => {
     // bucket untouched: stats still reports buffered=1
     expect(h.coalescer.stats().buffered).toBe(1);
     expect(
-      h.logs.some(
-        (l) => l.includes("event=bypassed") && l.includes("reason=system_init"),
-      ),
+      h.logs.some((l) => l.includes("event=bypassed") && l.includes("reason=system_init")),
     ).toBe(true);
     // committed bucket still works
     await h.coalescer.commit("run-A", "telegram:6533456892:6533456892");
@@ -306,26 +287,41 @@ describe("outbound-coalescer — bypass route (T10)", () => {
   });
 });
 
-describe("outbound-coalescer — failure isolation (T11)", () => {
-  it("deliver throws → bucket cleared, telemetry warn, no propagation", async () => {
+describe("outbound-coalescer — failure isolation (T11) [V1-CLOSE T4 updated]", () => {
+  // V1-CLOSE T4 (charter §4 T4): the prior contract was "swallow on
+  // deliver throw → bucket cleared → caller resolves to undefined".
+  // That silently dropped attachments. The new contract is: retry up
+  // to total `retryDelaysMs.length + 1` attempts, then surface a
+  // typed `OutboundCoalescerDeliveryError` to the caller AND emit
+  // `event=delivery_dropped`. Tests below assert the NEW contract.
+  it("deliver throws on every attempt → typed error surfaced; coalescer keeps serving", async () => {
     const failingDeliver: BlockReplyDeliver = () => {
       throw new Error("channel adapter exploded");
     };
-    const h = makeHarness({ deliver: failingDeliver });
+    const h = makeHarness({
+      deliver: failingDeliver,
+      // zero-delay retries so we exercise the loop without wall-clock coupling
+      retryDelaysMs: [0, 0],
+    });
     h.coalescer.register(msg({ kind: "final", body: { text: "boom" }, ts: 1_000 }));
-    // commit should NOT throw
+    // V1-CLOSE T4: commit MUST throw the typed error after exhaustion.
     await expect(
       h.coalescer.commit("run-A", "telegram:6533456892:6533456892"),
-    ).resolves.toBeUndefined();
+    ).rejects.toMatchObject({
+      name: "OutboundCoalescerDeliveryError",
+      code: "outbound_coalescer_delivery_dropped",
+    });
     // bucket cleared
     expect(h.coalescer.stats().buffered).toBe(0);
     expect(
       h.logs.some(
-        (l) =>
-          l.includes("event=deliver_failed") && l.includes("channel adapter exploded"),
+        (l) => l.includes("event=deliver_failed") && l.includes("channel adapter exploded"),
       ),
     ).toBe(true);
-    // coalescer keeps serving — register a NEW turn after failure
+    expect(h.logs.some((l) => l.includes("event=delivery_dropped"))).toBe(true);
+    // coalescer keeps serving — register a NEW turn after failure.
+    // (This is the "failure isolation" property: one bucket's drop
+    // does not poison the instance.)
     h.coalescer.register(
       msg({
         turnId: "run-after-failure",
@@ -334,27 +330,23 @@ describe("outbound-coalescer — failure isolation (T11)", () => {
         ts: 2_000,
       }),
     );
-    await h.coalescer.commit(
-      "run-after-failure",
-      "telegram:6533456892:6533456892",
-    );
-    // delivered for second turn would also throw, but bucket clearing remains intact
+    await expect(
+      h.coalescer.commit("run-after-failure", "telegram:6533456892:6533456892"),
+    ).rejects.toMatchObject({ code: "outbound_coalescer_delivery_dropped" });
     expect(h.coalescer.stats().buffered).toBe(0);
   });
 
-  it("async deliver rejection is also isolated", async () => {
-    const failingDeliver: BlockReplyDeliver = () =>
-      Promise.reject(new Error("async fail"));
-    const h = makeHarness({ deliver: failingDeliver });
+  it("async deliver rejection is also retried then surfaces typed error", async () => {
+    const failingDeliver: BlockReplyDeliver = () => Promise.reject(new Error("async fail"));
+    const h = makeHarness({ deliver: failingDeliver, retryDelaysMs: [0, 0] });
     h.coalescer.register(msg({ kind: "final", body: { text: "x" }, ts: 1_000 }));
     await expect(
       h.coalescer.commit("run-A", "telegram:6533456892:6533456892"),
-    ).resolves.toBeUndefined();
-    expect(
-      h.logs.some(
-        (l) => l.includes("event=deliver_failed") && l.includes("async fail"),
-      ),
-    ).toBe(true);
+    ).rejects.toMatchObject({ code: "outbound_coalescer_delivery_dropped" });
+    expect(h.logs.some((l) => l.includes("event=deliver_failed") && l.includes("async fail"))).toBe(
+      true,
+    );
+    expect(h.logs.some((l) => l.includes("event=delivery_dropped"))).toBe(true);
   });
 });
 
@@ -374,9 +366,7 @@ describe("outbound-coalescer — merge_into_final strategy", () => {
   it("concatenates all body texts joined by \\n\\n; last entry's metadata as envelope", async () => {
     const h = makeHarness({ mergeStrategy: "merge_into_final" });
     h.coalescer.register(msg({ kind: "ack", body: { text: "A" }, ts: 1_000 }));
-    h.coalescer.register(
-      msg({ kind: "intermediate", body: { text: "B" }, ts: 1_001 }),
-    );
+    h.coalescer.register(msg({ kind: "intermediate", body: { text: "B" }, ts: 1_001 }));
     h.coalescer.register(
       msg({
         kind: "final",
@@ -396,9 +386,7 @@ describe("outbound-coalescer — merge_into_final strategy", () => {
   it("skips empty text fragments when concatenating", async () => {
     const h = makeHarness({ mergeStrategy: "merge_into_final" });
     h.coalescer.register(msg({ kind: "ack", body: { text: "" }, ts: 1_000 }));
-    h.coalescer.register(
-      msg({ kind: "final", body: { text: "only" }, ts: 1_001 }),
-    );
+    h.coalescer.register(msg({ kind: "final", body: { text: "only" }, ts: 1_001 }));
     await h.coalescer.commit("run-A", "telegram:6533456892:6533456892");
     expect(h.delivered[0]?.payload.text).toBe("only");
   });
@@ -408,9 +396,7 @@ describe("outbound-coalescer — register telemetry depth", () => {
   it("registered event reports increasing bufferDepth per (turn, channel)", () => {
     const h = makeHarness();
     h.coalescer.register(msg({ kind: "ack", body: { text: "1" }, ts: 1_000 }));
-    h.coalescer.register(
-      msg({ kind: "intermediate", body: { text: "2" }, ts: 1_001 }),
-    );
+    h.coalescer.register(msg({ kind: "intermediate", body: { text: "2" }, ts: 1_001 }));
     h.coalescer.register(msg({ kind: "final", body: { text: "3" }, ts: 1_002 }));
     const depthLines = h.logs.filter((l) => l.includes("event=registered"));
     expect(depthLines).toHaveLength(3);
@@ -424,15 +410,9 @@ describe("outbound-coalescer — stats() reflects bucket state", () => {
   it("buffered + turns count distinct turnIds", async () => {
     const h = makeHarness();
     expect(h.coalescer.stats()).toEqual({ buffered: 0, turns: 0 });
-    h.coalescer.register(
-      msg({ turnId: "t1", kind: "final", body: { text: "a" }, ts: 1 }),
-    );
-    h.coalescer.register(
-      msg({ turnId: "t1", kind: "ack", body: { text: "b" }, ts: 2 }),
-    );
-    h.coalescer.register(
-      msg({ turnId: "t2", kind: "final", body: { text: "c" }, ts: 3 }),
-    );
+    h.coalescer.register(msg({ turnId: "t1", kind: "final", body: { text: "a" }, ts: 1 }));
+    h.coalescer.register(msg({ turnId: "t1", kind: "ack", body: { text: "b" }, ts: 2 }));
+    h.coalescer.register(msg({ turnId: "t2", kind: "final", body: { text: "c" }, ts: 3 }));
     expect(h.coalescer.stats()).toEqual({ buffered: 3, turns: 2 });
     await h.coalescer.commitAll("t1");
     expect(h.coalescer.stats()).toEqual({ buffered: 1, turns: 1 });
