@@ -1363,6 +1363,16 @@ export async function runEmbeddedPiAgent(
             onAssistantMessageStart: params.onAssistantMessageStart,
             onBlockReply: params.onBlockReply,
             onBlockReplyFlush: params.onBlockReplyFlush,
+            // Slice D — DIAGNOSTIC-2026-05-08 Fix 3 plumbing. Forward
+            // the streaming OutboundCoalescer opt-in fields from the
+            // production caller (`agent-runner-execution.ts` on the
+            // `runEmbeddedPiAgent` call) into attempt.ts where the
+            // wrap from PR #310 lives. 1:1 forwarding — no derivation
+            // here; derivation belongs to the production caller so
+            // the `(channel, account, target)` tuple stays close to
+            // its source-of-truth (`FollowupRun.originating*`).
+            outboundCoalescerStreamingTurnId: params.outboundCoalescerStreamingTurnId,
+            outboundCoalescerStreamingChannelKey: params.outboundCoalescerStreamingChannelKey,
             onStructuralToolExecutionStarting: params.onStructuralToolExecutionStarting,
             blockReplyBreak: params.blockReplyBreak,
             blockReplyChunking: params.blockReplyChunking,
