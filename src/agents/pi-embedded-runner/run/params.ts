@@ -132,6 +132,31 @@ export type RunEmbeddedPiAgentParams = {
   onBlockReply?: (payload: BlockReplyPayload) => void | Promise<void>;
   onBlockReplyFlush?: () => void | Promise<void>;
   /**
+   * Opt-in: when both `outboundCoalescerStreamingTurnId` and
+   * `outboundCoalescerStreamingChannelKey` are provided, attempt.ts
+   * wraps `onBlockReply` with `OutboundCoalescer` (drop_intermediates)
+   * for the duration of the streaming run. Per-message-end emissions
+   * are aggregated and exactly ONE consolidated outbound delivery
+   * fires from the post-run finally block — pinning the production
+   * CoT-leak symptom (gateway-dev-2026-05-07.log session 78ff2b60
+   * turn 1) where Opus emitted four message_end events that all
+   * shipped as separate Telegram messages. See
+   * `src/agents/pi-embedded-runner/run/outbound-coalescer-wiring.ts`
+   * for the wrapping helper.
+   *
+   * Backwards-compat: when this opt-in is OMITTED, attempt.ts
+   * behaviour is byte-identical to before this slice — the upstream
+   * `agent-runner.ts` coalescer wrap (line ~660) keeps owning the
+   * coalescing surface for callers that wired it.
+   */
+  outboundCoalescerStreamingTurnId?: string;
+  /**
+   * Structural channel key matching `agent-runner.ts:633` shape
+   * `${channel}:${accountId}:${target}`. Only structural — never
+   * inspected for content (#5).
+   */
+  outboundCoalescerStreamingChannelKey?: string;
+  /**
    * Structural signal immediately before block-buffer flush / tool execution start.
    * PR-A.2 external-channel buffering — must not inspect user or delta text.
    */

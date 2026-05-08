@@ -128,6 +128,12 @@ import {
   isInternalReasoningHintApplicable,
 } from "../internal-reasoning-hint.js";
 import { log } from "../logger.js";
+// `defaultRuntime.log` is the gateway-log surface used by every other
+// `[outbound-coalescer]` emit-site (see `agent-runner.ts` line ~641
+// and `pi-embedded-subscribe.handlers.messages.ts` line 353).
+// Routing the streaming-coalescer telemetry through the same sink
+// keeps `gateway.log` grep patterns identical for operators.
+import { defaultRuntime } from "../../../runtime.js";
 import { buildEmbeddedMessageActionDiscoveryInput } from "../message-action-discovery-input.js";
 import { buildModelAliasLines } from "../model.js";
 import {
@@ -162,6 +168,7 @@ import {
 } from "./compaction-timeout.js";
 import { pruneProcessedHistoryImages } from "./history-image-prune.js";
 import { detectAndLoadPromptImages } from "./images.js";
+import { wrapStreamingOutboundWithCoalescer } from "./outbound-coalescer-wiring.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
 type PromptBuildHookRunner = {
@@ -2857,6 +2864,36 @@ export async function runEmbeddedAttempt(
         });
       };
 
+      // Fix 3 (DIAGNOSTIC-2026-05-08-kernel-vs-legacy-divergence) —
+      // wrap the streaming `onBlockReply` with `OutboundCoalescer` so
+      // multi-`message_end` emissions during one logical turn collapse
+      // into ONE consolidated outbound delivery. Engages only when
+      // caller passes the opt-in (`outboundCoalescerStreamingTurnId`
+      // + `outboundCoalescerStreamingChannelKey`). Without the opt-in,
+      // behaviour is byte-identical to before — `params.onBlockReply`
+      // flows through `subscribeEmbeddedPiSession` unwrapped.
+      //
+      // Production symptom this pins (gateway-dev-2026-05-07.log
+      // session 78ff2b60 turn 1): Opus 4.6 emitted four assistant
+      // message_end events; each fired `onBlockReply`; each became its
+      // own Telegram message. Two of them were chain-of-thought
+      // preambles. The legacy `agent-runner.ts:660` wrapping required
+      // `externalBlockDeferral` plus several upstream conditions and
+      // was inert for that turn — `[outbound-coalescer] event=committed`
+      // never appeared. This streaming-edge wrap makes the wiring
+      // unconditional for callers that ask for it.
+      const streamingCoalescer =
+        params.onBlockReply &&
+        params.outboundCoalescerStreamingTurnId &&
+        params.outboundCoalescerStreamingChannelKey
+          ? wrapStreamingOutboundWithCoalescer({
+              onBlockReply: params.onBlockReply,
+              turnId: params.outboundCoalescerStreamingTurnId,
+              channelKey: params.outboundCoalescerStreamingChannelKey,
+              logTelemetry: (line) => defaultRuntime.log(line),
+            })
+          : undefined;
+
       const subscription = subscribeEmbeddedPiSession({
         session: activeSession,
         runId: params.runId,
@@ -2869,7 +2906,7 @@ export async function runEmbeddedAttempt(
         onToolResult: params.onToolResult,
         onReasoningStream: params.onReasoningStream,
         onReasoningEnd: params.onReasoningEnd,
-        onBlockReply: params.onBlockReply,
+        onBlockReply: streamingCoalescer?.onBlockReply ?? params.onBlockReply,
         onBlockReplyFlush: params.onBlockReplyFlush,
         onStructuralToolExecutionStarting: params.onStructuralToolExecutionStarting,
         blockReplyBreak: params.blockReplyBreak,
@@ -3505,9 +3542,27 @@ export async function runEmbeddedAttempt(
           // unsubscribe() should never throw; if it does, it indicates a serious bug.
           // Log at error level to ensure visibility, but don't rethrow in finally block
           // as it would mask any exception from the try block above.
+          // (Streaming-coalescer commit below MUST still run even if
+          // unsubscribe threw — see the second try/catch that follows.)
           log.error(
             `CRITICAL: unsubscribe failed, possible resource leak: runId=${params.runId} ${String(err)}`,
           );
+        }
+        // Fix 3 commit edge — flush the streaming coalescer (if it
+        // was constructed). Mirrors the upstream `agent-runner.ts:1087`
+        // `finalizeAfterRun(blockBufferInner)` seam: every streaming
+        // run, success or abort, ships exactly ONE consolidated
+        // outbound delivery per turn. Idempotent — second commit
+        // (e.g. from a retry path) is a silent noop per
+        // `OutboundCoalescer.commitAll` semantics.
+        if (streamingCoalescer) {
+          try {
+            await streamingCoalescer.commit();
+          } catch (err) {
+            log.warn(
+              `streaming outbound coalescer commit failed: runId=${params.runId} ${String(err)}`,
+            );
+          }
         }
         clearActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
         params.abortSignal?.removeEventListener?.("abort", onAbort);
