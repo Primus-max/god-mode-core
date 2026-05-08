@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveSessionTranscriptPathInDir } from "../../config/sessions/paths.js";
 import type { FollowupRun } from "./queue.js";
 
@@ -27,15 +27,35 @@ vi.mock("../../platform/decision/input.js", async () => {
   };
 });
 
-const {
-  buildThreadingToolContext,
-  buildEmbeddedRunBaseParams,
-  buildEmbeddedRunContexts,
-  resolveRoutingSnapshotForTemplateRun,
-  resolvePlatformExecutionContextForTemplateRun,
-  resolveModelFallbackOptions,
-  resolveProviderScopedAuthProfile,
-} = await import("./agent-runner-utils.js");
+// `agent-runner.ts` lazy-loads `memory-store-bootstrap.runtime.js`
+// (remediation slice "Fix 1+2 — thread kernel deps", 2026-05-08), which
+// transitively loads `agents/agent-scope.js`. When sibling base-lane
+// test files (notably `agent-runner.media-paths.test.ts`) trigger that
+// lazy load before this file runs in the same `--isolate=false` worker,
+// `agent-scope.js` lands in the module cache as REAL — and this file's
+// `vi.mock("../../agents/agent-scope.js")` then fails to apply.
+// Use the same `vi.resetModules() + beforeAll dynamic re-import`
+// pattern as PR #303 / #304 / #305 / #308 / #309.
+let buildThreadingToolContext: (typeof import("./agent-runner-utils.js"))["buildThreadingToolContext"];
+let buildEmbeddedRunBaseParams: (typeof import("./agent-runner-utils.js"))["buildEmbeddedRunBaseParams"];
+let buildEmbeddedRunContexts: (typeof import("./agent-runner-utils.js"))["buildEmbeddedRunContexts"];
+let resolveRoutingSnapshotForTemplateRun: (typeof import("./agent-runner-utils.js"))["resolveRoutingSnapshotForTemplateRun"];
+let resolvePlatformExecutionContextForTemplateRun: (typeof import("./agent-runner-utils.js"))["resolvePlatformExecutionContextForTemplateRun"];
+let resolveModelFallbackOptions: (typeof import("./agent-runner-utils.js"))["resolveModelFallbackOptions"];
+let resolveProviderScopedAuthProfile: (typeof import("./agent-runner-utils.js"))["resolveProviderScopedAuthProfile"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  ({
+    buildThreadingToolContext,
+    buildEmbeddedRunBaseParams,
+    buildEmbeddedRunContexts,
+    resolveRoutingSnapshotForTemplateRun,
+    resolvePlatformExecutionContextForTemplateRun,
+    resolveModelFallbackOptions,
+    resolveProviderScopedAuthProfile,
+  } = await import("./agent-runner-utils.js"));
+});
 
 function makeRun(overrides: Partial<FollowupRun["run"]> = {}): FollowupRun["run"] {
   return {

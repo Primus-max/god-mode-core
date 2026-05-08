@@ -27,11 +27,14 @@ import {
   reconcilePromisesWithReceipts,
   type PromisedActionViolation,
 } from "../../platform/session/execution-evidence.js";
+import type { IdentityId } from "../../platform/identity/identity-id.js";
+import { resolveIdentityFromSessionKey } from "../../platform/identity/resolve-identity.js";
 import { computeIntentFingerprint } from "../../platform/session/intent-fingerprint.js";
 import { intentLedger } from "../../platform/session/intent-ledger.js";
 import { maybeInvalidateWorkspaceForReceipts } from "../../platform/session/workspace-invalidation.js";
 import { resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { defaultRuntime } from "../../runtime.js";
+import { getProcessConcurrentTurnBroker } from "../../server/concurrent-turn-broker-bootstrap.js";
 import {
   buildFallbackClearedNotice,
   buildFallbackNotice,
@@ -98,6 +101,9 @@ let usageCostRuntimePromise: Promise<typeof import("./usage-cost.runtime.js")> |
 let sessionStoreRuntimePromise: Promise<
   typeof import("../../config/sessions/store.runtime.js")
 > | null = null;
+let memoryStoreRuntimePromise: Promise<
+  typeof import("../../server/memory-store-bootstrap.runtime.js")
+> | null = null;
 const DEBUG_REPLY_ROUTING_ENV = "OPENCLAW_DEBUG_REPLY_ROUTING";
 
 function loadPiEmbeddedQueueRuntime() {
@@ -108,6 +114,11 @@ function loadPiEmbeddedQueueRuntime() {
 function loadUsageCostRuntime() {
   usageCostRuntimePromise ??= import("./usage-cost.runtime.js");
   return usageCostRuntimePromise;
+}
+
+function loadMemoryStoreRuntime() {
+  memoryStoreRuntimePromise ??= import("../../server/memory-store-bootstrap.runtime.js");
+  return memoryStoreRuntimePromise;
 }
 
 function loadSessionStoreRuntime() {
@@ -970,6 +981,44 @@ export async function runReplyAgent(params: {
         await emitDeferredAck(progressTurnId);
       }
       const runStartedAt = Date.now();
+      // Remediation slice "Fix 1+2 — thread kernel deps" (diagnostic
+      // 2026-05-08): resolve `IdentityId` from the inbound `sessionKey`
+      // and bind the process-scoped broker so the PR-MT
+      // `dispatchTurnViaBroker` path leaves bypass. Live evidence
+      // (gateway-dev-2026-05-07.log turn 78ff2b60) shows that without
+      // this threading, `agent-runner-execution.ts:202` forces
+      // `broker = undefined` on every production turn — so
+      // `[broker] enqueued|dispatch|complete` never emit and the
+      // per-(identity, channel) FIFO never engages. Both lookups fail
+      // closed (undefined) — caller-bypass semantics in
+      // `dispatch-turn-via-broker.ts:148-154` are preserved when either
+      // resolution returns undefined.
+      let resolvedIdentityId: IdentityId | undefined = undefined;
+      try {
+        // Lazy-load via the `*.runtime.ts` barrel so the static module
+        // graph of `agent-runner.ts` does not eagerly pull in
+        // `agents/agent-scope.js` (transitive dep of
+        // `memory-store-bootstrap.ts`). A static import here would
+        // cascade a `vi.mock`-race regression into sibling test files
+        // that mock `agent-scope.js` (e.g. `agent-runner-utils.test.ts`)
+        // — same root cause as PR #303 / #304 / #305 / #308 / #309.
+        const { getMemoryRuntime } = await loadMemoryStoreRuntime();
+        const memoryRuntime = await getMemoryRuntime(cfg);
+        resolvedIdentityId = resolveIdentityFromSessionKey(
+          sessionKey,
+          memoryRuntime.identityRegistry,
+        );
+      } catch (err) {
+        // Memory runtime resolution may fail (sqlite-vec unavailable,
+        // embedder ctor throw). Per `memory-wiring.ts:163-170` precedent,
+        // log + downgrade to undefined identity (broker bypass) — never
+        // fail the turn. Memory layer is observability, not gating
+        // (invariant #15).
+        defaultRuntime.log(
+          `[agent-runner] identity resolution failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      const concurrentBroker = getProcessConcurrentTurnBroker();
       const runOutcome = await runAgentTurnWithFallback({
         commandBody,
         followupRun,
@@ -999,6 +1048,8 @@ export async function runReplyAgent(params: {
           await emitDeferredAck(ackRunId);
           void estimatedDurationMs;
         },
+        ...(resolvedIdentityId !== undefined ? { identityId: resolvedIdentityId } : {}),
+        ...(concurrentBroker !== undefined ? { concurrentBroker } : {}),
       });
 
       if (runOutcome.kind === "final") {

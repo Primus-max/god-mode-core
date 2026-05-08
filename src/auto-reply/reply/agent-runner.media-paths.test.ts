@@ -1,5 +1,5 @@
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TemplateContext } from "../templating.js";
 import type { FollowupRun, QueueSettings } from "./queue.js";
 import { createMockFollowupRun, createMockTypingController } from "./test-helpers.js";
@@ -35,7 +35,19 @@ vi.mock("./queue.js", async () => {
   };
 });
 
-import { runReplyAgent } from "./agent-runner.js";
+// `agent-runner.ts` lazy-loads `memory-store-bootstrap.runtime.js`
+// (remediation slice "Fix 1+2 — thread kernel deps", 2026-05-08).
+// Without `vi.resetModules()` + dynamic re-import in `beforeAll`,
+// when this file shares an `--isolate=false` worker with sibling
+// tests (e.g. `agent-runner-utils.test.ts`) the SUT's mocks lose
+// the race against `test/setup.ts` pre-loads — same root cause as
+// PR #303 / #304 / #305 / #308 / #309.
+let runReplyAgent: (typeof import("./agent-runner.js"))["runReplyAgent"];
+
+beforeAll(async () => {
+  vi.resetModules();
+  ({ runReplyAgent } = await import("./agent-runner.js"));
+});
 
 describe("runReplyAgent media path normalization", () => {
   beforeEach(() => {
