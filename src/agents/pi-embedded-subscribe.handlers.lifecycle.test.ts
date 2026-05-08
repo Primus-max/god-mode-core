@@ -172,9 +172,15 @@ describe("handleAgentEnd", () => {
 
     handleAgentEnd(ctx);
 
+    // V1-CLOSE T9 — terminal lifecycle emissions carry `isFinal: true`
+    // so the streaming coalescer wrapper registers `kind=final` (gate
+    // read in `outbound-coalescer-wiring.ts`). Pre-T9 every emission
+    // hardcoded `kind=final` regardless; the gate now requires the
+    // subscribe layer to declare finality.
     expect(ctx.emitBlockReply).toHaveBeenCalledWith({
       mediaUrls: ["/tmp/reply.opus"],
       audioAsVoice: true,
+      isFinal: true,
     });
     expect(ctx.state.pendingToolMediaUrls).toEqual([]);
     expect(ctx.state.pendingToolAudioAsVoice).toBe(false);
