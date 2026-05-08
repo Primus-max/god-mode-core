@@ -298,6 +298,46 @@ async function runAgentTurnBody(params: {
       ? params.opts.runId.trim()
       : undefined) ??
     runId;
+  // Slice D — DIAGNOSTIC-2026-05-08 Fix 3 plumbing.
+  //
+  // Derive the structural channel-key that activates the attempt.ts
+  // streaming OutboundCoalescer wrap added in PR #310. PR #310 added
+  // the seam, gated on both `outboundCoalescerStreamingTurnId` and
+  // `outboundCoalescerStreamingChannelKey` being defined; without this
+  // derivation production turns leave them undefined and the wrap is
+  // dead code (gateway-dev-2026-05-07.log session 78ff2b60 turn 1 —
+  // four `message_end` events shipped as four Telegram messages, two
+  // of them CoT preambles).
+  //
+  // Format `${channel}:${accountId}:${target}` mirrors the upstream
+  // `agent-runner.ts:644` coalescer wrap and the broker's queueKey
+  // composition (`buildChannelKey` in `dispatch-turn-via-broker.ts`).
+  // Bypass (both fields undefined) preserves byte-identical behaviour
+  // with PR #310's pre-opt-in path for:
+  //   - heartbeat turns (no outbound delivery surface)
+  //   - internal/webchat channels (no real channel adapter)
+  //   - missing originating channel or target (e.g. CLI/test fixtures)
+  const outboundCoalescerStreamingChannelKey: string | undefined = (() => {
+    if (params.isHeartbeat) {
+      return undefined;
+    }
+    const channelPart = (params.followupRun.originatingChannel ?? "")
+      .toString()
+      .trim()
+      .toLowerCase();
+    if (!channelPart || isInternalMessageChannel(channelPart)) {
+      return undefined;
+    }
+    const targetPart = (params.followupRun.originatingTo ?? "").toString().trim();
+    if (!targetPart) {
+      return undefined;
+    }
+    const accountPart =
+      (params.followupRun.originatingAccountId ?? "").toString().trim() || "default";
+    return `${channelPart}:${accountPart}:${targetPart}`;
+  })();
+  const outboundCoalescerStreamingTurnId: string | undefined =
+    outboundCoalescerStreamingChannelKey !== undefined ? runId : undefined;
   const routingSnapshot = await resolveRoutingSnapshotForTemplateRun({
     prompt: params.commandBody,
     run: params.followupRun.run,
@@ -619,6 +659,18 @@ async function runAgentTurnBody(params: {
                 ...embeddedContext,
                 allowGatewaySubagentBinding: true,
                 trigger: params.isHeartbeat ? "heartbeat" : "user",
+                // Slice D — see derivation comment above. When both
+                // fields are defined, attempt.ts wraps `onBlockReply`
+                // with the OutboundCoalescer (PR #310). When either is
+                // undefined (heartbeat / internal channel / missing
+                // tuple) attempt.ts skips the wrap and the run is
+                // byte-identical to PR #310's pre-opt-in path.
+                ...(outboundCoalescerStreamingTurnId !== undefined
+                  ? { outboundCoalescerStreamingTurnId }
+                  : {}),
+                ...(outboundCoalescerStreamingChannelKey !== undefined
+                  ? { outboundCoalescerStreamingChannelKey }
+                  : {}),
                 groupId: resolveGroupSessionKey(params.sessionCtx)?.id,
                 groupChannel:
                   params.sessionCtx.GroupChannel?.trim() ?? params.sessionCtx.GroupSubject?.trim(),
