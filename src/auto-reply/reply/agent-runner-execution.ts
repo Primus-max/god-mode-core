@@ -63,6 +63,7 @@ import {
   deriveBrokerRetryAfterMs,
   formatBrokerOverflowReply,
 } from "./format-broker-overflow-reply.js";
+import { validateInboundMediaSummary } from "./inbound-media-validator.js";
 import {
   evaluatePostLlmCommitment,
   REPO_MUTATION_CANNOT_COMPLETE_REPLY_RU,
@@ -690,11 +691,20 @@ async function runAgentTurnBody(params: {
       // `gateway-pr313.log` turn `ef694af9-…`). The helper enforces
       // invariants #5/#6 (no raw user text reads) and #8 (no imports from
       // `src/platform/commitment/`).
-      const inboundMediaSummary = buildInboundMediaSummaryForTurn({
-        opts: params.opts,
-        sessionCtx: params.sessionCtx,
-        isHeartbeat: params.isHeartbeat,
-      });
+      // V1-CLOSE T5 — wrap the structural summary through the
+      // canonicalizing/containment validator before it reaches the
+      // frozen `INBOUND_IMAGE_REFERENCE_AVAILABLE_PRECONDITION` resolver
+      // and `deriveTurnModalityRequirements`. The validator drops
+      // attachments that fail path-traversal / existence / size checks
+      // and emits `[inbound-media] event=validation_failed reason=…`
+      // telemetry so absence is observable in production logs.
+      const inboundMediaSummary = validateInboundMediaSummary(
+        buildInboundMediaSummaryForTurn({
+          opts: params.opts,
+          sessionCtx: params.sessionCtx,
+          isHeartbeat: params.isHeartbeat,
+        }),
+      );
       const turnModalityRequirements = deriveTurnModalityRequirements({
         ...(inboundMediaSummary ? { inboundMediaSummary } : {}),
         ...(routingSnapshot.plannerInput.routing?.needsVision === true
