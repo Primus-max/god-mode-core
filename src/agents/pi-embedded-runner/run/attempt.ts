@@ -166,6 +166,10 @@ import {
   selectCompactionTimeoutSnapshot,
   shouldFlagCompactionTimeout,
 } from "./compaction-timeout.js";
+import {
+  applyInboundDocumentExtractions,
+  detectDocumentAttachmentsInPrompt,
+} from "./documents.js";
 import { pruneProcessedHistoryImages } from "./history-image-prune.js";
 import { applyImg2ImgInjectionToToolList } from "./image-generate-img2img-wrapper.js";
 import { detectAndLoadPromptImages } from "./images.js";
@@ -3205,6 +3209,19 @@ export async function runEmbeddedAttempt(
           if (didPruneImages) {
             activeSession.agent.replaceMessages(activeSession.messages);
           }
+
+          // Slice G — pre-extract DOCX/PDF text BEFORE the LLM call.
+          // The `artifact_authoring` bundle (PR #290) intentionally
+          // strips the `read` tool, so without this pre-extract step
+          // the model only sees `[media attached: <p> (<mime>)]` and
+          // produces meta-text about the document instead of acting on
+          // its body. Mirrors the parallel image pipeline below.
+          const docExtractResult = await applyInboundDocumentExtractions({
+            prompt: effectivePrompt,
+            attachments: detectDocumentAttachmentsInPrompt(effectivePrompt),
+            turnId: params.runId,
+          });
+          effectivePrompt = docExtractResult.prompt;
 
           // Detect and load images referenced in the prompt for vision-capable models.
           // Images are prompt-local only (pi-like behavior).
