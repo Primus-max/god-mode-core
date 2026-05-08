@@ -106,7 +106,11 @@ export type EmbeddedPiSubscribeContext = {
     text: string,
     state: { thinking: boolean; final: boolean; inlineCode?: InlineCodeState },
   ) => string;
-  emitBlockChunk: (text: string) => void;
+  // V1-CLOSE T9b — optional `isFinal` lets terminal call sites
+  // (chunker-drain inside `handleMessageEnd`) thread the per-turn
+  // final flag onto the emitted `BlockReplyPayload`. Default `false`
+  // preserves the streaming text-delta intermediate cadence.
+  emitBlockChunk: (text: string, isFinal?: boolean) => void;
   flushBlockReplyBuffer: () => void;
   emitReasoningStream: (text: string) => void;
   consumeReplyDirectives: (
