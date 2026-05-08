@@ -648,7 +648,7 @@ export async function runReplyAgent(params: {
       ? createOutboundCoalescer({
           deliver: streamingAwareBlockReply,
           mergeStrategy: "drop_intermediates",
-          maxBufferMs: 60_000,
+          maxBufferMs: 90_000,
           logTelemetry: (line) => defaultRuntime.log(line),
           clockNow: () => Date.now(),
         })
