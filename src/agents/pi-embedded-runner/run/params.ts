@@ -2,6 +2,7 @@ import type { ImageContent } from "@mariozechner/pi-ai";
 import type { ReasoningLevel, ThinkLevel, VerboseLevel } from "../../../auto-reply/thinking.js";
 import type { ReplyPayload } from "../../../auto-reply/types.js";
 import type { OpenClawConfig } from "../../../config/config.js";
+import type { InboundMediaSummary } from "../../../platform/commitment/index.js";
 import type { RecipeRuntimePlan } from "../../../platform/recipe/runtime-adapter.js";
 import type { ensureOpenClawModelsJson } from "../../models-config.js";
 import type { prepareProviderRuntimeAuth } from "../../../plugins/provider-runtime.js";
@@ -210,4 +211,20 @@ export type RunEmbeddedPiAgentParams = {
    * where transient service pressure is often model-scoped.
    */
   allowTransientCooldownProbe?: boolean;
+  /**
+   * Slice F — structural inbound-media summary for the current turn.
+   * When defined AND the runner's tool list contains `image_generate`,
+   * the attempt-level wrapper
+   * (`applyImg2ImgInjectionToToolList`,
+   * `image-generate-img2img-wrapper.ts`) injects
+   * `args.image = attachments[0].path` (or `args.images = paths` for
+   * multi-ref) BEFORE the tool dispatches — closing the seam exposed
+   * by gateway-pr315b.log turnId
+   * `a0ba62ec-5343-40cd-bc11-bd753eb8131a` (Vladimir's hand-drawn
+   * ventilation sketch ran in text-to-image mode after Slice E
+   * populated the summary but pre-Slice-F nothing rebound the path
+   * onto the tool args). When `undefined` the wrap is a per-call no-op
+   * — fully byte-identical to the pre-Slice-F path.
+   */
+  inboundMediaSummary?: InboundMediaSummary;
 };
