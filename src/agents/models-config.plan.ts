@@ -1,5 +1,7 @@
 import type { OpenClawConfig } from "../config/config.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { isRecord } from "../utils.js";
+import { applyCanonicalModelDefaults } from "./models-config.canonical-modalities.js";
 import {
   mergeProviders,
   mergeWithExistingProviderSecrets,
@@ -12,6 +14,15 @@ import {
   resolveImplicitProviders,
   type ProviderConfig,
 } from "./models-config.providers.js";
+
+const log = createSubsystemLogger("models-config");
+
+// Boot-log: only emit the canonical-defaults summary line ONCE per process per
+// distinct "summary signature" (count + sorted keys). Without this guard a hot
+// loop of `ensureOpenClawModelsJson` calls would spam the log on every cache
+// miss. The signature key includes the keys themselves so a genuinely new fill
+// (e.g. user added a new canonical model) re-emits.
+const CANONICAL_DEFAULTS_LOGGED_SIGNATURES = new Set<string>();
 
 type ModelsConfig = NonNullable<OpenClawConfig["models"]>;
 
@@ -127,7 +138,23 @@ export async function planOpenClawModelsJson(params: {
       sourceSecretDefaults: params.sourceConfigForSecrets?.secrets?.defaults,
       secretRefManagedProviders,
     }) ?? mergedProviders;
-  const finalProviders = applyNativeStreamingUsageCompat(secretEnforcedProviders);
+  const compatProviders = applyNativeStreamingUsageCompat(secretEnforcedProviders);
+  // V1-CLOSE T6 — canonical modality defaults from `config/models.default.json`
+  // (mirrored as `CANONICAL_MODEL_DEFAULTS` in `src/config/models.config.schema.ts`).
+  // Fills `input` only on entries whose `id` matches a canonical record AND
+  // whose existing `input` is missing/empty. Existing user / pi-ai upstream
+  // declarations are preserved verbatim — see the module header for rationale.
+  const canonical = applyCanonicalModelDefaults({ providers: compatProviders });
+  if (canonical.applied > 0) {
+    const signature = `${canonical.applied}|${canonical.appliedKeys.join(",")}`;
+    if (!CANONICAL_DEFAULTS_LOGGED_SIGNATURES.has(signature)) {
+      CANONICAL_DEFAULTS_LOGGED_SIGNATURES.add(signature);
+      log.info(
+        `[canonical-modalities] applied=${canonical.applied} entries=${canonical.appliedKeys.join(",")}`,
+      );
+    }
+  }
+  const finalProviders = canonical.providers;
   const nextContents = `${JSON.stringify({ providers: finalProviders }, null, 2)}\n`;
 
   if (params.existingRaw === nextContents) {
@@ -138,4 +165,12 @@ export async function planOpenClawModelsJson(params: {
     action: "write",
     contents: nextContents,
   };
+}
+
+/**
+ * Test-only: clear the per-process boot-log dedupe set. Production code never
+ * calls this; tests use it to assert log emission across multiple plan calls.
+ */
+export function __resetCanonicalDefaultsLogDedupeForTest(): void {
+  CANONICAL_DEFAULTS_LOGGED_SIGNATURES.clear();
 }

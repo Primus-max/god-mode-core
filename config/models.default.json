@@ -1,0 +1,12 @@
+{
+  "$comment": "V1-CLOSE T6 — canonical input/output modalities for the v1 model fleet. Mirrors pi-ai upstream catalog (node_modules/@mariozechner/pi-ai/dist/models.generated.js). Schema: src/config/models.config.schema.ts. Loader: src/agents/models-config.canonical-modalities.ts. User overrides under ~/.openclaw/agents/main/agent/models.json win on overlapping keys; these defaults only fill gaps.",
+  "models": [
+    { "id": "gpt-5.4", "input": ["text", "image"], "output": ["text"] },
+    { "id": "gpt-4o", "input": ["text", "image"], "output": ["text"] },
+    { "id": "gpt-5-mini", "input": ["text", "image"], "output": ["text"] },
+    { "id": "gemini-2.5-pro", "input": ["text", "image"], "output": ["text"] },
+    { "id": "claude-sonnet-4.6", "input": ["text", "image"], "output": ["text"] },
+    { "id": "claude-opus-4.6", "input": ["text", "image"], "output": ["text"] },
+    { "id": "grok-4", "input": ["text"], "output": ["text"] }
+  ]
+}
