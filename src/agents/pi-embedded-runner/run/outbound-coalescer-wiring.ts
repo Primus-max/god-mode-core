@@ -119,7 +119,7 @@ export function wrapStreamingOutboundWithCoalescer(
   inputs: WrapStreamingOutboundInputs,
 ): WrapStreamingOutboundResult {
   const clockNow = inputs.clockNow ?? (() => Date.now());
-  const maxBufferMs = inputs.maxBufferMs ?? 60_000;
+  const maxBufferMs = inputs.maxBufferMs ?? 90_000;
   const coalescer: OutboundCoalescer = createOutboundCoalescer({
     deliver: async (payload) => {
       // Forward the consolidated payload through the original
