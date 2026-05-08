@@ -875,6 +875,15 @@ async function runAgentTurnBody(params: {
                 bootstrapContextMode,
                 bootstrapContextRunKind: params.opts?.isHeartbeat ? "heartbeat" : "default",
                 images: params.opts?.images,
+                // Slice F — thread the structural inbound-media summary
+                // built above (Slice E) through to the runner so the
+                // attempt-level wrapper
+                // (`applyImg2ImgInjectionToToolList`) can pre-bind the
+                // sketch path onto `image_generate.image` BEFORE the tool
+                // dispatches. Closes the second half of the gateway-pr315
+                // img2img seam (`gateway-pr315b.log` turnId
+                // `a0ba62ec-5343-40cd-bc11-bd753eb8131a`).
+                ...(inboundMediaSummary ? { inboundMediaSummary } : {}),
                 abortSignal: params.opts?.abortSignal,
                 blockReplyBreak: params.resolvedBlockStreamingBreak,
                 blockReplyChunking: params.blockReplyChunking,

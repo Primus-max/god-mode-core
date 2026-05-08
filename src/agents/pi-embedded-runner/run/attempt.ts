@@ -167,6 +167,7 @@ import {
   shouldFlagCompactionTimeout,
 } from "./compaction-timeout.js";
 import { pruneProcessedHistoryImages } from "./history-image-prune.js";
+import { applyImg2ImgInjectionToToolList } from "./image-generate-img2img-wrapper.js";
 import { detectAndLoadPromptImages } from "./images.js";
 import { wrapStreamingOutboundWithCoalescer } from "./outbound-coalescer-wiring.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
@@ -2128,10 +2129,27 @@ export async function runEmbeddedAttempt(
           ],
         })
       : undefined;
-    const effectiveTools = filterDeliveryManagedTools(
+    const deliveryFilteredTools = filterDeliveryManagedTools(
       [...tools, ...(bundleMcpRuntime?.tools ?? []), ...(bundleLspRuntime?.tools ?? [])],
       params.disableMessageTool,
     );
+    // Slice F — runtime-adapter that injects the inbound TG sketch path
+    // (resolved by Slice E into `inboundMediaSummary.attachments[].path`)
+    // onto `image_generate.image` BEFORE the model's tool call dispatches.
+    // No-op pass-through when `inboundMediaSummary` is undefined (pre-
+    // Slice-F byte-identical), when no `kind: "image"` attachment is
+    // present (resolver returns null), or when the LLM already supplied
+    // an explicit `image:` arg (preserve-existing guard inside the
+    // wrapper). Pins gateway-pr315b.log turnId
+    // `a0ba62ec-5343-40cd-bc11-bd753eb8131a`.
+    const effectiveTools = applyImg2ImgInjectionToToolList({
+      tools: deliveryFilteredTools,
+      inboundMediaSummary: params.inboundMediaSummary,
+      turnId: params.runId,
+      logger: (line) => {
+        log.info(line);
+      },
+    });
     const allowedToolNames = collectAllowedToolNames({
       tools: effectiveTools,
       clientTools: filteredClientTools,
