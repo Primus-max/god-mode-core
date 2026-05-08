@@ -1,3 +1,4 @@
+import type { BlockReplyDeliver } from "../../auto-reply/reply/block-external-buffer.js";
 /**
  * NEW-C Phase 3 — `createOutboundCoalescer` impl.
  *
@@ -47,7 +48,6 @@
  *   срабатывают оба (Phase 5 вернётся к этому).
  */
 import type { ReplyPayload } from "../../auto-reply/types.js";
-import type { BlockReplyDeliver } from "../../auto-reply/reply/block-external-buffer.js";
 import {
   BYPASS_REASONS,
   formatOutboundCoalescerLog,
@@ -86,6 +86,84 @@ export class OutboundCoalescerNotImplementedError extends Error {
   }
 }
 
+/**
+ * V1-CLOSE T4 — typed error surfaced to the caller of `commit` /
+ * `commitAll` after `deps.deliver(payload)` exhausts the retry
+ * schedule (default: 3 total attempts with 1s/2s/4s backoff).
+ *
+ * Charter: `.cursor/plans/V1-CLOSE-2026-05-08-stabilization-charter.md`
+ * §4 T4 — "Surface a typed error to the caller so it can fall back
+ * (admin notification, mark turn as failed, etc.). Do not pretend that
+ * delivery succeeded when it didn't."
+ *
+ * Carries enough bucket context for the caller to decide on fallback
+ * action without re-deriving state:
+ *  - `turnId` + `channelKey`: the bucket key whose payload was lost.
+ *  - `attempts`: how many delivers were attempted.
+ *  - `attachmentCount`: `mediaUrl ? 1 : 0` + `mediaUrls?.length ?? 0`.
+ *    Most attachment-loss reports correlate with non-zero values here.
+ *  - `lastError`: the unwrapped throw from the final attempt.
+ */
+export class OutboundCoalescerDeliveryError extends Error {
+  readonly code = "outbound_coalescer_delivery_dropped" as const;
+  readonly turnId: string;
+  readonly channelKey: string;
+  readonly attempts: number;
+  readonly attachmentCount: number;
+  readonly lastError: unknown;
+  constructor(args: {
+    turnId: string;
+    channelKey: string;
+    attempts: number;
+    attachmentCount: number;
+    lastError: unknown;
+  }) {
+    const lastMsg =
+      args.lastError instanceof Error ? args.lastError.message : String(args.lastError);
+    super(
+      `outbound-coalescer: delivery dropped after ${args.attempts} attempts ` +
+        `for turnId=${args.turnId} channel=${args.channelKey}: ${lastMsg}`,
+    );
+    this.name = "OutboundCoalescerDeliveryError";
+    this.turnId = args.turnId;
+    this.channelKey = args.channelKey;
+    this.attempts = args.attempts;
+    this.attachmentCount = args.attachmentCount;
+    this.lastError = args.lastError;
+  }
+}
+
+/**
+ * V1-CLOSE T4 — production retry schedule. Charter §4 T4 specifies
+ * "Max 3 attempts total (1 initial + 2 retries). Exponential backoff:
+ * 1s, 2s, 4s — capped so wall-clock max ≤ ~15s." We honor the
+ * 3-attempts cap (length=2 → 1 initial + 2 retries). Backoffs are 1s
+ * and 2s = 3s wall clock for the gaps, well under the 15s ceiling
+ * with headroom for the deliver call itself. The "4s" upper bound
+ * from the charter is preserved as the maximum single-backoff
+ * permitted by the formula but is not reached at 2 retries.
+ */
+const DEFAULT_RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000];
+
+function defaultRetrySleep(ms: number): Promise<void> {
+  if (ms <= 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Count structural attachments on a merged `ReplyPayload`. Per
+ * invariant #5 the coalescer must not inspect body text, but the
+ * count of media references is purely structural — that is the
+ * signal operators correlate against silent-attachment-loss reports.
+ */
+function countAttachments(payload: ReplyPayload): number {
+  const single = payload.mediaUrl ? 1 : 0;
+  const many = Array.isArray(payload.mediaUrls) ? payload.mediaUrls.length : 0;
+  return single + many;
+}
+
 type Bucket = {
   messages: OutboundMessage[];
   watchdog: ReturnType<typeof setTimeout> | null;
@@ -99,19 +177,11 @@ type Bucket = {
  */
 type BucketStore = Map<string, Map<string, Bucket>>;
 
-function getBucket(
-  store: BucketStore,
-  turnId: string,
-  channelKey: string,
-): Bucket | undefined {
+function getBucket(store: BucketStore, turnId: string, channelKey: string): Bucket | undefined {
   return store.get(channelKey)?.get(turnId);
 }
 
-function deleteBucket(
-  store: BucketStore,
-  turnId: string,
-  channelKey: string,
-): void {
+function deleteBucket(store: BucketStore, turnId: string, channelKey: string): void {
   const inner = store.get(channelKey);
   if (!inner) {
     return;
@@ -122,11 +192,7 @@ function deleteBucket(
   }
 }
 
-function ensureBucket(
-  store: BucketStore,
-  msg: OutboundMessage,
-  startedAt: number,
-): Bucket {
+function ensureBucket(store: BucketStore, msg: OutboundMessage, startedAt: number): Bucket {
   let inner = store.get(msg.channelKey);
   if (!inner) {
     inner = new Map<string, Bucket>();
@@ -272,10 +338,7 @@ export function createOutboundCoalescer(deps: OutboundCoalescerDeps): OutboundCo
       "outbound-coalescer: deps.deliver must be a function",
     );
   }
-  if (
-    deps.mergeStrategy !== "drop_intermediates" &&
-    deps.mergeStrategy !== "merge_into_final"
-  ) {
+  if (deps.mergeStrategy !== "drop_intermediates" && deps.mergeStrategy !== "merge_into_final") {
     throw new OutboundCoalescerNotImplementedError(
       `outbound-coalescer: unknown mergeStrategy=${String(deps.mergeStrategy)}`,
     );
@@ -295,6 +358,15 @@ export function createOutboundCoalescer(deps: OutboundCoalescerDeps): OutboundCo
       "outbound-coalescer: deps.clockNow must be a function",
     );
   }
+
+  // V1-CLOSE T4 — resolve retry config. Production callers leave
+  // `retryDelaysMs` undefined → DEFAULT_RETRY_DELAYS_MS. Tests pass
+  // `[0, 0]` to drive the loop without wall-clock coupling. An empty
+  // array means "no retries, surface immediately on first failure".
+  const retryDelaysMs: readonly number[] = Array.isArray(deps.retryDelaysMs)
+    ? deps.retryDelaysMs
+    : DEFAULT_RETRY_DELAYS_MS;
+  const retrySleep = deps.retrySleep ?? defaultRetrySleep;
 
   const store: BucketStore = new Map();
 
@@ -389,21 +461,69 @@ export function createOutboundCoalescer(deps: OutboundCoalescerDeps): OutboundCo
       }),
     );
 
-    try {
-      await Promise.resolve(deps.deliver(merged.payload));
-    } catch (err) {
-      // Failure isolation per invariant #15 — bucket already cleared,
-      // watchdog already cleared. Log warn, do NOT propagate. Coalescer
-      // continues serving other turns.
-      deps.logTelemetry(
-        formatOutboundCoalescerLog("deliver_failed", {
-          turnId,
-          channel: channelKey,
-          err: describeError(err),
-        }),
-      );
+    // V1-CLOSE T4 — retry-on-failure replaces the silent-swallow path.
+    // Total attempts = `retryDelaysMs.length + 1`. Each thrown attempt
+    // emits one `event=deliver_failed` line tagged with the attempt
+    // index. After exhaustion we emit a single `event=delivery_dropped`
+    // line with full bucket context AND surface a typed error to the
+    // caller so fallback paths (admin notification, mark turn failed)
+    // can fire instead of pretending success.
+    //
+    // Bucket state is NOT restored on failure — the snapshot we already
+    // built was merged once; rolling back the deletion would race with
+    // any newly-arrived registers on the same key. Caller observes the
+    // throw instead.
+    const totalAttempts = retryDelaysMs.length + 1;
+    let attempt = 0;
+    let lastErr: unknown = null;
+    while (attempt < totalAttempts) {
+      attempt += 1;
+      try {
+        await Promise.resolve(deps.deliver(merged.payload));
+        // Success — early return; no retry needed.
+        return true;
+      } catch (err) {
+        lastErr = err;
+        deps.logTelemetry(
+          formatOutboundCoalescerLog("deliver_failed", {
+            turnId,
+            channel: channelKey,
+            attempt,
+            err: describeError(err),
+          }),
+        );
+        // If more attempts remain, sleep the configured backoff before
+        // the next try. `retryDelaysMs[attempt - 1]` is the delay AFTER
+        // the just-failed `attempt`-th call (and before attempt+1).
+        if (attempt < totalAttempts) {
+          const delay = retryDelaysMs[attempt - 1] ?? 0;
+          await retrySleep(delay);
+        }
+      }
     }
-    return true;
+
+    // All attempts exhausted. Emit the structured drop telemetry and
+    // throw the typed error so the caller can route the failure to
+    // admin / mark-turn-failed / etc. The coalescer instance itself
+    // remains usable — only THIS bucket is dropped.
+    const attachmentCount = countAttachments(merged.payload);
+    deps.logTelemetry(
+      formatOutboundCoalescerLog("delivery_dropped", {
+        turnId,
+        channel: channelKey,
+        attempts: totalAttempts,
+        attachment_count: attachmentCount,
+        final_kind: merged.finalKind,
+        last_error: describeError(lastErr),
+      }),
+    );
+    throw new OutboundCoalescerDeliveryError({
+      turnId,
+      channelKey,
+      attempts: totalAttempts,
+      attachmentCount,
+      lastError: lastErr,
+    });
   }
 
   function startWatchdog(turnId: string, channelKey: string, bucket: Bucket): void {
@@ -421,7 +541,16 @@ export function createOutboundCoalescer(deps: OutboundCoalescerDeps): OutboundCo
         return;
       }
       const waited = deps.clockNow() - startedAt;
-      void commitBucket(turnId, channelKey, "watchdog", waited);
+      // V1-CLOSE T4 — watchdog has no synchronous caller to receive a
+      // typed error, so swallow the rejection here. The
+      // `event=delivery_dropped` telemetry line emitted inside
+      // `commitBucket` is the operator's only signal on this path; we
+      // intentionally do NOT propagate the throw to a global unhandled
+      // rejection (which would crash the gateway).
+      void commitBucket(turnId, channelKey, "watchdog", waited).catch(() => {
+        // intentionally swallowed — telemetry line in commitBucket
+        // already records the drop with full bucket context
+      });
     }, deps.maxBufferMs);
     // `setTimeout` returns `Timeout` on Node; in some host environments
     // the returned object has an `unref` method we can call to avoid
@@ -468,8 +597,24 @@ export function createOutboundCoalescer(deps: OutboundCoalescerDeps): OutboundCo
       // which is per-bucket).
       return;
     }
+    // V1-CLOSE T4 — best-effort across channels: a typed throw on one
+    // channel must NOT short-circuit delivery on others. Capture the
+    // first thrown error and re-throw at the end so callers still
+    // observe the failure (admin notification / mark-turn-failed). If
+    // multiple channels fail, surface the first; subsequent failures
+    // are still recorded via per-bucket `delivery_dropped` telemetry.
+    let firstError: unknown = null;
     for (const channelKey of channelKeys) {
-      await commitBucket(turnId, channelKey, "manual", null);
+      try {
+        await commitBucket(turnId, channelKey, "manual", null);
+      } catch (err) {
+        if (firstError === null) {
+          firstError = err;
+        }
+      }
+    }
+    if (firstError !== null) {
+      throw firstError;
     }
   }
 

@@ -1,3 +1,4 @@
+import type { BlockReplyDeliver } from "../../auto-reply/reply/block-external-buffer.js";
 /**
  * NEW-C Phase 2 — OutboundCoalescer types + DI seam.
  *
@@ -32,7 +33,6 @@
  * starting Phase 3.
  */
 import type { ReplyPayload } from "../../auto-reply/types.js";
-import type { BlockReplyDeliver } from "../../auto-reply/reply/block-external-buffer.js";
 
 /**
  * Closed string union of outbound message kinds. Coalescer keys merge
@@ -112,10 +112,7 @@ export type BypassReason = (typeof BYPASS_REASONS)[number];
  * function; no side effects.
  */
 export function isBypassReason(value: unknown): value is BypassReason {
-  return (
-    typeof value === "string" &&
-    (BYPASS_REASONS as ReadonlyArray<string>).includes(value)
-  );
+  return typeof value === "string" && (BYPASS_REASONS as ReadonlyArray<string>).includes(value);
 }
 
 /**
@@ -207,6 +204,26 @@ export type OutboundCoalescerDeps = {
   readonly maxBufferMs: number;
   readonly logTelemetry: (line: string) => void;
   readonly clockNow: () => number;
+  /**
+   * V1-CLOSE T4 — backoff schedule between retry attempts on a thrown
+   * `deps.deliver` call. The array length determines the number of
+   * retries (initial attempt is always made; each entry gates one
+   * additional retry). Default in `createOutboundCoalescer` is
+   * `[1000, 2000, 4000]` (≤7s wall clock, well under the 15s ceiling
+   * in V1-CLOSE charter §4 T4).
+   *
+   * Tests pass `[0, 0]` to drive the loop without coupling to wall
+   * clock. Production callers should leave this undefined.
+   */
+  readonly retryDelaysMs?: readonly number[];
+  /**
+   * V1-CLOSE T4 — injectable scheduler for retry-backoff delays.
+   * Defaults to a `setTimeout`-based wait. Tests can pass an immediate
+   * resolver (`() => Promise.resolve()`) when they want full control
+   * over backoff timing. The fn receives the configured delay in
+   * milliseconds and resolves once the delay elapses.
+   */
+  readonly retrySleep?: (ms: number) => Promise<void>;
 };
 
 /**
@@ -241,7 +258,14 @@ export type OutboundCoalescerLogEvent =
   | "timeout_committed"
   | "deliver_failed"
   | "commit_signal"
-  | "types_loaded";
+  | "types_loaded"
+  // V1-CLOSE T4 (`outbound-coalescer.deliver-retry`): emitted ONCE per
+  // bucket after `deps.deliver` exhausts the retry schedule. Distinct
+  // from `deliver_failed` (per-attempt warn) so operators can grep a
+  // single line per actually-dropped bucket and route it to admin
+  // notification / mark-turn-failed flows. Carries full bucket context
+  // (turnId, channelKey, attempts, attachment_count, last_error).
+  | "delivery_dropped";
 
 /**
  * Format one `[outbound-coalescer]` telemetry line. Mirrors slice I's

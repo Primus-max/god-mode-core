@@ -28,11 +28,10 @@
  *     приходит after committed для того же turnId).
  */
 import { describe, expect, it } from "vitest";
-
-import type { ReplyPayload } from "../../../auto-reply/types.js";
 import type { BlockReplyDeliver } from "../../../auto-reply/reply/block-external-buffer.js";
-import { createOutboundCoalescer } from "../outbound-coalescer.js";
+import type { ReplyPayload } from "../../../auto-reply/types.js";
 import type { OutboundCoalescerDeps } from "../outbound-coalescer-types.js";
+import { createOutboundCoalescer } from "../outbound-coalescer.js";
 
 type DeliveryRecord = {
   turnId: string | undefined;
@@ -70,9 +69,7 @@ function assertCoverage(
         (l) => l.includes("event=committed") && l.includes(`turnId=${turnId}`),
       );
       if (!matched) {
-        throw new Error(
-          `coverage guard: no event=committed for turnId=${turnId}`,
-        );
+        throw new Error(`coverage guard: no event=committed for turnId=${turnId}`);
       }
     } else {
       // bypass
@@ -95,6 +92,10 @@ function makeDeps(
     maxBufferMs: overrides.maxBufferMs ?? 60_000,
     logTelemetry: (line) => collected.logs.push(line),
     clockNow: overrides.clockNow ?? (() => 1_000),
+    // V1-CLOSE T4: forward optional retry overrides so individual
+    // tests can drive the loop without coupling to wall-clock backoff.
+    retryDelaysMs: overrides.retryDelaysMs,
+    retrySleep: overrides.retrySleep,
   };
 }
 
@@ -123,31 +124,23 @@ describe("outbound-coalescer Phase 6 — bypass coverage acceptance guard", () =
     await coalescer.commit("run-1", "telegram:1:1");
 
     // A separate boot-time delivery routed through bypass.
-    await coalescer.bypass(
-      "system_init",
-      { text: "[gateway] startup" },
-      (payload) => {
-        deliveries.push({
-          turnId: undefined,
-          channelKey: undefined,
-          source: "bypass",
-          text: payload.text,
-        });
-      },
-    );
+    await coalescer.bypass("system_init", { text: "[gateway] startup" }, (payload) => {
+      deliveries.push({
+        turnId: undefined,
+        channelKey: undefined,
+        source: "bypass",
+        text: payload.text,
+      });
+    });
 
     // Guard must pass — both deliveries have matching telemetry.
     expect(() => assertCoverage(deliveries, collected.logs)).not.toThrow();
     expect(deliveries).toHaveLength(2);
     expect(
-      collected.logs.some(
-        (l) => l.includes("event=committed") && l.includes("turnId=run-1"),
-      ),
+      collected.logs.some((l) => l.includes("event=committed") && l.includes("turnId=run-1")),
     ).toBe(true);
     expect(
-      collected.logs.some(
-        (l) => l.includes("event=bypassed") && l.includes("reason=system_init"),
-      ),
+      collected.logs.some((l) => l.includes("event=bypassed") && l.includes("reason=system_init")),
     ).toBe(true);
   });
 
@@ -192,9 +185,12 @@ describe("outbound-coalescer Phase 6 — bypass coverage acceptance guard", () =
     const deliveries: DeliveryRecord[] = [];
 
     const failingDeliver: BlockReplyDeliver = () => {
-      // Per invariant #15, isolated failure: bucket cleared, telemetry
-      // still emitted. Coverage guard SHOULD still pass because
-      // event=committed line lands BEFORE the throw.
+      // Per invariant #15 + V1-CLOSE T4: isolated failure surfaces a
+      // typed `OutboundCoalescerDeliveryError` to the caller after
+      // retries exhaust, but the coverage telemetry (committed +
+      // deliver_failed) is still emitted around it. Coverage guard
+      // SHOULD still pass because event=committed line lands BEFORE
+      // the deliver attempts.
       deliveries.push({
         turnId: "run-fail",
         channelKey: "telegram:1:1",
@@ -203,7 +199,12 @@ describe("outbound-coalescer Phase 6 — bypass coverage acceptance guard", () =
       });
       throw new Error("channel down");
     };
-    const coalescer = createOutboundCoalescer(makeDeps(collected, failingDeliver));
+    const coalescer = createOutboundCoalescer(
+      // Empty retry schedule — surface immediately on first failure
+      // (single deliver attempt) so this coverage test does not
+      // need to wait for the production 1s/2s backoff.
+      makeDeps(collected, failingDeliver, { retryDelaysMs: [] }),
+    );
 
     coalescer.register({
       turnId: "run-fail",
@@ -212,16 +213,24 @@ describe("outbound-coalescer Phase 6 — bypass coverage acceptance guard", () =
       body: { text: "boom" },
       ts: 1_000,
     });
-    await coalescer.commit("run-fail", "telegram:1:1");
+    // V1-CLOSE T4: commit now surfaces the typed error after retry
+    // exhaustion. Coverage telemetry (committed + deliver_failed) is
+    // still emitted, which is what this guard exercises.
+    await expect(coalescer.commit("run-fail", "telegram:1:1")).rejects.toMatchObject({
+      code: "outbound_coalescer_delivery_dropped",
+    });
 
     expect(() => assertCoverage(deliveries, collected.logs)).not.toThrow();
     expect(
-      collected.logs.some(
-        (l) => l.includes("event=committed") && l.includes("turnId=run-fail"),
-      ),
+      collected.logs.some((l) => l.includes("event=committed") && l.includes("turnId=run-fail")),
     ).toBe(true);
+    expect(collected.logs.some((l) => l.includes("event=deliver_failed"))).toBe(true);
+    // V1-CLOSE T4: with empty retryDelaysMs, exhaustion fires after a
+    // single attempt — assert the structured drop telemetry too.
     expect(
-      collected.logs.some((l) => l.includes("event=deliver_failed")),
+      collected.logs.some(
+        (l) => l.includes("event=delivery_dropped") && l.includes("turnId=run-fail"),
+      ),
     ).toBe(true);
   });
 
@@ -259,9 +268,7 @@ describe("outbound-coalescer Phase 6 — bypass coverage acceptance guard", () =
     // must cover both.
     expect(deliveries).toHaveLength(2);
     expect(() => assertCoverage(deliveries, collected.logs)).not.toThrow();
-    const committedLines = collected.logs.filter((l) =>
-      l.includes("event=committed"),
-    );
+    const committedLines = collected.logs.filter((l) => l.includes("event=committed"));
     expect(committedLines).toHaveLength(2);
   });
 });
