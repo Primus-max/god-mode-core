@@ -45,6 +45,15 @@
  * does not catch a real bug). Wiring the post-LLM commitment
  * evaluation is a follow-up slice; the PR body documents it.
  *
+ * V1-CLOSE T2 follow-up (charter §4 T2): the cross-cutting INT-A → INT-D
+ * integration cohort that pins ALL kernel deps simultaneously on a
+ * SINGLE end-to-end turn (broker + streaming coalescer + post-LLM
+ * mirror predicate + memoryRuntime recall) lives in
+ * `agent-runner.hot-path-integration.e2e.test.ts`. THIS file remains
+ * the broker-focused per-slice harness; future broker-only regressions
+ * land here, while cross-dep regressions are pinned in the integration
+ * file so a silent bypass of one dep cannot pass CI green.
+ *
  * Test discipline (per AGENTS.md "Tests must catch real bugs"):
  *   - The function under test is `runReplyAgent` (the production
  *     caller). We do NOT spy on it.
