@@ -475,7 +475,22 @@ export function handleMessageEnd(
     onBlockReply
   ) {
     if (ctx.blockChunker?.hasBuffered()) {
-      ctx.blockChunker.drain({ force: true, emit: ctx.emitBlockChunk });
+      // V1-CLOSE T9b — terminal chunker-drain inside `handleMessageEnd`
+      // is the per-turn final flush (mutually exclusive with the
+      // `else if` fallback on line 480, which threads `isFinal: true`
+      // via `emitSplitResultAsBlockReply`). Wrap the emit callback to
+      // declare finality so the streaming coalescer wrapper at
+      // `outbound-coalescer-wiring.ts:165` registers `kind=final`
+      // instead of falling back to `kind=intermediate`. Operator
+      // acceptance reads `[outbound-coalescer] event=committed
+      // final_kind=final` on long-essay turns post-T9b; pre-T9b the
+      // line read `final_kind=intermediate drop_kinds=[intermediate]`
+      // (still functionally correct under `drop_intermediates`, but
+      // masked the per-turn final signal in §6 evidence grep).
+      ctx.blockChunker.drain({
+        force: true,
+        emit: (chunk) => ctx.emitBlockChunk(chunk, true),
+      });
       ctx.blockChunker.reset();
     } else if (text !== ctx.state.lastBlockReplyText) {
       // Check for duplicates before emitting (same logic as emitBlockChunk).
