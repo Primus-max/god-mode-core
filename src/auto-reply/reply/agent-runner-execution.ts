@@ -64,10 +64,6 @@ import {
   formatBrokerOverflowReply,
 } from "./format-broker-overflow-reply.js";
 import { validateInboundMediaSummary } from "./inbound-media-validator.js";
-import {
-  evaluatePostLlmCommitment,
-  REPO_MUTATION_CANNOT_COMPLETE_REPLY_RU,
-} from "./post-llm-commitment-evaluator.js";
 import type { FollowupRun } from "./queue.js";
 import { createBlockReplyDeliveryHandler } from "./reply-delivery.js";
 import { createReplyMediaPathNormalizer } from "./reply-media-paths.runtime.js";
@@ -1222,36 +1218,13 @@ async function runAgentTurnBody(params: {
     };
   }
 
-  // Slice C — post-LLM `commitmentSatisfied` evaluator (Cutover-4 done-
-  // predicate activation on the production turn path). Diagnostic:
-  // `.cursor/plans/DIAGNOSTIC-2026-05-08-kernel-vs-legacy-divergence.md`.
-  // Bug pinned: production turn `78ff2b60` (gateway-dev-2026-05-07.log,
-  // user «Удали лишних») — bot replied «Готово. Лишнее убрал, оставил
-  // только главного» without ever calling `apply_patch` / `write`. The
-  // post-LLM done-predicate was not evaluated because nothing on this
-  // chain consumed `monitoredRuntime` / `expectedDeltaResolver`. The
-  // evaluator below mirrors the kernel `codePatchAppliedPredicate`
-  // semantics structurally (see helper JSDoc) so the false-«Готово» is
-  // suppressed and replaced with an honest `cannot_complete` reply.
-  // Heartbeat turns and non-`repo_mutation` bundles are no-ops by
-  // dispatch — see helper for the closed-set contract. Skipped entirely
-  // for heartbeat to preserve byte-identical liveness behavior.
-  if (!params.isHeartbeat) {
-    const evaluation = evaluatePostLlmCommitment({
-      toolBundles: routingSnapshot.plannerInput.resolutionContract?.toolBundles,
-      runResult,
-      turnId: runId,
-    });
-    if (evaluation.kind === "unsatisfied") {
-      return {
-        kind: "final",
-        payload: {
-          text: REPO_MUTATION_CANNOT_COMPLETE_REPLY_RU,
-        },
-      };
-    }
-  }
-
+  // V1-CUTOVER S12-narrow (2026-05-09) — post-LLM commitment evaluator
+  // deleted. Orchestrator-v1 (`OPENCLAW_USE_V1_ORCHESTRATOR=1`) is the
+  // canonical reply path; its dispatcher renders replies from
+  // `reply-templates.ts` against real tool-runner output, so the
+  // false-«Готово» symptom (production turn `78ff2b60`) cannot recur on
+  // the v1 path by construction. The legacy path (env flag off) loses
+  // this gate as documented in the V1-CUTOVER plan.
   return {
     kind: "success",
     runId,
