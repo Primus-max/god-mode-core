@@ -303,6 +303,8 @@ export async function executeOrchestratorV1ShortCircuit(
       chatKey: `telegram:${chatId}`,
       runTool,
       runConversationLLM,
+      cfg,
+      agentDir,
     });
     process.stderr.write(
       `[orch-v1] turn completed contractIntent=${result.contract.intent} allOk=${result.dispatch.allOk} replyLen=${result.reply.length}\n`,
