@@ -91,6 +91,85 @@ export type ToolArgsByName = {
   [K in ToolName]: z.infer<(typeof TOOL_ARG_SCHEMAS)[K]>;
 };
 
+/**
+ * Human-readable Russian label per `(tool, field)`.
+ *
+ * Used by `orchestrator.ts` to render a user-friendly refuse message
+ * when Stage B reports `missing_field` — instead of the raw field
+ * identifier (e.g. "missing_field: query"), the bot tells the user what
+ * piece of information was missing in natural language (e.g. "не хватает
+ * запроса для поиска"). This is a static table — NO regex / parsing of
+ * user text — and is the data side of refuse rendering.
+ *
+ * Coverage policy: every required field across every TOOL_ARG_SCHEMA
+ * MUST have a label. Missing entries fall back to `"поле <field>"` to
+ * avoid crashes; a vitest unit asserts coverage for required fields.
+ */
+export const TOOL_FIELD_LABELS: Record<ToolName, Record<string, string>> = {
+  write: {
+    path: "путь к файлу",
+    content: "содержимое файла",
+  },
+  edit: {
+    path: "путь к файлу",
+    old_string: "что заменить",
+    new_string: "на что заменить",
+  },
+  read: {
+    path: "путь к файлу",
+  },
+  image_generate: {
+    prompt: "описание картинки",
+    size: "размер",
+    style: "стиль",
+  },
+  pdf: {
+    title: "заголовок документа",
+    summary: "содержание документа",
+    images: "описания иллюстраций",
+  },
+  web_search: {
+    query: "запрос для поиска",
+    max_results: "число результатов",
+  },
+  web_fetch: {
+    url: "URL страницы",
+  },
+  sessions_send: {
+    channel: "получатель",
+    text: "текст сообщения",
+  },
+  persistent_worker_push: {
+    worker_name: "имя воркера",
+    schedule: "расписание",
+    message_template: "что присылать",
+    target_chat: "куда присылать",
+  },
+  cron: {
+    schedule: "когда напомнить",
+    prompt: "что напомнить",
+  },
+  exec: {
+    command: "команда",
+    cwd: "рабочая директория",
+  },
+};
+
+/**
+ * Render a friendly Russian label for a `(tool, field)` pair.
+ *
+ * Used to convert Stage-B `error.detail = "<field>"` into something a
+ * human user can act on. Falls back to `"поле <field>"` when the entry
+ * is missing so unmapped fields don't crash refuse rendering.
+ */
+export function describeToolField(tool: ToolName, field: string): string {
+  const tab = TOOL_FIELD_LABELS[tool];
+  const label = tab?.[field];
+  if (label) return label;
+  if (!field || field === "(unknown field)") return "обязательное поле";
+  return `поле "${field}"`;
+}
+
 /** Human-readable description per tool — used in Stage-B prompt. */
 export const TOOL_ARG_DESCRIPTIONS: Record<ToolName, string> = {
   write: "Создать или перезаписать файл. Поля: path (string), content (string).",

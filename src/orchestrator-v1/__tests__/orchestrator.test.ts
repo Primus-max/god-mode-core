@@ -207,6 +207,117 @@ describe("V1-CONTRACT-ONLY orchestrator — end-to-end (mocked transport)", () =
     ]);
   });
 
+  it("Stage-B missing_field renders human-readable Russian label, not the raw field name (live 18:09 symptom)", async () => {
+    // Real Telegram turn 2026-05-09 18:09 (Vladimir): Stage A picked
+    // [web_search, write, write] greedily on a meta-question that asked
+    // about collaboration; Stage B emitted missing_field for query / path
+    // / path; the orchestrator surfaced
+    //   "Не могу: ... web_search (missing_field: query); write (missing_field: path); ..."
+    // which the operator labelled "техническая каракуля". The fix is
+    // a static (tool, field) → Russian-label table, applied in
+    // buildContractFromRouting. This test reproduces the symptom and
+    // pins the new format.
+    mockPiAi([
+      '{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}',
+      '{"_error":"missing","_field":"path"}',
+    ]);
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    const runTool = vi.fn(async () => ({ ok: true as const, output: {} }));
+    const result = await runOrchestratorTurn({
+      userMessage: "сохрани заметку",
+      chatKey: "chat-rb-1",
+      runTool,
+      runConversationLLM: async () => "must not call",
+    });
+    expect(result.contract.intent).toBe("refuse");
+    // human-readable label appears
+    expect(result.reply).toContain("путь к файлу");
+    // tool name still surfaces (so user can connect what was asked)
+    expect(result.reply).toContain("write");
+    // raw "missing_field: path" must NOT leak through
+    expect(result.reply).not.toContain("missing_field");
+    expect(runTool).not.toHaveBeenCalled();
+  });
+
+  it("Stage-B missing_field on multiple tools lists each humanly (parallel turn, all fail)", async () => {
+    // Live 18:09 turn ran web_search + 2x write; reproduce a similar
+    // multi-failure on PARALLEL sequencing so all failures surface.
+    // (Sequential first-failure-wins is also covered above; parallel
+    // ensures the renderer iterates every failed tool, not just one.)
+    mockPiAi([
+      '{"intent":"tool_calls","tool_names":["web_search","write"],"sequencing":"parallel"}',
+      '{"_error":"missing","_field":"query"}',
+      '{"_error":"missing","_field":"path"}',
+    ]);
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    const runTool = vi.fn();
+    const result = await runOrchestratorTurn({
+      userMessage: "поищи и сохрани",
+      chatKey: "chat-rb-2",
+      runTool,
+      runConversationLLM: async () => "must not call",
+    });
+    expect(result.contract.intent).toBe("refuse");
+    expect(result.reply).toContain("запрос для поиска");
+    expect(result.reply).toContain("путь к файлу");
+    expect(result.reply).not.toContain("missing_field");
+    expect(runTool).not.toHaveBeenCalled();
+  });
+
+  it("Stage-B mixed failures: missing_field renders humanly, non_json keeps raw kind:detail", async () => {
+    // Two-tool sequential turn; first tool fails missing_field (user-
+    // actionable), second fails non_json (LLM infra failure, not user-
+    // fixable). The renderer must humanise the first and keep the raw
+    // tag for the second so logs / triage still see the LLM glitch.
+    mockPiAi([
+      '{"intent":"tool_calls","tool_names":["write","sessions_send"],"sequencing":"sequential"}',
+      '{"_error":"missing","_field":"path"}',
+      "totally not json",
+    ]);
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    const runTool = vi.fn();
+    const result = await runOrchestratorTurn({
+      userMessage: "сохрани и отправь",
+      chatKey: "chat-rb-3",
+      runTool,
+      runConversationLLM: async () => "must not call",
+    });
+    expect(result.contract.intent).toBe("refuse");
+    // human-readable for missing_field
+    expect(result.reply).toContain("путь к файлу");
+    expect(result.reply).toContain("write");
+    // raw kind preserved for infra failures
+    expect(result.reply).toMatch(/sessions_send \(non_json/);
+    // missing_field literal must not leak
+    expect(result.reply).not.toContain("missing_field");
+    expect(runTool).not.toHaveBeenCalled();
+  });
+
+  it("Stage-B missing_field with unmapped field name falls back to a safe label, not crash", async () => {
+    // Defensive: if a future tool schema gains a new required field
+    // before TOOL_FIELD_LABELS is updated, the renderer must fall back
+    // to a generic "поле <field>" label rather than throwing or showing
+    // 'undefined'. We simulate this by having Stage B emit a field name
+    // ("nonexistent_field") that isn't in any TOOL_FIELD_LABELS entry.
+    mockPiAi([
+      '{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}',
+      '{"_error":"missing","_field":"nonexistent_field"}',
+    ]);
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    const runTool = vi.fn();
+    const result = await runOrchestratorTurn({
+      userMessage: "что-то непонятное",
+      chatKey: "chat-rb-4",
+      runTool,
+      runConversationLLM: async () => "must not call",
+    });
+    expect(result.contract.intent).toBe("refuse");
+    // graceful fallback — no crash, no 'undefined', no leak of raw tag
+    expect(result.reply).toContain('поле "nonexistent_field"');
+    expect(result.reply).not.toContain("undefined");
+    expect(result.reply).not.toContain("missing_field");
+  });
+
   it("threads inputs.cfg and inputs.agentDir down to resolveModelAsync (S9 live-verify regression)", async () => {
     // Real symptom: in live Telegram, Stage A failed with "классификатор
     // не загружен" because the orchestrator entry never forwarded cfg /
