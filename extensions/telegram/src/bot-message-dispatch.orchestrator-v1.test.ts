@@ -274,6 +274,81 @@ describe("S9 — executeOrchestratorV1ShortCircuit", () => {
     expect(sends[0]!.text).toContain("kaboom");
   });
 
+  it("S9.2 chunking: a 6000-char reply is split into multiple sendMessage calls each <= TELEGRAM_TEXT_LIMIT (real symptom: GrammyError 400 'message too long' from web_search)", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit, TELEGRAM_TEXT_LIMIT } = await import(
+      "./bot-message-dispatch.js"
+    );
+    const { bot, sends } = makeBotStub();
+    // Simulate web_search-style reply: header + N numbered hits with snippet
+    // text. Total length ~6000 — the live-verify failure was 6098.
+    const header = "Найдено по запросу «gpt-5»:\n\n";
+    const hits = Array.from({ length: 30 }, (_, i) =>
+      `${i + 1}. Title #${i + 1} — https://example.com/${i + 1}\n` +
+      `Snippet for result number ${i + 1}: ` +
+      "lorem ipsum dolor sit amet ".repeat(8),
+    ).join("\n\n");
+    const longReply = header + hits;
+    expect(longReply.length).toBeGreaterThan(TELEGRAM_TEXT_LIMIT);
+    const runOrchestratorTurn = vi.fn(async () => ({
+      reply: longReply,
+      contract: { intent: "tool_calls" },
+      stageA: { routing: { intent: "tool_calls" } },
+      dispatch: { reply: longReply, allOk: true },
+    }));
+    const handled = await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "Найди в интернете последние новости про gpt-5",
+        chatId: 6533456892,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: {} as never,
+        agentDir: undefined,
+      },
+      { runOrchestratorTurn: runOrchestratorTurn as never },
+    );
+    expect(handled).toBe(true);
+    // The live-verify symptom was: 1 sendMessage call, GrammyError 400.
+    // The fix MUST produce >= 2 sendMessage calls when reply > limit.
+    expect(sends.length).toBeGreaterThanOrEqual(2);
+    for (const s of sends) {
+      expect(s.text.length).toBeLessThanOrEqual(TELEGRAM_TEXT_LIMIT);
+      expect(s.chatId).toBe(6533456892);
+    }
+    // No content loss: every chunk's text must appear once in the original
+    // reply (loose anti-data-loss check — accounts for trim at boundaries).
+    for (const s of sends) {
+      expect(longReply).toContain(s.text);
+    }
+  });
+
+  it("S9.2 chunking: short reply (well under limit) still produces exactly 1 sendMessage", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot, sends } = makeBotStub();
+    const runOrchestratorTurn = vi.fn(async () => ({
+      reply: "Записал в /tmp/foo.txt.",
+      contract: { intent: "tool_calls" },
+      stageA: { routing: { intent: "tool_calls" } },
+      dispatch: { reply: "Записал в /tmp/foo.txt.", allOk: true },
+    }));
+    await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "запиши /tmp/foo.txt 'hi'",
+        chatId: 42,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: {} as never,
+        agentDir: undefined,
+      },
+      { runOrchestratorTurn: runOrchestratorTurn as never },
+    );
+    expect(sends).toHaveLength(1);
+    expect(sends[0]!.text).toBe("Записал в /tmp/foo.txt.");
+  });
+
   it("emits [orch-v1] start + completion telemetry to stderr", async () => {
     vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
     const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");

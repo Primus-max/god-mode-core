@@ -232,6 +232,62 @@ export type ExecuteOrchestratorV1ShortCircuitOverrides = {
   callConversationLLM?: typeof callConversationLLM;
 };
 
+/**
+ * Telegram caps `sendMessage` text at 4096 chars (UTF-16 code units in
+ * practice but length-in-chars is a safe upper bound for Cyrillic +
+ * Latin). Web-search and read replies routinely blow past that
+ * (live-verify: 6098-char web_search reply was rejected with
+ * GrammyError 400 "message is too long" and the user got nothing).
+ *
+ * Strategy: prefer paragraph (`\n\n`) splits, then single-newline,
+ * then sentence-ish boundaries (`. `, `! `, `? `, `… `), then hard
+ * char split as last resort. Glue chunks back together as long as
+ * the running sum stays under TELEGRAM_TEXT_LIMIT.
+ *
+ * Conservative cap: 3500 instead of the true 4096 so a stray emoji
+ * (which can cost up to 4 UTF-16 code units in a surrogate pair) or
+ * line-wrapping markup never edges past the limit.
+ */
+export const TELEGRAM_TEXT_LIMIT = 3500;
+
+export function chunkForTelegram(
+  text: string,
+  limit: number = TELEGRAM_TEXT_LIMIT,
+): string[] {
+  if (text.length <= limit) return [text];
+  const out: string[] = [];
+  let remaining = text;
+  while (remaining.length > limit) {
+    const window = remaining.slice(0, limit);
+    let cut = -1;
+    // Prefer the last paragraph boundary in the window.
+    cut = window.lastIndexOf("\n\n");
+    if (cut < limit / 2) {
+      // Fall back to single newline.
+      cut = window.lastIndexOf("\n");
+    }
+    if (cut < limit / 2) {
+      // Fall back to sentence-ish boundary — find the last terminator
+      // followed by whitespace.
+      const terminators = [". ", "! ", "? ", "… ", "; "];
+      let best = -1;
+      for (const t of terminators) {
+        const i = window.lastIndexOf(t);
+        if (i > best) best = i + t.length - 1; // cut AFTER the space
+      }
+      cut = best;
+    }
+    if (cut < limit / 2) {
+      // Last resort — hard split at the limit.
+      cut = limit - 1;
+    }
+    out.push(remaining.slice(0, cut + 1).trimEnd());
+    remaining = remaining.slice(cut + 1).trimStart();
+  }
+  if (remaining.length > 0) out.push(remaining);
+  return out;
+}
+
 export async function executeOrchestratorV1ShortCircuit(
   args: ExecuteOrchestratorV1ShortCircuitArgs,
   overrides: ExecuteOrchestratorV1ShortCircuitOverrides = {},
@@ -309,14 +365,20 @@ export async function executeOrchestratorV1ShortCircuit(
     process.stderr.write(
       `[orch-v1] turn completed contractIntent=${result.contract.intent} allOk=${result.dispatch.allOk} replyLen=${result.reply.length}\n`,
     );
-    try {
-      await bot.api.sendMessage(chatId, result.reply, sendOpts);
-    } catch (sendErr) {
-      runtime.error?.(
-        danger(
-          `[orch-v1] outbound sendMessage failed chatId=${chatId}: ${String(sendErr)}`,
-        ),
-      );
+    const chunks = chunkForTelegram(result.reply);
+    for (const chunk of chunks) {
+      try {
+        await bot.api.sendMessage(chatId, chunk, sendOpts);
+      } catch (sendErr) {
+        runtime.error?.(
+          danger(
+            `[orch-v1] outbound sendMessage failed chatId=${chatId} chunkLen=${chunk.length}: ${String(sendErr)}`,
+          ),
+        );
+        // Stop sending the rest of the chunks — the channel is unhappy
+        // and continuing would just stack errors.
+        break;
+      }
     }
     return true;
   } catch (err) {
