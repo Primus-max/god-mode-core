@@ -25,7 +25,7 @@ import {
   type PersistentWorkerReportCollector as ObserverModuleCollector,
 } from "../../platform/commitment/persistent-worker-report-observer.js";
 import { asIdentityId } from "../../platform/identity/identity-id.js";
-import type { ChannelId, SessionId } from "../../platform/commitment/ids.js";
+import type { ChannelId, SessionId } from "../../platform/identity/branded-ids.js";
 import {
   runPersistentWorkerSubsequentPush,
   type PersistentWorkerPushArgs,

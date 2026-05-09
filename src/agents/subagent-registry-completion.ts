@@ -1,5 +1,5 @@
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
-import type { ChannelId, SessionId } from "../platform/commitment/ids.js";
+import type { ChannelId, SessionId } from "../platform/identity/branded-ids.js";
 import type {
   PersistentWorkerPushFireCallbackArgs,
   PersistentWorkerPushFireCallbackResult,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { SessionId } from "../../../platform/commitment/ids.js";
+import type { SessionId } from "../../../platform/identity/branded-ids.js";
 import { asIdentityId } from "../../../platform/identity/identity-id.js";
 import {
   createSessionResetSubscriberRegistry,

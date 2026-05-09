@@ -7,7 +7,7 @@ import {
   UNKNOWN_EFFECT_FAMILY,
   type IntentContractorAdapter,
 } from "../../src/platform/commitment/index.js";
-import type { EffectId } from "../../src/platform/commitment/ids.js";
+import type { EffectId } from "../../src/platform/identity/branded-ids.js";
 import type { SemanticIntent } from "../../src/platform/commitment/semantic-intent.js";
 import type { ShadowBuildResult } from "../../src/platform/commitment/shadow-builder.js";
 import type { ResolutionContract } from "../../src/platform/decision/resolution-contract.js";

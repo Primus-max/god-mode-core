@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
-import type { AgentId, SessionKey } from "../platform/commitment/ids.js";
+import type { AgentId, SessionKey } from "../platform/identity/branded-ids.js";
 import { formatThinkingLevels, normalizeThinkLevel } from "../auto-reply/thinking.js";
 import { DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH } from "../config/agent-limits.js";
 import { loadConfig } from "../config/config.js";
