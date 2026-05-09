@@ -1,3 +1,4 @@
+import { resolveAgentDir } from "../agents/agent-scope.js";
 import { withReplyDispatcher } from "../auto-reply/dispatch.js";
 import {
   dispatchReplyFromConfig,
@@ -7,7 +8,29 @@ import type { ReplyDispatcher } from "../auto-reply/reply/reply-dispatcher.js";
 import type { FinalizedMsgContext } from "../auto-reply/templating.js";
 import type { GetReplyOptions } from "../auto-reply/types.js";
 import type { OpenClawConfig } from "../config/config.js";
-import { diagnoseTurn } from "../orchestrator-v1/diagnostic.js";
+import { sendMessage } from "../infra/outbound/message.js";
+import { callConversationLLM, diagnoseTurn } from "../orchestrator-v1/diagnostic.js";
+import {
+  DEFAULT_STAGE_A_MODEL,
+  type StageAModelRef,
+} from "../orchestrator-v1/classifier-stage-a.js";
+import {
+  runOrchestratorTurn,
+  type RunOrchestratorTurnResult,
+} from "../orchestrator-v1/orchestrator.js";
+import {
+  buildRunToolFromRegistry,
+  type RegistryDeps,
+} from "../orchestrator-v1/tool-runner-registry.js";
+import type {
+  RunConversationLLMFn,
+  RunToolFn,
+} from "../orchestrator-v1/dispatcher.js";
+import type {
+  CreatePersistentWorkerFn,
+  ScheduleCronFn,
+} from "../orchestrator-v1/tool-runners/scheduling.js";
+import type { SessionsSendFn } from "../orchestrator-v1/tool-runners/sessions.js";
 import { createChannelReplyPipeline } from "./channel-reply-pipeline.js";
 import { createNormalizedOutboundDeliverer, type OutboundReplyPayload } from "./reply-payload.js";
 
@@ -20,6 +43,206 @@ type DispatchReplyWithBufferedBlockDispatcherFn =
   typeof import("../auto-reply/reply/provider-dispatcher.js").dispatchReplyWithBufferedBlockDispatcher;
 
 type ReplyDispatchFromConfigOptions = Omit<GetReplyOptions, "onToolResult" | "onBlockReply">;
+
+/**
+ * V1-CUTOVER S10 — Production short-circuit for the V1-CONTRACT-ONLY
+ * orchestrator on the universal (non-Telegram) inbound dispatch path.
+ *
+ * Mirrors `executeOrchestratorV1ShortCircuit` in
+ * `extensions/telegram/src/bot-message-dispatch.ts` (S9): when
+ * `OPENCLAW_USE_V1_ORCHESTRATOR=1` is set, inbound messages from any
+ * channel that funnels through `recordInboundSessionAndDispatchReply`
+ * route through `runOrchestratorTurn(...)` (Stage A classifier + Stage B
+ * arg extraction + dispatcher with the real tool-runner registry from
+ * S8) instead of the previous `diagnoseTurn` (read-only) short-circuit.
+ *
+ * Returns:
+ *   - `false` when the env flag is unset OR the user message is empty,
+ *     so the caller falls through to the legacy reply pipeline.
+ *   - `true` when the orchestrator handled the turn (success OR caught
+ *     error → `onDispatchError` + generic error reply via `deliver`).
+ *     Caller MUST `return` immediately to skip the legacy pipeline.
+ *
+ * Production wiring (per S10 acceptance):
+ *   - `runTool` = `buildRunToolFromRegistry(registryDeps)`.
+ *     `registryDeps`:
+ *       - `send`: forwards to `infra/outbound/message.sendMessage(...)`,
+ *         the universal cross-channel outbound primitive. The classifier-
+ *         extracted `channel` arg is treated as the destination address
+ *         (`to`); the inbound channel name + accountId scope the
+ *         outbound to the same transport that received the user
+ *         message.
+ *       - `scheduling.scheduleCron` / `scheduling.createPersistentWorker`:
+ *         PLACEHOLDER (mirrors S9). Real CronService and persistent-
+ *         worker bootstrap live in gateway scope; the universal dispatch
+ *         module does not currently access them. Returning a clear
+ *         failure here is preferable to dragging in commitment-kernel
+ *         deps (forbidden by V1-CUTOVER invariant #1) — the dispatcher
+ *         renders a truthful failure template.
+ *
+ *   - `runConversationLLM` = `callConversationLLM(text, classifierModel,
+ *     { cfg, agentDir })` — re-uses the same simple-completion helper
+ *     S9 + diagnostic mode use. `CONVERSATION_SYSTEM_PROMPT_GUARD` is
+ *     injected by `callConversationLLM` itself.
+ *
+ *   - `cfg` + `agentDir`: REQUIRED to be forwarded to
+ *     `runOrchestratorTurn`. Without these, Stage A model resolution
+ *     falls back to a global config that lacks the agent-scoped
+ *     provider table (the S9.1 hotfix that this slice mirrors). The
+ *     test `inbound-reply-dispatch-orchestrator-v1.test.ts` asserts
+ *     these are forwarded as truthy values.
+ *
+ * Telemetry contract:
+ *   - `[orch-v1] turn started chatKey=<id> userMessageLen=<n>`
+ *   - `[orch-v1] turn completed contractIntent=<x> allOk=<bool> replyLen=<n>`
+ *   - written to `process.stderr` so the live-verifier monitor on
+ *     `*.err.log` sees them. Plus the registry already emits
+ *     `[tool-runner]` lines.
+ *
+ * Error safety: a thrown `runOrchestratorTurn` (which it is supposed to
+ * catch internally — defensive only) is reported via `onDispatchError`
+ * and a generic Russian error message is delivered to the originating
+ * channel via `deliver`. The helper never throws.
+ */
+export type ExecuteOrchestratorV1UniversalShortCircuitArgs = {
+  /** Inbound user text (already extracted from RawBody/CommandBody/Body). */
+  userText: string;
+  /** Stable chat identifier for the chat lock + telemetry. */
+  chatKey: string;
+  /** Loaded `OpenClawConfig` (required for classifier model resolution). */
+  cfg: OpenClawConfig;
+  /** Agent id used to resolve `agentDir` for agent-scoped model providers. */
+  agentId: string;
+  /** Inbound channel name (e.g. "discord", "irc"). Forwarded to outbound `sendMessage`. */
+  channel: string;
+  /** Optional account id scoping outbound delivery. */
+  accountId?: string;
+  /** Inbound deliverer — used for both success and error replies. */
+  deliver: (payload: OutboundReplyPayload) => Promise<void>;
+  /** Optional dispatcher error sink (mirrors the legacy `onDispatchError`). */
+  onDispatchError?: (err: unknown, info: { kind: string }) => void;
+  /** Optional Stage-A/B model override. */
+  classifierModel?: StageAModelRef;
+};
+
+/**
+ * Test-only seam: lets a unit test inject stubs for the orchestrator-v1
+ * surface + `resolveAgentDir` without going through `vi.mock("openclaw/...")`,
+ * which is fragile against the dispatch module's heavy import graph.
+ * Production callers omit this parameter.
+ */
+export type ExecuteOrchestratorV1UniversalShortCircuitOverrides = {
+  runOrchestratorTurn?: typeof runOrchestratorTurn;
+  buildRunToolFromRegistry?: typeof buildRunToolFromRegistry;
+  callConversationLLM?: typeof callConversationLLM;
+  resolveAgentDir?: typeof resolveAgentDir;
+  /**
+   * Optional outbound override for the `sessions_send` binding. Tests pass a
+   * stub to avoid hitting the real channel-resolution + delivery stack.
+   */
+  sendMessage?: typeof sendMessage;
+};
+
+export async function executeOrchestratorV1UniversalShortCircuit(
+  args: ExecuteOrchestratorV1UniversalShortCircuitArgs,
+  overrides: ExecuteOrchestratorV1UniversalShortCircuitOverrides = {},
+): Promise<boolean> {
+  const runTurnImpl = overrides.runOrchestratorTurn ?? runOrchestratorTurn;
+  const buildRegistryImpl =
+    overrides.buildRunToolFromRegistry ?? buildRunToolFromRegistry;
+  const callLLMImpl = overrides.callConversationLLM ?? callConversationLLM;
+  const resolveAgentDirImpl = overrides.resolveAgentDir ?? resolveAgentDir;
+  const sendMessageImpl = overrides.sendMessage ?? sendMessage;
+  if (process.env.OPENCLAW_USE_V1_ORCHESTRATOR !== "1") {
+    return false;
+  }
+  const userText = args.userText;
+  if (!userText || userText.trim().length === 0) {
+    return false;
+  }
+  const { chatKey, cfg, agentId, channel, accountId, deliver, onDispatchError } = args;
+  // S9.1 mirror: thread the same `cfg` + `agentDir` the caller's stack
+  // already uses so Stage A model resolution sees the agent-scoped
+  // provider table. Resolved here (not at module load) so each turn
+  // picks up live config edits.
+  const agentDir = resolveAgentDirImpl(cfg, agentId);
+
+  // Production binding: universal cross-channel outbound for `sessions_send`.
+  // The classifier-extracted `channel` arg is the destination address
+  // (chat id / room id / etc.); the inbound `channel` + `accountId`
+  // scope the transport. Throw on failure so the runner reports
+  // `{ ok: false }` and the dispatcher renders the failure template.
+  const send: SessionsSendFn = async (destination, text) => {
+    await sendMessageImpl({
+      to: destination,
+      content: text,
+      channel,
+      accountId,
+      agentId,
+      cfg,
+    });
+  };
+
+  // S10 placeholders for cron + persistent_worker_push (mirrors S9).
+  // Real CronService + persistent-worker bootstrap require gateway-
+  // scoped handles which the universal dispatch module does not
+  // currently receive. Fail-closed surfaces the gap honestly.
+  const scheduleCron: ScheduleCronFn = async () => {
+    throw new Error("cron not yet wired in S10 — operator follow-up");
+  };
+  const createPersistentWorker: CreatePersistentWorkerFn = async () => {
+    throw new Error(
+      "persistent_worker_push not yet wired in S10 — operator follow-up",
+    );
+  };
+
+  const runTool: RunToolFn = buildRegistryImpl({
+    send,
+    scheduling: { scheduleCron, createPersistentWorker },
+  } satisfies RegistryDeps);
+
+  const classifierModel = args.classifierModel ?? DEFAULT_STAGE_A_MODEL;
+  const runConversationLLM: RunConversationLLMFn = async (userMessage) => {
+    return callLLMImpl(userMessage, classifierModel, { cfg, agentDir });
+  };
+
+  process.stderr.write(
+    `[orch-v1] turn started chatKey=${chatKey} userMessageLen=${userText.length}\n`,
+  );
+  try {
+    const result: RunOrchestratorTurnResult = await runTurnImpl({
+      userMessage: userText,
+      chatKey,
+      runTool,
+      runConversationLLM,
+      cfg,
+      agentDir,
+      classifierModel: args.classifierModel,
+    });
+    process.stderr.write(
+      `[orch-v1] turn completed contractIntent=${result.contract.intent} allOk=${result.dispatch.allOk} replyLen=${result.reply.length}\n`,
+    );
+    try {
+      await deliver({ text: result.reply });
+    } catch (sendErr) {
+      process.stderr.write(
+        `[orch-v1] outbound deliver failed chatKey=${chatKey}: ${String(sendErr)}\n`,
+      );
+      onDispatchError?.(sendErr, { kind: "orchestrator-v1-deliver" });
+    }
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[orch-v1] turn failed chatKey=${chatKey}: ${message}\n`);
+    onDispatchError?.(err, { kind: "orchestrator-v1" });
+    try {
+      await deliver({ text: `(orchestrator-v1 ошибка: ${message})` });
+    } catch {
+      // Surface fallback failure but don't propagate.
+    }
+    return true;
+  }
+}
 
 /** Run `dispatchReplyFromConfig` with a dispatcher that always gets its settled callback. */
 export async function dispatchReplyFromConfigWithSettledDispatcher(params: {
@@ -124,13 +347,19 @@ export async function recordInboundSessionAndDispatchReply(params: {
     onRecordError: params.onRecordError,
   });
 
-  // V1-CONTRACT-ONLY env-gated diagnostic short-circuit (universal entry).
-  // Works for ALL channels (telegram, web UI, discord, slack, etc.) since
-  // every channel funnels through `recordInboundSessionAndDispatchReply`.
-  // When OPENCLAW_USE_V1_ORCHESTRATOR=1, route the message through the
-  // orchestrator-v1 classifier and reply with the resulting contract /
-  // conversation text WITHOUT executing tools. Native flow is unchanged
-  // when the env var is unset.
+  // V1-CUTOVER S10 — env-gated production short-circuit (universal entry).
+  // Works for ALL non-Telegram channels (discord, irc, nextcloud-talk,
+  // matrix, msteams, web UI, etc.) since every channel funnels through
+  // `recordInboundSessionAndDispatchReply`. When
+  // `OPENCLAW_USE_V1_ORCHESTRATOR=1`, route the inbound through the
+  // orchestrator-v1 pipeline (Stage A + Stage B + dispatcher + real
+  // tool-runner registry from S8) and skip the legacy reply pipeline.
+  // Legacy flow remains the default when the flag is unset, so a restart
+  // without the env var rolls cutover back without code changes. Note:
+  // the previous diagnostic helper (`diagnoseTurn`) is kept in imports
+  // for the post-Phase-2 cleanup slice — DO NOT delete it before live-
+  // verify confirms cutover across all channels.
+  void diagnoseTurn;
   if (process.env.OPENCLAW_USE_V1_ORCHESTRATOR === "1") {
     const userText =
       params.ctxPayload.RawBody ??
@@ -140,21 +369,18 @@ export async function recordInboundSessionAndDispatchReply(params: {
     process.stderr.write(
       `[orch-v1-debug] universal dispatch entry channel=${params.channel} userTextLen=${userText.length}\n`,
     );
-    if (userText.trim().length > 0) {
-      try {
-        const result = await diagnoseTurn(userText, { cfg: params.cfg });
-        process.stderr.write(
-          `[orch-v1-debug] diagnoseTurn returned intent=${result.routing.intent} replyLen=${result.reply.length} latency=${result.latencyMs}ms\n`,
-        );
-        await params.deliver({ text: result.reply });
-        return;
-      } catch (err) {
-        process.stderr.write(
-          `[orch-v1-debug] short-circuit failed: ${(err as Error).message}\n`,
-        );
-        params.onDispatchError(err, { kind: "orchestrator-v1" });
-        return;
-      }
+    const handled = await executeOrchestratorV1UniversalShortCircuit({
+      userText,
+      chatKey: `${params.channel}:${params.ctxPayload.SessionKey ?? params.routeSessionKey}`,
+      cfg: params.cfg,
+      agentId: params.agentId,
+      channel: params.channel,
+      accountId: params.accountId,
+      deliver: params.deliver,
+      onDispatchError: params.onDispatchError,
+    });
+    if (handled) {
+      return;
     }
   }
 
