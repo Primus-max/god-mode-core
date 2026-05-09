@@ -30,6 +30,7 @@ import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-pay
 import { resolveChunkMode } from "openclaw/plugin-sdk/reply-runtime";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { resolveAutoTopicLabelConfig, generateTopicLabel } from "openclaw/plugin-sdk/reply-runtime";
+import { diagnoseTurn } from "openclaw/plugin-sdk/orchestrator-v1";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { defaultTelegramBotDeps, type TelegramBotDeps } from "./bot-deps.js";
@@ -176,6 +177,48 @@ export const dispatchTelegramMessage = async ({
     removeAckAfterReply,
     statusReactionController,
   } = context;
+
+  // V1-CONTRACT-ONLY env-gated diagnostic short-circuit (Telegram path).
+  if (process.env.OPENCLAW_USE_V1_ORCHESTRATOR === "1") {
+    const userText =
+      (msg as { text?: string }).text ?? (msg as { caption?: string }).caption ?? "";
+    process.stderr.write(
+      `[orch-v1-debug] tg dispatch entry chatId=${chatId} userTextLen=${userText.length}\n`,
+    );
+    if (userText.trim().length > 0) {
+      try {
+        const result = await diagnoseTurn(userText, { cfg });
+        process.stderr.write(
+          `[orch-v1-debug] tg diagnoseTurn returned intent=${result.routing.intent} replyLen=${result.reply.length} latency=${result.latencyMs}ms\n`,
+        );
+        await bot.api.sendMessage(
+          chatId,
+          result.reply,
+          threadSpec?.id !== undefined
+            ? { message_thread_id: threadSpec.id }
+            : undefined,
+        );
+        return;
+      } catch (err) {
+        process.stderr.write(`[orch-v1-debug] tg short-circuit failed: ${(err as Error).message}\n`);
+        runtime.error?.(
+          danger(`[orchestrator-v1] tg short-circuit failed: ${String(err)}`),
+        );
+        try {
+          await bot.api.sendMessage(
+            chatId,
+            `(orchestrator-v1 ошибка: ${(err as Error).message})`,
+            threadSpec?.id !== undefined
+              ? { message_thread_id: threadSpec.id }
+              : undefined,
+          );
+        } catch {
+          // Surface fallback failure but don't propagate.
+        }
+        return;
+      }
+    }
+  }
 
   const draftMaxChars = Math.min(textLimit, 4096);
   const tableMode = resolveMarkdownTableMode({

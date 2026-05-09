@@ -7,6 +7,7 @@ import type { ReplyDispatcher } from "../auto-reply/reply/reply-dispatcher.js";
 import type { FinalizedMsgContext } from "../auto-reply/templating.js";
 import type { GetReplyOptions } from "../auto-reply/types.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { diagnoseTurn } from "../orchestrator-v1/diagnostic.js";
 import { createChannelReplyPipeline } from "./channel-reply-pipeline.js";
 import { createNormalizedOutboundDeliverer, type OutboundReplyPayload } from "./reply-payload.js";
 
@@ -122,6 +123,40 @@ export async function recordInboundSessionAndDispatchReply(params: {
     ctx: params.ctxPayload,
     onRecordError: params.onRecordError,
   });
+
+  // V1-CONTRACT-ONLY env-gated diagnostic short-circuit (universal entry).
+  // Works for ALL channels (telegram, web UI, discord, slack, etc.) since
+  // every channel funnels through `recordInboundSessionAndDispatchReply`.
+  // When OPENCLAW_USE_V1_ORCHESTRATOR=1, route the message through the
+  // orchestrator-v1 classifier and reply with the resulting contract /
+  // conversation text WITHOUT executing tools. Native flow is unchanged
+  // when the env var is unset.
+  if (process.env.OPENCLAW_USE_V1_ORCHESTRATOR === "1") {
+    const userText =
+      params.ctxPayload.RawBody ??
+      params.ctxPayload.CommandBody ??
+      params.ctxPayload.Body ??
+      "";
+    process.stderr.write(
+      `[orch-v1-debug] universal dispatch entry channel=${params.channel} userTextLen=${userText.length}\n`,
+    );
+    if (userText.trim().length > 0) {
+      try {
+        const result = await diagnoseTurn(userText, { cfg: params.cfg });
+        process.stderr.write(
+          `[orch-v1-debug] diagnoseTurn returned intent=${result.routing.intent} replyLen=${result.reply.length} latency=${result.latencyMs}ms\n`,
+        );
+        await params.deliver({ text: result.reply });
+        return;
+      } catch (err) {
+        process.stderr.write(
+          `[orch-v1-debug] short-circuit failed: ${(err as Error).message}\n`,
+        );
+        params.onDispatchError(err, { kind: "orchestrator-v1" });
+        return;
+      }
+    }
+  }
 
   const { onModelSelected, ...replyPipeline } = createChannelReplyPipeline({
     cfg: params.cfg,

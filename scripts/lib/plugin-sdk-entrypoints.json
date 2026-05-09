@@ -8,6 +8,7 @@
   "routing",
   "runtime",
   "runtime-env",
+  "orchestrator-v1",
   "setup",
   "setup-adapter-runtime",
   "setup-runtime",

@@ -73,6 +73,10 @@
       "types": "./dist/plugin-sdk/runtime-env.d.ts",
       "default": "./dist/plugin-sdk/runtime-env.js"
     },
+    "./plugin-sdk/orchestrator-v1": {
+      "types": "./dist/plugin-sdk/orchestrator-v1.d.ts",
+      "default": "./dist/plugin-sdk/orchestrator-v1.js"
+    },
     "./plugin-sdk/setup": {
       "types": "./dist/plugin-sdk/setup.d.ts",
       "default": "./dist/plugin-sdk/setup.js"
