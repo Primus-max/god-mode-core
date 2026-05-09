@@ -95,7 +95,18 @@ export function createConcurrentTurnBroker(
   let lastServedKey: BrokerQueueKey | undefined;
   let isShutdown = false;
   const inFlightDrains = new Set<Promise<void>>();
-  const submitResolvers = new Map<string, (result: BrokerSubmitResult) => void>();
+  // S15 — resolvers MUST be indexed on a broker-internal admission id, NOT
+  // on `entry.turnId`. The broker contract documents `turnId` as opaque
+  // caller-supplied (NOT used for dedup); two `submit(...)` calls with the
+  // same turnId (legitimate retries / replays) would otherwise clobber each
+  // other in this map, deadlocking the first submit promise and resolving
+  // the second one prematurely. The id is monotonic per broker instance;
+  // the WeakMap binds it to the (always-fresh) `BrokerEntry` object so the
+  // drain `finally` block can recover the resolver key without consulting
+  // any caller-supplied field.
+  const submitResolvers = new Map<number, (result: BrokerSubmitResult) => void>();
+  const entryAdmissionId = new WeakMap<BrokerEntry, number>();
+  let nextAdmissionId = 0;
 
   const now = deps?.now ?? Date.now;
   const log = deps?.logger?.log ?? (() => undefined);
@@ -168,10 +179,13 @@ export function createConcurrentTurnBroker(
             `[broker] complete queueKey=${queueKey} turnId=${entry.turnId}`,
             "info",
           );
-          const resolver = submitResolvers.get(entry.turnId);
-          if (resolver !== undefined) {
-            submitResolvers.delete(entry.turnId);
-            resolver({ kind: "completed" });
+          const admissionId = entryAdmissionId.get(entry);
+          if (admissionId !== undefined) {
+            const resolver = submitResolvers.get(admissionId);
+            if (resolver !== undefined) {
+              submitResolvers.delete(admissionId);
+              resolver({ kind: "completed" });
+            }
           }
           // Microtask re-entry so the dispatch loop yields between drains
           // and lets the Promise machinery settle resolvers in order.
@@ -223,8 +237,16 @@ export function createConcurrentTurnBroker(
       "debug",
     );
 
+    // S15 — assign a fresh admission id per `submit(...)` call. The id
+    // is bound to the entry object (NOT to `entry.turnId`) so retries /
+    // replays that reuse a turnId no longer clobber each other's
+    // resolvers.
+    const admissionId = nextAdmissionId;
+    nextAdmissionId += 1;
+    entryAdmissionId.set(entry, admissionId);
+
     return new Promise<BrokerSubmitResult>((resolve) => {
-      submitResolvers.set(entry.turnId, resolve);
+      submitResolvers.set(admissionId, resolve);
       // Schedule a dispatch tick. Microtask defer so the caller sees the
       // promise registration land before the synchronous dispatch path
       // begins (matters when `runTurn` is itself sync / settles
