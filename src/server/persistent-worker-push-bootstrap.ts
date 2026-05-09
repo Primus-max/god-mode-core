@@ -95,7 +95,7 @@ import type {
 import {
   getProcessPersistentWorkerReportCollector,
   type PersistentWorkerReportCollector,
-} from "../platform/commitment/persistent-worker-report-observer.js";
+} from "../platform/persistent-worker/persistent-worker-report-collector.js";
 
 const log = createSubsystemLogger("persistent-worker");
 
