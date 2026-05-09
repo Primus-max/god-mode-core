@@ -1,12 +1,15 @@
 /**
- * Cutover-4 Phase 5 — `lint:commitment:no-direct-git-outside-adapter` lint
- * rule reverse-test.
+ * Direct-git allowlist guardrail (V1-CUTOVER S14 narrowed).
  *
- * Enforces the NEW structural invariant proposed in Phase 1 §h:
- *
- * > Direct `execFile('git', …)` / `execFileSync('git', …)` /
- * > `spawn('git', …)` outside the gated `repo-runtime-adapter.ts
- * > runRepoCommand(…)` is forbidden.
+ * Originally landed as Cutover-4 Phase 5
+ * `lint:commitment:no-direct-git-outside-adapter`. The Cutover-4
+ * gated wrapper (`repo-runtime-adapter.ts runRepoCommand`) was deleted
+ * in V1-CUTOVER S14 (no production caller routed through it; legacy
+ * fallback `agentCommandInternal` does not invoke git). The guardrail
+ * itself is preserved because the THREE legacy direct-git sites
+ * (`workspace-probe.ts`, `update-runner.ts`, runtime-source guardrail
+ * scanner) MUST stay enumerated so a future contributor cannot quietly
+ * add a fourth.
  *
  * The rule is a static-analysis vitest scan rather than an ESLint plugin
  * — same posture as `acp-binding-architecture.guardrail.test.ts` and
@@ -47,9 +50,10 @@ const ALLOWED_DIRECT_GIT_FILES: ReadonlyArray<string> = [
   // §a.5 — runtime-source guardrail scanner (test-only utility, but lives
   // outside `**\/*.test.ts` so listed explicitly).
   "src/test-utils/runtime-source-guardrail-scan.ts",
-  // Cutover-4 Phase 5 — the gated git wrapper itself. ALL user-facing
-  // git invocations MUST flow through this file.
-  "src/agents/pi-embedded-runner/run/repo-runtime-adapter.ts",
+  // V1-CUTOVER S14: Cutover-4 Phase 5 gated git wrapper
+  // (`repo-runtime-adapter.ts runRepoCommand`) deleted as orphan. No
+  // production code routed through it; legacy fallback path does not
+  // invoke git from agent code.
 ];
 
 const SKIP_PATTERNS: ReadonlyArray<RegExp> = [
@@ -116,8 +120,9 @@ describe("lint:commitment:no-direct-git-outside-adapter", () => {
     if (offenders.length > 0) {
       throw new Error(
         `Direct git invocation forbidden outside the allowlist. ` +
-          `Route through runRepoCommand(...) at ` +
-          `src/agents/pi-embedded-runner/run/repo-runtime-adapter.ts. ` +
+          `New direct-git sites require a sub-plan amendment + maintainer ` +
+          `signoff (V1-CUTOVER S14 deleted the Cutover-4 gated wrapper as ` +
+          `orphan; the three remaining sites are grandfathered). ` +
           `Allowlist sites are documented in ` +
           `extensions/AUDIT-cutover4-repo-operation.md §h.\n\n` +
           `Offending files:\n${offenders.map((f) => `  - ${f}`).join("\n")}`,
@@ -133,10 +138,13 @@ describe("lint:commitment:no-direct-git-outside-adapter", () => {
     }
   });
 
-  it("allowlist enumerates EXACTLY the four grandfathered + adapter sites", () => {
+  it("allowlist enumerates EXACTLY the three grandfathered direct-git sites", () => {
     // Locks the cardinality so future PRs cannot silently widen the
     // allowlist without amending this test (i.e. without updating the
-    // audit doc and bumping the count here).
-    expect(ALLOWED_DIRECT_GIT_FILES).toHaveLength(4);
+    // audit doc and bumping the count here). Was 4 before V1-CUTOVER
+    // S14 — the Cutover-4 gated wrapper (`repo-runtime-adapter.ts`)
+    // was deleted as orphan because no production caller routed
+    // through it.
+    expect(ALLOWED_DIRECT_GIT_FILES).toHaveLength(3);
   });
 });
