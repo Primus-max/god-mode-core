@@ -31,7 +31,7 @@ import {
   runPersistentWorkerSubsequentPush,
   type PersistentWorkerPushDispatchPayload,
 } from "../platform/persistent-worker/persistent-worker-push-runtime-adapter.js";
-import { createPersistentWorkerReportCollector } from "../platform/commitment/persistent-worker-report-observer.js";
+import { createPersistentWorkerReportCollector } from "../platform/persistent-worker/persistent-worker-report-collector.js";
 import { asIdentityId, type IdentityId } from "../platform/identity/identity-id.js";
 
 const VLADIMIR = asIdentityId("identity:vladimir");

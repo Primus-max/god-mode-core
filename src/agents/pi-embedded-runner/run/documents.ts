@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import type { InboundMediaAttachmentKind } from "../../../platform/commitment/intent-contractor-impl.js";
+import type { InboundMediaAttachmentKind } from "../../../platform/inbound-media/types.js";
 import { extractPdfContent } from "../../../media/pdf-extract.js";
 import { log } from "../logger.js";
 
