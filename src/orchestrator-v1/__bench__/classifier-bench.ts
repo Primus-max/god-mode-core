@@ -19,8 +19,50 @@ import { getApiKeyForModel, requireApiKey } from "../../agents/model-auth.js";
 import { resolveModelAsync } from "../../agents/pi-embedded-runner/model.js";
 import { prepareModelForSimpleCompletion } from "../../agents/simple-completion-transport.js";
 import { loadConfig } from "../../config/config.js";
+import { buildStageAPrompt } from "../classifier-stage-a.js";
 import { CLASSIFIER_FIXTURES, type ClassifierFixture, type ExpectedTurnRouting } from "./classifier-bench-fixtures.js";
-import { buildStageAPrompt, parseStageAResponse } from "./classifier-stage-a-prompt.js";
+
+/**
+ * Parse a candidate model's raw response into an ExpectedTurnRouting shape.
+ * Bench-local mirror of the production parser — kept here so the bench can
+ * record exact `failureMode` codes (non_json / wrong_shape / wrong_enum) per
+ * fixture. The production parser uses Zod and surfaces errors via fallback;
+ * the bench needs structured failure attribution for the report.
+ */
+function parseStageAResponse(raw: string): {
+  parsed?: ExpectedTurnRouting;
+  failureMode?: "non_json" | "wrong_shape" | "wrong_enum";
+} {
+  let cleaned = raw.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+  }
+  let obj: unknown;
+  try {
+    obj = JSON.parse(cleaned);
+  } catch {
+    return { failureMode: "non_json" };
+  }
+  if (typeof obj !== "object" || obj === null) return { failureMode: "wrong_shape" };
+  const o = obj as Record<string, unknown>;
+  if (typeof o.intent !== "string") return { failureMode: "wrong_shape" };
+  if (!["tool_calls", "conversation", "refuse"].includes(o.intent)) return { failureMode: "wrong_enum" };
+  // Production schema does NOT require tool_names for conversation/refuse,
+  // so default to [] when absent — bench fixtures still encode it as [].
+  const toolNames = Array.isArray(o.tool_names) ? o.tool_names : [];
+  if (!toolNames.every((s) => typeof s === "string")) return { failureMode: "wrong_shape" };
+  const seq = o.sequencing;
+  if (seq !== undefined && seq !== "sequential" && seq !== "parallel") {
+    return { failureMode: "wrong_enum" };
+  }
+  return {
+    parsed: {
+      intent: o.intent as ExpectedTurnRouting["intent"],
+      tool_names: toolNames as string[],
+      sequencing: seq as ExpectedTurnRouting["sequencing"],
+    },
+  };
+}
 
 type CandidateModelRef = {
   /** Display name in report */

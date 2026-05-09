@@ -30,6 +30,8 @@ const TEMPLATES: Record<TemplateKey, string> = {
   "read:failure": "Не получилось прочитать {path}: {error}",
   "image_generate:success": "Сгенерировал: {url}",
   "image_generate:failure": "Не получилось сгенерировать: {error}",
+  "pdf:success": "Сгенерировал PDF «{title}»: {url}",
+  "pdf:failure": "Не получилось создать PDF «{title}»: {error}",
   "web_search:success": "Найдено по запросу «{query}»:\n\n{results}",
   "web_search:failure": "Поиск не удался: {error}",
   "web_fetch:success": "Содержимое {url}:\n\n{content}",

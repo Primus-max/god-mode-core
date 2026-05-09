@@ -19,6 +19,7 @@ export const TOOL_NAMES = [
   "edit",
   "read",
   "image_generate",
+  "pdf",
   "web_search",
   "web_fetch",
   "sessions_send",

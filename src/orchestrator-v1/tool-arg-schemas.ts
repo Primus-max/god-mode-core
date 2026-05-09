@@ -36,6 +36,12 @@ const ImageGenerateArgsSchema = z.object({
   style: z.string().optional(),
 });
 
+const PdfArgsSchema = z.object({
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  images: z.array(z.string().min(1)).optional(),
+});
+
 const WebSearchArgsSchema = z.object({
   query: z.string().min(1),
   max_results: z.number().int().positive().optional(),
@@ -72,6 +78,7 @@ export const TOOL_ARG_SCHEMAS = {
   edit: EditArgsSchema,
   read: ReadArgsSchema,
   image_generate: ImageGenerateArgsSchema,
+  pdf: PdfArgsSchema,
   web_search: WebSearchArgsSchema,
   web_fetch: WebFetchArgsSchema,
   sessions_send: SessionsSendArgsSchema,
@@ -91,6 +98,8 @@ export const TOOL_ARG_DESCRIPTIONS: Record<ToolName, string> = {
   read: "Прочитать файл. Поля: path (string).",
   image_generate:
     "Сгенерировать изображение. Поля: prompt (string, описание); size (опц., например '1024x1024'); style (опц.).",
+  pdf:
+    "Сгенерировать PDF-документ. Поля: title (string, заголовок документа); summary (string, краткое содержание / основной текст); images (опц., массив текстовых описаний инфографики/иллюстраций для встраивания).",
   web_search:
     "Поиск в интернете. Поля: query (string); max_results (опц., целое число > 0).",
   web_fetch: "Скачать страницу. Поля: url (валидный URL).",
