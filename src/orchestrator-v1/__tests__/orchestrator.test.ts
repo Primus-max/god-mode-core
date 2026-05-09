@@ -20,15 +20,38 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * Spy receptacle for `resolveModelAsync` calls. Reset per test by
+ * `mockPiAi`. Used by the regression test that the orchestrator forwards
+ * cfg+agentDir down to model resolution (the S9 live-verify bug:
+ * "классификатор не загружен" was fired because cfg/agentDir defaulted
+ * to a global config without the hydra provider entries).
+ */
+const RESOLVE_MODEL_CALLS: Array<{
+  provider: string;
+  modelId: string;
+  agentDir: string | undefined;
+  cfg: unknown;
+}> = [];
+
 /** Mock the pi-ai layer to script Stage-A/Stage-B responses in order. */
 function mockPiAi(scriptedResponses: string[]): void {
   let i = 0;
+  RESOLVE_MODEL_CALLS.length = 0;
   vi.doMock("../../agents/pi-embedded-runner/model.js", () => ({
-    resolveModelAsync: async () => ({
-      model: { id: "fake", api: "openai-completions", baseUrl: "" } as never,
-      modelRegistry: {},
-      authStorage: {},
-    }),
+    resolveModelAsync: async (
+      provider: string,
+      modelId: string,
+      agentDir: string | undefined,
+      cfg: unknown,
+    ) => {
+      RESOLVE_MODEL_CALLS.push({ provider, modelId, agentDir, cfg });
+      return {
+        model: { id: "fake", api: "openai-completions", baseUrl: "" } as never,
+        modelRegistry: {},
+        authStorage: {},
+      };
+    },
   }));
   vi.doMock("../../agents/simple-completion-transport.js", () => ({
     prepareModelForSimpleCompletion: ({ model }: { model: unknown }) => model,
@@ -182,5 +205,35 @@ describe("V1-CONTRACT-ONLY orchestrator — end-to-end (mocked transport)", () =
       "start:msg2",
       "end:msg2",
     ]);
+  });
+
+  it("threads inputs.cfg and inputs.agentDir down to resolveModelAsync (S9 live-verify regression)", async () => {
+    // Real symptom: in live Telegram, Stage A failed with "классификатор
+    // не загружен" because the orchestrator entry never forwarded cfg /
+    // agentDir to classifyTurn → resolveModelAsync, so the model lookup
+    // fell back to a globally-loaded config without the hydra provider.
+    // This test fires Stage A AND Stage B (tool_calls path) so both
+    // classifier callsites are exercised — if either is silently
+    // dropping cfg/agentDir, the assertion fails.
+    mockPiAi([
+      '{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}',
+      '{"path":"/x","content":"y"}',
+    ]);
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    const fakeCfg = { agents: { default: {} } } as never;
+    const fakeAgentDir = "/fake/agent/dir";
+    await runOrchestratorTurn({
+      userMessage: "сохрани y в /x",
+      chatKey: "chat-deps",
+      runTool: async () => ({ ok: true as const, output: { path: "/x" } }),
+      runConversationLLM: async () => "must not call",
+      cfg: fakeCfg,
+      agentDir: fakeAgentDir,
+    });
+    expect(RESOLVE_MODEL_CALLS.length).toBeGreaterThanOrEqual(2);
+    for (const call of RESOLVE_MODEL_CALLS) {
+      expect(call.agentDir).toBe(fakeAgentDir);
+      expect(call.cfg).toBe(fakeCfg);
+    }
   });
 });

@@ -21,6 +21,7 @@
  *   `CONVERSATION_SYSTEM_PROMPT_GUARD` for the production wiring.
  */
 
+import type { OpenClawConfig } from "../config/config.js";
 import { withChatLock } from "./chat-lock.js";
 import { classifyTurn, type ClassifyTurnResult, type StageAModelRef } from "./classifier-stage-a.js";
 import { extractToolArgs } from "./classifier-stage-b.js";
@@ -59,6 +60,22 @@ export type RunOrchestratorTurnInputs = {
   runConversationLLM: RunConversationLLMFn;
   /** Optional Stage-A/B model override (default: hydra/gpt-5-mini). */
   classifierModel?: StageAModelRef;
+  /**
+   * OpenClaw config for classifier model resolution. When omitted,
+   * classifier falls back to a globally-loaded config which may not
+   * have the agent-scoped provider entries (the bug seen in S9 live-
+   * verify: `hydra/gpt-5-mini` resolvable in agent context but not in
+   * orphan global config). Caller (Telegram dispatch / inbound-reply
+   * dispatch) MUST pass the same `cfg` it uses for everything else.
+   */
+  cfg?: OpenClawConfig;
+  /**
+   * Agent directory for resolving agent-scoped model providers.
+   * Same rationale as `cfg` — the gateway has it; threading it through
+   * here keeps the classifier looking at the same provider table the
+   * legacy task-classifier uses.
+   */
+  agentDir?: string;
 };
 
 export type RunOrchestratorTurnResult = {
@@ -86,6 +103,8 @@ async function buildContractFromRouting(
     | { intent: "refuse"; refusal_reason: string },
   userMessage: string,
   classifierModel?: StageAModelRef,
+  cfg?: OpenClawConfig,
+  agentDir?: string,
 ): Promise<TurnContract> {
   if (routing.intent === "conversation") {
     return conversationContract();
@@ -97,7 +116,7 @@ async function buildContractFromRouting(
   const actions: TurnAction[] = [];
   const failures: { tool: ToolName; reason: string }[] = [];
   for (const tool of routing.tool_names) {
-    const r = await extractToolArgs(tool, userMessage, { model: classifierModel });
+    const r = await extractToolArgs(tool, userMessage, { model: classifierModel, cfg, agentDir });
     if (r.action) {
       actions.push(r.action);
     } else {
@@ -132,12 +151,18 @@ export async function runOrchestratorTurn(
 ): Promise<RunOrchestratorTurnResult> {
   return withChatLock(inputs.chatKey, async () => {
     // Stage A
-    const stageA = await classifyTurn(inputs.userMessage, { model: inputs.classifierModel });
+    const stageA = await classifyTurn(inputs.userMessage, {
+      model: inputs.classifierModel,
+      cfg: inputs.cfg,
+      agentDir: inputs.agentDir,
+    });
     // Stage B (only matters for tool_calls)
     const contract = await buildContractFromRouting(
       stageA.routing,
       inputs.userMessage,
       inputs.classifierModel,
+      inputs.cfg,
+      inputs.agentDir,
     );
     // Dispatcher
     const dispatch = await dispatchTurn({
