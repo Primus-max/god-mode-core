@@ -39,6 +39,30 @@ import {
   type RunConversationLLMFn,
   type RunToolFn,
 } from "./dispatcher.js";
+import { describeToolField } from "./tool-arg-schemas.js";
+
+/**
+ * Render a single Stage-B failure into refuse-text.
+ *
+ * For `missing_field` we substitute the raw field name with a human-
+ * readable Russian label (per-tool table in `tool-arg-schemas.ts`),
+ * so users see "не хватает: путь к файлу (write)" instead of the
+ * internal "write (missing_field: path)". Other Stage-B error kinds
+ * (`non_json`, `wrong_shape`, `exception`, `timeout`,
+ * `model_unresolved`) are infra failures the user can't action — keep
+ * the raw kind+detail so logs/diagnostics still surface.
+ */
+function renderStageBFailure(failure: {
+  tool: ToolName;
+  kind: string;
+  detail: string;
+}): string {
+  if (failure.kind === "missing_field") {
+    const label = describeToolField(failure.tool, failure.detail);
+    return `не хватает: ${label} (${failure.tool})`;
+  }
+  return `${failure.tool} (${failure.kind}${failure.detail ? `: ${failure.detail}` : ""})`;
+}
 
 /** Suggested system-prompt addendum for the conversation LLM. */
 export const CONVERSATION_SYSTEM_PROMPT_GUARD = `Ты не можешь использовать инструменты. Это значит, что ты не способен выполнять действия — не записывать файлы, не отправлять сообщения, не создавать воркеров, не запускать команды.
@@ -114,7 +138,7 @@ async function buildContractFromRouting(
   }
   // tool_calls: run Stage-B per tool
   const actions: TurnAction[] = [];
-  const failures: { tool: ToolName; reason: string }[] = [];
+  const failures: { tool: ToolName; kind: string; detail: string }[] = [];
   for (const tool of routing.tool_names) {
     const r = await extractToolArgs(tool, userMessage, { model: classifierModel, cfg, agentDir });
     if (r.action) {
@@ -122,18 +146,19 @@ async function buildContractFromRouting(
     } else {
       failures.push({
         tool,
-        reason: `${r.error?.kind ?? "unknown"}${r.error?.detail ? `: ${r.error.detail}` : ""}`,
+        kind: r.error?.kind ?? "unknown",
+        detail: r.error?.detail ?? "",
       });
     }
   }
   if (actions.length === 0) {
-    const reasonList = failures.map((f) => `${f.tool} (${f.reason})`).join("; ");
+    const reasonList = failures.map(renderStageBFailure).join("; ");
     return refuseContract(`не удалось извлечь аргументы для инструментов: ${reasonList}`);
   }
   if (routing.sequencing === "sequential" && failures.length > 0) {
     // Sequential semantics — if any link in the chain fails to extract args,
     // refuse the whole turn rather than partial-execute.
-    const reasonList = failures.map((f) => `${f.tool} (${f.reason})`).join("; ");
+    const reasonList = failures.map(renderStageBFailure).join("; ");
     return refuseContract(`не удалось извлечь аргументы для шага: ${reasonList}`);
   }
   return toolCallsContract(actions, routing.sequencing);
