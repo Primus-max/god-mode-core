@@ -45,7 +45,7 @@ import {
 } from "../platform/commitment/persistent-worker-report-observer.js";
 import type { PersistentWorkerPushDispatchPayload } from "../platform/persistent-worker/persistent-worker-push-runtime-adapter.js";
 import { asIdentityId } from "../platform/identity/identity-id.js";
-import type { ChannelId, SessionId } from "../platform/commitment/ids.js";
+import type { ChannelId, SessionId } from "../platform/identity/branded-ids.js";
 
 const VLADIMIR = asIdentityId("identity:vladimir");
 const TELEGRAM = "telegram" as ChannelId;

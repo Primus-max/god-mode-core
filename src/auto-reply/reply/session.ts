@@ -34,7 +34,7 @@ import { resolveConversationIdFromTargets } from "../../infra/outbound/conversat
 import { deliverSessionMaintenanceWarning } from "../../infra/session-maintenance-warning.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { normalizeMainKey } from "../../routing/session-key.js";
-import type { SessionId } from "../../platform/commitment/ids.js";
+import type { SessionId } from "../../platform/identity/branded-ids.js";
 import {
   resetTurnSession,
   type SessionResetEvent,

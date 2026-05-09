@@ -19,7 +19,7 @@ import {
   setProcessArtifactWorldStateCollectorForTests,
   type ArtifactWorldStateCollector,
 } from "../platform/commitment/artifact-world-state-observer.js";
-import type { SessionId } from "../platform/commitment/ids.js";
+import type { SessionId } from "../platform/identity/branded-ids.js";
 
 import { createApplyPatchTool } from "./apply-patch.js";
 import { setAmbientArtifactTurn } from "./pi-embedded-runner/run/artifact-ambient-turn.js";

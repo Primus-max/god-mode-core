@@ -29,7 +29,7 @@ import {
 } from "./persistent-worker-push-bootstrap.js";
 import type { PersistentWorkerPushDispatchPayload } from "../platform/persistent-worker/persistent-worker-push-runtime-adapter.js";
 import { asIdentityId } from "../platform/identity/identity-id.js";
-import type { ChannelId } from "../platform/commitment/ids.js";
+import type { ChannelId } from "../platform/identity/branded-ids.js";
 
 const VLADIMIR = asIdentityId("identity:vladimir");
 const TELEGRAM = "telegram" as ChannelId;

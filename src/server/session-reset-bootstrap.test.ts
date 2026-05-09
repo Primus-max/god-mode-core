@@ -6,7 +6,7 @@ import {
   setSessionResetActiveCfg,
 } from "./session-reset-bootstrap.js";
 import type { OpenClawConfig } from "../config/config.js";
-import type { SessionId } from "../platform/commitment/ids.js";
+import type { SessionId } from "../platform/identity/branded-ids.js";
 import type { SessionResetEvent } from "../platform/session/reset.js";
 
 /**

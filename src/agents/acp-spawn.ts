@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { AgentId, SessionKey } from "../platform/commitment/ids.js";
+import type { AgentId, SessionKey } from "../platform/identity/branded-ids.js";
 import { getAcpSessionManager } from "../acp/control-plane/manager.js";
 import {
   cleanupFailedAcpSpawn,

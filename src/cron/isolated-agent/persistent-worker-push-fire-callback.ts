@@ -57,7 +57,7 @@
  *    `reminderStore` injection).
  */
 
-import type { ChannelId, SessionId } from "../../platform/commitment/ids.js";
+import type { ChannelId, SessionId } from "../../platform/identity/branded-ids.js";
 import {
   isIdentityId,
   type IdentityId,
