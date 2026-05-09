@@ -51,7 +51,22 @@ export type DiagnoseTurnResult = {
   latencyMs: number;
 };
 
-async function callConversationLLM(
+/**
+ * Tool-less conversation LLM call shared between the diagnostic path and
+ * the S9 production cutover. Wires `completeSimple` with the
+ * `CONVERSATION_SYSTEM_PROMPT_GUARD` injected as a system-prompt addendum
+ * so the LLM physically cannot make tool calls (no tools wired) and is
+ * forbidden from claiming first-person past-tense actions in text.
+ *
+ * Exported because the S9 Telegram cutover (`extensions/telegram`) needs
+ * an `runConversationLLM: RunConversationLLMFn` callback to pass into
+ * `runOrchestratorTurn`. Re-implementing the same simple-completion
+ * scaffolding inline at the call site would duplicate apiKey resolution,
+ * abort/timeout handling, and text-block extraction. Exporting one
+ * canonical implementation keeps the conversation-path behaviour
+ * identical across diagnostic mode and live mode.
+ */
+export async function callConversationLLM(
   userMessage: string,
   modelRef: StageAModelRef,
   deps: DiagnoseTurnDeps,

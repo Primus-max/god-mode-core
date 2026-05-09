@@ -30,7 +30,18 @@ import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-pay
 import { resolveChunkMode } from "openclaw/plugin-sdk/reply-runtime";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { resolveAutoTopicLabelConfig, generateTopicLabel } from "openclaw/plugin-sdk/reply-runtime";
-import { diagnoseTurn } from "openclaw/plugin-sdk/orchestrator-v1";
+import {
+  buildRunToolFromRegistry,
+  callConversationLLM,
+  CONVERSATION_SYSTEM_PROMPT_GUARD,
+  DEFAULT_STAGE_A_MODEL,
+  diagnoseTurn,
+  runOrchestratorTurn,
+  type CreatePersistentWorkerFn,
+  type RunConversationLLMFn,
+  type ScheduleCronFn,
+  type SessionsSendFn,
+} from "openclaw/plugin-sdk/orchestrator-v1";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { defaultTelegramBotDeps, type TelegramBotDeps } from "./bot-deps.js";
@@ -146,6 +157,183 @@ function resolveTelegramReasoningLevel(params: {
   return "off";
 }
 
+/**
+ * V1-CUTOVER S9 — Production short-circuit for the V1-CONTRACT-ONLY
+ * orchestrator. When `OPENCLAW_USE_V1_ORCHESTRATOR=1` is set, inbound
+ * Telegram messages route through `runOrchestratorTurn(...)` (Stage A
+ * classifier + Stage B arg extraction + dispatcher with the real
+ * tool-runner registry from S8) instead of the legacy reply pipeline.
+ *
+ * Returns:
+ *   - `false` when the env flag is unset OR the user message is empty,
+ *     so the caller falls through to the legacy flow.
+ *   - `true` when the orchestrator handled the turn (success OR caught
+ *     error → operator-visible fallback message). Caller must `return`
+ *     immediately to skip the legacy pipeline.
+ *
+ * Production wiring (per S9 acceptance):
+ *   - `runTool` = `buildRunToolFromRegistry(registryDeps)` from S8.
+ *     `registryDeps`:
+ *       - `send`: telegram `bot.api.sendMessage(channel, text)` for the
+ *         `sessions_send` tool. The `channel` argument is whatever the
+ *         classifier extracted as the destination chat id.
+ *       - `scheduling.scheduleCron` / `scheduling.createPersistentWorker`:
+ *         PLACEHOLDER (see code) — wires that surface real
+ *         CronService.add / persistent-worker bootstrap require gateway-
+ *         scoped handles which the bot module does not currently access.
+ *         Until that wiring lands the placeholder returns
+ *         `{ ok: false, error: "<tool> not yet wired in S9" }` so the
+ *         dispatcher renders a truthful failure rather than silently
+ *         no-op-ing. Operator follow-up tracked in PR body.
+ *
+ *   - `runConversationLLM` = `callConversationLLM(text, classifierModel,
+ *     { cfg, agentDir })` (re-uses the same simple-completion helper
+ *     diagnostic mode used). The `CONVERSATION_SYSTEM_PROMPT_GUARD` is
+ *     injected by `callConversationLLM` itself so the LLM physically
+ *     cannot run tools and is forbidden from claiming first-person
+ *     past-tense actions.
+ *
+ * Telemetry contract:
+ *   - `[orch-v1] turn started chatKey=<id> userMessageLen=<n>`
+ *   - `[orch-v1] turn completed contractIntent=<x> allOk=<bool> replyLen=<n>`
+ *
+ * Error safety: a thrown `runOrchestratorTurn` (which it is supposed to
+ * catch internally — defensive only) is logged via `runtime.error?.` and
+ * a generic Russian error message is sent to the originating chat. The
+ * helper never throws.
+ */
+export type ExecuteOrchestratorV1ShortCircuitArgs = {
+  /** Inbound user message text (already extracted from msg.text/caption). */
+  userText: string;
+  /** Originating Telegram chat id. */
+  chatId: number | string;
+  /** Optional thread/topic id for forum chats; `undefined` for plain DMs. */
+  threadSpec: { id?: number | undefined } | undefined;
+  /** grammY bot handle — used for outbound `sendMessage` calls. */
+  bot: Bot;
+  /** Loaded `OpenClawConfig` so the conversation LLM can resolve the model. */
+  cfg: OpenClawConfig;
+  /** Runtime env (logger sink). */
+  runtime: RuntimeEnv;
+  /** Optional agent dir for model auth resolution. */
+  agentDir?: string | undefined;
+};
+
+/**
+ * Test-only seam: lets a unit test inject stubs for the orchestrator-v1
+ * plugin-sdk surface without going through `vi.mock("openclaw/...")`,
+ * which is fragile when the dispatch module's top-level imports include
+ * many heavy peers. Production callers omit this parameter and the
+ * helper falls through to the real plugin-sdk imports.
+ */
+export type ExecuteOrchestratorV1ShortCircuitOverrides = {
+  runOrchestratorTurn?: typeof runOrchestratorTurn;
+  buildRunToolFromRegistry?: typeof buildRunToolFromRegistry;
+  callConversationLLM?: typeof callConversationLLM;
+};
+
+export async function executeOrchestratorV1ShortCircuit(
+  args: ExecuteOrchestratorV1ShortCircuitArgs,
+  overrides: ExecuteOrchestratorV1ShortCircuitOverrides = {},
+): Promise<boolean> {
+  const runTurnImpl = overrides.runOrchestratorTurn ?? runOrchestratorTurn;
+  const buildRegistryImpl =
+    overrides.buildRunToolFromRegistry ?? buildRunToolFromRegistry;
+  const callLLMImpl = overrides.callConversationLLM ?? callConversationLLM;
+  if (process.env.OPENCLAW_USE_V1_ORCHESTRATOR !== "1") {
+    return false;
+  }
+  const userText = args.userText;
+  if (!userText || userText.trim().length === 0) {
+    return false;
+  }
+  const { bot, chatId, threadSpec, cfg, runtime, agentDir } = args;
+  const sendOpts =
+    threadSpec?.id !== undefined ? { message_thread_id: threadSpec.id } : undefined;
+
+  // Production binding: Telegram outbound for `sessions_send` tool.
+  // The tool's `channel` arg is the destination chat id (numeric string).
+  // grammY accepts string-or-number for chatId; we forward as-is so a
+  // misformatted id surfaces as a real Telegram API error rather than a
+  // silent no-op. Throw on failure so the runner reports `{ ok: false }`.
+  const send: SessionsSendFn = async (channel, text) => {
+    await bot.api.sendMessage(channel, text);
+  };
+
+  // Production binding placeholders for cron + persistent_worker_push.
+  // The real CronService and persistent-worker bootstrap live in the
+  // gateway scope (`src/gateway/server-cron.ts` and
+  // `src/server/persistent-worker-push-bootstrap.ts`); the bot module
+  // does not currently receive a handle to either. Returning a clear
+  // failure here is preferable to dragging in commitment-kernel deps
+  // (forbidden by V1-CUTOVER invariant #1) — the dispatcher renders a
+  // truthful failure template.
+  const scheduleCron: ScheduleCronFn = async () => {
+    throw new Error("cron not yet wired in S9 — operator follow-up");
+  };
+  const createPersistentWorker: CreatePersistentWorkerFn = async () => {
+    throw new Error(
+      "persistent_worker_push not yet wired in S9 — operator follow-up",
+    );
+  };
+
+  const runTool = buildRegistryImpl({
+    send,
+    scheduling: { scheduleCron, createPersistentWorker },
+  });
+
+  // Production binding: tool-less LLM. `callConversationLLM` injects
+  // CONVERSATION_SYSTEM_PROMPT_GUARD (re-export from orchestrator.ts) so
+  // the LLM cannot claim first-person past-tense actions. Reference here
+  // is intentional so the unused-import lint doesn't flag the symbol.
+  void CONVERSATION_SYSTEM_PROMPT_GUARD;
+  const runConversationLLM: RunConversationLLMFn = async (userMessage) => {
+    return callLLMImpl(userMessage, DEFAULT_STAGE_A_MODEL, {
+      cfg,
+      agentDir,
+    });
+  };
+
+  process.stderr.write(
+    `[orch-v1] turn started chatKey=telegram:${chatId} userMessageLen=${userText.length}\n`,
+  );
+  try {
+    const result = await runTurnImpl({
+      userMessage: userText,
+      chatKey: `telegram:${chatId}`,
+      runTool,
+      runConversationLLM,
+    });
+    process.stderr.write(
+      `[orch-v1] turn completed contractIntent=${result.contract.intent} allOk=${result.dispatch.allOk} replyLen=${result.reply.length}\n`,
+    );
+    try {
+      await bot.api.sendMessage(chatId, result.reply, sendOpts);
+    } catch (sendErr) {
+      runtime.error?.(
+        danger(
+          `[orch-v1] outbound sendMessage failed chatId=${chatId}: ${String(sendErr)}`,
+        ),
+      );
+    }
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[orch-v1] turn failed: ${message}\n`);
+    runtime.error?.(danger(`[orchestrator-v1] live cutover failed: ${message}`));
+    try {
+      await bot.api.sendMessage(
+        chatId,
+        `(orchestrator-v1 ошибка: ${message})`,
+        sendOpts,
+      );
+    } catch {
+      // Surface fallback failure but don't propagate.
+    }
+    return true;
+  }
+}
+
 export const dispatchTelegramMessage = async ({
   context,
   bot,
@@ -178,45 +366,30 @@ export const dispatchTelegramMessage = async ({
     statusReactionController,
   } = context;
 
-  // V1-CONTRACT-ONLY env-gated diagnostic short-circuit (Telegram path).
+  // V1-CUTOVER S9 — env-gated production short-circuit. When
+  // `OPENCLAW_USE_V1_ORCHESTRATOR=1` is set, route inbound through the
+  // orchestrator-v1 pipeline (Stage A + Stage B + dispatcher + real
+  // tool-runner registry from S8) and skip the legacy reply pipeline.
+  // Legacy flow remains the default when the flag is unset, so a
+  // restart without the env var rolls cutover back without code changes.
+  // Note: the previous diagnostic helper (`diagnoseTurn`) is kept in
+  // imports for the post-Phase-2 cleanup slice — DO NOT delete it
+  // before live-verify confirms the cutover.
+  void diagnoseTurn;
   if (process.env.OPENCLAW_USE_V1_ORCHESTRATOR === "1") {
     const userText =
       (msg as { text?: string }).text ?? (msg as { caption?: string }).caption ?? "";
-    process.stderr.write(
-      `[orch-v1-debug] tg dispatch entry chatId=${chatId} userTextLen=${userText.length}\n`,
-    );
-    if (userText.trim().length > 0) {
-      try {
-        const result = await diagnoseTurn(userText, { cfg });
-        process.stderr.write(
-          `[orch-v1-debug] tg diagnoseTurn returned intent=${result.routing.intent} replyLen=${result.reply.length} latency=${result.latencyMs}ms\n`,
-        );
-        await bot.api.sendMessage(
-          chatId,
-          result.reply,
-          threadSpec?.id !== undefined
-            ? { message_thread_id: threadSpec.id }
-            : undefined,
-        );
-        return;
-      } catch (err) {
-        process.stderr.write(`[orch-v1-debug] tg short-circuit failed: ${(err as Error).message}\n`);
-        runtime.error?.(
-          danger(`[orchestrator-v1] tg short-circuit failed: ${String(err)}`),
-        );
-        try {
-          await bot.api.sendMessage(
-            chatId,
-            `(orchestrator-v1 ошибка: ${(err as Error).message})`,
-            threadSpec?.id !== undefined
-              ? { message_thread_id: threadSpec.id }
-              : undefined,
-          );
-        } catch {
-          // Surface fallback failure but don't propagate.
-        }
-        return;
-      }
+    const handled = await executeOrchestratorV1ShortCircuit({
+      userText,
+      chatId,
+      threadSpec,
+      bot,
+      cfg,
+      runtime,
+      agentDir: resolveAgentDir(cfg, route.agentId),
+    });
+    if (handled) {
+      return;
     }
   }
 
