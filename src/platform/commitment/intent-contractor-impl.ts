@@ -60,45 +60,16 @@ export const MEMORY_RECALL_FAILED_UNCERTAINTY = "memory_recall_failed";
  */
 export const TASK_RECALL_FAILED_UNCERTAINTY = "task_recall_failed";
 
-/**
- * Cutover-3 Phase 6 — closed-shape attachment kind enumeration. The
- * resolver-supplied attachment surface stays narrow; widening this
- * union requires explicit master-plan amendment so the contractor
- * never grows a textual classification surface (invariant #5).
- */
-export type InboundMediaAttachmentKind = "image" | "pdf" | "docx" | "other";
-
-/**
- * Cutover-3 Phase 6 — single inbound attachment descriptor surfaced to
- * the IntentContractor through the optional `inboundMediaResolver`
- * seam. STRUCTURAL metadata only (path + MIME type + closed `kind`
- * enumeration). Per invariants #5/#6 the resolver MUST NOT route raw
- * user text through this surface — the contractor stays the ONLY
- * sanctioned reader of `RawUserTurn` text.
- *
- * `sourceTurnId` is optional and propagates the upstream turn id when
- * the producer (gateway / agent-command) tracks it; predicates and
- * downstream observers can JOIN on this id without re-reading the
- * raw text.
- */
-export type InboundMediaAttachment = {
-  readonly path: string;
-  readonly mimeType: string;
-  readonly kind: InboundMediaAttachmentKind;
-  readonly sourceTurnId?: string;
-};
-
-/**
- * Cutover-3 Phase 6 — closed-shape summary of inbound media for the
- * current turn. Returned by the optional `inboundMediaResolver`
- * supplied to `createIntentContractor(...)`. When the resolver is
- * absent OR returns `undefined` OR returns an empty `attachments`
- * array, the `<inbound_attachments>` block is elided (zero whitespace
- * pollution). Mirrors the `<memory>` recall pattern from slice E P6.
- */
-export type InboundMediaSummary = {
-  readonly attachments: readonly InboundMediaAttachment[];
-};
+// SUPERSEDED: lives at src/platform/inbound-media/types.ts.
+// Re-exported here for source-compat during the kernel-delete migration
+// (S11b prep, mirroring S11a branded-id pattern). Delete this re-export
+// when S11b lands.
+export type {
+  InboundMediaAttachment,
+  InboundMediaAttachmentKind,
+  InboundMediaSummary,
+} from "../inbound-media/types.js";
+import type { InboundMediaSummary } from "../inbound-media/types.js";
 
 /**
  * Active-task statuses surfaced to the contractor recall (sub-plan §6).

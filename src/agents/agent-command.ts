@@ -46,7 +46,7 @@ import {
 } from "../infra/agent-events.js";
 import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
-import type { InboundMediaSummary } from "../platform/commitment/index.js";
+import type { InboundMediaSummary } from "../platform/inbound-media/types.js";
 import {
   buildExecutionDecisionInput,
   buildClassifiedExecutionDecisionInput,

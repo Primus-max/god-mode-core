@@ -2,7 +2,7 @@ import type { ImageContent } from "@mariozechner/pi-ai";
 import type { ReasoningLevel, ThinkLevel, VerboseLevel } from "../../../auto-reply/thinking.js";
 import type { ReplyPayload } from "../../../auto-reply/types.js";
 import type { OpenClawConfig } from "../../../config/config.js";
-import type { InboundMediaSummary } from "../../../platform/commitment/index.js";
+import type { InboundMediaSummary } from "../../../platform/inbound-media/types.js";
 import type { RecipeRuntimePlan } from "../../../platform/recipe/runtime-adapter.js";
 import type { ensureOpenClawModelsJson } from "../../models-config.js";
 import type { prepareProviderRuntimeAuth } from "../../../plugins/provider-runtime.js";

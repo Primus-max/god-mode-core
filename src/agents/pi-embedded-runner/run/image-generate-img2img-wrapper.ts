@@ -42,7 +42,7 @@ import {
   resolveInboundImageReferencePrecondition,
   type InboundImageReferencePreconditionValue,
 } from "../../../platform/commitment/inbound-image-reference-precondition-resolver.js";
-import type { InboundMediaSummary } from "../../../platform/commitment/index.js";
+import type { InboundMediaSummary } from "../../../platform/inbound-media/types.js";
 import {
   injectInboundImageReferenceIntoToolArgs,
   type ImageGenerateToolArgs,
