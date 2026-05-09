@@ -46,19 +46,19 @@ import {
 } from "../infra/agent-events.js";
 import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
+import type { InboundMediaSummary } from "../platform/commitment/index.js";
 import {
   buildExecutionDecisionInput,
   buildClassifiedExecutionDecisionInput,
   buildSessionBackedExecutionDecisionInput,
   shouldUseLightweightBootstrapContext,
 } from "../platform/decision/input.js";
-import type { InboundMediaSummary } from "../platform/commitment/index.js";
+import type { TaskClassifierAdapter } from "../platform/decision/task-classifier.js";
 import {
   filterWebSearchFromTools,
   hasWebSearchSignal,
   maybeFetchWebEvidence,
 } from "../platform/decision/web-evidence-prefetch.js";
-import type { TaskClassifierAdapter } from "../platform/decision/task-classifier.js";
 import { applySessionSpecialistOverrideToPlannerInput } from "../platform/profile/session-overrides.js";
 import {
   resolvePlatformRuntimePlan,
@@ -67,13 +67,14 @@ import {
 } from "../platform/recipe/runtime-adapter.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
+import type { InputProvenance } from "../sessions/input-provenance.js";
 import { applyVerboseOverride } from "../sessions/level-overrides.js";
 import { applyModelOverrideToSessionEntry } from "../sessions/model-overrides.js";
-import type { InputProvenance } from "../sessions/input-provenance.js";
 import { resolveSendPolicy } from "../sessions/send-policy.js";
 import { emitSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { sanitizeForLog } from "../terminal/ansi.js";
 import { resolveMessageChannel } from "../utils/message-channel.js";
+import { executeOrchestratorV1AgentCommandShortCircuit } from "./agent-command-orchestrator-v1.js";
 import {
   listAgentIds,
   resolveAgentDir,
@@ -472,9 +473,7 @@ function sanitizeInboundAttachmentFileName(fileName: string, index: number): str
  * @param mimeType - Document MIME type as supplied by the caller.
  * @returns Closed-shape `InboundMediaAttachmentKind`.
  */
-function inferInboundAttachmentKind(
-  mimeType: string,
-): "image" | "pdf" | "docx" | "other" {
+function inferInboundAttachmentKind(mimeType: string): "image" | "pdf" | "docx" | "other" {
   const normalized = mimeType.trim().toLowerCase();
   if (normalized.startsWith("image/")) {
     return "image";
@@ -482,10 +481,7 @@ function inferInboundAttachmentKind(
   if (normalized === "application/pdf") {
     return "pdf";
   }
-  if (
-    normalized ===
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  ) {
+  if (normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
     return "docx";
   }
   return "other";
@@ -810,9 +806,7 @@ export async function buildClassifiedPlatformPlannerInput(params: {
     adapterRegistry: params.adapterRegistry,
     ...(params.inputProvenance ? { inputProvenance: params.inputProvenance } : {}),
     ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
-    ...(params.inboundMediaResolver
-      ? { inboundMediaResolver: params.inboundMediaResolver }
-      : {}),
+    ...(params.inboundMediaResolver ? { inboundMediaResolver: params.inboundMediaResolver } : {}),
   });
 }
 
@@ -2167,6 +2161,21 @@ export async function agentCommandFromIngress(
   }
   if (typeof opts.allowModelOverride !== "boolean") {
     throw new Error("allowModelOverride must be explicitly set for ingress agent runs.");
+  }
+  // V1-CUTOVER S9.5 — env-gated production short-circuit. Mirrors S9
+  // (Telegram) + S10 (plugin-sdk inbound-reply-dispatch) but at the
+  // single `agentCommandFromIngress` entry that the four remaining
+  // direct callers (gateway JSON-RPC `agent` method, server-node-events
+  // node spawn events, Discord voice ingestion, ACPx control-plane)
+  // share. When `OPENCLAW_USE_V1_ORCHESTRATOR=1` is set, route through
+  // orchestrator-v1 (Stage A + Stage B + dispatcher + S8 tool-runner
+  // registry) and synthesise the legacy `{ payloads, meta }` return
+  // shape so callers do not need to change. Legacy flow remains the
+  // default when the env var is unset, so a restart without the flag
+  // rolls cutover back without code changes.
+  const orchestratorOutcome = await executeOrchestratorV1AgentCommandShortCircuit(opts);
+  if (orchestratorOutcome.handled) {
+    return orchestratorOutcome.result;
   }
   return await agentCommandInternal(
     {
