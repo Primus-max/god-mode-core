@@ -122,7 +122,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import type { TypingMode } from "../../config/types.js";
 import type { TemplateContext } from "../templating.js";
-import type { GetReplyOptions, ReplyPayload } from "../types.js";
+import type { GetReplyOptions } from "../types.js";
 import type { FollowupRun, QueueSettings } from "./queue.js";
 import { createMockTypingController } from "./test-helpers.js";
 
@@ -360,15 +360,6 @@ async function bindRuntimeLogCapture(): Promise<{
       (runtime.defaultRuntime as unknown as { log: typeof originalLog }).log = originalLog;
     },
   };
-}
-
-function flattenReplyValue(
-  value: ReplyPayload | ReplyPayload[] | undefined,
-): ReplyPayload[] {
-  if (value === undefined) {
-    return [];
-  }
-  return Array.isArray(value) ? value : [value];
 }
 
 // ============================================================================
@@ -703,38 +694,15 @@ describe("agent-runner — V1-CLOSE T2 hot-path integration (kernel deps reach c
   });
 
   // ------------------------------------------------------------------------
-  // INT-C — post-LLM mirror predicate (kernel dep #3: monitoredRuntime
-  // surrogate per charter §2 "two brains")
+  // INT-C / REG-4 — post-LLM mirror predicate REMOVED.
+  // V1-CUTOVER S12-narrow (2026-05-09): the post-LLM commitment
+  // evaluator was deleted. Orchestrator-v1 (`OPENCLAW_USE_V1_ORCHESTRATOR=1`)
+  // is the canonical reply path; its dispatcher renders replies from
+  // `reply-templates.ts` against real tool-runner output, so the
+  // false-«Готово» symptom (turn `78ff2b60`) cannot recur on the v1
+  // path by construction. The legacy path (env flag off) loses the
+  // post-LLM gate as documented in V1-CUTOVER plan Phase 3.
   // ------------------------------------------------------------------------
-  it("INT-C: post-LLM `[commitment-predicate] kind=repo_operation_completed` fires when bundle=repo_mutation has zero artifactIds", async () => {
-    await bindBrokerWithCapturedLogger();
-    const { run } = buildRun({ toolBundles: ["repo_mutation"] });
-
-    const reply = await run();
-    const payloads = flattenReplyValue(reply);
-
-    // The post-LLM evaluator suppressed the false-«Готово» and
-    // substituted the structured cannot_complete copy. That substitution
-    // is the user-visible side effect of the predicate firing.
-    const finalText = payloads[payloads.length - 1]?.text ?? "";
-    expect(finalText).not.toContain("Готово");
-    expect(finalText).toContain("Не могу подтвердить выполнение правки");
-
-    // Telemetry: the predicate evaluation emitted its structured line.
-    const predicateLines = (runtimeLog?.entries ?? [])
-      .map((entry) => entry.message)
-      .filter((message) => message.startsWith("[commitment-predicate]"));
-    expect(
-      predicateLines.some(
-        (line) =>
-          line.includes("kind=repo_operation_completed") &&
-          line.includes("result=unsatisfied"),
-      ),
-      `kernel dep #3 did not fire end-to-end: expected \`[commitment-predicate] kind=repo_operation_completed result=unsatisfied\`; saw ${
-        predicateLines.length === 0 ? "no [commitment-predicate] lines" : predicateLines.join(" | ")
-      }`,
-    ).toBe(true);
-  });
 
   // ------------------------------------------------------------------------
   // INT-D — memoryRuntime resolved + recall observable (kernel dep #4)
@@ -857,35 +825,5 @@ describe("agent-runner — V1-CLOSE T2 hot-path integration (kernel deps reach c
     ).toBe(false);
   });
 
-  // ------------------------------------------------------------------------
-  // REG-4 — synthetic regression: predicate dispatch skipped (bundle missing)
-  // ------------------------------------------------------------------------
-  it("REG-4: when toolBundles does NOT include `repo_mutation`, `[commitment-predicate] result=unsatisfied` never fires", async () => {
-    await bindBrokerWithCapturedLogger();
-    const { run } = buildRun({ toolBundles: [] });
-
-    await run();
-
-    const predicateLines = (runtimeLog?.entries ?? [])
-      .map((entry) => entry.message)
-      .filter((message) => message.startsWith("[commitment-predicate]"));
-    // The evaluator emits a `skipped reason=no_applicable_bundle`
-    // debug line in this case — that line is FINE (it's a structural
-    // skip on a non-applicable bundle, not a regression). What MUST
-    // NOT appear is the `result=unsatisfied` line that pinned INT-C —
-    // emitting it without an applicable bundle would be the regression.
-    expect(
-      predicateLines.some((line) => line.includes("result=unsatisfied")),
-      "REG-4: synthetic regression failed — predicate emitted result=unsatisfied for a turn with no repo_mutation bundle",
-    ).toBe(false);
-    // Positive shape of the skip: the evaluator DID run; it just
-    // dispatched to the no-op branch. This proves the evaluator is on
-    // the hot path even when the bundle skips it.
-    expect(
-      predicateLines.some((line) =>
-        line.includes("skipped reason=no_applicable_bundle"),
-      ),
-      "REG-4: predicate evaluator did not run on hot path — `skipped reason=no_applicable_bundle` line missing",
-    ).toBe(true);
-  });
+  // REG-4 removed alongside INT-C — see comment above.
 });
