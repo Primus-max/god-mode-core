@@ -348,3 +348,138 @@ describe("V1-CONTRACT-ONLY orchestrator — end-to-end (mocked transport)", () =
     }
   });
 });
+
+/**
+ * Attachment plumbing — `runOrchestratorTurn({ attachments })` must reach
+ * Stage A. Symptom this catches: 2026-05-10 12:52 turn (user attached two
+ * .docx templates, Stage A never saw them, picked image_generate / pdf
+ * from scratch). The wiring is "channel → orchestrator → classifyTurn →
+ * Stage A prompt"; this test pins the contract at the LLM transport so a
+ * future refactor that drops the parameter on any hop fails loudly.
+ */
+describe("V1-CONTRACT-ONLY orchestrator — attachment plumbing", () => {
+  it("attachments propagate from runOrchestratorTurn to the Stage-A LLM prompt", async () => {
+    let capturedPrompt = "";
+    vi.doMock("../../agents/pi-embedded-runner/model.js", () => ({
+      resolveModelAsync: async () => ({
+        model: { id: "fake", api: "openai-completions", baseUrl: "" } as never,
+        modelRegistry: {},
+        authStorage: {},
+      }),
+    }));
+    vi.doMock("../../agents/simple-completion-transport.js", () => ({
+      prepareModelForSimpleCompletion: ({ model }: { model: unknown }) => model,
+    }));
+    vi.doMock("../../agents/model-auth.js", () => ({
+      getApiKeyForModel: async () => "test-key",
+      requireApiKey: (k: string) => k,
+    }));
+    vi.doMock("../../config/config.js", () => ({ loadConfig: () => ({}) }));
+    vi.doMock("@mariozechner/pi-ai", () => ({
+      completeSimple: async (
+        _model: unknown,
+        req: { messages: Array<{ content: string }> },
+      ) => {
+        capturedPrompt = req.messages[0]!.content;
+        return {
+          content: [{ type: "text", text: '{"intent":"conversation"}' }],
+        };
+      },
+    }));
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    await runOrchestratorTurn({
+      userMessage: "вот шаблон, заполни его",
+      chatKey: "chat-att-1",
+      runTool: async () => ({ ok: true as const, output: {} }),
+      runConversationLLM: async () => "ok",
+      attachments: [
+        {
+          kind: "document",
+          filename: "Шаблон.docx",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        },
+      ],
+    });
+    expect(capturedPrompt).toContain("Пользователь приложил");
+    expect(capturedPrompt).toContain("Шаблон.docx");
+  });
+
+  it("no attachments → Stage-A prompt has no attachment block (bench-equivalence)", async () => {
+    let capturedPrompt = "";
+    vi.doMock("../../agents/pi-embedded-runner/model.js", () => ({
+      resolveModelAsync: async () => ({
+        model: { id: "fake", api: "openai-completions", baseUrl: "" } as never,
+        modelRegistry: {},
+        authStorage: {},
+      }),
+    }));
+    vi.doMock("../../agents/simple-completion-transport.js", () => ({
+      prepareModelForSimpleCompletion: ({ model }: { model: unknown }) => model,
+    }));
+    vi.doMock("../../agents/model-auth.js", () => ({
+      getApiKeyForModel: async () => "test-key",
+      requireApiKey: (k: string) => k,
+    }));
+    vi.doMock("../../config/config.js", () => ({ loadConfig: () => ({}) }));
+    vi.doMock("@mariozechner/pi-ai", () => ({
+      completeSimple: async (
+        _model: unknown,
+        req: { messages: Array<{ content: string }> },
+      ) => {
+        capturedPrompt = req.messages[0]!.content;
+        return {
+          content: [{ type: "text", text: '{"intent":"conversation"}' }],
+        };
+      },
+    }));
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    await runOrchestratorTurn({
+      userMessage: "привет",
+      chatKey: "chat-att-2",
+      runTool: async () => ({ ok: true as const, output: {} }),
+      runConversationLLM: async () => "ok",
+      // no attachments field
+    });
+    expect(capturedPrompt).not.toContain("Пользователь приложил");
+  });
+
+  it("empty attachments array is treated identically to no attachments", async () => {
+    let capturedPrompt = "";
+    vi.doMock("../../agents/pi-embedded-runner/model.js", () => ({
+      resolveModelAsync: async () => ({
+        model: { id: "fake", api: "openai-completions", baseUrl: "" } as never,
+        modelRegistry: {},
+        authStorage: {},
+      }),
+    }));
+    vi.doMock("../../agents/simple-completion-transport.js", () => ({
+      prepareModelForSimpleCompletion: ({ model }: { model: unknown }) => model,
+    }));
+    vi.doMock("../../agents/model-auth.js", () => ({
+      getApiKeyForModel: async () => "test-key",
+      requireApiKey: (k: string) => k,
+    }));
+    vi.doMock("../../config/config.js", () => ({ loadConfig: () => ({}) }));
+    vi.doMock("@mariozechner/pi-ai", () => ({
+      completeSimple: async (
+        _model: unknown,
+        req: { messages: Array<{ content: string }> },
+      ) => {
+        capturedPrompt = req.messages[0]!.content;
+        return {
+          content: [{ type: "text", text: '{"intent":"conversation"}' }],
+        };
+      },
+    }));
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    await runOrchestratorTurn({
+      userMessage: "привет",
+      chatKey: "chat-att-3",
+      runTool: async () => ({ ok: true as const, output: {} }),
+      runConversationLLM: async () => "ok",
+      attachments: [],
+    });
+    expect(capturedPrompt).not.toContain("Пользователь приложил");
+  });
+});

@@ -37,6 +37,7 @@ import {
   getProcessTurnStateStore,
   runOrchestratorTurn,
   type CreatePersistentWorkerFn,
+  type InboundAttachment,
   type RunConversationLLMFn,
   type ScheduleCronFn,
   type SessionsSendFn,
@@ -221,7 +222,130 @@ export type ExecuteOrchestratorV1ShortCircuitArgs = {
   runtime: RuntimeEnv;
   /** Optional agent dir for model auth resolution. */
   agentDir?: string | undefined;
+  /**
+   * Inbound attachments extracted from the Telegram envelope (document /
+   * photo / audio / video / voice / sticker). When the user pasted a
+   * Word template alongside the task description, the orchestrator-v1
+   * short-circuit used to silently drop those — this field surfaces
+   * them so Stage A can route correctly. Empty array (or omitted) when
+   * the message has none. Test seam: the Telegram dispatch site builds
+   * this list via `extractTelegramInboundAttachments`; tests can pass it
+   * verbatim without going through the full grammY message envelope.
+   */
+  attachments?: ReadonlyArray<InboundAttachment>;
 };
+
+/**
+ * Telegram message subset used for attachment extraction. We list every
+ * field we read instead of typing against grammY's `Message` so the
+ * extractor stays decoupled from grammY's Bot API version (and stays
+ * test-friendly — unit tests just hand-build literals).
+ */
+export type TelegramInboundMessage = {
+  document?: {
+    file_id?: string;
+    file_name?: string;
+    mime_type?: string;
+  };
+  photo?: ReadonlyArray<{ file_id?: string }>;
+  audio?: {
+    file_id?: string;
+    file_name?: string;
+    mime_type?: string;
+  };
+  video?: {
+    file_id?: string;
+    file_name?: string;
+    mime_type?: string;
+  };
+  voice?: {
+    file_id?: string;
+    mime_type?: string;
+  };
+  sticker?: {
+    file_id?: string;
+  };
+  caption?: string;
+};
+
+/**
+ * Map a grammY-style Telegram message into the channel-agnostic
+ * `InboundAttachment[]` the orchestrator consumes. Returns `[]` when the
+ * message has no attachments — that case round-trips into a Stage-A
+ * prompt that's byte-identical to the pre-attachment baseline.
+ *
+ * Telegram-specific notes:
+ *   - `photo` is an array of resized variants; we use the LAST entry
+ *     (highest resolution) as the canonical fileId per the existing
+ *     bot-handlers.media.ts convention.
+ *   - `voice`/`sticker` carry no filename; we leave it undefined rather
+ *     than synthesising a placeholder.
+ *   - The caller's `userText` already includes `msg.caption` (see
+ *     `dispatchTelegramMessage`), so the caption is also stamped onto
+ *     the first attachment for forensic traceability — Stage A does not
+ *     read it today but a future channel that separates caption from
+ *     body can rely on it.
+ */
+export function extractTelegramInboundAttachments(
+  msg: TelegramInboundMessage,
+): InboundAttachment[] {
+  const attachments: InboundAttachment[] = [];
+  const caption = typeof msg.caption === "string" && msg.caption.length > 0 ? msg.caption : undefined;
+  if (msg.document) {
+    attachments.push({
+      kind: "document",
+      filename: msg.document.file_name,
+      mimeType: msg.document.mime_type,
+      telegramFileId: msg.document.file_id,
+      captionFromUser: caption,
+    });
+  }
+  if (Array.isArray(msg.photo) && msg.photo.length > 0) {
+    // Telegram serves each photo at multiple resized variants; the last
+    // entry is the highest-resolution one (Bot API convention also used
+    // by bot-handlers.media.ts).
+    const largest = msg.photo[msg.photo.length - 1];
+    attachments.push({
+      kind: "photo",
+      telegramFileId: largest?.file_id,
+      captionFromUser: caption,
+    });
+  }
+  if (msg.audio) {
+    attachments.push({
+      kind: "audio",
+      filename: msg.audio.file_name,
+      mimeType: msg.audio.mime_type,
+      telegramFileId: msg.audio.file_id,
+      captionFromUser: caption,
+    });
+  }
+  if (msg.video) {
+    attachments.push({
+      kind: "video",
+      filename: msg.video.file_name,
+      mimeType: msg.video.mime_type,
+      telegramFileId: msg.video.file_id,
+      captionFromUser: caption,
+    });
+  }
+  if (msg.voice) {
+    attachments.push({
+      kind: "voice",
+      mimeType: msg.voice.mime_type,
+      telegramFileId: msg.voice.file_id,
+      captionFromUser: caption,
+    });
+  }
+  if (msg.sticker) {
+    attachments.push({
+      kind: "sticker",
+      telegramFileId: msg.sticker.file_id,
+      captionFromUser: caption,
+    });
+  }
+  return attachments;
+}
 
 /**
  * Test-only seam: lets a unit test inject stubs for the orchestrator-v1
@@ -439,6 +563,7 @@ export async function executeOrchestratorV1ShortCircuit(
       cfg,
       agentDir,
       turnState: turnStateStoreImpl(),
+      attachments: args.attachments,
     });
     process.stderr.write(
       `[orch-v1] turn completed contractIntent=${result.contract.intent} allOk=${result.dispatch.allOk} replyLen=${result.reply.length}\n`,
@@ -540,6 +665,12 @@ export const dispatchTelegramMessage = async ({
   void diagnoseTurn;
   if (process.env.OPENCLAW_USE_V1_ORCHESTRATOR === "1") {
     const userText = (msg as { text?: string }).text ?? (msg as { caption?: string }).caption ?? "";
+    // Extract inbound attachment metadata so Stage A can route correctly
+    // when the user pasted a file alongside the task. Without this the
+    // orchestrator-v1 short-circuit silently dropped attachments — see
+    // 2026-05-10 12:52 turn (user attached two .docx templates, Stage A
+    // routed to image_generate / pdf as if creating from scratch).
+    const attachments = extractTelegramInboundAttachments(msg as TelegramInboundMessage);
     const handled = await executeOrchestratorV1ShortCircuit({
       userText,
       chatId,
@@ -548,6 +679,7 @@ export const dispatchTelegramMessage = async ({
       cfg,
       runtime,
       agentDir: resolveAgentDir(cfg, route.agentId),
+      attachments,
     });
     if (handled) {
       return;

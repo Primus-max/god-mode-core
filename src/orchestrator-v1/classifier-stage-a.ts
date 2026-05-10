@@ -24,6 +24,7 @@ import { loadConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { logVerbose } from "../globals.js";
 import { StageARoutingSchema, TOOL_NAMES, type StageARouting } from "./contract.js";
+import type { InboundAttachment } from "./inbound-attachment.js";
 
 const STAGE_A_TIMEOUT_MS = 15_000;
 const STAGE_A_MAX_TOKENS = 200;
@@ -73,8 +74,46 @@ export const DEFAULT_STAGE_A_MODEL: StageAModelRef = {
   modelId: "gpt-5-mini",
 };
 
-/** Build the Stage-A system prompt (deterministic — no per-call template params yet). */
-export function buildStageAPrompt(): string {
+/**
+ * Render the optional "User attached files" block. Returns empty string
+ * when there are no attachments — keeping the no-attachment prompt
+ * BYTE-IDENTICAL to the pre-attachment baseline (so the bench fixtures
+ * still score 100/100 unchanged).
+ *
+ * The block tells the classifier the files are AVAILABLE — not freshly
+ * generated. This routes correctly when the user already provided e.g. a
+ * .docx template: image_generate / pdf should NOT be picked, because the
+ * inputs are already in the chat. Stage B remains attachment-blind for
+ * now — content extraction is a follow-up slice.
+ */
+function renderAttachmentsBlock(attachments: ReadonlyArray<InboundAttachment>): string {
+  if (attachments.length === 0) return "";
+  const lines = attachments.map((att) => {
+    const parts: string[] = [`- ${att.kind}`];
+    if (att.filename) parts.push(`name="${att.filename}"`);
+    if (att.mimeType) parts.push(`mime=${att.mimeType}`);
+    return parts.length === 1 ? `- ${att.kind} (без имени)` : parts.join(", ");
+  });
+  return `
+
+Пользователь приложил файлы (УЖЕ ПРИКРЕПЛЕНЫ к сообщению, доступны для использования):
+${lines.join("\n")}
+
+Когда файлы УЖЕ приложены пользователем, НЕ выбирай инструменты, которые СОЗДАЮТ файлы с нуля (image_generate, pdf, write нового документа из ничего) — они применимы только когда пользователь просит сгенерировать новый материал. Если пользователь хочет работать с приложенными файлами как с шаблоном/исходником/контекстом — это либо conversation (обсудить содержимое), либо tool_calls с read/web_search для дополнения. Если намерение неоднозначно — intent="refuse" и попроси уточнить.`;
+}
+
+/**
+ * Build the Stage-A system prompt.
+ *
+ * Without attachments → byte-identical to the pre-attachment baseline
+ * (preserves the bench's 100/100 on the 58 existing fixtures). With
+ * attachments → an extra block at the end describing what's already in
+ * the chat so the classifier doesn't pick generators when the inputs are
+ * already there.
+ */
+export function buildStageAPrompt(
+  attachments: ReadonlyArray<InboundAttachment> = [],
+): string {
   const toolMenu = TOOL_NAMES.map((tool) => `  - ${tool}: ${TOOL_DESCRIPTIONS[tool]}`).join("\n");
 
   return `Ты классификатор намерений. Твоя ЕДИНСТВЕННАЯ задача — посмотреть на сообщение пользователя и выдать СТРОГИЙ JSON в одном из трёх форматов:
@@ -99,7 +138,7 @@ ${toolMenu}
 - Если пользователь говорит "сделай это", "сохрани это", "отправь это" БЕЗ конкретного объекта в текущем сообщении — intent="refuse".
 - Не выдумывай инструменты вне списка. Если ни один не подходит — intent="refuse".
 - Не задавай уточняющих вопросов в JSON — это работа другого слоя. Просто классифицируй.
-- ОТВЕЧАЙ ТОЛЬКО JSON. Без markdown, без префиксов, без объяснений.
+- ОТВЕЧАЙ ТОЛЬКО JSON. Без markdown, без префиксов, без объяснений.${renderAttachmentsBlock(attachments)}
 
 Сообщение пользователя:`;
 }
@@ -123,6 +162,15 @@ export type ClassifyTurnDeps = {
   model?: StageAModelRef;
   /** Override agent dir. */
   agentDir?: string;
+  /**
+   * Attachments carried by the inbound user turn (Telegram document /
+   * photo / etc.). When empty/absent the Stage-A prompt is byte-identical
+   * to the no-attachment baseline (preserves bench accuracy on existing
+   * fixtures). When non-empty an extra block tells the classifier the
+   * files are already in the chat so it does not pick file-generator
+   * tools (image_generate / pdf / write-from-scratch).
+   */
+  attachments?: ReadonlyArray<InboundAttachment>;
 };
 
 export type ClassifyTurnResult = {
@@ -181,7 +229,7 @@ export async function classifyTurn(
         messages: [
           {
             role: "user",
-            content: `${buildStageAPrompt()}\n\n${userMessage}`,
+            content: `${buildStageAPrompt(deps.attachments ?? [])}\n\n${userMessage}`,
             timestamp: Date.now(),
           },
         ],

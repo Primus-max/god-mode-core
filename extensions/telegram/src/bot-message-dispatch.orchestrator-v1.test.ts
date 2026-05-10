@@ -939,3 +939,170 @@ describe("followup #19 — artifact upload (pdf / image_generate)", () => {
     expect(errorRuntime.error).toHaveBeenCalled();
   });
 });
+
+/**
+ * Inbound attachments — Telegram extraction + forwarding into orchestrator.
+ *
+ * Canonical symptom (real Telegram turn 2026-05-10 12:52): the user wrote
+ * a long task description AND attached two .docx templates. The previous
+ * `executeOrchestratorV1ShortCircuit` only forwarded `userText`; the
+ * attachment refs were silently dropped. Stage A then routed to
+ * image_generate / pdf as if creating files from scratch.
+ *
+ * The extractor `extractTelegramInboundAttachments` maps the grammY
+ * `Message` envelope into the channel-agnostic `InboundAttachment[]` and
+ * the dispatch-site forwards that into `runOrchestratorTurn({attachments})`.
+ *
+ * Tests below pin both: (a) the extractor's per-kind shape, and (b) the
+ * end-to-end forwarding contract (the orchestrator stub receives the
+ * extracted list verbatim).
+ */
+describe("inbound attachments — Telegram extraction + forwarding", () => {
+  it("extractTelegramInboundAttachments — empty message → []", async () => {
+    const { extractTelegramInboundAttachments } = await import("./bot-message-dispatch.js");
+    expect(extractTelegramInboundAttachments({})).toEqual([]);
+  });
+
+  it("extractTelegramInboundAttachments — document with file_name + mime_type → kind=document with full metadata", async () => {
+    const { extractTelegramInboundAttachments } = await import("./bot-message-dispatch.js");
+    const out = extractTelegramInboundAttachments({
+      document: {
+        file_id: "doc-id-123",
+        file_name: "Шаблон.docx",
+        mime_type:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      },
+      caption: "вот шаблон",
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.kind).toBe("document");
+    expect(out[0]!.filename).toBe("Шаблон.docx");
+    expect(out[0]!.mimeType).toBe(
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    expect(out[0]!.telegramFileId).toBe("doc-id-123");
+    expect(out[0]!.captionFromUser).toBe("вот шаблон");
+  });
+
+  it("extractTelegramInboundAttachments — photo array → kind=photo, telegramFileId from LAST entry (highest resolution)", async () => {
+    const { extractTelegramInboundAttachments } = await import("./bot-message-dispatch.js");
+    const out = extractTelegramInboundAttachments({
+      photo: [
+        { file_id: "p-small" },
+        { file_id: "p-medium" },
+        { file_id: "p-large" },
+      ],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.kind).toBe("photo");
+    // Per Telegram Bot API, the last entry is the largest variant.
+    expect(out[0]!.telegramFileId).toBe("p-large");
+    expect(out[0]!.filename).toBeUndefined();
+  });
+
+  it("extractTelegramInboundAttachments — voice (no filename) → kind=voice, no filename", async () => {
+    const { extractTelegramInboundAttachments } = await import("./bot-message-dispatch.js");
+    const out = extractTelegramInboundAttachments({
+      voice: { file_id: "v-1", mime_type: "audio/ogg" },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.kind).toBe("voice");
+    expect(out[0]!.filename).toBeUndefined();
+    expect(out[0]!.mimeType).toBe("audio/ogg");
+  });
+
+  it("extractTelegramInboundAttachments — sticker → kind=sticker", async () => {
+    const { extractTelegramInboundAttachments } = await import("./bot-message-dispatch.js");
+    const out = extractTelegramInboundAttachments({ sticker: { file_id: "s-1" } });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.kind).toBe("sticker");
+    expect(out[0]!.telegramFileId).toBe("s-1");
+  });
+
+  it("extractTelegramInboundAttachments — multi-attachment (document + photo) → both surfaced, in declaration order", async () => {
+    const { extractTelegramInboundAttachments } = await import("./bot-message-dispatch.js");
+    const out = extractTelegramInboundAttachments({
+      document: {
+        file_id: "d1",
+        file_name: "spec.docx",
+        mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      },
+      photo: [{ file_id: "p1" }, { file_id: "p2" }],
+    });
+    expect(out).toHaveLength(2);
+    expect(out[0]!.kind).toBe("document");
+    expect(out[1]!.kind).toBe("photo");
+  });
+
+  it("flag set + document attached → forwards attachments into runOrchestratorTurn (real symptom 12:52: docx silently dropped)", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot } = makeBotStub();
+    const runOrchestratorTurn = vi.fn(async () => ({
+      reply: "ok",
+      contract: { intent: "conversation" },
+      stageA: { routing: { intent: "conversation" } },
+      dispatch: { reply: "ok", allOk: true },
+    }));
+    await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "вот шаблон, заполни его данными",
+        chatId: 6533456892,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: {} as never,
+        agentDir: undefined,
+        attachments: [
+          {
+            kind: "document",
+            filename: "Шаблон.docx",
+            mimeType:
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            telegramFileId: "tg-d1",
+          },
+        ],
+      },
+      { runOrchestratorTurn: runOrchestratorTurn as never },
+    );
+    expect(runOrchestratorTurn).toHaveBeenCalledTimes(1);
+    const turnCalls = runOrchestratorTurn.mock.calls as unknown as Array<[Record<string, unknown>]>;
+    const call = turnCalls[0]![0] as { attachments?: Array<{ kind: string; filename?: string }> };
+    expect(call.attachments).toBeDefined();
+    expect(call.attachments).toHaveLength(1);
+    expect(call.attachments![0]!.kind).toBe("document");
+    expect(call.attachments![0]!.filename).toBe("Шаблон.docx");
+  });
+
+  it("flag set + no attachments arg → forwards undefined/empty so orchestrator falls through to default Stage-A prompt", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot } = makeBotStub();
+    const runOrchestratorTurn = vi.fn(async () => ({
+      reply: "ok",
+      contract: { intent: "conversation" },
+      stageA: { routing: { intent: "conversation" } },
+      dispatch: { reply: "ok", allOk: true },
+    }));
+    await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "привет",
+        chatId: 1,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: {} as never,
+        agentDir: undefined,
+        // no attachments field
+      },
+      { runOrchestratorTurn: runOrchestratorTurn as never },
+    );
+    const turnCalls = runOrchestratorTurn.mock.calls as unknown as Array<[Record<string, unknown>]>;
+    const call = turnCalls[0]![0] as { attachments?: unknown };
+    // Either undefined or [] is fine — both round-trip to the byte-
+    // identical baseline Stage-A prompt. The contract is "no attachment
+    // block leaks into the prompt", which is enforced in classifier
+    // tests. Here we just assert no fabrication.
+    expect(call.attachments === undefined || (Array.isArray(call.attachments) && call.attachments.length === 0)).toBe(true);
+  });
+});

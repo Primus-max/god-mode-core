@@ -71,6 +71,7 @@ import {
   type RunConversationLLMFn,
   type RunToolFn,
 } from "./dispatcher.js";
+import type { InboundAttachment } from "./inbound-attachment.js";
 import { describeToolField } from "./tool-arg-schemas.js";
 import {
   DEFAULT_TURN_STATE_TTL_MS,
@@ -148,6 +149,15 @@ export type RunOrchestratorTurnInputs = {
   turnState?: TurnStateStore;
   /** Override TTL for newly-stashed pending turns (default 10 min). */
   turnStateTtlMs?: number;
+  /**
+   * Inbound attachment metadata extracted by the channel (Telegram
+   * `msg.document` / `msg.photo` / etc.). When empty/absent the Stage-A
+   * prompt is byte-identical to the no-attachment baseline. Only Stage A
+   * consumes this list today; Stage B and downstream tool runners are
+   * intentionally attachment-blind in this slice — content extraction is
+   * a follow-up.
+   */
+  attachments?: ReadonlyArray<InboundAttachment>;
 };
 
 export type RunOrchestratorTurnResult = {
@@ -531,6 +541,7 @@ export async function runOrchestratorTurn(
         model: inputs.classifierModel,
         cfg: inputs.cfg,
         agentDir: inputs.agentDir,
+        attachments: inputs.attachments,
       });
 
       if (stageA.routing.intent === "conversation") {
