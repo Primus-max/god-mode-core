@@ -349,6 +349,57 @@ describe("S9 — executeOrchestratorV1ShortCircuit", () => {
     expect(sends[0]!.text).toBe("Записал в /tmp/foo.txt.");
   });
 
+  it("PR #350 wiring: passes the process-scoped TurnStateStore singleton to runOrchestratorTurn (multi-turn activation)", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot } = makeBotStub();
+    const runOrchestratorTurn = vi.fn(async () => ({
+      reply: "ok",
+      contract: { intent: "conversation" },
+      stageA: { routing: { intent: "conversation" } },
+      dispatch: { reply: "ok", allOk: true },
+    }));
+    // Sentinel store so we can prove the EXACT object the singleton
+    // accessor returns is forwarded verbatim into runOrchestratorTurn.
+    // The TurnStateStore contract is `get/put/clear`; production passes
+    // the in-memory impl, but the wiring helper does not care about the
+    // shape beyond forwarding it.
+    const sentinelStore = {
+      get: vi.fn(async () => undefined),
+      put: vi.fn(async () => undefined),
+      clear: vi.fn(async () => undefined),
+    };
+    const getProcessTurnStateStoreStub = vi.fn(() => sentinelStore);
+    await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "hi",
+        chatId: 6533456892,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: {} as never,
+        agentDir: undefined,
+      },
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        getProcessTurnStateStore: getProcessTurnStateStoreStub as never,
+      },
+    );
+    expect(getProcessTurnStateStoreStub).toHaveBeenCalledTimes(1);
+    expect(runOrchestratorTurn).toHaveBeenCalledTimes(1);
+    const turnCalls = runOrchestratorTurn.mock.calls as unknown as Array<[Record<string, unknown>]>;
+    const call = turnCalls[0]![0];
+    // Identity check: must be the same object the accessor returned, not
+    // a freshly-allocated store. This is what makes multi-turn state
+    // share across consecutive turns.
+    expect(call.turnState).toBe(sentinelStore);
+    // Shape check: methods are present so the orchestrator can use it
+    // without a type cast.
+    expect(typeof (call.turnState as { get: unknown }).get).toBe("function");
+    expect(typeof (call.turnState as { put: unknown }).put).toBe("function");
+    expect(typeof (call.turnState as { clear: unknown }).clear).toBe("function");
+  });
+
   it("emits [orch-v1] start + completion telemetry to stderr", async () => {
     vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
     const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");

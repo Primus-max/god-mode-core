@@ -22,6 +22,7 @@ import {
   buildRunToolFromRegistry,
   type RegistryDeps,
 } from "../orchestrator-v1/tool-runner-registry.js";
+import { getProcessTurnStateStore } from "../orchestrator-v1/turn-state/index.js";
 import type {
   RunConversationLLMFn,
   RunToolFn,
@@ -141,6 +142,7 @@ export type ExecuteOrchestratorV1UniversalShortCircuitOverrides = {
    * stub to avoid hitting the real channel-resolution + delivery stack.
    */
   sendMessage?: typeof sendMessage;
+  getProcessTurnStateStore?: typeof getProcessTurnStateStore;
 };
 
 export async function executeOrchestratorV1UniversalShortCircuit(
@@ -153,6 +155,8 @@ export async function executeOrchestratorV1UniversalShortCircuit(
   const callLLMImpl = overrides.callConversationLLM ?? callConversationLLM;
   const resolveAgentDirImpl = overrides.resolveAgentDir ?? resolveAgentDir;
   const sendMessageImpl = overrides.sendMessage ?? sendMessage;
+  const turnStateStoreImpl =
+    overrides.getProcessTurnStateStore ?? getProcessTurnStateStore;
   if (process.env.OPENCLAW_USE_V1_ORCHESTRATOR !== "1") {
     return false;
   }
@@ -210,6 +214,10 @@ export async function executeOrchestratorV1UniversalShortCircuit(
     `[orch-v1] turn started chatKey=${chatKey} userMessageLen=${userText.length}\n`,
   );
   try {
+    // Multi-turn activation (PR #349 wiring): pass the process-scoped
+    // singleton store so a Stage-B `missing_field` refuse stashes a
+    // pending plan for the next inbound on this chat. Shared with the
+    // Telegram and agent-command short-circuits via `getProcessTurnStateStore`.
     const result: RunOrchestratorTurnResult = await runTurnImpl({
       userMessage: userText,
       chatKey,
@@ -218,6 +226,7 @@ export async function executeOrchestratorV1UniversalShortCircuit(
       cfg,
       agentDir,
       classifierModel: args.classifierModel,
+      turnState: turnStateStoreImpl(),
     });
     process.stderr.write(
       `[orch-v1] turn completed contractIntent=${result.contract.intent} allOk=${result.dispatch.allOk} replyLen=${result.reply.length}\n`,

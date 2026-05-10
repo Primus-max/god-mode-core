@@ -36,6 +36,7 @@ import {
   CONVERSATION_SYSTEM_PROMPT_GUARD,
   DEFAULT_STAGE_A_MODEL,
   diagnoseTurn,
+  getProcessTurnStateStore,
   runOrchestratorTurn,
   type CreatePersistentWorkerFn,
   type RunConversationLLMFn,
@@ -230,6 +231,7 @@ export type ExecuteOrchestratorV1ShortCircuitOverrides = {
   runOrchestratorTurn?: typeof runOrchestratorTurn;
   buildRunToolFromRegistry?: typeof buildRunToolFromRegistry;
   callConversationLLM?: typeof callConversationLLM;
+  getProcessTurnStateStore?: typeof getProcessTurnStateStore;
 };
 
 /**
@@ -296,6 +298,8 @@ export async function executeOrchestratorV1ShortCircuit(
   const buildRegistryImpl =
     overrides.buildRunToolFromRegistry ?? buildRunToolFromRegistry;
   const callLLMImpl = overrides.callConversationLLM ?? callConversationLLM;
+  const turnStateStoreImpl =
+    overrides.getProcessTurnStateStore ?? getProcessTurnStateStore;
   if (process.env.OPENCLAW_USE_V1_ORCHESTRATOR !== "1") {
     return false;
   }
@@ -354,6 +358,11 @@ export async function executeOrchestratorV1ShortCircuit(
     `[orch-v1] turn started chatKey=telegram:${chatId} userMessageLen=${userText.length}\n`,
   );
   try {
+    // Multi-turn activation (PR #349 wiring): pass the process-scoped
+    // singleton store so a Stage-B `missing_field` refuse stashes a
+    // pending plan and the next inbound resumes it. The 3 dispatch sites
+    // (telegram / plugin-sdk / agent-command) all resolve the SAME
+    // singleton so cross-channel follow-ups can resume.
     const result = await runTurnImpl({
       userMessage: userText,
       chatKey: `telegram:${chatId}`,
@@ -361,6 +370,7 @@ export async function executeOrchestratorV1ShortCircuit(
       runConversationLLM,
       cfg,
       agentDir,
+      turnState: turnStateStoreImpl(),
     });
     process.stderr.write(
       `[orch-v1] turn completed contractIntent=${result.contract.intent} allOk=${result.dispatch.allOk} replyLen=${result.reply.length}\n`,

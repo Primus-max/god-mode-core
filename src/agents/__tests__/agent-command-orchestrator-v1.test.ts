@@ -219,6 +219,39 @@ describe("S9.5 — executeOrchestratorV1AgentCommandShortCircuit", () => {
     }
   });
 
+  it("PR #350 wiring: passes the process-scoped TurnStateStore singleton to runOrchestratorTurn (multi-turn activation)", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const runOrchestratorTurn = vi.fn(async () => buildOrchResult("ok"));
+    const sentinelStore = {
+      get: vi.fn(async () => undefined),
+      put: vi.fn(async () => undefined),
+      clear: vi.fn(async () => undefined),
+    };
+    const getProcessTurnStateStoreStub = vi.fn(() => sentinelStore);
+    const outcome = await executeOrchestratorV1AgentCommandShortCircuit(
+      baseIngressOpts({ messageChannel: "discord" }),
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        loadConfig: () => ({}) as OpenClawConfig,
+        resolveAgentDir: () => "/tmp/agent",
+        getProcessTurnStateStore: getProcessTurnStateStoreStub as never,
+      },
+    );
+    expect(outcome.handled).toBe(true);
+    expect(getProcessTurnStateStoreStub).toHaveBeenCalledTimes(1);
+    expect(runOrchestratorTurn).toHaveBeenCalledTimes(1);
+    const turnCalls = runOrchestratorTurn.mock.calls as unknown as Array<[Record<string, unknown>]>;
+    const call = turnCalls[0]![0];
+    // Identity check: same object the singleton accessor returned. The 3
+    // dispatch sites (Telegram / plugin-sdk / agent-command) must all
+    // forward THIS exact instance for cross-channel multi-turn resume to
+    // work.
+    expect(call.turnState).toBe(sentinelStore);
+    expect(typeof (call.turnState as { get: unknown }).get).toBe("function");
+    expect(typeof (call.turnState as { put: unknown }).put).toBe("function");
+    expect(typeof (call.turnState as { clear: unknown }).clear).toBe("function");
+  });
+
   it("emits [orch-v1] start + completion telemetry to stderr", async () => {
     vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
     const runOrchestratorTurn = vi.fn(async () => buildOrchResult("Готово."));

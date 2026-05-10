@@ -42,6 +42,7 @@ import {
   buildRunToolFromRegistry as buildRunToolFromRegistryImplBase,
   type RegistryDeps,
 } from "../orchestrator-v1/tool-runner-registry.js";
+import { getProcessTurnStateStore as getProcessTurnStateStoreImplBase } from "../orchestrator-v1/turn-state/index.js";
 import type {
   CreatePersistentWorkerFn,
   ScheduleCronFn,
@@ -80,6 +81,7 @@ export type AgentCommandOrchestratorV1Overrides = {
   resolveAgentDir?: typeof resolveAgentDirImplBase;
   loadConfig?: typeof loadConfigImplBase;
   sendMessage?: typeof sendMessageImplBase;
+  getProcessTurnStateStore?: typeof getProcessTurnStateStoreImplBase;
   /**
    * Optional now() seam for deterministic `meta.durationMs` in tests.
    */
@@ -187,6 +189,8 @@ export async function executeOrchestratorV1AgentCommandShortCircuit(
   const resolveAgentDirImpl = overrides.resolveAgentDir ?? resolveAgentDirImplBase;
   const loadConfigImpl = overrides.loadConfig ?? loadConfigImplBase;
   const sendMessageImpl = overrides.sendMessage ?? sendMessageImplBase;
+  const turnStateStoreImpl =
+    overrides.getProcessTurnStateStore ?? getProcessTurnStateStoreImplBase;
   const nowImpl = overrides.now ?? Date.now;
 
   const cfg: OpenClawConfig = loadConfigImpl();
@@ -244,6 +248,10 @@ export async function executeOrchestratorV1AgentCommandShortCircuit(
     `[orch-v1] turn started chatKey=${chatKey} userMessageLen=${userText.length}\n`,
   );
   try {
+    // Multi-turn activation (PR #349 wiring): pass the process-scoped
+    // singleton store so a Stage-B `missing_field` refuse stashes a
+    // pending plan keyed by chatKey. Shared with the Telegram and
+    // plugin-sdk universal short-circuits via `getProcessTurnStateStore`.
     const result: RunOrchestratorTurnResult = await runTurnImpl({
       userMessage: userText,
       chatKey,
@@ -251,6 +259,7 @@ export async function executeOrchestratorV1AgentCommandShortCircuit(
       runConversationLLM,
       cfg,
       agentDir,
+      turnState: turnStateStoreImpl(),
     });
     process.stderr.write(
       `[orch-v1] turn completed contractIntent=${result.contract.intent} allOk=${result.dispatch.allOk} replyLen=${result.reply.length}\n`,

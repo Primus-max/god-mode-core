@@ -265,6 +265,53 @@ describe("S10 — executeOrchestratorV1UniversalShortCircuit", () => {
     expect(delivers[0]!.text).toContain("kaboom");
   });
 
+  it("PR #350 wiring: passes the process-scoped TurnStateStore singleton to runOrchestratorTurn (multi-turn activation)", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1UniversalShortCircuit } = await import(
+      "./inbound-reply-dispatch.js"
+    );
+    const { deliver } = makeDeliverStub();
+    const runOrchestratorTurn = vi.fn(async () => ({
+      reply: "ok",
+      contract: { intent: "conversation" },
+      stageA: { routing: { intent: "conversation" } },
+      dispatch: { reply: "ok", allOk: true },
+    }));
+    const sentinelStore = {
+      get: vi.fn(async () => undefined),
+      put: vi.fn(async () => undefined),
+      clear: vi.fn(async () => undefined),
+    };
+    const getProcessTurnStateStoreStub = vi.fn(() => sentinelStore);
+    await executeOrchestratorV1UniversalShortCircuit(
+      {
+        userText: "hi",
+        chatKey: "discord:42",
+        cfg: {} as OpenClawConfig,
+        agentId: "main",
+        channel: "discord",
+        deliver,
+      },
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        resolveAgentDir: () => "/tmp/agent",
+        getProcessTurnStateStore: getProcessTurnStateStoreStub as never,
+      },
+    );
+    expect(getProcessTurnStateStoreStub).toHaveBeenCalledTimes(1);
+    expect(runOrchestratorTurn).toHaveBeenCalledTimes(1);
+    const turnCalls = runOrchestratorTurn.mock.calls as unknown as Array<
+      [Record<string, unknown>]
+    >;
+    const call = turnCalls[0]![0];
+    // Identity check: same object the singleton accessor returned, so a
+    // follow-up turn observes the prior turn's pending plan.
+    expect(call.turnState).toBe(sentinelStore);
+    expect(typeof (call.turnState as { get: unknown }).get).toBe("function");
+    expect(typeof (call.turnState as { put: unknown }).put).toBe("function");
+    expect(typeof (call.turnState as { clear: unknown }).clear).toBe("function");
+  });
+
   it("emits [orch-v1] start + completion telemetry to stderr", async () => {
     vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
     const { executeOrchestratorV1UniversalShortCircuit } = await import(
