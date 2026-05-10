@@ -32,17 +32,42 @@ vi.mock("openclaw/plugin-sdk/runtime-env", () => ({
 }));
 
 type SendCall = { chatId: number | string; text: string; opts?: unknown };
+type DocCall = { chatId: number | string; file: unknown; opts?: unknown };
+type PhotoCall = { chatId: number | string; file: unknown; opts?: unknown };
 
 function makeBotStub(): {
-  bot: { api: { sendMessage: ReturnType<typeof vi.fn> } };
+  bot: {
+    api: {
+      sendMessage: ReturnType<typeof vi.fn>;
+      sendDocument: ReturnType<typeof vi.fn>;
+      sendPhoto: ReturnType<typeof vi.fn>;
+    };
+  };
   sends: SendCall[];
+  documents: DocCall[];
+  photos: PhotoCall[];
 } {
   const sends: SendCall[] = [];
+  const documents: DocCall[] = [];
+  const photos: PhotoCall[] = [];
   const sendMessage = vi.fn(async (chatId: number | string, text: string, opts?: unknown) => {
     sends.push({ chatId, text, opts });
     return { message_id: 1 };
   });
-  return { bot: { api: { sendMessage } }, sends };
+  const sendDocument = vi.fn(async (chatId: number | string, file: unknown, opts?: unknown) => {
+    documents.push({ chatId, file, opts });
+    return { message_id: 2 };
+  });
+  const sendPhoto = vi.fn(async (chatId: number | string, file: unknown, opts?: unknown) => {
+    photos.push({ chatId, file, opts });
+    return { message_id: 3 };
+  });
+  return {
+    bot: { api: { sendMessage, sendDocument, sendPhoto } },
+    sends,
+    documents,
+    photos,
+  };
 }
 
 beforeEach(() => {
@@ -188,12 +213,10 @@ describe("S9 — executeOrchestratorV1ShortCircuit", () => {
     let capturedScheduling:
       | { scheduleCron: () => Promise<unknown>; createPersistentWorker: () => Promise<unknown> }
       | undefined;
-    const buildRunToolFromRegistry = vi.fn(
-      (deps: { scheduling: typeof capturedScheduling }) => {
-        capturedScheduling = deps.scheduling;
-        return vi.fn();
-      },
-    );
+    const buildRunToolFromRegistry = vi.fn((deps: { scheduling: typeof capturedScheduling }) => {
+      capturedScheduling = deps.scheduling;
+      return vi.fn();
+    });
     const runOrchestratorTurn = vi.fn(async () => ({
       reply: "ok",
       contract: { intent: "conversation" },
@@ -276,17 +299,18 @@ describe("S9 — executeOrchestratorV1ShortCircuit", () => {
 
   it("S9.2 chunking: a 6000-char reply is split into multiple sendMessage calls each <= TELEGRAM_TEXT_LIMIT (real symptom: GrammyError 400 'message too long' from web_search)", async () => {
     vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
-    const { executeOrchestratorV1ShortCircuit, TELEGRAM_TEXT_LIMIT } = await import(
-      "./bot-message-dispatch.js"
-    );
+    const { executeOrchestratorV1ShortCircuit, TELEGRAM_TEXT_LIMIT } =
+      await import("./bot-message-dispatch.js");
     const { bot, sends } = makeBotStub();
     // Simulate web_search-style reply: header + N numbered hits with snippet
     // text. Total length ~6000 — the live-verify failure was 6098.
     const header = "Найдено по запросу «gpt-5»:\n\n";
-    const hits = Array.from({ length: 30 }, (_, i) =>
-      `${i + 1}. Title #${i + 1} — https://example.com/${i + 1}\n` +
-      `Snippet for result number ${i + 1}: ` +
-      "lorem ipsum dolor sit amet ".repeat(8),
+    const hits = Array.from(
+      { length: 30 },
+      (_, i) =>
+        `${i + 1}. Title #${i + 1} — https://example.com/${i + 1}\n` +
+        `Snippet for result number ${i + 1}: ` +
+        "lorem ipsum dolor sit amet ".repeat(8),
     ).join("\n\n");
     const longReply = header + hits;
     expect(longReply.length).toBeGreaterThan(TELEGRAM_TEXT_LIMIT);
@@ -427,5 +451,491 @@ describe("S9 — executeOrchestratorV1ShortCircuit", () => {
     expect(lines.some((l) => l.startsWith("[orch-v1] turn started"))).toBe(true);
     expect(lines.some((l) => l.startsWith("[orch-v1] turn completed"))).toBe(true);
     writeSpy.mockRestore();
+  });
+});
+
+/**
+ * Followup #19 — Telegram artifact upload for pdf + image_generate.
+ *
+ * Canonical symptom (live-verified 2026-05-09): user asks for a PDF, the
+ * orchestrator-v1 reply contains a server-side absolute path
+ * (`C:\Users\Tanya\AppData\Local\Temp\orchestrator-v1-pdf\<uuid>.pdf`)
+ * which the user CANNOT open from Telegram — the file lives on the
+ * gateway machine, not in the chat. Same for `image_generate` (path to
+ * the saved PNG).
+ *
+ * Fix: after `executeOrchestratorV1ShortCircuit` sends the rendered text
+ * reply, inspect tool outputs captured during dispatch and upload any
+ * artifact-bearing local file via `bot.api.sendDocument` (pdf) or
+ * `bot.api.sendPhoto` (image_generate). The text reply remains canonical;
+ * the file upload is ADDITIONAL.
+ *
+ * Capture seam: the helper wraps the production `runTool` callback (built
+ * via `buildRunToolFromRegistry`) so each `(tool, output)` tuple from a
+ * successful tool run is recorded WITHOUT touching the frozen dispatcher
+ * or contract modules. Tests drive the wrapper by having the
+ * `runOrchestratorTurn` stub call the wrapped `runTool` it received,
+ * which exactly mirrors what the real dispatcher does in production.
+ */
+describe("followup #19 — artifact upload (pdf / image_generate)", () => {
+  // Use a real on-disk temp file so the existence + size checks in the
+  // helper exercise their real branch instead of being mocked.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fs = require("node:fs") as typeof import("node:fs");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const os = require("node:os") as typeof import("node:os");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path = require("node:path") as typeof import("node:path");
+
+  function makeArtifact(ext: string, payload: string): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orch-v1-followup19-"));
+    const p = path.join(dir, `artifact${ext}`);
+    fs.writeFileSync(p, payload);
+    return p;
+  }
+
+  it("pdf with ok=true → uploads via sendDocument with the local file path AFTER the text reply", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot, sends, documents, photos } = makeBotStub();
+    const pdfPath = makeArtifact(".pdf", "%PDF-1.4 fake bytes");
+
+    // The runTool we hand back to the orchestrator IS the wrapped one
+    // — when invoked we return a synthetic ok=true with output.url.
+    let capturedRunTool: ((a: unknown) => Promise<unknown>) | undefined;
+    const buildRunToolFromRegistry = vi.fn(() => {
+      const inner = vi.fn(async (action: { tool: string; args: Record<string, unknown> }) => {
+        if (action.tool === "pdf") {
+          return { ok: true, output: { url: pdfPath, title: action.args.title ?? "doc" } };
+        }
+        return { ok: false, error: "unsupported in test" };
+      });
+      return inner as never;
+    });
+
+    // Order assertion: capture the order in which bot api calls happen.
+    const callOrder: string[] = [];
+    bot.api.sendMessage.mockImplementation(async (chatId, text, opts) => {
+      callOrder.push("sendMessage");
+      sends.push({ chatId, text, opts });
+      return { message_id: 1 };
+    });
+    bot.api.sendDocument.mockImplementation(async (chatId, file, opts) => {
+      callOrder.push("sendDocument");
+      documents.push({ chatId, file, opts });
+      return { message_id: 2 };
+    });
+
+    const runOrchestratorTurn = vi.fn(
+      async (input: { runTool: (a: unknown) => Promise<unknown> }) => {
+        capturedRunTool = input.runTool;
+        // Simulate dispatcher invoking the wrapped runTool for the pdf action.
+        await input.runTool({ tool: "pdf", args: { title: "Тест отчёта", summary: "..." } });
+        return {
+          reply: `Сгенерировал PDF «Тест отчёта»: ${pdfPath}`,
+          contract: { intent: "tool_calls", tool_calls: [], sequencing: "sequential" },
+          stageA: { routing: { intent: "tool_calls" } },
+          dispatch: {
+            reply: `Сгенерировал PDF «Тест отчёта»: ${pdfPath}`,
+            allOk: true,
+            actions: [{ tool: "pdf", ok: true, reply: "..." }],
+          },
+        };
+      },
+    );
+
+    const handled = await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "сделай pdf отчёт «Тест»",
+        chatId: 6533456892,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: {} as never,
+        agentDir: undefined,
+      },
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        buildRunToolFromRegistry: buildRunToolFromRegistry as never,
+      },
+    );
+    expect(handled).toBe(true);
+    expect(typeof capturedRunTool).toBe("function");
+    // Text first, document second — order matters so user sees context.
+    expect(callOrder).toEqual(["sendMessage", "sendDocument"]);
+    expect(sends).toHaveLength(1);
+    expect(sends[0]!.text).toContain("Сгенерировал PDF");
+    expect(documents).toHaveLength(1);
+    expect(photos).toHaveLength(0);
+    expect(documents[0]!.chatId).toBe(6533456892);
+    // Verify the file is wrapped as a grammy InputFile carrying the
+    // local artifact filename (the constructor stores `filename` and
+    // `fileData` internally; `fileData` is the path string we passed in).
+    const file = documents[0]!.file as { filename?: string; fileData?: unknown };
+    expect(file.filename).toBe("artifact.pdf");
+    expect(file.fileData).toBe(pdfPath);
+  });
+
+  it("image_generate with ok=true → uploads via sendPhoto, NOT sendDocument", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot, sends, documents, photos } = makeBotStub();
+    const imagePath = makeArtifact(".png", "PNG-fake");
+
+    const buildRunToolFromRegistry = vi.fn(() => {
+      const inner = vi.fn(async (_action: { tool: string }) => ({
+        ok: true,
+        output: { url: imagePath },
+      }));
+      return inner as never;
+    });
+    const runOrchestratorTurn = vi.fn(
+      async (input: { runTool: (a: unknown) => Promise<unknown> }) => {
+        await input.runTool({ tool: "image_generate", args: { prompt: "котик" } });
+        return {
+          reply: `Сгенерировал: ${imagePath}`,
+          contract: { intent: "tool_calls" },
+          stageA: { routing: { intent: "tool_calls" } },
+          dispatch: { reply: `Сгенерировал: ${imagePath}`, allOk: true },
+        };
+      },
+    );
+
+    await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "нарисуй котика",
+        chatId: 1,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: {} as never,
+        agentDir: undefined,
+      },
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        buildRunToolFromRegistry: buildRunToolFromRegistry as never,
+      },
+    );
+    expect(sends).toHaveLength(1);
+    expect(photos).toHaveLength(1);
+    expect(documents).toHaveLength(0);
+    expect(photos[0]!.chatId).toBe(1);
+  });
+
+  it("write tool (non-artifact) with ok=true → NEITHER sendDocument NOR sendPhoto called (only sendMessage)", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot, sends, documents, photos } = makeBotStub();
+
+    const buildRunToolFromRegistry = vi.fn(() => {
+      const inner = vi.fn(async () => ({
+        ok: true,
+        output: { path: "/tmp/foo.txt", bytesWritten: 3 },
+      }));
+      return inner as never;
+    });
+    const runOrchestratorTurn = vi.fn(
+      async (input: { runTool: (a: unknown) => Promise<unknown> }) => {
+        await input.runTool({ tool: "write", args: { path: "/tmp/foo.txt", content: "hi" } });
+        return {
+          reply: "Записал в /tmp/foo.txt.",
+          contract: { intent: "tool_calls" },
+          stageA: { routing: { intent: "tool_calls" } },
+          dispatch: { reply: "Записал в /tmp/foo.txt.", allOk: true },
+        };
+      },
+    );
+
+    await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "запиши /tmp/foo.txt 'hi'",
+        chatId: 42,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: {} as never,
+        agentDir: undefined,
+      },
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        buildRunToolFromRegistry: buildRunToolFromRegistry as never,
+      },
+    );
+    expect(sends).toHaveLength(1);
+    expect(documents).toHaveLength(0);
+    expect(photos).toHaveLength(0);
+  });
+
+  it("multi-action turn (pdf + write) → sendMessage for combined text, sendDocument ONLY for pdf", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot, sends, documents, photos } = makeBotStub();
+    const pdfPath = makeArtifact(".pdf", "%PDF fake");
+
+    const buildRunToolFromRegistry = vi.fn(() => {
+      const inner = vi.fn(async (action: { tool: string }) => {
+        if (action.tool === "pdf") {
+          return { ok: true, output: { url: pdfPath, title: "X" } };
+        }
+        if (action.tool === "write") {
+          return { ok: true, output: { path: "/tmp/bar.txt", bytesWritten: 4 } };
+        }
+        return { ok: false, error: "?" };
+      });
+      return inner as never;
+    });
+    const runOrchestratorTurn = vi.fn(
+      async (input: { runTool: (a: unknown) => Promise<unknown> }) => {
+        await input.runTool({ tool: "pdf", args: { title: "X", summary: "Y" } });
+        await input.runTool({ tool: "write", args: { path: "/tmp/bar.txt", content: "data" } });
+        return {
+          reply: "Готово:\n\n1. Сгенерировал PDF «X»: " + pdfPath + "\n2. Записал в /tmp/bar.txt.",
+          contract: { intent: "tool_calls" },
+          stageA: { routing: { intent: "tool_calls" } },
+          dispatch: { reply: "...", allOk: true },
+        };
+      },
+    );
+
+    await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "сгенерь pdf и запиши файл",
+        chatId: 99,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: {} as never,
+        agentDir: undefined,
+      },
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        buildRunToolFromRegistry: buildRunToolFromRegistry as never,
+      },
+    );
+    expect(sends).toHaveLength(1); // combined multi-template reply
+    expect(documents).toHaveLength(1); // pdf only
+    expect(photos).toHaveLength(0);
+    expect(documents[0]!.chatId).toBe(99);
+  });
+
+  it("pdf with ok=false → does NOT upload (don't send error replies as files)", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot, documents, photos } = makeBotStub();
+
+    const buildRunToolFromRegistry = vi.fn(() => {
+      const inner = vi.fn(async () => ({ ok: false, error: "playwright missing" }));
+      return inner as never;
+    });
+    const runOrchestratorTurn = vi.fn(
+      async (input: { runTool: (a: unknown) => Promise<unknown> }) => {
+        await input.runTool({ tool: "pdf", args: { title: "X", summary: "Y" } });
+        return {
+          reply: "Не получилось создать PDF",
+          contract: { intent: "tool_calls" },
+          stageA: { routing: { intent: "tool_calls" } },
+          dispatch: { reply: "Не получилось создать PDF", allOk: false },
+        };
+      },
+    );
+
+    await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "сделай pdf",
+        chatId: 7,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: {} as never,
+        agentDir: undefined,
+      },
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        buildRunToolFromRegistry: buildRunToolFromRegistry as never,
+      },
+    );
+    expect(documents).toHaveLength(0);
+    expect(photos).toHaveLength(0);
+  });
+
+  it("artifact path doesn't exist on disk → log + skip upload, do NOT crash the dispatch", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot, sends, documents, photos } = makeBotStub();
+    const errorRuntime = { error: vi.fn() };
+    const ghostPath = path.join(os.tmpdir(), "definitely-does-not-exist-" + Date.now() + ".pdf");
+
+    const buildRunToolFromRegistry = vi.fn(() => {
+      const inner = vi.fn(async () => ({
+        ok: true,
+        output: { url: ghostPath, title: "ghost" },
+      }));
+      return inner as never;
+    });
+    const runOrchestratorTurn = vi.fn(
+      async (input: { runTool: (a: unknown) => Promise<unknown> }) => {
+        await input.runTool({ tool: "pdf", args: { title: "ghost", summary: "..." } });
+        return {
+          reply: "Сгенерировал PDF «ghost»: " + ghostPath,
+          contract: { intent: "tool_calls" },
+          stageA: { routing: { intent: "tool_calls" } },
+          dispatch: { reply: "...", allOk: true },
+        };
+      },
+    );
+
+    const handled = await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "сделай pdf",
+        chatId: 8,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: errorRuntime as never,
+        agentDir: undefined,
+      },
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        buildRunToolFromRegistry: buildRunToolFromRegistry as never,
+      },
+    );
+    expect(handled).toBe(true);
+    expect(sends).toHaveLength(1); // the text reply still went out
+    expect(documents).toHaveLength(0); // upload skipped
+    expect(photos).toHaveLength(0);
+    // The runtime.error sink saw a warning about the missing artifact.
+    expect(errorRuntime.error).toHaveBeenCalled();
+  });
+
+  it("empty file (size 0) → skip upload (defensive: a buggy runner could lie about ok=true)", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot, documents, photos } = makeBotStub();
+    const emptyPath = makeArtifact(".pdf", ""); // 0 bytes
+
+    const buildRunToolFromRegistry = vi.fn(() => {
+      const inner = vi.fn(async () => ({
+        ok: true,
+        output: { url: emptyPath, title: "empty" },
+      }));
+      return inner as never;
+    });
+    const runOrchestratorTurn = vi.fn(
+      async (input: { runTool: (a: unknown) => Promise<unknown> }) => {
+        await input.runTool({ tool: "pdf", args: { title: "empty", summary: "..." } });
+        return {
+          reply: "Сгенерировал PDF «empty»: " + emptyPath,
+          contract: { intent: "tool_calls" },
+          stageA: { routing: { intent: "tool_calls" } },
+          dispatch: { reply: "...", allOk: true },
+        };
+      },
+    );
+
+    await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "pdf",
+        chatId: 9,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: { error: vi.fn() } as never,
+        agentDir: undefined,
+      },
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        buildRunToolFromRegistry: buildRunToolFromRegistry as never,
+      },
+    );
+    expect(documents).toHaveLength(0);
+    expect(photos).toHaveLength(0);
+  });
+
+  it("threadSpec.id forwarded to sendDocument as message_thread_id (forum topic landing)", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot, documents } = makeBotStub();
+    const pdfPath = makeArtifact(".pdf", "%PDF");
+
+    const buildRunToolFromRegistry = vi.fn(() => {
+      const inner = vi.fn(async () => ({ ok: true, output: { url: pdfPath, title: "T" } }));
+      return inner as never;
+    });
+    const runOrchestratorTurn = vi.fn(
+      async (input: { runTool: (a: unknown) => Promise<unknown> }) => {
+        await input.runTool({ tool: "pdf", args: { title: "T", summary: "S" } });
+        return {
+          reply: "Сгенерировал PDF «T»",
+          contract: { intent: "tool_calls" },
+          stageA: { routing: { intent: "tool_calls" } },
+          dispatch: { reply: "...", allOk: true },
+        };
+      },
+    );
+
+    await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "pdf",
+        chatId: 100,
+        threadSpec: { id: 555 } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: {} as never,
+        agentDir: undefined,
+      },
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        buildRunToolFromRegistry: buildRunToolFromRegistry as never,
+      },
+    );
+    expect(documents).toHaveLength(1);
+    expect(documents[0]!.opts).toEqual({ message_thread_id: 555 });
+  });
+
+  it("sendDocument throws → log + continue (don't crash the dispatch, text reply already delivered)", async () => {
+    vi.stubEnv("OPENCLAW_USE_V1_ORCHESTRATOR", "1");
+    const { executeOrchestratorV1ShortCircuit } = await import("./bot-message-dispatch.js");
+    const { bot, sends } = makeBotStub();
+    const errorRuntime = { error: vi.fn() };
+    const pdfPath = makeArtifact(".pdf", "%PDF");
+
+    bot.api.sendDocument.mockImplementation(async () => {
+      throw new Error("telegram api 413 file too large");
+    });
+
+    const buildRunToolFromRegistry = vi.fn(() => {
+      const inner = vi.fn(async () => ({ ok: true, output: { url: pdfPath, title: "T" } }));
+      return inner as never;
+    });
+    const runOrchestratorTurn = vi.fn(
+      async (input: { runTool: (a: unknown) => Promise<unknown> }) => {
+        await input.runTool({ tool: "pdf", args: { title: "T", summary: "S" } });
+        return {
+          reply: "Сгенерировал PDF «T»",
+          contract: { intent: "tool_calls" },
+          stageA: { routing: { intent: "tool_calls" } },
+          dispatch: { reply: "...", allOk: true },
+        };
+      },
+    );
+
+    const handled = await executeOrchestratorV1ShortCircuit(
+      {
+        userText: "pdf",
+        chatId: 101,
+        threadSpec: { id: undefined } as never,
+        bot: bot as never,
+        cfg: {} as never,
+        runtime: errorRuntime as never,
+        agentDir: undefined,
+      },
+      {
+        runOrchestratorTurn: runOrchestratorTurn as never,
+        buildRunToolFromRegistry: buildRunToolFromRegistry as never,
+      },
+    );
+    expect(handled).toBe(true);
+    expect(sends).toHaveLength(1); // text already sent before upload attempt
+    expect(errorRuntime.error).toHaveBeenCalled();
   });
 });
