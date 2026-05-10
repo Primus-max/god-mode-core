@@ -11,3 +11,7 @@ export {
   DEFAULT_TURN_STATE_TTL_MS,
   type CreateInMemoryTurnStateStoreOptions,
 } from "./in-memory-store.js";
+export {
+  getProcessTurnStateStore,
+  setProcessTurnStateStoreForTesting,
+} from "./singleton.js";
