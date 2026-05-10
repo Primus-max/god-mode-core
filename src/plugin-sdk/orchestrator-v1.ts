@@ -29,6 +29,11 @@ export {
   type RunOrchestratorTurnResult,
 } from "../orchestrator-v1/orchestrator.js";
 
+export type {
+  InboundAttachment,
+  InboundAttachmentKind,
+} from "../orchestrator-v1/inbound-attachment.js";
+
 export {
   buildRunToolFromRegistry,
   type RegistryDeps,
