@@ -75,6 +75,34 @@ export const DEFAULT_STAGE_A_MODEL: StageAModelRef = {
 };
 
 /**
+ * Bigger classifier model — used for COMPLEX turns only (multi-turn
+ * continuation, attachments, long messages). The bench winner
+ * `gpt-5-mini` scores 100/100 on the 58 single-tool fixtures but hits its
+ * accuracy ceiling on composite multi-tool + attachment turns. Real
+ * symptom: 2026-05-10 13:22 turn — user attached two .docx templates and
+ * asked to find a WWII soldier story, fill the template, attach a photo.
+ * Stage A picked `[read, image_generate, pdf]` (wrong: should be
+ * `[read, web_search, write]`).
+ *
+ * `hydra/gpt-5.4` is the bigger Hydra model already configured for the
+ * gateway agent runtime (see `[gateway] agent model: hydra/gpt-5.4`),
+ * available in the same auth scope as `gpt-5-mini`. Operator can override
+ * the modelId via `OPENCLAW_V1_BIG_MODEL` for live experimentation
+ * without recompile (provider stays `hydra`; cross-provider experiments
+ * require code changes intentionally).
+ *
+ * Resolved at call-time (NOT at module load) because tests mutate
+ * `process.env` between cases.
+ */
+export function getBigStageAModel(): StageAModelRef {
+  const override = process.env.OPENCLAW_V1_BIG_MODEL;
+  return {
+    provider: "hydra",
+    modelId: override && override.length > 0 ? override : "gpt-5.4",
+  };
+}
+
+/**
  * Render the optional "User attached files" block. Returns empty string
  * when there are no attachments — keeping the no-attachment prompt
  * BYTE-IDENTICAL to the pre-attachment baseline (so the bench fixtures

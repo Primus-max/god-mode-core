@@ -50,8 +50,15 @@
  */
 
 import type { OpenClawConfig } from "../config/config.js";
+import { logVerbose } from "../globals.js";
 import { withChatLock } from "./chat-lock.js";
-import { classifyTurn, type ClassifyTurnResult, type StageAModelRef } from "./classifier-stage-a.js";
+import {
+  classifyTurn,
+  DEFAULT_STAGE_A_MODEL,
+  getBigStageAModel,
+  type ClassifyTurnResult,
+  type StageAModelRef,
+} from "./classifier-stage-a.js";
 import {
   classifyTurnWithPendingContext,
   type PlanContextRouting,
@@ -408,6 +415,48 @@ async function applyPendingSideEffect(
 }
 
 /**
+ * Threshold (in characters) above which a turn is considered "complex"
+ * by the model-selection heuristic. The cheap classifier `gpt-5-mini`
+ * scores 100/100 on the 58 single-tool bench fixtures (median message
+ * length ~80 chars), but accuracy drops on long composite multi-tool
+ * messages. 200 chars empirically captures the long-message cohort
+ * without triggering on conversational greetings or single-tool asks.
+ *
+ * NOT a regex / pattern parse of the user text — this is metadata only
+ * (length count), per invariant #2.
+ */
+export const COMPLEX_TURN_LENGTH_THRESHOLD = 200;
+
+/**
+ * Decide whether the inbound turn is "complex" enough to warrant the
+ * bigger Stage-A model. ANY of:
+ *   - existing pending plan (multi-turn continuation),
+ *   - user supplied attachments,
+ *   - user message > 200 chars.
+ *
+ * Heuristic intentionally fires UPFRONT (before classifyTurn runs) so
+ * the model selection cost is paid once per turn. We do NOT use the
+ * Stage-A output (e.g. `tool_names.length > 2`) as a signal because by
+ * then the cheap model has already returned — switching would require
+ * re-classification and double the latency.
+ */
+export function isComplexTurn(
+  inputs: Pick<RunOrchestratorTurnInputs, "userMessage" | "attachments">,
+  hasPending: boolean,
+): boolean {
+  if (hasPending) {
+    return true;
+  }
+  if (inputs.attachments && inputs.attachments.length > 0) {
+    return true;
+  }
+  if (inputs.userMessage.length > COMPLEX_TURN_LENGTH_THRESHOLD) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Main entry point — call once per inbound user message.
  *
  * Always resolves; failures are encoded into the reply text via the
@@ -425,9 +474,23 @@ export async function runOrchestratorTurn(
     // by the store (TTL-aware get).
     const existingPending = turnState ? await turnState.get(inputs.chatKey) : undefined;
 
+    // Decide which classifier model to use for THIS turn.
+    //   - explicit `inputs.classifierModel` wins (test/operator override)
+    //   - else complex turn → BIG model (multi-turn / attachments / long msg)
+    //   - else default cheap model (bench winner, low cost)
+    // Stage B inherits from the same selection because per-tool argument
+    // extraction on a complex turn is also harder than the bench fixtures.
+    const complex = isComplexTurn(inputs, !!existingPending);
+    const selectedModel: StageAModelRef =
+      inputs.classifierModel ??
+      (complex ? getBigStageAModel() : DEFAULT_STAGE_A_MODEL);
+    logVerbose(
+      `[orch-v1] stage-a model=${selectedModel.provider}/${selectedModel.modelId} complex=${complex} pending=${!!existingPending} attachments=${inputs.attachments?.length ?? 0} msg_len=${inputs.userMessage.length}`,
+    );
+
     const ctx: ExtractionContext = {
       userMessage: inputs.userMessage,
-      classifierModel: inputs.classifierModel,
+      classifierModel: selectedModel,
       cfg: inputs.cfg,
       agentDir: inputs.agentDir,
     };
@@ -437,11 +500,14 @@ export async function runOrchestratorTurn(
 
     if (turnState && existingPending) {
       // Plan-context Stage A: 4-way decision over the pending plan.
+      // Plan-context is ALWAYS complex (multi-turn) so the resolved
+      // `selectedModel` is already the BIG model unless the operator
+      // explicitly overrode via `inputs.classifierModel`.
       const pc = await classifyTurnWithPendingContext(
         inputs.userMessage,
         existingPending.tool_calls,
         {
-          model: inputs.classifierModel,
+          model: selectedModel,
           cfg: inputs.cfg,
           agentDir: inputs.agentDir,
         },
@@ -536,9 +602,11 @@ export async function runOrchestratorTurn(
         );
       }
     } else {
-      // No pending plan — vanilla Stage A.
+      // No pending plan — vanilla Stage A. `selectedModel` is BIG when
+      // the upfront heuristic flagged the turn complex (attachments or
+      // long message), else the cheap default.
       stageA = await classifyTurn(inputs.userMessage, {
-        model: inputs.classifierModel,
+        model: selectedModel,
         cfg: inputs.cfg,
         agentDir: inputs.agentDir,
         attachments: inputs.attachments,

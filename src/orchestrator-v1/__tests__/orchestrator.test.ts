@@ -483,3 +483,216 @@ describe("V1-CONTRACT-ONLY orchestrator — attachment plumbing", () => {
     expect(capturedPrompt).not.toContain("Пользователь приложил");
   });
 });
+
+/**
+ * Stage-A model selection by turn complexity.
+ *
+ * Real symptom (canonical): 2026-05-10 13:22 Telegram turn — user
+ * attached two .docx templates and asked the bot to find a WWII soldier
+ * story, fill the template, attach a photo. Stage A on `gpt-5-mini`
+ * picked `[read, image_generate, pdf]` (wrong: should be
+ * `[read, web_search, write]`). Operator: "что мне здесь опять
+ * уточнять, что не надо генерировать?"
+ *
+ * The bench winner `gpt-5-mini` scores 100/100 on 58 single-tool
+ * fixtures (median ~80 chars, no attachments, single intent) but hits
+ * its ceiling on composite multi-tool + attachment turns. The fix:
+ * upgrade Stage A model FOR COMPLEX TURNS ONLY (multi-turn / has
+ * attachments / message > 200 chars). Simple turns continue on
+ * `gpt-5-mini` so the 58-fixture bench stays 100/100.
+ *
+ * These tests pin the heuristic at the model-resolution boundary so any
+ * future refactor that drops the per-turn selection (or accidentally
+ * routes simple turns to BIG, breaking the bench) fails loudly.
+ */
+describe("V1-CONTRACT-ONLY orchestrator — Stage-A model selection by complexity", () => {
+  it("simple turn (short text, no attachments, no pending) → uses gpt-5-mini", async () => {
+    mockPiAi(['{"intent":"conversation"}']);
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    await runOrchestratorTurn({
+      userMessage: "привет",
+      chatKey: "chat-mini-1",
+      runTool: async () => ({ ok: true as const, output: {} }),
+      runConversationLLM: async () => "ok",
+    });
+    expect(RESOLVE_MODEL_CALLS.length).toBeGreaterThanOrEqual(1);
+    expect(RESOLVE_MODEL_CALLS[0]?.modelId).toBe("gpt-5-mini");
+    expect(RESOLVE_MODEL_CALLS[0]?.provider).toBe("hydra");
+  });
+
+  it("long text (>200 chars) → uses BIG model (gpt-5.4)", async () => {
+    mockPiAi(['{"intent":"conversation"}']);
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    // 300+ chars — emulates the kind of multi-paragraph composite ask
+    // that flooded gpt-5-mini on 13:22.
+    const longMsg =
+      "Пожалуйста найди мне в интернете историю одного советского " +
+      "солдата времён Великой Отечественной войны (можно с конкретной " +
+      "фамилией если найдёшь), потом заполни прикрепленный шаблон в " +
+      ".docx формате его данными, и в конце приложи его фотографию " +
+      "в высоком разрешении. Спасибо большое!";
+    expect(longMsg.length).toBeGreaterThan(200);
+    await runOrchestratorTurn({
+      userMessage: longMsg,
+      chatKey: "chat-big-1",
+      runTool: async () => ({ ok: true as const, output: {} }),
+      runConversationLLM: async () => "ok",
+    });
+    expect(RESOLVE_MODEL_CALLS.length).toBeGreaterThanOrEqual(1);
+    expect(RESOLVE_MODEL_CALLS[0]?.modelId).toBe("gpt-5.4");
+    expect(RESOLVE_MODEL_CALLS[0]?.provider).toBe("hydra");
+  });
+
+  it("attachments present → uses BIG model even on short text (real 13:22 symptom)", async () => {
+    mockPiAi(['{"intent":"conversation"}']);
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    await runOrchestratorTurn({
+      userMessage: "заполни шаблон",
+      chatKey: "chat-big-2",
+      runTool: async () => ({ ok: true as const, output: {} }),
+      runConversationLLM: async () => "ok",
+      attachments: [
+        {
+          kind: "document",
+          filename: "Шаблон.docx",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        },
+      ],
+    });
+    expect(RESOLVE_MODEL_CALLS.length).toBeGreaterThanOrEqual(1);
+    expect(RESOLVE_MODEL_CALLS[0]?.modelId).toBe("gpt-5.4");
+  });
+
+  it("pending plan present → BIG model used for BOTH plan-context Stage A and Stage B re-extraction", async () => {
+    // Turn 1: vanilla Stage A picks write, Stage B fails missing_field
+    // → plan stashed. Turn 2: plan-context kicks in, then add_args
+    // re-runs Stage B with prior argsSoFar. Both calls on turn 2 must
+    // hit BIG model since `existingPending` makes the turn complex.
+    mockPiAi([
+      // Turn 1 — Stage A + Stage B (missing path)
+      '{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}',
+      '{"_error":"missing","_field":"path"}',
+      // Turn 2 — plan-context Stage A + Stage B
+      '{"kind":"add_args"}',
+      '{"path":"/work/x.md","content":"hi"}',
+    ]);
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    const { createInMemoryTurnStateStore } = await import(
+      "../turn-state/index.js"
+    );
+    const store = createInMemoryTurnStateStore();
+    const runTool = vi.fn(async () => ({ ok: true as const, output: {} }));
+    await runOrchestratorTurn({
+      userMessage: "сохрани",
+      chatKey: "chat-big-3",
+      runTool,
+      runConversationLLM: async () => "ok",
+      turnState: store,
+    });
+    // Reset before turn 2 so we observe ONLY turn-2 model calls.
+    RESOLVE_MODEL_CALLS.length = 0;
+    await runOrchestratorTurn({
+      userMessage: "/work/x.md",
+      chatKey: "chat-big-3",
+      runTool,
+      runConversationLLM: async () => "ok",
+      turnState: store,
+    });
+    // Turn 2 makes 2 LLM calls: plan-context Stage A + Stage B per tool.
+    // BOTH must use BIG.
+    expect(RESOLVE_MODEL_CALLS.length).toBeGreaterThanOrEqual(2);
+    for (const call of RESOLVE_MODEL_CALLS) {
+      expect(call.modelId).toBe("gpt-5.4");
+    }
+  });
+
+  it("OPENCLAW_V1_BIG_MODEL env override changes which BIG model fires on complex turns", async () => {
+    const prev = process.env.OPENCLAW_V1_BIG_MODEL;
+    process.env.OPENCLAW_V1_BIG_MODEL = "claude-haiku-4-5";
+    try {
+      mockPiAi(['{"intent":"conversation"}']);
+      const { runOrchestratorTurn } = await import("../orchestrator.js");
+      await runOrchestratorTurn({
+        userMessage: "заполни шаблон",
+        chatKey: "chat-big-env-1",
+        runTool: async () => ({ ok: true as const, output: {} }),
+        runConversationLLM: async () => "ok",
+        attachments: [
+          { kind: "document", filename: "x.docx" },
+        ],
+      });
+      expect(RESOLVE_MODEL_CALLS[0]?.modelId).toBe("claude-haiku-4-5");
+    } finally {
+      if (prev === undefined) {
+        delete process.env.OPENCLAW_V1_BIG_MODEL;
+      } else {
+        process.env.OPENCLAW_V1_BIG_MODEL = prev;
+      }
+    }
+  });
+
+  it("explicit inputs.classifierModel override beats both heuristic and env", async () => {
+    const prev = process.env.OPENCLAW_V1_BIG_MODEL;
+    process.env.OPENCLAW_V1_BIG_MODEL = "gpt-5.4";
+    try {
+      mockPiAi(['{"intent":"conversation"}']);
+      const { runOrchestratorTurn } = await import("../orchestrator.js");
+      await runOrchestratorTurn({
+        // complex (long + attachments) — heuristic would pick BIG
+        userMessage: "x".repeat(300),
+        chatKey: "chat-override-1",
+        runTool: async () => ({ ok: true as const, output: {} }),
+        runConversationLLM: async () => "ok",
+        attachments: [{ kind: "document", filename: "y.docx" }],
+        classifierModel: { provider: "hydra", modelId: "grok-3-mini" },
+      });
+      expect(RESOLVE_MODEL_CALLS[0]?.modelId).toBe("grok-3-mini");
+    } finally {
+      if (prev === undefined) {
+        delete process.env.OPENCLAW_V1_BIG_MODEL;
+      } else {
+        process.env.OPENCLAW_V1_BIG_MODEL = prev;
+      }
+    }
+  });
+
+  it("isComplexTurn unit: pending + attachments + long-text are all true; short-text-no-attachments-no-pending is false", async () => {
+    const { isComplexTurn } = await import("../orchestrator.js");
+    expect(isComplexTurn({ userMessage: "привет" }, false)).toBe(false);
+    expect(isComplexTurn({ userMessage: "привет" }, true)).toBe(true);
+    expect(
+      isComplexTurn(
+        { userMessage: "x", attachments: [{ kind: "document" }] },
+        false,
+      ),
+    ).toBe(true);
+    expect(isComplexTurn({ userMessage: "x".repeat(201) }, false)).toBe(true);
+    expect(isComplexTurn({ userMessage: "x".repeat(200) }, false)).toBe(false);
+    expect(
+      isComplexTurn({ userMessage: "x", attachments: [] }, false),
+    ).toBe(false);
+  });
+
+  it("bench preservation: vanilla classifyTurn called WITHOUT explicit model still hits gpt-5-mini (bench fixture invariant)", async () => {
+    // The bench harness imports buildStageAPrompt + calls Stage A on
+    // canonical fixtures with no orchestrator wrapper, so it never goes
+    // through `isComplexTurn`. But operator wiring of the orchestrator
+    // for a SHORT, NO-ATTACHMENT, NO-PENDING fixture (the median bench
+    // case) MUST still resolve gpt-5-mini, else 58-fixture accuracy
+    // drops silently. We pin that here as a regression guard.
+    mockPiAi(['{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}', '{"path":"/x","content":"y"}']);
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    await runOrchestratorTurn({
+      userMessage: "напиши y в /x",
+      chatKey: "chat-bench-equiv",
+      runTool: async () => ({ ok: true as const, output: { path: "/x" } }),
+      runConversationLLM: async () => "ok",
+    });
+    // Stage A + Stage B both fire — both should hit gpt-5-mini.
+    expect(RESOLVE_MODEL_CALLS.length).toBeGreaterThanOrEqual(2);
+    for (const call of RESOLVE_MODEL_CALLS) {
+      expect(call.modelId).toBe("gpt-5-mini");
+    }
+  });
+});
