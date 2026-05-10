@@ -15,13 +15,26 @@
  *   When Stage B reports `missing_field` for any tool, the orchestrator
  *   stashes a `PendingTurn` keyed by chatKey and surfaces a refuse with
  *   "Допиши в следующем сообщении что именно". On the next inbound
- *   message Stage A runs first; if it picks the SAME ordered set of
- *   tool_names the orchestrator passes the prior `argsSoFar` to Stage B
- *   so it only has to extract the still-missing fields. Any other
- *   Stage-A outcome (conversation, refuse, different tool_names) clears
- *   the pending state — we treat that as the user pivoting. When all
- *   args fill, dispatch runs and pending is cleared. State is
- *   process-scoped + TTL'd; see `turn-state/`.
+ *   message we route through `classifyTurnWithPendingContext` (a sibling
+ *   Stage-A prompt that sees the pending plan + new message together)
+ *   and switch on its 4-way verdict:
+ *
+ *     - add_args     — same plan, user supplied missing fields → re-run
+ *                      Stage B per pending tool with `priorByTool` so it
+ *                      only fills the still-missing fields.
+ *     - edit_plan    — user is morphing the plan (e.g. "не генерируй
+ *                      картинку, скачай файл" — image_generate →
+ *                      web_fetch). We keep argsSoFar for tools that
+ *                      survive the morph, fresh argsSoFar={} for newly
+ *                      added tools, and run Stage B over the NEW tool
+ *                      list.
+ *     - replace_plan — wholly new task → drop pending, run Stage B
+ *                      against the new tool list with empty argsSoFar.
+ *     - abandon      — drop pending, route to conversation or refuse
+ *                      template.
+ *
+ *   On the FIRST turn (no pending) we use vanilla `classifyTurn`. The
+ *   plan-context Stage A is engaged ONLY when `turnState && pending`.
  *
  *   Backwards compat: when `turnState` is omitted, behaviour is byte-
  *   identical to single-turn.
@@ -39,6 +52,10 @@
 import type { OpenClawConfig } from "../config/config.js";
 import { withChatLock } from "./chat-lock.js";
 import { classifyTurn, type ClassifyTurnResult, type StageAModelRef } from "./classifier-stage-a.js";
+import {
+  classifyTurnWithPendingContext,
+  type PlanContextRouting,
+} from "./classifier-stage-a-plan-context.js";
 import { extractToolArgs, type ExtractToolArgsResult } from "./classifier-stage-b.js";
 import {
   refuseContract,
@@ -277,16 +294,107 @@ function buildContractFromExtractions(
   };
 }
 
-/** Same set of tools, in the same order, between pending and new routing. */
-function pendingMatchesRouting(
-  pending: PendingTurn,
-  tool_names: ToolName[],
-): boolean {
-  if (pending.tool_calls.length !== tool_names.length) return false;
-  for (let i = 0; i < tool_names.length; i++) {
-    if (pending.tool_calls[i]?.tool !== tool_names[i]) return false;
+/**
+ * Synthesize a `ClassifyTurnResult` from the plan-context routing so the
+ * `result.stageA` field of `runOrchestratorTurn` stays a single shape
+ * regardless of which Stage-A variant ran. We map the 4-way kind back to
+ * the 3-way intent purely for telemetry — callers that care about the
+ * plan-context decision can read it from telemetry logs (`logVerbose`)
+ * or rely on `contract` directly.
+ */
+function planCtxResultToStageA(
+  pcRouting: PlanContextRouting,
+  latencyMs: number,
+  rawResponse: string | undefined,
+  fallbackReason: ClassifyTurnResult["fallbackReason"],
+  resolvedToolNames: ToolName[] | undefined,
+): ClassifyTurnResult {
+  if (pcRouting.kind === "abandon") {
+    if (pcRouting.intent === "conversation") {
+      return {
+        routing: { intent: "conversation" },
+        latencyMs,
+        rawResponse,
+        fallbackReason,
+      };
+    }
+    return {
+      routing: {
+        intent: "refuse",
+        refusal_reason: pcRouting.refusal_reason ?? "Запрос неоднозначен.",
+      },
+      latencyMs,
+      rawResponse,
+      fallbackReason,
+    };
   }
-  return true;
+  // add_args / edit_plan / replace_plan all dispatch tool_calls; pick
+  // whichever tool_names + sequencing actually got used downstream.
+  const tool_names =
+    resolvedToolNames ??
+    (pcRouting.kind === "add_args" ? [] : pcRouting.tool_names);
+  const sequencing =
+    pcRouting.kind === "add_args" ? "sequential" : pcRouting.sequencing;
+  return {
+    routing: {
+      intent: "tool_calls",
+      tool_names,
+      sequencing,
+    },
+    latencyMs,
+    rawResponse,
+    fallbackReason,
+  };
+}
+
+/**
+ * Run Stage B over a tool list, then build the contract + perform the
+ * pending-state side effects. Shared by both the no-pending path and the
+ * pending-context dispatch paths (add_args / edit_plan / replace_plan).
+ *
+ * `priorByTool` carries argsSoFar from the previous pending entry per
+ * tool — empty map when starting fresh.
+ */
+async function runStageBAndBuildContract(
+  tool_names: ToolName[],
+  sequencing: "sequential" | "parallel",
+  priorByTool: Record<string, PartialAction | undefined>,
+  ctx: ExtractionContext,
+  multiTurnEnabled: boolean,
+): Promise<ContractBuildResult> {
+  const extractions = await runStageBPerTool(tool_names, ctx, priorByTool);
+  return buildContractFromExtractions(
+    { intent: "tool_calls", tool_names, sequencing },
+    extractions,
+    multiTurnEnabled,
+  );
+}
+
+/**
+ * Persist (or clear) pending state after a Stage-B build. Identical
+ * policy to the original implementation: `refuse_missing` stashes,
+ * everything else clears. Caller is responsible for whether to call this
+ * at all (e.g. `abandon` paths clear directly, no Stage B).
+ */
+async function applyPendingSideEffect(
+  built: ContractBuildResult,
+  turnState: TurnStateStore,
+  chatKey: string,
+  hadExistingPending: boolean,
+  ttlMs: number,
+): Promise<void> {
+  if (built.kind === "refuse_missing") {
+    const now = Date.now();
+    const fresh: PendingTurn = {
+      tool_calls: built.pending,
+      createdAt: now,
+      expiresAt: now + ttlMs,
+    };
+    await turnState.put(chatKey, fresh);
+    return;
+  }
+  // ok / refuse_other → clear prior pending so we don't resume a stale plan.
+  if (hadExistingPending) await turnState.clear(chatKey);
 }
 
 /**
@@ -307,13 +415,6 @@ export async function runOrchestratorTurn(
     // by the store (TTL-aware get).
     const existingPending = turnState ? await turnState.get(inputs.chatKey) : undefined;
 
-    // Stage A
-    const stageA = await classifyTurn(inputs.userMessage, {
-      model: inputs.classifierModel,
-      cfg: inputs.cfg,
-      agentDir: inputs.agentDir,
-    });
-
     const ctx: ExtractionContext = {
       userMessage: inputs.userMessage,
       classifierModel: inputs.classifierModel,
@@ -322,51 +423,134 @@ export async function runOrchestratorTurn(
     };
 
     let contract: TurnContract;
+    let stageA: ClassifyTurnResult;
 
-    if (stageA.routing.intent === "conversation") {
-      // User changed topic / chitchat — drop any pending plan.
-      if (turnState && existingPending) await turnState.clear(inputs.chatKey);
-      contract = conversationContract();
-    } else if (stageA.routing.intent === "refuse") {
-      if (turnState && existingPending) await turnState.clear(inputs.chatKey);
-      contract = refuseContract(stageA.routing.refusal_reason);
-    } else {
-      // tool_calls path
-      const routing = stageA.routing;
+    if (turnState && existingPending) {
+      // Plan-context Stage A: 4-way decision over the pending plan.
+      const pc = await classifyTurnWithPendingContext(
+        inputs.userMessage,
+        existingPending.tool_calls,
+        {
+          model: inputs.classifierModel,
+          cfg: inputs.cfg,
+          agentDir: inputs.agentDir,
+        },
+      );
+      const pcRouting = pc.routing;
 
-      // Decide whether to resume the pending plan or start fresh:
-      //   resume only when Stage A picked the SAME ordered set of tools.
-      //   Any mismatch (extra/missing/reorder) is treated as a pivot.
-      const resume = !!existingPending && pendingMatchesRouting(existingPending, routing.tool_names);
-
-      const priorByTool: Record<string, PartialAction | undefined> = {};
-      if (resume && existingPending) {
-        for (const pa of existingPending.tool_calls) {
-          priorByTool[pa.tool] = pa;
-        }
-      }
-
-      const extractions = await runStageBPerTool(routing.tool_names, ctx, priorByTool);
-      const built = buildContractFromExtractions(routing, extractions, !!turnState);
-
-      if (turnState) {
-        if (built.kind === "refuse_missing") {
-          const now = Date.now();
-          const fresh: PendingTurn = {
-            tool_calls: built.pending,
-            createdAt: now,
-            expiresAt: now + ttlMs,
-          };
-          await turnState.put(inputs.chatKey, fresh);
+      if (pcRouting.kind === "abandon") {
+        // Drop pending unconditionally; route to conversation or refuse.
+        await turnState.clear(inputs.chatKey);
+        if (pcRouting.intent === "conversation") {
+          contract = conversationContract();
         } else {
-          // Successful dispatch (`ok`) or non-recoverable refuse
-          // (`refuse_other`) — clear any prior pending so we don't
-          // resume the wrong plan next turn.
-          if (existingPending) await turnState.clear(inputs.chatKey);
+          contract = refuseContract(
+            pcRouting.refusal_reason ?? "Запрос неоднозначен.",
+          );
         }
+        stageA = planCtxResultToStageA(
+          pcRouting,
+          pc.latencyMs,
+          pc.rawResponse,
+          pc.fallbackReason,
+          undefined,
+        );
+      } else if (pcRouting.kind === "add_args") {
+        // Same ordered tool list as pending; carry argsSoFar verbatim.
+        const tool_names = existingPending.tool_calls.map((pa) => pa.tool);
+        const sequencing: "sequential" | "parallel" = "sequential";
+        const priorByTool: Record<string, PartialAction | undefined> = {};
+        for (const pa of existingPending.tool_calls) priorByTool[pa.tool] = pa;
+        const built = await runStageBAndBuildContract(
+          tool_names,
+          sequencing,
+          priorByTool,
+          ctx,
+          true,
+        );
+        await applyPendingSideEffect(built, turnState, inputs.chatKey, true, ttlMs);
+        contract = built.contract;
+        stageA = planCtxResultToStageA(
+          pcRouting,
+          pc.latencyMs,
+          pc.rawResponse,
+          pc.fallbackReason,
+          tool_names,
+        );
+      } else if (pcRouting.kind === "edit_plan") {
+        // Morph the plan: tools that survive keep their argsSoFar; new
+        // tools start fresh. Stage B re-runs over the NEW ordered list.
+        const tool_names = pcRouting.tool_names;
+        const priorByTool: Record<string, PartialAction | undefined> = {};
+        for (const pa of existingPending.tool_calls) priorByTool[pa.tool] = pa;
+        // priorByTool naturally yields `undefined` for tools added by the
+        // edit (not present in the prior plan) — equivalent to fresh.
+        const built = await runStageBAndBuildContract(
+          tool_names,
+          pcRouting.sequencing,
+          priorByTool,
+          ctx,
+          true,
+        );
+        await applyPendingSideEffect(built, turnState, inputs.chatKey, true, ttlMs);
+        contract = built.contract;
+        stageA = planCtxResultToStageA(
+          pcRouting,
+          pc.latencyMs,
+          pc.rawResponse,
+          pc.fallbackReason,
+          tool_names,
+        );
+      } else {
+        // replace_plan: drop pending args entirely and run fresh Stage B
+        // over the new tool list with empty argsSoFar.
+        await turnState.clear(inputs.chatKey);
+        const tool_names = pcRouting.tool_names;
+        const built = await runStageBAndBuildContract(
+          tool_names,
+          pcRouting.sequencing,
+          {},
+          ctx,
+          true,
+        );
+        // Note: hadExistingPending=false here because we just cleared it
+        // above; applyPendingSideEffect will only re-stash on refuse_missing.
+        await applyPendingSideEffect(built, turnState, inputs.chatKey, false, ttlMs);
+        contract = built.contract;
+        stageA = planCtxResultToStageA(
+          pcRouting,
+          pc.latencyMs,
+          pc.rawResponse,
+          pc.fallbackReason,
+          tool_names,
+        );
       }
+    } else {
+      // No pending plan — vanilla Stage A.
+      stageA = await classifyTurn(inputs.userMessage, {
+        model: inputs.classifierModel,
+        cfg: inputs.cfg,
+        agentDir: inputs.agentDir,
+      });
 
-      contract = built.contract;
+      if (stageA.routing.intent === "conversation") {
+        contract = conversationContract();
+      } else if (stageA.routing.intent === "refuse") {
+        contract = refuseContract(stageA.routing.refusal_reason);
+      } else {
+        const routing = stageA.routing;
+        const built = await runStageBAndBuildContract(
+          routing.tool_names,
+          routing.sequencing,
+          {},
+          ctx,
+          !!turnState,
+        );
+        if (turnState) {
+          await applyPendingSideEffect(built, turnState, inputs.chatKey, false, ttlMs);
+        }
+        contract = built.contract;
+      }
     }
 
     // Dispatcher
