@@ -66,17 +66,17 @@ function mockPiAi(scriptedResponses: string[]): void {
 
 describe("V1-CONTRACT-ONLY orchestrator — multi-turn state machine", () => {
   it("real-symptom 10:31 — Stage A picks 3 tools, Stage B fails 3x missing_field, plan stashed; turn 2 fills all 3 → dispatch runs all", async () => {
-    // Turn 1: 3x Stage-A (no — Stage A runs ONCE), 3x Stage-B (one per tool).
-    // Turn 2: 1x Stage-A, 3x Stage-B (re-runs same 3 tools with argsSoFar).
+    // Turn 1: vanilla Stage A (1 call) + 3x Stage B (one per tool).
+    // Turn 2: plan-context Stage A (1 call) → add_args + 3x Stage B with argsSoFar.
     mockPiAi([
-      // Turn 1 — Stage A
+      // Turn 1 — vanilla Stage A
       '{"intent":"tool_calls","tool_names":["write","image_generate","pdf"],"sequencing":"sequential"}',
       // Turn 1 — Stage B per tool, all missing_field
       '{"_error":"missing","_field":"path"}',
       '{"_error":"missing","_field":"prompt"}',
       '{"_error":"missing","_field":"title"}',
-      // Turn 2 — Stage A picks the same tool set
-      '{"intent":"tool_calls","tool_names":["write","image_generate","pdf"],"sequencing":"sequential"}',
+      // Turn 2 — plan-context Stage A: user supplied missing args → add_args
+      '{"kind":"add_args"}',
       // Turn 2 — Stage B per tool, now successful
       '{"path":"/work/practice.md","content":"шапка + текст"}',
       '{"prompt":"советский боец, портрет, ВОВ, документальный стиль"}',
@@ -138,14 +138,14 @@ describe("V1-CONTRACT-ONLY orchestrator — multi-turn state machine", () => {
     expect(await store.get("tg:6533456892")).toBeUndefined();
   });
 
-  it("pending state cleared when Stage A returns conversation on next turn (user changed topic)", async () => {
+  it("pending state cleared when plan-context Stage A returns abandon/conversation on next turn (user changed topic)", async () => {
     mockPiAi([
-      // Turn 1 — Stage A → tool_calls
+      // Turn 1 — vanilla Stage A → tool_calls
       '{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}',
       // Turn 1 — Stage B fails missing_field
       '{"_error":"missing","_field":"path"}',
-      // Turn 2 — Stage A returns conversation
-      '{"intent":"conversation"}',
+      // Turn 2 — plan-context Stage A: abandon to conversation
+      '{"kind":"abandon","intent":"conversation"}',
     ]);
     const { runOrchestratorTurn } = await import("../orchestrator.js");
     const store = createInMemoryTurnStateStore();
@@ -174,13 +174,13 @@ describe("V1-CONTRACT-ONLY orchestrator — multi-turn state machine", () => {
     expect(await store.get("chat-pivot")).toBeUndefined();
   });
 
-  it("pending state cleared when Stage A returns DIFFERENT tool_names (user pivoted to a new plan)", async () => {
+  it("pending state cleared when plan-context Stage A returns replace_plan (user pivoted to a new plan)", async () => {
     mockPiAi([
       // Turn 1
       '{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}',
       '{"_error":"missing","_field":"path"}',
-      // Turn 2 — entirely different tools
-      '{"intent":"tool_calls","tool_names":["web_search"],"sequencing":"sequential"}',
+      // Turn 2 — plan-context says replace_plan with entirely different tools
+      '{"kind":"replace_plan","tool_names":["web_search"],"sequencing":"sequential"}',
       '{"query":"новости вторника"}',
     ]);
     const { runOrchestratorTurn } = await import("../orchestrator.js");
@@ -214,14 +214,14 @@ describe("V1-CONTRACT-ONLY orchestrator — multi-turn state machine", () => {
     expect(await store.get("chat-newplan")).toBeUndefined();
   });
 
-  it("pending state cleared when Stage A overlaps but adds an extra tool (treat as pivot)", async () => {
+  it("plan-context edit_plan adds a new tool while keeping the original; argsSoFar carry forward for survivors", async () => {
     mockPiAi([
       // Turn 1 — write only, missing path
       '{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}',
       '{"_error":"missing","_field":"path"}',
-      // Turn 2 — write + pdf (different ordered set)
-      '{"intent":"tool_calls","tool_names":["write","pdf"],"sequencing":"sequential"}',
-      // Both succeed with concrete fields
+      // Turn 2 — plan-context says edit_plan: keep write, add pdf
+      '{"kind":"edit_plan","tool_names":["write","pdf"],"sequencing":"sequential"}',
+      // Stage B both succeed with concrete fields
       '{"path":"/a","content":"x"}',
       '{"title":"T","summary":"s"}',
     ]);
@@ -250,11 +250,11 @@ describe("V1-CONTRACT-ONLY orchestrator — multi-turn state machine", () => {
     expect(await store.get("chat-overlap")).toBeUndefined();
   });
 
-  it("pending state cleared when Stage A returns refuse on next turn", async () => {
+  it("pending state cleared when plan-context Stage A returns abandon/refuse on next turn", async () => {
     mockPiAi([
       '{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}',
       '{"_error":"missing","_field":"path"}',
-      '{"intent":"refuse","refusal_reason":"непонятно что"}',
+      '{"kind":"abandon","intent":"refuse","refusal_reason":"непонятно что"}',
     ]);
     const { runOrchestratorTurn } = await import("../orchestrator.js");
     const store = createInMemoryTurnStateStore();
@@ -363,8 +363,8 @@ describe("V1-CONTRACT-ONLY orchestrator — multi-turn state machine", () => {
       // design (we only stash what the LLM positively reported, not what
       // we *suspected*). If the LLM only reported missing, argsSoFar={}.
       '{"_error":"missing","_field":"path"}',
-      // Turn 2: Stage A again
-      '{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}',
+      // Turn 2: plan-context Stage A → add_args
+      '{"kind":"add_args"}',
       // Stage B emits both fields (the LLM's job); merge would also work
       // if it emitted just path.
       '{"path":"/p.md","content":"new text"}',
@@ -400,11 +400,11 @@ describe("V1-CONTRACT-ONLY orchestrator — multi-turn state machine", () => {
     // pivots). Without the lock, turn 2 could read the store before
     // turn 1 wrote, causing a missed resume / double-stash.
     mockPiAi([
-      // Turn 1 — Stage A → tool_calls, Stage B → missing
+      // Turn 1 — vanilla Stage A → tool_calls, Stage B → missing
       '{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}',
       '{"_error":"missing","_field":"path"}',
-      // Turn 2 — Stage A → tool_calls (same), Stage B → success
-      '{"intent":"tool_calls","tool_names":["write"],"sequencing":"sequential"}',
+      // Turn 2 — plan-context Stage A → add_args, Stage B → success
+      '{"kind":"add_args"}',
       '{"path":"/concurrent.md","content":"hi"}',
     ]);
     const { runOrchestratorTurn } = await import("../orchestrator.js");
