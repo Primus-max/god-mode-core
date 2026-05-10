@@ -29,6 +29,26 @@ describe("V1-CONTRACT-ONLY Stage-B — prompt builder", () => {
   it("forbids markdown wrapper", () => {
     expect(buildStageBPrompt("write")).toMatch(/Без markdown/);
   });
+
+  it("omits argsSoFar block when not provided (single-turn callers see byte-identical prompt)", () => {
+    // Bench fixture / single-turn callers MUST see the prompt verbatim
+    // — adding the multi-turn note for them would be a benchmark regression.
+    const a = buildStageBPrompt("write");
+    const b = buildStageBPrompt("write", undefined);
+    const c = buildStageBPrompt("write", {});
+    expect(a).toBe(b);
+    expect(a).toBe(c);
+    expect(a).not.toContain("Часть аргументов уже извлечена");
+  });
+
+  it("includes argsSoFar block when prior fields are present (multi-turn resume)", () => {
+    const prompt = buildStageBPrompt("write", { content: "уже было" });
+    expect(prompt).toContain("Часть аргументов уже извлечена");
+    expect(prompt).toContain('"content"');
+    expect(prompt).toContain("уже было");
+    // Still asks for missing fields and missing-field sentinel still present.
+    expect(prompt).toMatch(/_error.*missing.*_field/s);
+  });
 });
 
 describe("V1-CONTRACT-ONLY Stage-B — tool arg schemas", () => {
@@ -171,5 +191,43 @@ describe("V1-CONTRACT-ONLY Stage-B — wrapper fallback paths (mocked transport)
     const result = await extractToolArgs("write", "напиши /a.md");
     expect(result.action?.tool).toBe("write");
     expect(result.action?.args.path).toBe("/a.md");
+  });
+
+  it("merges argsSoFar with the new turn's parsed args (multi-turn resume)", async () => {
+    // The LLM, on resume, may emit ONLY the new field — argsSoFar fills in
+    // the rest so Zod doesn't reject the partial object.
+    mockTransportReturning('{"path":"/p.md"}');
+    const { extractToolArgs } = await import("../classifier-stage-b.js");
+    const result = await extractToolArgs("write", "путь /p.md", {
+      argsSoFar: { content: "из прошлого хода" },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.action?.args).toEqual({
+      path: "/p.md",
+      content: "из прошлого хода",
+    });
+  });
+
+  it("new-turn args win over argsSoFar on conflict (user is correcting)", async () => {
+    mockTransportReturning('{"path":"/new.md","content":"новое"}');
+    const { extractToolArgs } = await import("../classifier-stage-b.js");
+    const result = await extractToolArgs("write", "новое в /new.md", {
+      argsSoFar: { path: "/old.md", content: "старое" },
+    });
+    expect(result.action?.args).toEqual({
+      path: "/new.md",
+      content: "новое",
+    });
+  });
+
+  it("argsSoFar still passed through when LLM reports missing_field again (still partial)", async () => {
+    mockTransportReturning('{"_error":"missing","_field":"path"}');
+    const { extractToolArgs } = await import("../classifier-stage-b.js");
+    const result = await extractToolArgs("write", "ну не знаю", {
+      argsSoFar: { content: "уже было" },
+    });
+    expect(result.action).toBeUndefined();
+    expect(result.error?.kind).toBe("missing_field");
+    expect(result.error?.detail).toBe("path");
   });
 });

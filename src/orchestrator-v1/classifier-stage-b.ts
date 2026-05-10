@@ -44,12 +44,23 @@ function stripWrappers(raw: string): string {
   return cleaned;
 }
 
-export function buildStageBPrompt(tool: ToolName): string {
+export function buildStageBPrompt(
+  tool: ToolName,
+  argsSoFar?: Record<string, unknown>,
+): string {
   const description = TOOL_ARG_DESCRIPTIONS[tool];
+  // Multi-turn note: only included when caller passes a non-empty
+  // argsSoFar map — the existing single-turn callers see the exact same
+  // prompt as before (preserves bench fixture behaviour: Stage B bench
+  // must stay 100% per V1-CUTOVER §"Anchor").
+  const argsSoFarBlock =
+    argsSoFar && Object.keys(argsSoFar).length > 0
+      ? `\n\nЧасть аргументов уже извлечена из предыдущих сообщений: ${JSON.stringify(argsSoFar)}. Извлеки ОСТАВШИЕСЯ обязательные поля из нового сообщения; уже известные поля можно повторить из этого блока без изменений.`
+      : "";
   return `Ты извлекаешь аргументы для одного инструмента.
 
 Инструмент: ${tool}
-${description}
+${description}${argsSoFarBlock}
 
 Из сообщения пользователя извлеки ВСЕ обязательные поля. Опциональные поля включай ТОЛЬКО если пользователь их явно указал.
 
@@ -64,6 +75,15 @@ export type ExtractToolArgsDeps = {
   cfg?: OpenClawConfig;
   model?: StageAModelRef;
   agentDir?: string;
+  /**
+   * Multi-turn re-entry: args extracted on prior turns for this same
+   * pending action. The Stage-B prompt mentions them so the LLM can
+   * carry them forward (verbatim) and only fill the still-missing
+   * fields from the new user message. Omit (or pass `{}`) on the
+   * first turn — preserves single-turn prompt verbatim and keeps the
+   * Stage-B bench at 100%.
+   */
+  argsSoFar?: Record<string, unknown>;
 };
 
 export type ExtractToolArgsResult = {
@@ -121,7 +141,7 @@ export async function extractToolArgs(
         messages: [
           {
             role: "user",
-            content: `${buildStageBPrompt(tool)}\n\n${userMessage}`,
+            content: `${buildStageBPrompt(tool, deps.argsSoFar)}\n\n${userMessage}`,
             timestamp: Date.now(),
           },
         ],
@@ -173,8 +193,21 @@ export async function extractToolArgs(
     };
   }
 
+  // Multi-turn: merge prior-turn args under the new turn's parsed fields.
+  // New-turn fields win on conflict (the user is correcting / replacing),
+  // but if the LLM forgot to repeat already-known fields, argsSoFar fills
+  // them in so Zod validation passes. On single-turn calls argsSoFar is
+  // empty/undefined and this is a no-op spread.
+  const mergedUnknown =
+    deps.argsSoFar &&
+    Object.keys(deps.argsSoFar).length > 0 &&
+    typeof parsedUnknown === "object" &&
+    parsedUnknown !== null
+      ? { ...deps.argsSoFar, ...(parsedUnknown as Record<string, unknown>) }
+      : parsedUnknown;
+
   const argSchema = TOOL_ARG_SCHEMAS[tool];
-  const argValidation = argSchema.safeParse(parsedUnknown);
+  const argValidation = argSchema.safeParse(mergedUnknown);
   if (!argValidation.success) {
     const issues = argValidation.error.issues;
     const firstPath = issues[0]?.path.join(".") ?? "(unknown)";
