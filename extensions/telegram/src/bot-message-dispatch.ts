@@ -1,4 +1,7 @@
+import { promises as fsPromises } from "node:fs";
+import path from "node:path";
 import type { Bot } from "grammy";
+import { InputFile } from "grammy";
 import { resolveAgentDir } from "openclaw/plugin-sdk/agent-runtime";
 import {
   findModelInCatalog,
@@ -25,11 +28,6 @@ import type {
   TelegramDirectConfig,
 } from "openclaw/plugin-sdk/config-runtime";
 import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-runtime";
-import { clearHistoryEntriesIfEnabled } from "openclaw/plugin-sdk/reply-history";
-import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
-import { resolveChunkMode } from "openclaw/plugin-sdk/reply-runtime";
-import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
-import { resolveAutoTopicLabelConfig, generateTopicLabel } from "openclaw/plugin-sdk/reply-runtime";
 import {
   buildRunToolFromRegistry,
   callConversationLLM,
@@ -43,6 +41,11 @@ import {
   type ScheduleCronFn,
   type SessionsSendFn,
 } from "openclaw/plugin-sdk/orchestrator-v1";
+import { clearHistoryEntriesIfEnabled } from "openclaw/plugin-sdk/reply-history";
+import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
+import { resolveChunkMode } from "openclaw/plugin-sdk/reply-runtime";
+import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
+import { resolveAutoTopicLabelConfig, generateTopicLabel } from "openclaw/plugin-sdk/reply-runtime";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { defaultTelegramBotDeps, type TelegramBotDeps } from "./bot-deps.js";
@@ -252,10 +255,7 @@ export type ExecuteOrchestratorV1ShortCircuitOverrides = {
  */
 export const TELEGRAM_TEXT_LIMIT = 3500;
 
-export function chunkForTelegram(
-  text: string,
-  limit: number = TELEGRAM_TEXT_LIMIT,
-): string[] {
+export function chunkForTelegram(text: string, limit: number = TELEGRAM_TEXT_LIMIT): string[] {
   if (text.length <= limit) return [text];
   const out: string[] = [];
   let remaining = text;
@@ -290,16 +290,67 @@ export function chunkForTelegram(
   return out;
 }
 
+/**
+ * Followup #19 helper — upload a single artifact file to Telegram.
+ *
+ * - `pdf` → `bot.api.sendDocument`
+ * - `image_generate` → `bot.api.sendPhoto`
+ *
+ * Defensive checks before upload (the runner already verifies, but a
+ * malformed runner could lie about ok=true):
+ *   - file must exist + be readable
+ *   - size > 0 bytes
+ *
+ * On any precheck or upload failure we log via `runtime.error?.` and
+ * THROW so the caller's try/catch records the failure consistently.
+ * The caller catches and continues with the next artifact — one bad
+ * upload shouldn't block the rest of the dispatch.
+ */
+async function uploadArtifactToTelegram(params: {
+  bot: Bot;
+  chatId: number | string;
+  sendOpts: { message_thread_id?: number } | undefined;
+  tool: string;
+  filepath: string;
+  runtime: RuntimeEnv;
+}): Promise<void> {
+  const { bot, chatId, sendOpts, tool, filepath, runtime } = params;
+  let stat: Awaited<ReturnType<typeof fsPromises.stat>>;
+  try {
+    stat = await fsPromises.stat(filepath);
+  } catch (err) {
+    // Stat failure is the canonical "user sees path but file isn't
+    // there" symptom. Log and rethrow so the caller's catch records it.
+    runtime.error?.(
+      danger(`[orch-v1] artifact missing for upload tool=${tool} path=${filepath}: ${String(err)}`),
+    );
+    throw err;
+  }
+  if (!stat.isFile() || stat.size === 0) {
+    const msg = `[orch-v1] artifact not a regular non-empty file tool=${tool} path=${filepath} size=${stat.size}`;
+    runtime.error?.(danger(msg));
+    throw new Error(msg);
+  }
+  const filename = path.basename(filepath);
+  const file = new InputFile(filepath, filename);
+  if (tool === "pdf") {
+    await bot.api.sendDocument(chatId, file, sendOpts);
+  } else if (tool === "image_generate") {
+    await bot.api.sendPhoto(chatId, file, sendOpts);
+  }
+  // Other tools fall through (no-op) — caller only routes pdf /
+  // image_generate into capturedArtifacts so this branch is unreachable
+  // unless the routing list grows without updating this switch.
+}
+
 export async function executeOrchestratorV1ShortCircuit(
   args: ExecuteOrchestratorV1ShortCircuitArgs,
   overrides: ExecuteOrchestratorV1ShortCircuitOverrides = {},
 ): Promise<boolean> {
   const runTurnImpl = overrides.runOrchestratorTurn ?? runOrchestratorTurn;
-  const buildRegistryImpl =
-    overrides.buildRunToolFromRegistry ?? buildRunToolFromRegistry;
+  const buildRegistryImpl = overrides.buildRunToolFromRegistry ?? buildRunToolFromRegistry;
   const callLLMImpl = overrides.callConversationLLM ?? callConversationLLM;
-  const turnStateStoreImpl =
-    overrides.getProcessTurnStateStore ?? getProcessTurnStateStore;
+  const turnStateStoreImpl = overrides.getProcessTurnStateStore ?? getProcessTurnStateStore;
   if (process.env.OPENCLAW_USE_V1_ORCHESTRATOR !== "1") {
     return false;
   }
@@ -308,8 +359,7 @@ export async function executeOrchestratorV1ShortCircuit(
     return false;
   }
   const { bot, chatId, threadSpec, cfg, runtime, agentDir } = args;
-  const sendOpts =
-    threadSpec?.id !== undefined ? { message_thread_id: threadSpec.id } : undefined;
+  const sendOpts = threadSpec?.id !== undefined ? { message_thread_id: threadSpec.id } : undefined;
 
   // Production binding: Telegram outbound for `sessions_send` tool.
   // The tool's `channel` arg is the destination chat id (numeric string).
@@ -332,15 +382,33 @@ export async function executeOrchestratorV1ShortCircuit(
     throw new Error("cron not yet wired in S9 — operator follow-up");
   };
   const createPersistentWorker: CreatePersistentWorkerFn = async () => {
-    throw new Error(
-      "persistent_worker_push not yet wired in S9 — operator follow-up",
-    );
+    throw new Error("persistent_worker_push not yet wired in S9 — operator follow-up");
   };
 
-  const runTool = buildRegistryImpl({
+  const productionRunTool = buildRegistryImpl({
     send,
     scheduling: { scheduleCron, createPersistentWorker },
   });
+
+  // Followup #19 — capture artifact-bearing tool outputs so we can upload
+  // the file to the chat AFTER the text reply lands. The dispatcher's
+  // text-only reply renders "Сгенерировал PDF: <local server path>",
+  // which the user cannot open from Telegram (the path lives on the
+  // gateway disk). We inspect each ok-tool-result here, instead of
+  // touching the frozen dispatcher / contract modules. Other channels
+  // (web, agent-command, plugin-sdk universal) still need their own
+  // per-channel uploaders — out of scope for this slice.
+  const capturedArtifacts: Array<{ tool: string; url: string }> = [];
+  const runTool: typeof productionRunTool = async (action) => {
+    const result = await productionRunTool(action);
+    if (result.ok && (action.tool === "pdf" || action.tool === "image_generate")) {
+      const url = (result.output as { url?: unknown })?.url;
+      if (typeof url === "string" && url.length > 0) {
+        capturedArtifacts.push({ tool: action.tool, url });
+      }
+    }
+    return result;
+  };
 
   // Production binding: tool-less LLM. `callConversationLLM` injects
   // CONVERSATION_SYSTEM_PROMPT_GUARD (re-export from orchestrator.ts) so
@@ -390,17 +458,37 @@ export async function executeOrchestratorV1ShortCircuit(
         break;
       }
     }
+    // Followup #19 — upload artifact files (pdf / image_generate) AFTER
+    // the text reply so the user sees context first ("Готово: 1. ...")
+    // then the file lands in the chat. Errors are logged but do not
+    // crash the dispatch — the text reply is the canonical surface.
+    for (const artifact of capturedArtifacts) {
+      try {
+        await uploadArtifactToTelegram({
+          bot,
+          chatId,
+          sendOpts,
+          tool: artifact.tool,
+          filepath: artifact.url,
+          runtime,
+        });
+      } catch (uploadErr) {
+        runtime.error?.(
+          danger(
+            `[orch-v1] artifact upload failed chatId=${chatId} tool=${artifact.tool} path=${artifact.url}: ${String(uploadErr)}`,
+          ),
+        );
+        // Continue with the next artifact — one bad file shouldn't block
+        // the rest of a multi-tool turn.
+      }
+    }
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[orch-v1] turn failed: ${message}\n`);
     runtime.error?.(danger(`[orchestrator-v1] live cutover failed: ${message}`));
     try {
-      await bot.api.sendMessage(
-        chatId,
-        `(orchestrator-v1 ошибка: ${message})`,
-        sendOpts,
-      );
+      await bot.api.sendMessage(chatId, `(orchestrator-v1 ошибка: ${message})`, sendOpts);
     } catch {
       // Surface fallback failure but don't propagate.
     }
@@ -451,8 +539,7 @@ export const dispatchTelegramMessage = async ({
   // before live-verify confirms the cutover.
   void diagnoseTurn;
   if (process.env.OPENCLAW_USE_V1_ORCHESTRATOR === "1") {
-    const userText =
-      (msg as { text?: string }).text ?? (msg as { caption?: string }).caption ?? "";
+    const userText = (msg as { text?: string }).text ?? (msg as { caption?: string }).caption ?? "";
     const handled = await executeOrchestratorV1ShortCircuit({
       userText,
       chatId,
