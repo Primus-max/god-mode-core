@@ -25,9 +25,14 @@
  * the place to add signed-URL logic — not this runner.
  */
 
-import { loadConfig } from "../../config/config.js";
-import { generateImage } from "../../image-generation/runtime.js";
-import { saveMediaBuffer } from "../../media/store.js";
+import type { OpenClawConfig } from "../../config/config.js";
+import { loadConfig as defaultLoadConfig } from "../../config/config.js";
+import {
+  generateImage as defaultGenerateImage,
+  type GenerateImageParams,
+  type GenerateImageRuntimeResult,
+} from "../../image-generation/runtime.js";
+import { saveMediaBuffer as defaultSaveMediaBuffer } from "../../media/store.js";
 import type { ToolRunResult } from "../dispatcher.js";
 
 export type RunImageGenerateAction = {
@@ -37,6 +42,23 @@ export type RunImageGenerateAction = {
     size?: string;
     style?: string;
   };
+};
+
+/**
+ * Test-seam dependencies. Same shape as `pdf.ts`'s `renderer`/`outputDir`
+ * pattern: production callers omit `deps`, unit tests pass deterministic
+ * stubs. We avoid `vi.mock` because (a) the rest of this directory uses
+ * DI for the same reason and (b) `vi.mock` from the `__tests__/` subdir
+ * has a path-matching quirk that silently bypasses the factory — the
+ * runner ends up calling the real `generateImage` which then throws
+ * "No image-generation model configured" (no provider in test config).
+ */
+export type RunImageGenerateDeps = {
+  loadConfig?: () => OpenClawConfig;
+  generateImage?: (
+    params: GenerateImageParams,
+  ) => Promise<GenerateImageRuntimeResult>;
+  saveMediaBuffer?: typeof defaultSaveMediaBuffer;
 };
 
 /**
@@ -54,7 +76,12 @@ function buildPromptWithStyle(prompt: string, style: string | undefined): string
 
 export async function runImageGenerate(
   action: RunImageGenerateAction,
+  deps: RunImageGenerateDeps = {},
 ): Promise<ToolRunResult> {
+  const loadConfig = deps.loadConfig ?? defaultLoadConfig;
+  const generateImage = deps.generateImage ?? defaultGenerateImage;
+  const saveMediaBuffer = deps.saveMediaBuffer ?? defaultSaveMediaBuffer;
+
   const { prompt, size, style } = action.args;
   try {
     const cfg = loadConfig();
