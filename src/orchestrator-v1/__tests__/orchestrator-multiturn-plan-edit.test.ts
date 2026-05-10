@@ -369,6 +369,70 @@ describe("V1-CONTRACT-ONLY orchestrator — multi-turn plan-edit awareness", () 
     expect(await store.get("chat-pc-enum")).toBeUndefined();
   });
 
+  it("CANONICAL 12:54 — pending [pdf, image_generate, write]; user 'найти изображения, а не генерировать ... шаблоны word, а не pdf' → edit_plan = [web_search, write]", async () => {
+    // Real Telegram turn 2026-05-10 12:54. Pre-enrichment Stage A
+    // dropped pdf correctly but did NOT replace image_generate with
+    // web_search; the bot then complained "не хватает: описание
+    // картинки (image_generate)" and the user rejected the reply
+    // ("херня"). After prompt enrichment, the LLM is expected to emit
+    // edit_plan with web_search substituted for image_generate AND pdf
+    // dropped. This test scripts that LLM response and verifies the
+    // wiring morphs the stashed plan correctly.
+    mockPiAi([
+      // Turn 1 — vanilla Stage A picks the original 3 tools.
+      '{"intent":"tool_calls","tool_names":["pdf","image_generate","write"],"sequencing":"sequential"}',
+      // Turn 1 — Stage B missing_field for each tool.
+      '{"_error":"missing","_field":"title"}',
+      '{"_error":"missing","_field":"prompt"}',
+      '{"_error":"missing","_field":"path"}',
+      // Turn 2 — plan-context Stage A: edit_plan with the morphed plan.
+      '{"kind":"edit_plan","tool_names":["web_search","write"],"sequencing":"sequential"}',
+      // Turn 2 — Stage B over the morphed plan; both still missing fields.
+      '{"_error":"missing","_field":"query"}',
+      '{"_error":"missing","_field":"path"}',
+    ]);
+    const { runOrchestratorTurn } = await import("../orchestrator.js");
+    const store = createInMemoryTurnStateStore();
+    const runTool = vi.fn();
+    const runConv = vi.fn();
+
+    const turn1 = await runOrchestratorTurn({
+      userMessage:
+        "Поможешь сделать практику? Прикладываю шаблоны и нужно собрать pdf с картинками",
+      chatKey: "tg:6533456892",
+      runTool,
+      runConversationLLM: runConv,
+      turnState: store,
+    });
+    expect(turn1.contract.intent).toBe("refuse");
+    const stashedAfterTurn1 = await store.get("tg:6533456892");
+    expect(stashedAfterTurn1?.tool_calls.map((p) => p.tool)).toEqual([
+      "pdf",
+      "image_generate",
+      "write",
+    ]);
+
+    const turn2 = await runOrchestratorTurn({
+      userMessage:
+        "Надо найти изображения, а не генерировать, того о ком будет практика. Я дал приложил шаблоны word, а не pdf!!!",
+      chatKey: "tg:6533456892",
+      runTool,
+      runConversationLLM: runConv,
+      turnState: store,
+    });
+
+    // Plan was morphed: pdf dropped, image_generate replaced with
+    // web_search; both surviving tools still missing fields → refuse +
+    // pending stashed with the new shape.
+    expect(turn2.contract.intent).toBe("refuse");
+    const stashedAfterTurn2 = await store.get("tg:6533456892");
+    expect(stashedAfterTurn2?.tool_calls.map((p) => p.tool)).toEqual([
+      "web_search",
+      "write",
+    ]);
+    expect(runTool).not.toHaveBeenCalled();
+  });
+
   it("first turn (no pending) uses VANILLA Stage A — plan-context is engaged only when pending exists", async () => {
     // Defence against accidental coupling: if a fresh chat receives a
     // bare `{"kind":"add_args"}` style response, vanilla Stage A would

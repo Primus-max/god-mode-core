@@ -13,11 +13,18 @@
  * — separate from the 58-fixture single-turn bench which DOES enforce
  * 100% (see `classifier-bench-fixtures.ts`).
  *
- * Canonical entry: PC1 (12:09→12:17 real Telegram turn). Operator
- * pasted a plan, bot stashed [write, image_generate], operator typed
- * "Надо скачать, а не генерировать". Vanilla Stage A on the new text in
- * isolation says refuse (no concrete URL); plan-context Stage A is
- * expected to say `edit_plan` with web_fetch/web_search.
+ * Canonical entries:
+ *   - PC1 (12:09→12:17 real Telegram turn 2026-05-10). Operator pasted
+ *     a plan, bot stashed [write, image_generate], operator typed "Надо
+ *     скачать, а не генерировать". Vanilla Stage A on the new text in
+ *     isolation says refuse; plan-context Stage A is expected to say
+ *     `edit_plan` with web_fetch/web_search.
+ *   - PC11 (12:54 real Telegram turn 2026-05-10). Pending plan was
+ *     [pdf, image_generate, write]. User reply combined TWO
+ *     substitutions: drop pdf (templates are .docx) + replace
+ *     image_generate with web_search ("найти, а не генерировать").
+ *     Pre-enrichment Stage A dropped pdf correctly but kept
+ *     image_generate. The enriched prompt teaches both at once.
  */
 
 import type { PartialAction } from "../turn-state/types.js";
@@ -172,5 +179,77 @@ export const PLAN_CONTEXT_FIXTURES: ReadonlyArray<PlanContextFixture> = [
     userMessage: "сам разбирайся",
     expected: { kind: "abandon", intent: "refuse" },
     rationale: "User explicitly disengages without giving a new direction.",
+  },
+  // ── canonical real symptom (2026-05-10 12:54) ─────────────────
+  // Pending plan was [pdf, image_generate, write]. User reply combines
+  // TWO substitutions in one message: drop pdf (templates are .docx not
+  // pdf) AND replace image_generate with web_search (find existing
+  // images, not generate). Pre-enrichment Stage A dropped pdf correctly
+  // but kept image_generate, leaving the user stuck on image_generate's
+  // missing prompt arg. The enriched prompt teaches both substitutions.
+  {
+    id: "PC11-real-12-54-substitute-image-with-search-and-drop-pdf",
+    pendingPlan: [
+      { tool: "pdf", argsSoFar: {}, missingFields: ["title"] },
+      { tool: "image_generate", argsSoFar: {}, missingFields: ["prompt"] },
+      { tool: "write", argsSoFar: {}, missingFields: ["path"] },
+    ],
+    userMessage:
+      "Надо найти изображения, а не генерировать, того о ком будет практика. Я дал приложил шаблоны word, а не pdf!!!",
+    expected: {
+      kind: "edit_plan",
+      tool_names: ["web_search", "write"],
+      tool_names_alts: [
+        // Acceptable orderings — write may stay where it was relative to
+        // the surviving search step.
+        ["web_search", "write"],
+        ["write", "web_search"],
+      ],
+    },
+    rationale:
+      "Real 12:54 turn. Drop pdf (user said 'не pdf'), replace image_generate with web_search ('найти изображения, а не генерировать'), keep write. Operator-confirmed canonical for prompt-enrichment slice.",
+  },
+  // ── more substitution coverage ────────────────────────────────
+  {
+    id: "PC12-substitute-image-with-search-no-url",
+    pendingPlan: [
+      { tool: "image_generate", argsSoFar: {}, missingFields: ["prompt"] },
+    ],
+    userMessage: "не генерируй, найди в интернете подходящую картинку",
+    expected: {
+      kind: "edit_plan",
+      tool_names: ["web_search"],
+      tool_names_alts: [["web_search"]],
+    },
+    rationale:
+      "Pure image_generate ↔ web_search substitution: 'найти' + 'не генерируй' without a URL. Tests the search semantics in isolation.",
+  },
+  {
+    id: "PC13-substitute-pdf-with-write-docx",
+    pendingPlan: [
+      { tool: "pdf", argsSoFar: { title: "Отчёт" }, missingFields: [] },
+    ],
+    userMessage: "не PDF, сделай в word-формате .docx",
+    expected: {
+      kind: "edit_plan",
+      tool_names: ["write"],
+      tool_names_alts: [["write"]],
+    },
+    rationale:
+      "pdf → write substitution: user pivots format from PDF to .docx, write is the only catalog tool that produces a file with arbitrary content/format.",
+  },
+  {
+    id: "PC14-substitute-write-with-edit",
+    pendingPlan: [
+      { tool: "write", argsSoFar: {}, missingFields: ["path"] },
+    ],
+    userMessage: "не создавай новый файл, поправь существующий /tmp/notes.md",
+    expected: {
+      kind: "edit_plan",
+      tool_names: ["edit"],
+      tool_names_alts: [["edit"]],
+    },
+    rationale:
+      "write → edit substitution: user asks for in-place modification rather than overwrite/create.",
   },
 ];
